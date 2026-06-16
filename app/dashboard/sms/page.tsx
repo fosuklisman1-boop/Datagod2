@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "sonner"
 import {
@@ -45,6 +46,11 @@ interface SenderId {
 interface ShopTokens { shop_name: string; shop_link: string; shop_phone: string; shop_whatsapp: string }
 interface ShopCustomer { phone: string; name: string | null }
 interface TenantTemplate { id: string; name: string; body: string }
+interface BatchMessage { id: string; phone: string; status: string; attempts: number; last_error: string | null; processed_at: string | null }
+interface BatchDetail {
+  log: { id: number; status: string; message: string; sender_id: string | null; recipients_count: number; segments: number; credits_reserved: number; credits_used: number; created_at: string; completed_at: string | null }
+  messages: BatchMessage[]
+}
 
 // ─── constants / helpers ──────────────────────────────────────────────────
 const MAX_RECIPIENTS = 50
@@ -86,6 +92,15 @@ const SENDER_BADGE: Record<string, string> = {
   active: "bg-green-100 text-green-700", pending: "bg-amber-100 text-amber-700",
   rejected: "bg-red-100 text-red-700",
 }
+// Per-recipient (sms_messages) status → friendly label + colour for the detail modal.
+const MSG_STATUS: Record<string, { label: string; cls: string }> = {
+  pending: { label: "queued", cls: "bg-amber-100 text-amber-800" },
+  claimed: { label: "sending", cls: "bg-blue-100 text-blue-800" },
+  sent: { label: "sent", cls: "bg-green-100 text-green-800" },
+  failed: { label: "failed", cls: "bg-red-100 text-red-800" },
+}
+/** True while a batch still has work the cron will keep processing. */
+const isInFlight = (status: string) => status === "queued" || status === "sending"
 
 // ─── component ────────────────────────────────────────────────────────────────
 export default function SmsDashboardPage() {
@@ -116,6 +131,12 @@ export default function SmsDashboardPage() {
 
   // sender-id request
   const [newSender, setNewSender] = useState("")
+
+  // history detail modal
+  const [detail, setDetail] = useState<BatchDetail | null>(null)
+  const [detailOpen, setDetailOpen] = useState(false)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [detailId, setDetailId] = useState<number | null>(null)
 
   async function token() {
     const { data } = await supabase.auth.getSession()
@@ -172,11 +193,39 @@ export default function SmsDashboardPage() {
     } catch { /* non-fatal — compose still works without tokens/customers */ }
   }, [])
 
+  const loadDetail = useCallback(async (id: number) => {
+    try {
+      const t = await token()
+      const res = await fetch(`/api/sms/logs/${id}`, { headers: { Authorization: `Bearer ${t}` } }).then((r) => r.json())
+      if (res.success) setDetail(res.data)
+    } catch { toast.error("Could not load batch details.") }
+  }, [])
+
+  function openDetail(id: number) {
+    setDetailId(id); setDetail(null); setDetailOpen(true); setDetailLoading(true)
+    loadDetail(id).finally(() => setDetailLoading(false))
+  }
+
   useEffect(() => { load() }, [load])
   useEffect(() => { if (tab === "history") loadLogs() }, [tab, loadLogs])
   // Sender IDs power the management tab AND the compose "From" selector.
   useEffect(() => { if (tab === "senders" || tab === "send") loadSenderIds() }, [tab, loadSenderIds])
   useEffect(() => { if (tab === "send") loadComposeContext() }, [tab, loadComposeContext])
+
+  // Live status: while any batch is still draining, auto-refresh the history (so a
+  // send visibly moves queued → sending → sent instead of looking stuck).
+  useEffect(() => {
+    if (tab !== "history" || !logs.some((l) => isInFlight(l.status))) return
+    const iv = setInterval(loadLogs, 7000)
+    return () => clearInterval(iv)
+  }, [tab, logs, loadLogs])
+
+  // …and refresh the open detail modal while its batch is still in flight.
+  useEffect(() => {
+    if (!detailOpen || detailId == null || (detail && !isInFlight(detail.log.status))) return
+    const iv = setInterval(() => loadDetail(detailId), 5000)
+    return () => clearInterval(iv)
+  }, [detailOpen, detailId, detail, loadDetail])
 
   // ─── actions ──────────────────────────────────────────────────────────────
   async function activate(paidFrom: "wallet" | "paystack") {
@@ -697,37 +746,119 @@ export default function SmsDashboardPage() {
           {/* ── HISTORY ── */}
           <TabsContent value="history" className="pt-4">
             <Card>
-              <CardHeader><CardTitle className="flex items-center gap-2"><History className="h-5 w-5" /> Recent sends</CardTitle></CardHeader>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0">
+                <CardTitle className="flex items-center gap-2"><History className="h-5 w-5" /> Recent sends</CardTitle>
+                <Button variant="outline" size="sm" onClick={loadLogs}><Loader2 className="h-4 w-4" /> Refresh</Button>
+              </CardHeader>
               <CardContent>
                 {logs.length === 0 ? (
                   <p className="text-sm text-muted-foreground">No sends yet.</p>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b text-left text-muted-foreground">
-                          <th className="py-2 font-medium">Message</th><th className="py-2 font-medium">To</th>
-                          <th className="py-2 font-medium">Credits</th><th className="py-2 font-medium">Status</th><th className="py-2 font-medium">When</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {logs.map((l) => (
-                          <tr key={l.id} className="border-b last:border-0">
-                            <td className="max-w-[16rem] truncate py-2">{l.message}</td>
-                            <td className="py-2">{l.recipients_count}</td>
-                            <td className="py-2">{l.credits_used}</td>
-                            <td className="py-2"><span className={`rounded px-2 py-0.5 text-xs font-medium ${LOG_BADGE[l.status] ?? "bg-muted text-muted-foreground"}`}>{l.status}</span></td>
-                            <td className="py-2 text-muted-foreground">{new Date(l.created_at).toLocaleString()}</td>
+                  <>
+                    <p className="mb-2 text-xs text-muted-foreground">
+                      Tap a row to see each recipient and its status.
+                      {logs.some((l) => isInFlight(l.status)) && " Live-updating while sends are in progress…"}
+                    </p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b text-left text-muted-foreground">
+                            <th className="py-2 font-medium">Message</th><th className="py-2 font-medium">To</th>
+                            <th className="py-2 font-medium">Credits</th><th className="py-2 font-medium">Status</th><th className="py-2 font-medium">When</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                        </thead>
+                        <tbody>
+                          {logs.map((l) => (
+                            <tr key={l.id} onClick={() => openDetail(l.id as unknown as number)}
+                              className="cursor-pointer border-b last:border-0 hover:bg-accent/50">
+                              <td className="max-w-[16rem] truncate py-2">{l.message}</td>
+                              <td className="py-2">{l.recipients_count}</td>
+                              <td className="py-2">{l.credits_used}</td>
+                              <td className="py-2">
+                                <span className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium ${LOG_BADGE[l.status] ?? "bg-muted text-muted-foreground"}`}>
+                                  {isInFlight(l.status) && <Loader2 className="h-3 w-3 animate-spin" />}{l.status}
+                                </span>
+                              </td>
+                              <td className="py-2 text-muted-foreground">{new Date(l.created_at).toLocaleString()}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
                 )}
               </CardContent>
             </Card>
           </TabsContent>
         </Tabs>
+
+        {/* Batch detail modal (scrollable) */}
+        <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                Batch #{detailId}
+                {detail && (
+                  <span className={`rounded px-2 py-0.5 text-xs font-medium ${LOG_BADGE[detail.log.status] ?? "bg-muted"}`}>{detail.log.status}</span>
+                )}
+              </DialogTitle>
+              <DialogDescription>
+                {detail
+                  ? `${detail.log.recipients_count} recipient${detail.log.recipients_count === 1 ? "" : "s"} · ${detail.log.credits_used}/${detail.log.credits_reserved} credits used · from ${detail.log.sender_id || "default"}`
+                  : "Loading batch…"}
+              </DialogDescription>
+            </DialogHeader>
+
+            {detailLoading && !detail ? (
+              <div className="space-y-2"><Skeleton className="h-6 w-full" /><Skeleton className="h-6 w-full" /><Skeleton className="h-6 w-full" /></div>
+            ) : detail ? (
+              <>
+                <div className="rounded-md bg-muted/40 p-2 text-sm whitespace-pre-wrap break-words">{detail.log.message}</div>
+                {(() => {
+                  const c = detail.messages.reduce((a, m) => { a[m.status] = (a[m.status] || 0) + 1; return a }, {} as Record<string, number>)
+                  return (
+                    <div className="flex flex-wrap gap-2 text-xs">
+                      {(["sent", "failed", "claimed", "pending"] as const).filter((s) => c[s]).map((s) => (
+                        <span key={s} className={`rounded px-2 py-0.5 font-medium ${MSG_STATUS[s].cls}`}>{c[s]} {MSG_STATUS[s].label}</span>
+                      ))}
+                    </div>
+                  )
+                })()}
+                <div className="max-h-72 overflow-y-auto rounded-md border">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-background">
+                      <tr className="border-b text-left text-muted-foreground">
+                        <th className="px-3 py-1.5 font-medium">Number</th>
+                        <th className="px-3 py-1.5 font-medium">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detail.messages.map((m) => {
+                        const s = MSG_STATUS[m.status] ?? { label: m.status, cls: "bg-muted text-muted-foreground" }
+                        return (
+                          <tr key={m.id} className="border-b last:border-0">
+                            <td className="px-3 py-1.5 font-mono">{m.phone}</td>
+                            <td className="px-3 py-1.5">
+                              <span className={`rounded px-2 py-0.5 text-xs font-medium ${s.cls}`}>{s.label}</span>
+                              {m.status === "failed" && m.last_error && (
+                                <span className="ml-2 text-xs text-muted-foreground">{m.last_error}</span>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                {detail.log.status && isInFlight(detail.log.status) && (
+                  <p className="text-xs text-muted-foreground"><Loader2 className="mr-1 inline h-3 w-3 animate-spin" /> Still sending — this updates automatically.</p>
+                )}
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">Couldn’t load this batch.</p>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </DashboardLayout>
   )
