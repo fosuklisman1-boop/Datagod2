@@ -119,3 +119,34 @@ describe("purchaseBundleViaWallet (solvency-gated)", () => {
     expect(h.state.calls.filter((c) => c.fn === "deduct_wallet")).toHaveLength(1)
   })
 })
+
+describe("purchaseBundleViaWallet — activation gate", () => {
+  it("inactive account → NOT_ACTIVATED error, no wallet debit", async () => {
+    h.state.walletBalance = 200
+    h.state.wholesale = 1_000_000
+    // Override the fake's from() to return an inactive account
+    ;(h.fake as any)._accountStatus = "inactive"
+    const res = await purchaseBundleViaWallet("u1", "acc1", "b1")
+    expect(res.ok).toBe(false)
+    expect(res.error).toBe("NOT_ACTIVATED")
+    expect(h.state.calls.filter((c) => c.fn === "deduct_wallet")).toHaveLength(0)
+  })
+
+  it("platform account → bypasses gate, proceeds normally", async () => {
+    h.state.walletBalance = 200
+    h.state.wholesale = 1_000_000
+    ;(h.fake as any)._accountStatus = "active"
+    ;(h.fake as any)._ownerType = "platform"
+    const res = await purchaseBundleViaWallet("u1", "acc1", "b1")
+    expect(res.ok).toBe(true)
+  })
+
+  it("suspended account → NOT_ACTIVATED error", async () => {
+    h.state.walletBalance = 200
+    h.state.wholesale = 1_000_000
+    ;(h.fake as any)._accountStatus = "suspended"
+    const res = await purchaseBundleViaWallet("u1", "acc1", "b1")
+    expect(res.ok).toBe(false)
+    expect(res.error).toBe("NOT_ACTIVATED")
+  })
+})
