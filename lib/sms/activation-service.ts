@@ -42,43 +42,30 @@ async function fetchAccount(accountId: string): Promise<{ id: string; status: st
   return data as { id: string; status: string; owner_type: string } | null
 }
 
-/** Activate via cash wallet. Debits the activation fee then calls the RPC.
- *  Platform accounts are skipped (they are always active). */
-export async function activateViaWallet(userId: string, accountId: string): Promise<ActivationResult> {
+/** Activate via cash wallet. The activate_sms_account RPC debits the wallet AND flips status
+ *  to active ATOMICALLY (single transaction, guarded so concurrent calls can't double-charge),
+ *  so there is no separate service-level debit or refund. Platform accounts are pre-active.
+ *  (userId is accepted for signature stability; the RPC derives the wallet from the account.) */
+export async function activateViaWallet(_userId: string, accountId: string): Promise<ActivationResult> {
   const account = await fetchAccount(accountId)
   if (!account) return { ok: false, error: "Account not found" }
 
-  // Platform accounts are pre-active — activation is a no-op.
-  if (account.owner_type === "platform") return { ok: true }
-
+  // Fast-fail pre-checks (the RPC is the authority; these just avoid a needless RPC round-trip).
+  if (account.owner_type === "platform") return { ok: true }            // pre-active
   if (account.status === "active") return { ok: false, error: "ALREADY_ACTIVATED" }
-  // A suspended (admin-disabled) account cannot re-activate by paying — reject BEFORE any debit.
   if (account.status === "suspended") return { ok: false, error: "SUSPENDED" }
-
-  const fee = await fetchActivationFee()
-  if (fee <= 0) return { ok: false, error: "Activation fee not configured" }
-
-  // Debit wallet first — the RPC then sets the account active.
-  const { data: debit, error: debitErr } = await supabaseAdmin.rpc("deduct_wallet", {
-    p_user_id: userId,
-    p_amount: fee,
-  })
-  if (debitErr) return { ok: false, error: "Wallet debit failed" }
-  if (!debit || (debit as unknown[]).length === 0) return { ok: false, error: "INSUFFICIENT_BALANCE" }
 
   const { error: rpcErr } = await supabaseAdmin.rpc("activate_sms_account", {
     p_account_id: accountId,
     p_paid_from: "wallet",
   })
-
   if (rpcErr) {
-    // Classify the RPC error for the caller.
-    if (rpcErr.message?.includes("ALREADY_ACTIVATED")) return { ok: false, error: "ALREADY_ACTIVATED" }
-    // Unexpected error — refund wallet to avoid money loss.
-    try { await supabaseAdmin.rpc("deduct_wallet", { p_user_id: userId, p_amount: -fee }) } catch { /* best-effort */ }
-    return { ok: false, error: "Activation failed (refunded)" }
+    const m = rpcErr.message || ""
+    if (m.includes("INSUFFICIENT_BALANCE")) return { ok: false, error: "INSUFFICIENT_BALANCE" }
+    if (m.includes("ALREADY_ACTIVATED")) return { ok: false, error: "ALREADY_ACTIVATED" }
+    if (m.includes("SUSPENDED")) return { ok: false, error: "SUSPENDED" }
+    return { ok: false, error: "Activation failed" }
   }
-
   return { ok: true }
 }
 
@@ -115,16 +102,19 @@ export async function initActivationPaystack(
   return { ok: true, authorizationUrl: init.authorizationUrl, reference: init.reference }
 }
 
-/** Finalize activation from the Paystack webhook. Idempotent on paystackRef.
- *  Mirrors the sms_bundle branch: checks underpayment, then calls the RPC. */
+/** Finalize activation from the Paystack webhook. Idempotent via the account's status: a
+ *  replayed webhook for an already-active account raises ALREADY_ACTIVATED, which we map to
+ *  a no-op success (alreadyDone). Fails CLOSED if the fee can't be read (won't activate on an
+ *  unverified amount). (paystackRef is accepted for signature stability / future ledger use.) */
 export async function finalizeActivationPaystack(
   accountId: string,
-  paystackRef: string,
+  _paystackRef: string,
   amountPaidGhs: number
 ): Promise<ActivationResult> {
   const fee = await fetchActivationFee()
-  // Underpayment guard (same tolerance used across the webhook — 0.01 GHS).
-  if (fee > 0 && amountPaidGhs < fee - 0.01) {
+  // Fail CLOSED: a failed/zero fee read must NOT skip the underpayment check and activate.
+  if (fee <= 0) return { ok: false, error: "Activation fee not configured" }
+  if (amountPaidGhs < fee - 0.01) {
     return { ok: false, error: `Underpayment: paid ${amountPaidGhs} < fee ${fee}` }
   }
 

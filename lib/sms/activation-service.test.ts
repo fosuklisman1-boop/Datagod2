@@ -22,8 +22,12 @@ const h = vi.hoisted(() => {
         if (state.activationRpcError === "ALREADY_ACTIVATED") {
           return Promise.resolve({ data: null, error: { message: "ALREADY_ACTIVATED", code: "P0001" } })
         }
-        if (state.activationRpcError === "INSUFFICIENT_BALANCE") {
-          return Promise.resolve({ data: null, error: { message: "INSUFFICIENT_BALANCE", code: "P0001" } })
+        // The RPC debits the wallet atomically for the wallet path (no separate deduct_wallet call).
+        if (args.p_paid_from === "wallet") {
+          if (state.walletBalance < state.activationFee) {
+            return Promise.resolve({ data: null, error: { message: "INSUFFICIENT_BALANCE", code: "P0001" } })
+          }
+          state.walletBalance -= state.activationFee
         }
         state.accountStatus = "active"
         return Promise.resolve({ data: [{ ok: true }], error: null })
@@ -117,20 +121,22 @@ beforeEach(() => {
 const rpcs = () => h.state.calls.filter((c) => "fn" in c).map((c) => c.fn)
 
 describe("activateViaWallet", () => {
-  it("sufficient wallet → activates and returns ok", async () => {
+  it("sufficient wallet → activates atomically via the RPC (no separate deduct_wallet)", async () => {
     h.state.walletBalance = 50
     const res = await activateViaWallet("u1", "acc1")
     expect(res.ok).toBe(true)
-    expect(rpcs()).toContain("deduct_wallet")
     expect(rpcs()).toContain("activate_sms_account")
+    expect(rpcs()).not.toContain("deduct_wallet") // debit happens INSIDE activate_sms_account
+    expect(h.state.walletBalance).toBe(30) // 50 - fee(20)
   })
 
-  it("insufficient wallet → NOT_ACTIVATED error, no RPC called", async () => {
+  it("insufficient wallet → INSUFFICIENT_BALANCE from the RPC, balance untouched", async () => {
     h.state.walletBalance = 5
     const res = await activateViaWallet("u1", "acc1")
     expect(res.ok).toBe(false)
     expect(res.error).toBe("INSUFFICIENT_BALANCE")
-    expect(rpcs()).not.toContain("activate_sms_account")
+    expect(rpcs()).toContain("activate_sms_account")
+    expect(h.state.walletBalance).toBe(5) // atomic: no debit when activation can't complete
   })
 
   it("already activated → ALREADY_ACTIVATED error", async () => {
