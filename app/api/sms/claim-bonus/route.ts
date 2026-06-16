@@ -18,6 +18,12 @@ export async function POST(request: NextRequest) {
   const account = await getOrCreateAccountForUser(user.id)
   if (!account) return NextResponse.json({ error: "No SMS account" }, { status: 403 })
 
+  // The welcome bonus is a tenant (shop/sub-agent) perk. The platform/admin
+  // account runs free, un-metered broadcasts and doesn't get one.
+  if (account.owner_type === "platform") {
+    return NextResponse.json({ error: "BONUS_NOT_APPLICABLE" }, { status: 400 })
+  }
+
   // Only active accounts may claim the bonus.
   if (account.status !== "active") {
     return NextResponse.json({ error: "NOT_ACTIVATED" }, { status: 403 })
