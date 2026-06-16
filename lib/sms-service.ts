@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { createClient } from '@supabase/supabase-js'
 import { notifyAdmins as sendAdminEmail } from './email-service'
+import { getRoutingConfig } from '@/lib/sms/routing'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -504,6 +505,58 @@ export async function queryMoolreSmsBalance(): Promise<number> {
 }
 
 /**
+ * Submit a sender-ID registration request to Moolre (type 3).
+ * Integrators lack the "approve" permission (ASMQ09 constraint), so this only
+ * registers the ID — Moolre staff approve it asynchronously. Success code is ASMQ12.
+ * Returns { ok: boolean, message? } — never throws.
+ */
+export async function createMoolreSenderId(senderId: string): Promise<{ ok: boolean; message?: string }> {
+  if (!MOOLRE_API_KEY) return { ok: false, message: 'Moolre API key not configured' }
+  try {
+    const response = await axios.post(
+      'https://api.moolre.com/open/sms/query',
+      { type: 3, senderids: [{ senderid: senderId }] },
+      { headers: { 'X-API-VASKEY': MOOLRE_API_KEY, 'Content-Type': 'application/json' } }
+    )
+    const code = response.data?.code ?? response.data?.status
+    const ok = code === 'ASMQ12' || response.data?.status === 1 || response.data?.success === true
+    return { ok, message: response.data?.message ?? String(code ?? '') }
+  } catch (error) {
+    console.error('[SMS] Moolre createSenderId failed:', axios.isAxiosError(error) ? error.message : error)
+    return { ok: false, message: axios.isAxiosError(error) ? error.message : 'Unknown error' }
+  }
+}
+
+/**
+ * Query Moolre for the approval status of a sender-ID (type 1).
+ * Maps "Approved" (code ASMQ02) → 'active', "Rejected" (code ASMQ07) → 'rejected',
+ * anything else → 'pending'. Fail-soft: returns pending on any error, never throws.
+ */
+export async function queryMoolreSenderIdStatus(senderId: string): Promise<{
+  rawStatus: string
+  localStatus: 'pending' | 'active' | 'rejected'
+}> {
+  if (!MOOLRE_API_KEY) return { rawStatus: 'no_api_key', localStatus: 'pending' }
+  try {
+    const response = await axios.post(
+      'https://api.moolre.com/open/sms/query',
+      { type: 1, senderid: senderId },
+      { headers: { 'X-API-VASKEY': MOOLRE_API_KEY, 'Content-Type': 'application/json' } }
+    )
+    const rawStatus = response.data?.data?.status ?? response.data?.code ?? response.data?.status ?? 'unknown'
+    const rawStr = String(rawStatus)
+    const localStatus: 'pending' | 'active' | 'rejected' =
+      rawStr === 'ASMQ02' || rawStr === 'Approved' ? 'active'
+      : rawStr === 'ASMQ07' || rawStr === 'Rejected' ? 'rejected'
+      : 'pending'
+    return { rawStatus: rawStr, localStatus }
+  } catch (error) {
+    console.error('[SMS] Moolre querySenderIdStatus failed:', axios.isAxiosError(error) ? error.message : error)
+    return { rawStatus: 'error', localStatus: 'pending' }
+  }
+}
+
+/**
  * Normalize phone number to local Ghana format for mNotify
  * Accepts: +233XXXXXXXXX, 233XXXXXXXXX, 0XXXXXXXXX
  * Returns: 0XXXXXXXXX
@@ -680,25 +733,29 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
   }
 
   const isOtp = payload.type === 'phone_otp'
-  const fallback = process.env.SMS_FALLBACK_PROVIDER || 'mnotify'
+
+  // Fetch DB-configurable routing (5-min TTL cache); falls back to env vars on error.
+  const routing = await getRoutingConfig()
+  const primaryProvider = routing.primary
+  const fallbackProvider = routing.fallbacks[0] ?? process.env.SMS_FALLBACK_PROVIDER ?? 'mnotify'
 
   // Build the provider order. OTP prefers SMS_OTP_PROVIDER; everything else leads
   // with the configured primary. Both then fall back through the other gateways
-  // (only on a hard reject), so a Moolre rejection auto-retries via mNotify/Brevo.
+  // (only on a hard reject), so a primary rejection auto-retries via fallbacks.
   let order: string[]
   if (isOtp) {
     // While the breaker is OPEN (Moolre OTP failing), lead with the fallback
     // provider; otherwise lead with SMS_OTP_PROVIDER (or the primary).
     const breakerOpen = await isOtpBreakerOpen()
-    const lead = breakerOpen ? fallback : (process.env.SMS_OTP_PROVIDER || SMS_PROVIDER)
-    if (breakerOpen) console.warn(`[SMS] OTP breaker open — leading with '${lead}' instead of Moolre`)
-    order = [lead, fallback, 'mnotify', 'brevo', 'moolre']
+    const lead = breakerOpen ? fallbackProvider : (process.env.SMS_OTP_PROVIDER || primaryProvider)
+    if (breakerOpen) console.warn(`[SMS] OTP breaker open — leading with '${lead}' instead of primary`)
+    order = [lead, fallbackProvider, primaryProvider, ...routing.fallbacks]
   } else {
-    order = [SMS_PROVIDER, fallback, 'brevo', 'moolre']
+    order = [primaryProvider, ...routing.fallbacks]
   }
   // De-dupe, keep only known + configured providers.
-  order = order.filter((p, i) => order.indexOf(p) === i && SMS_SENDERS[p] && isProviderConfigured(p))
-  if (order.length === 0) order = [SMS_PROVIDER] // last resort — let it surface its own error
+  order = [...new Set(order)].filter((p) => SMS_SENDERS[p] && isProviderConfigured(p))
+  if (order.length === 0) order = [primaryProvider] // last resort — let it surface its own error
 
   let last: SendSMSResponse = { success: false, error: 'No SMS provider available' }
   for (const name of order) {
