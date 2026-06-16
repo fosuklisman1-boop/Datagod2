@@ -72,6 +72,10 @@
     {
       "path": "/api/cron/sms-pending-credits",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/sms-send-drain",
+      "schedule": "* * * * *"
     }
   ]
 }
