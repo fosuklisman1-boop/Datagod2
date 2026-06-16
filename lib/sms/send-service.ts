@@ -146,8 +146,11 @@ export async function enqueueSend(
     throw rpcError
   }
 
-  // 6. Enqueue the send log + per-recipient rows. If anything fails AFTER the debit, refund
-  //    the reservation so the user is never charged for a send that wasn't queued.
+  // 6. ENQUEUE (durable). Refund ONLY if the enqueue itself fails — at that point
+  //    nothing was sent. Dispatch happens in step 7, AFTER this block, so a
+  //    post-send hiccup can never trigger a wrongful refund of a delivered batch.
+  let sendLogId = ""
+  const inserted: { id: string; phone: string }[] = []
   try {
     const { data: logData, error: logError } = await supabaseAdmin
       .from("sms_send_logs")
@@ -167,7 +170,7 @@ export async function enqueueSend(
       .single()
     if (logError || !logData) throw logError ?? new Error("Failed to insert sms_send_logs row")
 
-    const sendLogId: string = logData.id
+    sendLogId = logData.id
     const rows = validPhones.map((phone) => ({
       send_log_id: sendLogId,
       sms_account_id: accountId,
@@ -177,7 +180,6 @@ export async function enqueueSend(
       status: "pending",
       sender_id: resolvedSenderId,
     }))
-    const inserted: { id: string; phone: string }[] = []
     for (let i = 0; i < rows.length; i += 500) {
       const { data: ins, error: msgError } = await supabaseAdmin
         .from("sms_messages")
@@ -186,50 +188,8 @@ export async function enqueueSend(
       if (msgError) throw msgError
       if (ins) inserted.push(...(ins as { id: string; phone: string }[]))
     }
-
-    // 7. INSTANT dispatch via the Moolre BULK API — one (chunked) call sends every
-    //    recipient now, so the batch is 'sent' before the response returns. Rows the
-    //    bulk call can't place are LEFT 'pending' for the durable cron drain (which
-    //    keeps retry + refund-on-terminal-failure). Failure here is never fatal to
-    //    the request: credits are already reserved and the cron is the safety net.
-    const sentIds: string[] = []
-    for (let i = 0; i < inserted.length; i += BULK_CHUNK) {
-      const chunk = inserted.slice(i, i + BULK_CHUNK)
-      const items = chunk.map((m) => ({ recipient: m.phone, message: prepared, ref: m.id }))
-      let res: { ok: boolean }
-      try {
-        res = await sendSMSBulkViaMoolre(items, resolvedSenderId ?? undefined)
-      } catch {
-        res = { ok: false }
-      }
-      if (res.ok) sentIds.push(...chunk.map((m) => m.id))
-    }
-    if (sentIds.length > 0) {
-      await supabaseAdmin
-        .from("sms_messages")
-        .update({ status: "sent", provider: "moolre", processed_at: new Date().toISOString() })
-        .in("id", sentIds)
-    }
-    // Roll the per-recipient outcomes up into the parent status (sent / sending /
-    // partial) so the UI reflects it immediately. Non-fatal if it hiccups.
-    try {
-      const { error: recErr } = await supabaseAdmin.rpc("recompute_sms_send_result", {
-        p_send_log_id: sendLogId,
-        max_attempts: 3,
-      })
-      if (recErr) console.warn("[SMS-SEND] recompute failed:", recErr)
-    } catch { /* non-fatal */ }
-
-    return {
-      ok: true,
-      sendLogId,
-      total: validPhones.length,
-      segments: seg,
-      creditsReserved: creditsNeeded,
-      invalidSkipped,
-    }
   } catch (insertErr) {
-    // Compensating refund — the credits were reserved but nothing got queued.
+    // Compensating refund — credits were reserved but nothing got queued.
     await supabaseAdmin
       .rpc("adjust_sms_units", {
         p_account_id: accountId,
@@ -237,10 +197,56 @@ export async function enqueueSend(
         p_reason: "campaign_refund",
         p_ref: `enqueue-rollback-${accountId}-${Date.now()}`,
       })
-      .then(({ error }) => {
+      .then(({ error }: { error: { message?: string } | null }) => {
         if (error) console.error("[SMS-SEND] enqueue rollback refund failed:", error.message)
       })
     console.error("[SMS-SEND] enqueue failed after debit (refunded):", insertErr)
     return { ok: false, error: "ENQUEUE_FAILED" }
+  }
+
+  // 7. INSTANT dispatch via the Moolre BULK API — one (chunked) call sends every
+  //    recipient now, so the batch shows 'sent' before the response returns. This is
+  //    deliberately OUTSIDE the refund block: the rows are durable, so a failure here
+  //    must NEVER refund a batch Moolre already accepted. Rows the bulk call can't
+  //    place stay 'pending' for the cron drain (retry + refund-on-terminal-failure).
+  const sentIds: string[] = []
+  for (let i = 0; i < inserted.length; i += BULK_CHUNK) {
+    const chunk = inserted.slice(i, i + BULK_CHUNK)
+    const items = chunk.map((m) => ({ recipient: m.phone, message: prepared, ref: m.id }))
+    let res: { ok: boolean }
+    try {
+      res = await sendSMSBulkViaMoolre(items, resolvedSenderId ?? undefined)
+    } catch {
+      res = { ok: false }
+    }
+    if (res.ok) sentIds.push(...chunk.map((m) => m.id))
+  }
+  if (sentIds.length > 0) {
+    const { error: markErr } = await supabaseAdmin
+      .from("sms_messages")
+      .update({ status: "sent", provider: "moolre", processed_at: new Date().toISOString() })
+      .in("id", sentIds)
+    // If this write fails the rows stay 'pending' and the cron may re-send them
+    // (at-least-once). We log loudly but NEVER refund here — Moolre already accepted
+    // them, so a refund would hand back credits for delivered messages.
+    if (markErr) console.error("[SMS-SEND] mark-sent failed (cron will reconcile):", markErr.message)
+  }
+  // Roll the per-recipient outcomes up into the parent status so the UI reflects it
+  // immediately. Non-fatal if it hiccups.
+  try {
+    const { error: recErr } = await supabaseAdmin.rpc("recompute_sms_send_result", {
+      p_send_log_id: sendLogId,
+      max_attempts: 3,
+    })
+    if (recErr) console.warn("[SMS-SEND] recompute failed:", recErr)
+  } catch { /* non-fatal */ }
+
+  return {
+    ok: true,
+    sendLogId,
+    total: validPhones.length,
+    segments: seg,
+    creditsReserved: creditsNeeded,
+    invalidSkipped,
   }
 }
