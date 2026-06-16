@@ -57,6 +57,7 @@ async function fetchSmsSettings(): Promise<Record<string, unknown>> {
     "sms_blocked_keywords",
     "sms_allowed_link_domains",
     "sms_feature_enabled",
+    "sms_price_per_credit",
   ]
   const { data } = await supabaseAdmin
     .from("tenant_global_settings")
@@ -207,6 +208,7 @@ export async function updateSmsSettings(
     "sms_blocked_keywords",
     "sms_allowed_link_domains",
     "sms_feature_enabled",
+    "sms_price_per_credit",
   ])
 
   const updates = Object.entries(patch).filter(([k]) => ALLOWED_KEYS.has(k))

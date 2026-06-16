@@ -40,6 +40,12 @@ interface DashboardData {
   suspendedAccountIds: string[]
 }
 
+interface Supply { wholesaleBalance: number; totalUsable: number; totalPending: number; headroom: number }
+interface SenderIdRow {
+  id: string; sender_id: string; local_status: string; moolre_status: string | null
+  sms_account_id: string | null; last_polled_at: string | null
+}
+
 export default function AdminSmsPage() {
   const [tab, setTab] = useState<Tab>("overview")
   const [bundles, setBundles] = useState<DashboardData["bundles"]>([])
@@ -48,6 +54,12 @@ export default function AdminSmsPage() {
   const [units, setUnits] = useState("")
   const [msg, setMsg] = useState("")
   const [loading, setLoading] = useState(false)
+
+  // SMS supply / pricing / sender-ID monitoring
+  const [supply, setSupply] = useState<Supply | null>(null)
+  const [senders, setSenders] = useState<SenderIdRow[]>([])
+  const [priceFee, setPriceFee] = useState("")
+  const [savingPrice, setSavingPrice] = useState(false)
 
   async function token() {
     const { data } = await supabase.auth.getSession()
@@ -65,6 +77,17 @@ export default function AdminSmsPage() {
     }
   }, [])
 
+  const loadMonitoring = useCallback(async () => {
+    const t = await token()
+    const headers = { Authorization: `Bearer ${t}` }
+    const [sup, snd] = await Promise.all([
+      fetch("/api/admin/sms-supply", { headers }).then((r) => r.json()),
+      fetch("/api/admin/sms-sender-ids", { headers }).then((r) => r.json()),
+    ])
+    if (sup.success) setSupply(sup.data)
+    if (snd.success) setSenders(snd.data ?? [])
+  }, [])
+
   useEffect(() => {
     // Legacy bundle load for the overview tab (fast path)
     token().then((t) =>
@@ -74,7 +97,30 @@ export default function AdminSmsPage() {
     )
     // Full dashboard for the moderation tab
     loadDashboard()
-  }, [loadDashboard])
+    loadMonitoring()
+  }, [loadDashboard, loadMonitoring])
+
+  // Seed the per-credit fee input from the saved setting once the dashboard loads.
+  useEffect(() => {
+    const pf = dashboard?.settings?.sms_price_per_credit as { amount?: number } | number | undefined
+    const amount = typeof pf === "object" && pf !== null ? pf.amount : (typeof pf === "number" ? pf : undefined)
+    if (amount !== undefined) setPriceFee(String(amount))
+  }, [dashboard])
+
+  async function savePrice() {
+    const amount = Number(priceFee)
+    if (!Number.isFinite(amount) || amount < 0) { setMsg("Enter a valid per-credit price."); return }
+    setSavingPrice(true)
+    const t = await token()
+    const res = await fetch("/api/admin/shop-sms", {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ sms_price_per_credit: { amount } }),
+    }).then((r) => r.json())
+    setSavingPrice(false)
+    if (res.success) { setMsg("Per-credit fee saved."); await loadDashboard() }
+    else setMsg(`Error: ${res.error ?? "could not save"}`)
+  }
 
   async function allocate() {
     const t = await token()
@@ -147,6 +193,89 @@ export default function AdminSmsPage() {
       {/* ── Overview tab ── */}
       {tab === "overview" && (
         <div className="space-y-4">
+          {/* SMS supply (live Moolre balance + solvency) */}
+          <section className="rounded-lg border p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold">SMS supply</h2>
+              <button onClick={loadMonitoring} className="rounded border px-2 py-1 text-xs hover:bg-muted">Refresh</button>
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {[
+                { label: "Moolre wholesale", value: supply?.wholesaleBalance },
+                { label: "Usable credits", value: supply?.totalUsable },
+                { label: "Pending credits", value: supply?.totalPending },
+                { label: "Headroom", value: supply?.headroom },
+              ].map((s) => (
+                <div key={s.label} className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">{s.label}</p>
+                  <p className="text-xl font-bold">{s.value === undefined ? "…" : s.value.toLocaleString()}</p>
+                </div>
+              ))}
+            </div>
+            {supply && supply.totalPending > 0 && (
+              <p className="rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                {supply.totalPending.toLocaleString()} credit(s) pending.
+                {(() => { const sf = Math.max(0, supply.totalUsable + supply.totalPending - supply.wholesaleBalance);
+                  return sf > 0 ? ` Top up the Moolre SMS balance by ≥ ${sf.toLocaleString()} units to release them.` : " They’ll be released on the next cron run." })()}
+              </p>
+            )}
+            {supply && supply.wholesaleBalance === 0 && (
+              <p className="text-xs text-muted-foreground">A balance of 0 can also mean the Moolre API key isn’t set in this environment (the balance read fails closed to 0).</p>
+            )}
+          </section>
+
+          {/* Per-credit fee (selling price) */}
+          <section className="rounded-lg border p-4 space-y-3">
+            <h2 className="font-semibold">Per-credit fee</h2>
+            <p className="text-xs text-muted-foreground">The selling price per SMS credit (GHS). For reference, bundles work out to ~0.026–0.035/credit.</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm text-muted-foreground">GHS</span>
+              <input value={priceFee} onChange={(e) => setPriceFee(e.target.value)} placeholder="0.035" inputMode="decimal"
+                className="w-32 rounded border px-2 py-1" />
+              <span className="text-sm text-muted-foreground">per credit</span>
+              <button onClick={savePrice} disabled={savingPrice}
+                className="rounded bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-50">
+                {savingPrice ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </section>
+
+          {/* Sender ID status (all accounts) */}
+          <section className="rounded-lg border p-4 space-y-3">
+            <h2 className="font-semibold">Sender IDs ({senders.length})</h2>
+            {senders.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No sender IDs yet.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="py-1.5 font-medium">Sender ID</th>
+                      <th className="py-1.5 font-medium">Owner</th>
+                      <th className="py-1.5 font-medium">Status</th>
+                      <th className="py-1.5 font-medium">Moolre</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {senders.map((s) => (
+                      <tr key={s.id} className="border-b last:border-0">
+                        <td className="py-1.5 font-mono">{s.sender_id}</td>
+                        <td className="py-1.5 text-xs text-muted-foreground">{s.sms_account_id ? "tenant" : "platform"}</td>
+                        <td className="py-1.5">
+                          <span className={`rounded px-2 py-0.5 text-xs font-medium ${
+                            s.local_status === "active" ? "bg-green-100 text-green-700"
+                            : s.local_status === "rejected" ? "bg-red-100 text-red-700"
+                            : "bg-amber-100 text-amber-700"}`}>{s.local_status}</span>
+                        </td>
+                        <td className="py-1.5 text-muted-foreground">{s.moolre_status ?? "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
           <section className="rounded-lg border p-4 space-y-3">
             <h2 className="font-semibold">Allocate units</h2>
             <input
