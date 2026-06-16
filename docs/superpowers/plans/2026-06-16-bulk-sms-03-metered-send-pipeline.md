@@ -2,6 +2,7 @@
 
 > ### ⚠️ Cross-plan reconciliation (read first)
 > One of 5 Bulk SMS milestone plans authored together; applied in order **M2 → M3 → M4 → M5**.
+> - **ENGINE DECISION (settled 2026-06-16):** the metered send uses a **`sms_messages` queue drained by a cron**, mirroring `lib/broadcast-drain.ts` (`claim … FOR UPDATE SKIP LOCKED`, attempt-cap, idempotent per-row send). This **replaces this plan's in-route synchronous send loop** — `POST /api/shop/sms/send` should debit credits + ENQUEUE rows and return; the cron sends per-recipient and refunds failures. (Vercel Workflow DevKit was evaluated and rejected — it wouldn't build cleanly in this app. See [[project-bulk-sms]].) Net effect: the segment/filter/debit/refund/log logic in this plan stays; only the *send loop* moves from inline to the drain cron + a `claim_sms_messages` SQL fn.
 > - **Migration numbers are INDICATIVE.** At execution, use the next unused `NNNN_` prefix above the highest already in `migrations/` (latest is `0064`, plus whatever M2 added). Don't trust the literal numbers.
 > - `lib/sms/personalize.ts` created here is **shared** — Milestone 5 imports it. It is owned by THIS plan.
 > - `app/dashboard/sms/page.tsx` **already has Milestone 2's** activation card, bonus claim, balance/pending, and bundle store. **ADD your composer as a new tab — do NOT rewrite the page** and clobber M2's UI. Read the current page first and extend it.
