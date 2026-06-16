@@ -68,6 +68,10 @@
     {
       "path": "/api/cron/wa-delivery-notify",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/sms-pending-credits",
+      "schedule": "* * * * *"
     }
   ]
 }

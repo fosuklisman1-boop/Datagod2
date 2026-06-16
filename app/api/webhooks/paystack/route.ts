@@ -68,6 +68,13 @@ export async function POST(request: NextRequest) {
         hasMetadata: !!metadata
       })
 
+      // SMS bundle purchase — credit prepaid units (solvency-gated), not the cash wallet.
+      if (metadata?.type === "sms_bundle" && metadata?.sms_account_id) {
+        const { creditUnitsForPaystack } = await import("@/lib/sms/bundle-service")
+        await creditUnitsForPaystack(metadata.sms_account_id, Number(metadata.units), reference)
+        return NextResponse.json({ received: true, type: "sms_bundle" })
+      }
+
       // Handle USSD shop token purchases (MoMo) — reference is USSD-SHOP-... prefixed
       const { data: shopTokenPurchase, error: stpErr } = await supabase
         .from("ussd_shop_token_purchases")
