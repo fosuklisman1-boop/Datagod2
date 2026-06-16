@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from "sonner"
 import { Loader2, Plus, RefreshCw } from "lucide-react"
 
@@ -119,18 +120,21 @@ export default function ProvidersTab() {
         <CardContent className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="primary">Primary</Label>
-            <select
-              id="primary"
+            <Select
               value={routing.primary}
-              onChange={(e) => setRouting((c) => ({ ...c, primary: e.target.value }))}
-              className="block w-48 rounded-md border bg-transparent px-3 py-2 text-sm"
+              onValueChange={(v) => setRouting((c) => ({ ...c, primary: v }))}
             >
-              {PROVIDERS.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger id="primary" className="w-48 bg-card">
+                <SelectValue placeholder="Select primary provider" />
+              </SelectTrigger>
+              <SelectContent>
+                {PROVIDERS.map((p) => (
+                  <SelectItem key={p} value={p}>
+                    {p}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="space-y-1.5">

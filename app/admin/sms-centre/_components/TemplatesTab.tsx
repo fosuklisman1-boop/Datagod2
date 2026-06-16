@@ -8,6 +8,16 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { toast } from "sonner"
 import { Loader2, Pencil, Plus, Trash2 } from "lucide-react"
 
@@ -24,6 +34,7 @@ export default function TemplatesTab() {
   const [body, setBody] = useState("")
   const [editing, setEditing] = useState<Template | null>(null)
   const [busy, setBusy] = useState(false)
+  const [pendingDelete, setPendingDelete] = useState<Template | null>(null)
 
   const load = useCallback(async () => {
     const res = await api<Template[]>("/api/admin/sms-templates")
@@ -72,7 +83,6 @@ export default function TemplatesTab() {
   }
 
   async function remove(t: Template) {
-    if (!confirm(`Delete template "${t.name}"?`)) return
     setBusy(true)
     const res = await api(`/api/admin/sms-templates/${t.id}`, { method: "DELETE" })
     setBusy(false)
@@ -86,8 +96,10 @@ export default function TemplatesTab() {
   }
 
   const seg = calculateSegments(body)
+  const displaySegments = body.length === 0 ? 0 : seg.segments
 
   return (
+    <>
     <div className="grid gap-4 lg:grid-cols-2">
       {/* Editor */}
       <Card className="self-start">
@@ -113,7 +125,7 @@ export default function TemplatesTab() {
           </div>
           <div className="flex items-center justify-between">
             <span className="text-xs text-muted-foreground">
-              {body.length} chars · {seg.encoding.toUpperCase()} · {seg.segments} segment{seg.segments === 1 ? "" : "s"}
+              {body.length} chars · {seg.encoding.toUpperCase()} · {displaySegments} segment{displaySegments === 1 ? "" : "s"}
             </span>
             <div className="flex gap-2">
               {editing && (
@@ -154,7 +166,7 @@ export default function TemplatesTab() {
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8 text-destructive hover:text-destructive"
-                      onClick={() => remove(t)}
+                      onClick={() => setPendingDelete(t)}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -166,5 +178,33 @@ export default function TemplatesTab() {
         </CardContent>
       </Card>
     </div>
+
+    <AlertDialog open={pendingDelete !== null} onOpenChange={(open) => !open && setPendingDelete(null)}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete template?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This permanently deletes the template{pendingDelete ? ` "${pendingDelete.name}"` : ""}. This cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={busy}
+            className="bg-destructive text-white hover:bg-destructive/90"
+            onClick={() => {
+              if (pendingDelete) {
+                const t = pendingDelete
+                setPendingDelete(null)
+                void remove(t)
+              }
+            }}
+          >
+            Delete
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   )
 }

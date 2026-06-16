@@ -13,6 +13,17 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { toast } from "sonner"
 import { Loader2, Search, Send, X, Users } from "lucide-react"
 
@@ -60,6 +71,7 @@ export default function BroadcastTab() {
   const [selectedUsers, setSelectedUsers] = useState<PlatformUser[]>([])
 
   const [sending, setSending] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   useEffect(() => {
     api<Group[]>("/api/admin/sms-groups").then((r) => r.success && r.data && setGroups(r.data))
@@ -88,6 +100,7 @@ export default function BroadcastTab() {
   )
 
   const seg = useMemo(() => calculateSegments(message), [message])
+  const displaySegments = message.length === 0 ? 0 : seg.segments
   const subjectRequired = channels.includes("email") || channels.includes("push")
   const selectedGroup = groups.find((g) => g.id === groupId)
 
@@ -135,13 +148,28 @@ export default function BroadcastTab() {
     setSelectedUsers((cur) => cur.filter((u) => u.id !== id))
   }
 
-  async function send() {
+  // Human-readable summary shown in the send-confirmation dialog.
+  const channelSummary = channels.join(", ")
+  const audienceSummary =
+    audienceType === "group"
+      ? `group "${selectedGroup?.name ?? "?"}" (${estimatedRecipients ?? "?"} contacts)`
+      : audienceType === "specific"
+      ? `${selectedUsers.length} selected user${selectedUsers.length === 1 ? "" : "s"}`
+      : `all users in role${roles.length === 1 ? "" : "s"} ${roles.join(", ")}`
+
+  function send() {
     if (channels.length === 0) return toast.error("Select at least one channel.")
     if (!message.trim()) return toast.error("Message is required.")
     if (subjectRequired && !subject.trim()) return toast.error("Subject is required for email/push.")
     if (audienceType === "roles" && roles.length === 0) return toast.error("Select at least one role.")
     if (audienceType === "specific" && selectedUsers.length === 0) return toast.error("Select at least one user.")
     if (audienceType === "group" && !groupId) return toast.error("Select a group.")
+
+    setConfirmOpen(true)
+  }
+
+  async function confirmSend() {
+    setConfirmOpen(false)
 
     const recipients =
       audienceType === "group"
@@ -157,14 +185,6 @@ export default function BroadcastTab() {
             })),
           }
         : { type: "roles" as const, roles }
-
-    const confirmMsg =
-      audienceType === "group"
-        ? `Send to group "${selectedGroup?.name}" (${estimatedRecipients ?? "?"} contacts) via ${channels.join(", ")}?`
-        : audienceType === "specific"
-        ? `Send to ${selectedUsers.length} selected user(s) via ${channels.join(", ")}?`
-        : `Send to roles ${roles.join(", ")} via ${channels.join(", ")}?`
-    if (!confirm(confirmMsg)) return
 
     setSending(true)
     const res = await api<unknown>("/api/admin/broadcast", {
@@ -194,6 +214,7 @@ export default function BroadcastTab() {
   }
 
   return (
+    <>
     <div className="grid gap-4 lg:grid-cols-[1fr_20rem]">
       {/* Compose column */}
       <div className="space-y-4">
@@ -307,18 +328,18 @@ export default function BroadcastTab() {
 
             {audienceType === "group" && (
               <div className="space-y-2">
-                <select
-                  value={groupId}
-                  onChange={(e) => setGroupId(e.target.value)}
-                  className="w-full rounded-md border bg-transparent px-3 py-2 text-sm"
-                >
-                  <option value="">Select a group…</option>
-                  {groups.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.name} ({g.contact_count ?? 0})
-                    </option>
-                  ))}
-                </select>
+                <Select value={groupId} onValueChange={setGroupId}>
+                  <SelectTrigger className="w-full bg-card">
+                    <SelectValue placeholder="Select a group…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {groups.map((g) => (
+                      <SelectItem key={g.id} value={g.id}>
+                        {g.name} ({g.contact_count ?? 0})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <label className="flex items-center gap-2 text-sm cursor-pointer">
                   <Checkbox checked={mergeFields} onCheckedChange={(v) => setMergeFields(Boolean(v))} />
                   <span>
@@ -336,18 +357,18 @@ export default function BroadcastTab() {
             <CardTitle className="flex items-center justify-between text-base">
               <span>Message</span>
               {templates.length > 0 && (
-                <select
-                  onChange={(e) => e.target.value && loadTemplate(e.target.value)}
-                  value=""
-                  className="rounded-md border bg-transparent px-2 py-1 text-xs"
-                >
-                  <option value="">Load template…</option>
-                  {templates.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
+                <Select value="" onValueChange={(v) => v && loadTemplate(v)}>
+                  <SelectTrigger size="sm" className="w-44 bg-card text-xs">
+                    <SelectValue placeholder="Load template…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {templates.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               )}
             </CardTitle>
           </CardHeader>
@@ -405,9 +426,27 @@ export default function BroadcastTab() {
           <CardContent className="space-y-1 text-sm">
             <Row label="Characters" value={String(message.length)} />
             <Row label="Encoding" value={seg.encoding.toUpperCase()} />
-            <Row label="Segments / recipient" value={String(seg.segments)} />
-            <Row label="Recipients" value={estimatedRecipients !== undefined ? String(estimatedRecipients) : "—"} />
-            <Row label="Est. SMS credits" value={estimatedCredits !== undefined ? String(estimatedCredits) : "—"} />
+            <Row label="Segments / recipient" value={String(displaySegments)} />
+            <Row
+              label="Recipients"
+              value={
+                estimatedRecipients !== undefined
+                  ? String(estimatedRecipients)
+                  : audienceType === "roles"
+                  ? "all users in selected role(s)"
+                  : "—"
+              }
+            />
+            <Row
+              label="Est. SMS credits"
+              value={
+                estimatedCredits !== undefined
+                  ? String(estimatedCredits)
+                  : audienceType === "roles"
+                  ? "all users in selected role(s)"
+                  : "—"
+              }
+            />
             {channels.includes("sms") && seg.segments > 1 && (
               <Alert className="mt-2">
                 <AlertDescription className="text-xs">
@@ -419,6 +458,28 @@ export default function BroadcastTab() {
         </Card>
       </aside>
     </div>
+
+    <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Send this broadcast?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This sends to {audienceSummary} via {channelSummary}.
+            {channels.includes("sms") && estimatedCredits !== undefined && (
+              <> Estimated SMS credits: {estimatedCredits}.</>
+            )}{" "}
+            Sending begins immediately and cannot be recalled.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={sending}>Cancel</AlertDialogCancel>
+          <AlertDialogAction disabled={sending} onClick={() => void confirmSend()}>
+            Send broadcast
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   )
 }
 

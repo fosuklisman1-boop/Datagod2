@@ -8,6 +8,16 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { toast } from "sonner"
 import { Loader2, Plus, Trash2, Upload, UserPlus } from "lucide-react"
 
@@ -32,7 +42,7 @@ type BulkRow = { phone_number: string; first_name: string | null; last_name: str
 interface BulkResult {
   inserted: number
   skipped: number
-  skippedSamples?: string[]
+  skippedSamples?: { phone: string; reason: string }[]
 }
 
 // Parse CSV/paste text into rows. Each line: phone[,firstName[,lastName]].
@@ -55,6 +65,7 @@ export default function ContactsTab() {
   const [selected, setSelected] = useState<Group | null>(null)
   const [contacts, setContacts] = useState<Contact[]>([])
   const [busy, setBusy] = useState(false)
+  const [pendingDelete, setPendingDelete] = useState<Group | null>(null)
 
   // create-group form
   const [gName, setGName] = useState("")
@@ -103,7 +114,6 @@ export default function ContactsTab() {
   }
 
   async function deleteGroup(g: Group) {
-    if (!confirm(`Delete group "${g.name}" and all its contacts?`)) return
     setBusy(true)
     const res = await api(`/api/admin/sms-groups/${g.id}`, { method: "DELETE" })
     setBusy(false)
@@ -197,6 +207,7 @@ export default function ContactsTab() {
   }
 
   return (
+    <>
     <div className="grid gap-4 md:grid-cols-[19rem_1fr]">
       {/* Groups column */}
       <Card className="self-start">
@@ -233,7 +244,7 @@ export default function ContactsTab() {
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8 shrink-0 text-destructive hover:text-destructive"
-                  onClick={() => deleteGroup(g)}
+                  onClick={() => setPendingDelete(g)}
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>
@@ -366,5 +377,33 @@ export default function ContactsTab() {
         )}
       </div>
     </div>
+
+    <AlertDialog open={pendingDelete !== null} onOpenChange={(open) => !open && setPendingDelete(null)}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete group?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This deletes the group{pendingDelete ? ` "${pendingDelete.name}"` : ""} and all of its contacts. This cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={busy}
+            className="bg-destructive text-white hover:bg-destructive/90"
+            onClick={() => {
+              if (pendingDelete) {
+                const g = pendingDelete
+                setPendingDelete(null)
+                void deleteGroup(g)
+              }
+            }}
+          >
+            Delete
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   )
 }

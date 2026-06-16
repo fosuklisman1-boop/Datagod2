@@ -70,6 +70,7 @@ export default function SmsDashboardPage() {
   const [logs, setLogs] = useState<SendLog[]>([])
   const [senderIds, setSenderIds] = useState<SenderId[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [busy, setBusy] = useState(false)
   const [tab, setTab] = useState("overview")
 
@@ -86,27 +87,45 @@ export default function SmsDashboardPage() {
   }
 
   const load = useCallback(async () => {
-    const t = await token()
-    const headers = { Authorization: `Bearer ${t}` }
-    const [accRes, bunRes] = await Promise.all([
-      fetch("/api/sms/account", { headers }).then((r) => r.json()),
-      fetch("/api/sms/bundles", { headers }).then((r) => r.json()),
-    ])
-    setAccount(accRes.account ?? null)
-    setBundles(bunRes.bundles ?? [])
-    setLoading(false)
+    // try/catch/finally: if a fetch rejects (offline/5xx) or .json() throws (the
+    // server returned an HTML error page for 401/500), we must still drop the
+    // loading flag — otherwise the page is stuck on the skeleton forever.
+    try {
+      const t = await token()
+      const headers = { Authorization: `Bearer ${t}` }
+      const [accRes, bunRes] = await Promise.all([
+        fetch("/api/sms/account", { headers }).then((r) => r.json()),
+        fetch("/api/sms/bundles", { headers }).then((r) => r.json()),
+      ])
+      setAccount(accRes.account ?? null)
+      setBundles(bunRes.bundles ?? [])
+      setLoadError(!accRes.account) // 403 / no account → show the retry card, not a spinner
+    } catch {
+      setLoadError(true)
+      toast.error("Could not load your SMS account. Please retry.")
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   const loadLogs = useCallback(async () => {
-    const t = await token()
-    const res = await fetch("/api/sms/logs", { headers: { Authorization: `Bearer ${t}` } }).then((r) => r.json())
-    setLogs(res.data?.logs ?? [])
+    try {
+      const t = await token()
+      const res = await fetch("/api/sms/logs", { headers: { Authorization: `Bearer ${t}` } }).then((r) => r.json())
+      setLogs(res.data?.logs ?? [])
+    } catch {
+      toast.error("Could not load send history.")
+    }
   }, [])
 
   const loadSenderIds = useCallback(async () => {
-    const t = await token()
-    const res = await fetch("/api/sms/sender-ids", { headers: { Authorization: `Bearer ${t}` } }).then((r) => r.json())
-    setSenderIds(res.data ?? [])
+    try {
+      const t = await token()
+      const res = await fetch("/api/sms/sender-ids", { headers: { Authorization: `Bearer ${t}` } }).then((r) => r.json())
+      setSenderIds(res.data ?? [])
+    } catch {
+      toast.error("Could not load your sender IDs.")
+    }
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -216,13 +235,35 @@ export default function SmsDashboardPage() {
   const sendDisabled = sending || message.length < 3 || recipients.length === 0 || overBudget
 
   // ─── loading / derived ────────────────────────────────────────────────────
-  if (loading || !account) {
+  if (loading) {
     return (
       <DashboardLayout>
         <div className="p-4 md:p-6 space-y-4 max-w-4xl">
           <Skeleton className="h-9 w-40" />
           <Skeleton className="h-32 w-full" />
           <Skeleton className="h-64 w-full" />
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  if (!account) {
+    return (
+      <DashboardLayout>
+        <div className="p-4 md:p-6 max-w-md">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2"><AlertCircle className="h-5 w-5 text-destructive" /> Couldn’t load SMS</CardTitle>
+              <CardDescription>
+                {loadError ? "We couldn’t load your SMS account. Check your connection and try again." : "No SMS account is available for your profile."}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button onClick={() => { setLoading(true); load() }}>
+                <Loader2 className="h-4 w-4" /> Retry
+              </Button>
+            </CardContent>
+          </Card>
         </div>
       </DashboardLayout>
     )
@@ -383,10 +424,16 @@ export default function SmsDashboardPage() {
                   <CardContent className="space-y-1 text-sm">
                     <Row label="Characters" value={String(message.length)} />
                     <Row label="Encoding" value={meter.encoding.toUpperCase()} />
-                    <Row label="Segments" value={String(meter.segments)} />
+                    <Row label="Segments" value={message.length === 0 ? "0" : String(meter.segments)} />
                     <Row label="Recipients" value={String(recipients.length)} />
-                    <Row label="Credits needed" value={String(cost)} />
+                    <Row label="Credits needed" value={message.length === 0 ? "0" : String(cost)} />
                     <Row label="Your balance" value={String(balance)} />
+                    {message.length > 0 && meter.encoding === "unicode" && (
+                      <p className="pt-1 text-xs text-amber-600">Non-GSM characters switched this to Unicode (fewer chars per segment).</p>
+                    )}
+                    {message.length > 0 && meter.segments > 1 && (
+                      <p className="text-xs text-muted-foreground">{meter.remaining} chars left before the next segment.</p>
+                    )}
                   </CardContent>
                 </Card>
               </div>
