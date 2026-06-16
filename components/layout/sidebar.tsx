@@ -561,6 +561,29 @@ export function Sidebar() {
                 </Button>
               </Link>
 
+              <Link href="/admin/sms-centre" onClick={() => handleNavigation("/admin/sms-centre")}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    userRole === 'dealer'
+                      ? (pathname === "/admin/sms-centre" ? "bg-white/15 text-white shadow-lg" : "text-purple-100 hover:bg-white/10")
+                      : (pathname === "/admin/sms-centre" ? "bg-primary/10 text-primary font-medium" : "text-sidebar-foreground hover:bg-accent"),
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/sms-centre" && "opacity-70"
+                  )}
+                  title={!isOpen ? "SMS Centre" : undefined}
+                  disabled={loadingPath === "/admin/sms-centre"}
+                >
+                  {loadingPath === "/admin/sms-centre" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <Send className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && "SMS Centre"}
+                </Button>
+              </Link>
+
               <Link href="/admin/ai-settings" onClick={() => handleNavigation("/admin/ai-settings")}>
                 <Button
                   variant="ghost"
