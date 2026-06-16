@@ -288,6 +288,19 @@ export async function adminComplaintRouter(
 
     const who = row.customer_name || row.phone_number
     const evidence: string[] = Array.isArray(row.evidence_urls) ? row.evidence_urls : []
+
+    // Send the actual screenshots to the admin in-chat (not just URLs). Best-effort:
+    // a failed/expired media send must not block claiming the complaint.
+    if (evidence.length) {
+      const { sendWhatsAppMedia } = await import("./send")
+      for (const url of evidence.slice(0, 10)) {
+        const isPdf = /\.pdf(\?|$)/i.test(url)
+        await sendWhatsAppMedia(from, isPdf ? "document" : "image", url).catch((e) =>
+          console.warn("[WA-COMPLAINT] failed to send evidence to admin:", e instanceof Error ? e.message : e)
+        )
+      }
+    }
+
     const details =
       `Complaint from ${who}\n` +
       `Number: ${row.phone_number}\n` +
@@ -295,7 +308,7 @@ export async function adminComplaintRouter(
       `Beneficiary: ${row.beneficiary_number || "—"}\n` +
       `Order/details: ${row.order_info || "—"}\n` +
       `\n"${row.description}"` +
-      (evidence.length ? `\n\nScreenshots:\n${evidence.join("\n")}` : `\n\n(No screenshot attached yet)`)
+      (evidence.length ? `\n\n📎 ${evidence.length} screenshot(s) sent above.` : `\n\n(No screenshot attached yet)`)
 
     await setWaSession(from, { step: "ADMIN_COMPLAINT_AWAIT_REPLY", adminComplaintSelectedId: complaintId })
     return `${details}\n\nType your reply to the customer to resolve it, or 'cancel' to release.`
