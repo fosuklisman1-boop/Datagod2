@@ -74,6 +74,16 @@ async function issueUnits(accountId: string, units: number, reason: string, ref:
   return { ok: true, outcome, unitsCredited: outcome === "credited" ? units : 0, pending: false }
 }
 
+/** Has this credit ref already landed? Used to avoid a double-refund when an issuance RPC
+ *  committed but its response was lost in transit. */
+async function refLanded(ref: string): Promise<"credited" | "pending" | null> {
+  const { data: tx } = await supabaseAdmin.from("sms_unit_transactions").select("id").eq("ref", ref).maybeSingle()
+  if (tx) return "credited"
+  const { data: pc } = await supabaseAdmin.from("sms_pending_credits").select("id").eq("ref", ref).maybeSingle()
+  if (pc) return "pending"
+  return null
+}
+
 /** Cash-wallet bundle purchase: race-safe wallet debit, then solvency-gated issuance.
  *  Refunds the cash only if issuance ERRORS (a 'pending' outcome is success, not a failure). */
 export async function purchaseBundleViaWallet(userId: string, accountId: string, bundleId: string): Promise<PurchaseResult> {
@@ -88,8 +98,15 @@ export async function purchaseBundleViaWallet(userId: string, accountId: string,
   const ref = `wallet-${userId}-${bundleId}-${Date.now()}`
   const res = await issueUnits(accountId, b.units, "bundle_wallet", ref)
   if (!res.ok) {
-    await supabaseAdmin.rpc("deduct_wallet", { p_user_id: userId, p_amount: -b.price_ghs }) // refund
-    return { ok: false, error: "Failed to credit units (refunded)" }
+    // The issuance RPC errored. If the credit actually landed (committed but the response
+    // was lost), refunding would hand back cash for units the user kept — so only refund
+    // when the ref is absent from BOTH the ledger and the pending table.
+    const landed = await refLanded(ref)
+    if (!landed) {
+      await supabaseAdmin.rpc("deduct_wallet", { p_user_id: userId, p_amount: -b.price_ghs }) // refund
+      return { ok: false, error: "Failed to credit units (refunded)" }
+    }
+    return { ok: true, outcome: landed, unitsCredited: landed === "credited" ? b.units : 0, pending: landed === "pending" }
   }
   return res
 }
