@@ -19,9 +19,22 @@ export async function GET(request: NextRequest) {
   if (!account) {
     return NextResponse.json({ error: "No SMS account for this user" }, { status: 403 })
   }
-  const [transactions, pendingUnits] = await Promise.all([
+  const [transactions, pendingUnits, settings] = await Promise.all([
     listUnitTransactions(account.id, 20),
     getPendingUnits(account.id),
+    supabaseAdmin
+      .from("tenant_global_settings")
+      .select("key, value")
+      .in("key", ["sms_activation_fee", "sms_welcome_bonus_credits"])
+      .then(({ data }) => {
+        const map: Record<string, number> = {}
+        for (const row of (data ?? [])) {
+          const r = row as { key: string; value: { amount?: number; units?: number } }
+          if (r.key === "sms_activation_fee") map.activationFee = Number(r.value.amount ?? 0)
+          if (r.key === "sms_welcome_bonus_credits") map.welcomeBonusCredits = Number(r.value.units ?? 0)
+        }
+        return map
+      }),
   ])
   return NextResponse.json({
     account: {
@@ -30,6 +43,13 @@ export async function GET(request: NextRequest) {
       unitBalance: account.unit_balance,
       pendingUnits,
       status: account.status,
+      activatedAt: account.activated_at ?? null,
+      amountPaid: account.amount_paid ?? null,
+      paidFrom: account.paid_from ?? null,
+      bonusClaimed: account.bonus_claimed ?? false,
+      bonusClaimedAt: account.bonus_claimed_at ?? null,
+      activationFee: settings.activationFee ?? 20,
+      welcomeBonusCredits: settings.welcomeBonusCredits ?? 10,
     },
     transactions,
   })
