@@ -1203,6 +1203,17 @@ git commit -m "feat(sms): minimal units balance + buy-bundle + admin allocate UI
 
 ---
 
+## Post-review status (2026-06-16)
+
+Foundation implemented, independently reviewed (no Critical issues), 55 tests pass, production build green. Two Important findings fixed: Paystack webhook amount-paid guard + DB-authoritative unit count; wallet refund idempotency guard (`refLanded`) to prevent free-units-plus-refund on a lost RPC response.
+
+**Deferred Minor follow-ups** (acceptable for foundation, revisit before scale):
+- Wallet purchase has no server-side in-flight/dedupe guard — rapid double-clicks buy twice (distinct refs). Add an idempotency key if accidental double-purchase becomes a concern.
+- `/api/cron/sms-pending-credits` silently no-ops (401) if `CRON_SECRET` is unset; peer crons log-and-deny visibly. Match that for ops visibility.
+- `settle_pending_sms_credits` flips `status='credited'` without checking `adjust_sms_units` returned a row — unreachable today (`sms_pending_credits.sms_account_id` is `ON DELETE CASCADE`), but worth a guard for robustness.
+
+---
+
 ## Next plans (written after Foundation lands)
 
 2. **Sender IDs** — submit → Moolre create (type 3) → poll status (type 1) cron → `active` gating.
