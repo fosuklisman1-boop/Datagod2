@@ -1,9 +1,26 @@
 // app/dashboard/sms/page.tsx
 "use client"
+
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { supabase } from "@/lib/supabase"
 import { calculateSegments, calculateCredits } from "@/lib/sms/segments"
+import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Skeleton } from "@/components/ui/skeleton"
+import { toast } from "sonner"
+import {
+  MessageSquare, Send, Wallet, Sparkles, Clock, AlertCircle, Loader2, Plus,
+  BadgeCheck, History, ShieldCheck, Ban, CreditCard,
+} from "lucide-react"
 
+// ─── types ────────────────────────────────────────────────────────────────
 interface AccountData {
   id: string
   ownerType: string
@@ -11,75 +28,58 @@ interface AccountData {
   pendingUnits: number
   status: string // 'inactive' | 'active' | 'suspended'
   bonusClaimed: boolean
-  bonusClaimedAt: string | null
   activatedAt: string | null
   activationFee: number
   welcomeBonusCredits: number
 }
-
-interface Bundle {
-  id: string
-  name: string
-  units: number
-  price_ghs: number
-}
-
+interface Bundle { id: string; name: string; units: number; price_ghs: number }
 interface SendLog {
-  id: string
-  message: string
-  recipients_count: number
-  segments: number
-  credits_used: number
-  status: string
-  created_at: string
+  id: string; message: string; recipients_count: number; segments: number
+  credits_used: number; status: string; created_at: string
 }
-
-// Tab IDs — extended in M3 to add "compose"
-type TabId = "overview" | "compose"
+interface SenderId {
+  id: string; sender_id: string; local_status: "pending" | "active" | "rejected"
+  moolre_status: string | null; last_polled_at: string | null; created_at: string
+}
 
 // ─── helpers ────────────────────────────────────────────────────────────────
-
 function parseRecipients(raw: string): string[] {
-  const parts = raw.split(/[\n,]+/)
   const seen = new Set<string>()
   const out: string[] = []
-  for (const p of parts) {
+  for (const p of raw.split(/[\n,]+/)) {
     const t = p.trim()
-    if (t && !seen.has(t)) {
-      seen.add(t)
-      out.push(t)
-    }
+    if (t && !seen.has(t)) { seen.add(t); out.push(t) }
   }
   return out
 }
 
-const STATUS_BADGE: Record<string, string> = {
-  queued:  "bg-yellow-100 text-yellow-800",
-  sending: "bg-blue-100 text-blue-800",
-  sent:    "bg-green-100 text-green-800",
-  partial: "bg-orange-100 text-orange-800",
-  failed:  "bg-red-100 text-red-800",
-  blocked: "bg-red-200 text-red-900",
+const LOG_BADGE: Record<string, string> = {
+  queued: "bg-amber-100 text-amber-800", sending: "bg-blue-100 text-blue-800",
+  sent: "bg-green-100 text-green-800", partial: "bg-orange-100 text-orange-800",
+  failed: "bg-red-100 text-red-800", blocked: "bg-red-200 text-red-900",
+}
+const SENDER_BADGE: Record<string, string> = {
+  active: "bg-green-100 text-green-700", pending: "bg-amber-100 text-amber-700",
+  rejected: "bg-red-100 text-red-700",
 }
 
-// ─── main component ──────────────────────────────────────────────────────────
-
+// ─── component ────────────────────────────────────────────────────────────────
 export default function SmsDashboardPage() {
-  const [account, setAccount]   = useState<AccountData | null>(null)
-  const [bundles, setBundles]   = useState<Bundle[]>([])
-  const [busy, setBusy]         = useState(false)
-  const [msg, setMsg]           = useState<{ text: string; ok: boolean } | null>(null)
-  const [activeTab, setActiveTab] = useState<TabId>("overview")
+  const [account, setAccount] = useState<AccountData | null>(null)
+  const [bundles, setBundles] = useState<Bundle[]>([])
+  const [logs, setLogs] = useState<SendLog[]>([])
+  const [senderIds, setSenderIds] = useState<SenderId[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [tab, setTab] = useState("overview")
 
-  // compose state
-  const [message, setMessage]         = useState("")
+  // compose
+  const [message, setMessage] = useState("")
   const [recipientsRaw, setRecipientsRaw] = useState("")
-  const [sending, setSending]         = useState(false)
-  const [sendMsg, setSendMsg]         = useState<{ text: string; ok: boolean } | null>(null)
-  const [logs, setLogs]               = useState<SendLog[]>([])
-  const [logsLoading, setLogsLoading] = useState(false)
-
-  const notice = (text: string, ok = true) => setMsg({ text, ok })
+  const [sending, setSending] = useState(false)
+  // sender-id request
+  const [newSender, setNewSender] = useState("")
 
   async function token() {
     const { data } = await supabase.auth.getSession()
@@ -87,546 +87,484 @@ export default function SmsDashboardPage() {
   }
 
   const load = useCallback(async () => {
-    const t = await token()
-    const headers = { Authorization: `Bearer ${t}` }
-    const [accRes, bunRes] = await Promise.all([
-      fetch("/api/sms/account", { headers }).then((r) => r.json()),
-      fetch("/api/sms/bundles", { headers }).then((r) => r.json()),
-    ])
-    setAccount(accRes.account ?? null)
-    setBundles(bunRes.bundles ?? [])
+    // try/catch/finally: if a fetch rejects (offline/5xx) or .json() throws (the
+    // server returned an HTML error page for 401/500), we must still drop the
+    // loading flag — otherwise the page is stuck on the skeleton forever.
+    try {
+      const t = await token()
+      const headers = { Authorization: `Bearer ${t}` }
+      const [accRes, bunRes] = await Promise.all([
+        fetch("/api/sms/account", { headers }).then((r) => r.json()),
+        fetch("/api/sms/bundles", { headers }).then((r) => r.json()),
+      ])
+      setAccount(accRes.account ?? null)
+      setBundles(bunRes.bundles ?? [])
+      setLoadError(!accRes.account) // 403 / no account → show the retry card, not a spinner
+    } catch {
+      setLoadError(true)
+      toast.error("Could not load your SMS account. Please retry.")
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   const loadLogs = useCallback(async () => {
-    setLogsLoading(true)
-    const t = await token()
-    const res = await fetch("/api/sms/logs", {
-      headers: { Authorization: `Bearer ${t}` },
-    }).then((r) => r.json())
-    setLogsLoading(false)
-    setLogs(res.data?.logs ?? [])
+    try {
+      const t = await token()
+      const res = await fetch("/api/sms/logs", { headers: { Authorization: `Bearer ${t}` } }).then((r) => r.json())
+      setLogs(res.data?.logs ?? [])
+    } catch {
+      toast.error("Could not load send history.")
+    }
+  }, [])
+
+  const loadSenderIds = useCallback(async () => {
+    try {
+      const t = await token()
+      const res = await fetch("/api/sms/sender-ids", { headers: { Authorization: `Bearer ${t}` } }).then((r) => r.json())
+      setSenderIds(res.data ?? [])
+    } catch {
+      toast.error("Could not load your sender IDs.")
+    }
   }, [])
 
   useEffect(() => { load() }, [load])
+  useEffect(() => { if (tab === "history" || tab === "send") loadLogs() }, [tab, loadLogs])
+  useEffect(() => { if (tab === "senders") loadSenderIds() }, [tab, loadSenderIds])
 
-  // Load logs whenever compose tab is activated
-  useEffect(() => {
-    if (activeTab === "compose") loadLogs()
-  }, [activeTab, loadLogs])
-
+  // ─── actions ──────────────────────────────────────────────────────────────
   async function activate(paidFrom: "wallet" | "paystack") {
     setBusy(true)
-    setMsg(null)
     const t = await token()
     const res = await fetch("/api/sms/activate", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
+      method: "POST", headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
       body: JSON.stringify({ paidFrom }),
     }).then((r) => r.json())
     setBusy(false)
     if (res.error) {
-      notice(res.error === "INSUFFICIENT_BALANCE"
-        ? "Insufficient wallet balance. Top up your wallet first or pay with Paystack."
-        : res.error, false)
+      toast.error(res.error === "INSUFFICIENT_BALANCE"
+        ? "Insufficient wallet balance. Top up your wallet or pay with Paystack."
+        : res.error)
     } else if (res.authorizationUrl) {
       window.location.href = res.authorizationUrl
     } else {
-      notice("Account activated! Welcome to SMS.")
+      toast.success("Account activated! Welcome to SMS.")
       await load()
     }
   }
 
   async function claimBonus() {
     setBusy(true)
-    setMsg(null)
     const t = await token()
     const res = await fetch("/api/sms/claim-bonus", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${t}` },
+      method: "POST", headers: { Authorization: `Bearer ${t}` },
     }).then((r) => r.json())
     setBusy(false)
-    if (res.error) {
-      notice(res.error === "ALREADY_CLAIMED" ? "Bonus already claimed." : res.error, false)
-    } else if (res.pending) {
-      notice(`${res.unitsCredited} bonus SMS credits queued — awaiting SMS supply top-up.`)
-    } else {
-      notice(`${res.unitsCredited} bonus SMS credits added to your account!`)
-      await load()
-    }
+    if (res.error) toast.error(res.error === "ALREADY_CLAIMED" ? "Bonus already claimed." : res.error)
+    else if (res.pending) toast.info(`${res.unitsCredited} bonus credits queued — awaiting SMS supply top-up.`)
+    else { toast.success(`${res.unitsCredited} bonus SMS credits added!`); await load() }
   }
 
   async function buyBundle(bundleId: string) {
     setBusy(true)
-    setMsg(null)
     const t = await token()
     const res = await fetch("/api/sms/units/purchase-wallet", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
+      method: "POST", headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
       body: JSON.stringify({ bundleId }),
     }).then((r) => r.json())
     setBusy(false)
-    if (res.error) {
-      notice(res.error === "NOT_ACTIVATED"
-        ? "Activate your account before buying bundles."
-        : res.error, false)
-    } else if (res.pending) {
-      notice("Payment received — SMS credits are pending SMS supply top-up.")
-    } else {
-      notice(`${res.unitsCredited} SMS credits added.`)
-      await load()
-    }
+    if (res.error) toast.error(res.error === "NOT_ACTIVATED" ? "Activate your account before buying bundles." : res.error)
+    else if (res.pending) toast.info("Payment received — SMS credits are pending SMS supply top-up.")
+    else { toast.success(`${res.unitsCredited} SMS credits added.`); await load() }
   }
 
   async function sendMessage() {
     if (!account) return
     const recipients = parseRecipients(recipientsRaw)
     if (message.length < 3 || recipients.length === 0) return
-
     setSending(true)
-    setSendMsg(null)
     const t = await token()
     const res = await fetch("/api/shop/sms/send", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
+      method: "POST", headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
       body: JSON.stringify({ message, recipients }),
     }).then((r) => r.json())
     setSending(false)
-
     if (res.success) {
       const { total, creditsReserved } = res.data ?? {}
-      setSendMsg({
-        text: `Queued ${total} recipient${total !== 1 ? "s" : ""} (${creditsReserved} credits used)`,
-        ok: true,
-      })
-      setMessage("")
-      setRecipientsRaw("")
+      toast.success(`Queued ${total} recipient${total !== 1 ? "s" : ""} (${creditsReserved} credits)`)
+      setMessage(""); setRecipientsRaw("")
       await Promise.all([load(), loadLogs()])
     } else {
-      const errCode: string = res.error ?? "UNKNOWN_ERROR"
-      let errText: string
-      switch (errCode) {
-        case "INSUFFICIENT_CREDITS":
-          errText = "Not enough credits. Buy a bundle first."
-          break
-        case "TOO_MANY_RECIPIENTS":
-          errText = "Max 500 recipients per send."
-          break
-        case "BLOCKED":
-          errText = `Sending blocked: ${res.reason ?? "content policy"}`
-          break
-        case "NOT_ACTIVATED":
-          errText = "Activate your SMS account before sending."
-          break
-        case "SUSPENDED":
-          errText = "Your SMS account is suspended."
-          break
-        default:
-          errText = res.message ?? errCode
+      const code: string = res.error ?? "UNKNOWN_ERROR"
+      const map: Record<string, string> = {
+        INSUFFICIENT_CREDITS: "Not enough credits. Buy a bundle first.",
+        TOO_MANY_RECIPIENTS: "Max 500 recipients per send.",
+        BLOCKED: `Sending blocked: ${res.reason ?? "content policy"}`,
+        NOT_ACTIVATED: "Activate your SMS account before sending.",
+        SUSPENDED: "Your SMS account is suspended.",
+        NO_VALID_RECIPIENTS: "No valid phone numbers found.",
       }
-      setSendMsg({ text: errText, ok: false })
+      toast.error(map[code] ?? res.message ?? code)
     }
   }
 
-  // ─── live meter ────────────────────────────────────────────────────────────
-
-  const recipients = useMemo(() => parseRecipients(recipientsRaw), [recipientsRaw])
-  const meter      = useMemo(() => calculateSegments(message), [message])
-  const cost       = useMemo(
-    () => calculateCredits(message, recipients.length),
-    [message, recipients.length]
-  )
-  const balance        = account?.unitBalance ?? 0
-  const overBudget     = message.length >= 3 && recipients.length > 0 && cost > balance
-  const sendDisabled   =
-    sending ||
-    message.length < 3 ||
-    recipients.length === 0 ||
-    overBudget
-
-  // ─── derived display flags ─────────────────────────────────────────────────
-
-  if (!account) {
-    return <div className="p-6 text-muted-foreground">Loading SMS dashboard…</div>
+  async function requestSenderId() {
+    const sid = newSender.trim()
+    if (!sid) return
+    setBusy(true)
+    const t = await token()
+    const res = await fetch("/api/sms/sender-ids", {
+      method: "POST", headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ sender_id: sid }),
+    }).then((r) => r.json())
+    setBusy(false)
+    if (res.success) {
+      toast.success(`Requested “${sid.toUpperCase()}”. Approval is reviewed automatically — check back shortly.`)
+      setNewSender(""); await loadSenderIds()
+    } else {
+      toast.error(res.error ?? "Could not request sender ID")
+    }
   }
 
-  const isActive     = account.status === "active"
-  const isSuspended  = account.status === "suspended"
-  const isPlatform   = account.ownerType === "platform"
-  const showActivation = !isPlatform && !isActive && !isSuspended
-  const showBonus    = isActive && !account.bonusClaimed
+  // ─── live meter ─────────────────────────────────────────────────────────────
+  const recipients = useMemo(() => parseRecipients(recipientsRaw), [recipientsRaw])
+  const meter = useMemo(() => calculateSegments(message), [message])
+  const cost = useMemo(() => calculateCredits(message, recipients.length), [message, recipients.length])
+  const balance = account?.unitBalance ?? 0
+  const overBudget = message.length >= 3 && recipients.length > 0 && cost > balance
+  const sendDisabled = sending || message.length < 3 || recipients.length === 0 || overBudget
 
-  // ─── render ────────────────────────────────────────────────────────────────
+  // ─── loading / derived ────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="p-4 md:p-6 space-y-4 max-w-4xl">
+          <Skeleton className="h-9 w-40" />
+          <Skeleton className="h-32 w-full" />
+          <Skeleton className="h-64 w-full" />
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  if (!account) {
+    return (
+      <DashboardLayout>
+        <div className="p-4 md:p-6 max-w-md">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2"><AlertCircle className="h-5 w-5 text-destructive" /> Couldn’t load SMS</CardTitle>
+              <CardDescription>
+                {loadError ? "We couldn’t load your SMS account. Check your connection and try again." : "No SMS account is available for your profile."}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button onClick={() => { setLoading(true); load() }}>
+                <Loader2 className="h-4 w-4" /> Retry
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  const isActive = account.status === "active"
+  const isSuspended = account.status === "suspended"
+  const isPlatform = account.ownerType === "platform"
+  const showActivation = !isPlatform && !isActive && !isSuspended
+  const showBonus = isActive && !account.bonusClaimed
 
   return (
-    <div className="p-6 space-y-6 max-w-2xl">
-      {/* Page header with tab bar */}
-      <div className="flex items-center justify-between border-b pb-3">
-        <h1 className="text-2xl font-bold">SMS</h1>
-        <nav className="flex gap-1" aria-label="SMS sections">
-          <button
-            onClick={() => setActiveTab("overview")}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-              activeTab === "overview"
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-            aria-current={activeTab === "overview" ? "page" : undefined}
-          >
-            Overview
-          </button>
-          <button
-            onClick={() => setActiveTab("compose")}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-              activeTab === "compose"
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-            aria-current={activeTab === "compose" ? "page" : undefined}
-          >
-            Compose
-          </button>
-        </nav>
-      </div>
-
-      {msg && (
-        <div
-          className={`rounded-lg border px-4 py-3 text-sm ${
-            msg.ok
-              ? "border-green-200 bg-green-50 text-green-800"
-              : "border-red-200 bg-red-50 text-red-800"
-          }`}
-        >
-          {msg.text}
-        </div>
-      )}
-
-      {/* ── OVERVIEW TAB ─────────────────────────────────────────────────── */}
-      {activeTab === "overview" && (
-        <>
-          {/* Suspended notice */}
-          {isSuspended && (
-            <div className="rounded-lg border border-red-200 bg-red-50 p-5">
-              <div className="font-semibold text-red-900">SMS Sending Suspended</div>
-              <p className="mt-1 text-sm text-red-800">
-                Your SMS account has been suspended. Please contact support to restore access.
-              </p>
-            </div>
-          )}
-
-          {/* Activation card */}
-          {showActivation && (
-            <div className="rounded-lg border p-5 space-y-3 bg-amber-50 border-amber-200">
-              <div className="font-semibold text-amber-900">Activate SMS</div>
-              <p className="text-sm text-amber-800">
-                A one-time activation fee of <strong>GHS {account.activationFee.toFixed(2)}</strong> unlocks
-                SMS credits, bundle purchases, and campaign sending.
-              </p>
-              <div className="flex gap-2 flex-wrap">
-                <button
-                  disabled={busy}
-                  onClick={() => activate("wallet")}
-                  className="rounded bg-amber-700 px-4 py-2 text-sm text-white hover:bg-amber-800 disabled:opacity-50"
-                >
-                  Pay with Wallet (GHS {account.activationFee.toFixed(2)})
-                </button>
-                <button
-                  disabled={busy}
-                  onClick={() => activate("paystack")}
-                  className="rounded border border-amber-700 px-4 py-2 text-sm text-amber-800 hover:bg-amber-100 disabled:opacity-50"
-                >
-                  Pay with Paystack
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Welcome bonus claim */}
-          {showBonus && (
-            <div className="rounded-lg border p-5 space-y-3 bg-blue-50 border-blue-200">
-              <div className="font-semibold text-blue-900">Welcome Bonus</div>
-              <p className="text-sm text-blue-800">
-                Claim your free <strong>{account.welcomeBonusCredits} SMS credits</strong> — a one-time gift to get started.
-              </p>
-              <button
-                disabled={busy}
-                onClick={claimBonus}
-                className="rounded bg-blue-700 px-4 py-2 text-sm text-white hover:bg-blue-800 disabled:opacity-50"
-              >
-                Claim {account.welcomeBonusCredits} Free SMS Credits
-              </button>
-            </div>
-          )}
-
-          {/* Balance panel */}
-          <div className="rounded-lg border p-5">
-            <div className="text-sm text-muted-foreground">SMS Credits</div>
-            <div className="text-3xl font-bold">{account.unitBalance.toLocaleString()}</div>
-            {account.pendingUnits > 0 && (
-              <div className="mt-1 text-sm text-amber-600">
-                + {account.pendingUnits.toLocaleString()} pending (awaiting SMS supply top-up)
-              </div>
-            )}
-            {isActive && account.activatedAt && (
-              <div className="mt-1 text-xs text-muted-foreground">
-                Active since {new Date(account.activatedAt).toLocaleDateString()}
-              </div>
-            )}
+    <DashboardLayout>
+      <div className="p-4 md:p-6 space-y-6 max-w-4xl">
+        {/* Header */}
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10">
+            <MessageSquare className="h-6 w-6 text-primary" />
           </div>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">SMS</h1>
+            <p className="text-sm text-muted-foreground">Send bulk SMS to your customers with your own sender ID.</p>
+          </div>
+        </div>
 
-          {/* Bundle store */}
-          {isActive && bundles.length > 0 && (
-            <div className="space-y-3">
-              <h2 className="font-semibold">Buy SMS Credits</h2>
-              <div className="grid gap-3 sm:grid-cols-3">
-                {bundles.map((b) => (
-                  <div key={b.id} className="rounded-lg border p-4 space-y-2">
-                    <div className="font-semibold">{b.name}</div>
-                    <div className="text-sm text-muted-foreground">
-                      {Number(b.units).toLocaleString()} credits · GHS {Number(b.price_ghs).toFixed(2)}
-                    </div>
-                    <button
-                      disabled={busy}
-                      onClick={() => buyBundle(b.id)}
-                      className="w-full rounded bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50"
-                    >
-                      Buy with wallet
-                    </button>
+        {isSuspended && (
+          <Alert variant="destructive">
+            <Ban className="h-4 w-4" />
+            <AlertDescription>Your SMS account is suspended. Contact support to restore sending.</AlertDescription>
+          </Alert>
+        )}
+
+        <Tabs value={tab} onValueChange={setTab}>
+          <TabsList className="flex-wrap">
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="send" disabled={!isActive}>Send</TabsTrigger>
+            <TabsTrigger value="senders">Sender IDs</TabsTrigger>
+            <TabsTrigger value="bundles">Buy Credits</TabsTrigger>
+            <TabsTrigger value="history">History</TabsTrigger>
+          </TabsList>
+
+          {/* ── OVERVIEW ── */}
+          <TabsContent value="overview" className="space-y-4 pt-4">
+            {/* Balance cards */}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription className="flex items-center gap-1.5"><CreditCard className="h-4 w-4" /> SMS credits</CardDescription>
+                  <CardTitle className="text-3xl">{balance.toLocaleString()}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Badge variant={isActive ? "default" : "secondary"}>
+                    {isPlatform ? "Platform" : account.status}
+                  </Badge>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription className="flex items-center gap-1.5"><Clock className="h-4 w-4" /> Pending credits</CardDescription>
+                  <CardTitle className="text-3xl">{account.pendingUnits.toLocaleString()}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-xs text-muted-foreground">
+                    {account.pendingUnits > 0 ? "Awaiting SMS supply top-up — credited automatically." : "No pending credits."}
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Activation */}
+            {showActivation && (
+              <Card className="border-primary/30">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2"><ShieldCheck className="h-5 w-5 text-primary" /> Activate SMS</CardTitle>
+                  <CardDescription>
+                    A one-time activation fee of GHS {account.activationFee} unlocks sending and grants{" "}
+                    {account.welcomeBonusCredits} free welcome credits.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-wrap gap-2">
+                  <Button onClick={() => activate("wallet")} disabled={busy}>
+                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />} Pay from wallet
+                  </Button>
+                  <Button variant="outline" onClick={() => activate("paystack")} disabled={busy}>
+                    <CreditCard className="h-4 w-4" /> Pay with Paystack
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Welcome bonus */}
+            {showBonus && (
+              <Card className="border-amber-300/50 bg-amber-50/40">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2"><Sparkles className="h-5 w-5 text-amber-500" /> Claim welcome bonus</CardTitle>
+                  <CardDescription>Grab your {account.welcomeBonusCredits} free SMS credits — one-time offer.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Button onClick={claimBonus} disabled={busy}>
+                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} Claim {account.welcomeBonusCredits} credits
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+
+            {isActive && (
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={() => setTab("send")}><Send className="h-4 w-4" /> Compose a message</Button>
+                <Button variant="outline" onClick={() => setTab("bundles")}><Plus className="h-4 w-4" /> Buy more credits</Button>
+              </div>
+            )}
+          </TabsContent>
+
+          {/* ── SEND ── */}
+          <TabsContent value="send" className="pt-4">
+            <div className="grid gap-4 lg:grid-cols-[1fr_18rem]">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Compose</CardTitle>
+                  <CardDescription>Personalisation tokens aren’t applied here — paste numbers and a message.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="msg">Message</Label>
+                    <Textarea id="msg" rows={5} value={message} onChange={(e) => setMessage(e.target.value)}
+                      placeholder="Type your message…" maxLength={1000} />
                   </div>
-                ))}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="rcpts">Recipients</Label>
+                    <Textarea id="rcpts" rows={4} value={recipientsRaw} onChange={(e) => setRecipientsRaw(e.target.value)}
+                      placeholder={"0241234567, 0207654321\nor one per line"} className="font-mono text-sm" />
+                  </div>
+                  {overBudget && (
+                    <Alert variant="destructive">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription>This send needs {cost} credits but you have {balance}. Buy more credits.</AlertDescription>
+                    </Alert>
+                  )}
+                  <Button onClick={sendMessage} disabled={sendDisabled} className="w-full sm:w-auto">
+                    {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    {sending ? "Sending…" : `Send to ${recipients.length || 0} recipient${recipients.length === 1 ? "" : "s"}`}
+                  </Button>
+                </CardContent>
+              </Card>
+
+              {/* Live preview + estimate */}
+              <div className="space-y-4">
+                <Card>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm">Preview</CardTitle></CardHeader>
+                  <CardContent>
+                    <div className="rounded-2xl rounded-bl-sm bg-primary/10 p-3 text-sm whitespace-pre-wrap min-h-[4rem]">
+                      {message || <span className="text-muted-foreground">Your message preview…</span>}
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm">Estimate</CardTitle></CardHeader>
+                  <CardContent className="space-y-1 text-sm">
+                    <Row label="Characters" value={String(message.length)} />
+                    <Row label="Encoding" value={meter.encoding.toUpperCase()} />
+                    <Row label="Segments" value={message.length === 0 ? "0" : String(meter.segments)} />
+                    <Row label="Recipients" value={String(recipients.length)} />
+                    <Row label="Credits needed" value={message.length === 0 ? "0" : String(cost)} />
+                    <Row label="Your balance" value={String(balance)} />
+                    {message.length > 0 && meter.encoding === "unicode" && (
+                      <p className="pt-1 text-xs text-amber-600">Non-GSM characters switched this to Unicode (fewer chars per segment).</p>
+                    )}
+                    {message.length > 0 && meter.segments > 1 && (
+                      <p className="text-xs text-muted-foreground">{meter.remaining} chars left before the next segment.</p>
+                    )}
+                  </CardContent>
+                </Card>
               </div>
             </div>
-          )}
+          </TabsContent>
 
-          {/* Inactive state — bundle store locked */}
-          {showActivation && bundles.length > 0 && (
-            <div className="rounded-lg border p-4 opacity-50">
-              <p className="text-sm text-center text-muted-foreground">
-                Bundle store unlocks after activation.
-              </p>
-            </div>
-          )}
-        </>
-      )}
+          {/* ── SENDER IDs ── */}
+          <TabsContent value="senders" className="space-y-4 pt-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Request a sender ID</CardTitle>
+                <CardDescription>
+                  The name recipients see as the SMS sender (max 11 characters, letters/numbers). Requests are
+                  registered with the SMS provider and approved automatically — status updates within minutes.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-wrap items-end gap-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="sid">Sender ID</Label>
+                  <Input id="sid" value={newSender} onChange={(e) => setNewSender(e.target.value)}
+                    placeholder="e.g. MYSHOP" maxLength={11} className="w-48 uppercase" />
+                </div>
+                <Button onClick={requestSenderId} disabled={busy || !newSender.trim()}>
+                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Request
+                </Button>
+              </CardContent>
+            </Card>
 
-      {/* ── COMPOSE TAB ──────────────────────────────────────────────────── */}
-      {activeTab === "compose" && (
-        <>
-          {/* Inactive / suspended gate */}
-          {!isActive && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-5">
-              <div className="font-semibold text-amber-900">Activate SMS to send messages</div>
-              <p className="mt-1 text-sm text-amber-800">
-                {isSuspended
-                  ? "Your SMS account has been suspended. Contact support to restore access."
-                  : "A one-time activation fee unlocks bulk sending. Switch to the Overview tab to activate."}
-              </p>
-            </div>
-          )}
+            <Card>
+              <CardHeader><CardTitle className="text-base">Your sender IDs</CardTitle></CardHeader>
+              <CardContent>
+                {senderIds.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No sender IDs yet. Request one above.</p>
+                ) : (
+                  <ul className="divide-y">
+                    {senderIds.map((s) => (
+                      <li key={s.id} className="flex items-center justify-between py-2.5">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-medium">{s.sender_id}</span>
+                          {s.local_status === "active" && <BadgeCheck className="h-4 w-4 text-green-600" />}
+                        </div>
+                        <Badge className={SENDER_BADGE[s.local_status] ?? ""} variant="secondary">{s.local_status}</Badge>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
 
-          {/* Send feedback */}
-          {sendMsg && (
-            <div
-              className={`rounded-lg border px-4 py-3 text-sm ${
-                sendMsg.ok
-                  ? "border-green-200 bg-green-50 text-green-800"
-                  : "border-red-200 bg-red-50 text-red-800"
-              }`}
-            >
-              {sendMsg.text}
-            </div>
-          )}
+          {/* ── BUNDLES ── */}
+          <TabsContent value="bundles" className="pt-4">
+            {!isActive ? (
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>Activate your SMS account (Overview tab) before buying credit bundles.</AlertDescription>
+              </Alert>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {bundles.map((b) => (
+                  <Card key={b.id}>
+                    <CardHeader>
+                      <CardTitle>{b.name}</CardTitle>
+                      <CardDescription>{b.units.toLocaleString()} SMS credits</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <p className="text-2xl font-bold">GHS {b.price_ghs}</p>
+                      <Button className="w-full" onClick={() => buyBundle(b.id)} disabled={busy}>
+                        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />} Buy with wallet
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ))}
+                {bundles.length === 0 && <p className="text-sm text-muted-foreground">No bundles available right now.</p>}
+              </div>
+            )}
+          </TabsContent>
 
-          {/* Compose form + phone preview side-by-side on large screens */}
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
-
-            {/* ── Left: form ── */}
-            <div className="flex-1 space-y-4">
-
-              {/* Message */}
-              <div className="space-y-1">
-                <label className="text-sm font-medium" htmlFor="sms-message">
-                  Message
-                </label>
-                <textarea
-                  id="sms-message"
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  maxLength={1000}
-                  rows={5}
-                  disabled={!isActive}
-                  placeholder="Type your message here…"
-                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 resize-y"
-                />
-
-                {/* Live meter */}
-                {message.length > 0 && (
-                  <div
-                    className={`rounded-md border px-3 py-2 text-xs space-y-1 ${
-                      overBudget
-                        ? "border-red-300 bg-red-50 text-red-700"
-                        : "border-border bg-muted/40 text-muted-foreground"
-                    }`}
-                  >
-                    <div className="flex flex-wrap gap-x-4 gap-y-0.5">
-                      <span>
-                        <span className="font-medium">{meter.length}</span> chars
-                      </span>
-                      <span>
-                        <span className="font-medium">{meter.segments}</span>{" "}
-                        segment{meter.segments !== 1 ? "s" : ""}
-                      </span>
-                      <span>
-                        <span className="font-medium">{meter.remaining}</span> remaining
-                      </span>
-                      <span className={meter.encoding === "unicode" ? "font-semibold text-orange-600" : ""}>
-                        {meter.encoding === "gsm7" ? "GSM-7" : "Unicode"}
-                      </span>
-                      {recipients.length > 0 && (
-                        <span>
-                          Cost:{" "}
-                          <span className={`font-semibold ${overBudget ? "text-red-700" : ""}`}>
-                            {cost} credits
-                          </span>
-                          {" / "}
-                          <span className="font-medium">{balance.toLocaleString()}</span> balance
-                        </span>
-                      )}
-                    </div>
-                    {meter.encoding === "unicode" && (
-                      <div className="text-orange-600">
-                        A special character switched this to Unicode — fewer chars per segment (70 / 67 multi).
-                      </div>
-                    )}
-                    {overBudget && (
-                      <div className="font-medium">
-                        Insufficient credits — buy a bundle on the Overview tab.
-                      </div>
-                    )}
+          {/* ── HISTORY ── */}
+          <TabsContent value="history" className="pt-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><History className="h-5 w-5" /> Recent sends</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {logs.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No sends yet.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b text-left text-muted-foreground">
+                          <th className="py-2 font-medium">Message</th>
+                          <th className="py-2 font-medium">To</th>
+                          <th className="py-2 font-medium">Credits</th>
+                          <th className="py-2 font-medium">Status</th>
+                          <th className="py-2 font-medium">When</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {logs.map((l) => (
+                          <tr key={l.id} className="border-b last:border-0">
+                            <td className="max-w-[16rem] truncate py-2">{l.message}</td>
+                            <td className="py-2">{l.recipients_count}</td>
+                            <td className="py-2">{l.credits_used}</td>
+                            <td className="py-2">
+                              <span className={`rounded px-2 py-0.5 text-xs font-medium ${LOG_BADGE[l.status] ?? "bg-muted text-muted-foreground"}`}>
+                                {l.status}
+                              </span>
+                            </td>
+                            <td className="py-2 text-muted-foreground">{new Date(l.created_at).toLocaleString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 )}
-              </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+      </div>
+    </DashboardLayout>
+  )
+}
 
-              {/* Recipients */}
-              <div className="space-y-1">
-                <label className="text-sm font-medium" htmlFor="sms-recipients">
-                  Recipients{" "}
-                  {recipients.length > 0 && (
-                    <span className="text-muted-foreground font-normal">
-                      ({recipients.length} unique)
-                    </span>
-                  )}
-                </label>
-                <textarea
-                  id="sms-recipients"
-                  value={recipientsRaw}
-                  onChange={(e) => setRecipientsRaw(e.target.value)}
-                  rows={4}
-                  disabled={!isActive}
-                  placeholder={"One per line or comma-separated:\n+233201234567\n+233551234567"}
-                  className="w-full rounded-md border px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 resize-y"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Duplicates are removed automatically. Max 500 per send.
-                </p>
-              </div>
-
-              {/* Send button */}
-              <button
-                onClick={sendMessage}
-                disabled={sendDisabled}
-                className="w-full rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50 hover:opacity-90 transition-opacity"
-              >
-                {sending ? "Sending…" : `Send to ${recipients.length || "…"} recipient${recipients.length !== 1 ? "s" : ""}`}
-              </button>
-            </div>
-
-            {/* ── Right: phone preview ── */}
-            <div className="lg:w-56 flex-shrink-0 space-y-2">
-              <p className="text-sm font-medium">Preview</p>
-              <div className="relative mx-auto w-44 rounded-[2rem] border-4 border-gray-800 bg-gray-800 shadow-xl overflow-hidden">
-                {/* status bar */}
-                <div className="bg-gray-800 px-3 pt-2 pb-1 flex justify-between items-center">
-                  <span className="text-white text-[9px] font-semibold">9:41</span>
-                  <span className="text-white text-[9px]">●●●</span>
-                </div>
-                {/* screen */}
-                <div className="bg-gray-100 min-h-[200px] px-2 py-2">
-                  {/* sender name */}
-                  <div className="text-center mb-2">
-                    <span className="text-[9px] text-gray-500 bg-gray-200 rounded-full px-2 py-0.5">
-                      Datagod
-                    </span>
-                  </div>
-                  {/* bubble */}
-                  <div className="flex justify-start">
-                    <div className="max-w-[85%] rounded-2xl rounded-tl-sm bg-white shadow-sm px-2.5 py-1.5">
-                      <p className="text-[10px] text-gray-900 break-words whitespace-pre-wrap leading-snug">
-                        {message || (
-                          <span className="text-gray-400 italic">Your message appears here…</span>
-                        )}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                {/* home bar */}
-                <div className="bg-gray-100 pb-1.5 flex justify-center">
-                  <div className="w-10 h-1 rounded-full bg-gray-400" />
-                </div>
-              </div>
-              <p className="text-xs text-center text-muted-foreground">
-                Displayed as it appears on the recipient&apos;s phone
-              </p>
-            </div>
-          </div>
-
-          {/* ── Send history ── */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold">Send History</h2>
-              <button
-                onClick={loadLogs}
-                disabled={logsLoading}
-                className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
-              >
-                {logsLoading ? "Loading…" : "Refresh"}
-              </button>
-            </div>
-
-            {logsLoading && logs.length === 0 && (
-              <p className="text-sm text-muted-foreground">Loading history…</p>
-            )}
-
-            {!logsLoading && logs.length === 0 && (
-              <p className="text-sm text-muted-foreground">No sends yet.</p>
-            )}
-
-            {logs.length > 0 && (
-              <div className="divide-y rounded-lg border overflow-hidden">
-                {logs.map((log) => (
-                  <div key={log.id} className="flex items-start justify-between gap-3 px-4 py-3 hover:bg-muted/30">
-                    <div className="min-w-0 flex-1 space-y-0.5">
-                      <p className="text-sm truncate text-foreground">{log.message}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {log.recipients_count} recipient{log.recipients_count !== 1 ? "s" : ""} ·{" "}
-                        {log.segments} seg{log.segments !== 1 ? "s" : ""} ·{" "}
-                        {log.credits_used} credit{log.credits_used !== 1 ? "s" : ""} ·{" "}
-                        {new Date(log.created_at).toLocaleString()}
-                      </p>
-                    </div>
-                    <span
-                      className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${
-                        STATUS_BADGE[log.status] ?? "bg-gray-100 text-gray-700"
-                      }`}
-                    >
-                      {log.status}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </>
-      )}
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-medium">{value}</span>
     </div>
   )
 }

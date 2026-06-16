@@ -3,6 +3,23 @@
 import { useCallback, useEffect, useState } from "react"
 import { api } from "../_lib/api"
 import { calculateSegments } from "@/lib/sms/segments"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { toast } from "sonner"
+import { Loader2, Pencil, Plus, Trash2 } from "lucide-react"
 
 interface Template {
   id: string
@@ -16,8 +33,8 @@ export default function TemplatesTab() {
   const [name, setName] = useState("")
   const [body, setBody] = useState("")
   const [editing, setEditing] = useState<Template | null>(null)
-  const [msg, setMsg] = useState("")
   const [busy, setBusy] = useState(false)
+  const [pendingDelete, setPendingDelete] = useState<Template | null>(null)
 
   const load = useCallback(async () => {
     const res = await api<Template[]>("/api/admin/sms-templates")
@@ -36,11 +53,10 @@ export default function TemplatesTab() {
 
   async function save() {
     if (!name.trim() || !body.trim()) {
-      setMsg("Name and body are required.")
+      toast.error("Name and body are required.")
       return
     }
     setBusy(true)
-    setMsg("")
     const res = editing
       ? await api(`/api/admin/sms-templates/${editing.id}`, {
           method: "PATCH",
@@ -52,11 +68,11 @@ export default function TemplatesTab() {
         })
     setBusy(false)
     if (res.success) {
-      setMsg(editing ? "Template updated." : "Template created.")
+      toast.success(editing ? "Template updated." : "Template created.")
       resetForm()
       await load()
     } else {
-      setMsg(`Error: ${res.error}`)
+      toast.error(res.error ?? "Failed to save template")
     }
   }
 
@@ -67,93 +83,128 @@ export default function TemplatesTab() {
   }
 
   async function remove(t: Template) {
-    if (!confirm(`Delete template "${t.name}"?`)) return
     setBusy(true)
     const res = await api(`/api/admin/sms-templates/${t.id}`, { method: "DELETE" })
     setBusy(false)
     if (res.success) {
       if (editing?.id === t.id) resetForm()
+      toast.success("Template deleted.")
       await load()
     } else {
-      setMsg(`Error: ${res.error}`)
+      toast.error(res.error ?? "Failed to delete template")
     }
   }
 
   const seg = calculateSegments(body)
+  const displaySegments = body.length === 0 ? 0 : seg.segments
 
   return (
-    <div className="space-y-6">
-      {msg && <p className="text-sm rounded border bg-muted/40 px-3 py-2">{msg}</p>}
-
+    <>
+    <div className="grid gap-4 lg:grid-cols-2">
       {/* Editor */}
-      <section className="rounded-lg border p-4 space-y-3">
-        <h2 className="font-semibold">{editing ? `Edit “${editing.name}”` : "New template"}</h2>
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Template name"
-          maxLength={100}
-          className="w-full rounded border px-2 py-1 text-sm"
-        />
-        <textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          placeholder="Message body — use [FirstName], [LastName], [Phone] for personalisation"
-          maxLength={1000}
-          rows={4}
-          className="w-full rounded border px-2 py-1 text-sm"
-        />
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>
-            {body.length} chars · {seg.encoding.toUpperCase()} · {seg.segments} segment
-            {seg.segments === 1 ? "" : "s"}
-          </span>
-          <div className="flex gap-2">
-            {editing && (
-              <button onClick={resetForm} className="rounded border px-3 py-1 hover:bg-accent">
-                Cancel
-              </button>
-            )}
-            <button
-              onClick={save}
-              disabled={busy}
-              className="rounded bg-primary px-3 py-1 text-primary-foreground disabled:opacity-50"
-            >
-              {editing ? "Update" : "Create"}
-            </button>
+      <Card className="self-start">
+        <CardHeader>
+          <CardTitle className="text-base">{editing ? `Edit "${editing.name}"` : "New template"}</CardTitle>
+          <CardDescription>Reusable message bodies for broadcasts.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="tplName">Name</Label>
+            <Input id="tplName" value={name} onChange={(e) => setName(e.target.value)} placeholder="Template name" maxLength={100} />
           </div>
-        </div>
-      </section>
+          <div className="space-y-1.5">
+            <Label htmlFor="tplBody">Body</Label>
+            <Textarea
+              id="tplBody"
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              placeholder="Message body — use [FirstName], [LastName], [Phone] for personalisation"
+              maxLength={1000}
+              rows={5}
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">
+              {body.length} chars · {seg.encoding.toUpperCase()} · {displaySegments} segment{displaySegments === 1 ? "" : "s"}
+            </span>
+            <div className="flex gap-2">
+              {editing && (
+                <Button variant="outline" onClick={resetForm}>
+                  Cancel
+                </Button>
+              )}
+              <Button onClick={save} disabled={busy}>
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                {editing ? "Update" : "Create"}
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* List */}
-      <section className="rounded-lg border p-4 space-y-2">
-        <h2 className="font-semibold">Templates ({templates.length})</h2>
-        {templates.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No templates yet.</p>
-        ) : (
-          <ul className="divide-y">
-            {templates.map((t) => (
-              <li key={t.id} className="flex items-start justify-between gap-3 py-2">
-                <div className="min-w-0">
-                  <p className="font-medium">{t.name}</p>
-                  <p className="truncate text-sm text-muted-foreground">{t.body}</p>
-                </div>
-                <div className="flex shrink-0 gap-2">
-                  <button onClick={() => startEdit(t)} className="rounded border px-2 py-1 text-xs hover:bg-accent">
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => remove(t)}
-                    className="rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Templates ({templates.length})</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {templates.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No templates yet.</p>
+          ) : (
+            <ul className="divide-y">
+              {templates.map((t) => (
+                <li key={t.id} className="flex items-start justify-between gap-3 py-3">
+                  <div className="min-w-0">
+                    <p className="font-medium">{t.name}</p>
+                    <p className="truncate text-sm text-muted-foreground">{t.body}</p>
+                  </div>
+                  <div className="flex shrink-0 gap-1">
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => startEdit(t)}>
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-destructive hover:text-destructive"
+                      onClick={() => setPendingDelete(t)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
     </div>
+
+    <AlertDialog open={pendingDelete !== null} onOpenChange={(open) => !open && setPendingDelete(null)}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete template?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This permanently deletes the template{pendingDelete ? ` "${pendingDelete.name}"` : ""}. This cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={busy}
+            className="bg-destructive text-white hover:bg-destructive/90"
+            onClick={() => {
+              if (pendingDelete) {
+                const t = pendingDelete
+                setPendingDelete(null)
+                void remove(t)
+              }
+            }}
+          >
+            Delete
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   )
 }

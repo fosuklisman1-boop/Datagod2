@@ -1,7 +1,25 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { api } from "../_lib/api"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { toast } from "sonner"
+import { Loader2, Plus, Trash2, Upload, UserPlus } from "lucide-react"
 
 interface Group {
   id: string
@@ -19,12 +37,35 @@ interface Contact {
   opted_out: boolean
 }
 
+type BulkRow = { phone_number: string; first_name: string | null; last_name: string | null }
+
+interface BulkResult {
+  inserted: number
+  skipped: number
+  skippedSamples?: { phone: string; reason: string }[]
+}
+
+// Parse CSV/paste text into rows. Each line: phone[,firstName[,lastName]].
+// Tolerates a header row (skipped if the first cell is non-numeric).
+function parseRows(text: string): BulkRow[] {
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+  const rows: BulkRow[] = []
+  lines.forEach((line, i) => {
+    const [phone_number, first_name, last_name] = line.split(",").map((p) => p.trim())
+    if (!phone_number) return
+    // Skip a header row: first line whose phone cell has no digits.
+    if (i === 0 && !/\d/.test(phone_number)) return
+    rows.push({ phone_number, first_name: first_name || null, last_name: last_name || null })
+  })
+  return rows
+}
+
 export default function ContactsTab() {
   const [groups, setGroups] = useState<Group[]>([])
   const [selected, setSelected] = useState<Group | null>(null)
   const [contacts, setContacts] = useState<Contact[]>([])
-  const [msg, setMsg] = useState("")
   const [busy, setBusy] = useState(false)
+  const [pendingDelete, setPendingDelete] = useState<Group | null>(null)
 
   // create-group form
   const [gName, setGName] = useState("")
@@ -35,8 +76,9 @@ export default function ContactsTab() {
   const [cLast, setCLast] = useState("")
   const [cPhone, setCPhone] = useState("")
 
-  // bulk import
+  // bulk import (paste)
   const [bulk, setBulk] = useState("")
+  const fileRef = useRef<HTMLInputElement>(null)
 
   const loadGroups = useCallback(async () => {
     const res = await api<Group[]>("/api/admin/sms-groups")
@@ -58,7 +100,6 @@ export default function ContactsTab() {
   async function createGroup() {
     if (!gName.trim()) return
     setBusy(true)
-    setMsg("")
     const res = await api<Group>("/api/admin/sms-groups", {
       method: "POST",
       body: JSON.stringify({ name: gName, description: gDesc || null }),
@@ -67,12 +108,12 @@ export default function ContactsTab() {
     if (res.success) {
       setGName("")
       setGDesc("")
+      toast.success("Group created.")
       await loadGroups()
-    } else setMsg(`Error: ${res.error}`)
+    } else toast.error(res.error ?? "Failed to create group")
   }
 
   async function deleteGroup(g: Group) {
-    if (!confirm(`Delete group "${g.name}" and all its contacts?`)) return
     setBusy(true)
     const res = await api(`/api/admin/sms-groups/${g.id}`, { method: "DELETE" })
     setBusy(false)
@@ -81,14 +122,14 @@ export default function ContactsTab() {
         setSelected(null)
         setContacts([])
       }
+      toast.success("Group deleted.")
       await loadGroups()
-    } else setMsg(`Error: ${res.error}`)
+    } else toast.error(res.error ?? "Failed to delete group")
   }
 
   async function addContact() {
     if (!selected || !cPhone.trim()) return
     setBusy(true)
-    setMsg("")
     const res = await api("/api/admin/sms-contacts", {
       method: "POST",
       body: JSON.stringify({
@@ -103,36 +144,47 @@ export default function ContactsTab() {
       setCFirst("")
       setCLast("")
       setCPhone("")
+      toast.success("Contact added.")
       await Promise.all([loadGroup(selected.id), loadGroups()])
-    } else setMsg(`Error: ${res.error}`)
+    } else toast.error(res.error ?? "Failed to add contact")
   }
 
-  async function importBulk() {
-    if (!selected || !bulk.trim()) return
-    // Each line: phone[,firstName[,lastName]]
-    const rows = bulk
-      .split("\n")
-      .map((l) => l.trim())
-      .filter(Boolean)
-      .map((l) => {
-        const [phone_number, first_name, last_name] = l.split(",").map((p) => p.trim())
-        return { phone_number, first_name: first_name || null, last_name: last_name || null }
-      })
-      .filter((r) => r.phone_number)
-
-    if (rows.length === 0) return
+  async function postRows(rows: BulkRow[]) {
+    if (!selected || rows.length === 0) {
+      toast.error("No valid rows found (expected: phone,firstName,lastName)")
+      return
+    }
     setBusy(true)
-    setMsg("")
-    const res = await api<{ inserted: number; skipped: number }>("/api/admin/sms-contacts", {
+    const res = await api<BulkResult>("/api/admin/sms-contacts", {
       method: "POST",
       body: JSON.stringify({ group_id: selected.id, rows }),
     })
     setBusy(false)
     if (res.success && res.data) {
-      setBulk("")
-      setMsg(`Imported ${res.data.inserted}; skipped ${res.data.skipped} (invalid/duplicate).`)
+      toast.success(`Imported ${res.data.inserted}; skipped ${res.data.skipped} (invalid/duplicate).`)
       await Promise.all([loadGroup(selected.id), loadGroups()])
-    } else setMsg(`Error: ${res.error}`)
+    } else toast.error(res.error ?? "Import failed")
+  }
+
+  async function importBulk() {
+    const rows = parseRows(bulk)
+    if (rows.length === 0) return toast.error("No valid rows to import.")
+    await postRows(rows)
+    setBulk("")
+  }
+
+  async function importCsvFile(file: File) {
+    if (!selected) return
+    try {
+      const text = await file.text()
+      const rows = parseRows(text)
+      if (rows.length === 0) return toast.error("CSV had no valid rows.")
+      await postRows(rows)
+    } catch {
+      toast.error("Could not read that file.")
+    } finally {
+      if (fileRef.current) fileRef.current.value = ""
+    }
   }
 
   async function toggleOptOut(c: Contact) {
@@ -143,7 +195,7 @@ export default function ContactsTab() {
     })
     setBusy(false)
     if (res.success && selected) await loadGroup(selected.id)
-    else if (!res.success) setMsg(`Error: ${res.error}`)
+    else if (!res.success) toast.error(res.error ?? "Failed to update contact")
   }
 
   async function deleteContact(c: Contact) {
@@ -151,39 +203,29 @@ export default function ContactsTab() {
     const res = await api(`/api/admin/sms-contacts/${c.id}`, { method: "DELETE" })
     setBusy(false)
     if (res.success && selected) await Promise.all([loadGroup(selected.id), loadGroups()])
-    else if (!res.success) setMsg(`Error: ${res.error}`)
+    else if (!res.success) toast.error(res.error ?? "Failed to delete contact")
   }
 
   return (
-    <div className="space-y-4">
-      {msg && <p className="text-sm rounded border bg-muted/40 px-3 py-2">{msg}</p>}
-
-      <div className="grid gap-4 md:grid-cols-[18rem_1fr]">
-        {/* Groups column */}
-        <section className="rounded-lg border p-4 space-y-3">
-          <h2 className="font-semibold">Groups</h2>
-
+    <>
+    <div className="grid gap-4 md:grid-cols-[19rem_1fr]">
+      {/* Groups column */}
+      <Card className="self-start">
+        <CardHeader>
+          <CardTitle className="text-base">Groups</CardTitle>
+          <CardDescription>Address-book groups for targeted SMS.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
           <div className="space-y-2">
-            <input
-              value={gName}
-              onChange={(e) => setGName(e.target.value)}
-              placeholder="New group name"
-              maxLength={100}
-              className="w-full rounded border px-2 py-1 text-sm"
-            />
-            <input
+            <Input value={gName} onChange={(e) => setGName(e.target.value)} placeholder="New group name" maxLength={100} />
+            <Input
               value={gDesc}
               onChange={(e) => setGDesc(e.target.value)}
               placeholder="Description (optional)"
-              className="w-full rounded border px-2 py-1 text-sm"
             />
-            <button
-              onClick={createGroup}
-              disabled={busy || !gName.trim()}
-              className="w-full rounded bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-50"
-            >
-              Create group
-            </button>
+            <Button className="w-full" onClick={createGroup} disabled={busy || !gName.trim()}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Create group
+            </Button>
           </div>
 
           <ul className="divide-y">
@@ -198,120 +240,170 @@ export default function ContactsTab() {
                   <span className="block truncate">{g.name}</span>
                   <span className="text-xs text-muted-foreground">{g.contact_count ?? 0} contacts</span>
                 </button>
-                <button
-                  onClick={() => deleteGroup(g)}
-                  className="shrink-0 rounded border border-red-200 px-2 py-0.5 text-xs text-red-600 hover:bg-red-50"
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 shrink-0 text-destructive hover:text-destructive"
+                  onClick={() => setPendingDelete(g)}
                 >
-                  Delete
-                </button>
+                  <Trash2 className="h-4 w-4" />
+                </Button>
               </li>
             ))}
             {groups.length === 0 && <li className="py-2 text-sm text-muted-foreground">No groups yet.</li>}
           </ul>
-        </section>
+        </CardContent>
+      </Card>
 
-        {/* Contacts column */}
-        <section className="rounded-lg border p-4 space-y-4">
-          {!selected ? (
-            <p className="text-sm text-muted-foreground">Select a group to manage its contacts.</p>
-          ) : (
-            <>
-              <h2 className="font-semibold">{selected.name} — contacts</h2>
+      {/* Contacts column */}
+      <div className="space-y-4">
+        {!selected ? (
+          <Card>
+            <CardContent className="py-10 text-center text-sm text-muted-foreground">
+              Select a group to manage its contacts.
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <UserPlus className="h-4 w-4" /> Add to {selected.name}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Add single */}
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <Input value={cFirst} onChange={(e) => setCFirst(e.target.value)} placeholder="First name" />
+                  <Input value={cLast} onChange={(e) => setCLast(e.target.value)} placeholder="Last name" />
+                  <Input value={cPhone} onChange={(e) => setCPhone(e.target.value)} placeholder="Phone (0XXXXXXXXX)" />
+                  <Button onClick={addContact} disabled={busy || !cPhone.trim()}>
+                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Add
+                  </Button>
+                </div>
 
-              {/* Add single */}
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                <input
-                  value={cFirst}
-                  onChange={(e) => setCFirst(e.target.value)}
-                  placeholder="First name"
-                  className="rounded border px-2 py-1 text-sm"
-                />
-                <input
-                  value={cLast}
-                  onChange={(e) => setCLast(e.target.value)}
-                  placeholder="Last name"
-                  className="rounded border px-2 py-1 text-sm"
-                />
-                <input
-                  value={cPhone}
-                  onChange={(e) => setCPhone(e.target.value)}
-                  placeholder="Phone (0XXXXXXXXX)"
-                  className="rounded border px-2 py-1 text-sm"
-                />
-                <button
-                  onClick={addContact}
-                  disabled={busy || !cPhone.trim()}
-                  className="rounded bg-primary px-3 py-1 text-sm text-primary-foreground disabled:opacity-50"
-                >
-                  Add
-                </button>
-              </div>
+                {/* CSV upload */}
+                <div className="space-y-2 rounded-lg border p-3">
+                  <Label className="flex items-center gap-2 text-sm font-medium">
+                    <Upload className="h-4 w-4" /> Upload CSV
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Columns: <code>phone,firstName,lastName</code> (name fields optional; a header row is tolerated).
+                  </p>
+                  <Input
+                    ref={fileRef}
+                    type="file"
+                    accept=".csv,text/csv"
+                    disabled={busy}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      if (f) importCsvFile(f)
+                    }}
+                  />
+                </div>
 
-              {/* Bulk import */}
-              <details className="rounded border p-2">
-                <summary className="cursor-pointer text-sm font-medium">Bulk import</summary>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  One per line: <code>phone,firstName,lastName</code> (name fields optional). Invalid numbers
-                  and duplicates are skipped automatically.
-                </p>
-                <textarea
-                  value={bulk}
-                  onChange={(e) => setBulk(e.target.value)}
-                  rows={5}
-                  placeholder={"0241234567,Ama,Mensah\n0207654321"}
-                  className="mt-2 w-full rounded border px-2 py-1 text-sm font-mono"
-                />
-                <button
-                  onClick={importBulk}
-                  disabled={busy || !bulk.trim()}
-                  className="mt-2 rounded bg-primary px-3 py-1 text-sm text-primary-foreground disabled:opacity-50"
-                >
-                  Import
-                </button>
-              </details>
+                {/* Bulk paste */}
+                <div className="space-y-2">
+                  <Label htmlFor="bulk" className="text-sm font-medium">
+                    …or paste rows
+                  </Label>
+                  <Textarea
+                    id="bulk"
+                    value={bulk}
+                    onChange={(e) => setBulk(e.target.value)}
+                    rows={4}
+                    placeholder={"0241234567,Ama,Mensah\n0207654321"}
+                    className="font-mono text-sm"
+                  />
+                  <Button variant="outline" onClick={importBulk} disabled={busy || !bulk.trim()}>
+                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Import pasted rows
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
 
-              {/* Contacts table */}
-              {contacts.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No contacts in this group.</p>
-              ) : (
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-left text-muted-foreground">
-                      <th className="py-1.5 font-medium">Name</th>
-                      <th className="py-1.5 font-medium">Phone</th>
-                      <th className="py-1.5 font-medium">Status</th>
-                      <th className="py-1.5 font-medium text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {contacts.map((c) => (
-                      <tr key={c.id} className="border-b last:border-0">
-                        <td className="py-1.5">{[c.first_name, c.last_name].filter(Boolean).join(" ") || "—"}</td>
-                        <td className="py-1.5 font-mono">{c.phone_number}</td>
-                        <td className="py-1.5">
-                          {c.opted_out ? (
-                            <span className="rounded bg-red-100 px-2 py-0.5 text-xs text-red-700">opted out</span>
-                          ) : (
-                            <span className="rounded bg-green-100 px-2 py-0.5 text-xs text-green-700">active</span>
-                          )}
-                        </td>
-                        <td className="py-1.5 text-right">
-                          <button onClick={() => toggleOptOut(c)} className="mr-2 text-xs underline">
-                            {c.opted_out ? "Re-include" : "Opt out"}
-                          </button>
-                          <button onClick={() => deleteContact(c)} className="text-xs text-red-600 underline">
-                            Delete
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </>
-          )}
-        </section>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Contacts ({contacts.length})</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {contacts.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No contacts in this group.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b text-left text-muted-foreground">
+                          <th className="py-2 font-medium">Name</th>
+                          <th className="py-2 font-medium">Phone</th>
+                          <th className="py-2 font-medium">Status</th>
+                          <th className="py-2 text-right font-medium">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {contacts.map((c) => (
+                          <tr key={c.id} className="border-b last:border-0">
+                            <td className="py-2">{[c.first_name, c.last_name].filter(Boolean).join(" ") || "—"}</td>
+                            <td className="py-2 font-mono">{c.phone_number}</td>
+                            <td className="py-2">
+                              {c.opted_out ? (
+                                <Badge variant="destructive">opted out</Badge>
+                              ) : (
+                                <Badge className="bg-green-100 text-green-700">active</Badge>
+                              )}
+                            </td>
+                            <td className="py-2 text-right">
+                              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => toggleOptOut(c)}>
+                                {c.opted_out ? "Re-include" : "Opt out"}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 text-xs text-destructive hover:text-destructive"
+                                onClick={() => deleteContact(c)}
+                              >
+                                Delete
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
     </div>
+
+    <AlertDialog open={pendingDelete !== null} onOpenChange={(open) => !open && setPendingDelete(null)}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete group?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This deletes the group{pendingDelete ? ` "${pendingDelete.name}"` : ""} and all of its contacts. This cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={busy}
+            className="bg-destructive text-white hover:bg-destructive/90"
+            onClick={() => {
+              if (pendingDelete) {
+                const g = pendingDelete
+                setPendingDelete(null)
+                void deleteGroup(g)
+              }
+            }}
+          >
+            Delete
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   )
 }

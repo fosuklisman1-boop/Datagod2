@@ -27,8 +27,13 @@ const h = vi.hoisted(() => {
           if (typeof cols === "string" && cols.includes("local_status") && col === "local_status") {
             return Promise.resolve({ data: state.pendingRows, error: null })
           }
-          // submit idempotency: .select("*").eq("sender_id", ...).maybeSingle()
-          return { maybeSingle: () => Promise.resolve({ data: state.existing, error: null }) }
+          // getBySenderId: .select("*").eq("sender_id", v).[is|eq]("sms_account_id", x).maybeSingle()
+          const finalize = { maybeSingle: () => Promise.resolve({ data: state.existing, error: null }) }
+          return {
+            is: (_c: string, _v: unknown) => finalize,
+            eq: (_c: string, _v: string) => finalize,
+            maybeSingle: finalize.maybeSingle,
+          }
         },
       }),
       insert: (row: Record<string, unknown>) => {
@@ -115,6 +120,17 @@ describe("submitSenderId", () => {
     expect(res.ok).toBe(true)
     expect(h.state.insertPayload).toMatchObject({ sender_id: "DTGOD", local_status: "pending" })
     expect(h.createMoolreSenderId).toHaveBeenCalledWith("DTGOD")
+  })
+
+  it("defaults to admin-global (sms_account_id null) when no account is given", async () => {
+    await submitSenderId("DTGOD")
+    expect(h.state.insertPayload).toMatchObject({ sms_account_id: null })
+  })
+
+  it("stamps the owning account when a tenant requests a sender ID", async () => {
+    const res = await submitSenderId("MYSHOP", "acc-123")
+    expect(res.ok).toBe(true)
+    expect(h.state.insertPayload).toMatchObject({ sender_id: "MYSHOP", sms_account_id: "acc-123" })
   })
 })
 
