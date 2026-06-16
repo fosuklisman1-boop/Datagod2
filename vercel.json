@@ -76,6 +76,10 @@
     {
       "path": "/api/cron/sms-send-drain",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/sms-senderid-poll",
+      "schedule": "*/10 * * * *"
     }
   ]
 }
