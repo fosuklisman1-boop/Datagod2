@@ -42,6 +42,8 @@ import {
   PhoneOff,
   ClipboardCheck,
   BookOpen,
+  Send,
+  MessageSquare,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
@@ -75,6 +77,7 @@ const menuItems = [
 const shopItems = [
   { href: "/dashboard/my-shop", label: "My Shop", icon: Store, roles: ["user", "admin", "sub_agent", "dealer"] },
   { href: "/dashboard/shop-dashboard", label: "Shop Dashboard", icon: TrendingUp, roles: ["user", "admin", "sub_agent", "dealer"] },
+  { href: "/dashboard/sms", label: "SMS", icon: Send, roles: ["user", "admin", "sub_agent", "dealer"] },
   { href: "/dashboard/ussd-shop", label: "USSD Shop", icon: Smartphone, roles: ["user", "admin", "sub_agent", "dealer"] },
   { href: "/dashboard/payment-reverify", label: "Payment Reverify", icon: Zap, roles: ["user", "admin", "sub_agent", "dealer"] },
   { href: "/dashboard/sub-agents", label: "Sub-Agents", icon: Users, roles: ["user", "admin", "dealer"] },
@@ -532,6 +535,29 @@ export function Sidebar() {
                     <MessageCircle className="w-5 h-5 flex-shrink-0" />
                   )}
                   {isOpen && "SMS Health"}
+                </Button>
+              </Link>
+
+              <Link href="/admin/sms" onClick={() => handleNavigation("/admin/sms")}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    userRole === 'dealer'
+                      ? (pathname === "/admin/sms" ? "bg-white/15 text-white shadow-lg" : "text-purple-100 hover:bg-white/10")
+                      : (pathname === "/admin/sms" ? "bg-primary/10 text-primary font-medium" : "text-sidebar-foreground hover:bg-accent"),
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/sms" && "opacity-70"
+                  )}
+                  title={!isOpen ? "SMS Platform" : undefined}
+                  disabled={loadingPath === "/admin/sms"}
+                >
+                  {loadingPath === "/admin/sms" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <MessageSquare className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && "SMS Platform"}
                 </Button>
               </Link>
 
