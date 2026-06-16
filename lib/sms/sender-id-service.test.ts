@@ -107,6 +107,15 @@ describe("submitSenderId", () => {
     expect(h.state.insertPayload).toBeNull()
     expect(h.createMoolreSenderId).not.toHaveBeenCalled()
   })
+
+  // Regression: mixed-case input must be canonicalised to upper-case before the
+  // existence check, insert, and Moolre call — otherwise idempotency breaks.
+  it("upper-cases the sender ID for the insert and the Moolre call", async () => {
+    const res = await submitSenderId("  DtGod ")
+    expect(res.ok).toBe(true)
+    expect(h.state.insertPayload).toMatchObject({ sender_id: "DTGOD", local_status: "pending" })
+    expect(h.createMoolreSenderId).toHaveBeenCalledWith("DTGOD")
+  })
 })
 
 describe("pollSenderIds", () => {
@@ -135,5 +144,21 @@ describe("pollSenderIds", () => {
     expect(res.ok).toBe(true)
     expect((res as { data: { polled: number; updated: number } }).data.polled).toBe(1)
     expect((res as { data: { updated: number } }).data.updated).toBe(0)
+  })
+
+  // Regression: a transient Moolre failure (fail-soft sentinel) must NOT overwrite
+  // the last-known-good moolre_status — only last_polled_at/updated_at are touched.
+  it("preserves moolre_status on a fail-soft sentinel ('error'), still stamping last_polled_at", async () => {
+    h.state.pendingRows = [{ id: "s1", sender_id: "DTGOD", local_status: "pending" }]
+    h.state.moolreStatus = { rawStatus: "error", localStatus: "pending" }
+
+    const res = await pollSenderIds()
+    expect(res.ok).toBe(true)
+    expect((res as { data: { updated: number } }).data.updated).toBe(0)
+
+    const lastPatch = h.state.updatePatches[h.state.updatePatches.length - 1]
+    expect(lastPatch).not.toHaveProperty("moolre_status")
+    expect(lastPatch).not.toHaveProperty("local_status")
+    expect(lastPatch).toHaveProperty("last_polled_at")
   })
 })

@@ -42,6 +42,16 @@ export async function listSenderIds(): Promise<ServiceResult<SmsSenderId[]>> {
   return { ok: true, data: (data ?? []) as SmsSenderId[] }
 }
 
+/** Fetch a single sender-ID row by its (already-canonicalised) sender_id, or null. */
+async function getBySenderId(senderId: string): Promise<SmsSenderId | null> {
+  const { data } = await supabaseAdmin
+    .from("sms_sender_ids")
+    .select("*")
+    .eq("sender_id", senderId)
+    .maybeSingle()
+  return (data as SmsSenderId | null) ?? null
+}
+
 /**
  * Register a sender ID with Moolre and persist a pending row.
  * Idempotent: if the sender ID already exists, returns the existing row without
@@ -50,19 +60,17 @@ export async function listSenderIds(): Promise<ServiceResult<SmsSenderId[]>> {
 export async function submitSenderId(
   senderIdRaw: string
 ): Promise<ServiceResult<{ row: SmsSenderId; moolre: { ok: boolean; message?: string } }>> {
-  const senderId = (senderIdRaw ?? "").trim()
+  // Canonicalise to upper-case (Moolre sender IDs are alnum) BEFORE the existence
+  // check, the insert and the Moolre call — otherwise "DataGod" and "DATAGOD" are
+  // treated as different IDs, defeating idempotency and the UNIQUE(sender_id) row.
+  const senderId = (senderIdRaw ?? "").trim().toUpperCase()
   if (senderId.length < 1 || senderId.length > 11)
     return { ok: false, error: "Sender ID must be 1–11 characters" }
 
   // Idempotency: return the existing row rather than colliding on the UNIQUE constraint.
-  const { data: existing } = await supabaseAdmin
-    .from("sms_sender_ids")
-    .select("*")
-    .eq("sender_id", senderId)
-    .maybeSingle()
-
+  const existing = await getBySenderId(senderId)
   if (existing) {
-    return { ok: true, data: { row: existing as SmsSenderId, moolre: { ok: true, message: "Already submitted" } } }
+    return { ok: true, data: { row: existing, moolre: { ok: true, message: "Already submitted" } } }
   }
 
   const { data: row, error: insErr } = await supabaseAdmin
@@ -71,7 +79,15 @@ export async function submitSenderId(
     .select()
     .single()
 
-  if (insErr) return { ok: false, error: insErr.message }
+  if (insErr) {
+    // Lost a race to a concurrent submit (or a pre-existing row the lookup missed):
+    // re-read and return it idempotently rather than surfacing a raw 23505.
+    if ((insErr as { code?: string }).code === "23505") {
+      const dup = await getBySenderId(senderId)
+      if (dup) return { ok: true, data: { row: dup, moolre: { ok: true, message: "Already submitted" } } }
+    }
+    return { ok: false, error: insErr.message }
+  }
 
   // Fire the Moolre registration. Failure here is non-fatal — the row stays pending
   // and the poll cron / a manual resubmit can reconcile it.
@@ -112,19 +128,25 @@ export async function pollSenderIds(): Promise<ServiceResult<PollSummary>> {
   for (const r of rows) {
     const { rawStatus, localStatus } = await queryMoolreSenderIdStatus(r.sender_id)
 
-    const { error: updErr } = await supabaseAdmin
-      .from("sms_sender_ids")
-      .update({
-        moolre_status: rawStatus,
-        local_status: localStatus,
-        last_polled_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", r.id)
+    // queryMoolreSenderIdStatus fail-softs to these sentinels when it didn't get a
+    // real Moolre status (network error / no API key / unrecognised). Don't let a
+    // transient blip clobber the last-known-good moolre_status — just record that
+    // we polled and move on.
+    const isSentinel = rawStatus === "error" || rawStatus === "no_api_key" || rawStatus === "unknown"
 
+    const patch: Record<string, unknown> = {
+      last_polled_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
+    if (!isSentinel) {
+      patch.moolre_status = rawStatus
+      patch.local_status = localStatus
+    }
+
+    const { error: updErr } = await supabaseAdmin.from("sms_sender_ids").update(patch).eq("id", r.id)
     if (updErr) continue
 
-    if (localStatus !== r.local_status) {
+    if (!isSentinel && localStatus !== r.local_status) {
       summary.updated++
       summary.results.push({ senderId: r.sender_id, from: r.local_status, to: localStatus })
     }

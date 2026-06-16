@@ -71,4 +71,22 @@ describe("personalize", () => {
     const msg = "Bundle is ready."
     expect(personalize(msg, { phone: "0244000000" })).toBe(msg)
   })
+
+  // Regression: replacement values are inserted LITERALLY — a name containing a
+  // '$' special pattern ($&, $`, $', $$, $n) must not splice message text into
+  // the slot. (Function replacers, not string replacers.)
+  it("inserts a firstName containing '$`' literally (no replacement-pattern splice)", () => {
+    const result = personalize("Hi [FirstName], code 1234", { firstName: "$`", phone: "0244000000" })
+    expect(result).toBe("Hi $`, code 1234")
+  })
+
+  it("inserts a name containing '$&' literally", () => {
+    const result = personalize("Dear [LastName]", { lastName: "A$&B", phone: "0244000000" })
+    expect(result).toBe("Dear A$&B")
+  })
+
+  it("inserts a phone-slot value containing '$$' literally", () => {
+    const result = personalize("[Phone]", { phone: "0$$24" })
+    expect(result).toBe("0$$24")
+  })
 })
