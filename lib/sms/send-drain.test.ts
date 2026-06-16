@@ -10,6 +10,7 @@ const h = vi.hoisted(() => {
     rendered_message: string
     segments: number
     attempts: number
+    sender_id?: string | null
   }
 
   const state = {
@@ -130,6 +131,24 @@ describe("drainSmsMessages", () => {
     const recompute = h.state.rpcs.find((r) => r.fn === "recompute_sms_send_result")
     expect(recompute).toBeTruthy()
     expect(recompute!.args.p_send_log_id).toBe("log-1")
+  })
+
+  it("passes the row's sender_id through to sendSMS", async () => {
+    h.state.claimedRows = [
+      { id: "msg-9", send_log_id: "log-9", sms_account_id: "acc-9", phone: "+233241234567", rendered_message: "Hi", segments: 1, attempts: 0, sender_id: "MYSHOP" },
+    ]
+    h.sendSmsMock.mockResolvedValue({ success: true, ref: "r9", provider: "moolre" })
+    await drainSmsMessages()
+    expect(h.sendSmsMock).toHaveBeenCalledWith(expect.objectContaining({ phone: "+233241234567", senderId: "MYSHOP" }))
+  })
+
+  it("null sender_id → sendSMS called with senderId undefined (platform default)", async () => {
+    h.state.claimedRows = [
+      { id: "msg-10", send_log_id: "log-10", sms_account_id: "acc-10", phone: "+233241234567", rendered_message: "Hi", segments: 1, attempts: 0, sender_id: null },
+    ]
+    h.sendSmsMock.mockResolvedValue({ success: true, ref: "r10", provider: "moolre" })
+    await drainSmsMessages()
+    expect(h.sendSmsMock).toHaveBeenCalledWith(expect.objectContaining({ senderId: undefined }))
   })
 
   it("row that fails at attempts>=MAX_ATTEMPTS → marked failed + adjust_sms_units called", async () => {

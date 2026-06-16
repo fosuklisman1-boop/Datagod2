@@ -41,6 +41,7 @@ export interface EnqueueSendError {
     | "NOT_ACTIVATED"
     | "SUSPENDED"
     | "INSUFFICIENT_CREDITS"
+    | "INVALID_SENDER_ID"
     | "ENQUEUE_FAILED"
   reason?: string
 }
@@ -57,11 +58,29 @@ export async function enqueueSend(
   accountId: string,
   message: string,
   recipients: string[],
-  shopTokens?: ShopTokens
+  shopTokens?: ShopTokens,
+  senderId?: string
 ): Promise<EnqueueSendResult | EnqueueSendError> {
   // 1. Recipient cap (before any debit).
   if (recipients.length > MAX_RECIPIENTS) {
     return { ok: false, error: "TOO_MANY_RECIPIENTS" }
+  }
+
+  // 1b. Resolve the chosen sender ID (before any debit). It must be one of THIS
+  //     account's own ACTIVE sender IDs (spec §3: "campaigns may only select an
+  //     active sender ID"). Omitted → null → the platform default at send time.
+  let resolvedSenderId: string | null = null
+  if (senderId && senderId.trim()) {
+    const sid = senderId.trim().toUpperCase()
+    const { data: active } = await supabaseAdmin
+      .from("sms_sender_ids")
+      .select("sender_id")
+      .eq("sms_account_id", accountId)
+      .eq("sender_id", sid)
+      .eq("local_status", "active")
+      .maybeSingle()
+    if (!active) return { ok: false, error: "INVALID_SENDER_ID" }
+    resolvedSenderId = sid
   }
 
   // 2. Prepare message (token substitution + strip undeliverable chars).
@@ -131,6 +150,7 @@ export async function enqueueSend(
       .insert({
         sms_account_id: accountId,
         message,
+        sender_id: resolvedSenderId,
         recipients_count: validPhones.length,
         segments: seg,
         credits_used: 0, // settled by the drain via recompute_sms_send_result
@@ -151,6 +171,7 @@ export async function enqueueSend(
       rendered_message: prepared,
       segments: seg,
       status: "pending",
+      sender_id: resolvedSenderId,
     }))
     for (let i = 0; i < rows.length; i += 500) {
       const { error: msgError } = await supabaseAdmin.from("sms_messages").insert(rows.slice(i, i + 500))

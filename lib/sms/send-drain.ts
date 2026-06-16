@@ -24,6 +24,7 @@ interface SmsMessageRow {
   rendered_message: string
   segments: number
   attempts: number
+  sender_id: string | null
 }
 
 export interface DrainResult {
@@ -67,7 +68,7 @@ async function sendWithTimeout(row: SmsMessageRow) {
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     return await Promise.race([
-      sendSMS({ phone: row.phone, message: row.rendered_message, type: "shop_sms", reference: row.id }),
+      sendSMS({ phone: row.phone, message: row.rendered_message, type: "shop_sms", reference: row.id, senderId: row.sender_id ?? undefined }),
       new Promise<{ success: false; error: string }>((_, reject) => {
         timer = setTimeout(() => reject(new Error(`send timeout after ${SEND_TIMEOUT_MS}ms`)), SEND_TIMEOUT_MS)
       }),

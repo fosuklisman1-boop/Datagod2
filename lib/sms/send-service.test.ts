@@ -10,6 +10,7 @@ const h = vi.hoisted(() => {
     insertLogId: "log-1",               // id returned from sms_send_logs insert
     insertLogError: null as null | string,
     insertMsgError: null as null | string,
+    senderActive: true,                 // sms_sender_ids validation finds an active row for the account
   }
 
   const fake = {
@@ -59,6 +60,15 @@ const h = vi.hoisted(() => {
           }
           return Promise.resolve({ data: null, error: null })
         },
+        // sms_sender_ids validation: .select("sender_id").eq().eq().eq().maybeSingle()
+        select: (_cols?: string) => {
+          const chain: any = {
+            eq: () => chain,
+            maybeSingle: () =>
+              Promise.resolve({ data: state.senderActive ? { sender_id: "MYSHOP" } : null, error: null }),
+          }
+          return chain
+        },
         update: () => ({
           eq: () => ({
             lt: () => Promise.resolve({ data: null, error: null }),
@@ -90,6 +100,7 @@ beforeEach(() => {
   h.state.insertLogId = "log-1"
   h.state.insertLogError = null
   h.state.insertMsgError = null
+  h.state.senderActive = true
 })
 
 // Helper: all rpc calls
@@ -202,6 +213,32 @@ describe("enqueueSend", () => {
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error).toBe("NO_VALID_RECIPIENTS")
     expect(rpcs().map((c) => c.fn)).not.toContain("debit_sms_for_send")
+  })
+
+  it("valid active senderId → stored (uppercased) on the log + message rows, debit proceeds", async () => {
+    const result = await enqueueSend("u1", "acc1", "Hello world", ["0241234567"], undefined, "myshop")
+    expect(result.ok).toBe(true)
+    const logRow = (() => { const i = inserts("sms_send_logs")[0]; return Array.isArray(i.args) ? i.args[0] : i.args })()
+    expect(logRow.sender_id).toBe("MYSHOP")
+    const msgRow = (() => { const i = inserts("sms_messages")[0]; return Array.isArray(i.args) ? i.args[0] : i.args })()
+    expect(msgRow.sender_id).toBe("MYSHOP")
+    expect(rpcs().some((c) => c.fn === "debit_sms_for_send")).toBe(true)
+  })
+
+  it("senderId that isn't an active sender for the account → INVALID_SENDER_ID, no debit", async () => {
+    h.state.senderActive = false
+    const result = await enqueueSend("u1", "acc1", "Hello world", ["0241234567"], undefined, "ghost")
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toBe("INVALID_SENDER_ID")
+    expect(rpcs().map((c) => c.fn)).not.toContain("debit_sms_for_send")
+    expect(inserts("sms_messages")).toHaveLength(0)
+  })
+
+  it("no senderId → sender_id null on the log, default-sender path (back-compat)", async () => {
+    const result = await enqueueSend("u1", "acc1", "Hello world", ["0241234567"])
+    expect(result.ok).toBe(true)
+    const logRow = (() => { const i = inserts("sms_send_logs")[0]; return Array.isArray(i.args) ? i.args[0] : i.args })()
+    expect(logRow.sender_id).toBeNull()
   })
 
   it("queue insert fails AFTER debit → refunds the reservation + ENQUEUE_FAILED (C3)", async () => {

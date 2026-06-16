@@ -34,7 +34,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Invalid JSON" }, { status: 400 })
   }
 
-  const { message, recipients } = (body ?? {}) as { message?: unknown; recipients?: unknown }
+  const { message, recipients, senderId } = (body ?? {}) as { message?: unknown; recipients?: unknown; senderId?: unknown }
+
+  if (senderId !== undefined && typeof senderId !== "string") {
+    return NextResponse.json({ success: false, error: "senderId must be a string" }, { status: 400 })
+  }
 
   if (
     typeof message !== "string" ||
@@ -66,7 +70,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Enqueue
-  const result = await enqueueSend(user.id, account.id, message, recipients as string[])
+  const result = await enqueueSend(user.id, account.id, message, recipients as string[], undefined, senderId as string | undefined)
 
   if (!result.ok) {
     switch (result.error) {
@@ -78,6 +82,7 @@ export async function POST(request: NextRequest) {
       case "EMPTY_MESSAGE":
       case "TOO_MANY_RECIPIENTS":
       case "NO_VALID_RECIPIENTS":
+      case "INVALID_SENDER_ID":
         return NextResponse.json(
           { success: false, error: result.error },
           { status: 400 }

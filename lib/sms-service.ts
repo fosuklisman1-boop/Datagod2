@@ -28,6 +28,7 @@ interface SMSPayload {
   reference?: string
   userId?: string
   skipLogging?: boolean // NEW: Prevent duplicate logs during retries
+  senderId?: string // chosen per-account Moolre sender ID; falls back to MOOLRE_SENDER_ID
 }
 
 // OTP/PIN codes must never be persisted in sms_logs — that table is readable by
@@ -379,7 +380,9 @@ async function sendSMSViaMoolre(payload: SMSPayload): Promise<SendSMSResponse> {
 
     const queryParams = new URLSearchParams({
       type: '1',
-      senderid: MOOLRE_SENDER_ID,
+      // Per-account sender ID when the caller supplied one (a tenant's active,
+      // Moolre-registered ID); otherwise the platform default.
+      senderid: payload.senderId || MOOLRE_SENDER_ID,
       recipient: normalizedPhone,
       message: payload.message,
       ref: trackingRef,

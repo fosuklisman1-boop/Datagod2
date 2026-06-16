@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "sonner"
 import {
@@ -77,6 +78,7 @@ export default function SmsDashboardPage() {
   // compose
   const [message, setMessage] = useState("")
   const [recipientsRaw, setRecipientsRaw] = useState("")
+  const [selectedSenderId, setSelectedSenderId] = useState("") // "" = platform default
   const [sending, setSending] = useState(false)
   // sender-id request
   const [newSender, setNewSender] = useState("")
@@ -130,7 +132,8 @@ export default function SmsDashboardPage() {
 
   useEffect(() => { load() }, [load])
   useEffect(() => { if (tab === "history" || tab === "send") loadLogs() }, [tab, loadLogs])
-  useEffect(() => { if (tab === "senders") loadSenderIds() }, [tab, loadSenderIds])
+  // Sender IDs power both the management tab and the compose "From" selector.
+  useEffect(() => { if (tab === "senders" || tab === "send") loadSenderIds() }, [tab, loadSenderIds])
 
   // ─── actions ──────────────────────────────────────────────────────────────
   async function activate(paidFrom: "wallet" | "paystack") {
@@ -186,7 +189,7 @@ export default function SmsDashboardPage() {
     const t = await token()
     const res = await fetch("/api/shop/sms/send", {
       method: "POST", headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ message, recipients }),
+      body: JSON.stringify({ message, recipients, senderId: selectedSenderId || undefined }),
     }).then((r) => r.json())
     setSending(false)
     if (res.success) {
@@ -203,6 +206,7 @@ export default function SmsDashboardPage() {
         NOT_ACTIVATED: "Activate your SMS account before sending.",
         SUSPENDED: "Your SMS account is suspended.",
         NO_VALID_RECIPIENTS: "No valid phone numbers found.",
+        INVALID_SENDER_ID: "That sender ID isn’t active for your account. Pick an approved one or use the default.",
       }
       toast.error(map[code] ?? res.message ?? code)
     }
@@ -396,6 +400,23 @@ export default function SmsDashboardPage() {
                     <Textarea id="rcpts" rows={4} value={recipientsRaw} onChange={(e) => setRecipientsRaw(e.target.value)}
                       placeholder={"0241234567, 0207654321\nor one per line"} className="font-mono text-sm" />
                   </div>
+                  <div className="space-y-1.5">
+                    <Label>From (sender ID)</Label>
+                    <Select value={selectedSenderId || "default"} onValueChange={(v) => setSelectedSenderId(v === "default" ? "" : v)}>
+                      <SelectTrigger className="w-full sm:w-64"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="default">Platform default</SelectItem>
+                        {senderIds.filter((s) => s.local_status === "active").map((s) => (
+                          <SelectItem key={s.id} value={s.sender_id}>{s.sender_id}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {senderIds.filter((s) => s.local_status === "active").length === 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        No approved sender IDs yet — request one in the Sender IDs tab. Sends use the platform default meanwhile.
+                      </p>
+                    )}
+                  </div>
                   {overBudget && (
                     <Alert variant="destructive">
                       <AlertCircle className="h-4 w-4" />
@@ -413,7 +434,8 @@ export default function SmsDashboardPage() {
               <div className="space-y-4">
                 <Card>
                   <CardHeader className="pb-2"><CardTitle className="text-sm">Preview</CardTitle></CardHeader>
-                  <CardContent>
+                  <CardContent className="space-y-1">
+                    <p className="text-xs text-muted-foreground">From: <span className="font-medium text-foreground">{selectedSenderId || "Platform default"}</span></p>
                     <div className="rounded-2xl rounded-bl-sm bg-primary/10 p-3 text-sm whitespace-pre-wrap min-h-[4rem]">
                       {message || <span className="text-muted-foreground">Your message preview…</span>}
                     </div>
