@@ -33,8 +33,8 @@ interface AccountData {
   activatedAt: string | null
   activationFee: number
   welcomeBonusCredits: number
+  pricePerCredit: number
 }
-interface Bundle { id: string; name: string; units: number; price_ghs: number }
 interface SendLog {
   id: string; message: string; recipients_count: number; segments: number
   credits_used: number; status: string; created_at: string
@@ -105,7 +105,7 @@ const isInFlight = (status: string) => status === "queued" || status === "sendin
 // ─── component ────────────────────────────────────────────────────────────────
 export default function SmsDashboardPage() {
   const [account, setAccount] = useState<AccountData | null>(null)
-  const [bundles, setBundles] = useState<Bundle[]>([])
+  const [creditQty, setCreditQty] = useState("")
   const [logs, setLogs] = useState<SendLog[]>([])
   const [senderIds, setSenderIds] = useState<SenderId[]>([])
   const [loading, setLoading] = useState(true)
@@ -149,12 +149,8 @@ export default function SmsDashboardPage() {
     try {
       const t = await token()
       const headers = { Authorization: `Bearer ${t}` }
-      const [accRes, bunRes] = await Promise.all([
-        fetch("/api/sms/account", { headers }).then((r) => r.json()),
-        fetch("/api/sms/bundles", { headers }).then((r) => r.json()),
-      ])
+      const accRes = await fetch("/api/sms/account", { headers }).then((r) => r.json())
       setAccount(accRes.account ?? null)
-      setBundles(bunRes.bundles ?? [])
       setLoadError(!accRes.account)
     } catch {
       setLoadError(true)
@@ -256,17 +252,29 @@ export default function SmsDashboardPage() {
     else { toast.success(`${res.unitsCredited} bonus SMS credits added!`); await load() }
   }
 
-  async function buyBundle(bundleId: string) {
+  async function buyCredits(paidFrom: "wallet" | "paystack") {
+    const credits = Number(creditQty)
+    if (!Number.isInteger(credits) || credits <= 0) return toast.error("Enter how many credits to buy.")
     setBusy(true)
     const t = await token()
-    const res = await fetch("/api/sms/units/purchase-wallet", {
+    const res = await fetch("/api/sms/units/purchase", {
       method: "POST", headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ bundleId }),
+      body: JSON.stringify({ credits, paidFrom }),
     }).then((r) => r.json())
     setBusy(false)
-    if (res.error) toast.error(res.error === "NOT_ACTIVATED" ? "Activate your account before buying bundles." : res.error)
-    else if (res.pending) toast.info("Payment received — SMS credits are pending SMS supply top-up.")
-    else { toast.success(`${res.unitsCredited} SMS credits added.`); await load() }
+    if (res.error) {
+      toast.error(res.error === "NOT_ACTIVATED" ? "Activate your account first."
+        : res.error === "Insufficient wallet balance" ? "Insufficient wallet balance — top up your wallet or pay with Paystack."
+        : res.error)
+    } else if (res.authorizationUrl) {
+      window.location.href = res.authorizationUrl
+    } else if (res.pending) {
+      toast.info(`Payment received — ${credits} credits pending SMS supply top-up.`)
+      setCreditQty(""); await load()
+    } else {
+      toast.success(`${res.unitsCredited} SMS credits added (GHS ${Number(res.cost).toFixed(2)}).`)
+      setCreditQty(""); await load()
+    }
   }
 
   // ── recipients ──
@@ -723,23 +731,43 @@ export default function SmsDashboardPage() {
             </Card>
           </TabsContent>
 
-          {/* ── BUNDLES ── */}
+          {/* ── BUY CREDITS (free quantity at the per-credit fee) ── */}
           <TabsContent value="bundles" className="pt-4">
             {!isActive ? (
-              <Alert><AlertCircle className="h-4 w-4" /><AlertDescription>Activate your SMS account (Overview tab) before buying credit bundles.</AlertDescription></Alert>
+              <Alert><AlertCircle className="h-4 w-4" /><AlertDescription>Activate your SMS account (Overview tab) before buying credits.</AlertDescription></Alert>
             ) : (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {bundles.map((b) => (
-                  <Card key={b.id}>
-                    <CardHeader><CardTitle>{b.name}</CardTitle><CardDescription>{b.units.toLocaleString()} SMS credits</CardDescription></CardHeader>
-                    <CardContent className="space-y-3">
-                      <p className="text-2xl font-bold">GHS {b.price_ghs}</p>
-                      <Button className="w-full" onClick={() => buyBundle(b.id)} disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />} Buy with wallet</Button>
-                    </CardContent>
-                  </Card>
-                ))}
-                {bundles.length === 0 && <p className="text-sm text-muted-foreground">No bundles available right now.</p>}
-              </div>
+              <Card className="max-w-md">
+                <CardHeader>
+                  <CardTitle>Buy SMS credits</CardTitle>
+                  <CardDescription>GHS {account.pricePerCredit.toFixed(3)} per credit. Enter how many you want.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="qty">Credits</Label>
+                    <Input id="qty" inputMode="numeric" value={creditQty}
+                      onChange={(e) => setCreditQty(e.target.value.replace(/[^0-9]/g, ""))}
+                      placeholder="e.g. 1000" />
+                  </div>
+                  {(() => {
+                    const credits = Number(creditQty)
+                    const cost = Number.isFinite(credits) ? credits * account.pricePerCredit : 0
+                    return (
+                      <div className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2 text-sm">
+                        <span className="text-muted-foreground">{credits > 0 ? `${credits.toLocaleString()} credits` : "Total"}</span>
+                        <span className="text-lg font-bold">GHS {cost.toFixed(2)}</span>
+                      </div>
+                    )
+                  })()}
+                  <div className="flex flex-wrap gap-2">
+                    <Button onClick={() => buyCredits("wallet")} disabled={busy || !Number(creditQty)}>
+                      {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />} Buy with wallet
+                    </Button>
+                    <Button variant="outline" onClick={() => buyCredits("paystack")} disabled={busy || !Number(creditQty)}>
+                      <CreditCard className="h-4 w-4" /> Pay with Paystack
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
             )}
           </TabsContent>
 

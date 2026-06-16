@@ -91,6 +91,27 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ received: true, type: "sms_bundle" })
       }
 
+      // Free-quantity SMS credit top-up (priced by the admin per-credit fee). Verify
+      // the amount paid covers credits × CURRENT price (authoritative recompute — never
+      // trust a price echoed in metadata), then credit the requested quantity.
+      if (metadata?.type === "sms_units_qty" && metadata?.sms_account_id) {
+        const credits = Number(metadata.units)
+        if (!Number.isInteger(credits) || credits <= 0) {
+          console.error("[WEBHOOK] sms_units_qty invalid credits:", metadata.units)
+          return NextResponse.json({ received: true, type: "sms_units_qty", error: "invalid_credits" })
+        }
+        const { getPricePerCredit, creditUnitsForPaystack } = await import("@/lib/sms/bundle-service")
+        const expected = Math.round(credits * (await getPricePerCredit()) * 100) / 100
+        const paidGhs = amount / 100
+        if (paidGhs < expected - 0.01) {
+          console.error(`[WEBHOOK] sms_units_qty underpayment: paid ${paidGhs} < ${expected}`)
+          return NextResponse.json({ received: true, type: "sms_units_qty", error: "underpayment" })
+        }
+        const result = await creditUnitsForPaystack(metadata.sms_account_id, credits, reference)
+        if (!result.ok) console.error("[WEBHOOK] sms_units_qty credit failed:", result.error)
+        return NextResponse.json({ received: true, type: "sms_units_qty" })
+      }
+
       // SMS account activation payment — finalize activation on confirmed payment.
       // metadata.type === "sms_activation" is set by initActivationPaystack().
       if (metadata?.type === "sms_activation" && metadata?.sms_account_id) {

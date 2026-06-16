@@ -127,6 +127,60 @@ export async function purchaseBundleViaWallet(userId: string, accountId: string,
   return res
 }
 
+// ── Per-credit pricing (free-quantity top-up) ──────────────────────────────
+const DEFAULT_PRICE_PER_CREDIT = 0.04 // GHS, fallback until an admin sets sms_price_per_credit
+const MAX_CREDITS_PER_PURCHASE = 100_000
+
+/** The admin-set selling price per SMS credit (GHS), or a sane default if unset. */
+export async function getPricePerCredit(): Promise<number> {
+  const { data } = await supabaseAdmin
+    .from("tenant_global_settings").select("value").eq("key", "sms_price_per_credit").maybeSingle()
+  const v = (data as { value?: { amount?: number } | number } | null)?.value
+  const amount = typeof v === "object" && v !== null ? v.amount : typeof v === "number" ? v : undefined
+  return typeof amount === "number" && amount > 0 ? amount : DEFAULT_PRICE_PER_CREDIT
+}
+
+/** Cost (GHS, 2dp) for a quantity of credits at the current per-credit fee. */
+export async function quoteCredits(credits: number): Promise<{ pricePerCredit: number; cost: number }> {
+  const pricePerCredit = await getPricePerCredit()
+  return { pricePerCredit, cost: Math.round(credits * pricePerCredit * 100) / 100 }
+}
+
+/** Cash-wallet purchase of an ARBITRARY number of credits at the admin per-credit fee.
+ *  Mirrors purchaseBundleViaWallet: server computes the cost, race-safe wallet debit,
+ *  solvency-gated issuance, refund only if issuance ERRORS and the ref didn't land. */
+export async function purchaseUnitsByQuantity(
+  userId: string,
+  accountId: string,
+  credits: number
+): Promise<PurchaseResult & { cost?: number }> {
+  if (!Number.isInteger(credits) || credits <= 0) return { ok: false, error: "credits must be a positive integer" }
+  if (credits > MAX_CREDITS_PER_PURCHASE) return { ok: false, error: `Max ${MAX_CREDITS_PER_PURCHASE.toLocaleString()} credits per purchase` }
+
+  const { data: acct } = await supabaseAdmin
+    .from("sms_accounts").select("status, owner_type").eq("id", accountId).maybeSingle()
+  if (acct && acct.owner_type !== "platform" && acct.status !== "active") return { ok: false, error: "NOT_ACTIVATED" }
+
+  const { cost } = await quoteCredits(credits)
+  if (cost <= 0) return { ok: false, error: "Pricing not configured" }
+
+  const { data: debit, error: debitErr } = await supabaseAdmin.rpc("deduct_wallet", { p_user_id: userId, p_amount: cost })
+  if (debitErr) return { ok: false, error: "Wallet debit failed" }
+  if (!debit || (debit as unknown[]).length === 0) return { ok: false, error: "Insufficient wallet balance" }
+
+  const ref = `wallet-qty-${userId}-${accountId}-${Date.now()}`
+  const res = await issueUnits(accountId, credits, "bundle_wallet", ref)
+  if (!res.ok) {
+    const landed = await refLanded(ref)
+    if (!landed) {
+      await supabaseAdmin.rpc("deduct_wallet", { p_user_id: userId, p_amount: -cost }) // refund
+      return { ok: false, error: "Failed to credit units (refunded)" }
+    }
+    return { ok: true, outcome: landed, unitsCredited: landed === "credited" ? credits : 0, pending: landed === "pending", cost }
+  }
+  return { ...res, cost }
+}
+
 /** Admin manual allocation — also solvency-gated (can land pending). ref=null so repeated
  *  deliberate allocations are never deduped. */
 export async function allocateUnits(accountId: string, units: number): Promise<PurchaseResult> {

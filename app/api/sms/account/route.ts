@@ -25,13 +25,14 @@ export async function GET(request: NextRequest) {
     supabaseAdmin
       .from("tenant_global_settings")
       .select("key, value")
-      .in("key", ["sms_activation_fee", "sms_welcome_bonus_credits"])
+      .in("key", ["sms_activation_fee", "sms_welcome_bonus_credits", "sms_price_per_credit"])
       .then(({ data }) => {
         const map: Record<string, number> = {}
         for (const row of (data ?? [])) {
           const r = row as { key: string; value: { amount?: number; units?: number } }
           if (r.key === "sms_activation_fee") map.activationFee = Number(r.value.amount ?? 0)
           if (r.key === "sms_welcome_bonus_credits") map.welcomeBonusCredits = Number(r.value.units ?? 0)
+          if (r.key === "sms_price_per_credit") map.pricePerCredit = Number(r.value.amount ?? 0)
         }
         return map
       }),
@@ -50,6 +51,7 @@ export async function GET(request: NextRequest) {
       bonusClaimedAt: account.bonus_claimed_at ?? null,
       activationFee: settings.activationFee ?? 20,
       welcomeBonusCredits: settings.welcomeBonusCredits ?? 10,
+      pricePerCredit: settings.pricePerCredit && settings.pricePerCredit > 0 ? settings.pricePerCredit : 0.04,
     },
     transactions,
   })
