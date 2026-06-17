@@ -112,7 +112,7 @@ export default function AdminSetupPage() {
               <Button
                 onClick={makeCurrentUserAdmin}
                 disabled={loading}
-                className="w-full bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary text-white"
+                className="w-full bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary text-primary-foreground"
               >
                 {loading ? "Setting Admin..." : "Make Me Admin"}
               </Button>
@@ -125,7 +125,7 @@ export default function AdminSetupPage() {
               <div className="w-full border-t border-slate-600"></div>
             </div>
             <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-slate-800 px-2 text-slate-400">Or</span>
+              <span className="bg-card px-2 text-muted-foreground">Or</span>
             </div>
           </div>
 
@@ -142,7 +142,7 @@ export default function AdminSetupPage() {
             <Button
               onClick={() => makeUserAdmin(userEmail)}
               disabled={loading || !userEmail}
-              className="w-full bg-gradient-to-r from-primary to-primary/80 hover:from-primary hover:to-primary/80 text-white"
+              className="w-full bg-gradient-to-r from-primary to-primary/80 hover:from-primary hover:to-primary/80 text-primary-foreground"
             >
               {loading ? "Processing..." : "Grant Admin Access"}
             </Button>

@@ -473,11 +473,11 @@ export default function AdminComplaintsPage() {
   const getStatusColor = (status: string) => {
     switch (status?.toLowerCase()) {
       case "pending":
-        return "bg-yellow-100 text-yellow-800"
+        return "bg-warning/15 text-warning"
       case "resolved":
-        return "bg-green-100 text-green-800"
+        return "bg-success/15 text-success"
       case "rejected":
-        return "bg-red-100 text-red-800"
+        return "bg-destructive/15 text-destructive"
       case "in-progress":
         return "bg-primary/10 text-primary"
       default:
@@ -488,11 +488,11 @@ export default function AdminComplaintsPage() {
   const getPriorityColor = (priority: string) => {
     switch (priority?.toLowerCase()) {
       case "high":
-        return "bg-red-100 text-red-800"
+        return "bg-destructive/15 text-destructive"
       case "medium":
-        return "bg-orange-100 text-orange-800"
+        return "bg-warning/15 text-warning"
       case "low":
-        return "bg-green-100 text-green-800"
+        return "bg-success/15 text-success"
       default:
         return "bg-muted text-foreground"
     }
@@ -551,7 +551,7 @@ export default function AdminComplaintsPage() {
       <div className="space-y-6">
         {/* Page Header */}
         <div>
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-600 via-primary to-pink-600 bg-clip-text text-transparent">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
             Customer Complaints
           </h1>
           <p className="text-muted-foreground mt-1">View and rectify customer complaints</p>
@@ -559,7 +559,7 @@ export default function AdminComplaintsPage() {
 
         {/* Stats Cards */}
         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 sm:gap-3 lg:gap-4">
-          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-blue-500">
+          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-primary">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Complaints</CardTitle>
               <AlertCircle className="h-4 w-4 text-primary" />
@@ -570,10 +570,10 @@ export default function AdminComplaintsPage() {
             </CardContent>
           </Card>
 
-          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-yellow-500">
+          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-warning">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Pending</CardTitle>
-              <Clock className="h-4 w-4 text-yellow-600" />
+              <Clock className="h-4 w-4 text-warning" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.pending}</div>
@@ -581,10 +581,10 @@ export default function AdminComplaintsPage() {
             </CardContent>
           </Card>
 
-          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-green-500">
+          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-success">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Resolved</CardTitle>
-              <CheckCircle className="h-4 w-4 text-green-600" />
+              <CheckCircle className="h-4 w-4 text-success" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.resolved}</div>
@@ -592,10 +592,10 @@ export default function AdminComplaintsPage() {
             </CardContent>
           </Card>
 
-          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-red-500">
+          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-destructive">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Rejected</CardTitle>
-              <X className="h-4 w-4 text-red-600" />
+              <X className="h-4 w-4 text-destructive" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.rejected}</div>
@@ -695,7 +695,7 @@ export default function AdminComplaintsPage() {
                     size="sm"
                     onClick={() => setShowBulkResolveModal(true)}
                     disabled={isBulkProcessing}
-                    className="bg-green-600 hover:bg-green-700 gap-1"
+                    className="bg-success hover:bg-success/90 text-primary-foreground gap-1"
                   >
                     <CheckCircle className="w-4 h-4" />
                     Resolve Selected
@@ -851,7 +851,7 @@ export default function AdminComplaintsPage() {
                 <Button
                   onClick={handleBulkResolve}
                   disabled={isBulkProcessing || !bulkResolutionNotes.trim()}
-                  className="bg-green-600 hover:bg-green-700 gap-2"
+                  className="bg-success hover:bg-success/90 text-primary-foreground gap-2"
                 >
                   {isBulkProcessing ? (
                     <>
@@ -1162,7 +1162,7 @@ export default function AdminComplaintsPage() {
                   <Button
                     onClick={() => selectedComplaint && handleResolve(selectedComplaint)}
                     disabled={resolvingId === selectedComplaint?.id}
-                    className="gap-2 w-full sm:w-auto bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
+                    className="gap-2 w-full sm:w-auto bg-success hover:bg-success/90 text-primary-foreground"
                   >
                     {resolvingId === selectedComplaint?.id ? (
                       <>

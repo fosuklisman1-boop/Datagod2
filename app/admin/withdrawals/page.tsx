@@ -176,34 +176,34 @@ export default function WithdrawalsPage() {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "approved":
-        return <CheckCircle className="h-4 w-4 text-green-600" />
+        return <CheckCircle className="h-4 w-4 text-success" />
       case "rejected":
-        return <XCircle className="h-4 w-4 text-red-600" />
+        return <XCircle className="h-4 w-4 text-destructive" />
       case "completed":
         return <CheckCircle className="h-4 w-4 text-primary" />
       case "processing":
         return <Loader2 className="h-4 w-4 text-primary animate-spin" />
       case "failed":
-        return <XCircle className="h-4 w-4 text-red-500" />
+        return <XCircle className="h-4 w-4 text-destructive" />
       default:
-        return <Clock className="h-4 w-4 text-orange-600" />
+        return <Clock className="h-4 w-4 text-warning" />
     }
   }
 
   const getStatusBadgeColor = (status: string) => {
     switch (status) {
       case "pending":
-        return "bg-orange-100 text-orange-800"
+        return "bg-warning/15 text-warning"
       case "approved":
-        return "bg-green-100 text-green-800"
+        return "bg-success/15 text-success"
       case "rejected":
-        return "bg-red-100 text-red-800"
+        return "bg-destructive/15 text-destructive"
       case "completed":
         return "bg-primary/10 text-primary"
       case "processing":
         return "bg-primary/5 text-primary"
       case "failed":
-        return "bg-red-100 text-red-700"
+        return "bg-destructive/15 text-destructive"
       default:
         return "bg-muted text-foreground"
     }
@@ -233,7 +233,7 @@ export default function WithdrawalsPage() {
       <div className="space-y-6">
         {/* Page Header */}
         <div>
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-600 via-primary to-pink-600 bg-clip-text text-transparent">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-primary">
             Withdrawal Approvals
           </h1>
           <p className="text-muted-foreground mt-1 font-medium">Manage shop withdrawal requests</p>
@@ -291,18 +291,18 @@ export default function WithdrawalsPage() {
                         <p className="text-2xl font-bold text-foreground">GHS {(withdrawal.amount || 0).toFixed(2)}</p>
                         <p className="text-xs text-muted-foreground capitalize">{withdrawal.withdrawal_method}</p>
                         {withdrawal.fee_amount && withdrawal.fee_amount > 0 && (
-                          <p className="text-xs text-orange-600 font-medium mt-1">Fee: GHS {(withdrawal.fee_amount || 0).toFixed(2)}</p>
+                          <p className="text-xs text-warning font-medium mt-1">Fee: GHS {(withdrawal.fee_amount || 0).toFixed(2)}</p>
                         )}
                         {withdrawal.net_amount && (
-                          <p className="text-xs text-green-600 font-semibold mt-1">Payout: GHS {(withdrawal.net_amount || 0).toFixed(2)}</p>
+                          <p className="text-xs text-success font-semibold mt-1">Payout: GHS {(withdrawal.net_amount || 0).toFixed(2)}</p>
                         )}
                         {/* Available Balance for verification */}
                         <div className="mt-2 pt-2 border-t border-border">
                           <p className="text-xs text-muted-foreground">Current Balance</p>
                           <p className={`text-sm font-bold ${
-                            (withdrawal.current_available_balance ?? 0) >= withdrawal.amount 
-                              ? 'text-green-600' 
-                              : 'text-red-600'
+                            (withdrawal.current_available_balance ?? 0) >= withdrawal.amount
+                              ? 'text-success'
+                              : 'text-destructive'
                           }`}>
                             GHS {(withdrawal.current_available_balance ?? 0).toFixed(2)}
                             {(withdrawal.current_available_balance ?? 0) < withdrawal.amount && (
@@ -344,7 +344,7 @@ export default function WithdrawalsPage() {
                             <div>
                               <p className="text-xs text-muted-foreground mb-1">Mobile Number</p>
                               <div className="flex items-center gap-2">
-                                <div className="flex-1 bg-green-50 p-2 rounded border border-border">
+                                <div className="flex-1 bg-success/10 p-2 rounded border border-border">
                                   <p className="font-mono text-sm text-foreground">
                                     {withdrawal.account_details?.phone || "N/A"}
                                   </p>
@@ -362,7 +362,7 @@ export default function WithdrawalsPage() {
                             <div>
                               <p className="text-xs text-muted-foreground mb-1">Network</p>
                               <div className="flex items-center gap-2">
-                                <div className="flex-1 bg-orange-50 p-2 rounded border border-border">
+                                <div className="flex-1 bg-warning/10 p-2 rounded border border-border">
                                   <p className="font-mono text-sm font-semibold text-foreground">
                                     {withdrawal.account_details?.network || "N/A"}
                                   </p>
@@ -405,7 +405,7 @@ export default function WithdrawalsPage() {
                             <div>
                               <p className="text-xs text-muted-foreground mb-1">Account Number</p>
                               <div className="flex items-center gap-2">
-                                <div className="flex-1 bg-orange-50 p-2 rounded border border-border">
+                                <div className="flex-1 bg-warning/10 p-2 rounded border border-border">
                                   <p className="font-mono text-sm text-foreground">
                                     {withdrawal.account_details?.account_number || "N/A"}
                                   </p>
@@ -450,8 +450,8 @@ export default function WithdrawalsPage() {
 
                       {/* Old approved — manual transfer still needed */}
                       {withdrawal.status === "approved" && !withdrawal.moolre_transfer_id && (
-                        <div className="mb-3 bg-yellow-50 p-3 rounded border border-border">
-                          <p className="text-xs text-yellow-800 font-medium">Manual transfer required — this was approved before Moolre integration. Please transfer funds manually.</p>
+                        <div className="mb-3 bg-warning/10 p-3 rounded border border-border">
+                          <p className="text-xs text-warning font-medium">Manual transfer required — this was approved before Moolre integration. Please transfer funds manually.</p>
                         </div>
                       )}
 
@@ -467,7 +467,7 @@ export default function WithdrawalsPage() {
                             variant="outline"
                             disabled={actionLoadingId === withdrawal.id}
                             onClick={() => resetProcessing(withdrawal.id)}
-                            className="w-full text-xs border-border text-orange-600 hover:bg-orange-50"
+                            className="w-full text-xs border-border text-warning hover:bg-warning/10"
                           >
                             {actionLoadingId === withdrawal.id
                               ? <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Resetting...</>
@@ -478,8 +478,8 @@ export default function WithdrawalsPage() {
 
                       {/* Failed notice */}
                       {withdrawal.status === "failed" && (
-                        <div className="mb-3 bg-red-50 p-3 rounded border border-border">
-                          <p className="text-xs text-red-700 font-medium">Transfer failed. Funds were NOT sent. The request can be re-approved after investigation.</p>
+                        <div className="mb-3 bg-destructive/10 p-3 rounded border border-border">
+                          <p className="text-xs text-destructive font-medium">Transfer failed. Funds were NOT sent. The request can be re-approved after investigation.</p>
                         </div>
                       )}
 
@@ -496,7 +496,7 @@ export default function WithdrawalsPage() {
                             <Button
                               onClick={() => approveWithdrawal(withdrawal.id)}
                               disabled={actionLoadingId === withdrawal.id}
-                              className="w-full bg-green-600 hover:bg-green-700 text-white text-sm"
+                              className="w-full bg-success hover:bg-success/90 text-primary-foreground text-sm"
                             >
                               {actionLoadingId === withdrawal.id ? (
                                 <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Processing...</>
@@ -522,7 +522,7 @@ export default function WithdrawalsPage() {
                               }}
                               variant="outline"
                               disabled={actionLoadingId === withdrawal.id}
-                              className="flex-1 text-sm border-border text-red-600 hover:bg-red-50"
+                              className="flex-1 text-sm border-border text-destructive hover:bg-destructive/10"
                             >
                               ✕ Reject
                             </Button>
@@ -532,9 +532,9 @@ export default function WithdrawalsPage() {
 
                       {/* Rejection Reason Display */}
                       {withdrawal.status === "rejected" && withdrawal.rejection_reason && (
-                        <div className="bg-red-50 p-3 rounded border border-border">
-                          <p className="text-xs font-semibold text-red-900 mb-1">Rejection Reason</p>
-                          <p className="text-sm text-red-800">{withdrawal.rejection_reason}</p>
+                        <div className="bg-destructive/10 p-3 rounded border border-border">
+                          <p className="text-xs font-semibold text-destructive mb-1">Rejection Reason</p>
+                          <p className="text-sm text-destructive">{withdrawal.rejection_reason}</p>
                         </div>
                       )}
                     </div>
@@ -581,7 +581,7 @@ export default function WithdrawalsPage() {
                 <Button
                   onClick={() => rejectWithdrawal(selectedWithdrawal.id)}
                   disabled={actionLoadingId === selectedWithdrawal.id || !rejectionReason.trim()}
-                  className="flex-1 bg-red-600 hover:bg-red-700 text-white"
+                  className="flex-1 bg-destructive hover:bg-destructive/90 text-primary-foreground"
                 >
                   {actionLoadingId === selectedWithdrawal.id ? (
                     <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Processing...</>

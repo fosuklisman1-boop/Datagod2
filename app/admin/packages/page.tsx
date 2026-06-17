@@ -283,7 +283,7 @@ export default function AdminPackagesPage() {
                 <Button
                   onClick={handleSubmit}
                   disabled={isSubmitting}
-                  className="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
+                  className="flex-1 bg-success hover:bg-success/90"
                 >
                   {isSubmitting ? (
                     <>
@@ -339,9 +339,9 @@ export default function AdminPackagesPage() {
                           size="sm"
                           onClick={() => toggleAvailability(pkg.id, pkg.is_available !== false)}
                           className={`${pkg.is_available !== false
-                            ? "bg-green-600 hover:bg-green-700"
-                            : "bg-gray-400 hover:bg-gray-500"
-                            } text-white`}
+                            ? "bg-success hover:bg-success/90"
+                            : "bg-muted-foreground hover:bg-muted-foreground/90"
+                            } text-primary-foreground`}
                         >
                           <Power className="w-4 h-4 mr-1" />
                           {pkg.is_available !== false ? "Enabled" : "Disabled"}
@@ -361,7 +361,7 @@ export default function AdminPackagesPage() {
                           variant="outline"
                           onClick={() => handleDelete(pkg.id)}
                           disabled={isDeletingId === pkg.id}
-                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
                         >
                           {isDeletingId === pkg.id ? (
                             <span className="animate-spin">⏳</span>

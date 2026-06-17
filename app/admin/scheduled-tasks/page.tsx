@@ -247,7 +247,7 @@ export default function ScheduledTasksPage() {
                         {actionId === task.id ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
                         ) : task.is_active ? (
-                          <ToggleRight className="h-4 w-4 text-green-600" />
+                          <ToggleRight className="h-4 w-4 text-success" />
                         ) : (
                           <ToggleLeft className="h-4 w-4 text-muted-foreground" />
                         )}
@@ -275,7 +275,7 @@ export default function ScheduledTasksPage() {
                       {task.last_success === false ? (
                         <XCircle className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" />
                       ) : (
-                        <CheckCircle className="h-3.5 w-3.5 text-green-600 shrink-0 mt-0.5" />
+                        <CheckCircle className="h-3.5 w-3.5 text-success shrink-0 mt-0.5" />
                       )}
                       <div className="flex-1 min-w-0">
                         <p className={`text-xs ${expandedResult === task.id ? "" : "line-clamp-2"} text-muted-foreground`}>

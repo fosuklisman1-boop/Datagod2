@@ -638,7 +638,7 @@ export default function OrderPaymentStatusPage() {
               <Button
                 onClick={handleBulkManualFulfill}
                 disabled={loadingMTNOrders}
-                className="bg-card0 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-bold shadow-lg transform transition hover:scale-105"
+                className="bg-destructive hover:bg-destructive/90 text-primary-foreground font-bold shadow-lg transform transition hover:scale-105"
               >
                 {loadingMTNOrders ? (
                   <Loader2 className="h-5 w-5 mr-2 animate-spin" />
@@ -776,7 +776,7 @@ export default function OrderPaymentStatusPage() {
                   <Button
                     onClick={handleBulkStatusUpdate}
                     disabled={bulkUpdating || !bulkDate || !bulkStatus}
-                    className="bg-primary hover:bg-primary/90 text-white min-w-[140px]"
+                    className="bg-primary hover:bg-primary/90 text-primary-foreground min-w-[140px]"
                   >
                     {bulkUpdating ? (
                       <>
@@ -795,7 +795,7 @@ export default function OrderPaymentStatusPage() {
                     variant="outline"
                     onClick={handleBulkDownload}
                     disabled={bulkDownloading || !bulkDate}
-                    className="border-border hover:bg-green-50 text-green-700 font-semibold"
+                    className="border-border hover:bg-success/10 text-success font-semibold"
                   >
                     {bulkDownloading ? (
                       <>
@@ -814,7 +814,7 @@ export default function OrderPaymentStatusPage() {
                     variant="outline"
                     onClick={handleBulkDownloadFailed}
                     disabled={bulkDownloadingFailed || !bulkDate}
-                    className="border-border hover:bg-red-50 text-red-700 font-semibold"
+                    className="border-border hover:bg-destructive/10 text-destructive font-semibold"
                   >
                     {bulkDownloadingFailed ? (
                       <>
@@ -925,11 +925,11 @@ export default function OrderPaymentStatusPage() {
                           <td className="px-4 py-3 text-center">
                             <Badge
                               className={`text-xs border ${order.payment_status === "completed"
-                                ? "bg-green-100 text-green-800 border-border"
+                                ? "bg-success/15 text-success border-border"
                                 : order.payment_status === "pending"
-                                  ? "bg-yellow-100 text-yellow-800 border-border"
+                                  ? "bg-warning/15 text-warning border-border"
                                   : order.payment_status === "failed"
-                                    ? "bg-red-100 text-red-800 border-border"
+                                    ? "bg-destructive/15 text-destructive border-border"
                                     : "bg-muted text-foreground border-border"
                                 }`}
                             >
@@ -939,13 +939,13 @@ export default function OrderPaymentStatusPage() {
                           <td className="px-4 py-3 text-center">
                             <Badge
                               className={`text-xs border ${order.status === "completed"
-                                ? "bg-green-100 text-green-800 border-border"
+                                ? "bg-success/15 text-success border-border"
                                 : order.status === "pending"
-                                  ? "bg-yellow-100 text-yellow-800 border-border"
+                                  ? "bg-warning/15 text-warning border-border"
                                   : order.status === "processing"
                                     ? "bg-primary/10 text-primary border-primary/20"
                                     : order.status === "failed"
-                                      ? "bg-red-100 text-red-800 border-border"
+                                      ? "bg-destructive/15 text-destructive border-border"
                                       : "bg-muted text-foreground border-border"
                                 }`}
                             >

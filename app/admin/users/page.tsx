@@ -480,7 +480,7 @@ export default function AdminUsersPage() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">User Management</h1>
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-primary">User Management</h1>
             <p className="text-muted-foreground mt-1">Manage user roles, balances, and account status</p>
           </div>
           <div className="flex flex-col gap-2 w-full sm:w-auto sm:flex-row items-stretch sm:items-center">
@@ -543,7 +543,7 @@ export default function AdminUsersPage() {
                   placeholder="Search by email, phone or shop..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="border-border focus:border-emerald-500 text-sm px-2 py-2"
+                  className="border-border focus:border-success/30 text-sm px-2 py-2"
                 />
               </div>
             </div>
@@ -565,7 +565,7 @@ export default function AdminUsersPage() {
                     <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-emerald-100/40">
+                <tbody className="divide-y divide-border">
                   {filteredUsers.length === 0 ? (
                     <tr>
                       <td colSpan={10} className="px-6 py-8 text-center text-muted-foreground">
@@ -574,21 +574,21 @@ export default function AdminUsersPage() {
                     </tr>
                   ) : (
                     filteredUsers.map((user) => (
-                      <tr key={user.id} className="hover:bg-emerald-100/30 backdrop-blur transition-colors">
+                      <tr key={user.id} className="hover:bg-muted backdrop-blur transition-colors">
                         <td className="px-6 py-4 font-medium text-foreground">{user.email}</td>
                         <td className="px-6 py-4 text-sm text-muted-foreground">{user.phoneNumber || "-"}</td>
                         <td className="px-6 py-4 flex flex-col gap-1">
-                          <Badge className={user.role === "admin" ? "bg-red-600" : "bg-primary"}>
+                          <Badge className={user.role === "admin" ? "bg-destructive" : "bg-primary"}>
                             {user.role}
                           </Badge>
                           {user.is_suspended && (
-                            <Badge className="bg-red-800 text-white mt-1">
+                            <Badge className="bg-destructive text-primary-foreground mt-1">
                               Suspended
                             </Badge>
                           )}
                         </td>
                         <td className="px-6 py-4 font-semibold text-primary">GHS {(user.walletBalance || 0).toFixed(2)}</td>
-                        <td className="px-6 py-4 font-semibold text-emerald-600">GHS {(user.shopBalance || 0).toFixed(2)}</td>
+                        <td className="px-6 py-4 font-semibold text-success">GHS {(user.shopBalance || 0).toFixed(2)}</td>
                         <td className="px-6 py-4 text-sm text-muted-foreground">{user.shop?.shop_name || "No shop"}</td>
                         <td className="px-6 py-4 text-sm text-muted-foreground">
                           <Badge className="bg-primary">
@@ -611,7 +611,7 @@ export default function AdminUsersPage() {
                               setShowDetailsDialog(true)
                               loadUserStats(user.id)
                             }}
-                            className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                            className="text-success hover:text-success hover:bg-success/10"
                           >
                             <Eye className="w-4 h-4" />
                           </Button>
@@ -634,7 +634,7 @@ export default function AdminUsersPage() {
                               setSuspensionReason("")
                               setShowActionDialog(true)
                             }}
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
                           >
                             <AlertCircle className="w-4 h-4" />
                           </Button>
@@ -680,7 +680,7 @@ export default function AdminUsersPage() {
                           className="bg-card"
                         />
                       </div>
-                      <Badge className={`${selectedUser.role === "admin" ? "bg-red-600" : "bg-primary"}`}>
+                      <Badge className={`${selectedUser.role === "admin" ? "bg-destructive" : "bg-primary"}`}>
                         {selectedUser.role.toUpperCase()}
                       </Badge>
                     </div>
@@ -699,7 +699,7 @@ export default function AdminUsersPage() {
                         <Button
                           onClick={handleUpdateUserDetails}
                           disabled={isUpdatingUser}
-                          className="w-full bg-emerald-600 hover:bg-emerald-700 gap-2"
+                          className="w-full bg-success hover:bg-success/90 gap-2"
                         >
                           {isUpdatingUser ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
                           Update Email / Phone
@@ -713,7 +713,7 @@ export default function AdminUsersPage() {
 
                   {statsLoading ? (
                     <div className="flex items-center justify-center py-12">
-                      <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+                      <Loader2 className="w-8 h-8 animate-spin text-success" />
                       <span className="ml-2 text-muted-foreground">Loading statistics...</span>
                     </div>
                   ) : userStats ? (
@@ -746,16 +746,16 @@ export default function AdminUsersPage() {
                               <p className="text-xl font-bold text-primary">GHS {Number(userStats.wallet.balance || 0).toFixed(2)}</p>
                             </CardContent>
                           </Card>
-                          <Card className="bg-green-50 border-border">
+                          <Card className="bg-success/10 border-border">
                             <CardContent className="p-4">
-                              <p className="text-xs text-green-600 font-medium">Total Top-ups</p>
-                              <p className="text-xl font-bold text-green-700">GHS {Number(userStats.wallet.totalTopUps || 0).toFixed(2)}</p>
+                              <p className="text-xs text-success font-medium">Total Top-ups</p>
+                              <p className="text-xl font-bold text-success">GHS {Number(userStats.wallet.totalTopUps || 0).toFixed(2)}</p>
                             </CardContent>
                           </Card>
-                          <Card className="bg-orange-50 border-border">
+                          <Card className="bg-warning/10 border-border">
                             <CardContent className="p-4">
-                              <p className="text-xs text-orange-600 font-medium">Total Spent</p>
-                              <p className="text-xl font-bold text-orange-700">GHS {Number(userStats.wallet.totalSpent || 0).toFixed(2)}</p>
+                              <p className="text-xs text-warning font-medium">Total Spent</p>
+                              <p className="text-xl font-bold text-warning">GHS {Number(userStats.wallet.totalSpent || 0).toFixed(2)}</p>
                             </CardContent>
                           </Card>
                           <Card className="bg-primary border-border">
@@ -776,31 +776,31 @@ export default function AdminUsersPage() {
                               <p className="text-xl font-bold text-primary">{userStats.orders.total}</p>
                             </CardContent>
                           </Card>
-                          <Card className="bg-green-50 border-border">
+                          <Card className="bg-success/10 border-border">
                             <CardContent className="p-4">
                               <div className="flex items-center gap-1">
-                                <CheckCircle className="w-3 h-3 text-green-600" />
-                                <p className="text-xs text-green-600 font-medium">Completed</p>
+                                <CheckCircle className="w-3 h-3 text-success" />
+                                <p className="text-xs text-success font-medium">Completed</p>
                               </div>
-                              <p className="text-xl font-bold text-green-700">{userStats.orders.completed}</p>
+                              <p className="text-xl font-bold text-success">{userStats.orders.completed}</p>
                             </CardContent>
                           </Card>
-                          <Card className="bg-orange-50 border-border">
+                          <Card className="bg-warning/10 border-border">
                             <CardContent className="p-4">
                               <div className="flex items-center gap-1">
-                                <Clock className="w-3 h-3 text-orange-600" />
-                                <p className="text-xs text-orange-600 font-medium">Pending</p>
+                                <Clock className="w-3 h-3 text-warning" />
+                                <p className="text-xs text-warning font-medium">Pending</p>
                               </div>
-                              <p className="text-xl font-bold text-orange-700">{userStats.orders.pending}</p>
+                              <p className="text-xl font-bold text-warning">{userStats.orders.pending}</p>
                             </CardContent>
                           </Card>
-                          <Card className="bg-red-50 border-border">
+                          <Card className="bg-destructive/10 border-border">
                             <CardContent className="p-4">
                               <div className="flex items-center gap-1">
-                                <XCircle className="w-3 h-3 text-red-600" />
-                                <p className="text-xs text-red-600 font-medium">Failed</p>
+                                <XCircle className="w-3 h-3 text-destructive" />
+                                <p className="text-xs text-destructive font-medium">Failed</p>
                               </div>
-                              <p className="text-xl font-bold text-red-700">{userStats.orders.failed}</p>
+                              <p className="text-xl font-bold text-destructive">{userStats.orders.failed}</p>
                             </CardContent>
                           </Card>
                         </div>
@@ -824,19 +824,19 @@ export default function AdminUsersPage() {
                                   <p className="text-xs text-muted-foreground">{userStats.shop.paidOrders} paid, {userStats.shop.completedOrders} fulfilled</p>
                                 </CardContent>
                               </Card>
-                              <Card className="bg-green-50 border-border">
+                              <Card className="bg-success/10 border-border">
                                 <CardContent className="p-4">
-                                  <p className="text-xs text-green-600 font-medium">Total Sales</p>
-                                  <p className="text-xl font-bold text-green-700">GHS {Number(userStats.shop.totalSales || 0).toFixed(2)}</p>
+                                  <p className="text-xs text-success font-medium">Total Sales</p>
+                                  <p className="text-xl font-bold text-success">GHS {Number(userStats.shop.totalSales || 0).toFixed(2)}</p>
                                 </CardContent>
                               </Card>
-                              <Card className="bg-emerald-50 border-border">
+                              <Card className="bg-success/10 border-border">
                                 <CardContent className="p-4">
                                   <div className="flex items-center gap-1">
-                                    <TrendingUp className="w-3 h-3 text-emerald-600" />
-                                    <p className="text-xs text-emerald-600 font-medium">Total Profit</p>
+                                    <TrendingUp className="w-3 h-3 text-success" />
+                                    <p className="text-xs text-success font-medium">Total Profit</p>
                                   </div>
-                                  <p className="text-xl font-bold text-emerald-700">GHS {Number(userStats.shop.totalProfit || 0).toFixed(2)}</p>
+                                  <p className="text-xl font-bold text-success">GHS {Number(userStats.shop.totalProfit || 0).toFixed(2)}</p>
                                 </CardContent>
                               </Card>
                               <Card className="bg-primary border-border">
@@ -845,16 +845,16 @@ export default function AdminUsersPage() {
                                   <p className="text-xl font-bold text-primary">GHS {Number(userStats.shop.availableBalance || 0).toFixed(2)}</p>
                                 </CardContent>
                               </Card>
-                              <Card className="bg-teal-50 border-border">
+                              <Card className="bg-success/10 border-border">
                                 <CardContent className="p-4">
-                                  <p className="text-xs text-teal-600 font-medium">Credited Profit</p>
-                                  <p className="text-xl font-bold text-teal-700">GHS {Number(userStats.shop.creditedProfit || 0).toFixed(2)}</p>
+                                  <p className="text-xs text-success font-medium">Credited Profit</p>
+                                  <p className="text-xl font-bold text-success">GHS {Number(userStats.shop.creditedProfit || 0).toFixed(2)}</p>
                                 </CardContent>
                               </Card>
-                              <Card className="bg-orange-50 border-border">
+                              <Card className="bg-warning/10 border-border">
                                 <CardContent className="p-4">
-                                  <p className="text-xs text-orange-600 font-medium">Pending Profit</p>
-                                  <p className="text-xl font-bold text-orange-700">GHS {Number(userStats.shop.pendingProfit || 0).toFixed(2)}</p>
+                                  <p className="text-xs text-warning font-medium">Pending Profit</p>
+                                  <p className="text-xl font-bold text-warning">GHS {Number(userStats.shop.pendingProfit || 0).toFixed(2)}</p>
                                 </CardContent>
                               </Card>
                               <Card className="bg-muted/40 border-border">
@@ -867,7 +867,7 @@ export default function AdminUsersPage() {
                           </>
                         ) : (
                           <div className="text-center py-8 text-muted-foreground">
-                            <Store className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                            <Store className="w-12 h-12 mx-auto mb-2 text-muted-foreground" />
                             <p>This user does not own a shop</p>
                           </div>
                         )}
@@ -878,10 +878,10 @@ export default function AdminUsersPage() {
                         {userStats.shop ? (
                           <>
                             <div className="grid grid-cols-3 gap-3">
-                              <Card className="bg-green-50 border-border">
+                              <Card className="bg-success/10 border-border">
                                 <CardContent className="p-4">
-                                  <p className="text-xs text-green-600 font-medium">Total Withdrawn</p>
-                                  <p className="text-xl font-bold text-green-700">GHS {Number(userStats.withdrawals.totalWithdrawn || 0).toFixed(2)}</p>
+                                  <p className="text-xs text-success font-medium">Total Withdrawn</p>
+                                  <p className="text-xl font-bold text-success">GHS {Number(userStats.withdrawals.totalWithdrawn || 0).toFixed(2)}</p>
                                 </CardContent>
                               </Card>
                               <Card className="bg-primary/5 border-primary/20">
@@ -890,10 +890,10 @@ export default function AdminUsersPage() {
                                   <p className="text-xl font-bold text-primary">{userStats.withdrawals.completedCount}</p>
                                 </CardContent>
                               </Card>
-                              <Card className="bg-orange-50 border-border">
+                              <Card className="bg-warning/10 border-border">
                                 <CardContent className="p-4">
-                                  <p className="text-xs text-orange-600 font-medium">Pending</p>
-                                  <p className="text-xl font-bold text-orange-700">{userStats.withdrawals.pendingCount}</p>
+                                  <p className="text-xs text-warning font-medium">Pending</p>
+                                  <p className="text-xl font-bold text-warning">{userStats.withdrawals.pendingCount}</p>
                                 </CardContent>
                               </Card>
                             </div>
@@ -917,9 +917,9 @@ export default function AdminUsersPage() {
                                         <td className="px-3 py-2 text-xs capitalize">{w.method.replace("_", " ")}</td>
                                         <td className="px-3 py-2">
                                           <Badge className={
-                                            w.status === "completed" || w.status === "approved" ? "bg-green-600" :
-                                              w.status === "pending" ? "bg-orange-500" :
-                                                w.status === "rejected" ? "bg-red-600" : "bg-gray-500"
+                                            w.status === "completed" || w.status === "approved" ? "bg-success" :
+                                              w.status === "pending" ? "bg-warning" :
+                                                w.status === "rejected" ? "bg-destructive" : "bg-muted-foreground"
                                           }>
                                             {w.status}
                                           </Badge>
@@ -937,7 +937,7 @@ export default function AdminUsersPage() {
                           </>
                         ) : (
                           <div className="text-center py-8 text-muted-foreground">
-                            <ArrowDownCircle className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                            <ArrowDownCircle className="w-12 h-12 mx-auto mb-2 text-muted-foreground" />
                             <p>User does not own a shop</p>
                           </div>
                         )}
@@ -957,7 +957,7 @@ export default function AdminUsersPage() {
                             aria-label="Change user role"
                             value={newRole}
                             onChange={(e) => setNewRole(e.target.value)}
-                            className="flex-1 px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                            className="flex-1 px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-success/30 text-sm"
                           >
                             <option value="user">User</option>
                             <option value="dealer">Dealer</option>
@@ -966,7 +966,7 @@ export default function AdminUsersPage() {
                           <Button
                             onClick={handleUpdateRole}
                             size="sm"
-                            className="bg-emerald-600 hover:bg-emerald-700"
+                            className="bg-success hover:bg-success/90"
                           >
                             Update
                           </Button>
@@ -1007,7 +1007,7 @@ export default function AdminUsersPage() {
                 </div>
                 <div>
                   <Label className="text-xs text-muted-foreground">Current Balance</Label>
-                  <p className="font-semibold mt-1 text-emerald-600">GHS {selectedUser.balance.toFixed(2)}</p>
+                  <p className="font-semibold mt-1 text-success">GHS {selectedUser.balance.toFixed(2)}</p>
                 </div>
                 <div>
                   <Label htmlFor="action" className="text-xs">Action</Label>
@@ -1037,7 +1037,7 @@ export default function AdminUsersPage() {
                 <Button
                   onClick={handleUpdateBalance}
                   disabled={isUpdatingBalance || !balanceAmount}
-                  className={`w-full ${balanceAction === "credit" ? "bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700" : "bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700"}`}
+                  className={`w-full ${balanceAction === "credit" ? "bg-success hover:bg-success/90" : "bg-destructive hover:bg-destructive/90"}`}
                 >
                   {isUpdatingBalance ? (
                     <>
@@ -1103,7 +1103,7 @@ export default function AdminUsersPage() {
         <Dialog open={showActionDialog} onOpenChange={setShowActionDialog}>
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-red-600">
+              <DialogTitle className="flex items-center gap-2 text-destructive">
                 <AlertCircle className="w-5 h-5" />
                 DANGER ZONE: Account Actions
               </DialogTitle>
@@ -1115,11 +1115,11 @@ export default function AdminUsersPage() {
               <div className="space-y-6 pt-2">
                 
                 {/* Suspend Action */}
-                <div className="p-4 border rounded-lg bg-orange-50 border-border">
-                  <h3 className="font-semibold text-orange-800 text-sm">
+                <div className="p-4 border rounded-lg bg-warning/10 border-border">
+                  <h3 className="font-semibold text-warning text-sm">
                     {selectedUser.is_suspended ? "Unsuspend Account" : "Suspend Account (Temporary)"}
                   </h3>
-                  <p className="text-xs text-orange-700 mt-1 mb-3">
+                  <p className="text-xs text-warning mt-1 mb-3">
                     {selectedUser.is_suspended 
                       ? "Restores the user's ability to log in."
                       : "Bans the user from logging in without destroying their data or shop."}
@@ -1127,7 +1127,7 @@ export default function AdminUsersPage() {
                   
                   {!selectedUser.is_suspended && (
                     <div className="mb-4">
-                      <Label className="text-xs text-orange-800 mb-1 block">Reason for Suspension (Optional)</Label>
+                      <Label className="text-xs text-warning mb-1 block">Reason for Suspension (Optional)</Label>
                       <textarea
                         className="w-full text-sm p-2 border rounded bg-card"
                         placeholder="e.g. Violation of terms, suspicious activity..."
@@ -1142,7 +1142,7 @@ export default function AdminUsersPage() {
                     onClick={() => handleToggleSuspension(selectedUser.id, selectedUser.is_suspended)}
                     disabled={isProcessingAction}
                     variant="outline"
-                    className="w-full bg-card text-orange-700 border-border hover:bg-orange-100"
+                    className="w-full bg-card text-warning border-border hover:bg-warning/15"
                   >
                     {isProcessingAction ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
                     {selectedUser.is_suspended ? "Unsuspend User" : "Suspend User"}
@@ -1150,9 +1150,9 @@ export default function AdminUsersPage() {
                 </div>
 
                 {/* Hard Delete Action */}
-                <div className="p-4 border rounded-lg bg-red-50 border-border">
-                  <h3 className="font-semibold text-red-800 text-sm">Permanently Delete Account</h3>
-                  <p className="text-xs text-red-700 mt-1 mb-3">
+                <div className="p-4 border rounded-lg bg-destructive/10 border-border">
+                  <h3 className="font-semibold text-destructive text-sm">Permanently Delete Account</h3>
+                  <p className="text-xs text-destructive mt-1 mb-3">
                     Destroys all user data, wallet, shop records, and transactions forever. <strong>This cannot be undone.</strong>
                   </p>
                   <Button

@@ -38,10 +38,10 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  pending:   "bg-yellow-100 text-yellow-800 border-border",
+  pending:   "bg-warning/15 text-warning border-border",
   approved:  "bg-primary/10 text-primary border-primary/20",
-  completed: "bg-green-100 text-green-800 border-border",
-  rejected:  "bg-red-100 text-red-800 border-border",
+  completed: "bg-success/15 text-success border-border",
+  rejected:  "bg-destructive/15 text-destructive border-border",
   cancelled: "bg-muted text-foreground border-border",
 }
 
@@ -158,7 +158,7 @@ export default function WithdrawalHistoryPage() {
               variant="outline"
               onClick={recalibrateBalances}
               disabled={recalibrating}
-              className="border-border text-orange-600 hover:bg-orange-50"
+              className="border-border text-warning hover:bg-warning/10"
             >
               {recalibrating ? (
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -178,10 +178,10 @@ export default function WithdrawalHistoryPage() {
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {[
             { label: "Total", value: stats.total, color: "text-foreground" },
-            { label: "Pending", value: stats.pending, color: "text-yellow-600" },
+            { label: "Pending", value: stats.pending, color: "text-warning" },
             { label: "Approved", value: stats.approved, color: "text-primary" },
-            { label: "Completed", value: stats.completed, color: "text-green-600" },
-            { label: "Rejected", value: stats.rejected, color: "text-red-600" },
+            { label: "Completed", value: stats.completed, color: "text-success" },
+            { label: "Rejected", value: stats.rejected, color: "text-destructive" },
             { label: "Total Value", value: `GHS ${stats.totalAmount.toFixed(2)}`, color: "text-foreground" },
           ].map(s => (
             <Card key={s.label}>
@@ -239,7 +239,7 @@ export default function WithdrawalHistoryPage() {
               </div>
             ) : filtered.length === 0 ? (
               <div className="text-center py-16 text-muted-foreground">
-                <TrendingDown className="w-10 h-10 mx-auto mb-3 text-gray-300" />
+                <TrendingDown className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
                 <p>No withdrawals found.</p>
               </div>
             ) : (
@@ -302,7 +302,7 @@ export default function WithdrawalHistoryPage() {
                               {w.status}
                             </span>
                             {w.rejection_reason && (
-                              <p className="text-xs text-red-500 mt-1 max-w-[160px] truncate" title={w.rejection_reason}>
+                              <p className="text-xs text-destructive mt-1 max-w-[160px] truncate" title={w.rejection_reason}>
                                 {w.rejection_reason}
                               </p>
                             )}
@@ -323,7 +323,7 @@ export default function WithdrawalHistoryPage() {
                               <span className="flex items-center gap-1.5">
                                 <span className="font-mono text-sm text-foreground">{GHS(w.balance_after)}</span>
                                 {w.balance_before != null && (
-                                  <span className={`text-xs font-medium ${w.balance_after < w.balance_before ? "text-red-500" : "text-green-600"}`}>
+                                  <span className={`text-xs font-medium ${w.balance_after < w.balance_before ? "text-destructive" : "text-success"}`}>
                                     ({w.balance_after < w.balance_before ? "-" : "+"}{GHS(Math.abs(w.balance_after - w.balance_before))})
                                   </span>
                                 )}

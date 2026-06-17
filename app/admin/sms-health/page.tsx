@@ -76,10 +76,10 @@ export default function SmsHealthPage() {
         </div>
 
         {error && (
-          <Card className="border-border bg-red-50">
+          <Card className="border-border bg-destructive/10">
             <CardContent className="pt-6 flex items-start gap-2">
-              <AlertCircle className="w-5 h-5 text-red-600 mt-0.5" />
-              <div className="text-sm text-red-800">{error}</div>
+              <AlertCircle className="w-5 h-5 text-destructive mt-0.5" />
+              <div className="text-sm text-destructive">{error}</div>
             </CardContent>
           </Card>
         )}
@@ -90,9 +90,9 @@ export default function SmsHealthPage() {
           <>
             {/* OTP auto-failover breaker banner */}
             {data?.otp_breaker?.open && (
-              <Card className="border-amber-400 bg-amber-50">
-                <CardContent className="pt-5 pb-4 flex items-start gap-2 text-sm text-amber-900">
-                  <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
+              <Card className="border-warning/30 bg-warning/10">
+                <CardContent className="pt-5 pb-4 flex items-start gap-2 text-sm text-warning">
+                  <AlertCircle className="w-5 h-5 text-warning mt-0.5 flex-shrink-0" />
                   <span><b>OTP auto-failover active</b> — Moolre OTP delivery is failing, so OTP codes are currently routed to the fallback provider. Auto-recovers when Moolre is healthy again.</span>
                 </CardContent>
               </Card>
@@ -101,9 +101,9 @@ export default function SmsHealthPage() {
             {/* Overall cards */}
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
               <StatCard label="Total" value={overall.total ?? 0} icon={<MessageSquare className="w-4 h-4 text-muted-foreground" />} />
-              <StatCard label="Delivered" value={overall.delivered ?? 0} icon={<CheckCircle2 className="w-4 h-4 text-green-600" />} tone="green" />
-              <StatCard label="Failed" value={overall.failed ?? 0} icon={<XCircle className="w-4 h-4 text-red-600" />} tone="red" />
-              <StatCard label="Awaiting DLR" value={overall.sent ?? 0} icon={<Clock className="w-4 h-4 text-amber-600" />} tone="amber" />
+              <StatCard label="Delivered" value={overall.delivered ?? 0} icon={<CheckCircle2 className="w-4 h-4 text-success" />} tone="green" />
+              <StatCard label="Failed" value={overall.failed ?? 0} icon={<XCircle className="w-4 h-4 text-destructive" />} tone="red" />
+              <StatCard label="Awaiting DLR" value={overall.sent ?? 0} icon={<Clock className="w-4 h-4 text-warning" />} tone="amber" />
               <StatCard label="Delivery rate" value={rate(overall.delivered ?? 0, overall.failed ?? 0)} tone="violet" />
             </div>
 
@@ -112,9 +112,9 @@ export default function SmsHealthPage() {
               <Card className="border-border bg-primary/50">
                 <CardContent className="pt-6 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
                   <span className="font-bold text-primary">OTP codes ({otp.total})</span>
-                  <span className="text-green-700">✓ {otp.delivered} delivered</span>
-                  <span className="text-red-700">✗ {otp.failed} failed</span>
-                  <span className="text-amber-700">◷ {otp.sent} awaiting</span>
+                  <span className="text-success">✓ {otp.delivered} delivered</span>
+                  <span className="text-destructive">✗ {otp.failed} failed</span>
+                  <span className="text-warning">◷ {otp.sent} awaiting</span>
                   <span className="ml-auto font-bold text-primary">Delivery: {rate(otp.delivered, otp.failed)}</span>
                 </CardContent>
               </Card>
@@ -150,7 +150,7 @@ export default function SmsHealthPage() {
                       <div key={i} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm border-b border-border pb-2">
                         <span className="font-mono text-foreground">{f.phone_number}</span>
                         <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">{f.message_type}</span>
-                        <span className="text-red-600 flex-1 min-w-0 truncate">{f.error_message}</span>
+                        <span className="text-destructive flex-1 min-w-0 truncate">{f.error_message}</span>
                         <span className="text-xs text-muted-foreground">{new Date(f.created_at).toLocaleString()}</span>
                       </div>
                     ))}
@@ -170,7 +170,7 @@ export default function SmsHealthPage() {
 }
 
 function StatCard({ label, value, icon, tone }: { label: string; value: number | string; icon?: React.ReactNode; tone?: "green" | "red" | "amber" | "violet" }) {
-  const toneClass = tone === "green" ? "text-green-700" : tone === "red" ? "text-red-700" : tone === "amber" ? "text-amber-700" : tone === "violet" ? "text-primary" : "text-foreground"
+  const toneClass = tone === "green" ? "text-success" : tone === "red" ? "text-destructive" : tone === "amber" ? "text-warning" : tone === "violet" ? "text-primary" : "text-foreground"
   return (
     <Card>
       <CardContent className="pt-5 pb-4">
@@ -193,7 +193,7 @@ function Table({ headers, rows }: { headers: string[]; rows: (string | number)[]
         </thead>
         <tbody>
           {rows.map((r, i) => (
-            <tr key={i} className="border-b border-gray-50">
+            <tr key={i} className="border-b border-border">
               {r.map((c, j) => <td key={j} className={`py-2 ${j === 0 ? "font-medium text-foreground" : "text-right text-foreground"}`}>{c}</td>)}
             </tr>
           ))}

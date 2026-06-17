@@ -85,16 +85,16 @@ export default function AirtimeSettingsPage() {
           <button
             onClick={saveSettings}
             disabled={saving}
-            className="flex items-center gap-2 bg-primary text-white px-6 py-2.5 rounded-xl font-semibold shadow-lg shadow-primary hover:bg-primary transition-all disabled:opacity-50"
+            className="flex items-center gap-2 bg-primary text-primary-foreground px-6 py-2.5 rounded-xl font-semibold shadow-lg shadow-primary hover:bg-primary transition-all disabled:opacity-50"
           >
-            {saving ? <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Save className="h-4 w-4" />}
+            {saving ? <div className="h-4 w-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" /> : <Save className="h-4 w-4" />}
             {saving ? "Saving…" : "Save Changes"}
           </button>
         </header>
 
         {msg && (
           <div className={`p-4 rounded-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4 ${
-            msg.type === "success" ? "bg-green-50 text-green-700 border border-border" : "bg-red-50 text-red-700 border border-border"
+            msg.type === "success" ? "bg-success/10 text-success border border-border" : "bg-destructive/10 text-destructive border border-border"
           }`}>
             {msg.type === "success" ? <CheckCircle className="h-5 w-5" /> : <AlertCircle className="h-5 w-5" />}
             <span className="font-medium">{msg.text}</span>
@@ -139,7 +139,7 @@ export default function AirtimeSettingsPage() {
                     <span className="font-semibold text-foreground">{net.name}</span>
                     <button
                       onClick={() => handleUpdateSetting(key, { enabled: !isEnabled })}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isEnabled ? 'bg-primary' : 'bg-gray-300'}`}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isEnabled ? 'bg-primary' : 'bg-muted'}`}
                     >
                       <span className={`inline-block h-4 w-4 transform rounded-full bg-card transition-transform ${isEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
                     </button>
@@ -160,18 +160,18 @@ export default function AirtimeSettingsPage() {
               </div>
               <span className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1 rounded-full ${
                 digiwapyConfigured
-                  ? "bg-green-100 text-green-700"
-                  : "bg-red-100 text-red-700"
+                  ? "bg-success/15 text-success"
+                  : "bg-destructive/15 text-destructive"
               }`}>
-                <span className={`w-2 h-2 rounded-full ${digiwapyConfigured ? "bg-green-500" : "bg-red-400"}`} />
+                <span className={`w-2 h-2 rounded-full ${digiwapyConfigured ? "bg-success" : "bg-destructive"}`} />
                 {digiwapyConfigured ? "API Configured" : "API Not Set"}
               </span>
             </div>
 
             {!digiwapyConfigured && (
-              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
-                Set <code className="font-mono bg-amber-100 px-1 rounded">DIGIWAPY_API_KEY</code> and{" "}
-                <code className="font-mono bg-amber-100 px-1 rounded">DIGIWAPY_PARTNER_CODE</code>{" "}
+              <p className="text-xs text-warning bg-warning/10 border border-warning/30 rounded-lg p-3">
+                Set <code className="font-mono bg-warning/15 px-1 rounded">DIGIWAPY_API_KEY</code> and{" "}
+                <code className="font-mono bg-warning/15 px-1 rounded">DIGIWAPY_PARTNER_CODE</code>{" "}
                 environment variables to enable auto-fulfillment.
               </p>
             )}
@@ -193,7 +193,7 @@ export default function AirtimeSettingsPage() {
                       }}
                       disabled={!digiwapyConfigured}
                       className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                        isEnabled && digiwapyConfigured ? "bg-primary" : "bg-gray-300"
+                        isEnabled && digiwapyConfigured ? "bg-primary" : "bg-muted"
                       }`}
                     >
                       <span className={`inline-block h-4 w-4 transform rounded-full bg-card transition-transform ${

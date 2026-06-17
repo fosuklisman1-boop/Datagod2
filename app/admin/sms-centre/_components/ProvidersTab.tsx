@@ -37,9 +37,9 @@ interface SenderId {
 }
 
 const STATUS_VARIANT: Record<string, string> = {
-  active: "bg-green-100 text-green-700",
-  pending: "bg-amber-100 text-amber-700",
-  rejected: "bg-red-100 text-red-700",
+  active: "bg-success/15 text-success",
+  pending: "bg-warning/15 text-warning",
+  rejected: "bg-destructive/15 text-destructive",
 }
 
 export default function ProvidersTab() {
@@ -144,7 +144,7 @@ export default function ProvidersTab() {
             <Stat label="Headroom" value={supply ? supply.headroom.toLocaleString() : "…"} />
           </div>
           {supply && supply.totalPending > 0 && (
-            <div className="flex items-start gap-2 rounded-md border border-amber-300/60 bg-amber-50 p-3 text-sm text-amber-800">
+            <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <span>
                 {supply.totalPending.toLocaleString()} credit(s) are pending.

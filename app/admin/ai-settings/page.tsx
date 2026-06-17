@@ -231,7 +231,7 @@ export default function AISettingsPage() {
                   <span className={`w-2 h-2 rounded-full ${color}`} />
                   <Label className="text-sm font-medium">{label}</Label>
                   {config[`${provider}_key_set` as keyof ConfigState]
-                    ? <Badge variant="outline" className="text-[10px] text-green-600 border-border">Configured</Badge>
+                    ? <Badge variant="outline" className="text-[10px] text-success border-border">Configured</Badge>
                     : <Badge variant="outline" className="text-[10px] text-muted-foreground">Not set</Badge>
                   }
                 </div>

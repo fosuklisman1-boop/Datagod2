@@ -239,7 +239,7 @@ export default function AdminSmsPage() {
               ))}
             </div>
             {supply && supply.totalPending > 0 && (
-              <p className="rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              <p className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">
                 {supply.totalPending.toLocaleString()} credit(s) pending.
                 {(() => { const sf = Math.max(0, supply.totalUsable + supply.totalPending - supply.wholesaleBalance);
                   return sf > 0 ? ` Top up the Moolre SMS balance by ≥ ${sf.toLocaleString()} units to release them.` : " They’ll be released on the next cron run." })()}
@@ -305,9 +305,9 @@ export default function AdminSmsPage() {
                         <td className="py-1.5 text-xs text-muted-foreground">{s.sms_account_id ? "tenant" : "platform"}</td>
                         <td className="py-1.5">
                           <span className={`rounded px-2 py-0.5 text-xs font-medium ${
-                            s.local_status === "active" ? "bg-green-100 text-green-700"
-                            : s.local_status === "rejected" ? "bg-red-100 text-red-700"
-                            : "bg-amber-100 text-amber-700"}`}>{s.local_status}</span>
+                            s.local_status === "active" ? "bg-success/15 text-success"
+                            : s.local_status === "rejected" ? "bg-destructive/15 text-destructive"
+                            : "bg-warning/15 text-warning"}`}>{s.local_status}</span>
                         </td>
                         <td className="py-1.5 text-muted-foreground">{s.moolre_status ?? "—"}</td>
                       </tr>
@@ -454,7 +454,7 @@ export default function AdminSmsPage() {
                                 ? "text-destructive font-medium"
                                 : acct.status === "inactive"
                                 ? "text-muted-foreground"
-                                : "text-green-600 font-medium"
+                                : "text-success font-medium"
                             }
                           >
                             {acct.status}
@@ -469,8 +469,8 @@ export default function AdminSmsPage() {
                               onClick={() => handleSuspendToggle(acct)}
                               className={`rounded border px-2 py-0.5 text-xs ${
                                 acct.status === "suspended"
-                                  ? "border-green-500 text-green-600 hover:bg-green-50"
-                                  : "border-destructive text-destructive hover:bg-red-50"
+                                  ? "border-success/30 text-success hover:bg-success/10"
+                                  : "border-destructive text-destructive hover:bg-destructive/10"
                               }`}
                             >
                               {acct.status === "suspended" ? "Unsuspend" : "Suspend"}

@@ -263,14 +263,14 @@ export default function AdminApiManagementPage() {
             
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button variant="destructive" size="sm" className="font-semibold bg-red-600 hover:bg-red-700">
+                <Button variant="destructive" size="sm" className="font-semibold bg-destructive hover:bg-destructive/90">
                   <AlertCircle className="w-4 h-4 mr-2" />
                   GLOBAL KILL SWITCH
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle className="text-red-600 flex items-center gap-2">
+                  <AlertDialogTitle className="text-destructive flex items-center gap-2">
                     <AlertCircle className="w-5 h-5" />
                     EMERGENCY OVERRIDE
                   </AlertDialogTitle>
@@ -283,7 +283,7 @@ export default function AdminApiManagementPage() {
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={globalKillKeys} disabled={isKilling} className="bg-red-600 hover:bg-red-700 text-white">
+                  <AlertDialogAction onClick={globalKillKeys} disabled={isKilling} className="bg-destructive hover:bg-destructive/90 text-primary-foreground">
                     {isKilling ? "Processing..." : "CONFIRM SHUTDOWN"}
                   </AlertDialogAction>
                 </AlertDialogFooter>
@@ -309,7 +309,7 @@ export default function AdminApiManagementPage() {
           )}>
             <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
               <CardTitle className="text-sm font-medium">Status Health</CardTitle>
-              <ShieldCheck className={cn("w-4 h-4", parseFloat(healthScore) > 95 ? "text-green-600" : "text-amber-600")} />
+              <ShieldCheck className={cn("w-4 h-4", parseFloat(healthScore) > 95 ? "text-success" : "text-warning")} />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{healthScore}%</div>
@@ -370,8 +370,8 @@ export default function AdminApiManagementPage() {
                       ) : keys.map((key) => (
                         <tr key={key.id} className="group hover:bg-muted/40 transition-colors">
                           <td className="py-4 pl-2">
-                            <div className="font-semibold text-slate-900">{key.name}</div>
-                            <div className="text-xs text-slate-500 font-mono mt-1">{key.key_prefix}... [ID: {key.id.substring(0,8)}]</div>
+                            <div className="font-semibold text-foreground">{key.name}</div>
+                            <div className="text-xs text-muted-foreground font-mono mt-1">{key.key_prefix}... [ID: {key.id.substring(0,8)}]</div>
                             <div className="text-xs text-primary font-medium mt-0.5">{key.user?.first_name} ({key.user?.email})</div>
                           </td>
                           <td className="py-4">
@@ -380,7 +380,7 @@ export default function AdminApiManagementPage() {
                                 checked={key.is_active} 
                                 onCheckedChange={() => toggleKey(key.id, key.is_active)}
                               />
-                              <Badge variant="secondary" className={key.is_active ? "bg-green-100 text-green-700 hover:bg-green-100 border-border" : "bg-muted text-slate-600 hover:bg-muted border-border"}>
+                              <Badge variant="secondary" className={key.is_active ? "bg-success/15 text-success hover:bg-success/15 border-border" : "bg-muted text-muted-foreground hover:bg-muted border-border"}>
                                 {key.is_active ? "Active" : "Disabled"}
                               </Badge>
                             </div>
@@ -400,14 +400,14 @@ export default function AdminApiManagementPage() {
                               />
                             </div>
                           </td>
-                          <td className="py-4 text-slate-600">
+                          <td className="py-4 text-muted-foreground">
                              {key.last_used_at ? format(new Date(key.last_used_at), "MMM d, HH:mm") : "Never"}
                           </td>
                           <td className="py-4 text-right pr-2">
                             <Button 
                               variant="ghost" 
                               size="icon" 
-                              className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                              className="text-destructive hover:text-destructive hover:bg-destructive/10"
                               onClick={() => deleteKey(key.id)}
                             >
                               <Trash2 className="w-4 h-4" />
@@ -479,43 +479,43 @@ export default function AdminApiManagementPage() {
                           className="hover:bg-muted/40 transition-colors cursor-pointer"
                           onClick={() => setSelectedLog(log)}
                         >
-                          <td className="py-4 pl-2 text-slate-600 whitespace-nowrap">
+                          <td className="py-4 pl-2 text-muted-foreground whitespace-nowrap">
                             {format(new Date(log.created_at), "MMM d, HH:mm:ss")}
                           </td>
                           <td className="py-4">
                             <div className="flex items-center gap-2">
                               <Badge variant="outline" className="font-mono text-[10px] py-0">{log.method}</Badge>
-                              <span className="font-medium text-slate-800">{log.endpoint}</span>
+                              <span className="font-medium text-foreground">{log.endpoint}</span>
                             </div>
-                            <div className="text-[10px] text-slate-400 mt-0.5">Key: {log.key?.name || 'Unknown'} ({log.key?.key_prefix}...)</div>
+                            <div className="text-[10px] text-muted-foreground mt-0.5">Key: {log.key?.name || 'Unknown'} ({log.key?.key_prefix}...)</div>
                           </td>
                           <td className="py-4">
-                            <div className="text-slate-700">{log.user?.first_name || 'System'}</div>
-                            <div className="text-[10px] text-slate-400">{log.user?.email || 'N/A'}</div>
+                            <div className="text-foreground">{log.user?.first_name || 'System'}</div>
+                            <div className="text-[10px] text-muted-foreground">{log.user?.email || 'N/A'}</div>
                           </td>
                           <td className="py-4">
                             <div className="flex items-center gap-1.5">
                               {log.status_code >= 200 && log.status_code < 300 ? (
-                                <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
+                                <CheckCircle2 className="w-3.5 h-3.5 text-success" />
                               ) : log.status_code === 429 ? (
-                                <Zap className="w-3.5 h-3.5 text-amber-500" />
+                                <Zap className="w-3.5 h-3.5 text-warning" />
                               ) : (
-                                <AlertCircle className="w-3.5 h-3.5 text-red-500" />
+                                <AlertCircle className="w-3.5 h-3.5 text-destructive" />
                               )}
                               <span className={cn(
                                 "font-bold",
-                                log.status_code >= 200 && log.status_code < 300 ? "text-green-600" : "text-red-600"
+                                log.status_code >= 200 && log.status_code < 300 ? "text-success" : "text-destructive"
                               )}>{log.status_code}</span>
                             </div>
                           </td>
                           <td className="py-4">
-                            <div className="flex items-center gap-1.5 text-slate-600">
+                            <div className="flex items-center gap-1.5 text-muted-foreground">
                               <TrendingUp className="w-3 h-3" />
                               {log.duration_ms ? `${log.duration_ms}ms` : '---'}
                             </div>
                           </td>
                           <td className="py-4 text-right pr-2">
-                            <div className="flex items-center justify-end gap-1.5 text-slate-500 text-xs">
+                            <div className="flex items-center justify-end gap-1.5 text-muted-foreground text-xs">
                               <Globe className="w-3 h-3" />
                               {log.ip_address}
                             </div>
@@ -546,7 +546,7 @@ export default function AdminApiManagementPage() {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pb-4 border-b">
                 <div>
                   <div className="text-xs text-muted-foreground uppercase font-semibold mb-1">Status</div>
-                  <div className={cn("font-bold", selectedLog.status_code >= 400 ? "text-red-600" : "text-green-600")}>
+                  <div className={cn("font-bold", selectedLog.status_code >= 400 ? "text-destructive" : "text-success")}>
                     {selectedLog.status_code}
                   </div>
                 </div>
@@ -565,14 +565,14 @@ export default function AdminApiManagementPage() {
               </div>
 
               <div>
-                <h4 className="text-sm font-semibold mb-2 text-slate-700">Request Payload</h4>
+                <h4 className="text-sm font-semibold mb-2 text-foreground">Request Payload</h4>
                 <pre className="bg-slate-950 text-slate-50 p-4 rounded-lg overflow-x-auto text-xs font-mono">
                   {selectedLog.request_payload ? JSON.stringify(selectedLog.request_payload, null, 2) : "No payload / GET request"}
                 </pre>
               </div>
 
               <div>
-                <h4 className="text-sm font-semibold mb-2 text-slate-700">Response Payload</h4>
+                <h4 className="text-sm font-semibold mb-2 text-foreground">Response Payload</h4>
                 <pre className="bg-slate-950 text-slate-50 p-4 rounded-lg overflow-x-auto text-xs font-mono">
                   {selectedLog.response_payload ? JSON.stringify(selectedLog.response_payload, null, 2) : "No response body recorded"}
                 </pre>

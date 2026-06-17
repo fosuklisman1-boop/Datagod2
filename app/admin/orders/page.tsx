@@ -728,7 +728,7 @@ export default function AdminOrdersPage() {
       "AT - iShare": "bg-primary text-primary border-primary",
       "AT - BigTime": "bg-primary text-primary border-primary",
     }
-    return colors[network] || "bg-gray-100 text-gray-800 border-gray-200"
+    return colors[network] || "bg-muted text-muted-foreground border-border"
   }
 
   const getFilteredDownloadedOrders = () => {
@@ -827,7 +827,7 @@ export default function AdminOrdersPage() {
           <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-600 via-primary to-pink-600 bg-clip-text text-transparent">
             Order Management
           </h1>
-          <p className="text-gray-500 mt-1 font-medium">Download and manage pending orders</p>
+          <p className="text-muted-foreground mt-1 font-medium">Download and manage pending orders</p>
         </div>
 
         {/* Tabs */}
@@ -870,7 +870,7 @@ export default function AdminOrdersPage() {
                   <Button
                     onClick={handleDownloadOrders}
                     disabled={downloading || pendingOrders.length === 0}
-                    className="bg-gradient-to-r from-blue-600 to-primary hover:from-blue-700 hover:to-primary text-white font-semibold"
+                    className="bg-gradient-to-r from-blue-600 to-primary hover:from-blue-700 hover:to-primary text-primary-foreground font-semibold"
                   >
                     {downloading ? (
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -892,26 +892,26 @@ export default function AdminOrdersPage() {
                   <CardContent>
                     <div className="overflow-x-auto">
                       <table className="min-w-[600px] w-full text-xs sm:text-sm">
-                        <thead className="bg-gray-50 border-b">
+                        <thead className="bg-muted border-b">
                           <tr>
-                            <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">Order ID</th>
-                            <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">Type</th>
-                            <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">Network</th>
-                            <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">Package</th>
-                            <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">Phone</th>
-                            <th className="px-2 sm:px-4 py-2 text-right font-semibold text-gray-700 whitespace-nowrap">Price (GHS)</th>
-                            <th className="px-2 sm:px-4 py-2 text-center font-semibold text-gray-700 whitespace-nowrap">Date</th>
+                            <th className="px-2 sm:px-4 py-2 text-left font-semibold text-foreground whitespace-nowrap">Order ID</th>
+                            <th className="px-2 sm:px-4 py-2 text-left font-semibold text-foreground whitespace-nowrap">Type</th>
+                            <th className="px-2 sm:px-4 py-2 text-left font-semibold text-foreground whitespace-nowrap">Network</th>
+                            <th className="px-2 sm:px-4 py-2 text-left font-semibold text-foreground whitespace-nowrap">Package</th>
+                            <th className="px-2 sm:px-4 py-2 text-left font-semibold text-foreground whitespace-nowrap">Phone</th>
+                            <th className="px-2 sm:px-4 py-2 text-right font-semibold text-foreground whitespace-nowrap">Price (GHS)</th>
+                            <th className="px-2 sm:px-4 py-2 text-center font-semibold text-foreground whitespace-nowrap">Date</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y">
                           {pendingOrders.map((order) => (
-                            <tr key={order.id} className="hover:bg-gray-50">
+                            <tr key={order.id} className="hover:bg-muted/40">
                               <td className="px-2 sm:px-4 py-3 font-mono text-xs font-semibold break-all max-w-[120px]">{order.id}</td>
                               <td className="px-2 sm:px-4 py-3">
                                 <Badge variant="outline" className={`text-xs capitalize ${
                                   order.type === 'api' ? 'bg-primary text-primary border-primary' :
                                   order.type === 'bulk' ? 'bg-primary text-primary border-primary' :
-                                  'bg-amber-50 text-amber-700 border-amber-200'
+                                  'bg-warning/10 text-warning border-warning/30'
                                 }`}>
                                   {order.type || 'Shop'}
                                 </Badge>
@@ -922,9 +922,9 @@ export default function AdminOrdersPage() {
                               <td className="px-2 sm:px-4 py-3">{order.size}GB</td>
                               <td className="px-2 sm:px-4 py-3 font-mono text-xs break-all max-w-[120px]">{order.phone_number}</td>
                               <td className="px-2 sm:px-4 py-3 text-right font-semibold">₵ {(order.price || 0).toFixed(2)}</td>
-                              <td className="px-2 sm:px-4 py-3 text-center text-xs text-gray-500">
+                              <td className="px-2 sm:px-4 py-3 text-center text-xs text-muted-foreground">
                                 <div>{new Date(order.created_at).toLocaleDateString()}</div>
-                                <div className="text-xs text-gray-400">{new Date(order.created_at).toLocaleTimeString()}</div>
+                                <div className="text-xs text-muted-foreground">{new Date(order.created_at).toLocaleTimeString()}</div>
                               </td>
                             </tr>
                           ))}
@@ -950,13 +950,13 @@ export default function AdminOrdersPage() {
                   <CardContent>
                     <div className="grid gap-4 md:grid-cols-2">
                       <div className="relative">
-                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <input
                           type="text"
                           placeholder="Search by phone, admin email, or network..."
                           value={downloadedBatchSearch}
                           onChange={(e) => setDownloadedBatchSearch(e.target.value)}
-                          className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          className="w-full pl-10 pr-4 py-2 border border-border rounded-md focus:ring-2 focus:ring-primary focus:border-transparent"
                         />
                       </div>
                       <div className="flex flex-wrap gap-2">
@@ -1082,23 +1082,23 @@ export default function AdminOrdersPage() {
                 </Card>
 
                 {/* Bulk Delete by Date Range */}
-                <Card className="border-red-200 bg-red-50">
+                <Card className="border-destructive/30 bg-destructive/10">
                   <CardContent className="pt-4 pb-4">
                     <div className="flex flex-col sm:flex-row gap-2 items-end">
                       <div className="flex-1">
-                        <label className="block text-xs font-medium text-gray-700 mb-1">Delete batches before date</label>
+                        <label className="block text-xs font-medium text-foreground mb-1">Delete batches before date</label>
                         <input
                           type="date"
                           value={deleteBatchesEndDate}
                           onChange={(e) => setDeleteBatchesEndDate(e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                          className="w-full px-3 py-2 border border-border rounded-md text-sm focus:ring-2 focus:ring-destructive focus:border-transparent"
                         />
                       </div>
                       <Button
                         onClick={handleBulkDeleteBatches}
                         disabled={deletingBatches || !deleteBatchesEndDate}
                         size="sm"
-                        className="bg-red-600 hover:bg-red-700 text-white w-full sm:w-auto"
+                        className="bg-destructive hover:bg-destructive/90 text-primary-foreground w-full sm:w-auto"
                       >
                         {deletingBatches ? (
                           <>
@@ -1137,15 +1137,15 @@ export default function AdminOrdersPage() {
                   </Card>
                 ) : (
                   getFilteredDownloadedOrders().map(([batchKey, batch]) => (
-                    <Card key={batchKey} className="border-l-4 border-l-emerald-500">
+                    <Card key={batchKey} className="border-l-4 border-l-success">
                       <CardHeader>
                         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                           <div>
                             <CardTitle className="flex items-center gap-2">
-                              <Badge className="bg-emerald-100 text-emerald-800 border border-emerald-200">
+                              <Badge className="bg-success/15 text-success border border-success/30">
                                 {batch.network}
                               </Badge>
-                              <span className="text-gray-600">Batch</span>
+                              <span className="text-muted-foreground">Batch</span>
                             </CardTitle>
                             <CardDescription>
                               Downloaded: {new Date(batch.downloadedAt).toLocaleString()}
@@ -1188,26 +1188,26 @@ export default function AdminOrdersPage() {
                       <CardContent>
                         <div className="overflow-x-auto">
                           <table className="w-full text-sm">
-                            <thead className="bg-gray-50 border-b">
+                            <thead className="bg-muted border-b">
                               <tr>
-                                <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 text-xs sm:text-sm">Order ID</th>
-                                <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 text-xs sm:text-sm">Type</th>
-                                 <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 text-xs sm:text-sm">Network</th>
-                                <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 text-xs sm:text-sm">Package</th>
-                                <th className="px-2 sm:px-4 py-2 text-left font-semibold text-gray-700 text-xs sm:text-sm">Phone</th>
-                                <th className="px-2 sm:px-4 py-2 text-right font-semibold text-gray-700 text-xs sm:text-sm">Price (GHS)</th>
-                                <th className="px-2 sm:px-4 py-2 text-center font-semibold text-gray-700 text-xs sm:text-sm">Status</th>
+                                <th className="px-2 sm:px-4 py-2 text-left font-semibold text-foreground text-xs sm:text-sm">Order ID</th>
+                                <th className="px-2 sm:px-4 py-2 text-left font-semibold text-foreground text-xs sm:text-sm">Type</th>
+                                 <th className="px-2 sm:px-4 py-2 text-left font-semibold text-foreground text-xs sm:text-sm">Network</th>
+                                <th className="px-2 sm:px-4 py-2 text-left font-semibold text-foreground text-xs sm:text-sm">Package</th>
+                                <th className="px-2 sm:px-4 py-2 text-left font-semibold text-foreground text-xs sm:text-sm">Phone</th>
+                                <th className="px-2 sm:px-4 py-2 text-right font-semibold text-foreground text-xs sm:text-sm">Price (GHS)</th>
+                                <th className="px-2 sm:px-4 py-2 text-center font-semibold text-foreground text-xs sm:text-sm">Status</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y">
                               {batch.orders.map((order: any) => (
-                                <tr key={order.id} className="hover:bg-gray-50">
+                                <tr key={order.id} className="hover:bg-muted/40">
                                   <td className="px-2 sm:px-4 py-3 font-mono text-xs font-semibold">{order.id}</td>
                                   <td className="px-2 sm:px-4 py-3">
                                     <Badge variant="outline" className={`text-xs capitalize ${
                                        order.type === 'api' ? 'bg-primary text-primary border-primary' :
                                        order.type === 'bulk' ? 'bg-primary text-primary border-primary' :
-                                       'bg-amber-50 text-amber-700 border-amber-200'
+                                       'bg-warning/10 text-warning border-warning/30'
                                      }`}>
                                        {order.type || 'Shop'}
                                      </Badge>
@@ -1221,11 +1221,11 @@ export default function AdminOrdersPage() {
                                   <td className="px-2 sm:px-4 py-3 font-mono text-xs">{order.phone_number}</td>
                                   <td className="px-2 sm:px-4 py-3 text-right font-semibold text-xs sm:text-sm">₵ {(order.price || 0).toFixed(2)}</td>
                                   <td className="px-2 sm:px-4 py-3 text-center">
-                                    <Badge className={`border text-xs ${order.status === "completed" ? "bg-green-100 text-green-800 border-green-200" :
-                                      order.status === "failed" ? "bg-red-100 text-red-800 border-red-200" :
+                                    <Badge className={`border text-xs ${order.status === "completed" ? "bg-success/15 text-success border-success/30" :
+                                      order.status === "failed" ? "bg-destructive/15 text-destructive border-destructive/30" :
                                         order.status === "processing" ? "bg-blue-100 text-blue-800 border-blue-200" :
-                                          order.status ? "bg-gray-100 text-gray-800 border-gray-200" :
-                                            "bg-yellow-100 text-yellow-800 border-yellow-200"
+                                          order.status ? "bg-muted text-muted-foreground border-border" :
+                                            "bg-warning/15 text-warning border-warning/30"
                                       }`}>
                                       {order.status ? (order.status.charAt(0).toUpperCase() + order.status.slice(1)) : "Unknown"}
                                     </Badge>
@@ -1251,9 +1251,9 @@ export default function AdminOrdersPage() {
                   <div>
                     <CardTitle className="flex items-center gap-2">
                       {autoFulfillmentEnabled ? (
-                        <ToggleRight className="h-5 w-5 text-green-600" />
+                        <ToggleRight className="h-5 w-5 text-success" />
                       ) : (
-                        <ToggleLeft className="h-5 w-5 text-gray-400" />
+                        <ToggleLeft className="h-5 w-5 text-muted-foreground" />
                       )}
                       Auto-Fulfillment
                     </CardTitle>
@@ -1263,13 +1263,13 @@ export default function AdminOrdersPage() {
                   </div>
                   <div className="flex items-center gap-3">
                     {loadingAutoFulfillment ? (
-                      <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                     ) : (
                       <>
                         {togglingAutoFulfillment && (
-                          <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                         )}
-                        <span className={`text-sm font-medium ${autoFulfillmentEnabled ? 'text-green-600' : 'text-gray-500'}`}>
+                        <span className={`text-sm font-medium ${autoFulfillmentEnabled ? 'text-success' : 'text-muted-foreground'}`}>
                           {autoFulfillmentEnabled ? 'Enabled' : 'Disabled'}
                         </span>
                         <Switch
@@ -1286,16 +1286,16 @@ export default function AdminOrdersPage() {
                 <div className="space-y-4">
                   {/* Affected Networks */}
                   <div className="flex flex-wrap gap-2">
-                    <span className="text-sm text-gray-600">Affected networks:</span>
+                    <span className="text-sm text-muted-foreground">Affected networks:</span>
                     <Badge className="bg-primary text-primary border border-primary">AT - iShare</Badge>
                     <Badge className="bg-red-100 text-red-800 border border-red-200">Telecel</Badge>
                     <Badge className="bg-primary text-primary border border-primary">AT - BigTime</Badge>
                   </div>
 
                   {/* Status Description */}
-                  <Alert className={autoFulfillmentEnabled ? 'border-green-200 bg-green-50' : 'border-orange-200 bg-orange-50'}>
-                    <AlertCircle className={`h-4 w-4 ${autoFulfillmentEnabled ? 'text-green-600' : 'text-orange-600'}`} />
-                    <AlertDescription className={autoFulfillmentEnabled ? 'text-green-800' : 'text-orange-800'}>
+                  <Alert className={autoFulfillmentEnabled ? 'border-success/30 bg-success/10' : 'border-warning/30 bg-warning/10'}>
+                    <AlertCircle className={`h-4 w-4 ${autoFulfillmentEnabled ? 'text-success' : 'text-warning'}`} />
+                    <AlertDescription className={autoFulfillmentEnabled ? 'text-success' : 'text-warning'}>
                       {autoFulfillmentEnabled ? (
                         <>
                           <strong>Auto-fulfillment is ON:</strong> AT-iShare, Telecel, and AT-BigTime orders are automatically
@@ -1324,15 +1324,15 @@ export default function AdminOrdersPage() {
               </CardHeader>
               <CardContent>
                 <div className="flex flex-col items-center justify-center py-12 space-y-4">
-                  <Zap className="h-12 w-12 text-yellow-500" />
+                  <Zap className="h-12 w-12 text-warning" />
                   <div className="text-center">
                     <h3 className="text-lg font-semibold mb-2">Fulfillment Dashboard</h3>
-                    <p className="text-gray-600 mb-6">
+                    <p className="text-muted-foreground mb-6">
                       View real-time fulfillment status for auto-fulfilled orders
                     </p>
                     <div className="flex flex-wrap gap-3 justify-center">
                       <a href="/dashboard/admin/fulfillment" target="_blank" rel="noopener noreferrer">
-                        <Button className="bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white">
+                        <Button className="bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-primary-foreground">
                           <Zap className="h-4 w-4 mr-2" />
                           Open Fulfillment Dashboard
                         </Button>
@@ -1351,7 +1351,7 @@ export default function AdminOrdersPage() {
                         {syncingWithCodeCraft ? "Syncing..." : "Sync Processing Orders"}
                       </Button>
                     </div>
-                    <p className="text-xs text-gray-500 mt-4">
+                    <p className="text-xs text-muted-foreground mt-4">
                       Use "Sync Processing Orders" to check all orders stuck at "processing" status with CodeCraft
                     </p>
                   </div>
@@ -1360,12 +1360,12 @@ export default function AdminOrdersPage() {
             </Card>
 
             {/* Pending Orders Section */}
-            <Card className="border-l-4 border-l-orange-500">
+            <Card className="border-l-4 border-l-warning">
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle className="flex items-center gap-2">
-                      <Badge className="bg-orange-100 text-orange-800 border border-orange-200">
+                      <Badge className="bg-warning/15 text-warning border border-warning/30">
                         MTN & Codecraft
                       </Badge>
                       Pending Manual Fulfillment
@@ -1383,7 +1383,7 @@ export default function AdminOrdersPage() {
                         size="sm"
                         onClick={handleBulkManualFulfill}
                         disabled={loadingMTNOrders}
-                        className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-bold"
+                        className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-primary-foreground font-bold"
                       >
                         {loadingMTNOrders ? (
                           <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -1393,14 +1393,14 @@ export default function AdminOrdersPage() {
                         Fulfill All Pending ({pendingMTNOrders.length})
                       </Button>
                     )}
-                    {loadingMTNOrders && <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
+                    {loadingMTNOrders && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
                   </div>
                 </div>
               </CardHeader>
               <CardContent>
                 {loadingMTNOrders ? (
                   <div className="flex items-center justify-center py-12">
-                    <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                   </div>
                 ) : pendingMTNOrders.length === 0 ? (
                   <Alert>
@@ -1412,12 +1412,12 @@ export default function AdminOrdersPage() {
                 ) : (
                   <div className="space-y-3">
                     {pendingMTNOrders.map((order) => (
-                      <div key={order.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-4 rounded border border-gray-200 hover:bg-gray-50 transition">
+                      <div key={order.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-4 rounded border border-border hover:bg-muted/40 transition">
                         <div className="flex-1">
                           <div className="flex items-center gap-3 mb-2">
                             <div>
-                              <p className="font-mono text-sm font-semibold text-gray-900">{order.id}</p>
-                              <p className="text-sm text-gray-600">
+                              <p className="font-mono text-sm font-semibold text-foreground">{order.id}</p>
+                              <p className="text-sm text-muted-foreground">
                                 {order.phone_number} • {order.size}GB
                               </p>
                             </div>
@@ -1426,7 +1426,7 @@ export default function AdminOrdersPage() {
                             <Badge variant="outline" className={`text-xs capitalize ${
                                order.type === 'api' ? 'bg-primary text-primary border-primary' :
                                order.type === 'bulk' ? 'bg-primary text-primary border-primary' :
-                               'bg-amber-50 text-amber-700 border-amber-200'
+                               'bg-warning/10 text-warning border-warning/30'
                              }`}>
                                {order.type || 'Shop'}
                              </Badge>
@@ -1435,28 +1435,28 @@ export default function AdminOrdersPage() {
                             </Badge>
                             <Badge
                               className={`text-xs border ${order.status === "completed"
-                                ? "bg-green-100 text-green-800 border-green-200"
+                                ? "bg-success/15 text-success border-success/30"
                                 : order.status === "pending"
-                                  ? "bg-yellow-100 text-yellow-800 border-yellow-200"
+                                  ? "bg-warning/15 text-warning border-warning/30"
                                   : order.status === "processing"
                                     ? "bg-blue-100 text-blue-800 border-blue-200"
                                     : order.status === "failed"
-                                      ? "bg-red-100 text-red-800 border-red-200"
-                                      : "bg-gray-100 text-gray-800 border-gray-200"
+                                      ? "bg-destructive/15 text-destructive border-destructive/30"
+                                      : "bg-muted text-muted-foreground border-border"
                                 }`}
                             >
                               {order.status?.charAt(0).toUpperCase() + order.status?.slice(1) || "Unknown"}
                             </Badge>
-                            <span className="text-xs text-gray-500">
+                            <span className="text-xs text-muted-foreground">
                               Created: {new Date(order.created_at).toLocaleString()}
                             </span>
                             {mtnFulfillmentStatus[order.id] === "fulfilled" && (
-                              <Badge className="bg-green-100 text-green-800 border border-green-200">
+                              <Badge className="bg-success/15 text-success border border-success/30">
                                 Fulfilled
                               </Badge>
                             )}
                             {mtnFulfillmentStatus[order.id] === "error" && (
-                              <Badge className="bg-red-100 text-red-800 border border-red-200">
+                              <Badge className="bg-destructive/15 text-destructive border border-destructive/30">
                                 Error
                               </Badge>
                             )}
@@ -1466,7 +1466,7 @@ export default function AdminOrdersPage() {
                           <div className="flex items-center gap-4">
                             <div className="min-w-[120px]">
                               {/* Provider is always the admin-selected default (admin_settings.mtn_provider_selection). */}
-                              <Badge variant="outline" className="w-full h-8 flex items-center justify-center text-xs font-medium text-gray-500 bg-gray-50 border-gray-200">
+                              <Badge variant="outline" className="w-full h-8 flex items-center justify-center text-xs font-medium text-muted-foreground bg-muted border-border">
                                 Default
                               </Badge>
                             </div>
@@ -1476,7 +1476,7 @@ export default function AdminOrdersPage() {
                             onClick={() => handleManualFulfill(order.id)}
                             disabled={fulfillingMTNOrder === order.id || mtnFulfillmentStatus[order.id] === "fulfilled"}
                             size="sm"
-                            className="bg-orange-600 hover:bg-orange-700 text-white"
+                            className="bg-warning hover:bg-warning/90 text-primary-foreground"
                           >
                             {fulfillingMTNOrder === order.id ? (
                               <>
@@ -1543,18 +1543,18 @@ export default function AdminOrdersPage() {
                     disabled={isDisabled}
                     className={`w-full flex items-center gap-3 p-3 rounded border-2 transition-all ${isSelected
                       ? 'bg-blue-50 border-blue-500'
-                      : 'bg-card border-gray-200 hover:border-gray-300'
+                      : 'bg-card border-border hover:border-border'
                       } ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                   >
                     <div className={`flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center ${isSelected
                       ? 'bg-blue-500 border-blue-500'
-                      : 'border-gray-300 bg-card'
+                      : 'border-border bg-card'
                       }`}>
-                      {isSelected && <Check className="w-4 h-4 text-white" />}
+                      {isSelected && <Check className="w-4 h-4 text-primary-foreground" />}
                     </div>
                     <div className="flex-1 text-left">
-                      <span className="font-medium text-gray-900">{network}</span>
-                      <span className="text-sm text-gray-500 ml-2">
+                      <span className="font-medium text-foreground">{network}</span>
+                      <span className="text-sm text-muted-foreground ml-2">
                         ({formatCount(networkOrderCount)} order{networkOrderCount !== 1 ? 's' : ''})
                       </span>
                     </div>
@@ -1574,7 +1574,7 @@ export default function AdminOrdersPage() {
               <Button
                 onClick={handleConfirmDownload}
                 disabled={downloading || selectedNetworks.length === 0}
-                className="bg-gradient-to-r from-blue-600 to-primary hover:from-blue-700 hover:to-primary text-white"
+                className="bg-gradient-to-r from-blue-600 to-primary hover:from-blue-700 hover:to-primary text-primary-foreground"
               >
                 {downloading ? (
                   <>

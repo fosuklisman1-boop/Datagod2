@@ -216,9 +216,9 @@ export default function AdminProfitsHistoryPage() {
   const getStatusBadge = (status: string) => {
     switch (status.toLowerCase()) {
       case "credited":
-        return <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle className="w-3 h-3 mr-1" />Credited</Badge>
+        return <Badge className="bg-success hover:bg-success/90"><CheckCircle className="w-3 h-3 mr-1" />Credited</Badge>
       case "pending":
-        return <Badge className="bg-yellow-500 hover:bg-yellow-600"><Clock className="w-3 h-3 mr-1" />Pending</Badge>
+        return <Badge className="bg-warning hover:bg-warning/90"><Clock className="w-3 h-3 mr-1" />Pending</Badge>
       case "withdrawn":
         return <Badge className="bg-primary hover:bg-primary/90"><Banknote className="w-3 h-3 mr-1" />Withdrawn</Badge>
       default:
@@ -272,10 +272,10 @@ export default function AdminProfitsHistoryPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Profits</CardTitle>
-              <TrendingUp className="h-4 w-4 text-green-500" />
+              <TrendingUp className="h-4 w-4 text-success" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600">{formatCurrency(stats.totalProfit)}</div>
+              <div className="text-2xl font-bold text-success">{formatCurrency(stats.totalProfit)}</div>
               <p className="text-xs text-muted-foreground">{stats.totalRecords} records</p>
             </CardContent>
           </Card>
@@ -283,10 +283,10 @@ export default function AdminProfitsHistoryPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Pending</CardTitle>
-              <Clock className="h-4 w-4 text-yellow-500" />
+              <Clock className="h-4 w-4 text-warning" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-yellow-600">{formatCurrency(stats.pendingProfit)}</div>
+              <div className="text-2xl font-bold text-warning">{formatCurrency(stats.pendingProfit)}</div>
               <p className="text-xs text-muted-foreground">{stats.pendingCount} awaiting credit</p>
             </CardContent>
           </Card>
@@ -294,10 +294,10 @@ export default function AdminProfitsHistoryPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Credited</CardTitle>
-              <Wallet className="h-4 w-4 text-green-500" />
+              <Wallet className="h-4 w-4 text-success" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600">{formatCurrency(stats.creditedProfit)}</div>
+              <div className="text-2xl font-bold text-success">{formatCurrency(stats.creditedProfit)}</div>
               <p className="text-xs text-muted-foreground">{stats.creditedCount} credited</p>
             </CardContent>
           </Card>
@@ -476,7 +476,7 @@ export default function AdminProfitsHistoryPage() {
                               : "-"
                             }
                           </TableCell>
-                          <TableCell className="font-medium text-green-600">
+                          <TableCell className="font-medium text-success">
                             +{formatCurrency(profit.profit_amount)}
                           </TableCell>
                           <TableCell className="font-medium text-primary">

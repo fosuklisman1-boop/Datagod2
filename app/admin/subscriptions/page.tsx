@@ -298,7 +298,7 @@ export default function AdminSubscriptionsPage() {
                                         <Button variant="outline" size="sm" onClick={() => handleEdit(plan)}>
                                             <Edit className="w-4 h-4" />
                                         </Button>
-                                        <Button variant="outline" size="sm" className="text-red-600 hover:text-red-700" onClick={() => handleDelete(plan.id)}>
+                                        <Button variant="outline" size="sm" className="text-destructive hover:text-destructive/90" onClick={() => handleDelete(plan.id)}>
                                             <Trash2 className="w-4 h-4" />
                                         </Button>
                                     </div>

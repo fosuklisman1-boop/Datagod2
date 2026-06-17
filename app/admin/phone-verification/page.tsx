@@ -412,7 +412,7 @@ export default function PhoneVerificationPage() {
                   <CardTitle className="text-sm font-medium flex items-center gap-2">
                     {verifyState === "processing"
                       ? <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                      : <CheckCircle className="w-4 h-4 text-green-500" />}
+                      : <CheckCircle className="w-4 h-4 text-success" />}
                     {progress.fileName}
                   </CardTitle>
                 </CardHeader>
@@ -435,16 +435,16 @@ export default function PhoneVerificationPage() {
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3 text-center">
-                      <div className="text-2xl font-bold text-green-600 dark:text-green-400">{progress.verified.toLocaleString()}</div>
+                    <div className="bg-success/10 border border-success/30 rounded-lg p-3 text-center">
+                      <div className="text-2xl font-bold text-success">{progress.verified.toLocaleString()}</div>
                       <div className="text-xs text-muted-foreground">Verified</div>
                     </div>
-                    <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-center">
-                      <div className="text-2xl font-bold text-red-600 dark:text-red-400">{progress.invalid.toLocaleString()}</div>
+                    <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-3 text-center">
+                      <div className="text-2xl font-bold text-destructive">{progress.invalid.toLocaleString()}</div>
                       <div className="text-xs text-muted-foreground">Invalid</div>
                     </div>
-                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 text-center">
-                      <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">{progress.duplicates.toLocaleString()}</div>
+                    <div className="bg-warning/10 border border-warning/30 rounded-lg p-3 text-center">
+                      <div className="text-2xl font-bold text-warning">{progress.duplicates.toLocaleString()}</div>
                       <div className="text-xs text-muted-foreground">Duplicate</div>
                     </div>
                     <div className="bg-muted rounded-lg p-3 text-center">
@@ -454,7 +454,7 @@ export default function PhoneVerificationPage() {
                   </div>
 
                   {rateLimitWarning && verifyState === "processing" && (
-                    <div className="flex items-center gap-2 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-600 dark:text-yellow-400">
+                    <div className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
                       <Loader2 className="w-3 h-3 animate-spin flex-shrink-0" />
                       Rate limit hit — backing off and retrying automatically...
                     </div>
@@ -519,15 +519,15 @@ export default function PhoneVerificationPage() {
                             <td className="py-2 pr-4"><Badge variant="outline">{row.network}</Badge></td>
                             <td className="py-2">
                               {row.status === "verified" ? (
-                                <Badge className="bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20">
+                                <Badge className="bg-success/10 text-success border-success/30">
                                   <CheckCircle className="w-3 h-3 mr-1" /> Verified
                                 </Badge>
                               ) : row.status === "duplicate" ? (
-                                <Badge className="bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20">
+                                <Badge className="bg-warning/10 text-warning border-warning/30">
                                   <Copy className="w-3 h-3 mr-1" /> Duplicate
                                 </Badge>
                               ) : (
-                                <Badge className="bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20">
+                                <Badge className="bg-destructive/10 text-destructive border-destructive/30">
                                   <XCircle className="w-3 h-3 mr-1" /> Invalid
                                 </Badge>
                               )}
@@ -590,9 +590,9 @@ export default function PhoneVerificationPage() {
                           <td className="py-2 pr-4 text-muted-foreground text-xs">{new Date(session.created_at).toLocaleString()}</td>
                           <td className="py-2 pr-4 max-w-[180px] truncate">{session.file_name}</td>
                           <td className="py-2 pr-4 text-center">{session.total_count.toLocaleString()}</td>
-                          <td className="py-2 pr-4 text-center text-green-600 dark:text-green-400 font-medium">{session.verified_count.toLocaleString()}</td>
-                          <td className="py-2 pr-4 text-center text-red-600 dark:text-red-400">{session.invalid_count.toLocaleString()}</td>
-                          <td className="py-2 pr-4 text-center text-amber-600 dark:text-amber-400">{Math.max(0, session.total_count - session.verified_count - session.invalid_count).toLocaleString()}</td>
+                          <td className="py-2 pr-4 text-center text-success font-medium">{session.verified_count.toLocaleString()}</td>
+                          <td className="py-2 pr-4 text-center text-destructive">{session.invalid_count.toLocaleString()}</td>
+                          <td className="py-2 pr-4 text-center text-warning">{Math.max(0, session.total_count - session.verified_count - session.invalid_count).toLocaleString()}</td>
                           <td className="py-2 pr-4 text-center">
                             <Badge variant={session.status === "completed" ? "default" : "secondary"}>{session.status}</Badge>
                           </td>

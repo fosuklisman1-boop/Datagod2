@@ -138,7 +138,7 @@ export default function MessagingHistoryPage() {
         return (
             <DashboardLayout>
                 <div className="flex items-center justify-center h-64">
-                    <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+                    <Loader2 className="w-8 h-8 animate-spin text-success" />
                 </div>
             </DashboardLayout>
         )
@@ -221,11 +221,11 @@ export default function MessagingHistoryPage() {
                                                     </CardDescription>
                                                 </div>
                                                 <div className="flex gap-2">
-                                                    <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-none">
+                                                    <Badge className="bg-success/15 text-success hover:bg-success/15 border-none">
                                                         {log.results?.total || 0} Recipients
                                                     </Badge>
                                                     {log.channels.includes("email") && <Mail className="w-4 h-4 text-pink-400" />}
-                                                    {log.channels.includes("sms") && <MessageSquare className="w-4 h-4 text-emerald-400" />}
+                                                    {log.channels.includes("sms") && <MessageSquare className="w-4 h-4 text-success" />}
                                                 </div>
                                             </div>
                                         </CardHeader>
@@ -243,11 +243,11 @@ export default function MessagingHistoryPage() {
                                                                 <span className="text-xs text-blue-400 block">Sent Sukses</span>
                                                                 {log.results?.email?.failed > 0 && (
                                                                     <div className="flex items-center justify-end gap-1 mt-1">
-                                                                        <span className="text-xs text-red-500 font-bold">{log.results?.email?.failed} Failed</span>
+                                                                        <span className="text-xs text-destructive font-bold">{log.results?.email?.failed} Failed</span>
                                                                         <Button
                                                                             variant="link"
                                                                             size="sm"
-                                                                            className="h-auto p-0 text-[10px] text-red-600 underline"
+                                                                            className="h-auto p-0 text-[10px] text-destructive underline"
                                                                             onClick={(e) => {
                                                                                 e.stopPropagation()
                                                                                 handleRetry(log.id)
@@ -260,19 +260,19 @@ export default function MessagingHistoryPage() {
                                                             </div>
                                                         </div>
                                                     </div>
-                                                    <div className="p-3 bg-emerald-50/50 rounded-lg border border-border">
-                                                        <p className="text-[10px] text-emerald-600 font-bold uppercase mb-1">SMS Delivery</p>
+                                                    <div className="p-3 bg-success/10 rounded-lg border border-border">
+                                                        <p className="text-[10px] text-success font-bold uppercase mb-1">SMS Delivery</p>
                                                         <div className="flex justify-between items-end">
-                                                            <span className="text-xl font-bold text-emerald-700">{log.results?.sms?.sent || 0}</span>
+                                                            <span className="text-xl font-bold text-success">{log.results?.sms?.sent || 0}</span>
                                                             <div className="text-right">
-                                                                <span className="text-xs text-emerald-400 block">Delivered</span>
+                                                                <span className="text-xs text-success block">Delivered</span>
                                                                 {log.results?.sms?.failed > 0 && (
                                                                     <div className="flex items-center justify-end gap-1 mt-1">
-                                                                        <span className="text-xs text-red-500 font-bold">{log.results?.sms?.failed} Failed</span>
+                                                                        <span className="text-xs text-destructive font-bold">{log.results?.sms?.failed} Failed</span>
                                                                         <Button
                                                                             variant="link"
                                                                             size="sm"
-                                                                            className="h-auto p-0 text-[10px] text-red-600 underline"
+                                                                            className="h-auto p-0 text-[10px] text-destructive underline"
                                                                             onClick={(e) => {
                                                                                 e.stopPropagation()
                                                                                 handleRetry(log.id)
@@ -318,7 +318,7 @@ export default function MessagingHistoryPage() {
                                                     <td className="p-4 max-w-xs truncate">{log.subject}</td>
                                                     <td className="p-4">
                                                         {log.status === 'sent' ? (
-                                                            <Badge className="bg-emerald-100 text-emerald-700">Sent</Badge>
+                                                            <Badge className="bg-success/15 text-success">Sent</Badge>
                                                         ) : (
                                                             <Badge variant="destructive">{log.status}</Badge>
                                                         )}
@@ -359,7 +359,7 @@ export default function MessagingHistoryPage() {
                                                     <td className="p-4 max-w-sm truncate text-muted-foreground italic">"{log.message}"</td>
                                                     <td className="p-4">
                                                         {log.status === 'sent' || log.status === 'delivered' ? (
-                                                            <Badge className="bg-emerald-100 text-emerald-700">Sent</Badge>
+                                                            <Badge className="bg-success/15 text-success">Sent</Badge>
                                                         ) : (
                                                             <Badge variant="destructive">{log.status}</Badge>
                                                         )}

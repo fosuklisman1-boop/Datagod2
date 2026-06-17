@@ -200,11 +200,11 @@ export default function AdminTransactionsPage() {
   const getStatusBadge = (status: string) => {
     switch (status.toLowerCase()) {
       case "completed":
-        return <Badge className="bg-green-500 hover:bg-green-600">Completed</Badge>
+        return <Badge className="bg-success hover:bg-success/90 text-primary-foreground">Completed</Badge>
       case "pending":
-        return <Badge className="bg-yellow-500 hover:bg-yellow-600">Pending</Badge>
+        return <Badge className="bg-warning hover:bg-warning/90 text-primary-foreground">Pending</Badge>
       case "failed":
-        return <Badge className="bg-red-500 hover:bg-red-600">Failed</Badge>
+        return <Badge className="bg-destructive hover:bg-destructive/90 text-primary-foreground">Failed</Badge>
       default:
         return <Badge variant="secondary">{status}</Badge>
     }
@@ -212,8 +212,8 @@ export default function AdminTransactionsPage() {
 
   const getTypeBadge = (type: string) => {
     return type === "credit"
-      ? <Badge className="bg-green-100 text-green-800 hover:bg-green-200"><ArrowUpCircle className="w-3 h-3 mr-1" />Credit</Badge>
-      : <Badge className="bg-red-100 text-red-800 hover:bg-red-200"><ArrowDownCircle className="w-3 h-3 mr-1" />Debit</Badge>
+      ? <Badge className="bg-success/15 text-success hover:bg-success/20"><ArrowUpCircle className="w-3 h-3 mr-1" />Credit</Badge>
+      : <Badge className="bg-destructive/15 text-destructive hover:bg-destructive/20"><ArrowDownCircle className="w-3 h-3 mr-1" />Debit</Badge>
   }
 
   const getSourceLabel = (source: string) => {
@@ -279,10 +279,10 @@ export default function AdminTransactionsPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Credits</CardTitle>
-              <TrendingUp className="h-4 w-4 text-green-500" />
+              <TrendingUp className="h-4 w-4 text-success" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600">{formatCurrency(stats.totalCredits)}</div>
+              <div className="text-2xl font-bold text-success">{formatCurrency(stats.totalCredits)}</div>
               <p className="text-xs text-muted-foreground">Money in</p>
             </CardContent>
           </Card>
@@ -290,10 +290,10 @@ export default function AdminTransactionsPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Debits</CardTitle>
-              <TrendingDown className="h-4 w-4 text-red-500" />
+              <TrendingDown className="h-4 w-4 text-destructive" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-red-600">{formatCurrency(stats.totalDebits)}</div>
+              <div className="text-2xl font-bold text-destructive">{formatCurrency(stats.totalDebits)}</div>
               <p className="text-xs text-muted-foreground">Money out</p>
             </CardContent>
           </Card>
@@ -302,13 +302,13 @@ export default function AdminTransactionsPage() {
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Net Flow</CardTitle>
               {stats.netFlow >= 0 ? (
-                <ArrowUpCircle className="h-4 w-4 text-green-500" />
+                <ArrowUpCircle className="h-4 w-4 text-success" />
               ) : (
-                <ArrowDownCircle className="h-4 w-4 text-red-500" />
+                <ArrowDownCircle className="h-4 w-4 text-destructive" />
               )}
             </CardHeader>
             <CardContent>
-              <div className={`text-2xl font-bold ${stats.netFlow >= 0 ? "text-green-600" : "text-red-600"}`}>
+              <div className={`text-2xl font-bold ${stats.netFlow >= 0 ? "text-success" : "text-destructive"}`}>
                 {formatCurrency(Math.abs(stats.netFlow))}
               </div>
               <p className="text-xs text-muted-foreground">{stats.netFlow >= 0 ? "Net positive" : "Net negative"}</p>
@@ -318,10 +318,10 @@ export default function AdminTransactionsPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Pending</CardTitle>
-              <Clock className="h-4 w-4 text-yellow-500" />
+              <Clock className="h-4 w-4 text-warning" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-yellow-600">{stats.pendingCount}</div>
+              <div className="text-2xl font-bold text-warning">{stats.pendingCount}</div>
               <p className="text-xs text-muted-foreground">Awaiting completion</p>
             </CardContent>
           </Card>
@@ -329,10 +329,10 @@ export default function AdminTransactionsPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Failed</CardTitle>
-              <AlertTriangle className="h-4 w-4 text-red-500" />
+              <AlertTriangle className="h-4 w-4 text-destructive" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-red-600">{stats.failedCount}</div>
+              <div className="text-2xl font-bold text-destructive">{stats.failedCount}</div>
               <p className="text-xs text-muted-foreground">Failed transactions</p>
             </CardContent>
           </Card>
@@ -489,7 +489,7 @@ export default function AdminTransactionsPage() {
                       {/* Type + Amount */}
                       <div className="flex justify-between items-center mb-3">
                         {getTypeBadge(transaction.type)}
-                        <span className={`text-lg font-bold ${transaction.type === "credit" ? "text-green-600" : "text-red-600"
+                        <span className={`text-lg font-bold ${transaction.type === "credit" ? "text-success" : "text-destructive"
                           }`}>
                           {transaction.type === "credit" ? "+" : "-"}{formatCurrency(transaction.amount)}
                         </span>
@@ -566,7 +566,7 @@ export default function AdminTransactionsPage() {
                             </div>
                           </TableCell>
                           <TableCell>{getTypeBadge(transaction.type)}</TableCell>
-                          <TableCell className={`font-medium ${transaction.type === "credit" ? "text-green-600" : "text-red-600"}`}>
+                          <TableCell className={`font-medium ${transaction.type === "credit" ? "text-success" : "text-destructive"}`}>
                             {transaction.type === "credit" ? "+" : "-"}{formatCurrency(transaction.amount)}
                           </TableCell>
                           <TableCell>

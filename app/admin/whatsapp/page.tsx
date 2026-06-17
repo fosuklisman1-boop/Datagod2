@@ -91,7 +91,7 @@ function avatarColor(key: string): string {
 
 function Avatar({ name, phone }: { name: string | null; phone: string }) {
   return (
-    <span className={`shrink-0 w-9 h-9 rounded-full ${avatarColor(name || phone)} text-white grid place-items-center text-xs font-semibold`}>
+    <span className={`shrink-0 w-9 h-9 rounded-full ${avatarColor(name || phone)} text-primary-foreground grid place-items-center text-xs font-semibold`}>
       {initials(name, phone)}
     </span>
   )
@@ -99,10 +99,10 @@ function Avatar({ name, phone }: { name: string | null; phone: string }) {
 
 // WhatsApp delivery ticks for our outbound messages.
 function Ticks({ status }: { status: string | null }) {
-  if (status === "failed") return <span className="text-rose-500 text-[11px] font-bold" title="Failed to deliver">!</span>
+  if (status === "failed") return <span className="text-destructive text-[11px] font-bold" title="Failed to deliver">!</span>
   if (status === "read") return <CheckCheck className="w-3.5 h-3.5 text-sky-500" />
-  if (status === "delivered") return <CheckCheck className="w-3.5 h-3.5 text-neutral-400" />
-  return <Check className="w-3.5 h-3.5 text-neutral-400" />
+  if (status === "delivered") return <CheckCheck className="w-3.5 h-3.5 text-muted-foreground" />
+  return <Check className="w-3.5 h-3.5 text-muted-foreground" />
 }
 
 export default function WhatsAppInboxPage() {
@@ -386,20 +386,20 @@ export default function WhatsAppInboxPage() {
                   // Optimistically clear the dot; the thread GET marks it read server-side.
                   setConversations(prev => prev.map(x => x.phone_number === c.phone_number ? { ...x, unread: false } : x))
                 }}
-                className={`w-full text-left px-3 py-2.5 border-b hover:bg-accent transition-colors flex items-center gap-2.5 ${c.unread ? "bg-emerald-50/60 dark:bg-emerald-950/20" : ""}`}
+                className={`w-full text-left px-3 py-2.5 border-b hover:bg-accent transition-colors flex items-center gap-2.5 ${c.unread ? "bg-success/10" : ""}`}
               >
                 <Avatar name={c.customer_name} phone={c.phone_number} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
                     <span className={`text-sm truncate ${c.unread ? "font-semibold" : "font-medium"}`}>{c.customer_name || c.phone_number}</span>
-                    <span className={`text-[10px] shrink-0 ${c.unread ? "text-emerald-600 font-medium" : "text-muted-foreground"}`}>{timeAgo(c.updated_at)}</span>
+                    <span className={`text-[10px] shrink-0 ${c.unread ? "text-success font-medium" : "text-muted-foreground"}`}>{timeAgo(c.updated_at)}</span>
                   </div>
                   <div className="flex items-center justify-between gap-2 mt-0.5">
                     <span className={`text-xs truncate ${c.unread ? "text-foreground" : "text-muted-foreground"}`}>{c.last_message_preview || "—"}</span>
                     <span className="flex items-center gap-1 shrink-0">
-                      {c.wants_human && <Badge className="text-[10px] px-1.5 py-0 bg-amber-500 hover:bg-amber-600 text-white"><Hand className="w-3 h-3 mr-0.5" />wants human</Badge>}
+                      {c.wants_human && <Badge className="text-[10px] px-1.5 py-0 bg-warning hover:bg-warning/90 text-primary-foreground"><Hand className="w-3 h-3 mr-0.5" />wants human</Badge>}
                       {c.takeover_active && <Badge variant="secondary" className="text-[10px] px-1.5 py-0"><UserCheck className="w-3 h-3 mr-0.5" />human</Badge>}
-                      {c.unread && <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" aria-label="unread" />}
+                      {c.unread && <span className="w-2.5 h-2.5 rounded-full bg-success" aria-label="unread" />}
                     </span>
                   </div>
                   {c.customer_name && <div className="text-[10px] text-muted-foreground mt-0.5">{c.phone_number}</div>}
@@ -424,7 +424,7 @@ export default function WhatsAppInboxPage() {
                 <div className="font-medium text-sm truncate flex items-center gap-1.5">
                   {threadConvo?.customer_name || selectedConvo?.customer_name || selected}
                   {threadConvo?.wants_human && !threadConvo?.takeover_active && (
-                    <Badge className="text-[10px] px-1.5 py-0 bg-amber-500 hover:bg-amber-600 text-white"><Hand className="w-3 h-3 mr-0.5" />wants human</Badge>
+                    <Badge className="text-[10px] px-1.5 py-0 bg-warning hover:bg-warning/90 text-primary-foreground"><Hand className="w-3 h-3 mr-0.5" />wants human</Badge>
                   )}
                 </div>
                 <div className="text-xs text-muted-foreground">
@@ -494,7 +494,7 @@ export default function WhatsAppInboxPage() {
           </div>
 
           {threadConvo?.is_stale && (
-            <div className="px-3 py-1.5 text-[11px] text-amber-700 bg-amber-50 border-t border-amber-200 flex items-center gap-1">
+            <div className="px-3 py-1.5 text-[11px] text-warning bg-warning/10 border-t border-warning/30 flex items-center gap-1">
               <AlertTriangle className="w-3 h-3 shrink-0" /> Outside the 24h window — WhatsApp may not deliver a free-form reply.
             </div>
           )}

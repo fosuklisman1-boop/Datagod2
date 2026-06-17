@@ -257,16 +257,16 @@ export default function UserPhoneAuditPage() {
                           <td className="py-2 pr-4 text-muted-foreground text-xs">{new Date(u.created_at).toLocaleDateString()}</td>
                           <td className="py-2 pr-4 text-right">
                             {u.wallet_balance > 0
-                              ? <span className="text-amber-600 dark:text-amber-400 font-medium">GH¢{u.wallet_balance.toFixed(2)}</span>
+                              ? <span className="text-warning dark:text-warning font-medium">GH¢{u.wallet_balance.toFixed(2)}</span>
                               : <span className="text-muted-foreground">0</span>}
                           </td>
                           <td className="py-2 pr-4 text-center">
                             {u.order_count > 0
-                              ? <span className="text-amber-600 dark:text-amber-400 font-medium">{u.order_count}</span>
+                              ? <span className="text-warning dark:text-warning font-medium">{u.order_count}</span>
                               : <span className="text-muted-foreground">0</span>}
                           </td>
                           <td className="py-2 text-right">
-                            <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700" onClick={() => setConfirmTargets([u.id])} disabled={deleting}>
+                            <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setConfirmTargets([u.id])} disabled={deleting}>
                               <Trash2 className="w-4 h-4" />
                             </Button>
                           </td>
@@ -295,7 +295,7 @@ export default function UserPhoneAuditPage() {
       <Dialog open={!!confirmTargets} onOpenChange={(o) => { if (!o) setConfirmTargets(null) }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-red-600">
+            <DialogTitle className="flex items-center gap-2 text-destructive">
               <AlertTriangle className="w-5 h-5" /> Delete {confirmTargets?.length} account{(confirmTargets?.length || 0) > 1 ? "s" : ""}?
             </DialogTitle>
             <DialogDescription>
@@ -305,7 +305,7 @@ export default function UserPhoneAuditPage() {
           </DialogHeader>
 
           {withHistoryCount > 0 && (
-            <div className="bg-amber-50 border border-border rounded-lg p-3 text-sm text-amber-800 flex items-start gap-2">
+            <div className="bg-warning/10 border border-border rounded-lg p-3 text-sm text-warning flex items-start gap-2">
               <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
               <span>
                 <strong>{withHistoryCount}</strong> of these {(confirmTargets?.length || 0) > 1 ? "accounts have" : "account has"} a

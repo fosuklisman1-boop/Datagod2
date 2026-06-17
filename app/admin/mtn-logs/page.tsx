@@ -338,7 +338,7 @@ export default function MTNFulfillmentLogsPage() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "completed":
-        return <Badge className="bg-green-500"><CheckCircle className="w-3 h-3 mr-1" /> Completed</Badge>
+        return <Badge className="bg-success"><CheckCircle className="w-3 h-3 mr-1" /> Completed</Badge>
       case "failed":
         return <Badge variant="destructive"><XCircle className="w-3 h-3 mr-1" /> Failed</Badge>
       case "pending":
@@ -346,7 +346,7 @@ export default function MTNFulfillmentLogsPage() {
       case "processing":
         return <Badge className="bg-primary"><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Processing</Badge>
       case "retrying":
-        return <Badge className="bg-yellow-500"><RefreshCw className="w-3 h-3 mr-1" /> Retrying</Badge>
+        return <Badge className="bg-warning"><RefreshCw className="w-3 h-3 mr-1" /> Retrying</Badge>
       case "error":
         return <Badge variant="destructive"><AlertTriangle className="w-3 h-3 mr-1" /> Error</Badge>
       default:
@@ -454,11 +454,11 @@ export default function MTNFulfillmentLogsPage() {
         {/* Summary Cards */}
         <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 mb-6">
           <Card><CardContent className="p-3 sm:p-4"><div className="text-lg sm:text-2xl font-bold">{summary.total}</div><div className="text-xs sm:text-sm text-muted-foreground">Total Orders</div></CardContent></Card>
-          <Card><CardContent className="p-3 sm:p-4"><div className="text-lg sm:text-2xl font-bold text-yellow-500">{summary.pending}</div><div className="text-xs sm:text-sm text-muted-foreground">Pending</div></CardContent></Card>
+          <Card><CardContent className="p-3 sm:p-4"><div className="text-lg sm:text-2xl font-bold text-warning">{summary.pending}</div><div className="text-xs sm:text-sm text-muted-foreground">Pending</div></CardContent></Card>
           <Card><CardContent className="p-3 sm:p-4"><div className="text-lg sm:text-2xl font-bold text-primary">{summary.processing}</div><div className="text-xs sm:text-sm text-muted-foreground">Processing</div></CardContent></Card>
-          <Card><CardContent className="p-3 sm:p-4"><div className="text-lg sm:text-2xl font-bold text-green-500">{summary.completed}</div><div className="text-xs sm:text-sm text-muted-foreground">Completed</div></CardContent></Card>
-          <Card><CardContent className="p-3 sm:p-4"><div className="text-lg sm:text-2xl font-bold text-red-500">{summary.failed}</div><div className="text-xs sm:text-sm text-muted-foreground">Failed</div></CardContent></Card>
-          <Card><CardContent className="p-3 sm:p-4"><div className="text-lg sm:text-2xl font-bold text-orange-500">{summary.retrying}</div><div className="text-xs sm:text-sm text-muted-foreground">Retrying</div></CardContent></Card>
+          <Card><CardContent className="p-3 sm:p-4"><div className="text-lg sm:text-2xl font-bold text-success">{summary.completed}</div><div className="text-xs sm:text-sm text-muted-foreground">Completed</div></CardContent></Card>
+          <Card><CardContent className="p-3 sm:p-4"><div className="text-lg sm:text-2xl font-bold text-destructive">{summary.failed}</div><div className="text-xs sm:text-sm text-muted-foreground">Failed</div></CardContent></Card>
+          <Card><CardContent className="p-3 sm:p-4"><div className="text-lg sm:text-2xl font-bold text-warning">{summary.retrying}</div><div className="text-xs sm:text-sm text-muted-foreground">Retrying</div></CardContent></Card>
         </div>
 
         {/* Tabs */}
@@ -517,7 +517,7 @@ export default function MTNFulfillmentLogsPage() {
                             </TableCell>
                             <TableCell>
                               {log.provider === "datakazina" ? (
-                                <Badge className="bg-emerald-100 text-emerald-800 border-border">DataKazina</Badge>
+                                <Badge className="bg-success/15 text-success border-border">DataKazina</Badge>
                               ) : log.provider === "xpress" ? (
                                 <Badge className="bg-primary text-primary border-border">Xpress</Badge>
                               ) : log.provider === "eazyghdata" ? (

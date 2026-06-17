@@ -308,10 +308,10 @@ Occupation: ${submission.occupation || "N/A"}`
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case "completed":  return "bg-green-100 text-green-800"
+      case "completed":  return "bg-success/15 text-success"
       case "processing": return "bg-primary/10 text-primary"
-      case "pending":    return "bg-yellow-100 text-yellow-800"
-      case "cancelled":  return "bg-red-100 text-red-800"
+      case "pending":    return "bg-warning/15 text-warning"
+      case "cancelled":  return "bg-destructive/15 text-destructive"
       default:           return "bg-muted text-foreground"
     }
   }
@@ -320,13 +320,13 @@ Occupation: ${submission.occupation || "N/A"}`
     const fs = sub.fulfillment_status || "unfulfilled"
     switch (fs) {
       case "fulfilled":
-        return <Badge className="bg-green-100 text-green-800 text-xs">Fulfilled</Badge>
+        return <Badge className="bg-success/15 text-success text-xs">Fulfilled</Badge>
       case "pending":
         return <Badge className="bg-primary/10 text-primary text-xs">Fulfilling…</Badge>
       case "failed":
         return (
           <span title={sub.fulfillment_error || "Unknown error"}>
-            <Badge className="bg-red-100 text-red-800 text-xs cursor-help">Failed ⚠</Badge>
+            <Badge className="bg-destructive/15 text-destructive text-xs cursor-help">Failed ⚠</Badge>
           </span>
         )
       default:
@@ -426,9 +426,9 @@ Occupation: ${submission.occupation || "N/A"}`
                       <li>✓ fulfillment_status tracked automatically</li>
                     </ul>
                   </div>
-                  <div className="p-3 bg-amber-50 rounded-lg border border-border">
-                    <p className="font-medium text-amber-900 mb-1">⚪ When Disabled</p>
-                    <ul className="text-xs space-y-1 text-amber-800">
+                  <div className="p-3 bg-warning/10 rounded-lg border border-border">
+                    <p className="font-medium text-warning mb-1">⚪ When Disabled</p>
+                    <ul className="text-xs space-y-1 text-warning">
                       <li>✓ Orders queue here for manual trigger</li>
                       <li>✓ Admin reviews before sending to Sykes</li>
                       <li>✓ Use "Fulfill Now" or "Fulfill All" below</li>
@@ -452,9 +452,9 @@ Occupation: ${submission.occupation || "N/A"}`
             <div className="flex items-center justify-between flex-wrap gap-4">
               <div className="space-y-1">
                 <p className="text-sm text-foreground">
-                  <span className="font-semibold text-orange-600">{stats.unfulfilled}</span> order{stats.unfulfilled !== 1 ? "s" : ""} awaiting fulfillment
+                  <span className="font-semibold text-warning">{stats.unfulfilled}</span> order{stats.unfulfilled !== 1 ? "s" : ""} awaiting fulfillment
                   {stats.failedFulfillment > 0 && (
-                    <span className="ml-2 text-red-600">({stats.failedFulfillment} previously failed — will retry)</span>
+                    <span className="ml-2 text-destructive">({stats.failedFulfillment} previously failed — will retry)</span>
                   )}
                 </p>
                 <p className="text-xs text-muted-foreground">
@@ -474,7 +474,7 @@ Occupation: ${submission.occupation || "N/A"}`
                 <Button
                   onClick={handleFulfillAllPending}
                   disabled={bulkFulfilling || stats.unfulfilled === 0}
-                  className="bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary text-white font-semibold"
+                  className="bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary text-primary-foreground font-semibold"
                 >
                   {bulkFulfilling ? (
                     <>
@@ -522,7 +522,7 @@ Occupation: ${submission.occupation || "N/A"}`
               <Button
                 onClick={handleSavePrice}
                 disabled={savingPrice}
-                className="bg-gradient-to-r from-primary to-primary/80 hover:from-primary hover:to-primary/80 text-white font-semibold"
+                className="bg-gradient-to-r from-primary to-primary/80 hover:from-primary hover:to-primary/80 text-primary-foreground font-semibold"
               >
                 {savingPrice ? "Saving..." : "Save Price"}
               </Button>
@@ -549,7 +549,7 @@ Occupation: ${submission.occupation || "N/A"}`
               <CardTitle className="text-sm font-medium text-foreground">Pending</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-yellow-600">{stats.pending}</div>
+              <div className="text-2xl font-bold text-warning">{stats.pending}</div>
             </CardContent>
           </Card>
 
@@ -558,7 +558,7 @@ Occupation: ${submission.occupation || "N/A"}`
               <CardTitle className="text-sm font-medium text-foreground">Fulfilled</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600">{stats.fulfilled}</div>
+              <div className="text-2xl font-bold text-success">{stats.fulfilled}</div>
             </CardContent>
           </Card>
 
@@ -567,7 +567,7 @@ Occupation: ${submission.occupation || "N/A"}`
               <CardTitle className="text-sm font-medium text-foreground">Failed</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-red-600">{stats.failedFulfillment}</div>
+              <div className="text-2xl font-bold text-destructive">{stats.failedFulfillment}</div>
             </CardContent>
           </Card>
         </div>
@@ -737,9 +737,9 @@ Occupation: ${submission.occupation || "N/A"}`
                       {/* Fulfillment info tile */}
                       <div className={`bg-card border rounded p-3 ${
                         submission.fulfillment_status === "fulfilled"
-                          ? "border-border bg-green-50"
+                          ? "border-success/30 bg-success/10"
                           : submission.fulfillment_status === "failed"
-                          ? "border-border bg-red-50"
+                          ? "border-destructive/30 bg-destructive/10"
                           : "border-border"
                       }`}>
                         <p className="text-xs text-muted-foreground font-medium">Fulfillment</p>
@@ -751,7 +751,7 @@ Occupation: ${submission.occupation || "N/A"}`
                             </p>
                           )}
                           {submission.fulfillment_error && (
-                            <p className="text-xs text-red-600 truncate" title={submission.fulfillment_error}>
+                            <p className="text-xs text-destructive truncate" title={submission.fulfillment_error}>
                               {submission.fulfillment_error}
                             </p>
                           )}
@@ -773,9 +773,9 @@ Occupation: ${submission.occupation || "N/A"}`
 
                     {/* Fulfillment error alert for failed orders */}
                     {submission.fulfillment_status === "failed" && submission.fulfillment_error && (
-                      <Alert className="mt-3 border-border bg-red-50">
-                        <AlertCircle className="h-4 w-4 text-red-600" />
-                        <AlertDescription className="text-red-700 text-xs">
+                      <Alert className="mt-3 border-destructive/30 bg-destructive/10">
+                        <AlertCircle className="h-4 w-4 text-destructive" />
+                        <AlertDescription className="text-destructive text-xs">
                           <strong>Fulfillment error:</strong> {submission.fulfillment_error}
                         </AlertDescription>
                       </Alert>

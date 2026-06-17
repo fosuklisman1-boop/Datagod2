@@ -793,9 +793,9 @@ export default function AdminSettingsPage() {
         </div>
 
         {/* Global Ordering Control - Emergency Switch */}
-        <Card className="mb-6 border-border bg-red-50">
+        <Card className="mb-6 border-border bg-destructive/10">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-red-700">
+            <CardTitle className="flex items-center gap-2 text-destructive">
               <Power className="w-5 h-5" />
               Global Ordering Status
             </CardTitle>
@@ -815,7 +815,7 @@ export default function AdminSettingsPage() {
               <Switch
                 checked={orderingEnabled}
                 onCheckedChange={handleOrderingToggle}
-                className="data-[state=checked]:bg-green-600 data-[state=unchecked]:bg-red-600"
+                className="data-[state=checked]:bg-success data-[state=unchecked]:bg-destructive"
               />
             </div>
           </CardContent>
@@ -840,7 +840,7 @@ export default function AdminSettingsPage() {
               <Switch
                 checked={signupsEnabled}
                 onCheckedChange={setSignupsEnabled}
-                className="data-[state=checked]:bg-green-600"
+                className="data-[state=checked]:bg-success"
               />
             </div>
 
@@ -877,7 +877,7 @@ export default function AdminSettingsPage() {
               <Switch
                 checked={walletTopupsEnabled}
                 onCheckedChange={setWalletTopupsEnabled}
-                className="data-[state=checked]:bg-green-600"
+                className="data-[state=checked]:bg-success"
               />
             </div>
 
@@ -892,7 +892,7 @@ export default function AdminSettingsPage() {
               <Switch
                 checked={upgradesEnabled}
                 onCheckedChange={setUpgradesEnabled}
-                className="data-[state=checked]:bg-green-600"
+                className="data-[state=checked]:bg-success"
               />
             </div>
 
@@ -932,7 +932,7 @@ export default function AdminSettingsPage() {
               <Switch
                 checked={storefrontAnnouncementEnabled}
                 onCheckedChange={handleStorefrontAnnouncementToggle}
-                className="data-[state=checked]:bg-green-600 data-[state=unchecked]:bg-gray-300 scale-125"
+                className="data-[state=checked]:bg-success data-[state=unchecked]:bg-muted scale-125"
               />
             </div>
 
@@ -992,15 +992,15 @@ export default function AdminSettingsPage() {
         <AirtimeSettingsCard />
 
         {/* USSD Settings */}
-        <Card className="mb-6 border-border bg-green-50">
+        <Card className="mb-6 border-border bg-success/10">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-green-800">
+            <CardTitle className="flex items-center gap-2 text-success">
               <Power className="w-5 h-5" />
               USSD Storefront Settings
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-sm text-green-900">
+            <p className="text-sm text-success">
               Configure pricing for the USSD self-service storefront (*code#).
             </p>
             <div className="space-y-2">
@@ -1014,8 +1014,8 @@ export default function AdminSettingsPage() {
                   disabled={savingUssdTier}
                   className={`flex-1 py-2 px-4 rounded-lg border-2 text-sm font-medium transition-colors ${
                     ussdPriceTier === "regular"
-                      ? "border-green-600 bg-green-600 text-white"
-                      : "border-border bg-card text-foreground hover:border-green-400"
+                      ? "border-success bg-success text-primary-foreground"
+                      : "border-border bg-card text-foreground hover:border-success/60"
                   }`}
                 >
                   Regular Price
@@ -1025,15 +1025,15 @@ export default function AdminSettingsPage() {
                   disabled={savingUssdTier}
                   className={`flex-1 py-2 px-4 rounded-lg border-2 text-sm font-medium transition-colors ${
                     ussdPriceTier === "dealer"
-                      ? "border-green-600 bg-green-600 text-white"
-                      : "border-border bg-card text-foreground hover:border-green-400"
+                      ? "border-success bg-success text-primary-foreground"
+                      : "border-border bg-card text-foreground hover:border-success/60"
                   }`}
                 >
                   Dealer Price
                 </button>
               </div>
               {savingUssdTier && (
-                <p className="text-xs text-green-700 flex items-center gap-1">
+                <p className="text-xs text-success flex items-center gap-1">
                   <Loader2 className="w-3 h-3 animate-spin" /> Saving...
                 </p>
               )}
@@ -1107,7 +1107,7 @@ export default function AdminSettingsPage() {
         <Card className="mt-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <MessageCircle className="w-5 h-5 text-green-600" />
+              <MessageCircle className="w-5 h-5 text-success" />
               Support Contact Settings
             </CardTitle>
           </CardHeader>
@@ -1130,13 +1130,13 @@ export default function AdminSettingsPage() {
             </div>
 
             {previewWhatsappUrl && (
-              <div className="p-3 bg-green-50 border border-border rounded-lg">
-                <p className="text-xs font-semibold text-green-900 mb-2">WhatsApp Link Preview:</p>
+              <div className="p-3 bg-success/10 border border-border rounded-lg">
+                <p className="text-xs font-semibold text-success mb-2">WhatsApp Link Preview:</p>
                 <a
                   href={previewWhatsappUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-sm text-green-600 hover:text-green-700 hover:underline break-all"
+                  className="text-sm text-success hover:text-success hover:underline break-all"
                 >
                   Open WhatsApp Chat
                 </a>
@@ -1228,7 +1228,7 @@ export default function AdminSettingsPage() {
 
             {guestPurchaseUrl && (
               <div className="p-4 bg-primary/5 border border-primary/20 rounded-lg">
-                <p className="text-sm font-medium text-blue-900 mb-2">Preview:</p>
+                <p className="text-sm font-medium text-primary mb-2">Preview:</p>
                 <Button variant="outline" type="button" className="pointer-events-none">
                   {guestPurchaseButtonText || "Buy as Guest"}
                 </Button>
@@ -1243,7 +1243,7 @@ export default function AdminSettingsPage() {
         <Card className="mt-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <DollarSign className="w-5 h-5 text-green-600" />
+              <DollarSign className="w-5 h-5 text-success" />
               Payment Fees
             </CardTitle>
           </CardHeader>
@@ -1319,17 +1319,17 @@ export default function AdminSettingsPage() {
 
             <div className="bg-primary/5 border border-primary/20 rounded-lg p-4 space-y-3">
               <div>
-                <h4 className="font-semibold text-sm text-blue-900 mb-2">Top-up Preview (GHS 100)</h4>
+                <h4 className="font-semibold text-sm text-primary mb-2">Top-up Preview (GHS 100)</h4>
                 <div className="text-sm space-y-1">
                   <div className="flex justify-between">
                     <span className="text-primary">Amount to top up:</span>
-                    <span className="font-medium text-blue-900">GHS 100.00</span>
+                    <span className="font-medium text-primary">GHS 100.00</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-primary">
                       Paystack fee ({paystackFeePercentage}%):
                     </span>
-                    <span className="font-medium text-blue-900">
+                    <span className="font-medium text-primary">
                       GHS {(100 * paystackFeePercentage / 100).toFixed(2)}
                     </span>
                   </div>
@@ -1337,13 +1337,13 @@ export default function AdminSettingsPage() {
                     <span className="text-primary">
                       Wallet topup fee ({walletTopupFeePercentage}%):
                     </span>
-                    <span className="font-medium text-blue-900">
+                    <span className="font-medium text-primary">
                       GHS {(100 * walletTopupFeePercentage / 100).toFixed(2)}
                     </span>
                   </div>
                   <div className="border-t border-primary/20 pt-1 flex justify-between">
-                    <span className="text-blue-900 font-semibold">Total charge:</span>
-                    <span className="font-bold text-blue-900">
+                    <span className="text-primary font-semibold">Total charge:</span>
+                    <span className="font-bold text-primary">
                       GHS {(100 + (100 * paystackFeePercentage / 100) + (100 * walletTopupFeePercentage / 100)).toFixed(2)}
                     </span>
                   </div>
@@ -1351,23 +1351,23 @@ export default function AdminSettingsPage() {
               </div>
 
               <div className="border-t border-primary/20 pt-3">
-                <h4 className="font-semibold text-sm text-blue-900 mb-2">Withdrawal Preview (GHS 100 Requested)</h4>
+                <h4 className="font-semibold text-sm text-primary mb-2">Withdrawal Preview (GHS 100 Requested)</h4>
                 <div className="text-sm space-y-1">
                   <div className="flex justify-between">
                     <span className="text-primary">Requested amount:</span>
-                    <span className="font-medium text-blue-900">GHS 100.00</span>
+                    <span className="font-medium text-primary">GHS 100.00</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-primary">
                       Withdrawal fee ({withdrawalFeePercentage}%):
                     </span>
-                    <span className="font-medium text-orange-600">
+                    <span className="font-medium text-warning">
                       -GHS {(100 * withdrawalFeePercentage / 100).toFixed(2)}
                     </span>
                   </div>
                   <div className="border-t border-primary/20 pt-1 flex justify-between">
-                    <span className="text-blue-900 font-semibold">Shop receives:</span>
-                    <span className="font-bold text-green-600">
+                    <span className="text-primary font-semibold">Shop receives:</span>
+                    <span className="font-bold text-success">
                       GHS {(100 - (100 * withdrawalFeePercentage / 100)).toFixed(2)}
                     </span>
                   </div>
@@ -1401,7 +1401,7 @@ export default function AdminSettingsPage() {
         <Card className="mt-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <DollarSign className="w-5 h-5 text-orange-600" />
+              <DollarSign className="w-5 h-5 text-warning" />
               Package Price Adjustments
             </CardTitle>
           </CardHeader>
@@ -1413,8 +1413,8 @@ export default function AdminSettingsPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* MTN */}
-              <div className="p-4 bg-yellow-50 border border-border rounded-lg">
-                <Label htmlFor="priceAdjMtn" className="text-sm font-medium text-yellow-900">
+              <div className="p-4 bg-warning/10 border border-border rounded-lg">
+                <Label htmlFor="priceAdjMtn" className="text-sm font-medium text-warning">
                   MTN Price Adjustment
                 </Label>
                 <div className="flex items-center gap-2 mt-2">
@@ -1429,16 +1429,16 @@ export default function AdminSettingsPage() {
                     className="flex-1 bg-card"
                     placeholder="0"
                   />
-                  <span className="text-sm font-medium text-yellow-800">%</span>
+                  <span className="text-sm font-medium text-warning">%</span>
                 </div>
-                <p className="text-xs text-yellow-700 mt-1">
+                <p className="text-xs text-warning mt-1">
                   {priceAdjustmentMtn > 0 ? `+${priceAdjustmentMtn}% markup` : priceAdjustmentMtn < 0 ? `${priceAdjustmentMtn}% discount` : 'No adjustment'}
                 </p>
               </div>
 
               {/* Telecel */}
-              <div className="p-4 bg-red-50 border border-border rounded-lg">
-                <Label htmlFor="priceAdjTelecel" className="text-sm font-medium text-red-900">
+              <div className="p-4 bg-destructive/10 border border-border rounded-lg">
+                <Label htmlFor="priceAdjTelecel" className="text-sm font-medium text-destructive">
                   Telecel Price Adjustment
                 </Label>
                 <div className="flex items-center gap-2 mt-2">
@@ -1453,16 +1453,16 @@ export default function AdminSettingsPage() {
                     className="flex-1 bg-card"
                     placeholder="0"
                   />
-                  <span className="text-sm font-medium text-red-800">%</span>
+                  <span className="text-sm font-medium text-destructive">%</span>
                 </div>
-                <p className="text-xs text-red-700 mt-1">
+                <p className="text-xs text-destructive mt-1">
                   {priceAdjustmentTelecel > 0 ? `+${priceAdjustmentTelecel}% markup` : priceAdjustmentTelecel < 0 ? `${priceAdjustmentTelecel}% discount` : 'No adjustment'}
                 </p>
               </div>
 
               {/* AT - iShare */}
               <div className="p-4 bg-primary/5 border border-primary/20 rounded-lg">
-                <Label htmlFor="priceAdjAtIshare" className="text-sm font-medium text-blue-900">
+                <Label htmlFor="priceAdjAtIshare" className="text-sm font-medium text-primary">
                   AT - iShare Price Adjustment
                 </Label>
                 <div className="flex items-center gap-2 mt-2">
@@ -1513,21 +1513,21 @@ export default function AdminSettingsPage() {
             <div className="bg-muted/40 border border-border rounded-lg p-4 mt-4">
               <h4 className="font-semibold text-sm text-foreground mb-3">Price Preview (GHS 10.00 base price)</h4>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                <div className="text-center p-2 bg-yellow-100 rounded">
-                  <p className="text-yellow-800 font-medium">MTN</p>
-                  <p className="text-yellow-900 font-bold">
+                <div className="text-center p-2 bg-warning/15 rounded">
+                  <p className="text-warning font-medium">MTN</p>
+                  <p className="text-warning font-bold">
                     GHS {(10 * (1 + priceAdjustmentMtn / 100)).toFixed(2)}
                   </p>
                 </div>
-                <div className="text-center p-2 bg-red-100 rounded">
-                  <p className="text-red-800 font-medium">Telecel</p>
-                  <p className="text-red-900 font-bold">
+                <div className="text-center p-2 bg-destructive/15 rounded">
+                  <p className="text-destructive font-medium">Telecel</p>
+                  <p className="text-destructive font-bold">
                     GHS {(10 * (1 + priceAdjustmentTelecel / 100)).toFixed(2)}
                   </p>
                 </div>
                 <div className="text-center p-2 bg-primary/10 rounded">
                   <p className="text-primary font-medium">AT-iShare</p>
-                  <p className="text-blue-900 font-bold">
+                  <p className="text-primary font-bold">
                     GHS {(10 * (1 + priceAdjustmentAtIshare / 100)).toFixed(2)}
                   </p>
                 </div>
@@ -1590,7 +1590,7 @@ export default function AdminSettingsPage() {
                     className="flex-shrink-0"
                   >
                     {copiedUrl === item.url ? (
-                      <Check className="w-4 h-4 text-green-600" />
+                      <Check className="w-4 h-4 text-success" />
                     ) : (
                       <Copy className="w-4 h-4" />
                     )}
@@ -1693,8 +1693,8 @@ export default function AdminSettingsPage() {
             </div>
 
             {announcementEnabled && announcementTitle && announcementMessage && (
-              <div className="p-3 sm:p-4 bg-green-50 border border-border rounded-lg">
-                <p className="text-xs sm:text-sm text-green-700">
+              <div className="p-3 sm:p-4 bg-success/10 border border-border rounded-lg">
+                <p className="text-xs sm:text-sm text-success">
                   <span className="font-semibold">✓ Active:</span> This announcement will be shown to users upon sign in.
                 </p>
               </div>
@@ -1726,7 +1726,7 @@ export default function AdminSettingsPage() {
         <Card className="mt-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Bell className="w-5 h-5 text-red-600" />
+              <Bell className="w-5 h-5 text-destructive" />
               Phone Number Blacklist
             </CardTitle>
           </CardHeader>
@@ -1757,14 +1757,14 @@ export default function AdminSettingsPage() {
                 </p>
               </div>
               <div className="flex items-center justify-end gap-4 min-w-fit">
-                <span className={`text-sm font-bold ${checkoutOtpEnabled ? "text-green-700" : "text-muted-foreground"}`}>
+                <span className={`text-sm font-bold ${checkoutOtpEnabled ? "text-success" : "text-muted-foreground"}`}>
                   {checkoutOtpEnabled ? "ON" : "OFF"}
                 </span>
                 <Switch
                   checked={checkoutOtpEnabled}
                   onCheckedChange={handleCheckoutOtpToggle}
                   disabled={savingCheckoutOtp}
-                  className="data-[state=checked]:bg-green-600"
+                  className="data-[state=checked]:bg-success"
                 />
               </div>
             </div>
@@ -1783,14 +1783,14 @@ export default function AdminSettingsPage() {
                 </p>
               </div>
               <div className="flex items-center justify-end gap-4 min-w-fit">
-                <span className={`text-sm font-bold ${storefrontDirectCharge ? "text-green-700" : "text-muted-foreground"}`}>
+                <span className={`text-sm font-bold ${storefrontDirectCharge ? "text-success" : "text-muted-foreground"}`}>
                   {storefrontDirectCharge ? "ON" : "OFF"}
                 </span>
                 <Switch
                   checked={storefrontDirectCharge}
                   onCheckedChange={handleStorefrontDirectToggle}
                   disabled={savingStorefrontDirect}
-                  className="data-[state=checked]:bg-green-600"
+                  className="data-[state=checked]:bg-success"
                 />
               </div>
             </div>
@@ -1821,14 +1821,14 @@ export default function AdminSettingsPage() {
                 </p>
               </div>
               <div className="flex items-center justify-end gap-4 min-w-fit">
-                <span className={`text-sm font-bold ${walletLockEnabled ? "text-green-700" : "text-muted-foreground"}`}>
+                <span className={`text-sm font-bold ${walletLockEnabled ? "text-success" : "text-muted-foreground"}`}>
                   {walletLockEnabled ? "ON" : "OFF"}
                 </span>
                 <Switch
                   checked={walletLockEnabled}
                   onCheckedChange={handleWalletLockToggle}
                   disabled={savingWalletLock}
-                  className="data-[state=checked]:bg-green-600"
+                  className="data-[state=checked]:bg-success"
                 />
               </div>
             </div>
@@ -1847,14 +1847,14 @@ export default function AdminSettingsPage() {
                 </p>
               </div>
               <div className="flex items-center justify-end gap-4 min-w-fit">
-                <span className={`text-sm font-bold ${walletDirectCharge ? "text-green-700" : "text-muted-foreground"}`}>
+                <span className={`text-sm font-bold ${walletDirectCharge ? "text-success" : "text-muted-foreground"}`}>
                   {walletDirectCharge ? "ON" : "OFF"}
                 </span>
                 <Switch
                   checked={walletDirectCharge}
                   onCheckedChange={handleWalletDirectToggle}
                   disabled={savingWalletDirect}
-                  className="data-[state=checked]:bg-green-600"
+                  className="data-[state=checked]:bg-success"
                 />
               </div>
             </div>
@@ -1862,19 +1862,19 @@ export default function AdminSettingsPage() {
         </Card>
 
         {/* Reset Phone Verifications */}
-        <Card className="mt-6 border-2 border-red-500">
+        <Card className="mt-6 border-2 border-destructive">
           <CardHeader className="bg-card">
             <CardTitle className="flex items-center gap-2 text-2xl">
               📵 Reset Phone Verifications
             </CardTitle>
-            <CardDescription className="text-red-800 mt-1">
+            <CardDescription className="text-destructive mt-1">
               Clears every OTP-verified number, so all customers must re-verify their
               payment number once on their next order. Use after an attack to wipe any
               numbers the attacker verified, or to force a clean slate.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 pt-6">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-red-50 border-2 border-border rounded-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-destructive/10 border-2 border-border rounded-lg">
               <div className="flex-1">
                 <p className="font-bold text-foreground text-lg">
                   {verifiedCount === null ? "Verified numbers" : `${verifiedCount} number${verifiedCount === 1 ? "" : "s"} currently verified`}
@@ -1889,7 +1889,7 @@ export default function AdminSettingsPage() {
                   variant="destructive"
                   onClick={handleResetVerifications}
                   disabled={resettingVerifications}
-                  className="bg-red-600 hover:bg-red-700"
+                  className="bg-destructive hover:bg-destructive/90"
                 >
                   {resettingVerifications ? "Resetting…" : "Reset all verifications"}
                 </Button>
@@ -1899,18 +1899,18 @@ export default function AdminSettingsPage() {
         </Card>
 
         {/* Cloudflare Turnstile Kill Switch */}
-        <Card className="mt-6 border-2 border-orange-500">
+        <Card className="mt-6 border-2 border-warning">
           <CardHeader className="bg-card">
             <CardTitle className="flex items-center gap-2 text-2xl">
               🔒 Cloudflare Turnstile (CAPTCHA)
             </CardTitle>
-            <CardDescription className="text-orange-800 mt-1">
+            <CardDescription className="text-warning mt-1">
               Master kill switch for the bot-protection CAPTCHA on shop orders.
               Only disable during an outage or when rotating the Turnstile secret.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 pt-6">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-orange-50 border-2 border-border rounded-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-warning/10 border-2 border-border rounded-lg">
               <div className="flex-1">
                 <p className="font-bold text-foreground text-lg">Turnstile Verification</p>
                 <p className="text-sm text-foreground mt-2">
@@ -1919,20 +1919,20 @@ export default function AdminSettingsPage() {
                     : "⚠️ Turnstile is DISABLED — shop orders bypass CAPTCHA verification. Cookie + honeypot + atomic caps still apply, but bot-resistance is significantly weakened. Re-enable as soon as the incident is resolved."}
                 </p>
                 {!turnstileEnabled && (
-                  <p className="text-xs font-bold text-red-700 mt-2">
+                  <p className="text-xs font-bold text-destructive mt-2">
                     🚨 Don't forget to re-enable this once the issue is fixed.
                   </p>
                 )}
               </div>
               <div className="flex items-center justify-end gap-4 min-w-fit">
-                <span className={`text-sm font-bold ${turnstileEnabled ? "text-green-700" : "text-red-700"}`}>
+                <span className={`text-sm font-bold ${turnstileEnabled ? "text-success" : "text-destructive"}`}>
                   {turnstileEnabled ? "ON" : "OFF"}
                 </span>
                 <Switch
                   checked={turnstileEnabled}
                   onCheckedChange={handleTurnstileToggle}
                   disabled={savingTurnstile}
-                  className="data-[state=checked]:bg-green-600 data-[state=unchecked]:bg-red-500"
+                  className="data-[state=checked]:bg-success data-[state=unchecked]:bg-destructive"
                 />
               </div>
             </div>
@@ -1940,14 +1940,14 @@ export default function AdminSettingsPage() {
         </Card>
 
         {/* Christmas Theme Settings */}
-        <Card className="mt-6 border-2 border-red-500">
+        <Card className="mt-6 border-2 border-destructive">
           <CardHeader className="bg-card">
             <CardTitle className="flex items-center gap-2 text-2xl">
               🎄 Christmas Theme 🎅
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 pt-6">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-red-50 border-2 border-border rounded-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-destructive/10 border-2 border-border rounded-lg">
               <div className="flex-1">
                 <p className="font-bold text-foreground text-lg">Enable Christmas Theme</p>
                 <p className="text-sm text-foreground mt-2">
@@ -1966,13 +1966,13 @@ export default function AdminSettingsPage() {
                   disabled={savingChristmasTheme}
                 />
                 {savingChristmasTheme && (
-                  <Loader2 className="h-5 w-5 animate-spin text-red-600" />
+                  <Loader2 className="h-5 w-5 animate-spin text-destructive" />
                 )}
               </div>
             </div>
 
-            <div className="p-4 bg-card border-2 border-green-400 rounded-lg">
-              <p className="text-sm font-medium text-green-900">
+            <div className="p-4 bg-card border-2 border-success/60 rounded-lg">
+              <p className="text-sm font-medium text-success">
                 <span className="font-bold">🎁 Theme Features:</span> Red and green color scheme, snowfall animation, Christmas decorations (🎄 🎅 ⛄ 🎁 ❄️), festive button effects, and more!
               </p>
             </div>

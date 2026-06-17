@@ -51,10 +51,10 @@ interface Stats {
 }
 
 const STATUS_CLASSES: Record<string, string> = {
-  pending:    "bg-yellow-100 text-yellow-800",
+  pending:    "bg-warning/15 text-warning",
   processing: "bg-primary/10 text-primary",
-  completed:  "bg-green-100 text-green-800",
-  failed:     "bg-red-100 text-red-800",
+  completed:  "bg-success/15 text-success",
+  failed:     "bg-destructive/15 text-destructive",
 }
 
 export default function AdminAirtimePage() {
@@ -377,11 +377,11 @@ export default function AdminAirtimePage() {
   const statCards = stats
     ? [
         { label: "Revenue",   value: `GHS ${Number(stats.totalRevenue || 0).toFixed(2)}`,  color: "text-primary" },
-        { label: "Net Profit", value: `GHS ${Number(stats.totalProfit || 0).toFixed(2)}`,   color: "text-green-600" },
-        { label: "Merchant Payout", value: `GHS ${Number(stats.totalMerchantPayout || 0).toFixed(2)}`, color: "text-orange-600" },
+        { label: "Net Profit", value: `GHS ${Number(stats.totalProfit || 0).toFixed(2)}`,   color: "text-success" },
+        { label: "Merchant Payout", value: `GHS ${Number(stats.totalMerchantPayout || 0).toFixed(2)}`, color: "text-warning" },
         { label: "Volume",    value: `GHS ${Number(stats.totalVolume || 0).toFixed(2)}`,   color: "text-primary" },
-        { label: "Pending",   value: stats.pending,                            color: "text-yellow-600" },
-        { label: "Completed", value: stats.completed,                          color: "text-emerald-600" },
+        { label: "Pending",   value: stats.pending,                            color: "text-warning" },
+        { label: "Completed", value: stats.completed,                          color: "text-success" },
       ]
     : []
 
@@ -440,7 +440,7 @@ export default function AdminAirtimePage() {
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
           <div className="flex flex-col gap-1">
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-600 via-primary to-pink-600 bg-clip-text text-transparent">
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-primary">
               Airtime Management
             </h1>
             <p className="text-muted-foreground mt-1 font-medium text-sm">Download and manage pending airtime orders</p>
@@ -508,7 +508,7 @@ export default function AdminAirtimePage() {
               <Clock className="h-3 w-3 sm:h-4 sm:w-4 shrink-0" />
               <span>Pending</span>
               {stats && (stats.pending > 0 || stats.processing > 0) && (
-                <Badge variant="secondary" className="ml-1 bg-yellow-100 text-yellow-700 text-[10px] px-1.5 h-4">
+                <Badge variant="secondary" className="ml-1 bg-warning/15 text-warning text-[10px] px-1.5 h-4">
                   {stats.pending + stats.processing}
                 </Badge>
               )}
@@ -582,7 +582,7 @@ export default function AdminAirtimePage() {
                     <Button
                       onClick={handleAutoFulfillAll}
                       disabled={autoFulfillingAll || eligibleCount === 0}
-                      className="bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary text-white font-semibold whitespace-nowrap"
+                      className="bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary text-primary-foreground font-semibold whitespace-nowrap"
                     >
                       {autoFulfillingAll ? (
                         <Loader2 className="w-4 h-4 animate-spin mr-2" />
@@ -596,7 +596,7 @@ export default function AdminAirtimePage() {
                 <Button
                   onClick={handleDownload}
                   disabled={downloading || orders.filter(o => o.status === 'pending').length === 0}
-                  className="bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary text-white font-semibold"
+                  className="bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary text-primary-foreground font-semibold"
                 >
                   {downloading ? (
                     <Loader2 className="w-4 h-4 animate-spin mr-2" />
@@ -644,11 +644,11 @@ export default function AdminAirtimePage() {
                       <p className="text-[10px] text-muted-foreground">{o.users?.email || o.customer_email || o.customer_name || "Guest"} · {o.user_shops?.shop_name || "Direct"}</p>
                       <p className="text-[10px] text-muted-foreground">{new Date(o.created_at).toLocaleString()}</p>
                       <div className="flex gap-2 flex-wrap pt-1">
-                        <Button size="sm" variant="outline" className="h-7 text-[10px] bg-green-50 text-green-700 hover:bg-green-100 border-border"
+                        <Button size="sm" variant="outline" className="h-7 text-[10px] bg-success/10 text-success hover:bg-success/15 border-border"
                           onClick={() => { setActionModal({ order: o, action: "completed" }); setNotes(""); setActionMsg("") }}>
                           Complete
                         </Button>
-                        <Button size="sm" variant="outline" className="h-7 text-[10px] bg-red-50 text-red-700 hover:bg-red-100 border-border"
+                        <Button size="sm" variant="outline" className="h-7 text-[10px] bg-destructive/10 text-destructive hover:bg-destructive/15 border-border"
                           onClick={() => { setActionModal({ order: o, action: "failed" }); setNotes(""); setActionMsg("") }}>
                           Fail
                         </Button>
@@ -674,7 +674,7 @@ export default function AdminAirtimePage() {
                           ))}
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-50">
+                      <tbody className="divide-y divide-border">
                         {orders.map((o) => (
                           <tr key={o.id} className="hover:bg-accent transition-colors">
                             <td className="px-4 py-3 font-mono text-xs font-semibold text-foreground">{o.reference_code}</td>
@@ -710,11 +710,11 @@ export default function AdminAirtimePage() {
                             </td>
                             <td className="px-4 py-3">
                               <div className="flex gap-2 flex-wrap">
-                                <Button size="sm" variant="outline" className="h-7 text-[10px] bg-green-50 text-green-700 hover:bg-green-100 border-border"
+                                <Button size="sm" variant="outline" className="h-7 text-[10px] bg-success/10 text-success hover:bg-success/15 border-border"
                                   onClick={() => { setActionModal({ order: o, action: "completed" }); setNotes(""); setActionMsg("") }}>
                                   Complete
                                 </Button>
-                                <Button size="sm" variant="outline" className="h-7 text-[10px] bg-red-50 text-red-700 hover:bg-red-100 border-border"
+                                <Button size="sm" variant="outline" className="h-7 text-[10px] bg-destructive/10 text-destructive hover:bg-destructive/15 border-border"
                                   onClick={() => { setActionModal({ order: o, action: "failed" }); setNotes(""); setActionMsg("") }}>
                                   Fail
                                 </Button>
@@ -812,12 +812,12 @@ export default function AdminAirtimePage() {
                       <p className="text-[10px] text-muted-foreground">{o.users?.email || o.customer_email || o.customer_name || "Guest"} · {o.user_shops?.shop_name || "Direct"}</p>
                       <p className="text-[10px] text-muted-foreground">{new Date(o.created_at).toLocaleString()}</p>
                       <div className="flex gap-2 pt-1">
-                        <Button size="sm" variant="outline" className="h-7 text-[10px] bg-green-50 text-green-700 hover:bg-green-100 border-border"
+                        <Button size="sm" variant="outline" className="h-7 text-[10px] bg-success/10 text-success hover:bg-success/15 border-border"
                           onClick={() => { setActionModal({ order: o, action: "completed" }); setNotes(""); setActionMsg("") }}
                           disabled={o.status === "completed"}>
                           {o.status === "completed" ? "Done" : "Complete"}
                         </Button>
-                        <Button size="sm" variant="outline" className="h-7 text-[10px] bg-red-50 text-red-700 hover:bg-red-100 border-border"
+                        <Button size="sm" variant="outline" className="h-7 text-[10px] bg-destructive/10 text-destructive hover:bg-destructive/15 border-border"
                           onClick={() => { setActionModal({ order: o, action: "failed" }); setNotes(""); setActionMsg("") }}
                           disabled={o.status === "failed"}>
                           {o.status === "failed" ? "Failed" : "Fail"}
@@ -838,7 +838,7 @@ export default function AdminAirtimePage() {
                           ))}
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-50">
+                      <tbody className="divide-y divide-border">
                         {orders.map((o) => (
                           <tr key={o.id} className="hover:bg-accent transition-colors">
                             <td className="px-4 py-3 font-mono text-xs font-semibold text-foreground">{o.reference_code}</td>
@@ -874,12 +874,12 @@ export default function AdminAirtimePage() {
                             </td>
                             <td className="px-4 py-3">
                               <div className="flex gap-2">
-                                <Button size="sm" variant="outline" className="h-7 text-[10px] bg-green-50 text-green-700 hover:bg-green-100 border-border"
+                                <Button size="sm" variant="outline" className="h-7 text-[10px] bg-success/10 text-success hover:bg-success/15 border-border"
                                   onClick={() => { setActionModal({ order: o, action: "completed" }); setNotes(""); setActionMsg("") }}
                                   disabled={o.status === "completed"}>
                                   {o.status === "completed" ? "Done" : "Complete"}
                                 </Button>
-                                <Button size="sm" variant="outline" className="h-7 text-[10px] bg-red-50 text-red-700 hover:bg-red-100 border-border"
+                                <Button size="sm" variant="outline" className="h-7 text-[10px] bg-destructive/10 text-destructive hover:bg-destructive/15 border-border"
                                   onClick={() => { setActionModal({ order: o, action: "failed" }); setNotes(""); setActionMsg("") }}
                                   disabled={o.status === "failed"}>
                                   {o.status === "failed" ? "Failed" : "Fail"}
@@ -994,7 +994,7 @@ export default function AdminAirtimePage() {
                               <th className="px-2 py-1 text-left">Status</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-gray-50">
+                          <tbody className="divide-y divide-border">
                             {batch.orders.map((order) => (
                               <tr key={order.id}>
                                 <td className="px-2 py-1 font-mono">{order.reference_code}</td>
@@ -1014,7 +1014,7 @@ export default function AdminAirtimePage() {
                          <Button 
                            size="sm" 
                            variant="outline" 
-                           className="text-[10px] h-8 border-border text-green-700 hover:bg-green-50"
+                           className="text-[10px] h-8 border-border text-success hover:bg-success/10"
                            onClick={() => handleBulkStatusUpdate(batch.orders, "completed")}
                          >
                            <CheckCircle className="w-3 h-3 mr-1" /> Mark Batch Complete
@@ -1022,7 +1022,7 @@ export default function AdminAirtimePage() {
                          <Button 
                            size="sm" 
                            variant="outline" 
-                           className="text-[10px] h-8 border-border text-red-700 hover:bg-red-50"
+                           className="text-[10px] h-8 border-border text-destructive hover:bg-destructive/10"
                            onClick={() => handleBulkStatusUpdate(batch.orders, "failed")}
                          >
                            <AlertCircle className="w-3 h-3 mr-1" /> Mark Batch Failed
@@ -1049,7 +1049,7 @@ export default function AdminAirtimePage() {
                 <p><span className="text-muted-foreground">Phone:</span> {actionModal.order.beneficiary_phone}</p>
                 <p><span className="text-muted-foreground">Airtime:</span> GHS {Number(actionModal.order.airtime_amount || 0).toFixed(2)}</p>
                 {actionModal.action === "failed" && (
-                  <p className="text-red-600 font-semibold mt-2">⚠ GHS {Number(actionModal.order.total_paid || 0).toFixed(2)} will be refunded to the user's wallet.</p>
+                  <p className="text-destructive font-semibold mt-2">⚠ GHS {Number(actionModal.order.total_paid || 0).toFixed(2)} will be refunded to the user's wallet.</p>
                 )}
               </div>
               <div>
@@ -1062,7 +1062,7 @@ export default function AdminAirtimePage() {
                   className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
-              {actionMsg && <p className="text-red-600 text-sm">{actionMsg}</p>}
+              {actionMsg && <p className="text-destructive text-sm">{actionMsg}</p>}
               <div className="flex gap-3 justify-end items-center pt-2">
                 <Button variant="ghost" onClick={() => setActionModal(null)} disabled={actioning}>
                   Cancel
@@ -1070,7 +1070,7 @@ export default function AdminAirtimePage() {
                 <Button
                   onClick={handleAction}
                   disabled={actioning}
-                  className={actionModal.action === "completed" ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"}
+                  className={actionModal.action === "completed" ? "bg-success hover:bg-success/90" : "bg-destructive hover:bg-destructive/90"}
                 >
                   {actioning ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
                   Confirm {actionModal.action === "completed" ? "Fulfillment" : "Failure"}

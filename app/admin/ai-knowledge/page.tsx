@@ -183,7 +183,7 @@ export default function AIKnowledgePage() {
                         onClick={() => toggleContext(ctx)}
                         className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
                           form.contexts?.includes(ctx)
-                            ? "bg-primary text-white border-primary"
+                            ? "bg-primary text-primary-foreground border-primary"
                             : "bg-card text-muted-foreground border-border"
                         }`}
                       >
@@ -270,7 +270,7 @@ export default function AIKnowledgePage() {
                             </button>
                             <button
                               onClick={() => remove(entry.id)}
-                              className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-50 transition-colors"
+                              className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
                             >
                               <Trash2 size={15} />
                             </button>
