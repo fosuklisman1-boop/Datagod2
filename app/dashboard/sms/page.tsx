@@ -225,6 +225,8 @@ export default function SmsDashboardPage() {
 
   // compose: send to a saved group
   const [selectedGroupId, setSelectedGroupId] = useState("")
+  // pre-send confirmation for group sends (real opt-out-filtered count + cost)
+  const [sendConfirm, setSendConfirm] = useState({ open: false, loading: false, sentCount: 0, activeCount: 0 })
 
   // ── direct-charge (on-page MoMo) gates + dialog ───────────────────────────
   //   walletDirect → pay via the on-page direct MoMo charge (vs hosted redirect).
@@ -603,8 +605,31 @@ export default function SmsDashboardPage() {
   }
 
   // ── send ──
+  // Group sends aren't visible as chips and can be large, so confirm the REAL
+  // (opt-out-filtered, server-counted) recipient count + credit cost before
+  // spending. Manual chips are visible, so they send straight through.
   async function sendMessage() {
     if (!account || message.length < 3 || (recipients.length === 0 && !selectedGroupId)) return
+    if (selectedGroupId) {
+      setSendConfirm({ open: true, loading: true, sentCount: 0, activeCount: 0 })
+      const t = await token()
+      const res = await fetch(`/api/sms/groups/${selectedGroupId}/preview`, {
+        headers: { Authorization: `Bearer ${t}` },
+      }).then((r) => r.json()).catch(() => ({}))
+      if (res.success) {
+        setSendConfirm({ open: true, loading: false, sentCount: res.data.sentCount, activeCount: res.data.activeCount })
+      } else {
+        setSendConfirm({ open: false, loading: false, sentCount: 0, activeCount: 0 })
+        toast.error(res.error ?? "Could not check the group size.")
+      }
+      return
+    }
+    await doSend()
+  }
+
+  async function doSend() {
+    if (!account) return
+    setSendConfirm((c) => ({ ...c, open: false }))
     setSending(true)
     const t = await token()
     const res = await fetch("/api/shop/sms/send", {
@@ -1168,6 +1193,33 @@ export default function SmsDashboardPage() {
                   {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   {sending ? "Sending…" : "Send SMS"}
                 </Button>
+
+                {/* Group-send confirmation — real opt-out-filtered count + cost */}
+                <AlertDialog open={sendConfirm.open} onOpenChange={(o) => setSendConfirm((c) => ({ ...c, open: o }))}>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Send to this group?</AlertDialogTitle>
+                      <AlertDialogDescription asChild>
+                        {sendConfirm.loading ? (
+                          <div className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Checking group size…</div>
+                        ) : (
+                          <div>
+                            This will send to <span className="font-medium text-foreground">{sendConfirm.sentCount}</span> active recipient{sendConfirm.sentCount === 1 ? "" : "s"} for about <span className="font-medium text-foreground">{sendConfirm.sentCount * segPerRecipient}</span> credit{sendConfirm.sentCount * segPerRecipient === 1 ? "" : "s"} (opted-out numbers are skipped).
+                            {sendConfirm.activeCount > sendConfirm.sentCount && (
+                              <span className="mt-2 block text-amber-600">Group has {sendConfirm.activeCount} active contacts; only the first {sendConfirm.sentCount} will be sent — split larger groups into batches.</span>
+                            )}
+                          </div>
+                        )}
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={doSend} disabled={sendConfirm.loading || sendConfirm.sentCount === 0}>
+                        Send to {sendConfirm.sentCount}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </CardContent>
             </Card>
 

@@ -338,3 +338,24 @@ export async function getGroupActiveRecipients(
   const phones = Array.from(new Set((data ?? []).map((r: { phone_number: string }) => r.phone_number)))
   return { ok: true, data: phones }
 }
+
+/**
+ * Count of active (opted-in) contacts in a group the account owns — for the
+ * pre-send confirmation. activeCount is the true total; sentCount is what a send
+ * would actually reach (capped at `max`). Authoritative opt-out filter.
+ */
+export async function getGroupActiveCount(
+  accountId: string,
+  groupId: string,
+  max = 500
+): Promise<Result<{ activeCount: number; sentCount: number }>> {
+  if (!(await ownsGroup(accountId, groupId))) return { ok: false, error: "Group not found" }
+  const { count, error } = await supabaseAdmin
+    .from("sms_contacts")
+    .select("id", { count: "exact", head: true })
+    .eq("group_id", groupId)
+    .eq("opted_out", false)
+  if (error) return { ok: false, error: error.message }
+  const activeCount = count ?? 0
+  return { ok: true, data: { activeCount, sentCount: Math.min(activeCount, max) } }
+}
