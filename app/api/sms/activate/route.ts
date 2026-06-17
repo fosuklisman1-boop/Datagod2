@@ -2,7 +2,9 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
-import { activateViaWallet, initActivationPaystack } from "@/lib/sms/activation-service"
+import { activateViaWallet, initActivationPaystack, initActivationDirectCharge } from "@/lib/sms/activation-service"
+import { detectMomoProvider } from "@/lib/paystack"
+import { isWalletDirectChargeEnabled, isWalletOtpRequired, isPhoneOtpVerified } from "@/lib/storefront-otp"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -32,6 +34,23 @@ export async function POST(request: NextRequest) {
 
   if (paidFrom === "paystack") {
     if (!user.email) return NextResponse.json({ error: "Account email required for Paystack" }, { status: 400 })
+
+    // Direct MoMo charge (on-page prompt) when the wallet direct-charge gate is on.
+    const directOn = await isWalletDirectChargeEnabled()
+    if (body?.momoDirect === true && directOn) {
+      const phone = String(body?.paymentPhone || "").trim()
+      const provider = detectMomoProvider(phone)
+      if (!provider) {
+        return NextResponse.json({ error: "Could not detect the mobile money network from that number." }, { status: 400 })
+      }
+      if ((await isWalletOtpRequired()) && !(await isPhoneOtpVerified(phone))) {
+        return NextResponse.json({ error: "Please verify your payment number to continue.", code: "OTP_REQUIRED" }, { status: 403 })
+      }
+      const result = await initActivationDirectCharge(user.id, account.id, user.email, phone, provider)
+      if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 })
+      return NextResponse.json({ success: true, momoDirect: true, reference: result.reference, status: result.status })
+    }
+
     const result = await initActivationPaystack(user.id, account.id, user.email)
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 })
     return NextResponse.json({ authorizationUrl: result.authorizationUrl, reference: result.reference })

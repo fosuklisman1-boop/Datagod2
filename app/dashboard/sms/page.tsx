@@ -17,8 +17,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "sonner"
+import { useResendCooldown } from "@/lib/use-resend-cooldown"
 import {
-  MessageSquare, Send, Wallet, Sparkles, Clock, AlertCircle, Loader2, Plus,
+  MessageSquare, Send, Wallet, Sparkles, Clock, AlertCircle, CheckCircle, Loader2, Plus,
   BadgeCheck, History, ShieldCheck, Ban, CreditCard, Users, Eye, EyeOff, Smartphone, X, Trash2, Copy,
 } from "lucide-react"
 
@@ -50,6 +51,19 @@ interface BatchMessage { id: string; phone: string; status: string; attempts: nu
 interface BatchDetail {
   log: { id: number; status: string; message: string; sender_id: string | null; recipients_count: number; segments: number; credits_reserved: number; credits_used: number; created_at: string; completed_at: string | null }
   messages: BatchMessage[]
+}
+// Reusable on-page MoMo payment dialog (shared by Buy Credits + Activation).
+interface MomoDialog {
+  open: boolean
+  kind: "credits" | "activation"
+  phone: string
+  otpSent: boolean
+  otpVerified: boolean
+  otpCode: string
+  stage: "form" | "awaiting" | "done" | "error"
+  message: string
+  credits: number // for kind="credits": how many credits being bought
+  cost: number    // GHS to charge
 }
 
 // ─── constants / helpers ──────────────────────────────────────────────────
@@ -138,6 +152,21 @@ export default function SmsDashboardPage() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailId, setDetailId] = useState<number | null>(null)
 
+  // ── direct-charge (on-page MoMo) gates + dialog ───────────────────────────
+  //   walletDirect → pay via the on-page direct MoMo charge (vs hosted redirect).
+  //   walletOtp    → the MoMo number must be SMS-OTP verified before charging.
+  const [walletDirect, setWalletDirect] = useState(false)
+  const [walletOtp, setWalletOtp] = useState(false)
+  // One reusable MoMo dialog drives BOTH Buy Credits and Activation.
+  const [momo, setMomo] = useState<MomoDialog>({
+    open: false, kind: "credits", phone: "", otpSent: false, otpVerified: false,
+    otpCode: "", stage: "form", message: "", credits: 0, cost: 0,
+  })
+  const [momoBusy, setMomoBusy] = useState(false)
+  const [sendingOtp, setSendingOtp] = useState(false)
+  const [verifyingOtp, setVerifyingOtp] = useState(false)
+  const otpCooldown = useResendCooldown(momo.phone.replace(/\D/g, ""))
+
   async function token() {
     const { data } = await supabase.auth.getSession()
     return data.session?.access_token ?? ""
@@ -203,6 +232,13 @@ export default function SmsDashboardPage() {
   }
 
   useEffect(() => { load() }, [load])
+  // Direct-charge + OTP gates (independent toggles), same source as wallet top-up.
+  useEffect(() => {
+    fetch("/api/public/turnstile-status")
+      .then((r) => (r.ok ? r.json() : { wallet_lock: false, wallet_direct_charge: false }))
+      .then((d) => { setWalletDirect(d.wallet_direct_charge === true); setWalletOtp(d.wallet_lock === true) })
+      .catch(() => { setWalletDirect(false); setWalletOtp(false) })
+  }, [])
   useEffect(() => { if (tab === "history") loadLogs() }, [tab, loadLogs])
   // Sender IDs power the management tab AND the compose "From" selector.
   useEffect(() => { if (tab === "senders" || tab === "send") loadSenderIds() }, [tab, loadSenderIds])
@@ -274,6 +310,125 @@ export default function SmsDashboardPage() {
     } else {
       toast.success(`${res.unitsCredited} SMS credits added (GHS ${Number(res.cost).toFixed(2)}).`)
       setCreditQty(""); await load()
+    }
+  }
+
+  // ── on-page MoMo direct charge (shared dialog for credits + activation) ────
+  function openMomo(kind: "credits" | "activation", credits = 0, cost = 0) {
+    setMomo({
+      open: true, kind, phone: "", otpSent: false, otpVerified: false,
+      otpCode: "", stage: "form", message: "", credits, cost,
+    })
+  }
+  function closeMomo() {
+    otpCooldown.reset()
+    setMomo((m) => ({ ...m, open: false, stage: "form", otpSent: false, otpVerified: false, otpCode: "", message: "" }))
+  }
+
+  async function sendOtp() {
+    const digits = momo.phone.replace(/\D/g, "")
+    if (!/^0?\d{9}$/.test(digits)) { toast.error("Enter a valid Mobile Money number first"); return }
+    setSendingOtp(true)
+    try {
+      const res = await fetch("/api/auth/send-phone-otp", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: momo.phone }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) { toast.error(d?.error || "Failed to send code"); return }
+      toast.success("Verification code sent")
+      setMomo((m) => ({ ...m, otpSent: true })); otpCooldown.start()
+    } catch { toast.error("Network error") } finally { setSendingOtp(false) }
+  }
+
+  async function verifyOtp() {
+    if (!momo.otpCode || momo.otpCode.length < 4) { toast.error("Enter the code from your SMS"); return }
+    setVerifyingOtp(true)
+    try {
+      const res = await fetch("/api/auth/verify-phone-otp", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: momo.phone, code: momo.otpCode.trim() }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok || !d.verified) { toast.error(d?.error || "Incorrect code"); return }
+      toast.success("Payment number verified ✓")
+      setMomo((m) => ({ ...m, otpVerified: true }))
+    } catch { toast.error("Network error") } finally { setVerifyingOtp(false) }
+  }
+
+  // Poll the SMS account (NOT /api/payments/momo-status — direct SMS charges create
+  // no wallet_payments row) to confirm the charge landed. Baseline is captured
+  // before the charge so we detect the delta credited by the webhook.
+  function pollSmsConfirm(kind: "credits" | "activation", baselineBalance: number, baselinePending: number) {
+    const started = Date.now()
+    const TIMEOUT_MS = 2.5 * 60 * 1000
+    const tick = async () => {
+      if (Date.now() - started > TIMEOUT_MS) {
+        setMomo((m) => ({
+          ...m, stage: "error",
+          message: kind === "credits"
+            ? "If you approved the prompt, your credits will appear shortly — refresh in a moment."
+            : "If you approved the prompt, your activation will appear shortly — refresh in a moment.",
+        }))
+        return
+      }
+      try {
+        const t = await token()
+        const res = await fetch("/api/sms/account", { headers: { Authorization: `Bearer ${t}` } })
+        const d = await res.json().catch(() => ({}))
+        const acc = d?.account
+        if (acc) {
+          const success = kind === "credits"
+            ? (Number(acc.unitBalance) > baselineBalance || Number(acc.pendingUnits) > baselinePending)
+            : acc.status === "active"
+          if (success) {
+            setMomo((m) => ({ ...m, stage: "done" }))
+            toast.success(kind === "credits" ? "Credits added 🎉" : "Account activated 🎉")
+            setMomo((m) => ({ ...m, open: false }))
+            await load()
+            return
+          }
+        }
+      } catch { /* keep polling */ }
+      setTimeout(tick, 4000)
+    }
+    setTimeout(tick, 4000)
+  }
+
+  async function payWithMomo() {
+    const digits = momo.phone.replace(/\D/g, "")
+    if (!/^0?\d{9}$/.test(digits)) { toast.error("Enter a valid Mobile Money number"); return }
+    if (walletOtp && !momo.otpVerified) { toast.error("Verify your Mobile Money number first"); return }
+    setMomoBusy(true)
+    try {
+      const t = await token()
+      const baselineBalance = account?.unitBalance ?? 0
+      const baselinePending = account?.pendingUnits ?? 0
+      const endpoint = momo.kind === "credits" ? "/api/sms/units/purchase" : "/api/sms/activate"
+      const payload: Record<string, unknown> =
+        momo.kind === "credits"
+          ? { credits: momo.credits, paidFrom: "paystack", momoDirect: true, paymentPhone: momo.phone }
+          : { paidFrom: "paystack", momoDirect: true, paymentPhone: momo.phone }
+      const res = await fetch(endpoint, {
+        method: "POST", headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (res.status === 403 && d?.code === "OTP_REQUIRED") {
+        toast.error("Verify your payment number to continue.")
+        setMomo((m) => ({ ...m, stage: "form", otpVerified: false, otpSent: false, otpCode: "" }))
+        return
+      }
+      if (d?.momoDirect === true) {
+        setMomo((m) => ({ ...m, stage: "awaiting", message: "" }))
+        pollSmsConfirm(momo.kind, baselineBalance, baselinePending)
+        return
+      }
+      setMomo((m) => ({ ...m, stage: "error", message: d?.error || "Could not start the Mobile Money charge. Please try again." }))
+    } catch {
+      setMomo((m) => ({ ...m, stage: "error", message: "Network error. Please try again." }))
+    } finally {
+      setMomoBusy(false)
     }
   }
 
@@ -480,16 +635,33 @@ export default function SmsDashboardPage() {
             </div>
 
             {showActivation && (
-              <Card className="border-primary/30">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2"><ShieldCheck className="h-5 w-5 text-primary" /> Activate SMS</CardTitle>
-                  <CardDescription>A one-time activation fee of GHS {account.activationFee} unlocks sending and grants {account.welcomeBonusCredits} free welcome credits.</CardDescription>
-                </CardHeader>
-                <CardContent className="flex flex-wrap gap-2">
-                  <Button onClick={() => activate("wallet")} disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />} Pay from wallet</Button>
-                  <Button variant="outline" onClick={() => activate("paystack")} disabled={busy}><CreditCard className="h-4 w-4" /> Pay with Paystack</Button>
-                </CardContent>
-              </Card>
+              account.activationFee === 0 ? (
+                // Free activation — no fee text, no MoMo/Paystack. Server debits 0.
+                <Card className="border-primary/30">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2"><ShieldCheck className="h-5 w-5 text-primary" /> Activate SMS</CardTitle>
+                    <CardDescription>Activate your SMS account — it&apos;s free. Unlocks sending and grants {account.welcomeBonusCredits} free welcome credits.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <Button onClick={() => activate("wallet")} disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />} Activate</Button>
+                  </CardContent>
+                </Card>
+              ) : (
+                <Card className="border-primary/30">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2"><ShieldCheck className="h-5 w-5 text-primary" /> Activate SMS</CardTitle>
+                    <CardDescription>A one-time activation fee of GHS {account.activationFee} unlocks sending and grants {account.welcomeBonusCredits} free welcome credits.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="flex flex-wrap gap-2">
+                    <Button onClick={() => activate("wallet")} disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />} Pay from wallet</Button>
+                    {walletDirect ? (
+                      <Button variant="outline" onClick={() => openMomo("activation", 0, account.activationFee)} disabled={busy}><Smartphone className="h-4 w-4" /> Pay with MoMo</Button>
+                    ) : (
+                      <Button variant="outline" onClick={() => activate("paystack")} disabled={busy}><CreditCard className="h-4 w-4" /> Pay with Paystack</Button>
+                    )}
+                  </CardContent>
+                </Card>
+              )
             )}
 
             {showBonus && (
@@ -751,20 +923,28 @@ export default function SmsDashboardPage() {
                     const credits = Number(creditQty)
                     const cost = Number.isFinite(credits) ? credits * account.pricePerCredit : 0
                     return (
-                      <div className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2 text-sm">
-                        <span className="text-muted-foreground">{credits > 0 ? `${credits.toLocaleString()} credits` : "Total"}</span>
-                        <span className="text-lg font-bold">GHS {cost.toFixed(2)}</span>
-                      </div>
+                      <>
+                        <div className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2 text-sm">
+                          <span className="text-muted-foreground">{credits > 0 ? `${credits.toLocaleString()} credits` : "Total"}</span>
+                          <span className="text-lg font-bold">GHS {cost.toFixed(2)}</span>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <Button onClick={() => buyCredits("wallet")} disabled={busy || !(credits > 0)}>
+                            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />} Buy with wallet
+                          </Button>
+                          {walletDirect ? (
+                            <Button variant="outline" onClick={() => { if (credits > 0) openMomo("credits", credits, cost) }} disabled={busy || !(credits > 0)}>
+                              <Smartphone className="h-4 w-4" /> Pay with MoMo
+                            </Button>
+                          ) : (
+                            <Button variant="outline" onClick={() => buyCredits("paystack")} disabled={busy || !(credits > 0)}>
+                              <CreditCard className="h-4 w-4" /> Pay with MoMo
+                            </Button>
+                          )}
+                        </div>
+                      </>
                     )
                   })()}
-                  <div className="flex flex-wrap gap-2">
-                    <Button onClick={() => buyCredits("wallet")} disabled={busy || !Number(creditQty)}>
-                      {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />} Buy with wallet
-                    </Button>
-                    <Button variant="outline" onClick={() => buyCredits("paystack")} disabled={busy || !Number(creditQty)}>
-                      <CreditCard className="h-4 w-4" /> Pay with Paystack
-                    </Button>
-                  </div>
                 </CardContent>
               </Card>
             )}
@@ -883,6 +1063,133 @@ export default function SmsDashboardPage() {
               </>
             ) : (
               <p className="text-sm text-muted-foreground">Couldn’t load this batch.</p>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Shared on-page MoMo payment dialog (Buy Credits + Activation) */}
+        <Dialog open={momo.open} onOpenChange={(o) => { if (!o) closeMomo() }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Smartphone className="h-5 w-5 text-primary" />
+                {momo.kind === "credits" ? "Pay with Mobile Money" : "Activate with Mobile Money"}
+              </DialogTitle>
+              <DialogDescription>
+                {momo.kind === "credits"
+                  ? `${momo.credits.toLocaleString()} credits · GHS ${momo.cost.toFixed(2)}`
+                  : `One-time activation · GHS ${momo.cost.toFixed(2)}`}
+              </DialogDescription>
+            </DialogHeader>
+
+            {/* FORM stage — phone + (optional) OTP + Pay */}
+            {momo.stage === "form" && (
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="momo-phone">Mobile Money number to pay from</Label>
+                  <Input
+                    id="momo-phone"
+                    type="tel"
+                    inputMode="numeric"
+                    placeholder="0241234567"
+                    value={momo.phone}
+                    onChange={(e) => {
+                      const phone = e.target.value
+                      setMomo((m) => ({
+                        ...m, phone,
+                        // editing the number invalidates a prior verify
+                        ...(m.otpSent || m.otpVerified ? { otpSent: false, otpVerified: false, otpCode: "" } : {}),
+                      }))
+                      if (momo.otpSent || momo.otpVerified) otpCooldown.reset()
+                    }}
+                    disabled={(walletOtp && momo.otpVerified) || momoBusy}
+                    className="font-mono"
+                  />
+                  <p className="text-xs text-muted-foreground">The payment prompt is sent to this number.</p>
+                </div>
+
+                {walletOtp && (!momo.otpVerified ? (
+                  !momo.otpSent ? (
+                    <Button type="button" variant="outline" onClick={sendOtp} disabled={sendingOtp || otpCooldown.seconds > 0} className="w-full">
+                      {sendingOtp ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />Sending code…</>) : otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Send verification code"}
+                    </Button>
+                  ) : (
+                    <div className="space-y-2">
+                      <Input
+                        inputMode="numeric" maxLength={6} placeholder="Enter 6-digit code" value={momo.otpCode}
+                        onChange={(e) => setMomo((m) => ({ ...m, otpCode: e.target.value.replace(/\D/g, "").slice(0, 6) }))}
+                        className="text-center text-lg tracking-[0.4em] font-mono"
+                      />
+                      <div className="flex gap-2">
+                        <Button type="button" onClick={verifyOtp} disabled={verifyingOtp || momo.otpCode.length < 4} className="flex-1">
+                          {verifyingOtp ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />Verifying…</>) : "Verify"}
+                        </Button>
+                        <Button type="button" variant="outline" onClick={sendOtp} disabled={sendingOtp || otpCooldown.seconds > 0}>
+                          {otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Resend"}
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">Don&apos;t see the code? Check your phone&apos;s Spam or Blocked messages folder.</p>
+                    </div>
+                  )
+                ) : (
+                  <div className="flex items-center gap-2 rounded-lg border border-green-300/50 bg-green-50 p-3">
+                    <CheckCircle className="h-5 w-5 text-green-600" />
+                    <span className="text-sm font-medium text-green-900">Payment number verified ✓</span>
+                  </div>
+                ))}
+
+                <Button
+                  onClick={payWithMomo}
+                  disabled={momoBusy || !/^0?\d{9}$/.test(momo.phone.replace(/\D/g, "")) || (walletOtp && !momo.otpVerified)}
+                  className="w-full"
+                >
+                  {momoBusy ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />Starting…</>) : `Pay GHS ${momo.cost.toFixed(2)}`}
+                </Button>
+              </div>
+            )}
+
+            {/* AWAITING stage — prompt sent, polling the SMS account */}
+            {momo.stage === "awaiting" && (
+              <div className="space-y-4 py-2 text-center">
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold">Approve the prompt on your phone</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Approve the Mobile Money prompt on your phone to complete payment.
+                  </p>
+                </div>
+                <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" /> Waiting for confirmation…
+                </div>
+                <p className="text-xs text-muted-foreground">Keep this page open. This can take up to a minute.</p>
+              </div>
+            )}
+
+            {/* DONE stage (rare — usually closes on success, this is the fallback) */}
+            {momo.stage === "done" && (
+              <div className="space-y-4 py-2 text-center">
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-100">
+                  <CheckCircle className="h-9 w-9 text-green-600" />
+                </div>
+                <h3 className="text-lg font-bold">{momo.kind === "credits" ? "Credits added 🎉" : "Account activated 🎉"}</h3>
+                <Button onClick={closeMomo} className="w-full">Done</Button>
+              </div>
+            )}
+
+            {/* ERROR / timeout stage */}
+            {momo.stage === "error" && (
+              <div className="space-y-4 py-2 text-center">
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-red-100">
+                  <AlertCircle className="h-9 w-9 text-red-600" />
+                </div>
+                <p className="text-sm text-muted-foreground">{momo.message || "The payment was not completed. Please try again."}</p>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={() => setMomo((m) => ({ ...m, stage: "form", message: "" }))} className="flex-1">Try again</Button>
+                  <Button variant="ghost" onClick={closeMomo} className="flex-1">Close</Button>
+                </div>
+              </div>
             )}
           </DialogContent>
         </Dialog>

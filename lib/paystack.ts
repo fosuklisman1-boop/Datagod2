@@ -398,6 +398,19 @@ export async function refundTransaction(reference: string, amountGhs?: number) {
   return data.data
 }
 
+// Ghana MoMo provider from a phone prefix → Paystack provider code. Shared by every
+// direct-charge surface so the mapping stays in one place.
+const MOMO_PREFIX: Record<string, "mtn" | "vod" | "tgo"> = {
+  "024": "mtn", "025": "mtn", "053": "mtn", "054": "mtn", "055": "mtn", "059": "mtn",
+  "020": "vod", "050": "vod",
+  "026": "tgo", "027": "tgo", "056": "tgo", "057": "tgo",
+}
+export function detectMomoProvider(phone: string): "mtn" | "vod" | "tgo" | null {
+  const d = (phone || "").replace(/\D/g, "")
+  const local = d.startsWith("233") ? "0" + d.slice(3) : d.startsWith("0") ? d : "0" + d
+  return MOMO_PREFIX[local.slice(0, 3)] ?? null
+}
+
 interface ChargeMobileMoneyParams {
   email: string
   amount: number        // in GHS — converted to pesewas internally

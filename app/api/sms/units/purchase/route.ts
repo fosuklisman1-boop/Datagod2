@@ -2,7 +2,8 @@ import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
 import { purchaseUnitsByQuantity, quoteCredits } from "@/lib/sms/bundle-service"
-import { initializePayment } from "@/lib/paystack"
+import { initializePayment, chargeMobileMoney, detectMomoProvider } from "@/lib/paystack"
+import { isWalletDirectChargeEnabled, isWalletOtpRequired, isPhoneOtpVerified } from "@/lib/storefront-otp"
 
 const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
@@ -15,7 +16,7 @@ export async function POST(request: NextRequest) {
   const { data: { user }, error } = await supabaseAdmin.auth.getUser(authHeader.slice(7))
   if (error || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  let body: { credits?: unknown; paidFrom?: unknown }
+  let body: { credits?: unknown; paidFrom?: unknown; momoDirect?: unknown; paymentPhone?: unknown }
   try { body = await request.json() } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }) }
 
   const credits = Number(body.credits)
@@ -35,12 +36,35 @@ export async function POST(request: NextRequest) {
     const { cost } = await quoteCredits(credits)
     if (cost <= 0) return NextResponse.json({ error: "Pricing not configured" }, { status: 400 })
     const reference = `smsqty-${account.id}-${credits}-${Date.now()}`
+    // The charge.success webhook (sms_units_qty branch) credits the units off this metadata,
+    // for BOTH the hosted redirect and the direct MoMo charge.
+    const metadata = { type: "sms_units_qty", sms_account_id: account.id, units: credits }
+
+    // ── Direct MoMo charge (no hosted redirect) when the wallet direct-charge gate is on. ──
+    const directOn = await isWalletDirectChargeEnabled()
+    if (body.momoDirect === true && directOn) {
+      const phone = String(body.paymentPhone || "").trim()
+      const provider = detectMomoProvider(phone)
+      if (!provider) {
+        return NextResponse.json({ error: "Could not detect the mobile money network from that number." }, { status: 400 })
+      }
+      // OTP gate: when wallet OTP is on, the payment number must be SMS-verified, so a
+      // direct charge can never prompt an unverified third-party number.
+      if ((await isWalletOtpRequired()) && !(await isPhoneOtpVerified(phone))) {
+        return NextResponse.json({ error: "Please verify your payment number to continue.", code: "OTP_REQUIRED" }, { status: 403 })
+      }
+      const charge = await chargeMobileMoney({
+        email: user.email, amount: cost, phone, provider, reference, metadata,
+        channel: "sms_credits", purpose: "SMS Credits",
+      })
+      return NextResponse.json({ success: true, momoDirect: true, reference, status: charge.status, cost })
+    }
+
+    // Hosted redirect. When direct charge IS the legit path, strip mobile_money so a
+    // hosted page can't prompt a victim number (mirrors /api/payments/initialize).
     const init = await initializePayment({
-      email: user.email,
-      amount: cost,
-      reference,
-      purpose: "SMS Credits",
-      metadata: { type: "sms_units_qty", sms_account_id: account.id, units: credits },
+      email: user.email, amount: cost, reference, purpose: "SMS Credits", metadata,
+      channels: directOn ? ["card", "bank_transfer"] : undefined,
     })
     return NextResponse.json({ authorizationUrl: init.authorizationUrl, reference })
   }

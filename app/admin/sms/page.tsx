@@ -61,6 +61,8 @@ export default function AdminSmsPage() {
   const [senders, setSenders] = useState<SenderIdRow[]>([])
   const [priceFee, setPriceFee] = useState("")
   const [savingPrice, setSavingPrice] = useState(false)
+  const [activationFee, setActivationFee] = useState("")
+  const [savingActivation, setSavingActivation] = useState(false)
 
   async function token() {
     const { data } = await supabase.auth.getSession()
@@ -108,6 +110,13 @@ export default function AdminSmsPage() {
     if (amount !== undefined) setPriceFee(String(amount))
   }, [dashboard])
 
+  // Seed the activation-fee input from the saved setting (0 is valid = free).
+  useEffect(() => {
+    const af = dashboard?.settings?.sms_activation_fee as { amount?: number } | number | undefined
+    const amount = typeof af === "object" && af !== null ? af.amount : (typeof af === "number" ? af : undefined)
+    if (amount !== undefined) setActivationFee(String(amount))
+  }, [dashboard])
+
   async function savePrice() {
     const amount = Number(priceFee)
     if (!Number.isFinite(amount) || amount < 0) { setMsg("Enter a valid per-credit price."); return }
@@ -120,6 +129,21 @@ export default function AdminSmsPage() {
     }).then((r) => r.json())
     setSavingPrice(false)
     if (res.success) { setMsg("Per-credit fee saved."); await loadDashboard() }
+    else setMsg(`Error: ${res.error ?? "could not save"}`)
+  }
+
+  async function saveActivationFee() {
+    const amount = Number(activationFee)
+    if (!Number.isFinite(amount) || amount < 0) { setMsg("Enter a valid activation fee (0 = free)."); return }
+    setSavingActivation(true)
+    const t = await token()
+    const res = await fetch("/api/admin/shop-sms", {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ sms_activation_fee: { amount } }),
+    }).then((r) => r.json())
+    setSavingActivation(false)
+    if (res.success) { setMsg(amount === 0 ? "Activation fee saved (free activation)." : "Activation fee saved."); await loadDashboard() }
     else setMsg(`Error: ${res.error ?? "could not save"}`)
   }
 
@@ -238,6 +262,22 @@ export default function AdminSmsPage() {
               <button onClick={savePrice} disabled={savingPrice}
                 className="rounded bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-50">
                 {savingPrice ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </section>
+
+          {/* Activation fee (one-time, charged when a tenant activates SMS) */}
+          <section className="rounded-lg border p-4 space-y-3">
+            <h2 className="font-semibold">Activation fee</h2>
+            <p className="text-xs text-muted-foreground">The one-time fee (GHS) a tenant pays to activate SMS sending. Set to 0 for free activation.</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm text-muted-foreground">GHS</span>
+              <input value={activationFee} onChange={(e) => setActivationFee(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0" inputMode="decimal"
+                className="w-32 rounded border px-2 py-1" />
+              <span className="text-sm text-muted-foreground">one-time</span>
+              <button onClick={saveActivationFee} disabled={savingActivation}
+                className="rounded bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-50">
+                {savingActivation ? "Saving…" : "Save"}
               </button>
             </div>
           </section>

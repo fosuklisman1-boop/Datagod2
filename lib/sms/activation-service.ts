@@ -102,6 +102,36 @@ export async function initActivationPaystack(
   return { ok: true, authorizationUrl: init.authorizationUrl, reference: init.reference }
 }
 
+/** Direct MoMo charge for activation (on-page prompt, no redirect). The
+ *  charge.success webhook (sms_activation branch) finalizes activation, exactly like
+ *  the redirect path. Used only when the activation fee > 0 (a 0 fee activates free
+ *  via the wallet path). */
+export async function initActivationDirectCharge(
+  _userId: string,
+  accountId: string,
+  userEmail: string,
+  phone: string,
+  provider: "mtn" | "vod" | "tgo"
+): Promise<{ ok: boolean; reference?: string; status?: string; error?: string }> {
+  const account = await fetchAccount(accountId)
+  if (!account) return { ok: false, error: "Account not found" }
+  if (account.owner_type === "platform") return { ok: false, error: "Platform accounts do not require activation" }
+  if (account.status === "active") return { ok: false, error: "ALREADY_ACTIVATED" }
+  if (account.status === "suspended") return { ok: false, error: "SUSPENDED" }
+
+  const fee = await fetchActivationFee()
+  if (fee <= 0) return { ok: false, error: "Activation is free — activate from your wallet." }
+
+  const { chargeMobileMoney } = await import("@/lib/paystack")
+  const reference = `smsactivate-${accountId}-${Date.now()}`
+  const charge = await chargeMobileMoney({
+    email: userEmail, amount: fee, phone, provider, reference,
+    metadata: { type: "sms_activation", sms_account_id: accountId, fee },
+    channel: "sms_activation_momo", purpose: "SMS Account Activation",
+  })
+  return { ok: true, reference, status: charge.status }
+}
+
 /** Finalize activation from the Paystack webhook. Idempotent via the account's status: a
  *  replayed webhook for an already-active account raises ALREADY_ACTIVATED, which we map to
  *  a no-op success (alreadyDone). Fails CLOSED if the fee can't be read (won't activate on an
