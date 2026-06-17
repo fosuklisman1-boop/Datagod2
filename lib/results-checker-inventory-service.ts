@@ -65,8 +65,12 @@ export function parseVoucherCSV(text: string): ParseResult {
       continue
     }
 
-    if (!/^\d{12}$/.test(pin)) {
-      errors.push({ row: rowNum, reason: "PIN must be exactly 12 digits (numeric only)", raw })
+    // WAEC Ghana checker PINs are 10–12 chars. WASSCE PINs are NUMERIC (e.g.
+    // 685631361360); BECE PINs are ALPHANUMERIC (e.g. 5FBR336742D4) and the BECE
+    // serial is the numeric sequence instead — the opposite layout from WASSCE.
+    // Accept alphanumeric so neither board's PIN is rejected.
+    if (!/^[A-Za-z0-9]{10,12}$/.test(pin)) {
+      errors.push({ row: rowNum, reason: `PIN "${pin}" must be 10–12 letters/digits`, raw })
       continue
     }
 

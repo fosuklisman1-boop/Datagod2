@@ -168,7 +168,9 @@ export default function AdminResultsCheckerPage() {
 
   // ─── CSV Upload ───────────────────────────────────────────────
 
-  const PIN_REGEX = /^\d{10,12}$/
+  // PIN is 10–12 chars: WASSCE numeric, BECE alphanumeric (BECE's serial is the
+  // numeric one — opposite layout). Accept letters+digits so neither is rejected.
+  const PIN_REGEX = /^[A-Za-z0-9]{10,12}$/
   const SERIAL_REGEX = /^[A-Za-z0-9]+$/
 
   const handleDownloadTemplate = async () => {
@@ -216,7 +218,7 @@ export default function AdminResultsCheckerPage() {
       if (!pin) {
         errs.push({ row: rowNum, reason: "Missing PIN line (each serial must be followed by a PIN)", raw: serial })
       } else if (!PIN_REGEX.test(pin)) {
-        errs.push({ row: rowNum, reason: `PIN "${pin}" must be 10–12 digits (numeric only)`, raw: `${serial}\n${pin}` })
+        errs.push({ row: rowNum, reason: `PIN "${pin}" must be 10–12 letters/digits`, raw: `${serial}\n${pin}` })
       } else if (serial && !SERIAL_REGEX.test(serial)) {
         errs.push({ row: rowNum, reason: `Serial "${serial}" must be alphanumeric`, raw: `${serial}\n${pin}` })
       } else if (previewRows.length < 5) {
@@ -583,7 +585,7 @@ export default function AdminResultsCheckerPage() {
                   <>
                     <p className="text-xs text-muted-foreground">
                       Paste serial/PIN pairs — <strong>serial number on odd lines, PIN on even lines</strong>, repeat for each voucher.
-                      PINs must be 10–12 digits. Leave serial blank (empty line) if not available.
+                      PINs are 10–12 letters/digits. <strong>BECE:</strong> the PIN is the alphanumeric code (e.g. 5FBR336742D4) and the serial is the numeric one (e.g. 252100270719) — the reverse of WASSCE. Leave serial blank (empty line) if not available.
                     </p>
                     <textarea
                       value={csvText}
