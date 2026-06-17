@@ -325,8 +325,8 @@ export default function DashboardPage() {
         <div className="grid gap-4 lg:grid-cols-3">
           <Card
             data-tour="wallet-balance"
-            className={`lg:col-span-2 border-0 text-white relative overflow-hidden ${isDealer
-              ? "bg-gradient-to-br from-[#37146b] to-[#7c1bd6]"
+            className={`lg:col-span-2 border-0 text-primary-foreground relative overflow-hidden ${isDealer
+              ? "bg-gradient-to-br from-primary to-brand-accent"
               : "bg-gradient-to-br from-primary to-primary"
               }`}
           >
