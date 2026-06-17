@@ -232,18 +232,18 @@ export function PaystackInlineModal({
           )}
 
           {status === "success" && (
-            <Alert className="border-border bg-green-50">
-              <CheckCircle2 className="h-4 w-4 text-green-600" />
-              <AlertDescription className="text-green-800">
+            <Alert className="border-border bg-success/10">
+              <CheckCircle2 className="h-4 w-4 text-success" />
+              <AlertDescription className="text-success">
                 Payment successful! Your transaction is being processed.
               </AlertDescription>
             </Alert>
           )}
 
           {status === "error" && error && (
-            <Alert className="border-border bg-red-50">
-              <AlertCircle className="h-4 w-4 text-red-600" />
-              <AlertDescription className="text-red-800">{error}</AlertDescription>
+            <Alert className="border-border bg-destructive/10">
+              <AlertCircle className="h-4 w-4 text-destructive" />
+              <AlertDescription className="text-destructive">{error}</AlertDescription>
             </Alert>
           )}
 

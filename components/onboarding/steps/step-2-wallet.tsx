@@ -46,9 +46,9 @@ export function Step2Wallet({ onStartInteractiveWallet }: Step2Props) {
         </div>
 
         {/* Feature 2 */}
-        <div className="flex gap-4 p-4 bg-green-50 rounded-lg border border-border">
+        <div className="flex gap-4 p-4 bg-success/10 rounded-lg border border-border">
           <div className="flex-shrink-0">
-            <CreditCard className="w-6 h-6 text-green-600 mt-1" />
+            <CreditCard className="w-6 h-6 text-success mt-1" />
           </div>
           <div>
             <h4 className="font-semibold text-foreground">Top Up Your Wallet</h4>
@@ -72,8 +72,8 @@ export function Step2Wallet({ onStartInteractiveWallet }: Step2Props) {
         </div>
       </div>
 
-      <div className="bg-yellow-50 border border-border rounded-lg p-4 text-sm text-foreground">
-        <p className="font-semibold text-yellow-900 mb-2">💡 Pro Tip:</p>
+      <div className="bg-warning/10 border border-border rounded-lg p-4 text-sm text-foreground">
+        <p className="font-semibold text-warning mb-2">💡 Pro Tip:</p>
         <p>Keep your wallet funded to avoid delays when purchasing data packages. You can set up auto-reload if needed.</p>
       </div>
 

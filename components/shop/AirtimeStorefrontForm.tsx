@@ -354,7 +354,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
               Secure instant top-up for any network
             </CardDescription>
           </div>
-          <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold border bg-green-100 text-green-700 border-border">
+          <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold border bg-success/15 text-success border-border">
             <ShieldCheck className="w-3 h-3 mr-1" />
             Verified
           </div>
@@ -387,7 +387,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                     }`}
                   >
                     {!isAvail && (
-                      <div className="absolute top-1 right-1 bg-red-100 text-red-600 text-[8px] font-black px-1 rounded-sm border border-border">
+                      <div className="absolute top-1 right-1 bg-destructive/15 text-destructive text-[8px] font-black px-1 rounded-sm border border-border">
                         OOS
                       </div>
                     )}
@@ -508,12 +508,12 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                   <span className="text-slate-500 font-semibold">
                     Service Fee {paySeparately ? "(added on top)" : "(deducted from amount)"}:
                   </span>
-                  <span className="text-orange-600 font-bold">GHS {calculateFeeAmount().toFixed(2)}</span>
+                  <span className="text-warning font-bold">GHS {calculateFeeAmount().toFixed(2)}</span>
                 </div>
               )}
               <div className="flex justify-between items-center mb-4 pb-4 border-b border-border">
                 <span className="text-slate-500 font-semibold">Recipient Gets:</span>
-                <span className="text-green-600 font-black">
+                <span className="text-success font-black">
                    GHS {calculateRecipientGets().toFixed(2)}
                 </span>
               </div>
@@ -577,9 +577,9 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                   </div>
                 )
               ) : (
-                <div className="p-3 rounded-xl bg-green-50 border border-border flex items-center gap-2">
-                  <CheckCircle2 className="w-5 h-5 text-green-600" />
-                  <span className="text-sm font-medium text-green-900">Payment number verified ✓</span>
+                <div className="p-3 rounded-xl bg-success/10 border border-border flex items-center gap-2">
+                  <CheckCircle2 className="w-5 h-5 text-success" />
+                  <span className="text-sm font-medium text-success">Payment number verified ✓</span>
                 </div>
               ))}
             </div>
@@ -638,8 +638,8 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
 
           {momoModal.state === "success" && (
             <CardContent className="pt-8 pb-6 text-center space-y-4">
-              <div className="mx-auto w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
-                <CheckCircle2 className="w-9 h-9 text-green-600" />
+              <div className="mx-auto w-16 h-16 rounded-full bg-success/15 flex items-center justify-center">
+                <CheckCircle2 className="w-9 h-9 text-success" />
               </div>
               <div>
                 <h3 className="text-lg font-bold text-foreground">Payment successful 🎉</h3>
@@ -669,8 +669,8 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
 
           {momoModal.state === "failed" && (
             <CardContent className="pt-8 pb-6 text-center space-y-4">
-              <div className="mx-auto w-16 h-16 rounded-full bg-red-100 flex items-center justify-center">
-                <AlertCircle className="w-9 h-9 text-red-600" />
+              <div className="mx-auto w-16 h-16 rounded-full bg-destructive/15 flex items-center justify-center">
+                <AlertCircle className="w-9 h-9 text-destructive" />
               </div>
               <div>
                 <h3 className="text-lg font-bold text-foreground">Payment not completed</h3>

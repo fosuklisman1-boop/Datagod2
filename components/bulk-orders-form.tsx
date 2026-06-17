@@ -637,7 +637,7 @@ export function BulkOrdersForm() {
                       setTextInput(validLines)
                     }
                   }}
-                  className="text-amber-700 border-border hover:bg-amber-50"
+                  className="text-warning border-border hover:bg-warning/10"
                 >
                   🗑️ Clear Invalid
                 </Button>
@@ -648,7 +648,7 @@ export function BulkOrdersForm() {
                     setValidationResults(null)
                     setTextInput("")
                   }}
-                  className="text-rose-700 border-border hover:bg-rose-50"
+                  className="text-destructive border-border hover:bg-destructive/10"
                 >
                   ✕ Clear All
                 </Button>
@@ -672,11 +672,11 @@ export function BulkOrdersForm() {
                   {validationResults.orders.map((order, idx) => (
                     <tr
                       key={idx}
-                      className={order.status === "valid" ? "bg-emerald-50/40 hover:bg-emerald-100/40" : "bg-rose-50/40 hover:bg-rose-100/40"}
+                      className={order.status === "valid" ? "bg-success/10 hover:bg-success/15" : "bg-destructive/10 hover:bg-destructive/15"}
                     >
                       <td className="px-4 py-2">{order.id}</td>
                       <td
-                        className={`px-4 py-2 ${order.status === "invalid" ? "text-red-600" : ""
+                        className={`px-4 py-2 ${order.status === "invalid" ? "text-destructive" : ""
                           }`}
                       >
                         {order.phone}
@@ -692,8 +692,8 @@ export function BulkOrdersForm() {
                       <td className="px-4 py-2">
                         <span
                           className={`px-2 py-1 rounded text-xs font-semibold ${order.status === "valid"
-                              ? "bg-card text-emerald-700 border border-border"
-                              : "bg-card text-rose-700 border border-border"
+                              ? "bg-card text-success border border-border"
+                              : "bg-card text-destructive border border-border"
                             }`}
                         >
                           {order.status === "valid" ? "✓ Valid" : "✕ Invalid"}
@@ -712,11 +712,11 @@ export function BulkOrdersForm() {
                 <div className="space-y-1">
                   <p className="text-sm text-muted-foreground">
                     Total: <span className="font-semibold">{validationResults.total}</span> |{" "}
-                    <span className="text-emerald-600">
+                    <span className="text-success">
                       Valid: <span className="font-semibold">{validationResults.valid}</span>
                     </span>{" "}
                     |{" "}
-                    <span className="text-rose-600">
+                    <span className="text-destructive">
                       Invalid: <span className="font-semibold">{validationResults.invalid}</span>
                     </span>
                   </p>
@@ -779,16 +779,16 @@ export function BulkOrdersForm() {
                   </div>
                 </div>
 
-                <div className="bg-green-50 p-4 rounded-lg">
+                <div className="bg-success/10 p-4 rounded-lg">
                   <div className="flex justify-between">
                     <span className="text-sm text-muted-foreground">Available Balance:</span>
-                    <span className="font-bold text-lg text-emerald-600">
+                    <span className="font-bold text-lg text-success">
                       ₵{(walletBalance || 0).toFixed(2)}
                     </span>
                   </div>
                   <div className="flex justify-between mt-2">
                     <span className="text-sm text-muted-foreground">Balance After:</span>
-                    <span className="font-bold text-lg text-emerald-600">
+                    <span className="font-bold text-lg text-success">
                       ₵{(
                         (walletBalance || 0) -
                         validationResults.orders.filter(o => o.status === "valid").reduce((sum, o) => sum + o.price, 0)

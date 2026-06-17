@@ -231,8 +231,8 @@ export function PhoneVerifyModal({ open, currentPhone, deadline, onVerified, onD
             {isAdd
               ? <Phone className="w-5 h-5 text-primary" />
               : gracePeriodActive
-                ? <ShieldCheck className="w-5 h-5 text-emerald-600" />
-                : <ShieldAlert className="w-5 h-5 text-red-500" />
+                ? <ShieldCheck className="w-5 h-5 text-success" />
+                : <ShieldAlert className="w-5 h-5 text-destructive" />
             }
             {isAdd ? "Add Your Phone Number" : gracePeriodActive ? "Verify Your Phone Number" : "Verification Required"}
           </DialogTitle>
@@ -248,7 +248,7 @@ export function PhoneVerifyModal({ open, currentPhone, deadline, onVerified, onD
 
         {/* Grace period countdown banner */}
         {gracePeriodActive && timeLeft && (
-          <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-border rounded-lg text-sm text-amber-700">
+          <div className="flex items-center gap-2 px-3 py-2 bg-warning/10 border border-border rounded-lg text-sm text-warning">
             <Clock className="w-4 h-4 shrink-0" />
             <span><strong>{timeLeft}</strong> remaining before orders and withdrawals are restricted</span>
           </div>
@@ -260,13 +260,13 @@ export function PhoneVerifyModal({ open, currentPhone, deadline, onVerified, onD
           <div className="flex rounded-lg border border-border overflow-hidden text-sm">
             <button
               onClick={() => setMode("verify")}
-              className={`flex-1 py-2 font-medium transition-colors ${mode === "verify" ? "bg-emerald-600 text-white" : "bg-card text-muted-foreground hover:bg-accent"}`}
+              className={`flex-1 py-2 font-medium transition-colors ${mode === "verify" ? "bg-success text-primary-foreground" : "bg-card text-muted-foreground hover:bg-accent"}`}
             >
               Verify Current
             </button>
             <button
               onClick={() => setMode("change")}
-              className={`flex-1 py-2 font-medium transition-colors ${mode === "change" ? "bg-emerald-600 text-white" : "bg-card text-muted-foreground hover:bg-accent"}`}
+              className={`flex-1 py-2 font-medium transition-colors ${mode === "change" ? "bg-success text-primary-foreground" : "bg-card text-muted-foreground hover:bg-accent"}`}
             >
               Change Number
             </button>
@@ -281,7 +281,7 @@ export function PhoneVerifyModal({ open, currentPhone, deadline, onVerified, onD
             </div>
 
             {!verifyOtpSent ? (
-              <Button onClick={handleSendVerifyOtp} disabled={verifySendLoading} className="w-full bg-emerald-600 hover:bg-emerald-700">
+              <Button onClick={handleSendVerifyOtp} disabled={verifySendLoading} className="w-full bg-success hover:bg-success/90">
                 {verifySendLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
                 Send OTP to this number
               </Button>
@@ -307,7 +307,7 @@ export function PhoneVerifyModal({ open, currentPhone, deadline, onVerified, onD
                     {verifyResendTimer > 0 ? `${verifyResendTimer}s` : "Resend"}
                   </Button>
                 </div>
-                <Button onClick={handleVerifyExistingPhone} disabled={verifyOtpLoading || verifyOtpCode.length !== 6} className="w-full bg-emerald-600 hover:bg-emerald-700">
+                <Button onClick={handleVerifyExistingPhone} disabled={verifyOtpLoading || verifyOtpCode.length !== 6} className="w-full bg-success hover:bg-success/90">
                   {verifyOtpLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
                   Confirm Verification
                 </Button>
@@ -324,10 +324,10 @@ export function PhoneVerifyModal({ open, currentPhone, deadline, onVerified, onD
                   placeholder="New phone number"
                   value={newPhone}
                   onChange={(e) => handleNewPhoneChange(e.target.value)}
-                  className={changePhoneVerified ? "pr-8 border-green-500 focus-visible:ring-green-500" : ""}
+                  className={changePhoneVerified ? "pr-8 border-success/30 focus-visible:ring-success/30" : ""}
                 />
                 {changePhoneVerified && (
-                  <CheckCircle2 className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500" />
+                  <CheckCircle2 className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-success" />
                 )}
               </div>
               <Button
@@ -369,7 +369,7 @@ export function PhoneVerifyModal({ open, currentPhone, deadline, onVerified, onD
             )}
 
             {changePhoneVerified && (
-              <Button onClick={handleSaveNewPhone} disabled={changeSaving} className="w-full bg-emerald-600 hover:bg-emerald-700">
+              <Button onClick={handleSaveNewPhone} disabled={changeSaving} className="w-full bg-success hover:bg-success/90">
                 {changeSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
                 Save New Number
               </Button>

@@ -10,7 +10,7 @@ export function MaintenanceScreen() {
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-card px-6">
       <div className="w-full max-w-md text-center">
         <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-r from-primary to-primary shadow-lg">
-          <Wrench className="h-10 w-10 text-white" />
+          <Wrench className="h-10 w-10 text-primary-foreground" />
         </div>
 
         <h1 className="mb-3 bg-gradient-to-r from-primary via-primary to-primary bg-clip-text text-3xl font-bold text-transparent sm:text-4xl">

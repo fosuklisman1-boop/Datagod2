@@ -258,7 +258,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
 
   return (
     <div className="space-y-4">
-      <Card className="w-full border-l-4 border-l-cyan-500 bg-card backdrop-blur-xl border border-border hover:border-border">
+      <Card className="w-full border-l-4 border-l-primary bg-card backdrop-blur-xl border border-border hover:border-border">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Zap className="h-5 w-5 text-primary" />
@@ -270,17 +270,17 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
       <CardContent className="space-y-6">
         {/* Error Alert */}
         {paymentStatus === "error" && errorMessage && (
-          <Alert className="bg-red-50 border-border">
-            <AlertCircle className="h-4 w-4 text-red-600" />
-            <AlertDescription className="text-red-800">{errorMessage}</AlertDescription>
+          <Alert className="bg-destructive/10 border-border">
+            <AlertCircle className="h-4 w-4 text-destructive" />
+            <AlertDescription className="text-destructive">{errorMessage}</AlertDescription>
           </Alert>
         )}
 
         {/* Success Alert */}
         {paymentStatus === "success" && (
-          <Alert className="bg-green-50 border-border">
-            <CheckCircle className="h-4 w-4 text-green-600" />
-            <AlertDescription className="text-green-800">
+          <Alert className="bg-success/10 border-border">
+            <CheckCircle className="h-4 w-4 text-success" />
+            <AlertDescription className="text-success">
               Payment completed successfully! Your wallet has been credited.
             </AlertDescription>
           </Alert>
@@ -337,7 +337,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
                 <span>Wallet Top Up:</span>
                 <span>GHS {parseFloat(amount || "0").toFixed(2)}</span>
               </div>
-              <div className="flex justify-between text-orange-600">
+              <div className="flex justify-between text-warning">
                 <span>Paystack Fee ({paystackFeePercentage}%):</span>
                 <span>GHS {(parseFloat(amount || "0") * paystackFeePercentage / 100).toFixed(2)}</span>
               </div>
@@ -346,7 +346,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
                 <span>GHS {(parseFloat(amount || "0") * (1 + paystackFeePercentage / 100)).toFixed(2)}</span>
               </div>
             </div>
-            <p className="text-xs text-orange-700 mt-2">The {paystackFeePercentage}% fee is charged by Paystack for payment processing.</p>
+            <p className="text-xs text-warning mt-2">The {paystackFeePercentage}% fee is charged by Paystack for payment processing.</p>
           </div>
         )}
 
@@ -356,9 +356,9 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
             <Badge
               className={
                 paymentStatus === "success"
-                  ? "bg-green-100 text-green-800"
+                  ? "bg-success/15 text-success"
                   : paymentStatus === "error"
-                    ? "bg-red-100 text-red-800"
+                    ? "bg-destructive/15 text-destructive"
                     : "bg-primary/10 text-primary"
               }
             >
@@ -414,9 +414,9 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
                 </div>
               )
             ) : (
-              <div className="p-3 rounded-lg bg-green-50 border border-border flex items-center gap-2">
-                <CheckCircle className="w-5 h-5 text-green-600" />
-                <span className="text-sm font-medium text-green-900">Payment number verified ✓</span>
+              <div className="p-3 rounded-lg bg-success/10 border border-border flex items-center gap-2">
+                <CheckCircle className="w-5 h-5 text-success" />
+                <span className="text-sm font-medium text-success">Payment number verified ✓</span>
               </div>
             ))}
           </div>
@@ -477,8 +477,8 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
 
           {momoModal.state === "success" && (
             <CardContent className="pt-8 pb-6 text-center space-y-4">
-              <div className="mx-auto w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
-                <CheckCircle className="w-9 h-9 text-green-600" />
+              <div className="mx-auto w-16 h-16 rounded-full bg-success/15 flex items-center justify-center">
+                <CheckCircle className="w-9 h-9 text-success" />
               </div>
               <div>
                 <h3 className="text-lg font-bold text-foreground">Wallet topped up 🎉</h3>
@@ -498,8 +498,8 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
 
           {momoModal.state === "failed" && (
             <CardContent className="pt-8 pb-6 text-center space-y-4">
-              <div className="mx-auto w-16 h-16 rounded-full bg-red-100 flex items-center justify-center">
-                <AlertCircle className="w-9 h-9 text-red-600" />
+              <div className="mx-auto w-16 h-16 rounded-full bg-destructive/15 flex items-center justify-center">
+                <AlertCircle className="w-9 h-9 text-destructive" />
               </div>
               <div>
                 <h3 className="text-lg font-bold text-foreground">Top-up not completed</h3>

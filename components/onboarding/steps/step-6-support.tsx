@@ -21,9 +21,9 @@ export function Step6Support() {
 
       <div className="space-y-4 mt-6">
         {/* Support Channel 1 */}
-        <div className="flex gap-4 p-4 bg-green-50 rounded-lg border border-border">
+        <div className="flex gap-4 p-4 bg-success/10 rounded-lg border border-border">
           <div className="flex-shrink-0">
-            <MessageCircle className="w-6 h-6 text-green-600 mt-1" />
+            <MessageCircle className="w-6 h-6 text-success mt-1" />
           </div>
           <div className="flex-1">
             <h4 className="font-semibold text-foreground">WhatsApp Support</h4>
@@ -33,7 +33,7 @@ export function Step6Support() {
             <Button
               variant="outline"
               size="sm"
-              className="mt-3 text-green-600 border-green-600 hover:bg-green-50"
+              className="mt-3 text-success border-success/30 hover:bg-success/10"
               asChild
             >
               <a href="https://wa.me/233546961942" target="_blank" rel="noopener noreferrer">

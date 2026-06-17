@@ -385,8 +385,8 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
     return (
       <div className="max-w-md mx-auto space-y-4">
         <div className="text-center">
-          <CheckCircle2 className="w-12 h-12 text-green-600 mx-auto mb-2" />
-          <h2 className="text-xl font-bold text-green-700">Vouchers Delivered!</h2>
+          <CheckCircle2 className="w-12 h-12 text-success mx-auto mb-2" />
+          <h2 className="text-xl font-bold text-success">Vouchers Delivered!</h2>
           <p className="text-sm text-muted-foreground">Ref: {orderRef}</p>
         </div>
         <div className="flex justify-end">
@@ -410,7 +410,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
               </div>
               <button onClick={() => handleCopyVoucher(v, i)} className="p-2 border border-border hover:bg-muted rounded-lg flex-shrink-0 ml-3">
                 {copiedIdx === i
-                  ? <CheckCircle2 className="w-4 h-4 text-green-600" />
+                  ? <CheckCircle2 className="w-4 h-4 text-success" />
                   : <Copy className="w-4 h-4 text-muted-foreground" />}
               </button>
             </div>
@@ -457,9 +457,9 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
                   </p>
                 )}
                 {!info.enabled
-                  ? <p className="text-xs text-red-500 mt-1 font-medium">Unavailable</p>
+                  ? <p className="text-xs text-destructive mt-1 font-medium">Unavailable</p>
                   : info.availableCount === 0
-                  ? <p className="text-xs text-red-500 mt-1 font-medium">Out of stock</p>
+                  ? <p className="text-xs text-destructive mt-1 font-medium">Out of stock</p>
                   : null}
                 {selectedBoard === board && (
                   <div className="absolute top-3 right-3">
@@ -495,14 +495,14 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
             <div>
               <Label className="text-sm">Full Name</Label>
               <Input value={formData.customerName} onChange={e => setFormData(p => ({ ...p, customerName: e.target.value }))}
-                placeholder="e.g. Kwame Mensah" className={`mt-1 ${formErrors.customerName ? "border-red-400" : ""}`} />
-              {formErrors.customerName && <p className="text-xs text-red-500 mt-1">{formErrors.customerName}</p>}
+                placeholder="e.g. Kwame Mensah" className={`mt-1 ${formErrors.customerName ? "border-destructive" : ""}`} />
+              {formErrors.customerName && <p className="text-xs text-destructive mt-1">{formErrors.customerName}</p>}
             </div>
             <div>
               <Label className="text-sm">Email Address</Label>
               <Input type="email" value={formData.customerEmail} onChange={e => setFormData(p => ({ ...p, customerEmail: e.target.value }))}
-                placeholder="e.g. kwame@example.com" className={`mt-1 ${formErrors.customerEmail ? "border-red-400" : ""}`} />
-              {formErrors.customerEmail && <p className="text-xs text-red-500 mt-1">{formErrors.customerEmail}</p>}
+                placeholder="e.g. kwame@example.com" className={`mt-1 ${formErrors.customerEmail ? "border-destructive" : ""}`} />
+              {formErrors.customerEmail && <p className="text-xs text-destructive mt-1">{formErrors.customerEmail}</p>}
             </div>
             <div>
               <Label className="text-sm">Phone Number</Label>
@@ -510,8 +510,8 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
                   setFormData(p => ({ ...p, customerPhone: e.target.value }))
                   if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode("") }
                 }}
-                placeholder="0XX XXX XXXX" className={`mt-1 ${formErrors.customerPhone ? "border-red-400" : ""}`} />
-              {formErrors.customerPhone && <p className="text-xs text-red-500 mt-1">{formErrors.customerPhone}</p>}
+                placeholder="0XX XXX XXXX" className={`mt-1 ${formErrors.customerPhone ? "border-destructive" : ""}`} />
+              {formErrors.customerPhone && <p className="text-xs text-destructive mt-1">{formErrors.customerPhone}</p>}
               <p className="text-xs text-muted-foreground mt-1">Voucher serial numbers &amp; PINs will be sent to this number via SMS</p>
             </div>
           </div>
@@ -583,9 +583,9 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
                   </div>
                 )
               ) : (
-                <div className="p-3 rounded-xl bg-green-50 border border-border flex items-center gap-2">
-                  <CheckCircle2 className="w-5 h-5 text-green-600" />
-                  <span className="text-sm font-medium text-green-900">Payment number verified ✓</span>
+                <div className="p-3 rounded-xl bg-success/10 border border-border flex items-center gap-2">
+                  <CheckCircle2 className="w-5 h-5 text-success" />
+                  <span className="text-sm font-medium text-success">Payment number verified ✓</span>
                 </div>
               ))}
             </div>
@@ -643,8 +643,8 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
 
             {momoModal.state === "success" && (
               <CardContent className="pt-8 pb-6 text-center space-y-4">
-                <div className="mx-auto w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
-                  <CheckCircle2 className="w-9 h-9 text-green-600" />
+                <div className="mx-auto w-16 h-16 rounded-full bg-success/15 flex items-center justify-center">
+                  <CheckCircle2 className="w-9 h-9 text-success" />
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-foreground">Payment successful 🎉</h3>
@@ -672,8 +672,8 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
 
             {momoModal.state === "failed" && (
               <CardContent className="pt-8 pb-6 text-center space-y-4">
-                <div className="mx-auto w-16 h-16 rounded-full bg-red-100 flex items-center justify-center">
-                  <AlertCircle className="w-9 h-9 text-red-600" />
+                <div className="mx-auto w-16 h-16 rounded-full bg-destructive/15 flex items-center justify-center">
+                  <AlertCircle className="w-9 h-9 text-destructive" />
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-foreground">Payment not completed</h3>

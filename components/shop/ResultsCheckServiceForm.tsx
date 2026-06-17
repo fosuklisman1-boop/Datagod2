@@ -454,7 +454,7 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
                 <p className="text-2xl font-black text-foreground mt-1">GHS {info.checkFee.toFixed(2)}</p>
                 <p className="text-xs text-muted-foreground mt-1">checking fee</p>
                 {!info.enabled && (
-                  <p className="text-xs text-red-500 mt-1 font-medium">Unavailable</p>
+                  <p className="text-xs text-destructive mt-1 font-medium">Unavailable</p>
                 )}
                 {selectedBoard === board && (
                   <div className="absolute top-3 right-3">
@@ -521,7 +521,7 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
                     <p className="text-2xl font-black text-foreground mt-1">GHS {activeBoardInfo.comboPrice.toFixed(2)}</p>
                     <p className="text-xs text-muted-foreground mt-1">Voucher + checking fee, all in one</p>
                     {activeBoardInfo.availableCount === 0 && (
-                      <p className="text-xs text-red-500 mt-1 font-medium">Out of stock — choose &quot;I have my own voucher&quot;</p>
+                      <p className="text-xs text-destructive mt-1 font-medium">Out of stock — choose &quot;I have my own voucher&quot;</p>
                     )}
                   </CardContent>
                 </Card>
@@ -543,9 +543,9 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
                       onChange={e => setFormData(p => ({ ...p, voucherPin: e.target.value.replace(/\D/g, "").slice(0, 12) }))}
                       onBlur={() => validateField("voucherPin")}
                       placeholder="12-digit PIN"
-                      className={`mt-1 font-mono ${formErrors.voucherPin ? "border-red-400" : ""}`}
+                      className={`mt-1 font-mono ${formErrors.voucherPin ? "border-destructive" : ""}`}
                     />
-                    {formErrors.voucherPin && <p className="text-xs text-red-500 mt-1">{formErrors.voucherPin}</p>}
+                    {formErrors.voucherPin && <p className="text-xs text-destructive mt-1">{formErrors.voucherPin}</p>}
                   </div>
                   <div>
                     <Label className="text-sm">Voucher Serial Number</Label>
@@ -554,9 +554,9 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
                       onChange={e => setFormData(p => ({ ...p, voucherSerial: e.target.value.toUpperCase() }))}
                       onBlur={() => validateField("voucherSerial")}
                       placeholder="e.g. WR1234567"
-                      className={`mt-1 font-mono ${formErrors.voucherSerial ? "border-red-400" : ""}`}
+                      className={`mt-1 font-mono ${formErrors.voucherSerial ? "border-destructive" : ""}`}
                     />
-                    {formErrors.voucherSerial && <p className="text-xs text-red-500 mt-1">{formErrors.voucherSerial}</p>}
+                    {formErrors.voucherSerial && <p className="text-xs text-destructive mt-1">{formErrors.voucherSerial}</p>}
                   </div>
                 </div>
               )}
@@ -572,10 +572,10 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
                     onChange={e => setFormData(p => ({ ...p, indexNumber: e.target.value.replace(/\D/g, "") }))}
                     onBlur={() => validateField("indexNumber")}
                     placeholder="e.g. 0070202043"
-                    className={`mt-1 font-mono ${formErrors.indexNumber ? "border-red-400" : ""}`}
+                    className={`mt-1 font-mono ${formErrors.indexNumber ? "border-destructive" : ""}`}
                   />
                   {formErrors.indexNumber
-                    ? <p className="text-xs text-red-500 mt-1">{formErrors.indexNumber}</p>
+                    ? <p className="text-xs text-destructive mt-1">{formErrors.indexNumber}</p>
                     : <p className="text-xs text-muted-foreground mt-1">{selectedBoard === "BECE" ? "10 or 12-digit index number" : "10-digit index number"}</p>}
                 </div>
                 <div>
@@ -586,9 +586,9 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
                     onChange={e => setFormData(p => ({ ...p, examYear: e.target.value.replace(/\D/g, "").slice(0, 4) }))}
                     onBlur={() => validateField("examYear")}
                     placeholder={`e.g. ${new Date().getFullYear()}`}
-                    className={`mt-1 ${formErrors.examYear ? "border-red-400" : ""}`}
+                    className={`mt-1 ${formErrors.examYear ? "border-destructive" : ""}`}
                   />
-                  {formErrors.examYear && <p className="text-xs text-red-500 mt-1">{formErrors.examYear}</p>}
+                  {formErrors.examYear && <p className="text-xs text-destructive mt-1">{formErrors.examYear}</p>}
                 </div>
                 <div>
                   <Label className="text-sm">Date of Birth</Label>
@@ -597,9 +597,9 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
                     onChange={e => setFormData(p => ({ ...p, dob: e.target.value }))}
                     onBlur={() => validateField("dob")}
                     placeholder="DD/MM/YYYY e.g. 15/06/2008"
-                    className={`mt-1 ${formErrors.dob ? "border-red-400" : ""}`}
+                    className={`mt-1 ${formErrors.dob ? "border-destructive" : ""}`}
                   />
-                  {formErrors.dob && <p className="text-xs text-red-500 mt-1">{formErrors.dob}</p>}
+                  {formErrors.dob && <p className="text-xs text-destructive mt-1">{formErrors.dob}</p>}
                 </div>
               </div>
 
@@ -610,16 +610,16 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
                   <Label className="text-sm">Full Name</Label>
                   <Input value={formData.customerName} onChange={e => setFormData(p => ({ ...p, customerName: e.target.value }))}
                     onBlur={() => validateField("customerName")}
-                    placeholder="e.g. Kwame Mensah" className={`mt-1 ${formErrors.customerName ? "border-red-400" : ""}`} />
-                  {formErrors.customerName && <p className="text-xs text-red-500 mt-1">{formErrors.customerName}</p>}
+                    placeholder="e.g. Kwame Mensah" className={`mt-1 ${formErrors.customerName ? "border-destructive" : ""}`} />
+                  {formErrors.customerName && <p className="text-xs text-destructive mt-1">{formErrors.customerName}</p>}
                 </div>
                 <div>
                   <Label className="text-sm">Email Address</Label>
                   <Input type="email" value={formData.customerEmail} onChange={e => setFormData(p => ({ ...p, customerEmail: e.target.value }))}
                     onBlur={() => validateField("customerEmail")}
-                    placeholder="e.g. kwame@example.com" className={`mt-1 ${formErrors.customerEmail ? "border-red-400" : ""}`} />
+                    placeholder="e.g. kwame@example.com" className={`mt-1 ${formErrors.customerEmail ? "border-destructive" : ""}`} />
                   {formErrors.customerEmail
-                    ? <p className="text-xs text-red-500 mt-1">{formErrors.customerEmail}</p>
+                    ? <p className="text-xs text-destructive mt-1">{formErrors.customerEmail}</p>
                     : <p className="text-xs text-muted-foreground mt-1">Your results will be sent to this email address</p>}
                 </div>
                 <div>
@@ -629,17 +629,17 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
                       if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode("") }
                     }}
                     onBlur={() => validateField("phoneNumber")}
-                    placeholder="0XX XXX XXXX" className={`mt-1 ${formErrors.phoneNumber ? "border-red-400" : ""}`} />
-                  {formErrors.phoneNumber && <p className="text-xs text-red-500 mt-1">{formErrors.phoneNumber}</p>}
+                    placeholder="0XX XXX XXXX" className={`mt-1 ${formErrors.phoneNumber ? "border-destructive" : ""}`} />
+                  {formErrors.phoneNumber && <p className="text-xs text-destructive mt-1">{formErrors.phoneNumber}</p>}
                   <p className="text-xs text-muted-foreground mt-1">We&apos;ll send your payment confirmation to this number via SMS</p>
                 </div>
                 <div>
                   <Label className="text-sm">WhatsApp Number</Label>
                   <Input value={formData.whatsappNumber} onChange={e => setFormData(p => ({ ...p, whatsappNumber: e.target.value }))}
                     onBlur={() => validateField("whatsappNumber")}
-                    placeholder="0XX XXX XXXX" className={`mt-1 ${formErrors.whatsappNumber ? "border-red-400" : ""}`} />
+                    placeholder="0XX XXX XXXX" className={`mt-1 ${formErrors.whatsappNumber ? "border-destructive" : ""}`} />
                   {formErrors.whatsappNumber
-                    ? <p className="text-xs text-red-500 mt-1">{formErrors.whatsappNumber}</p>
+                    ? <p className="text-xs text-destructive mt-1">{formErrors.whatsappNumber}</p>
                     : <p className="text-xs text-muted-foreground mt-1">We&apos;ll also send your results here as an image/PDF</p>}
                 </div>
               </div>
@@ -701,9 +701,9 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
                       </div>
                     )
                   ) : (
-                    <div className="p-3 rounded-xl bg-green-50 border border-border flex items-center gap-2">
-                      <CheckCircle2 className="w-5 h-5 text-green-600" />
-                      <span className="text-sm font-medium text-green-900">Payment number verified ✓</span>
+                    <div className="p-3 rounded-xl bg-success/10 border border-border flex items-center gap-2">
+                      <CheckCircle2 className="w-5 h-5 text-success" />
+                      <span className="text-sm font-medium text-success">Payment number verified ✓</span>
                     </div>
                   ))}
                 </div>
@@ -763,8 +763,8 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
 
             {momoModal.state === "success" && (
               <CardContent className="pt-8 pb-6 text-center space-y-4">
-                <div className="mx-auto w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
-                  <CheckCircle2 className="w-9 h-9 text-green-600" />
+                <div className="mx-auto w-16 h-16 rounded-full bg-success/15 flex items-center justify-center">
+                  <CheckCircle2 className="w-9 h-9 text-success" />
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-foreground">Payment successful 🎉</h3>
@@ -791,8 +791,8 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
 
             {momoModal.state === "failed" && (
               <CardContent className="pt-8 pb-6 text-center space-y-4">
-                <div className="mx-auto w-16 h-16 rounded-full bg-red-100 flex items-center justify-center">
-                  <AlertCircle className="w-9 h-9 text-red-600" />
+                <div className="mx-auto w-16 h-16 rounded-full bg-destructive/15 flex items-center justify-center">
+                  <AlertCircle className="w-9 h-9 text-destructive" />
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-foreground">Payment not completed</h3>

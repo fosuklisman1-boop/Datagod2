@@ -31,7 +31,7 @@ const getPackageIcon = (type: 'airtime' | 'data') => {
   return type === 'data' ? (
     <Database className="h-5 w-5 text-primary" />
   ) : (
-    <Zap className="h-5 w-5 text-yellow-500" />
+    <Zap className="h-5 w-5 text-warning" />
   )
 }
 
@@ -145,7 +145,7 @@ export const StepPackage: React.FC<StepPackageProps> = ({
           {groupedPackages.airtime.length > 0 && (
             <div>
               <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                <Zap className="h-5 w-5 text-yellow-500" />
+                <Zap className="h-5 w-5 text-warning" />
                 Airtime
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -207,7 +207,7 @@ export const StepPackage: React.FC<StepPackageProps> = ({
       {packages.length === 0 && (
         <Card className="border-dashed">
           <CardContent className="pt-12 pb-12 text-center">
-            <Database className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+            <Database className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
             <p className="text-sm text-muted-foreground">No packages available for this network</p>
           </CardContent>
         </Card>

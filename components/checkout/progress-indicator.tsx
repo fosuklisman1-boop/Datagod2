@@ -68,8 +68,8 @@ export const ProgressIndicator: React.FC<ProgressIndicatorProps> = ({
                   {/* Step Circle */}
                   <div className="relative mb-2 w-10 h-10 flex items-center justify-center">
                     {isCompleted ? (
-                      <div className="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center">
-                        <CheckCircle2 className="h-6 w-6 text-white" />
+                      <div className="w-10 h-10 rounded-full bg-success flex items-center justify-center">
+                        <CheckCircle2 className="h-6 w-6 text-primary-foreground" />
                       </div>
                     ) : isCurrent ? (
                       <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center">
@@ -103,7 +103,7 @@ export const ProgressIndicator: React.FC<ProgressIndicatorProps> = ({
                         isCurrent
                           ? 'text-primary'
                           : isCompleted
-                            ? 'text-green-600'
+                            ? 'text-success'
                             : 'text-muted-foreground'
                       }`}
                     >

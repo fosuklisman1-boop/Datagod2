@@ -14,7 +14,7 @@ export function Step7Done({ onComplete }: Step7Props) {
         <div className="relative">
           <div className="text-6xl">🎉</div>
           <div className="absolute -bottom-2 -right-2">
-            <CheckCircle className="w-8 h-8 text-green-500 fill-green-500" />
+            <CheckCircle className="w-8 h-8 text-success fill-success" />
           </div>
         </div>
       </div>
@@ -32,7 +32,7 @@ export function Step7Done({ onComplete }: Step7Props) {
         <h4 className="font-semibold text-foreground text-center">Quick Next Steps:</h4>
         <div className="space-y-3">
           <div className="flex gap-3">
-            <span className="flex-shrink-0 flex items-center justify-center w-6 h-6 bg-green-500 text-white rounded-full text-sm font-bold">
+            <span className="flex-shrink-0 flex items-center justify-center w-6 h-6 bg-success text-primary-foreground rounded-full text-sm font-bold">
               1
             </span>
             <div>
@@ -41,7 +41,7 @@ export function Step7Done({ onComplete }: Step7Props) {
             </div>
           </div>
           <div className="flex gap-3">
-            <span className="flex-shrink-0 flex items-center justify-center w-6 h-6 bg-green-500 text-white rounded-full text-sm font-bold">
+            <span className="flex-shrink-0 flex items-center justify-center w-6 h-6 bg-success text-primary-foreground rounded-full text-sm font-bold">
               2
             </span>
             <div>
@@ -50,7 +50,7 @@ export function Step7Done({ onComplete }: Step7Props) {
             </div>
           </div>
           <div className="flex gap-3">
-            <span className="flex-shrink-0 flex items-center justify-center w-6 h-6 bg-green-500 text-white rounded-full text-sm font-bold">
+            <span className="flex-shrink-0 flex items-center justify-center w-6 h-6 bg-success text-primary-foreground rounded-full text-sm font-bold">
               3
             </span>
             <div>
@@ -68,7 +68,7 @@ export function Step7Done({ onComplete }: Step7Props) {
         <Button
           onClick={onComplete}
           size="lg"
-          className="w-full bg-gradient-to-r from-green-600 to-emerald-600 gap-2"
+          className="w-full bg-success hover:bg-success/90 gap-2"
         >
           Go to Dashboard
           <ArrowRight className="w-4 h-4" />

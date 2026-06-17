@@ -196,9 +196,9 @@ export function FeeSettings() {
         <div className="lg:col-span-2 space-y-8">
           {/* Airtime Management */}
           <Card className="border-border shadow-sm">
-            <CardHeader className="bg-orange-50/50 border-b border-border">
-              <CardTitle className="text-orange-900">Airtime Management</CardTitle>
-              <CardDescription className="text-orange-700">Set network-specific fees and operational limits</CardDescription>
+            <CardHeader className="bg-warning/10 border-b border-border">
+              <CardTitle className="text-warning">Airtime Management</CardTitle>
+              <CardDescription className="text-warning">Set network-specific fees and operational limits</CardDescription>
             </CardHeader>
             <CardContent className="pt-6 space-y-8">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -278,16 +278,16 @@ export function FeeSettings() {
                 </div>
 
                 {/* Limits */}
-                <div className="space-y-4 p-4 rounded-xl bg-gray-800 text-white border border-gray-700 shadow-md">
-                   <h4 className="font-bold text-white border-b border-gray-700 pb-2">Purchase Limits</h4>
+                <div className="space-y-4 p-4 rounded-xl bg-card text-foreground border border-border shadow-md">
+                   <h4 className="font-bold text-foreground border-b border-border pb-2">Purchase Limits</h4>
                    <div className="grid grid-cols-1 gap-4 pt-2">
                     <div className="space-y-1">
                       <label className="text-xs font-medium text-muted-foreground">Min Amount (GHS)</label>
-                      <Input type="number" className="bg-gray-900 border-gray-700 text-white" value={airtimeData.airtime_min_amount} onChange={(e) => handleAirtimeChange("airtime_min_amount", e.target.value)} />
+                      <Input type="number" className="bg-card border-border text-foreground" value={airtimeData.airtime_min_amount} onChange={(e) => handleAirtimeChange("airtime_min_amount", e.target.value)} />
                     </div>
                     <div className="space-y-1">
                       <label className="text-xs font-medium text-muted-foreground">Max Amount (GHS)</label>
-                      <Input type="number" className="bg-gray-900 border-gray-700 text-white" value={airtimeData.airtime_max_amount} onChange={(e) => handleAirtimeChange("airtime_max_amount", e.target.value)} />
+                      <Input type="number" className="bg-card border-border text-foreground" value={airtimeData.airtime_max_amount} onChange={(e) => handleAirtimeChange("airtime_max_amount", e.target.value)} />
                     </div>
                   </div>
                 </div>
@@ -341,7 +341,7 @@ export function FeeSettings() {
                   <input type="checkbox" className="w-4 h-4 rounded text-primary focus:ring-ring" checked={formData.announcement_enabled} onChange={(e) => handleInputChange("announcement_enabled", e.target.checked)} />
                 </div>
                 {formData.announcement_enabled && (
-                  <div className="space-y-3 p-3 bg-amber-50 rounded-lg border border-border">
+                  <div className="space-y-3 p-3 bg-warning/10 rounded-lg border border-border">
                     <Input placeholder="Title" value={formData.announcement_title} onChange={(e) => handleInputChange("announcement_title", e.target.value)} />
                     <textarea className="w-full text-sm p-3 rounded-md border border-border min-h-[100px]" placeholder="Message..." value={formData.announcement_message} onChange={(e) => handleInputChange("announcement_message", e.target.value)} />
                   </div>
@@ -366,14 +366,14 @@ export function FeeSettings() {
       </div>
 
       {error && (
-        <div className="flex gap-3 p-4 bg-red-50 border border-border rounded-xl">
-          <AlertCircle className="w-5 h-5 text-red-600 shrink-0" />
-          <p className="text-sm text-red-700 font-medium">{error}</p>
+        <div className="flex gap-3 p-4 bg-destructive/10 border border-border rounded-xl">
+          <AlertCircle className="w-5 h-5 text-destructive shrink-0" />
+          <p className="text-sm text-destructive font-medium">{error}</p>
         </div>
       )}
 
       {success && (
-        <div className="fixed bottom-8 right-8 flex gap-3 p-4 bg-green-600 text-white rounded-xl shadow-2xl animate-in slide-in-from-bottom-5">
+        <div className="fixed bottom-8 right-8 flex gap-3 p-4 bg-success text-primary-foreground rounded-xl shadow-2xl animate-in slide-in-from-bottom-5">
           <CheckCircle2 className="w-5 h-5" />
           <p className="text-sm font-bold">Settings saved successfully!</p>
         </div>

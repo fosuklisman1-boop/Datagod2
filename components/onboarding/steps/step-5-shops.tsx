@@ -20,9 +20,9 @@ export function Step5Shops() {
 
       <div className="space-y-4 mt-6">
         {/* Feature 1 */}
-        <div className="flex gap-4 p-4 bg-orange-50 rounded-lg border border-border">
+        <div className="flex gap-4 p-4 bg-warning/10 rounded-lg border border-border">
           <div className="flex-shrink-0">
-            <Store className="w-6 h-6 text-orange-600 mt-1" />
+            <Store className="w-6 h-6 text-warning mt-1" />
           </div>
           <div>
             <h4 className="font-semibold text-foreground">Your Own Store</h4>
@@ -33,9 +33,9 @@ export function Step5Shops() {
         </div>
 
         {/* Feature 2 */}
-        <div className="flex gap-4 p-4 bg-green-50 rounded-lg border border-border">
+        <div className="flex gap-4 p-4 bg-success/10 rounded-lg border border-border">
           <div className="flex-shrink-0">
-            <TrendingUp className="w-6 h-6 text-green-600 mt-1" />
+            <TrendingUp className="w-6 h-6 text-success mt-1" />
           </div>
           <div>
             <h4 className="font-semibold text-foreground">Earn Profits</h4>
@@ -63,22 +63,22 @@ export function Step5Shops() {
         <h4 className="font-semibold text-foreground text-sm">Shop Benefits:</h4>
         <ul className="space-y-2 text-sm text-foreground">
           <li className="flex gap-2">
-            <span className="text-green-600">✓</span> <span>Set your own profit margins</span>
+            <span className="text-success">✓</span> <span>Set your own profit margins</span>
           </li>
           <li className="flex gap-2">
-            <span className="text-green-600">✓</span> <span>White-label storefront option</span>
+            <span className="text-success">✓</span> <span>White-label storefront option</span>
           </li>
           <li className="flex gap-2">
-            <span className="text-green-600">✓</span> <span>Detailed sales analytics</span>
+            <span className="text-success">✓</span> <span>Detailed sales analytics</span>
           </li>
           <li className="flex gap-2">
-            <span className="text-green-600">✓</span> <span>Automatic profit calculations</span>
+            <span className="text-success">✓</span> <span>Automatic profit calculations</span>
           </li>
         </ul>
       </div>
 
-      <div className="bg-orange-50 border border-border rounded-lg p-4 text-sm text-foreground">
-        <p className="font-semibold text-orange-900 mb-2">💡 Pro Tip:</p>
+      <div className="bg-warning/10 border border-border rounded-lg p-4 text-sm text-foreground">
+        <p className="font-semibold text-warning mb-2">💡 Pro Tip:</p>
         <p>You can create multiple shops for different customer segments. Diversify your business!</p>
       </div>
     </div>

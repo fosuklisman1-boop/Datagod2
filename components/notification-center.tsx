@@ -130,7 +130,7 @@ export function NotificationCenter() {
       >
         <Bell className="w-6 h-6" />
         {unreadCount > 0 && (
-          <span className="absolute top-0 right-0 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
+          <span className="absolute top-0 right-0 bg-destructive text-primary-foreground text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
@@ -241,17 +241,17 @@ function NotificationItem({
       case "order_update":
         return "bg-primary/5 border-l-4 border-primary"
       case "complaint_resolved":
-        return "bg-green-50 border-l-4 border-green-500"
+        return "bg-success/10 border-l-4 border-success/30"
       case "payment_success":
-        return "bg-green-50 border-l-4 border-green-500"
+        return "bg-success/10 border-l-4 border-success/30"
       case "withdrawal_approved":
-        return "bg-green-50 border-l-4 border-green-500"
+        return "bg-success/10 border-l-4 border-success/30"
       case "withdrawal_rejected":
-        return "bg-red-50 border-l-4 border-red-500"
+        return "bg-destructive/10 border-l-4 border-destructive/30"
       case "balance_updated":
         return "bg-primary border-l-4 border-primary"
       default:
-        return "bg-muted/40 border-l-4 border-gray-500"
+        return "bg-muted/40 border-l-4 border-border"
     }
   }
 
@@ -259,13 +259,13 @@ function NotificationItem({
     switch (type) {
       case "payment_success":
       case "withdrawal_approved":
-        return <div className="w-2 h-2 bg-green-500 rounded-full" />
+        return <div className="w-2 h-2 bg-success rounded-full" />
       case "order_update":
         return <div className="w-2 h-2 bg-primary rounded-full" />
       case "withdrawal_rejected":
-        return <div className="w-2 h-2 bg-red-500 rounded-full" />
+        return <div className="w-2 h-2 bg-destructive rounded-full" />
       default:
-        return <div className="w-2 h-2 bg-gray-500 rounded-full" />
+        return <div className="w-2 h-2 bg-muted-foreground rounded-full" />
     }
   }
 
@@ -318,7 +318,7 @@ function NotificationItem({
             {!notification.read && (
               <button
                 onClick={() => onMarkAsRead(notification.id)}
-                className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 border border-border hover:border-gray-400 rounded px-1.5 py-0.5 transition-colors"
+                className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 border border-border hover:border-border rounded px-1.5 py-0.5 transition-colors"
               >
                 <Check className="w-3 h-3" />
                 <span className="hidden sm:inline">Mark read</span>

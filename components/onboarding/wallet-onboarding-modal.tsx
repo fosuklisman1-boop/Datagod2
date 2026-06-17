@@ -58,7 +58,7 @@ export function WalletOnboardingModal({ open, onComplete }: WalletOnboardingModa
     }}>
       <DialogContent className="sm:max-w-md">
         <DialogTitle className="flex items-center gap-2">
-          <AlertCircle className="w-5 h-5 text-orange-600" />
+          <AlertCircle className="w-5 h-5 text-warning" />
           Top Up Your Wallet
         </DialogTitle>
         <DialogDescription>
@@ -70,8 +70,8 @@ export function WalletOnboardingModal({ open, onComplete }: WalletOnboardingModa
           <div className="bg-card border border-border rounded-lg p-6">
             <p className="text-sm text-muted-foreground mb-2">Current Balance</p>
             <div className="flex items-center gap-3">
-              <Wallet className="w-8 h-8 text-green-600" />
-              <div className="text-3xl font-bold text-green-600">
+              <Wallet className="w-8 h-8 text-success" />
+              <div className="text-3xl font-bold text-success">
                 GHS {walletBalance !== null ? walletBalance.toFixed(2) : '0.00'}
               </div>
             </div>
@@ -89,7 +89,7 @@ export function WalletOnboardingModal({ open, onComplete }: WalletOnboardingModa
             <Button
               onClick={handleTopUp}
               size="lg"
-              className="w-full bg-gradient-to-r from-green-600 to-emerald-600 text-white"
+              className="w-full bg-success hover:bg-success/90"
             >
               Go to Wallet
             </Button>

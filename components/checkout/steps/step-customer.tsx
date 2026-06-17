@@ -21,7 +21,7 @@ interface StepCustomerProps {
 
 const getFieldIcon = (field: keyof CustomerData, isValid: boolean) => {
   if (!isValid) return null
-  return <CheckCircle2 className="h-4 w-4 text-green-500" />
+  return <CheckCircle2 className="h-4 w-4 text-success" />
 }
 
 export const StepCustomer: React.FC<StepCustomerProps> = ({
@@ -87,7 +87,7 @@ export const StepCustomer: React.FC<StepCustomerProps> = ({
           <Label htmlFor="name" className="flex items-center justify-between">
             <span>Full Name</span>
             {isFieldValid('name') && touched.has('name') && (
-              <span className="text-xs text-green-600 flex items-center gap-1">
+              <span className="text-xs text-success flex items-center gap-1">
                 <CheckCircle2 className="h-3 w-3" />
                 Valid
               </span>
@@ -101,15 +101,15 @@ export const StepCustomer: React.FC<StepCustomerProps> = ({
               onChange={(e) => handleFieldChange('name', e.target.value)}
               onBlur={() => handleBlur('name')}
               placeholder="e.g., John Doe"
-              className={`pr-10 ${nameError ? 'border-red-500 focus:ring-red-500' : ''}`}
+              className={`pr-10 ${nameError ? 'border-destructive focus:ring-destructive/30' : ''}`}
               disabled={isLoading}
             />
             {nameError && touched.has('name') && (
-              <AlertCircle className="absolute right-3 top-3 h-4 w-4 text-red-500" />
+              <AlertCircle className="absolute right-3 top-3 h-4 w-4 text-destructive" />
             )}
           </div>
           {nameError && touched.has('name') && (
-            <p className="text-xs text-red-600">{nameError}</p>
+            <p className="text-xs text-destructive">{nameError}</p>
           )}
         </div>
 
@@ -118,7 +118,7 @@ export const StepCustomer: React.FC<StepCustomerProps> = ({
           <Label htmlFor="email" className="flex items-center justify-between">
             <span>Email Address</span>
             {isFieldValid('email') && touched.has('email') && (
-              <span className="text-xs text-green-600 flex items-center gap-1">
+              <span className="text-xs text-success flex items-center gap-1">
                 <CheckCircle2 className="h-3 w-3" />
                 Valid
               </span>
@@ -132,15 +132,15 @@ export const StepCustomer: React.FC<StepCustomerProps> = ({
               onChange={(e) => handleFieldChange('email', e.target.value)}
               onBlur={() => handleBlur('email')}
               placeholder="e.g., john@example.com"
-              className={`pr-10 ${emailError ? 'border-red-500 focus:ring-red-500' : ''}`}
+              className={`pr-10 ${emailError ? 'border-destructive focus:ring-destructive/30' : ''}`}
               disabled={isLoading}
             />
             {emailError && touched.has('email') && (
-              <AlertCircle className="absolute right-3 top-3 h-4 w-4 text-red-500" />
+              <AlertCircle className="absolute right-3 top-3 h-4 w-4 text-destructive" />
             )}
           </div>
           {emailError && touched.has('email') && (
-            <p className="text-xs text-red-600">{emailError}</p>
+            <p className="text-xs text-destructive">{emailError}</p>
           )}
         </div>
 
@@ -149,7 +149,7 @@ export const StepCustomer: React.FC<StepCustomerProps> = ({
           <Label htmlFor="phone" className="flex items-center justify-between">
             <span>Phone Number</span>
             {isFieldValid('phone') && touched.has('phone') && (
-              <span className="text-xs text-green-600 flex items-center gap-1">
+              <span className="text-xs text-success flex items-center gap-1">
                 <CheckCircle2 className="h-3 w-3" />
                 Valid
               </span>
@@ -165,15 +165,15 @@ export const StepCustomer: React.FC<StepCustomerProps> = ({
               onBlur={() => handleBlur('phone')}
               placeholder="e.g., 0241234567"
               maxLength={10}
-              className={`pl-10 pr-10 font-mono ${phoneError ? 'border-red-500 focus:ring-red-500' : ''}`}
+              className={`pl-10 pr-10 font-mono ${phoneError ? 'border-destructive focus:ring-destructive/30' : ''}`}
               disabled={isLoading}
             />
             {phoneError && touched.has('phone') && (
-              <AlertCircle className="absolute right-3 top-3 h-4 w-4 text-red-500" />
+              <AlertCircle className="absolute right-3 top-3 h-4 w-4 text-destructive" />
             )}
           </div>
           {phoneError && touched.has('phone') && (
-            <p className="text-xs text-red-600">{phoneError}</p>
+            <p className="text-xs text-destructive">{phoneError}</p>
           )}
           {!phoneError && touched.has('phone') && (
             <p className="text-xs text-muted-foreground">Ghana phone format (10 digits)</p>
