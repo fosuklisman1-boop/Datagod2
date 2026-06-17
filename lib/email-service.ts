@@ -111,7 +111,7 @@ function wrapHtml(content: string, title: string, showHero: boolean = false): st
         .footer-links { margin-bottom: 20px; }
         .footer-link { color: #6b7280; text-decoration: none; font-size: 12px; margin: 0 8px; font-weight: 500; }
         .footer-text { font-size: 12px; color: #9ca3af; margin: 5px 0; line-height: 1.5; }
-        .footer-contact { color: #2563eb; text-decoration: none; font-weight: 500; }
+        .footer-contact { color: #059669; text-decoration: none; font-weight: 500; }
         
         /* Utilities */
         .text-center { text-align: center; }
