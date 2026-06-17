@@ -1396,11 +1396,13 @@ export async function executeToolCall(
         // sender is Meta-verified, so there's no impersonation/wrong-wallet risk.
         // Resolve the account: the linked WhatsApp number (ctx.userId) or, if a
         // verification was just completed this conversation, the freshly-linked one.
-        let payUserId = ctx.userId
-        if (!payUserId) {
-          const { resolveLinkedUserId } = await import("@/lib/whatsapp-bot/account-link")
-          payUserId = (await resolveLinkedUserId(String(ctx.phone || ""))) ?? undefined
-        }
+        // Prefer an explicitly verified+linked account over the implicit WhatsApp-
+        // number match: if the customer verified a DIFFERENT account this session
+        // (e.g. they deposited into another number they own), reverify must check
+        // THAT account — not the one their WhatsApp number happens to match.
+        const { resolveLinkedUserId } = await import("@/lib/whatsapp-bot/account-link")
+        const linkedUserId = await resolveLinkedUserId(String(ctx.phone || ""))
+        const payUserId = linkedUserId ?? ctx.userId
         if (!payUserId) {
           return { error: "no_account", message: "This WhatsApp number isn't linked to a Datagod account yet, so the top-up can't be auto-checked. Offer to verify their account: ask for the phone number on their Datagod account and call start_account_verification. Alternatively they can sign in and re-verify at /dashboard/payment-reverify, or you can log a wallet_topup complaint with their payment reference." }
         }
@@ -1447,7 +1449,7 @@ export async function executeToolCall(
         if (!accountNumber) return { error: "Ask the customer for the phone number on their Datagod account." }
         const { startAccountVerification } = await import("@/lib/whatsapp-bot/account-verify")
         const res = await startAccountVerification(waPhone, accountNumber)
-        if (res.ok) return { sent: true, masked: `•••${res.maskedPhone}`, message: `A 6-digit code was sent by SMS to the number on the account ending ${res.maskedPhone}. Ask the customer to enter it here.` }
+        if (res.ok) return { sent: true, masked: `•••${res.maskedPhone}`, message: `A 6-digit code was sent by SMS to the number ON THEIR DATAGOD ACCOUNT ending ${res.maskedPhone} — this is NOT their WhatsApp number. Tell them to check the SMS on that account's phone (refer to it as "ending ${res.maskedPhone}") and send the code here.` }
         if (res.reason === "not_found") return { error: "no_account_found", message: "I couldn't find a Datagod account with that number. Ask them to double-check it, or log a complaint." }
         if (res.reason === "rate_limited") return { error: "rate_limited", message: "Too many code requests right now. Ask them to wait a few minutes and try again, or log a complaint." }
         return { error: "Couldn't send a code right now. Suggest /dashboard/payment-reverify or log a complaint." }
