@@ -1646,11 +1646,21 @@ export async function executeToolCall(
           return { duplicate: true, message: `There's already an order for ${canonicalNetwork} ${String(input.size)} to ${localRecipient} waiting to be paid. Ask the customer to finish paying for it (reply 1 or 2 on the confirm screen) or cancel it before placing another.` }
         }
 
+        // ussd_orders.paystack_provider is NOT NULL, and handleConfirm inserts it from the
+        // session on the WALLET path (which calls handleConfirm directly). The MoMo path sets
+        // it later via WA_ENTER_PAYMENT_PHONE, which is why MoMo worked but wallet errored with
+        // "Error creating order". Seed it here like the menu flow (handleSelectNetwork) does:
+        // derive from the payer's number, fall back to the network's default provider.
+        const { paystackProviderFromPhone } = await import("@/lib/ussd/paystack-provider")
+        const NET_PROVIDER: Record<string, "mtn" | "vod" | "tgo"> = { MTN: "mtn", Telecel: "vod", AirtelTigo: "tgo", "AT-iShare": "tgo" }
+        const paystackProvider = paystackProviderFromPhone(localSender) ?? NET_PROVIDER[pkg.network] ?? "mtn"
+
         // Seed CONFIRM. The webhook returns the confirm menu verbatim; the customer's next
         // reply (1=Wallet, 2=MoMo, 0=Cancel) enters the existing waRouter CONFIRM handler.
         await setWaSession(phone, {
           step: "CONFIRM",
           network: pkg.network,
+          paystackProvider,
           bundleId: pkg.id,
           bundleSize: String(pkg.size),
           bundlePrice: tierPrice,
