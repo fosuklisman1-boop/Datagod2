@@ -308,10 +308,6 @@ function MockProfitMargin() {
 export default function HomePage() {
   const { communityLink, loading: communityLoading } = useCommunityLink()
 
-  const scrollToGuide = () => {
-    document.getElementById("how-it-works")?.scrollIntoView({ behavior: "smooth" })
-  }
-
   return (
     <div className="min-h-screen bg-background">
       {/* Organization + Website Schema */}
@@ -339,7 +335,7 @@ export default function HomePage() {
       {/* Navigation */}
       <nav className="sticky top-0 z-50 flex items-center justify-between px-4 sm:px-6 py-4 border-b border-border bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70">
         <div className="flex items-center gap-3">
-          <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-primary to-brand-accent" />
+          <div aria-hidden className="h-7 w-7 rounded-lg bg-gradient-to-br from-primary to-brand-accent" />
           <h1 className="text-lg sm:text-xl font-display font-semibold text-foreground tracking-tight">DATAGOD</h1>
         </div>
         <div className="hidden md:flex items-center gap-6">
@@ -708,7 +704,7 @@ When your sub-agent clicks the link, they see a branded invite page showing your
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6 sm:gap-8 mb-8">
             <div>
               <div className="flex items-center gap-2 mb-3">
-                <div className="h-5 w-5 rounded bg-gradient-to-br from-primary to-brand-accent" />
+                <div aria-hidden className="h-5 w-5 rounded bg-gradient-to-br from-primary to-brand-accent" />
                 <span className="font-display font-semibold text-foreground">DATAGOD</span>
               </div>
               <p className="text-sm">Your trusted data hub for Ghana — data, airtime, AFA, vouchers &amp; SMS.</p>
