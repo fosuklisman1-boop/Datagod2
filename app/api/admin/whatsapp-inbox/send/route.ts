@@ -17,7 +17,7 @@ const STALE_WINDOW_MS = 24 * 60 * 60 * 1000
 // Sends a manual admin reply, logs it to the thread, and (during a takeover)
 // bumps the heartbeat so the 30-min auto-resume clock restarts.
 export async function POST(request: NextRequest) {
-  const { isAdmin, userId, errorResponse } = await verifyAdminAccess(request)
+  const { isAdmin, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse!
 
   const body = await request.json().catch(() => ({})) as { phone?: string; message?: string }
@@ -60,12 +60,11 @@ export async function POST(request: NextRequest) {
   if (takeoverStillActive) convoUpdate.taken_over_at = new Date().toISOString()
   await supabase.from("whatsapp_conversations").update(convoUpdate).eq("phone_number", phone)
 
-  // Close the loop: a reply from the inbox resolves any open complaint for this
-  // chat, so a complaint handled here doesn't stay open in the WhatsApp queue.
-  try {
-    const { resolveOpenComplaintsForPhone } = await import("@/lib/whatsapp-bot/complaints")
-    await resolveOpenComplaintsForPhone(phone, userId ? `admin:${userId}` : "admin", message)
-  } catch { /* non-fatal */ }
+  // NOTE: sending a reply here does NOT resolve the customer's open complaints.
+  // Resolving is a deliberate act done through the WhatsApp "complaints" queue
+  // (claim → reply → resolve in adminComplaintRouter) or an explicit resolve action.
+  // Auto-resolving on every inbox message silently closed complaints before anyone
+  // claimed them — an admin asking a clarifying question would make the complaint vanish.
 
   return NextResponse.json({
     ok: true,
