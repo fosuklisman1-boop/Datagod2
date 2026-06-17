@@ -638,15 +638,25 @@ export default function SmsDashboardPage() {
     }).then((r) => r.json()).catch(() => ({}))
     setSending(false)
     if (res.success) {
-      const { total, creditsReserved } = res.data ?? {}
-      toast.success(`Queued ${total} recipient${total !== 1 ? "s" : ""} (${creditsReserved} credits)`)
+      const { total, creditsReserved, batches, partial, stoppedReason } = res.data ?? {}
+      const batchTxt = batches > 1 ? ` in ${batches} batches` : ""
+      if (partial) {
+        const why = stoppedReason === "INSUFFICIENT_CREDITS" ? "ran out of credits — top up and resend the rest"
+          : stoppedReason === "SUSPENDED" ? "the account was suspended mid-send"
+          : stoppedReason === "NOT_ACTIVATED" ? "the account is no longer active"
+          : "the rest could not be sent"
+        toast.warning(`Sent ${total} recipient${total !== 1 ? "s" : ""}${batchTxt}, then ${why}.`)
+      } else {
+        toast.success(`Queued ${total} recipient${total !== 1 ? "s" : ""}${batchTxt} (${creditsReserved} credits)`)
+      }
       setMessage(""); setRecipients([]); setSelectedGroupId("")
       await Promise.all([load(), loadLogs()])
     } else {
       const code: string = res.error ?? "UNKNOWN_ERROR"
       const map: Record<string, string> = {
         INSUFFICIENT_CREDITS: "Not enough credits. Buy a bundle first.",
-        TOO_MANY_RECIPIENTS: `Max ${MAX_RECIPIENTS} recipients per send.`,
+        SEND_ERROR: "Something went wrong sending. Please try again.",
+        TOO_MANY_RECIPIENTS: `A send can reach at most 5000 recipients. Split into smaller groups.`,
         BLOCKED: `Sending blocked: ${res.reason ?? "content policy"}`,
         NOT_ACTIVATED: "Activate your SMS account before sending.",
         SUSPENDED: "Your SMS account is suspended.",
@@ -869,6 +879,11 @@ export default function SmsDashboardPage() {
   const sendDisabled =
     sending || message.trim().length < 3 || (recipients.length === 0 && !selectedGroupId) || overBudgetBlocks
   const activeSenders = senderIds.filter((s) => s.local_status === "active")
+  // Confirm dialog totals: the group's resolved (opt-out-filtered) count PLUS any
+  // typed chips — both get merged + deduped server-side, so this is an upper bound.
+  const confirmTotal = sendConfirm.sentCount + recipients.length
+  const confirmBatches = Math.ceil(confirmTotal / 500)
+  const confirmCost = confirmTotal * segPerRecipient
 
   // ─── loading / error ────────────────────────────────────────────────────
   if (loading) {
@@ -1204,9 +1219,11 @@ export default function SmsDashboardPage() {
                           <div className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Checking group size…</div>
                         ) : (
                           <div>
-                            This will send to <span className="font-medium text-foreground">{sendConfirm.sentCount}</span> active recipient{sendConfirm.sentCount === 1 ? "" : "s"} for about <span className="font-medium text-foreground">{sendConfirm.sentCount * segPerRecipient}</span> credit{sendConfirm.sentCount * segPerRecipient === 1 ? "" : "s"} (opted-out numbers are skipped).
+                            This will send to <span className="font-medium text-foreground">{confirmTotal}</span> recipient{confirmTotal === 1 ? "" : "s"}
+                            {recipients.length > 0 ? <> ({sendConfirm.sentCount} from the group + {recipients.length} typed)</> : null}
+                            {confirmTotal > 500 ? <> — auto-split into <span className="font-medium text-foreground">{confirmBatches}</span> batches of up to 500</> : null} for about <span className="font-medium text-foreground">{confirmCost}</span> credit{confirmCost === 1 ? "" : "s"} (opted-out numbers skipped; duplicates merged).
                             {sendConfirm.activeCount > sendConfirm.sentCount && (
-                              <span className="mt-2 block text-amber-600">Group has {sendConfirm.activeCount} active contacts; only the first {sendConfirm.sentCount} will be sent — split larger groups into batches.</span>
+                              <span className="mt-2 block text-amber-600">Group has {sendConfirm.activeCount} active contacts, above the {sendConfirm.sentCount}-per-send limit — only the first {sendConfirm.sentCount} will be sent; send the rest separately.</span>
                             )}
                           </div>
                         )}
@@ -1214,8 +1231,8 @@ export default function SmsDashboardPage() {
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                       <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction onClick={doSend} disabled={sendConfirm.loading || sendConfirm.sentCount === 0}>
-                        Send to {sendConfirm.sentCount}
+                      <AlertDialogAction onClick={doSend} disabled={sendConfirm.loading || confirmTotal === 0}>
+                        Send to {confirmTotal}
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>

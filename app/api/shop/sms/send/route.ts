@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
-import { enqueueSend } from "@/lib/sms/send-service"
+import { enqueueSendBatched, SMS_MAX_TOTAL } from "@/lib/sms/send-service"
 import { getShopTokens } from "@/lib/sms/shop-context-service"
 import { getGroupActiveRecipients } from "@/lib/sms/tenant-address-book-service"
 
@@ -73,7 +73,9 @@ export async function POST(request: NextRequest) {
     finalRecipients = recipients as string[]
   }
   if (typeof groupId === "string" && groupId.length > 0) {
-    const grp = await getGroupActiveRecipients(account.id, groupId, 500)
+    // Pull up to the auto-batch ceiling (not just 500); enqueueSendBatched fans
+    // the full list out into sequential 500-recipient batches.
+    const grp = await getGroupActiveRecipients(account.id, groupId, SMS_MAX_TOTAL)
     if (!grp.ok) {
       return NextResponse.json(
         { success: false, error: grp.error },
@@ -91,9 +93,9 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  if (finalRecipients.length > 500) {
+  if (finalRecipients.length > SMS_MAX_TOTAL) {
     return NextResponse.json(
-      { success: false, error: "TOO_MANY_RECIPIENTS", message: "Maximum 500 recipients per send" },
+      { success: false, error: "TOO_MANY_RECIPIENTS", message: `Maximum ${SMS_MAX_TOTAL} recipients per send` },
       { status: 400 }
     )
   }
@@ -116,8 +118,16 @@ export async function POST(request: NextRequest) {
     effectiveSenderId = (activeSender as { sender_id?: string } | null)?.sender_id ?? undefined
   }
 
-  // Enqueue
-  const result = await enqueueSend(user.id, account.id, message, finalRecipients, tokens, effectiveSenderId)
+  // Enqueue — auto-batches into 500s when the list is larger.
+  let result: Awaited<ReturnType<typeof enqueueSendBatched>>
+  try {
+    result = await enqueueSendBatched(user.id, account.id, message, finalRecipients, tokens, effectiveSenderId)
+  } catch (e) {
+    // A throw here only escapes when the FIRST batch threw (enqueueSendBatched
+    // converts later-batch throws into a partial success), so nothing was charged.
+    console.error("[SMS-SEND] batched send threw:", e)
+    return NextResponse.json({ success: false, error: "SEND_ERROR" }, { status: 500 })
+  }
 
   if (!result.ok) {
     switch (result.error) {
@@ -156,10 +166,12 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({
     success: true,
     data: {
-      sendLogId: result.sendLogId,
-      total: result.total,
+      batches: result.batches,
+      total: result.totalQueued,
       segments: result.segments,
       creditsReserved: result.creditsReserved,
+      partial: result.partial,
+      stoppedReason: result.stoppedReason,
     },
   })
 }
