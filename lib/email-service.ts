@@ -806,7 +806,10 @@ export const EmailTemplates = {
     quantity: number,
     totalPaid: number,
     pins: Array<{ pin: string; serial_number: string | null }>
-  ) => ({
+  ) => {
+    // Official WAEC portal differs by board: BECE → e-results, WASSCE/NOVDEC → WAEC Direct.
+    const portal = examBoard?.toUpperCase() === "BECE" ? "https://eresults.waecgh.org" : "https://ghana.waecdirect.org"
+    return {
     subject: `${examBoard} Voucher${quantity > 1 ? "s" : ""} Delivered — ${referenceCode}`,
     html: wrapHtml(`
       <div class="text-center">
@@ -842,10 +845,11 @@ export const EmailTemplates = {
         </tbody>
       </table>
 
-      <p style="margin-top:20px;font-size:13px;color:#6b7280;">Keep these details safe. Use them on the official WAEC or BECE results portal to check your results.</p>
+      <p style="margin-top:20px;font-size:13px;color:#6b7280;">Keep these details safe. Check your ${examBoard} results at <a href="${portal}" style="color:#4f46e5;font-weight:600;">${portal}</a>.</p>
       <a href="${APP_URL}/dashboard/results-checker" class="button-secondary">View Order History</a>
     `, `${examBoard} Vouchers Delivered`, true),
-  }),
+    }
+  },
 }
 
 

@@ -58,6 +58,27 @@ export async function deliverVouchers(
     console.warn(`[RC-NOTIFY] No email address for order ${order.id} — skipping email`)
   }
 
+  // WhatsApp — when the buyer ordered via WhatsApp, deliver the voucher in that
+  // channel too, with the board-specific WAEC portal (BECE → e-results,
+  // WASSCE/NOVDEC → WAEC Direct). customer_phone is their WhatsApp number.
+  if (phone && order.channel === "whatsapp") {
+    tasks.push(
+      import("@/lib/whatsapp-bot/send").then(({ sendWhatsAppText }) => {
+        const portal = String(order.exam_board).toUpperCase() === "BECE"
+          ? "https://eresults.waecgh.org"
+          : "https://ghana.waecdirect.org"
+        const waPhone = phone.startsWith("0") ? `233${phone.slice(1)}` : phone.replace(/^\+/, "")
+        const msg =
+          `Your ${vouchers.length}x ${order.exam_board} voucher${vouchers.length > 1 ? "s" : ""}:\n\n` +
+          vouchers.map(v => `PIN: ${v.pin}\nSerial: ${v.serial_number ?? "N/A"}`).join("\n\n") +
+          `\n\nCheck your ${order.exam_board} results at ${portal}`
+        return sendWhatsAppText(waPhone, msg)
+      }).then(() => {
+        deliveredVia.push("whatsapp")
+      }).catch(e => console.warn("[RC-NOTIFY] WhatsApp failed:", e))
+    )
+  }
+
   await Promise.allSettled(tasks)
 
   // Update delivered_via on the order (best-effort)

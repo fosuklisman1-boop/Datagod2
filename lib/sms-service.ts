@@ -164,10 +164,13 @@ export const SMSTemplates = {
     `DTGOD: Good news! Your AFA registration for ${fullName} (Ref: ${orderCode}) has been completed successfully. Thank you for registering with us.`,
 
   // Results checker voucher delivery
-  resultsCheckerDelivery: (examBoard: string, ref: string, pins: Array<{ pin: string; serial_number: string | null }>) =>
-    `Your ${pins.length}x ${examBoard} voucher${pins.length > 1 ? "s" : ""}:\n\n` +
-    pins.map(p => `PIN: ${p.pin}\nSerial: ${p.serial_number ?? "N/A"}`).join("\n\n") +
-    `\n\nPlease visit ghana.waecdirect.org to print your results.`,
+  resultsCheckerDelivery: (examBoard: string, ref: string, pins: Array<{ pin: string; serial_number: string | null }>) => {
+    // Official WAEC portal differs by board: BECE → e-results, WASSCE/NOVDEC → WAEC Direct.
+    const portal = examBoard?.toUpperCase() === "BECE" ? "https://eresults.waecgh.org" : "https://ghana.waecdirect.org"
+    return `Your ${pins.length}x ${examBoard} voucher${pins.length > 1 ? "s" : ""}:\n\n` +
+      pins.map(p => `PIN: ${p.pin}\nSerial: ${p.serial_number ?? "N/A"}`).join("\n\n") +
+      `\n\nCheck your ${examBoard} results at ${portal}`
+  },
 
   // Sub-agent invitation
   subAgentInvitation: (inviteUrl: string) =>
