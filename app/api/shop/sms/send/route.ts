@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
 import { enqueueSend } from "@/lib/sms/send-service"
 import { getShopTokens } from "@/lib/sms/shop-context-service"
+import { getGroupActiveRecipients } from "@/lib/sms/tenant-address-book-service"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -35,10 +36,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Invalid JSON" }, { status: 400 })
   }
 
-  const { message, recipients, senderId } = (body ?? {}) as { message?: unknown; recipients?: unknown; senderId?: unknown }
+  const { message, recipients, groupId, senderId } = (body ?? {}) as {
+    message?: unknown
+    recipients?: unknown
+    groupId?: unknown
+    senderId?: unknown
+  }
 
   if (senderId !== undefined && typeof senderId !== "string") {
     return NextResponse.json({ success: false, error: "senderId must be a string" }, { status: 400 })
+  }
+  if (groupId !== undefined && typeof groupId !== "string") {
+    return NextResponse.json({ success: false, error: "groupId must be a string" }, { status: 400 })
   }
 
   if (
@@ -52,18 +61,37 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  if (
-    !Array.isArray(recipients) ||
-    recipients.length === 0 ||
-    !recipients.every((r) => typeof r === "string")
-  ) {
+  // Build the recipient list from explicit chips and/or a saved group. The group
+  // is resolved server-side, scoped to this account, and opt-out filtered (the
+  // authoritative cut) so a tenant can't send to numbers that opted out or to a
+  // group they don't own.
+  let finalRecipients: string[] = []
+  if (recipients !== undefined) {
+    if (!Array.isArray(recipients) || !recipients.every((r) => typeof r === "string")) {
+      return NextResponse.json({ success: false, error: "recipients must be a string array" }, { status: 400 })
+    }
+    finalRecipients = recipients as string[]
+  }
+  if (typeof groupId === "string" && groupId.length > 0) {
+    const grp = await getGroupActiveRecipients(account.id, groupId, 500)
+    if (!grp.ok) {
+      return NextResponse.json(
+        { success: false, error: grp.error },
+        { status: grp.error === "Group not found" ? 404 : 400 }
+      )
+    }
+    finalRecipients = finalRecipients.concat(grp.data)
+  }
+  finalRecipients = Array.from(new Set(finalRecipients))
+
+  if (finalRecipients.length === 0) {
     return NextResponse.json(
-      { success: false, error: "recipients must be a non-empty string array" },
+      { success: false, error: "recipients required — provide recipients[] or a non-empty groupId" },
       { status: 400 }
     )
   }
 
-  if (recipients.length > 500) {
+  if (finalRecipients.length > 500) {
     return NextResponse.json(
       { success: false, error: "TOO_MANY_RECIPIENTS", message: "Maximum 500 recipients per send" },
       { status: 400 }
@@ -89,7 +117,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Enqueue
-  const result = await enqueueSend(user.id, account.id, message, recipients as string[], tokens, effectiveSenderId)
+  const result = await enqueueSend(user.id, account.id, message, finalRecipients, tokens, effectiveSenderId)
 
   if (!result.ok) {
     switch (result.error) {

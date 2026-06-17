@@ -1,7 +1,7 @@
 // app/dashboard/sms/page.tsx
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { supabase } from "@/lib/supabase"
 import { calculateSegments } from "@/lib/sms/segments"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
@@ -15,12 +15,18 @@ import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "sonner"
 import { useResendCooldown } from "@/lib/use-resend-cooldown"
 import {
   MessageSquare, Send, Wallet, Sparkles, Clock, AlertCircle, CheckCircle, Loader2, Plus,
   BadgeCheck, History, ShieldCheck, Ban, CreditCard, Users, Eye, EyeOff, Smartphone, X, Trash2, Copy,
+  Upload, UserPlus, ShieldQuestion,
 } from "lucide-react"
 
 // ─── types ────────────────────────────────────────────────────────────────
@@ -52,6 +58,24 @@ interface BatchDetail {
   log: { id: number; status: string; message: string; sender_id: string | null; recipients_count: number; segments: number; credits_reserved: number; credits_used: number; created_at: string; completed_at: string | null }
   messages: BatchMessage[]
 }
+// ── Address book (groups + contacts) ──
+interface Group {
+  id: string; name: string; description: string | null
+  created_at: string; updated_at: string; contact_count: number
+}
+type VerifyStatus = "unverified" | "pending" | "verified" | "invalid"
+interface Contact {
+  id: string; group_id: string; first_name: string | null; last_name: string | null
+  phone_number: string; opted_out: boolean; verify_status: VerifyStatus
+  verified_name: string | null; verified_at: string | null; created_at: string
+}
+interface BulkImportResult {
+  inserted: number; skipped: number; pendingVerify: number
+  skippedSamples: { phone: string; reason: "invalid" | "duplicate" }[]
+}
+interface VerifyCounts { total: number; pending: number; verified: number; invalid: number; unverified: number; done: boolean }
+interface VerifyChunk { processed: number; verified: number; invalid: number; rateLimited: number; remaining: number }
+type BulkRow = { phone_number: string; first_name?: string; last_name?: string }
 // Reusable on-page MoMo payment dialog (shared by Buy Credits + Activation).
 interface MomoDialog {
   open: boolean
@@ -97,6 +121,21 @@ function splitNumbers(raw: string): string[] {
   return raw.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean)
 }
 
+/** Parse CSV/paste text into contact rows. Each line: phone[,firstName[,lastName]]
+ *  — PHONE FIRST. A header row on line 0 is tolerated (skipped only if its first
+ *  cell has no digit). Empty name cells become undefined. */
+function parseRows(text: string): BulkRow[] {
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+  const rows: BulkRow[] = []
+  lines.forEach((line, i) => {
+    const [phone_number, first_name, last_name] = line.split(",").map((p) => p.trim())
+    if (!phone_number) return
+    if (i === 0 && !/\d/.test(phone_number)) return // tolerate a header row
+    rows.push({ phone_number, first_name: first_name || undefined, last_name: last_name || undefined })
+  })
+  return rows
+}
+
 const LOG_BADGE: Record<string, string> = {
   queued: "bg-amber-100 text-amber-800", sending: "bg-blue-100 text-blue-800",
   sent: "bg-green-100 text-green-800", partial: "bg-orange-100 text-orange-800",
@@ -115,6 +154,12 @@ const MSG_STATUS: Record<string, { label: string; cls: string }> = {
 }
 /** True while a batch still has work the cron will keep processing. */
 const isInFlight = (status: string) => status === "queued" || status === "sending"
+
+/** Display name for a contact: typed name → verified MoMo name → em-dash. */
+function contactName(c: Contact): string {
+  const typed = [c.first_name, c.last_name].filter(Boolean).join(" ")
+  return typed || c.verified_name || "—"
+}
 
 // ─── component ────────────────────────────────────────────────────────────────
 export default function SmsDashboardPage() {
@@ -152,6 +197,35 @@ export default function SmsDashboardPage() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailId, setDetailId] = useState<number | null>(null)
 
+  // ── address book (groups + contacts) ──
+  const [groups, setGroups] = useState<Group[]>([])
+  const [groupsLoaded, setGroupsLoaded] = useState(false)
+  const [selectedGroup, setSelectedGroup] = useState<Group | null>(null)
+  const [contacts, setContacts] = useState<Contact[]>([])
+  const [contactsBusy, setContactsBusy] = useState(false)
+  const [pendingDeleteGroup, setPendingDeleteGroup] = useState<Group | null>(null)
+  const [pendingDeleteContact, setPendingDeleteContact] = useState<Contact | null>(null)
+  // create-group form
+  const [gName, setGName] = useState("")
+  const [gDesc, setGDesc] = useState("")
+  // add-contact (single) form
+  const [cFirst, setCFirst] = useState("")
+  const [cLast, setCLast] = useState("")
+  const [cPhone, setCPhone] = useState("")
+  // bulk import (paste + file) + verify opt-in
+  const [bulk, setBulk] = useState("")
+  const [verifyOnImport, setVerifyOnImport] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+  // verify poll loop
+  const [verifying, setVerifying] = useState(false)
+  const [verifyCounts, setVerifyCounts] = useState<VerifyCounts | null>(null)
+  // Tracks the group the verify loop is bound to; if the selection changes (or
+  // clears) the loop sees the mismatch and stops cleanly.
+  const verifyGroupRef = useRef<string | null>(null)
+
+  // compose: send to a saved group
+  const [selectedGroupId, setSelectedGroupId] = useState("")
+
   // ── direct-charge (on-page MoMo) gates + dialog ───────────────────────────
   //   walletDirect → pay via the on-page direct MoMo charge (vs hosted redirect).
   //   walletOtp    → the MoMo number must be SMS-OTP verified before charging.
@@ -178,7 +252,7 @@ export default function SmsDashboardPage() {
     try {
       const t = await token()
       const headers = { Authorization: `Bearer ${t}` }
-      const accRes = await fetch("/api/sms/account", { headers }).then((r) => r.json())
+      const accRes = await fetch("/api/sms/account", { headers }).then((r) => r.json()).catch(() => ({}))
       setAccount(accRes.account ?? null)
       setLoadError(!accRes.account)
     } catch {
@@ -192,7 +266,7 @@ export default function SmsDashboardPage() {
   const loadLogs = useCallback(async () => {
     try {
       const t = await token()
-      const res = await fetch("/api/sms/logs", { headers: { Authorization: `Bearer ${t}` } }).then((r) => r.json())
+      const res = await fetch("/api/sms/logs", { headers: { Authorization: `Bearer ${t}` } }).then((r) => r.json()).catch(() => ({}))
       setLogs(res.data?.logs ?? [])
     } catch { toast.error("Could not load send history.") }
   }, [])
@@ -200,7 +274,7 @@ export default function SmsDashboardPage() {
   const loadSenderIds = useCallback(async () => {
     try {
       const t = await token()
-      const res = await fetch("/api/sms/sender-ids", { headers: { Authorization: `Bearer ${t}` } }).then((r) => r.json())
+      const res = await fetch("/api/sms/sender-ids", { headers: { Authorization: `Bearer ${t}` } }).then((r) => r.json()).catch(() => ({}))
       setSenderIds(res.data ?? [])
     } catch { toast.error("Could not load your sender IDs.") }
   }, [])
@@ -210,8 +284,8 @@ export default function SmsDashboardPage() {
       const t = await token()
       const headers = { Authorization: `Bearer ${t}` }
       const [ctxRes, tplRes] = await Promise.all([
-        fetch("/api/sms/context", { headers }).then((r) => r.json()),
-        fetch("/api/sms/templates", { headers }).then((r) => r.json()),
+        fetch("/api/sms/context", { headers }).then((r) => r.json()).catch(() => ({})),
+        fetch("/api/sms/templates", { headers }).then((r) => r.json()).catch(() => ({})),
       ])
       if (ctxRes.success) { setTokens(ctxRes.data.tokens); setCustomers(ctxRes.data.customers ?? []) }
       if (tplRes.success) setTemplates(tplRes.data ?? [])
@@ -221,7 +295,7 @@ export default function SmsDashboardPage() {
   const loadDetail = useCallback(async (id: number) => {
     try {
       const t = await token()
-      const res = await fetch(`/api/sms/logs/${id}`, { headers: { Authorization: `Bearer ${t}` } }).then((r) => r.json())
+      const res = await fetch(`/api/sms/logs/${id}`, { headers: { Authorization: `Bearer ${t}` } }).then((r) => r.json()).catch(() => ({}))
       if (res.success) setDetail(res.data)
     } catch { toast.error("Could not load batch details.") }
   }, [])
@@ -230,6 +304,35 @@ export default function SmsDashboardPage() {
     setDetailId(id); setDetail(null); setDetailOpen(true); setDetailLoading(true)
     loadDetail(id).finally(() => setDetailLoading(false))
   }
+
+  // ── address book loaders ──
+  const loadGroups = useCallback(async () => {
+    try {
+      const t = await token()
+      const res = await fetch("/api/sms/groups", { headers: { Authorization: `Bearer ${t}` } }).then((r) => r.json()).catch(() => ({}))
+      if (res.success) setGroups(res.data ?? [])
+    } catch { toast.error("Could not load your contact groups.") }
+    finally { setGroupsLoaded(true) }
+  }, [])
+
+  // Load a group's contacts + refresh its verify counts. Returns the contacts so
+  // the verify poll loop can react to whether anything is still 'pending'.
+  const loadGroup = useCallback(async (id: string): Promise<Contact[]> => {
+    try {
+      const t = await token()
+      const headers = { Authorization: `Bearer ${t}` }
+      const [grpRes, vRes] = await Promise.all([
+        fetch(`/api/sms/groups/${id}`, { headers }).then((r) => r.json()).catch(() => ({})),
+        fetch(`/api/sms/contacts/verify?groupId=${id}`, { headers }).then((r) => r.json()).catch(() => ({})),
+      ])
+      if (grpRes.success) {
+        setSelectedGroup(grpRes.data.group)
+        setContacts(grpRes.data.contacts ?? [])
+      }
+      if (vRes.success) setVerifyCounts(vRes.data)
+      return grpRes.success ? (grpRes.data.contacts ?? []) : []
+    } catch { toast.error("Could not load group contacts."); return [] }
+  }, [])
 
   useEffect(() => { load() }, [load])
   // Direct-charge + OTP gates (independent toggles), same source as wallet top-up.
@@ -243,6 +346,15 @@ export default function SmsDashboardPage() {
   // Sender IDs power the management tab AND the compose "From" selector.
   useEffect(() => { if (tab === "senders" || tab === "send") loadSenderIds() }, [tab, loadSenderIds])
   useEffect(() => { if (tab === "send") loadComposeContext() }, [tab, loadComposeContext])
+  // Groups power BOTH the Contacts tab and the compose "Send to a group" select.
+  useEffect(() => { if (tab === "contacts" || tab === "send") loadGroups() }, [tab, loadGroups])
+  // If the user deselects/changes the group (or leaves the tab), point the verify
+  // loop's binding away from any old group so an in-flight poll stops cleanly.
+  useEffect(() => {
+    if (selectedGroup === null || (verifyGroupRef.current && verifyGroupRef.current !== selectedGroup.id)) {
+      verifyGroupRef.current = selectedGroup?.id ?? null
+    }
+  }, [selectedGroup])
 
   // Live status: while any batch is still draining, auto-refresh the history (so a
   // send visibly moves queued → sending → sent instead of looking stuck).
@@ -266,7 +378,7 @@ export default function SmsDashboardPage() {
     const res = await fetch("/api/sms/activate", {
       method: "POST", headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
       body: JSON.stringify({ paidFrom }),
-    }).then((r) => r.json())
+    }).then((r) => r.json()).catch(() => ({}))
     setBusy(false)
     if (res.error) {
       toast.error(res.error === "INSUFFICIENT_BALANCE"
@@ -281,7 +393,7 @@ export default function SmsDashboardPage() {
     const t = await token()
     const res = await fetch("/api/sms/claim-bonus", {
       method: "POST", headers: { Authorization: `Bearer ${t}` },
-    }).then((r) => r.json())
+    }).then((r) => r.json()).catch(() => ({}))
     setBusy(false)
     if (res.error) toast.error(res.error === "ALREADY_CLAIMED" ? "Bonus already claimed." : res.error)
     else if (res.pending) toast.info(`${res.unitsCredited} bonus credits queued — awaiting SMS supply top-up.`)
@@ -296,7 +408,7 @@ export default function SmsDashboardPage() {
     const res = await fetch("/api/sms/units/purchase", {
       method: "POST", headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
       body: JSON.stringify({ credits, paidFrom }),
-    }).then((r) => r.json())
+    }).then((r) => r.json()).catch(() => ({}))
     setBusy(false)
     if (res.error) {
       toast.error(res.error === "NOT_ACTIVATED" ? "Activate your account first."
@@ -471,7 +583,7 @@ export default function SmsDashboardPage() {
     const res = await fetch("/api/sms/templates", {
       method: "POST", headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
       body: JSON.stringify({ name, body: message }),
-    }).then((r) => r.json())
+    }).then((r) => r.json()).catch(() => ({}))
     setBusy(false)
     if (res.success) {
       toast.success("Template saved.")
@@ -484,7 +596,7 @@ export default function SmsDashboardPage() {
     const t = await token()
     const res = await fetch(`/api/sms/templates/${id}`, {
       method: "DELETE", headers: { Authorization: `Bearer ${t}` },
-    }).then((r) => r.json())
+    }).then((r) => r.json()).catch(() => ({}))
     setBusy(false)
     if (res.success) { setTemplates((cur) => cur.filter((x) => x.id !== id)) }
     else toast.error(res.error ?? "Could not delete template")
@@ -492,18 +604,18 @@ export default function SmsDashboardPage() {
 
   // ── send ──
   async function sendMessage() {
-    if (!account || message.length < 3 || recipients.length === 0) return
+    if (!account || message.length < 3 || (recipients.length === 0 && !selectedGroupId)) return
     setSending(true)
     const t = await token()
     const res = await fetch("/api/shop/sms/send", {
       method: "POST", headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ message, recipients, senderId: selectedSenderId || undefined }),
-    }).then((r) => r.json())
+      body: JSON.stringify({ message, recipients, groupId: selectedGroupId || undefined, senderId: selectedSenderId || undefined }),
+    }).then((r) => r.json()).catch(() => ({}))
     setSending(false)
     if (res.success) {
       const { total, creditsReserved } = res.data ?? {}
       toast.success(`Queued ${total} recipient${total !== 1 ? "s" : ""} (${creditsReserved} credits)`)
-      setMessage(""); setRecipients([])
+      setMessage(""); setRecipients([]); setSelectedGroupId("")
       await Promise.all([load(), loadLogs()])
     } else {
       const code: string = res.error ?? "UNKNOWN_ERROR"
@@ -528,7 +640,7 @@ export default function SmsDashboardPage() {
     const res = await fetch("/api/sms/sender-ids", {
       method: "POST", headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
       body: JSON.stringify({ sender_id: sid }),
-    }).then((r) => r.json())
+    }).then((r) => r.json()).catch(() => ({}))
     setBusy(false)
     if (res.success) {
       toast.success(`Requested “${sid.toUpperCase()}”. Approval is reviewed automatically — check back shortly.`)
@@ -536,14 +648,201 @@ export default function SmsDashboardPage() {
     } else toast.error(res.error ?? "Could not request sender ID")
   }
 
+  // ── address book: groups ──
+  function selectGroup(g: Group) {
+    if (selectedGroup?.id === g.id) return
+    setSelectedGroup(g); setContacts([]); setVerifyCounts(null)
+    loadGroup(g.id)
+  }
+  async function createGroup() {
+    const name = gName.trim()
+    if (!name) return
+    setContactsBusy(true)
+    const t = await token()
+    const res = await fetch("/api/sms/groups", {
+      method: "POST", headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ name, description: gDesc.trim() || undefined }),
+    }).then((r) => r.json()).catch(() => ({}))
+    setContactsBusy(false)
+    if (res.success) { setGName(""); setGDesc(""); toast.success("Group created."); await loadGroups() }
+    else toast.error(res.error ?? "Could not create group")
+  }
+  async function deleteGroup(g: Group) {
+    setContactsBusy(true)
+    const t = await token()
+    const res = await fetch(`/api/sms/groups/${g.id}`, {
+      method: "DELETE", headers: { Authorization: `Bearer ${t}` },
+    }).then((r) => r.json()).catch(() => ({}))
+    setContactsBusy(false)
+    if (res.success) {
+      if (selectedGroup?.id === g.id) { setSelectedGroup(null); setContacts([]); setVerifyCounts(null) }
+      toast.success("Group deleted."); await loadGroups()
+    } else toast.error(res.error ?? "Could not delete group")
+  }
+
+  // ── address book: contacts ──
+  async function addContactSingle() {
+    if (!selectedGroup || !cPhone.trim()) return
+    setContactsBusy(true)
+    const t = await token()
+    const res = await fetch("/api/sms/contacts", {
+      method: "POST", headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ group_id: selectedGroup.id, phone_number: cPhone.trim(), first_name: cFirst.trim() || undefined, last_name: cLast.trim() || undefined }),
+    }).then((r) => r.json()).catch(() => ({}))
+    setContactsBusy(false)
+    if (res.success) {
+      setCFirst(""); setCLast(""); setCPhone(""); toast.success("Contact added.")
+      await Promise.all([loadGroup(selectedGroup.id), loadGroups()])
+    } else toast.error(res.error ?? "Could not add contact")
+  }
+  // Shared by CSV-file + paste import. Sends the bulk payload (with verify opt-in),
+  // refreshes the group, and kicks off the verify poll if rows queued for checking.
+  async function postRows(rows: BulkRow[]) {
+    if (!selectedGroup) return
+    if (rows.length === 0) { toast.error("No valid rows found (expected: phone,firstName,lastName)."); return }
+    const gid = selectedGroup.id
+    setContactsBusy(true)
+    const t = await token()
+    const res = await fetch("/api/sms/contacts", {
+      method: "POST", headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ group_id: gid, rows, verify: verifyOnImport || undefined }),
+    }).then((r) => r.json()).catch(() => ({}))
+    setContactsBusy(false)
+    if (res.success) {
+      const d = res.data as BulkImportResult
+      toast.success(`Imported ${d.inserted}; skipped ${d.skipped} (invalid/duplicate).`)
+      await Promise.all([loadGroup(gid), loadGroups()])
+      if (verifyOnImport && d.pendingVerify > 0) startVerifyPoll(gid)
+    } else toast.error(res.error ?? "Import failed")
+  }
+  async function importBulk() {
+    const rows = parseRows(bulk)
+    if (rows.length === 0) return toast.error("No valid rows to import.")
+    await postRows(rows)
+    setBulk("")
+  }
+  async function importCsvFile(file: File) {
+    if (!selectedGroup) return
+    try {
+      const text = await file.text()
+      const rows = parseRows(text)
+      if (rows.length === 0) { toast.error("CSV had no valid rows."); return }
+      await postRows(rows)
+    } catch {
+      toast.error("Could not read that file.")
+    } finally {
+      if (fileRef.current) fileRef.current.value = ""
+    }
+  }
+  async function toggleOptOut(c: Contact) {
+    if (!selectedGroup) return
+    setContactsBusy(true)
+    const t = await token()
+    const res = await fetch(`/api/sms/contacts/${c.id}`, {
+      method: "PATCH", headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ opted_out: !c.opted_out }),
+    }).then((r) => r.json()).catch(() => ({}))
+    setContactsBusy(false)
+    if (res.success) await loadGroup(selectedGroup.id)
+    else toast.error(res.error ?? "Could not update contact")
+  }
+  async function deleteContact(c: Contact) {
+    if (!selectedGroup) return
+    setContactsBusy(true)
+    const t = await token()
+    const res = await fetch(`/api/sms/contacts/${c.id}`, {
+      method: "DELETE", headers: { Authorization: `Bearer ${t}` },
+    }).then((r) => r.json()).catch(() => ({}))
+    setContactsBusy(false)
+    if (res.success) await Promise.all([loadGroup(selectedGroup.id), loadGroups()])
+    else toast.error(res.error ?? "Could not delete contact")
+  }
+
+  // ── verify poll loop ──
+  // Repeatedly POSTs one verify chunk (no reverify) until remaining=0, a safety
+  // cap, or the user leaves the group. Backs off ~8s on a no-progress rate-limit
+  // tick, else ~1.5s. Refreshes contacts after each chunk so badges update live.
+  const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
+  async function startVerifyPoll(groupId: string) {
+    if (verifying) return // guard double-start
+    setVerifying(true)
+    verifyGroupRef.current = groupId
+    toast.info("Verifying numbers…")
+    let totalVerified = 0
+    let totalInvalid = 0
+    let completed = false
+    try {
+      for (let i = 0; i < 30; i++) {
+        if (verifyGroupRef.current !== groupId) return // user navigated away
+        const t = await token()
+        let chunk: VerifyChunk | null = null
+        try {
+          const res = await fetch("/api/sms/contacts/verify", {
+            method: "POST", headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ groupId }),
+          }).then((r) => r.json()).catch(() => ({}))
+          if (res.success) chunk = res.data as VerifyChunk
+        } catch { /* transient — treat as a no-progress tick and back off */ }
+        if (verifyGroupRef.current !== groupId) return
+        if (chunk) {
+          totalVerified += chunk.verified
+          totalInvalid += chunk.invalid
+          // The ref guard above proves we're still on this group — refresh badges live.
+          await loadGroup(groupId)
+          if (chunk.remaining === 0) { completed = true; break }
+          // Back off when nothing moved this tick: a throttled provider, or all
+          // remaining rows are currently leased by the cron drainer.
+          const noProgress = chunk.processed === 0 || (chunk.rateLimited > 0 && chunk.verified + chunk.invalid === 0)
+          await sleep(noProgress ? 8000 : 1500)
+        } else {
+          await sleep(8000) // network blip — back off
+        }
+      }
+      // Only claim "done" if we actually drained to 0; otherwise the cap was hit
+      // with rows still pending (the cron backstop finishes them) — don't lie.
+      if (completed) {
+        toast.success(`Verification done: ${totalVerified} verified, ${totalInvalid} not found.`)
+      } else {
+        toast.info(`Verified ${totalVerified} so far; the rest will finish in the background.`)
+      }
+    } finally {
+      setVerifying(false)
+      if (verifyGroupRef.current === groupId) verifyGroupRef.current = null
+    }
+  }
+  // "Verify numbers" button: re-queue everything in the group, then poll.
+  async function reverifyGroup() {
+    if (!selectedGroup || verifying) return
+    const gid = selectedGroup.id
+    const t = await token()
+    try {
+      const res = await fetch("/api/sms/contacts/verify", {
+        method: "POST", headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ groupId: gid, reverify: true }),
+      }).then((r) => r.json()).catch(() => ({}))
+      if (!res.success) { toast.error(res.error ?? "Could not start verification."); return }
+    } catch { toast.error("Could not start verification."); return }
+    if (selectedGroup?.id === gid) await loadGroup(gid)
+    startVerifyPoll(gid)
+  }
+
   // ─── derived ────────────────────────────────────────────────────────────────
   const resolved = useMemo(() => resolveTokens(message, tokens), [message, tokens])
   const meter = useMemo(() => calculateSegments(resolved), [resolved])
   const segPerRecipient = resolved.length === 0 ? 0 : meter.segments
-  const totalCredits = segPerRecipient * recipients.length
+  const composeGroup = groups.find((g) => g.id === selectedGroupId) ?? null
+  // Estimate only — the server resolves the group's active contacts authoritatively.
+  const estRecipients = recipients.length + (composeGroup?.contact_count ?? 0)
+  const totalCredits = segPerRecipient * estRecipients
   const balance = account?.unitBalance ?? 0
-  const overBudget = recipients.length > 0 && totalCredits > balance
-  const sendDisabled = sending || message.trim().length < 3 || recipients.length === 0 || overBudget
+  const overBudget = estRecipients > 0 && totalCredits > balance
+  // For group sends the estimate counts opted-out contacts too, so it's an UPPER
+  // bound — treat over-budget as advisory (warn, don't block) and let the server's
+  // authoritative INSUFFICIENT_CREDITS (402) be the real guard. For manual-only
+  // sends the count is exact, so keep the hard block.
+  const overBudgetBlocks = overBudget && !selectedGroupId
+  const sendDisabled =
+    sending || message.trim().length < 3 || (recipients.length === 0 && !selectedGroupId) || overBudgetBlocks
   const activeSenders = senderIds.filter((s) => s.local_status === "active")
 
   // ─── loading / error ────────────────────────────────────────────────────
@@ -607,6 +906,7 @@ export default function SmsDashboardPage() {
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="send" disabled={!isActive}>Compose</TabsTrigger>
             <TabsTrigger value="senders">Sender IDs</TabsTrigger>
+            <TabsTrigger value="contacts">Contacts</TabsTrigger>
             <TabsTrigger value="bundles">Buy Credits</TabsTrigger>
             <TabsTrigger value="history">History</TabsTrigger>
           </TabsList>
@@ -703,6 +1003,30 @@ export default function SmsDashboardPage() {
                   {activeSenders.length === 0 && (
                     <p className="text-xs text-muted-foreground">
                       No approved sender IDs yet — request one in the <span className="font-medium">Sender IDs</span> tab. Messages use the platform default meanwhile.
+                    </p>
+                  )}
+                </div>
+
+                {/* Send to a saved group */}
+                <div className="space-y-1.5">
+                  <Label className="text-muted-foreground">Send to a saved group</Label>
+                  <Select value={selectedGroupId || "none"} onValueChange={(v) => setSelectedGroupId(v === "none" ? "" : v)}>
+                    <SelectTrigger className="w-full sm:w-72"><SelectValue placeholder="None" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      {groups.map((g) => (
+                        <SelectItem key={g.id} value={g.id}>{g.name} ({g.contact_count})</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {composeGroup && (
+                    <p className="text-xs text-muted-foreground">
+                      Will send to all active contacts in “{composeGroup.name}” (up to {composeGroup.contact_count}). Opted-out numbers are skipped.
+                    </p>
+                  )}
+                  {groups.length === 0 && groupsLoaded && (
+                    <p className="text-xs text-muted-foreground">
+                      No groups yet — build one in the <span className="font-medium">Contacts</span> tab.
                     </p>
                   )}
                 </div>
@@ -809,9 +1133,13 @@ export default function SmsDashboardPage() {
                 </div>
 
                 {overBudget && (
-                  <Alert variant="destructive">
+                  <Alert variant={overBudgetBlocks ? "destructive" : "default"}>
                     <AlertCircle className="h-4 w-4" />
-                    <AlertDescription>This send needs {totalCredits} credits but you have {balance}. Buy more credits.</AlertDescription>
+                    <AlertDescription>
+                      {composeGroup
+                        ? `Estimated ~${totalCredits} credits vs your ${balance}. Opted-out numbers are skipped, so it may still fit — if it doesn't, the whole send is rejected (no partial send). Top up to be safe.`
+                        : `This send needs about ${totalCredits} credits but you have ${balance}. Buy more credits.`}
+                    </AlertDescription>
                   </Alert>
                 )}
 
@@ -826,6 +1154,14 @@ export default function SmsDashboardPage() {
                   <button type="button" onClick={() => setSavingTemplate(true)} className="flex items-center gap-1.5 text-sm text-primary hover:underline">
                     <Copy className="h-4 w-4" /> Save as template
                   </button>
+                )}
+
+                {estRecipients > 0 && (
+                  <p className="text-center text-xs text-muted-foreground">
+                    {composeGroup
+                      ? `Approx. ${estRecipients} recipient${estRecipients === 1 ? "" : "s"} (group is an estimate; opted-out numbers are skipped server-side).`
+                      : `${estRecipients} recipient${estRecipients === 1 ? "" : "s"}.`}
+                  </p>
                 )}
 
                 <Button onClick={sendMessage} disabled={sendDisabled} className="w-full" size="lg">
@@ -900,6 +1236,197 @@ export default function SmsDashboardPage() {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* ── CONTACTS (address book) ── */}
+          <TabsContent value="contacts" className="space-y-4 pt-4">
+            <div className="grid gap-4 md:grid-cols-[19rem_1fr]">
+              {/* Groups column */}
+              <Card className="self-start">
+                <CardHeader>
+                  <CardTitle className="text-base">Groups</CardTitle>
+                  <CardDescription>Address-book groups for targeted SMS.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Input value={gName} onChange={(e) => setGName(e.target.value)} placeholder="New group name" maxLength={100} />
+                    <Input value={gDesc} onChange={(e) => setGDesc(e.target.value)} placeholder="Description (optional)" />
+                    <Button className="w-full" onClick={createGroup} disabled={contactsBusy || !gName.trim()}>
+                      {contactsBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Create group
+                    </Button>
+                  </div>
+
+                  {!groupsLoaded ? (
+                    <div className="space-y-2"><Skeleton className="h-8 w-full" /><Skeleton className="h-8 w-full" /></div>
+                  ) : (
+                    <ul className="divide-y">
+                      {groups.map((g) => (
+                        <li key={g.id} className="flex items-center justify-between gap-2 py-2">
+                          <button
+                            type="button"
+                            onClick={() => selectGroup(g)}
+                            className={`min-w-0 flex-1 text-left text-sm ${selectedGroup?.id === g.id ? "font-semibold text-primary" : ""}`}
+                          >
+                            <span className="block truncate">{g.name}</span>
+                            <span className="text-xs text-muted-foreground">{g.contact_count} contact{g.contact_count === 1 ? "" : "s"}</span>
+                          </button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-destructive hover:text-destructive" onClick={() => setPendingDeleteGroup(g)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </li>
+                      ))}
+                      {groups.length === 0 && <li className="py-2 text-sm text-muted-foreground">No groups yet.</li>}
+                    </ul>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Contacts column */}
+              <div className="space-y-4">
+                {!selectedGroup ? (
+                  <Card>
+                    <CardContent className="py-10 text-center text-sm text-muted-foreground">
+                      Select a group to manage its contacts.
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <>
+                    {/* Add to {group} */}
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2 text-base">
+                          <UserPlus className="h-4 w-4" /> Add to {selectedGroup.name}
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        {/* Single add */}
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                          <Input value={cFirst} onChange={(e) => setCFirst(e.target.value)} placeholder="First name" />
+                          <Input value={cLast} onChange={(e) => setCLast(e.target.value)} placeholder="Last name" />
+                          <Input value={cPhone} onChange={(e) => setCPhone(e.target.value)} placeholder="Phone (0XXXXXXXXX)" className="font-mono" />
+                          <Button onClick={addContactSingle} disabled={contactsBusy || !cPhone.trim()}>
+                            {contactsBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Add
+                          </Button>
+                        </div>
+
+                        {/* Verify opt-in (governs both bulk imports below) */}
+                        <div className="flex items-start gap-2 rounded-lg border bg-muted/30 p-3">
+                          <Checkbox id="verifyOnImport" checked={verifyOnImport} onCheckedChange={(v) => setVerifyOnImport(v === true)} className="mt-0.5" />
+                          <div className="space-y-0.5">
+                            <Label htmlFor="verifyOnImport" className="text-sm font-medium">Verify numbers (fetch MoMo name)</Label>
+                            <p className="text-xs text-muted-foreground">Verifying looks up each number&apos;s registered Mobile Money name (slow — runs in the background).</p>
+                          </div>
+                        </div>
+
+                        {/* CSV upload */}
+                        <div className="space-y-2 rounded-lg border p-3">
+                          <Label className="flex items-center gap-2 text-sm font-medium"><Upload className="h-4 w-4" /> Upload CSV</Label>
+                          <p className="text-xs text-muted-foreground">
+                            Columns: <code>phone,firstName,lastName</code> (name fields optional; a header row is tolerated).
+                          </p>
+                          <Input
+                            ref={fileRef}
+                            type="file"
+                            accept=".csv,text/csv"
+                            disabled={contactsBusy}
+                            onChange={(e) => { const f = e.target.files?.[0]; if (f) importCsvFile(f) }}
+                          />
+                        </div>
+
+                        {/* Bulk paste */}
+                        <div className="space-y-2">
+                          <Label htmlFor="bulk" className="text-sm font-medium">…or paste rows</Label>
+                          <Textarea
+                            id="bulk"
+                            value={bulk}
+                            onChange={(e) => setBulk(e.target.value)}
+                            rows={4}
+                            placeholder={"0241234567,Ama,Mensah\n0207654321"}
+                            className="font-mono text-sm"
+                          />
+                          <Button variant="outline" onClick={importBulk} disabled={contactsBusy || !bulk.trim()}>
+                            {contactsBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Import pasted rows
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* Contacts table + verify control */}
+                    <Card>
+                      <CardHeader className="flex flex-row items-center justify-between space-y-0">
+                        <CardTitle className="text-base">Contacts ({contacts.length})</CardTitle>
+                        <Button variant="outline" size="sm" onClick={reverifyGroup} disabled={verifying || contacts.length === 0}>
+                          {verifying ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldQuestion className="h-4 w-4" />} Verify numbers
+                        </Button>
+                      </CardHeader>
+                      <CardContent>
+                        {verifying && verifyCounts && (
+                          <p className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <Loader2 className="h-3 w-3 animate-spin" /> Verifying… {verifyCounts.verified + verifyCounts.invalid}/{verifyCounts.total} checked
+                          </p>
+                        )}
+                        {contacts.length === 0 ? (
+                          <p className="text-sm text-muted-foreground">No contacts in this group.</p>
+                        ) : (
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                              <thead>
+                                <tr className="border-b text-left text-muted-foreground">
+                                  <th className="py-2 font-medium">Name</th>
+                                  <th className="py-2 font-medium">Phone</th>
+                                  <th className="py-2 font-medium">Verify</th>
+                                  <th className="py-2 font-medium">Status</th>
+                                  <th className="py-2 text-right font-medium">Actions</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {contacts.map((c) => (
+                                  <tr key={c.id} className="border-b last:border-0">
+                                    <td className="py-2">
+                                      <span>{contactName(c)}</span>
+                                      {c.verify_status === "verified" && c.verified_name && (
+                                        <span className="block text-xs text-muted-foreground">{c.verified_name}</span>
+                                      )}
+                                    </td>
+                                    <td className="py-2 font-mono">{c.phone_number}</td>
+                                    <td className="py-2">
+                                      {c.verify_status === "verified" ? (
+                                        <Badge className="bg-green-100 text-green-700">Verified</Badge>
+                                      ) : c.verify_status === "invalid" ? (
+                                        <Badge variant="destructive">Not found</Badge>
+                                      ) : c.verify_status === "pending" ? (
+                                        <Badge variant="secondary" className="gap-1"><Loader2 className="h-3 w-3 animate-spin" /> Checking…</Badge>
+                                      ) : (
+                                        <span className="text-muted-foreground">—</span>
+                                      )}
+                                    </td>
+                                    <td className="py-2">
+                                      {c.opted_out ? (
+                                        <Badge variant="destructive">opted out</Badge>
+                                      ) : (
+                                        <Badge className="bg-green-100 text-green-700">active</Badge>
+                                      )}
+                                    </td>
+                                    <td className="py-2 text-right">
+                                      <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => toggleOptOut(c)} disabled={contactsBusy}>
+                                        {c.opted_out ? "Re-include" : "Opt out"}
+                                      </Button>
+                                      <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive hover:text-destructive" onClick={() => setPendingDeleteContact(c)} disabled={contactsBusy}>
+                                        Delete
+                                      </Button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </>
+                )}
+              </div>
+            </div>
           </TabsContent>
 
           {/* ── BUY CREDITS (free quantity at the per-credit fee) ── */}
@@ -1193,6 +1720,50 @@ export default function SmsDashboardPage() {
             )}
           </DialogContent>
         </Dialog>
+
+        {/* Delete group confirm */}
+        <AlertDialog open={pendingDeleteGroup !== null} onOpenChange={(open) => !open && setPendingDeleteGroup(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete group?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This deletes the group{pendingDeleteGroup ? ` “${pendingDeleteGroup.name}”` : ""} and all of its contacts. This cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={contactsBusy}
+                className="bg-destructive text-white hover:bg-destructive/90"
+                onClick={() => { if (pendingDeleteGroup) { const g = pendingDeleteGroup; setPendingDeleteGroup(null); void deleteGroup(g) } }}
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Delete contact confirm */}
+        <AlertDialog open={pendingDeleteContact !== null} onOpenChange={(open) => !open && setPendingDeleteContact(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete contact?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This removes {pendingDeleteContact ? `“${contactName(pendingDeleteContact)}” (${pendingDeleteContact.phone_number})` : "this contact"} from the group. This cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={contactsBusy}
+                className="bg-destructive text-white hover:bg-destructive/90"
+                onClick={() => { if (pendingDeleteContact) { const c = pendingDeleteContact; setPendingDeleteContact(null); void deleteContact(c) } }}
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </DashboardLayout>
   )

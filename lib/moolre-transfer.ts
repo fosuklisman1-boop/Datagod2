@@ -136,13 +136,17 @@ export async function validateAccountName(
       return { accountName: json.data as string }
     }
 
-    // Surface Moolre's actual error message
+    // Surface Moolre's actual error message. Include the HTTP status on a non-OK
+    // response (429/5xx) so callers that retry on transient failures (e.g. the
+    // bulk contact-name verifier) can tell a throttle/outage apart from a real
+    // "account not found" (which comes back as HTTP 200 + status!=1).
     const moolreMessage = json.message || json.data || "Account not found"
     console.warn(`[MOOLRE-VALIDATE] Validation failed:`, json)
-    return { accountName: null, error: String(moolreMessage) }
+    const errStr = response.ok ? String(moolreMessage) : `${moolreMessage} (HTTP ${response.status})`
+    return { accountName: null, error: errStr }
   } catch (error) {
     console.error("[MOOLRE-VALIDATE] Error:", error)
-    return { accountName: null, error: "Could not reach payment provider" }
+    return { accountName: null, error: "Could not reach payment provider (network error)" }
   }
 }
 

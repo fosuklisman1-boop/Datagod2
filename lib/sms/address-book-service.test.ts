@@ -11,10 +11,22 @@ const h = vi.hoisted(() => {
     upsertOpts: null as Record<string, unknown> | null,
     upsertReturn: [] as { phone_number: string }[],
     upsertError: null as { message: string } | null,
+    // isAdminGlobalGroup() lookup result — default to a global group existing so the
+    // ownership gate passes and the normalize/dedupe assertions run as before.
+    groupExists: true,
   }
 
   const fake = {
     from: (_table: string) => ({
+      // select(...).eq(...).is(...).maybeSingle() — the isAdminGlobalGroup gate.
+      select: (_cols?: string) => ({
+        eq: (_c?: string, _v?: unknown) => ({
+          is: (_c2?: string, _v2?: unknown) => ({
+            maybeSingle: () =>
+              Promise.resolve({ data: state.groupExists ? { id: "g1" } : null, error: null }),
+          }),
+        }),
+      }),
       insert: (row: Record<string, unknown>) => {
         state.insertPayload = row
         return {
@@ -56,6 +68,7 @@ beforeEach(() => {
   h.state.upsertOpts = null
   h.state.upsertReturn = []
   h.state.upsertError = null
+  h.state.groupExists = true
 })
 
 describe("addContact", () => {
@@ -77,6 +90,14 @@ describe("addContact", () => {
     const res = await addContact("g1", { phone_number: "0241111111" })
     expect(res.ok).toBe(false)
     expect((res as { error: string }).error).toMatch(/already exists/i)
+  })
+
+  it("refuses to add to a non-admin-global (tenant) group — never inserts", async () => {
+    h.state.groupExists = false // isAdminGlobalGroup() finds no NULL-account group
+    const res = await addContact("tenant-group", { phone_number: "0241111111" })
+    expect(res.ok).toBe(false)
+    expect((res as { error: string }).error).toMatch(/not found/i)
+    expect(h.state.insertPayload).toBeNull()
   })
 })
 
