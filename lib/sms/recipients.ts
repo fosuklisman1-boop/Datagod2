@@ -88,19 +88,33 @@ export async function resolveRecipients(
     // The inner join + NULL filter means a tenant-owned group id resolves to zero
     // recipients (the route's empty-group guard then rejects it), so an admin can
     // never broadcast to a tenant's private contact list.
-    const { data, error } = await supabase
-      .from("sms_contacts")
-      .select("phone_number, first_name, last_name, opted_out, sms_groups!inner(sms_account_id)")
-      .eq("group_id", spec.groupId)
-      .is("sms_groups.sms_account_id", null)
-
-    if (error) throw error
-    const rows: RawContactRow[] = (data ?? []).map((r: Record<string, unknown>) => ({
-      phone_number: (r.phone_number as string) ?? "",
-      first_name: (r.first_name as string) ?? null,
-      last_name: (r.last_name as string) ?? null,
-      opted_out: (r.opted_out as boolean) ?? false,
-    }))
+    //
+    // PAGINATE: PostgREST caps every response at max-rows (default 1000) regardless
+    // of any .limit(), so a single fetch silently drops a group's contacts past
+    // 1000. Page through with .range() (stable .order on id) so the FULL group is
+    // resolved — a 3001-contact group must enqueue 3001, not 1000.
+    const pageSize = 1000
+    const rows: RawContactRow[] = []
+    for (let from = 0; ; from += pageSize) {
+      const { data, error } = await supabase
+        .from("sms_contacts")
+        .select("phone_number, first_name, last_name, opted_out, sms_groups!inner(sms_account_id)")
+        .eq("group_id", spec.groupId)
+        .is("sms_groups.sms_account_id", null)
+        .order("id", { ascending: true })
+        .range(from, from + pageSize - 1)
+      if (error) throw error
+      const batch = (data ?? []) as Array<Record<string, unknown>>
+      for (const r of batch) {
+        rows.push({
+          phone_number: (r.phone_number as string) ?? "",
+          first_name: (r.first_name as string) ?? null,
+          last_name: (r.last_name as string) ?? null,
+          opted_out: (r.opted_out as boolean) ?? false,
+        })
+      }
+      if (batch.length < pageSize) break
+    }
     return buildContactList(rows)
   }
 

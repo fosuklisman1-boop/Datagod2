@@ -11,9 +11,11 @@ export const MAX_ATTEMPTS = 3
 
 // Recipients processed per drain invocation, across all in-flight broadcasts.
 // Each recipient may fan out to up to 4 channels; we sub-batch internally with a
-// small delay to stay friendly to the SMS/email providers while comfortably
-// finishing inside the function timeout.
-const MAX_RECIPIENTS_PER_RUN = 30
+// small delay to stay friendly to the SMS/email providers while finishing inside
+// the function timeout (the cron route sets maxDuration=300). At 30/run a
+// 3000-recipient broadcast took ~100 minutes of cron ticks; 200/run drains it in
+// ~15. The CONCURRENCY/SUB_BATCH pacing still caps provider request rate.
+const MAX_RECIPIENTS_PER_RUN = 200
 const CONCURRENCY = 5
 const SUB_BATCH_DELAY_MS = 1000
 

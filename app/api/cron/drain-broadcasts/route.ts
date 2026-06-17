@@ -3,6 +3,10 @@ import { createClient } from "@supabase/supabase-js"
 import { verifyCronAuth } from "@/lib/cron-auth"
 import { drainBroadcasts } from "@/lib/broadcast-drain"
 
+// The drain paces sends (CONCURRENCY + sub-batch delay) and can work a few
+// hundred multi-channel recipients per run — give it the full window.
+export const maxDuration = 300
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!

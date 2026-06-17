@@ -327,16 +327,27 @@ export async function getGroupActiveRecipients(
   max = 500
 ): Promise<Result<string[]>> {
   if (!(await ownsGroup(accountId, groupId))) return { ok: false, error: "Group not found" }
-  const { data, error } = await supabaseAdmin
-    .from("sms_contacts")
-    .select("phone_number")
-    .eq("group_id", groupId)
-    .eq("opted_out", false)
-    .order("created_at", { ascending: true }) // deterministic which 500 are kept when capped
-    .limit(max)
-  if (error) return { ok: false, error: error.message }
-  const phones = Array.from(new Set((data ?? []).map((r: { phone_number: string }) => r.phone_number)))
-  return { ok: true, data: phones }
+  // PostgREST caps responses at max-rows (default 1000), so a single .limit(max>1000)
+  // would silently truncate to 1000. Page through with .range() (stable order) up to
+  // `max` so a large group resolves fully (e.g. 3001 active contacts → up to the cap).
+  const pageSize = 1000
+  const phones: string[] = []
+  for (let from = 0; from < max; from += pageSize) {
+    const to = Math.min(from + pageSize, max) - 1
+    const { data, error } = await supabaseAdmin
+      .from("sms_contacts")
+      .select("phone_number")
+      .eq("group_id", groupId)
+      .eq("opted_out", false)
+      .order("created_at", { ascending: true }) // deterministic which are kept when capped
+      .order("id", { ascending: true }) // tie-break → stable paging (no skip/repeat)
+      .range(from, to)
+    if (error) return { ok: false, error: error.message }
+    const batch = (data ?? []) as { phone_number: string }[]
+    for (const r of batch) phones.push(r.phone_number)
+    if (batch.length < pageSize) break
+  }
+  return { ok: true, data: Array.from(new Set(phones)) }
 }
 
 /**
