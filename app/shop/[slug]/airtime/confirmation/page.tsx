@@ -83,7 +83,7 @@ export default function AirtimeConfirmationPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-muted/40">
         <div className="text-center space-y-4">
-          <Loader2 className="w-10 h-10 animate-spin text-violet-600 mx-auto" />
+          <Loader2 className="w-10 h-10 animate-spin text-primary mx-auto" />
           <p className="text-muted-foreground font-medium">Verifying your payment...</p>
         </div>
       </div>
@@ -100,7 +100,7 @@ export default function AirtimeConfirmationPage() {
           {shop?.logo_url ? (
             <img src={shop.logo_url} className="w-16 h-16 rounded-xl shadow-md object-cover" alt="Logo" />
           ) : (
-            <Store className="w-12 h-12 text-violet-600" />
+            <Store className="w-12 h-12 text-primary" />
           )}
           <h2 className="text-xl font-bold">{shop?.shop_name || "Store"}</h2>
         </div>

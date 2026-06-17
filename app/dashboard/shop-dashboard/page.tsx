@@ -412,7 +412,7 @@ export default function ShopDashboardPage() {
       <div className="space-y-6">
         {/* Header */}
         <div>
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 bg-clip-text text-transparent">Shop Dashboard</h1>
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary via-primary to-primary bg-clip-text text-transparent">Shop Dashboard</h1>
           <p className="text-muted-foreground mt-1">Track your profits and manage withdrawals</p>
         </div>
 
@@ -422,12 +422,12 @@ export default function ShopDashboardPage() {
           <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-cyan-500 bg-card backdrop-blur-xl border border-border">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Available Balance</CardTitle>
-              <div className="bg-gradient-to-br from-cyan-400/30 to-blue-400/20 backdrop-blur p-2 rounded-lg border border-border">
-                <DollarSign className="h-4 w-4 text-cyan-600" />
+              <div className="bg-gradient-to-br from-primary/30 to-blue-400/20 backdrop-blur p-2 rounded-lg border border-border">
+                <DollarSign className="h-4 w-4 text-primary" />
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold bg-gradient-to-r from-cyan-600 to-primary/80 bg-clip-text text-transparent">
+              <div className="text-2xl font-bold bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent">
                 GHS {(balance || 0).toFixed(2)}
               </div>
               <p className="text-xs text-muted-foreground">Ready to withdraw</p>
@@ -490,7 +490,7 @@ export default function ShopDashboardPage() {
               <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-indigo-500 bg-card backdrop-blur-xl border border-border cursor-pointer hover:border-border group">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">Total Customers</CardTitle>
-                  <div className="w-4 h-4 text-indigo-600 group-hover:translate-x-1 transition-transform duration-300">
+                  <div className="w-4 h-4 text-primary group-hover:translate-x-1 transition-transform duration-300">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M5 12h14"></path>
                       <path d="m12 5 7 7-7 7"></path>
@@ -498,7 +498,7 @@ export default function ShopDashboardPage() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+                  <div className="text-2xl font-bold bg-gradient-to-r from-primary to-primary bg-clip-text text-transparent">
                     {customerStats.total_customers}
                   </div>
                   <p className="text-xs text-muted-foreground">Click to view customers</p>
@@ -542,7 +542,7 @@ export default function ShopDashboardPage() {
                 <CardTitle className="text-sm font-medium">Avg. LTV</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold bg-gradient-to-r from-primary to-cyan-600 bg-clip-text text-transparent">
+                <div className="text-2xl font-bold bg-gradient-to-r from-primary to-primary bg-clip-text text-transparent">
                   GHS {(customerStats.average_ltv || 0).toFixed(2)}
                 </div>
                 <p className="text-xs text-muted-foreground">Per customer</p>
@@ -577,7 +577,7 @@ export default function ShopDashboardPage() {
             ) : (
               <Button
                 onClick={() => setShowWithdrawalForm(true)}
-                className="w-full bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700"
+                className="w-full bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary"
               >
                 Request Withdrawal
               </Button>
@@ -620,7 +620,7 @@ export default function ShopDashboardPage() {
                     setBankVerified(false)
                     if (e.target.value === "bank_transfer") fetchBanks()
                   }}
-                  className="w-full mt-1 px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  className="w-full mt-1 px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                 >
                   <option value="mobile_money">Mobile Money</option>
                   <option value="bank_transfer">Bank Transfer</option>
@@ -641,7 +641,7 @@ export default function ShopDashboardPage() {
                           handleValidateAccount(withdrawalForm.phone, newNetwork)
                         }
                       }}
-                      className="w-full mt-1 px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                      className="w-full mt-1 px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                     >
                       <option value="MTN">MTN</option>
                       <option value="Telecel">Telecel</option>
@@ -669,13 +669,13 @@ export default function ShopDashboardPage() {
                         variant="outline"
                         disabled={!withdrawalForm.phone || isFetchingName}
                         onClick={() => handleValidateAccount(withdrawalForm.phone, withdrawalForm.network)}
-                        className="shrink-0 border-border text-violet-600 hover:bg-violet-50"
+                        className="shrink-0 border-border text-primary hover:bg-primary"
                       >
                         {isFetchingName ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify"}
                       </Button>
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Enter your number and click <span className="font-medium text-violet-600">Verify</span> to confirm the account name before submitting.
+                      Enter your number and click <span className="font-medium text-primary">Verify</span> to confirm the account name before submitting.
                     </p>
                     {nameVerified && withdrawalForm.accountName && (
                       <p className="text-xs text-green-600 mt-1 flex items-center gap-1 font-medium">
@@ -712,7 +712,7 @@ export default function ShopDashboardPage() {
                           })
                           setBankVerified(false)
                         }}
-                        className="w-full mt-1 px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                        className="w-full mt-1 px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                       >
                         <option value="">Select a bank...</option>
                         {banks.map(b => (
@@ -745,13 +745,13 @@ export default function ShopDashboardPage() {
                         variant="outline"
                         disabled={!withdrawalForm.accountNumber || !withdrawalForm.bankSublistId || isFetchingBankName}
                         onClick={handleValidateBankAccount}
-                        className="shrink-0 border-border text-violet-600 hover:bg-violet-50"
+                        className="shrink-0 border-border text-primary hover:bg-primary"
                       >
                         {isFetchingBankName ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify"}
                       </Button>
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Select your bank, enter account number, then click <span className="font-medium text-violet-600">Verify</span> to confirm.
+                      Select your bank, enter account number, then click <span className="font-medium text-primary">Verify</span> to confirm.
                     </p>
                     {bankVerified && withdrawalForm.accountName && (
                       <p className="text-xs text-green-600 mt-1 flex items-center gap-1 font-medium">
@@ -802,7 +802,7 @@ export default function ShopDashboardPage() {
                 <Button
                   onClick={handleWithdrawal}
                   disabled={isSubmitting || isFetchingName || isFetchingBankName || (withdrawalForm.method === "mobile_money" && !nameVerified) || (withdrawalForm.method === "bank_transfer" && !bankVerified)}
-                  className="flex-1 bg-violet-600 hover:bg-violet-700"
+                  className="flex-1 bg-primary hover:bg-primary"
                 >
                   {isSubmitting ? (
                     <>
@@ -864,7 +864,7 @@ export default function ShopDashboardPage() {
                           </p>
                         </div>
                         <div className="text-right">
-                          <p className="font-semibold text-cyan-600">+GHS {(order.profit_amount || 0).toFixed(2)}</p>
+                          <p className="font-semibold text-primary">+GHS {(order.profit_amount || 0).toFixed(2)}</p>
                           <Badge variant="outline" className={
                             order.order_status === "completed"
                               ? "bg-green-100 text-green-700"
@@ -1010,7 +1010,7 @@ export default function ShopDashboardPage() {
                     <CardTitle className="text-sm font-medium text-muted-foreground">Total Revenue</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <p className="text-3xl font-bold text-purple-600">GHS {orderStats.totalRevenue.toFixed(2)}</p>
+                    <p className="text-3xl font-bold text-primary">GHS {orderStats.totalRevenue.toFixed(2)}</p>
                   </CardContent>
                 </Card>
               </div>
@@ -1060,14 +1060,14 @@ export default function ShopDashboardPage() {
                             <th className="text-left py-3 px-4 font-semibold text-foreground">Actions</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-cyan-100/40">
+                        <tbody className="divide-y divide-primary/40">
                           {orders
                             .filter((order) =>
                               !searchPhoneNumber ||
                               (order.customer_phone || "").toLowerCase().includes(searchPhoneNumber.toLowerCase())
                             )
                             .map((order: any) => (
-                              <tr key={order.id} className="hover:bg-cyan-100/30 transition-colors">
+                              <tr key={order.id} className="hover:bg-primary/30 transition-colors">
                                 <td className="py-3 px-4 font-mono text-xs text-muted-foreground">{order.reference_code}</td>
                                 <td className="py-3 px-4">
                                   <div>
@@ -1088,7 +1088,7 @@ export default function ShopDashboardPage() {
                                     {order.order_status}
                                   </Badge>
                                 </td>
-                                <td className="py-3 px-4 text-right font-semibold text-purple-600">
+                                <td className="py-3 px-4 text-right font-semibold text-primary">
                                   GHS {(order.profit_amount || 0).toFixed(2)}
                                 </td>
                                 <td className="py-3 px-4 text-xs text-muted-foreground">

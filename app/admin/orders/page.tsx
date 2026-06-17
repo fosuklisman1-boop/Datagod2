@@ -725,8 +725,8 @@ export default function AdminOrdersPage() {
     const colors: { [key: string]: string } = {
       "MTN": "bg-orange-100 text-orange-800 border-orange-200",
       "Telecel": "bg-red-100 text-red-800 border-red-200",
-      "AT - iShare": "bg-indigo-100 text-indigo-800 border-indigo-200",
-      "AT - BigTime": "bg-purple-100 text-purple-800 border-purple-200",
+      "AT - iShare": "bg-primary text-primary border-primary",
+      "AT - BigTime": "bg-primary text-primary border-primary",
     }
     return colors[network] || "bg-gray-100 text-gray-800 border-gray-200"
   }
@@ -824,7 +824,7 @@ export default function AdminOrdersPage() {
       <div className="space-y-6">
         {/* Page Header */}
         <div>
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-600 via-primary to-pink-600 bg-clip-text text-transparent">
             Order Management
           </h1>
           <p className="text-gray-500 mt-1 font-medium">Download and manage pending orders</p>
@@ -870,7 +870,7 @@ export default function AdminOrdersPage() {
                   <Button
                     onClick={handleDownloadOrders}
                     disabled={downloading || pendingOrders.length === 0}
-                    className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white font-semibold"
+                    className="bg-gradient-to-r from-blue-600 to-primary hover:from-blue-700 hover:to-primary text-white font-semibold"
                   >
                     {downloading ? (
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -909,8 +909,8 @@ export default function AdminOrdersPage() {
                               <td className="px-2 sm:px-4 py-3 font-mono text-xs font-semibold break-all max-w-[120px]">{order.id}</td>
                               <td className="px-2 sm:px-4 py-3">
                                 <Badge variant="outline" className={`text-xs capitalize ${
-                                  order.type === 'api' ? 'bg-cyan-50 text-cyan-700 border-cyan-200' :
-                                  order.type === 'bulk' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' :
+                                  order.type === 'api' ? 'bg-primary text-primary border-primary' :
+                                  order.type === 'bulk' ? 'bg-primary text-primary border-primary' :
                                   'bg-amber-50 text-amber-700 border-amber-200'
                                 }`}>
                                   {order.type || 'Shop'}
@@ -1205,8 +1205,8 @@ export default function AdminOrdersPage() {
                                   <td className="px-2 sm:px-4 py-3 font-mono text-xs font-semibold">{order.id}</td>
                                   <td className="px-2 sm:px-4 py-3">
                                     <Badge variant="outline" className={`text-xs capitalize ${
-                                       order.type === 'api' ? 'bg-cyan-50 text-cyan-700 border-cyan-200' :
-                                       order.type === 'bulk' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' :
+                                       order.type === 'api' ? 'bg-primary text-primary border-primary' :
+                                       order.type === 'bulk' ? 'bg-primary text-primary border-primary' :
                                        'bg-amber-50 text-amber-700 border-amber-200'
                                      }`}>
                                        {order.type || 'Shop'}
@@ -1287,9 +1287,9 @@ export default function AdminOrdersPage() {
                   {/* Affected Networks */}
                   <div className="flex flex-wrap gap-2">
                     <span className="text-sm text-gray-600">Affected networks:</span>
-                    <Badge className="bg-indigo-100 text-indigo-800 border border-indigo-200">AT - iShare</Badge>
+                    <Badge className="bg-primary text-primary border border-primary">AT - iShare</Badge>
                     <Badge className="bg-red-100 text-red-800 border border-red-200">Telecel</Badge>
-                    <Badge className="bg-purple-100 text-purple-800 border border-purple-200">AT - BigTime</Badge>
+                    <Badge className="bg-primary text-primary border border-primary">AT - BigTime</Badge>
                   </div>
 
                   {/* Status Description */}
@@ -1424,8 +1424,8 @@ export default function AdminOrdersPage() {
                           </div>
                           <div className="flex items-center gap-2 flex-wrap">
                             <Badge variant="outline" className={`text-xs capitalize ${
-                               order.type === 'api' ? 'bg-cyan-50 text-cyan-700 border-cyan-200' :
-                               order.type === 'bulk' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' :
+                               order.type === 'api' ? 'bg-primary text-primary border-primary' :
+                               order.type === 'bulk' ? 'bg-primary text-primary border-primary' :
                                'bg-amber-50 text-amber-700 border-amber-200'
                              }`}>
                                {order.type || 'Shop'}
@@ -1543,12 +1543,12 @@ export default function AdminOrdersPage() {
                     disabled={isDisabled}
                     className={`w-full flex items-center gap-3 p-3 rounded border-2 transition-all ${isSelected
                       ? 'bg-blue-50 border-blue-500'
-                      : 'bg-white border-gray-200 hover:border-gray-300'
+                      : 'bg-card border-gray-200 hover:border-gray-300'
                       } ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                   >
                     <div className={`flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center ${isSelected
                       ? 'bg-blue-500 border-blue-500'
-                      : 'border-gray-300 bg-white'
+                      : 'border-gray-300 bg-card'
                       }`}>
                       {isSelected && <Check className="w-4 h-4 text-white" />}
                     </div>
@@ -1574,7 +1574,7 @@ export default function AdminOrdersPage() {
               <Button
                 onClick={handleConfirmDownload}
                 disabled={downloading || selectedNetworks.length === 0}
-                className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white"
+                className="bg-gradient-to-r from-blue-600 to-primary hover:from-blue-700 hover:to-primary text-white"
               >
                 {downloading ? (
                   <>

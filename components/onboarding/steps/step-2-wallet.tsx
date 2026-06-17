@@ -59,9 +59,9 @@ export function Step2Wallet({ onStartInteractiveWallet }: Step2Props) {
         </div>
 
         {/* Feature 3 */}
-        <div className="flex gap-4 p-4 bg-purple-50 rounded-lg border border-border">
+        <div className="flex gap-4 p-4 bg-primary rounded-lg border border-border">
           <div className="flex-shrink-0">
-            <TrendingUp className="w-6 h-6 text-purple-600 mt-1" />
+            <TrendingUp className="w-6 h-6 text-primary mt-1" />
           </div>
           <div>
             <h4 className="font-semibold text-foreground">Track Transactions</h4>
@@ -80,7 +80,7 @@ export function Step2Wallet({ onStartInteractiveWallet }: Step2Props) {
       {/* Interactive Wallet Button */}
       <Button
         onClick={handleStartTour}
-        className="w-full bg-gradient-to-r from-primary to-purple-600 gap-2 h-auto py-3"
+        className="w-full bg-gradient-to-r from-primary to-primary gap-2 h-auto py-3"
         disabled={showInteractive}
       >
         <Play className="w-4 h-4" />

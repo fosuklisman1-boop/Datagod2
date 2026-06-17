@@ -26,7 +26,7 @@ const STATUS_CLASSES: Record<string, string> = {
   expired:    "bg-orange-100 text-orange-700",
   invalid:    "bg-red-100 text-red-700",
   pending:         "bg-yellow-100 text-yellow-800",
-  pending_payment: "bg-purple-100 text-purple-700",
+  pending_payment: "bg-primary text-primary",
   completed:       "bg-green-100 text-green-700",
   failed:          "bg-red-100 text-red-700",
 }
@@ -397,7 +397,7 @@ export default function AdminResultsCheckerPage() {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center h-64">
-          <Loader2 className="w-8 h-8 animate-spin text-violet-600" />
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
         </div>
       </DashboardLayout>
     )
@@ -541,7 +541,7 @@ export default function AdminResultsCheckerPage() {
                       <button key={b} onClick={() => { setUploadBoard(b); setParsePreview(null); setParseErrors([]); setUploadResult(null) }}
                         className={`px-5 py-2 rounded-lg font-bold text-sm border-2 transition-all ${
                           uploadBoard === b
-                            ? "border-violet-600 bg-violet-50 text-violet-700 shadow-sm"
+                            ? "border-primary bg-primary text-primary shadow-sm"
                             : "border-border text-muted-foreground hover:border-border"
                         }`}
                       >{b}</button>
@@ -553,10 +553,10 @@ export default function AdminResultsCheckerPage() {
                 {/* Mode toggle */}
                 <div className="flex gap-2">
                   <button onClick={() => { setUploadMode("file"); setParsePreview(null); setParseErrors([]) }}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${uploadMode === "file" ? "bg-violet-600 text-white" : "bg-muted text-muted-foreground hover:bg-muted"}`}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${uploadMode === "file" ? "bg-primary text-white" : "bg-muted text-muted-foreground hover:bg-muted"}`}
                   >File Upload</button>
                   <button onClick={() => { setUploadMode("text"); setParsePreview(null); setParseErrors([]) }}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${uploadMode === "text" ? "bg-violet-600 text-white" : "bg-muted text-muted-foreground hover:bg-muted"}`}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${uploadMode === "text" ? "bg-primary text-white" : "bg-muted text-muted-foreground hover:bg-muted"}`}
                   >Paste / Type</button>
                 </div>
 
@@ -564,14 +564,14 @@ export default function AdminResultsCheckerPage() {
                   <>
                     <p className="text-xs text-muted-foreground">File columns: <code className="bg-muted px-1 rounded">pin, serial_number, expiry_date, notes</code> — no exam_board column needed</p>
                     <div
-                      className="border-2 border-dashed border-border rounded-lg p-8 text-center cursor-pointer hover:border-violet-400 transition-colors"
+                      className="border-2 border-dashed border-border rounded-lg p-8 text-center cursor-pointer hover:border-primary transition-colors"
                       onClick={() => document.getElementById("csv-input")?.click()}
                       onDragOver={e => e.preventDefault()}
                       onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFileSelect(f) }}
                     >
                       <Upload className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
                       {csvFile ? (
-                        <p className="text-sm font-medium text-violet-700">{csvFile.name} ({(csvFile.size / 1024).toFixed(1)} KB)</p>
+                        <p className="text-sm font-medium text-primary">{csvFile.name} ({(csvFile.size / 1024).toFixed(1)} KB)</p>
                       ) : (
                         <p className="text-sm text-muted-foreground">Drag &amp; drop a .xlsx or .csv file, or click to browse</p>
                       )}
@@ -590,7 +590,7 @@ export default function AdminResultsCheckerPage() {
                       onChange={e => handleTextChange(e.target.value)}
                       placeholder={"WGR1900112581\n123456789012\nWGR1900112582\n987654321098\n\n(blank serial below means no serial)\n\n456789012345"}
                       rows={12}
-                      className="w-full font-mono text-sm border rounded-lg p-3 resize-y focus:outline-none focus:ring-2 focus:ring-violet-400"
+                      className="w-full font-mono text-sm border rounded-lg p-3 resize-y focus:outline-none focus:ring-2 focus:ring-primary"
                     />
                   </>
                 )}
@@ -608,7 +608,7 @@ export default function AdminResultsCheckerPage() {
                               {(parsePreview as any[]).map((row, i) => (
                                 <tr key={i}>
                                   <td className="px-3 py-2 text-muted-foreground">{i + 1}</td>
-                                  <td className="px-3 py-2 font-semibold text-violet-700">{row.board}</td>
+                                  <td className="px-3 py-2 font-semibold text-primary">{row.board}</td>
                                   <td className="px-3 py-2 font-mono">{row.pin}</td>
                                   <td className="px-3 py-2 font-mono text-muted-foreground">{row.serial}</td>
                                 </tr>

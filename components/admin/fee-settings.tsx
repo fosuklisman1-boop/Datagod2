@@ -351,10 +351,10 @@ export function FeeSettings() {
               <div className="space-y-4 pt-4 border-t">
                 <div className="flex items-center justify-between">
                   <label className="text-sm font-semibold text-foreground font-medium">Storefront Override</label>
-                  <input type="checkbox" className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500" checked={formData.storefront_announcement_enabled} onChange={(e) => handleInputChange("storefront_announcement_enabled", e.target.checked)} />
+                  <input type="checkbox" className="w-4 h-4 rounded text-primary focus:ring-primary" checked={formData.storefront_announcement_enabled} onChange={(e) => handleInputChange("storefront_announcement_enabled", e.target.checked)} />
                 </div>
                 {formData.storefront_announcement_enabled && (
-                  <div className="space-y-3 p-3 bg-purple-50 rounded-lg border border-border">
+                  <div className="space-y-3 p-3 bg-primary rounded-lg border border-border">
                     <Input placeholder="Override Title" value={formData.storefront_announcement_title} onChange={(e) => handleInputChange("storefront_announcement_title", e.target.value)} />
                     <textarea className="w-full text-sm p-3 rounded-md border border-border min-h-[100px]" placeholder="Override Message..." value={formData.storefront_announcement_message} onChange={(e) => handleInputChange("storefront_announcement_message", e.target.value)} />
                   </div>

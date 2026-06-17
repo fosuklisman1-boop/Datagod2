@@ -36,20 +36,20 @@ export function BottomNav() {
   // Colour tokens — admin theme only applies when inside /admin pages.
   // Dealer uses the "Bold Telco" fuchsia/purple accent; everyone else the Fintech primary.
   const activeColor = isAdmin && onAdminPage
-    ? "text-violet-600 dark:text-violet-400"
+    ? "text-primary dark:text-primary"
     : isDealer
-      ? "text-fuchsia-600 dark:text-fuchsia-400"
+      ? "text-primary dark:text-primary"
       : "text-primary"
 
   const fabGradient = isAdmin && onAdminPage
-    ? "bg-card0 to-violet-700 ring-4 ring-violet-100 dark:ring-violet-900"
+    ? "bg-card0 to-primary ring-4 ring-primary dark:ring-primary"
     : isDealer
-      ? "bg-card0 to-purple-700 ring-4 ring-fuchsia-100 dark:ring-fuchsia-900"
-      : "bg-gradient-to-br from-primary to-violet-600 ring-4 ring-primary/15"
+      ? "bg-card0 to-primary ring-4 ring-primary dark:ring-primary"
+      : "bg-gradient-to-br from-primary to-primary ring-4 ring-primary/15"
 
   const fabLabelColor = isAdmin && onAdminPage
-    ? "text-violet-600"
-    : isDealer ? "text-fuchsia-600" : "text-primary"
+    ? "text-primary"
+    : isDealer ? "text-primary" : "text-primary"
 
   return (
     <nav

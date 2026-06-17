@@ -420,7 +420,7 @@ export default function ProfilePage() {
         {/* Profile Header Card */}
         <Card className={`border-0 text-white ${isDealer
             ? "bg-card0 via-orange-500 to-yellow-500"
-            : "bg-gradient-to-r from-primary to-purple-600"
+            : "bg-gradient-to-r from-primary to-primary"
           }`}>
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
@@ -566,9 +566,9 @@ export default function ProfilePage() {
                 <p className="text-sm text-muted-foreground">Completed Orders</p>
                 <p className="text-2xl font-bold text-green-600">{stats.completedOrders.toLocaleString()}</p>
               </div>
-              <div className="p-4 bg-purple-50 rounded-lg">
+              <div className="p-4 bg-primary rounded-lg">
                 <p className="text-sm text-muted-foreground">Success Rate</p>
-                <p className="text-2xl font-bold text-purple-600">{stats.successRate.toFixed(1)}%</p>
+                <p className="text-2xl font-bold text-primary">{stats.successRate.toFixed(1)}%</p>
               </div>
               <div className="p-4 bg-orange-50 rounded-lg">
                 <p className="text-sm text-muted-foreground">Lifetime Spent</p>

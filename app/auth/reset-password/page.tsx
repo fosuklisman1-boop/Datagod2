@@ -76,7 +76,7 @@ function ResetPasswordForm() {
   if (!token && !error) {
     return (
       <div className="flex justify-center p-8">
-        <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     )
   }
@@ -93,7 +93,7 @@ function ResetPasswordForm() {
             Your password has been changed successfully. You will be redirected to the login page shortly.
           </p>
           <Button 
-            className="w-full mt-4 bg-indigo-600 hover:bg-indigo-700"
+            className="w-full mt-4 bg-primary hover:bg-primary"
             onClick={() => router.push("/auth/login")}
           >
             Go to Login Now
@@ -143,7 +143,7 @@ function ResetPasswordForm() {
 
           <Button
             type="submit"
-            className="w-full bg-gradient-to-r from-primary to-indigo-600 hover:from-primary hover:to-indigo-700 text-white"
+            className="w-full bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary text-white"
             disabled={loading || !token}
           >
             {loading ? (
@@ -159,7 +159,7 @@ function ResetPasswordForm() {
       )}
 
       <div className="text-center mt-6">
-        <Link href="/auth/login" className="text-sm text-indigo-600 hover:underline flex items-center justify-center gap-1">
+        <Link href="/auth/login" className="text-sm text-primary hover:underline flex items-center justify-center gap-1">
           <ArrowLeft className="w-3 h-3" /> Back to Login
         </Link>
       </div>
@@ -182,7 +182,7 @@ export default function ResetPasswordPage() {
             Enter your new password below
           </CardDescription>
         </CardHeader>
-        <Suspense fallback={<div className="flex justify-center p-8"><Loader2 className="h-8 w-8 animate-spin text-indigo-600" /></div>}>
+        <Suspense fallback={<div className="flex justify-center p-8"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>}>
           <ResetPasswordForm />
         </Suspense>
       </Card>

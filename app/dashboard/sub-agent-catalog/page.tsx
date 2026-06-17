@@ -139,7 +139,7 @@ export default function SubAgentCatalogPage() {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center min-h-[400px]">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-600" />
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
         </div>
       </DashboardLayout>
     )
@@ -171,7 +171,7 @@ export default function SubAgentCatalogPage() {
           </div>
 
           <Link href="/dashboard/sub-agent-catalog/add">
-            <Button className="bg-violet-600 hover:bg-violet-700">
+            <Button className="bg-primary hover:bg-primary">
               <Plus className="h-4 w-4 mr-2" />
               Add Packages
             </Button>
@@ -183,8 +183,8 @@ export default function SubAgentCatalogPage() {
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center gap-4">
-                <div className="p-3 bg-violet-100 rounded-lg">
-                  <Package className="h-6 w-6 text-violet-600" />
+                <div className="p-3 bg-primary rounded-lg">
+                  <Package className="h-6 w-6 text-primary" />
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Catalog Packages</p>
@@ -254,7 +254,7 @@ export default function SubAgentCatalogPage() {
                 <p>No packages in your sub-agent catalog yet.</p>
                 <p className="text-sm mb-4">Click "Add Packages" to get started.</p>
                 <Link href="/dashboard/sub-agent-catalog/add">
-                  <Button className="bg-violet-600 hover:bg-violet-700">
+                  <Button className="bg-primary hover:bg-primary">
                     <Plus className="h-4 w-4 mr-2" />
                     Add Packages
                   </Button>

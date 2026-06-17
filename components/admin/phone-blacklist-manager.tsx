@@ -277,7 +277,7 @@ export default function PhoneBlacklistManager() {
                               size="sm"
                               variant="destructive"
                               onClick={() => removeNumber(entry.phone_number)}
-                              className="gap-1 bg-black text-white hover:bg-gray-800"
+                              className="gap-1 bg-background text-white hover:bg-gray-800"
                             >
                               <Trash2 className="w-3 h-3" />
                               Remove

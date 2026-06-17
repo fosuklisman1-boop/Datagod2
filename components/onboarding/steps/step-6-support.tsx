@@ -58,9 +58,9 @@ export function Step6Support() {
         </div>
 
         {/* Support Channel 3 */}
-        <div className="flex gap-4 p-4 bg-purple-50 rounded-lg border border-border">
+        <div className="flex gap-4 p-4 bg-primary rounded-lg border border-border">
           <div className="flex-shrink-0">
-            <HelpCircle className="w-6 h-6 text-purple-600 mt-1" />
+            <HelpCircle className="w-6 h-6 text-primary mt-1" />
           </div>
           <div className="flex-1">
             <h4 className="font-semibold text-foreground">FAQ & Documentation</h4>
@@ -70,7 +70,7 @@ export function Step6Support() {
             <Button
               variant="outline"
               size="sm"
-              className="mt-3 text-purple-600 border-purple-600 hover:bg-purple-50"
+              className="mt-3 text-primary border-primary hover:bg-primary"
             >
               View FAQ
             </Button>
@@ -78,7 +78,7 @@ export function Step6Support() {
         </div>
       </div>
 
-      <div className="bg-purple-50 border border-border rounded-lg p-4 space-y-3">
+      <div className="bg-primary border border-border rounded-lg p-4 space-y-3">
         <h4 className="font-semibold text-foreground text-sm">Common Issues:</h4>
         <ul className="space-y-2 text-sm text-foreground">
           <li className="flex gap-2">

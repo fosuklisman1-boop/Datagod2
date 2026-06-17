@@ -127,7 +127,7 @@ export default function ShopSettingsPage() {
   if (authLoading || loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="w-8 h-8 animate-spin text-violet-600" />
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     )
   }
@@ -202,7 +202,7 @@ export default function ShopSettingsPage() {
           <Button
             onClick={handleSave}
             disabled={saving}
-            className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700 px-8 py-6 text-lg"
+            className="flex items-center gap-2 bg-primary hover:bg-primary px-8 py-6 text-lg"
           >
             {saving ? (
               <>

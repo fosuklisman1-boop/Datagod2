@@ -94,11 +94,11 @@ export default function AdminSetupPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
-      <Card className="w-full max-w-md bg-slate-800 border-purple-500/50">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-primary to-slate-900 flex items-center justify-center p-4">
+      <Card className="w-full max-w-md bg-slate-800 border-primary/50">
         <CardHeader>
           <div className="flex items-center gap-2 mb-2">
-            <Shield className="w-6 h-6 text-purple-400" />
+            <Shield className="w-6 h-6 text-primary" />
             <CardTitle className="text-white">Admin Setup</CardTitle>
           </div>
           <CardDescription className="text-slate-300">Grant admin access to users</CardDescription>
@@ -112,7 +112,7 @@ export default function AdminSetupPage() {
               <Button
                 onClick={makeCurrentUserAdmin}
                 disabled={loading}
-                className="w-full bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-700 hover:to-purple-600 text-white"
+                className="w-full bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary text-white"
               >
                 {loading ? "Setting Admin..." : "Make Me Admin"}
               </Button>

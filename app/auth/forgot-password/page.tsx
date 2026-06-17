@@ -96,7 +96,7 @@ export default function ForgotPasswordPage() {
 
               <Button
                 type="submit"
-                className="w-full bg-gradient-to-r from-primary to-indigo-600 hover:from-primary hover:to-indigo-700 text-white"
+                className="w-full bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary text-white"
                 disabled={loading || !contact}
               >
                 {loading ? (
@@ -112,7 +112,7 @@ export default function ForgotPasswordPage() {
           )}
 
           <div className="text-center mt-6">
-            <Link href="/auth/login" className="text-sm text-indigo-600 hover:underline flex items-center justify-center gap-1">
+            <Link href="/auth/login" className="text-sm text-primary hover:underline flex items-center justify-center gap-1">
               <ArrowLeft className="w-3 h-3" /> Back to Login
             </Link>
           </div>

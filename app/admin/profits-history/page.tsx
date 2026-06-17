@@ -426,14 +426,14 @@ export default function AdminProfitsHistoryPage() {
                     </TableHeader>
                     <TableBody>
                       {profits.map((profit) => (
-                        <TableRow key={profit.id} className={profit.is_parent_profit ? "bg-purple-50/50" : ""}>
+                        <TableRow key={profit.id} className={profit.is_parent_profit ? "bg-primary/50" : ""}>
                           <TableCell className="whitespace-nowrap">
                             {new Date(profit.created_at).toLocaleString()}
                           </TableCell>
                           <TableCell>
                             {profit.is_subagent_order ? (
                               profit.is_parent_profit ? (
-                                <Badge className="bg-purple-500 hover:bg-purple-600">Parent</Badge>
+                                <Badge className="bg-primary hover:bg-primary">Parent</Badge>
                               ) : (
                                 <Badge className="bg-primary hover:bg-primary/90">Sub-Agent</Badge>
                               )
@@ -467,7 +467,7 @@ export default function AdminProfitsHistoryPage() {
                           <TableCell className="text-primary">
                             {profit.is_subagent_order ? formatCurrency(profit.sub_agent_profit) : "-"}
                           </TableCell>
-                          <TableCell className="text-purple-600">
+                          <TableCell className="text-primary">
                             {profit.is_subagent_order ? formatCurrency(profit.parent_profit) : "-"}
                           </TableCell>
                           <TableCell className="font-medium text-muted-foreground">

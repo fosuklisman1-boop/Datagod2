@@ -19,7 +19,7 @@ const EXAM_BOARDS = ["WAEC", "BECE", "NOVDEC"]
 
 const STATUS_CLASSES: Record<string, string> = {
   pending:         "bg-yellow-100 text-yellow-800",
-  pending_payment: "bg-purple-100 text-purple-700",
+  pending_payment: "bg-primary text-primary",
   completed:       "bg-green-100 text-green-700",
   failed:          "bg-red-100 text-red-700",
 }
@@ -261,7 +261,7 @@ export default function ResultsCheckerPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-              <GraduationCap className="w-6 h-6 text-violet-600" />
+              <GraduationCap className="w-6 h-6 text-primary" />
               Results Checker Vouchers
             </h1>
             <p className="text-muted-foreground text-sm mt-1">Purchase WAEC, BECE &amp; NOVDEC scratch card vouchers</p>
@@ -298,7 +298,7 @@ export default function ResultsCheckerPage() {
                       disabled={!boardSettings[board]?.enabled}
                       className={`flex flex-col items-center p-4 rounded-xl border-2 transition-all font-semibold text-sm disabled:opacity-40 disabled:cursor-not-allowed ${
                         examBoard === board
-                          ? "border-violet-600 bg-violet-50 text-violet-700"
+                          ? "border-primary bg-primary text-primary"
                           : "border-border hover:border-border text-foreground"
                       }`}
                     >
@@ -345,7 +345,7 @@ export default function ResultsCheckerPage() {
                     }
                     if (!pricing.bulkApplied && bs?.bulkMinQty && bs?.bulkPrice) {
                       return (
-                        <p className="text-xs text-violet-600 font-medium">
+                        <p className="text-xs text-primary font-medium">
                           {need > 0
                             ? `Buy ${need} more to unlock bulk rate (GHS ${bs.bulkPrice.toFixed(2)}/ea)`
                             : `Buy ${bs.bulkMinQty}+ for bulk rate (GHS ${bs.bulkPrice.toFixed(2)}/ea)`}
@@ -396,7 +396,7 @@ export default function ResultsCheckerPage() {
 
         {/* Success Modal */}
         {successOrder && (
-          <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="fixed inset-0 bg-background/60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
             <div className="w-full sm:max-w-md bg-card rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[92vh] flex flex-col">
               {/* Header */}
               <div className="text-center px-6 pt-6 pb-3 flex-shrink-0">
@@ -410,7 +410,7 @@ export default function ResultsCheckerPage() {
                 <div className="flex justify-end">
                   <button
                     onClick={() => triggerExcelDownload(successVouchers, successOrder.exam_board, successOrder.reference_code)}
-                    className="flex items-center gap-1.5 text-xs text-violet-600 hover:text-violet-700 font-medium border border-border hover:border-border rounded-full px-2.5 py-1 transition-colors"
+                    className="flex items-center gap-1.5 text-xs text-primary hover:text-primary font-medium border border-border hover:border-border rounded-full px-2.5 py-1 transition-colors"
                   >
                     <Download className="w-3.5 h-3.5" />Download receipt
                   </button>
@@ -455,7 +455,7 @@ export default function ResultsCheckerPage() {
           </div>
 
           {ordersLoading ? (
-            <div className="flex items-center justify-center h-32"><Loader2 className="w-6 h-6 animate-spin text-violet-600" /></div>
+            <div className="flex items-center justify-center h-32"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
           ) : orders.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center">
@@ -491,7 +491,7 @@ export default function ResultsCheckerPage() {
                           <div className="flex justify-end">
                             <button
                               onClick={() => triggerExcelDownload(order.vouchers!, order.exam_board, order.reference_code)}
-                              className="flex items-center gap-1.5 text-xs text-violet-600 hover:text-violet-700 font-medium"
+                              className="flex items-center gap-1.5 text-xs text-primary hover:text-primary font-medium"
                             >
                               <Download className="w-3.5 h-3.5" />Download receipt
                             </button>

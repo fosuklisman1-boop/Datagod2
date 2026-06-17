@@ -49,7 +49,7 @@ export function Step1Welcome({ onNext, onSkip }: Step1Props) {
         <Button
           onClick={onNext}
           size="lg"
-          className="w-full bg-gradient-to-r from-primary to-purple-600 gap-2"
+          className="w-full bg-gradient-to-r from-primary to-primary gap-2"
         >
           Let's Get Started
           <ArrowRight className="w-4 h-4" />

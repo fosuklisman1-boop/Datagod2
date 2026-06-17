@@ -364,7 +364,7 @@ export default function CompleteProfilePage() {
             </p>
 
             {/* Avatar + greeting */}
-            <div className="mx-auto mt-4 grid h-16 w-16 place-items-center rounded-full bg-gradient-to-br from-primary to-violet-600 text-2xl font-extrabold text-white">
+            <div className="mx-auto mt-4 grid h-16 w-16 place-items-center rounded-full bg-gradient-to-br from-primary to-primary text-2xl font-extrabold text-white">
               {(formData.firstName || formData.email || "U").charAt(0).toUpperCase()}
             </div>
             <h1 className="mt-3 text-center text-2xl font-bold tracking-tight text-foreground">

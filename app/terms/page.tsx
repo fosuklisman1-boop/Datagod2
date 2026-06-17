@@ -83,11 +83,11 @@ export default async function TermsPage() {
     <div className="min-h-screen bg-card">
       <nav className="bg-card border-b border-border shadow-sm sticky top-0 z-10">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2 font-bold text-foreground hover:text-violet-700 transition-colors">
-            <Shield className="w-5 h-5 text-violet-600" />
+          <Link href="/" className="flex items-center gap-2 font-bold text-foreground hover:text-primary transition-colors">
+            <Shield className="w-5 h-5 text-primary" />
             DATAGOD
           </Link>
-          <Link href="/" className="text-sm text-violet-600 hover:underline">
+          <Link href="/" className="text-sm text-primary hover:underline">
             Back to Home
           </Link>
         </div>
@@ -95,8 +95,8 @@ export default async function TermsPage() {
 
       <main className="max-w-4xl mx-auto px-4 py-12">
         <div className="mb-10 text-center">
-          <div className="inline-flex items-center justify-center w-14 h-14 bg-violet-100 rounded-2xl mb-4">
-            <Shield className="w-7 h-7 text-violet-600" />
+          <div className="inline-flex items-center justify-center w-14 h-14 bg-primary rounded-2xl mb-4">
+            <Shield className="w-7 h-7 text-primary" />
           </div>
           <h1 className="text-4xl font-black text-foreground mb-4">Terms of Service</h1>
           {intro && (
@@ -107,7 +107,7 @@ export default async function TermsPage() {
         <div className="space-y-4">
           {sections.map((section, i) => (
             <div key={i} className="bg-card rounded-2xl shadow-sm border border-border p-6 hover:shadow-md transition-shadow">
-              <h2 className="text-base font-bold text-violet-700 mb-2">{section.title}</h2>
+              <h2 className="text-base font-bold text-primary mb-2">{section.title}</h2>
               <p className="text-foreground leading-relaxed text-sm">{section.body}</p>
             </div>
           ))}

@@ -152,7 +152,7 @@ export default function JoinPage() {
       "MTN": "bg-yellow-100 text-yellow-800",
       "Telecel": "bg-red-100 text-red-800",
       "AT - iShare": "bg-primary/10 text-primary",
-      "AT - BigTime": "bg-purple-100 text-purple-800",
+      "AT - BigTime": "bg-primary text-primary",
     }
     return colors[network] || "bg-muted text-foreground"
   }

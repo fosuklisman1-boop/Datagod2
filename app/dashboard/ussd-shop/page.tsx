@@ -290,13 +290,13 @@ export default function UssdShopPage() {
 
             {/* Buy Sessions */}
             {shopCode.activation_fee_paid && (
-              <Card className="border-border bg-indigo-50">
+              <Card className="border-border bg-primary">
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-base text-indigo-800 flex items-center gap-2">
+                  <CardTitle className="text-base text-primary flex items-center gap-2">
                     <Coins className="w-4 h-4" />
                     Buy Sessions
                   </CardTitle>
-                  <CardDescription className="text-indigo-600">
+                  <CardDescription className="text-primary">
                     Each session = one customer entering your shop code.
                     {sessionPrice > 0 && ` GHS ${sessionPrice.toFixed(2)} per session.`}
                   </CardDescription>
@@ -304,7 +304,7 @@ export default function UssdShopPage() {
                 <CardContent className="space-y-3">
                   <div className="flex gap-2 items-end">
                     <div className="flex-1 space-y-1">
-                      <label className="text-xs text-indigo-700">
+                      <label className="text-xs text-primary">
                         Number of sessions ({minSessions}–{maxSessions})
                       </label>
                       <input
@@ -314,11 +314,11 @@ export default function UssdShopPage() {
                         placeholder={`Min ${minSessions}`}
                         value={sessionQty}
                         onChange={e => setSessionQty(e.target.value)}
-                        className="w-full border border-border rounded-md px-3 py-2 text-sm bg-card focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                        className="w-full border border-border rounded-md px-3 py-2 text-sm bg-card focus:outline-none focus:ring-2 focus:ring-primary"
                       />
                     </div>
                     {sessionPrice > 0 && sessionQty && parseInt(sessionQty) >= minSessions && (
-                      <div className="text-sm text-indigo-700 font-medium pb-2 shrink-0">
+                      <div className="text-sm text-primary font-medium pb-2 shrink-0">
                         = GHS {(sessionPrice * (parseInt(sessionQty) || 0)).toFixed(2)}
                       </div>
                     )}
@@ -327,7 +327,7 @@ export default function UssdShopPage() {
                     size="sm"
                     disabled={buyingSessions || !sessionQty || parseInt(sessionQty) < minSessions || (walletBalance !== null && walletBalance < sessionPrice * (parseInt(sessionQty) || 0))}
                     onClick={handleBuySessions}
-                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white"
+                    className="w-full bg-primary hover:bg-primary text-white"
                   >
                     {buyingSessions ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Wallet className="w-3 h-3 mr-1" />}
                     Buy with Wallet

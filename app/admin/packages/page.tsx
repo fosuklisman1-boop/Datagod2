@@ -190,12 +190,12 @@ export default function AdminPackagesPage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary to-cyan-600 bg-clip-text text-transparent">Package Management</h1>
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary to-primary bg-clip-text text-transparent">Package Management</h1>
             <p className="text-muted-foreground mt-1">Create, edit, and delete data packages</p>
           </div>
           <Button
             onClick={() => !showForm ? setShowForm(true) : resetForm()}
-            className="bg-gradient-to-r from-primary to-cyan-600 hover:from-primary hover:to-cyan-700"
+            className="bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary"
           >
             <Plus className="w-4 h-4 mr-2" />
             {showForm ? "Cancel" : "Add Package"}
@@ -332,7 +332,7 @@ export default function AdminPackagesPage() {
                       <td className="px-6 py-4 font-medium text-foreground">{pkg.network}</td>
                       <td className="px-6 py-4 text-foreground">{pkg.size}</td>
                       <td className="px-6 py-4 font-semibold text-primary">GHS {(pkg.price || 0).toFixed(2)}</td>
-                      <td className="px-6 py-4 font-semibold text-purple-600">{pkg.dealer_price ? `GHS ${pkg.dealer_price.toFixed(2)}` : "-"}</td>
+                      <td className="px-6 py-4 font-semibold text-primary">{pkg.dealer_price ? `GHS ${pkg.dealer_price.toFixed(2)}` : "-"}</td>
                       <td className="px-6 py-4 text-sm text-muted-foreground">{pkg.description || "-"}</td>
                       <td className="px-6 py-4">
                         <Button

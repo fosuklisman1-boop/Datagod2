@@ -143,7 +143,7 @@ export default function SubAgentProfitDetailPage() {
         return (
             <DashboardLayout>
                 <div className="flex items-center justify-center min-h-[400px]">
-                    <Loader2 className="w-8 h-8 animate-spin text-violet-600" />
+                    <Loader2 className="w-8 h-8 animate-spin text-primary" />
                 </div>
             </DashboardLayout>
         )
@@ -183,8 +183,8 @@ export default function SubAgentProfitDetailPage() {
                     <CardHeader>
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-4">
-                                <div className="p-3 bg-violet-100 rounded-xl">
-                                    <Store className="h-8 w-8 text-violet-600" />
+                                <div className="p-3 bg-primary rounded-xl">
+                                    <Store className="h-8 w-8 text-primary" />
                                 </div>
                                 <div>
                                     <CardTitle className="text-2xl flex items-center gap-2">
@@ -240,7 +240,7 @@ export default function SubAgentProfitDetailPage() {
                     <Card>
                         <CardContent className="pt-6">
                             <div className="flex items-center gap-3">
-                                <DollarSign className="h-5 w-5 text-cyan-500" />
+                                <DollarSign className="h-5 w-5 text-primary" />
                                 <div>
                                     <p className="text-sm text-muted-foreground">Order Value</p>
                                     <p className="text-xl font-bold">GHS {(summary?.total_order_value || 0).toFixed(2)}</p>
@@ -266,7 +266,7 @@ export default function SubAgentProfitDetailPage() {
                     <Card>
                         <CardContent className="pt-6">
                             <div className="flex items-center gap-3">
-                                <CheckCircle className="h-5 w-5 text-violet-500" />
+                                <CheckCircle className="h-5 w-5 text-primary" />
                                 <div>
                                     <p className="text-sm text-muted-foreground">Profit Records</p>
                                     <p className="text-xl font-bold">{summary?.profit_records_count || 0}</p>
@@ -299,7 +299,7 @@ export default function SubAgentProfitDetailPage() {
                                             selectedSubAgent === sa.id ? null : sa.id
                                         )}
                                         className={`p-4 rounded-lg border cursor-pointer transition-all ${selectedSubAgent === sa.id
-                                            ? "border-violet-500 bg-violet-50 ring-2 ring-violet-200"
+                                            ? "border-primary bg-primary ring-2 ring-primary"
                                             : "border-border hover:border-border hover:bg-accent"
                                             }`}
                                     >

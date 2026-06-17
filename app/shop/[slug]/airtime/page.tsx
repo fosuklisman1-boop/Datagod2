@@ -210,7 +210,7 @@ export default function ShopAirtimePage() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-muted/40">
-        <Loader2 className="w-10 h-10 animate-spin text-violet-600" />
+        <Loader2 className="w-10 h-10 animate-spin text-primary" />
       </div>
     )
   }
@@ -233,12 +233,12 @@ export default function ShopAirtimePage() {
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <button 
             onClick={() => router.push(shopHome)} 
-            className="p-2 hover:bg-violet-50 text-foreground hover:text-violet-600 rounded-xl transition-all"
+            className="p-2 hover:bg-primary text-foreground hover:text-primary rounded-xl transition-all"
           >
             <ChevronLeft className="w-6 h-6" />
           </button>
           <div className="flex items-center gap-3">
-            <Store className="w-5 h-5 text-violet-600" />
+            <Store className="w-5 h-5 text-primary" />
             <h1 className="text-xl font-bold text-foreground truncate max-w-[180px] sm:max-w-none">
               {shop.shop_name}
             </h1>
@@ -246,8 +246,8 @@ export default function ShopAirtimePage() {
           {shop.logo_url ? (
             <img src={shop.logo_url} className="w-10 h-10 rounded-xl object-cover border border-border shadow-sm" alt="Logo" />
           ) : (
-            <div className="w-10 h-10 bg-violet-100 rounded-xl flex items-center justify-center">
-              <Zap className="w-5 h-5 text-violet-600" />
+            <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center">
+              <Zap className="w-5 h-5 text-primary" />
             </div>
           )}
         </div>
@@ -255,12 +255,12 @@ export default function ShopAirtimePage() {
 
       <main className="max-w-xl mx-auto px-4 pt-8">
         <Card className="border-0 shadow-2xl overflow-hidden rounded-2xl">
-          <div className="h-2 bg-gradient-to-r from-violet-600 via-indigo-600 to-purple-600" />
+          <div className="h-2 bg-gradient-to-r from-primary via-primary to-primary" />
           <CardHeader className="bg-card border-b border-border">
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle className="text-2xl font-black text-slate-900 flex items-center gap-2">
-                  <Zap className="w-6 h-6 text-violet-600 fill-violet-600" />
+                  <Zap className="w-6 h-6 text-primary fill-primary" />
                   Buy Airtime
                 </CardTitle>
                 <CardDescription className="text-slate-500 font-medium mt-1">
@@ -279,7 +279,7 @@ export default function ShopAirtimePage() {
               {/* Network Selection */}
               <div className="space-y-4">
                 <Label className="text-slate-900 font-bold flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-violet-600" />
+                  <CheckCircle2 className="w-4 h-4 text-primary" />
                   1. Select Network
                 </Label>
                 <div className="grid grid-cols-3 gap-3">
@@ -290,7 +290,7 @@ export default function ShopAirtimePage() {
                       onClick={() => setSelectedNetwork(net.id)}
                       className={`relative flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all duration-300 ${
                         selectedNetwork === net.id
-                          ? "border-violet-600 bg-violet-50 ring-4 ring-violet-100"
+                          ? "border-primary bg-primary ring-4 ring-primary"
                           : "border-border bg-muted/40 hover:border-border hover:bg-muted"
                       }`}
                     >
@@ -301,11 +301,11 @@ export default function ShopAirtimePage() {
                            <span className="font-bold text-slate-500">{net.name[0]}</span>
                         </div>
                       )}
-                      <span className={`text-xs font-black uppercase ${selectedNetwork === net.id ? "text-violet-700" : "text-slate-500"}`}>
+                      <span className={`text-xs font-black uppercase ${selectedNetwork === net.id ? "text-primary" : "text-slate-500"}`}>
                         {net.name}
                       </span>
                       {selectedNetwork === net.id && (
-                        <div className="absolute -top-2 -right-2 bg-violet-600 text-white rounded-full p-1 shadow-md">
+                        <div className="absolute -top-2 -right-2 bg-primary text-white rounded-full p-1 shadow-md">
                           <CheckCircle2 className="w-3 h-3" />
                         </div>
                       )}
@@ -317,7 +317,7 @@ export default function ShopAirtimePage() {
               {/* Form Fields */}
               <div className="space-y-6">
                 <Label className="text-slate-900 font-bold flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-violet-600" />
+                  <CheckCircle2 className="w-4 h-4 text-primary" />
                   2. Order Details
                 </Label>
                 
@@ -327,7 +327,7 @@ export default function ShopAirtimePage() {
                     <Input 
                       id="customerName"
                       placeholder="E.g John Doe"
-                      className="bg-muted/40 border-border focus:ring-violet-500 focus:border-violet-500 rounded-xl"
+                      className="bg-muted/40 border-border focus:ring-primary focus:border-primary rounded-xl"
                       value={formData.customerName}
                       onChange={e => setFormData({...formData, customerName: e.target.value})}
                     />
@@ -339,7 +339,7 @@ export default function ShopAirtimePage() {
                       type="email"
                       required
                       placeholder="john@example.com"
-                      className="bg-muted/40 border-border focus:ring-violet-500 focus:border-violet-500 rounded-xl"
+                      className="bg-muted/40 border-border focus:ring-primary focus:border-primary rounded-xl"
                       value={formData.customerEmail}
                       onChange={e => setFormData({...formData, customerEmail: e.target.value})}
                     />
@@ -354,7 +354,7 @@ export default function ShopAirtimePage() {
                       type="tel"
                       required
                       placeholder="024XXXXXXX"
-                      className="bg-muted/40 border-border focus:ring-violet-500 focus:border-violet-500 rounded-xl font-mono text-lg"
+                      className="bg-muted/40 border-border focus:ring-primary focus:border-primary rounded-xl font-mono text-lg"
                       value={formData.beneficiaryPhone}
                       onChange={e => setFormData({...formData, beneficiaryPhone: e.target.value})}
                     />
@@ -367,7 +367,7 @@ export default function ShopAirtimePage() {
                       min="1"
                       required
                       placeholder="10.00"
-                      className="bg-muted/40 border-border focus:ring-violet-500 focus:border-violet-500 rounded-xl font-bold text-lg"
+                      className="bg-muted/40 border-border focus:ring-primary focus:border-primary rounded-xl font-bold text-lg"
                       value={formData.amount}
                       onChange={e => setFormData({...formData, amount: e.target.value})}
                     />
@@ -376,17 +376,17 @@ export default function ShopAirtimePage() {
               </div>
 
               {/* Fee Toggle */}
-              <div className="p-4 bg-violet-50 rounded-2xl border border-border flex items-start gap-3 transition-all">
+              <div className="p-4 bg-primary rounded-2xl border border-border flex items-start gap-3 transition-all">
                 <input
                   id="pay-sep"
                   type="checkbox"
                   checked={paySeparately}
                   onChange={(e) => setPaySeparately(e.target.checked)}
-                  className="mt-1 h-5 w-5 text-violet-600 border-border rounded focus:ring-violet-500 cursor-pointer"
+                  className="mt-1 h-5 w-5 text-primary border-border rounded focus:ring-primary cursor-pointer"
                 />
                 <label htmlFor="pay-sep" className="flex-1 cursor-pointer">
-                  <span className="text-violet-900 font-bold text-sm block">Pay fee separately</span>
-                  <p className="text-violet-600 text-xs mt-1 leading-relaxed">
+                  <span className="text-primary font-bold text-sm block">Pay fee separately</span>
+                  <p className="text-primary text-xs mt-1 leading-relaxed">
                     {paySeparately 
                       ? "Recipient gets the full amount; service fee is added to your total." 
                       : "Service fee is deducted from the amount before delivery."}
@@ -396,7 +396,7 @@ export default function ShopAirtimePage() {
 
               {/* Price Summary */}
               <div className="group relative">
-                <div className="absolute -inset-1 bg-gradient-to-r from-violet-600 to-indigo-600 rounded-2xl blur opacity-25 group-hover:opacity-40 transition duration-1000"></div>
+                <div className="absolute -inset-1 bg-gradient-to-r from-primary to-primary rounded-2xl blur opacity-25 group-hover:opacity-40 transition duration-1000"></div>
                 <div className="relative p-6 bg-muted/40 rounded-2xl border border-border">
                   <div className="flex justify-between items-center mb-1">
                     <span className="text-slate-500 font-semibold">Amount to Send:</span>
@@ -419,7 +419,7 @@ export default function ShopAirtimePage() {
                   <div className="flex justify-between items-center">
                     <span className="text-slate-900 text-lg font-black">Total to Pay:</span>
                     <div className="text-right">
-                      <span className="text-3xl font-black bg-gradient-to-r from-violet-700 to-indigo-800 bg-clip-text text-transparent">
+                      <span className="text-3xl font-black bg-gradient-to-r from-primary to-primary bg-clip-text text-transparent">
                         GHS {calculateTotal().toFixed(2)}
                       </span>
                       <p className="text-[10px] text-slate-400 mt-1 uppercase tracking-wider font-bold">
@@ -433,7 +433,7 @@ export default function ShopAirtimePage() {
               <Button 
                 type="submit" 
                 disabled={submitting || !selectedNetwork}
-                className="w-full h-16 bg-gradient-to-r from-violet-600 via-indigo-700 to-purple-600 hover:scale-[1.02] active:scale-95 text-white text-xl font-black rounded-2xl shadow-xl shadow-violet-200 transition-all duration-300 disabled:opacity-50 disabled:grayscale"
+                className="w-full h-16 bg-gradient-to-r from-primary via-primary to-primary hover:scale-[1.02] active:scale-95 text-white text-xl font-black rounded-2xl shadow-xl shadow-primary transition-all duration-300 disabled:opacity-50 disabled:grayscale"
               >
                 {submitting ? (
                   <div className="flex items-center gap-3">
@@ -458,7 +458,7 @@ export default function ShopAirtimePage() {
           </div>
           <p className="text-xs text-slate-500 font-medium">Your connection is encrypted and payment is handled securely by Paystack.</p>
           <div className="pt-4">
-             <Button variant="link" onClick={() => router.push(shopHome)} className="text-violet-600 hover:text-violet-700 font-bold">
+             <Button variant="link" onClick={() => router.push(shopHome)} className="text-primary hover:text-primary font-bold">
                 Return to Storefront
              </Button>
           </div>

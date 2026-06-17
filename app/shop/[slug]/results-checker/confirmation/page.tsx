@@ -123,7 +123,7 @@ export default function ResultsCheckerConfirmationPage() {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center">
         <div className="text-center space-y-4">
-          <Loader2 className="w-10 h-10 animate-spin text-violet-400 mx-auto" />
+          <Loader2 className="w-10 h-10 animate-spin text-primary mx-auto" />
           <p className="text-white font-medium">Confirming your payment…</p>
           <p className="text-slate-400 text-sm">Please wait, this takes a few seconds</p>
         </div>
@@ -176,7 +176,7 @@ export default function ResultsCheckerConfirmationPage() {
               <p className="text-white font-semibold text-sm">Your Voucher{vouchers.length > 1 ? "s" : ""}</p>
               <button
                 onClick={() => triggerExcelDownload(order, vouchers)}
-                className="flex items-center gap-1.5 text-xs text-violet-400 hover:text-violet-300 font-medium"
+                className="flex items-center gap-1.5 text-xs text-primary hover:text-primary font-medium"
               >
                 <Download className="w-3.5 h-3.5" />
                 Download receipt
@@ -197,7 +197,7 @@ export default function ResultsCheckerConfirmationPage() {
                       </div>
                       <div>
                         <p className="text-slate-500 text-xs">PIN</p>
-                        <p className="font-mono font-bold text-violet-300 tracking-widest text-xl">
+                        <p className="font-mono font-bold text-primary tracking-widest text-xl">
                           {v.pin}
                         </p>
                       </div>
@@ -245,7 +245,7 @@ export default function ResultsCheckerConfirmationPage() {
 
         <Button
           onClick={() => window.location.href = shopHome}
-          className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold h-12 rounded-xl"
+          className="w-full bg-primary hover:bg-primary text-white font-bold h-12 rounded-xl"
         >
           Back to Store
         </Button>

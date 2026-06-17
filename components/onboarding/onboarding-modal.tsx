@@ -235,7 +235,7 @@ export function OnboardingModal({ open, onComplete, onSkip }: OnboardingModalPro
                 </Button>
                 <Button
                   onClick={handleNext}
-                  className="gap-2 bg-gradient-to-r from-primary to-purple-600"
+                  className="gap-2 bg-gradient-to-r from-primary to-primary"
                 >
                   {interactiveMode
                     ? tourStep === walletTourSteps.length - 1

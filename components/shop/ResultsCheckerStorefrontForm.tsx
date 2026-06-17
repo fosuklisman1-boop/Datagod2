@@ -375,7 +375,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
   if (loadingPrices) {
     return (
       <div className="flex items-center justify-center py-16">
-        <Loader2 className="w-6 h-6 animate-spin text-violet-600" />
+        <Loader2 className="w-6 h-6 animate-spin text-primary" />
       </div>
     )
   }
@@ -392,7 +392,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
         <div className="flex justify-end">
           <button
             onClick={() => triggerExcelDownload(vouchers, selectedBoard ?? "", orderRef)}
-            className="flex items-center gap-1.5 text-xs text-violet-600 hover:text-violet-700 font-medium border border-border hover:border-border rounded-full px-2.5 py-1 transition-colors"
+            className="flex items-center gap-1.5 text-xs text-primary hover:text-primary font-medium border border-border hover:border-border rounded-full px-2.5 py-1 transition-colors"
           >
             <Download className="w-3.5 h-3.5" />
             Download receipt
@@ -424,7 +424,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div>
-        <h2 className="text-2xl font-black mb-2 text-foreground border-l-4 border-violet-600 pl-4">Results Checker Vouchers</h2>
+        <h2 className="text-2xl font-black mb-2 text-foreground border-l-4 border-primary pl-4">Results Checker Vouchers</h2>
         <p className="text-muted-foreground text-sm pl-5">WASSCE · BECE · NOVDEC — instant serial &amp; PIN delivery</p>
       </div>
 
@@ -441,18 +441,18 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
                 !info.enabled || info.availableCount === 0
                   ? "opacity-40 cursor-not-allowed shadow-sm"
                   : selectedBoard === board
-                  ? "ring-4 ring-violet-600 shadow-xl"
+                  ? "ring-4 ring-primary shadow-xl"
                   : "shadow-md hover:shadow-xl hover:-translate-y-1"
               }`}
             >
-              <div className={`h-2 ${selectedBoard === board ? "bg-violet-600" : "bg-muted group-hover:bg-violet-300"} transition-colors`} />
+              <div className={`h-2 ${selectedBoard === board ? "bg-primary" : "bg-muted group-hover:bg-primary"} transition-colors`} />
               <CardContent className="pt-4 pb-4 text-center">
-                <GraduationCap className={`w-8 h-8 mx-auto mb-2 ${selectedBoard === board ? "text-violet-600" : "text-muted-foreground"}`} />
-                <p className={`font-black text-lg ${selectedBoard === board ? "text-violet-700" : "text-foreground"}`}>{board}</p>
+                <GraduationCap className={`w-8 h-8 mx-auto mb-2 ${selectedBoard === board ? "text-primary" : "text-muted-foreground"}`} />
+                <p className={`font-black text-lg ${selectedBoard === board ? "text-primary" : "text-foreground"}`}>{board}</p>
                 <p className="text-2xl font-black text-foreground mt-1">GHS {info.customerPrice.toFixed(2)}</p>
                 <p className="text-xs text-muted-foreground mt-1">per voucher</p>
                 {info.bulkMinQty && info.bulkPrice && (
-                  <p className="text-xs text-violet-600 font-bold mt-1">
+                  <p className="text-xs text-primary font-bold mt-1">
                     {info.bulkMinQty}+ @ GHS {info.bulkPrice.toFixed(2)}/ea
                   </p>
                 )}
@@ -463,7 +463,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
                   : null}
                 {selectedBoard === board && (
                   <div className="absolute top-3 right-3">
-                    <CheckCircle2 className="w-5 h-5 text-violet-600" />
+                    <CheckCircle2 className="w-5 h-5 text-primary" />
                   </div>
                 )}
               </CardContent>
@@ -517,18 +517,18 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
           </div>
 
           {/* Price summary */}
-          <div className="bg-violet-50 rounded-xl p-4 space-y-2 text-sm border border-border">
+          <div className="bg-primary rounded-xl p-4 space-y-2 text-sm border border-border">
             <div className="flex justify-between text-muted-foreground">
               <span>{selectedBoard} voucher × {quantity}</span>
               <span>GHS {effectivePricePerVoucher.toFixed(2)} × {quantity}</span>
             </div>
             {bulkActive && (
-              <div className="flex items-center gap-1.5 text-violet-700 font-semibold text-xs bg-violet-100 rounded-lg px-3 py-1.5">
+              <div className="flex items-center gap-1.5 text-primary font-semibold text-xs bg-primary rounded-lg px-3 py-1.5">
                 <span>✓ Bulk rate applied — GHS {activeBoardInfo!.bulkPrice!.toFixed(2)}/ea (save GHS {((activeBoardInfo!.customerPrice - activeBoardInfo!.bulkPrice!) * quantity).toFixed(2)})</span>
               </div>
             )}
             {!bulkActive && activeBoardInfo?.bulkMinQty && activeBoardInfo?.bulkPrice && (
-              <div className="text-xs text-violet-500 font-medium">
+              <div className="text-xs text-primary font-medium">
                 Buy {activeBoardInfo.bulkMinQty - quantity} more to unlock bulk rate (GHS {activeBoardInfo.bulkPrice.toFixed(2)}/ea)
               </div>
             )}
@@ -544,9 +544,9 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
               on — both need the on-page MoMo number. OTP controls render only when
               OTP is required; with direct charge alone the number is charged as typed. */}
           {(otpRequired || directCharge) && (
-            <div className="p-4 rounded-xl bg-purple-50 border border-border space-y-3">
+            <div className="p-4 rounded-xl bg-primary border border-border space-y-3">
               <div>
-                <Label className="text-sm font-semibold text-purple-900">Mobile Money number to pay from</Label>
+                <Label className="text-sm font-semibold text-primary">Mobile Money number to pay from</Label>
                 <Input
                   inputMode="numeric"
                   placeholder="0241234567"
@@ -558,14 +558,14 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
                   disabled={otpRequired && otpVerified}
                   className="mt-1 bg-card font-mono"
                 />
-                <p className="text-xs text-purple-700 mt-1">
+                <p className="text-xs text-primary mt-1">
                   {otpRequired ? "The payment prompt is sent to this number. You verify it once." : "The payment prompt is sent to this number."}
                 </p>
               </div>
 
               {otpRequired && (!otpVerified ? (
                 !otpSent ? (
-                  <Button type="button" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0} className="w-full bg-purple-600 hover:bg-purple-700 text-white rounded-xl">
+                  <Button type="button" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0} className="w-full bg-primary hover:bg-primary text-white rounded-xl">
                     {sendingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code…</>) : otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Send verification code"}
                   </Button>
                 ) : (
@@ -574,7 +574,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
                       onChange={e => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
                       className="text-center text-lg tracking-[0.4em] font-mono bg-card" />
                     <div className="flex gap-2">
-                      <Button type="button" onClick={handleVerifyOtp} disabled={verifyingOtp || otpCode.length < 4} className="flex-1 bg-purple-600 hover:bg-purple-700 text-white rounded-xl">
+                      <Button type="button" onClick={handleVerifyOtp} disabled={verifyingOtp || otpCode.length < 4} className="flex-1 bg-primary hover:bg-primary text-white rounded-xl">
                         {verifyingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying…</>) : "Verify"}
                       </Button>
                       <Button type="button" variant="outline" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0}>{otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Resend"}</Button>
@@ -600,7 +600,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
           <Button
             onClick={handleSubmit}
             disabled={submitting || (turnstileEnabled && !turnstileToken) || (otpRequired && !otpVerified) || (directCharge && !otpRequired && !/^0?\d{9}$/.test(paymentPhone.replace(/\D/g, "")))}
-            className="w-full h-14 bg-slate-900 hover:bg-violet-700 text-white font-black rounded-xl shadow-xl transition-all duration-300 text-base"
+            className="w-full h-14 bg-slate-900 hover:bg-primary text-white font-black rounded-xl shadow-xl transition-all duration-300 text-base"
           >
             {submitting
               ? <><Loader2 className="w-5 h-5 mr-2 animate-spin" />Processing…</>
@@ -619,12 +619,12 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
 
       {/* Live Mobile Money prompt modal (direct-charge flow). */}
       {momoModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-[60]">
+        <div className="fixed inset-0 bg-background/60 flex items-center justify-center p-4 z-[60]">
           <Card className="w-full max-w-md bg-card rounded-2xl">
             {momoModal.state === "awaiting" && (
               <CardContent className="pt-8 pb-6 text-center space-y-4">
-                <div className="mx-auto w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center">
-                  <Loader2 className="w-8 h-8 text-purple-600 animate-spin" />
+                <div className="mx-auto w-16 h-16 rounded-full bg-primary flex items-center justify-center">
+                  <Loader2 className="w-8 h-8 text-primary animate-spin" />
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-foreground">Approve the prompt on your phone</h3>
@@ -663,7 +663,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
                     // Reuse the existing secure confirmation page to display vouchers.
                     window.location.href = `/shop/${shopSlug}/results-checker/confirmation?reference=${momoModal.reference}&orderId=${momoModal.orderId}`
                   }}
-                  className="w-full bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 rounded-xl"
+                  className="w-full bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary rounded-xl"
                 >
                   View my vouchers
                 </Button>

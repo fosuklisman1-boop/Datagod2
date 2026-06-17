@@ -48,7 +48,7 @@ export function SuccessModal({
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+    <div className="fixed inset-0 bg-background/50 flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
       <div className="bg-card rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300">
         {/* Close Button */}
         <div className="flex justify-end p-3 pb-0">

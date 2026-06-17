@@ -429,13 +429,13 @@ export default function BroadcastPage() {
                                         <MessageSquare className="ml-auto w-5 h-5 text-emerald-400" />
                                     </label>
                                 </div>
-                                <label className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all ${channels.includes("push") ? "bg-violet-50 border-violet-500" : "hover:bg-accent"}`}>
+                                <label className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all ${channels.includes("push") ? "bg-primary border-primary" : "hover:bg-accent"}`}>
                                     <Checkbox checked={channels.includes("push")} onCheckedChange={(val) => setChannels(prev => val ? [...prev, "push"] : prev.filter(c => c !== "push"))} />
                                     <div className="flex flex-col">
-                                        <span className="font-semibold text-violet-700">Push Notification</span>
+                                        <span className="font-semibold text-primary">Push Notification</span>
                                         <span className="text-xs text-muted-foreground">In-browser notification — only reaches users who have allowed notifications</span>
                                     </div>
-                                    <Bell className="ml-auto w-5 h-5 text-violet-400" />
+                                    <Bell className="ml-auto w-5 h-5 text-primary" />
                                 </label>
                                 <label className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all ${channels.includes("whatsapp") ? "bg-green-50 border-green-500" : "hover:bg-accent"}`}>
                                     <Checkbox checked={channels.includes("whatsapp")} onCheckedChange={(val) => setChannels(prev => val ? [...prev, "whatsapp"] : prev.filter(c => c !== "whatsapp"))} />

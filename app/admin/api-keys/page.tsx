@@ -319,7 +319,7 @@ export default function AdminApiManagementPage() {
           <Card className="bg-card to-white border-border">
             <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
               <CardTitle className="text-sm font-medium">Recent Traffic</CardTitle>
-              <Activity className="w-4 h-4 text-purple-600" />
+              <Activity className="w-4 h-4 text-primary" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{logsLoading ? "..." : logs.length}</div>

@@ -208,7 +208,7 @@ export default function AdminShopsPage() {
       <div className="space-y-6">
         {/* Header */}
         <div>
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent">Shop Management</h1>
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary to-primary bg-clip-text text-transparent">Shop Management</h1>
           <p className="text-muted-foreground mt-1">Approve or reject shop creation requests</p>
         </div>
 
@@ -317,14 +317,14 @@ export default function AdminShopsPage() {
                         <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Actions</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-violet-100/40">
+                    <tbody className="divide-y divide-primary/40">
                       {allShops
                         .filter(shop => 
                           shop.shop_name.toLowerCase().includes(searchQuery.toLowerCase()) || 
                           shop.shop_slug.toLowerCase().includes(searchQuery.toLowerCase())
                         )
                         .map((shop) => (
-                        <tr key={shop.id} className="hover:bg-violet-100/30 backdrop-blur transition-colors">
+                        <tr key={shop.id} className="hover:bg-primary/30 backdrop-blur transition-colors">
                           <td className="px-6 py-4 font-medium text-foreground">{shop.shop_name}</td>
                           <td className="px-6 py-4 text-sm text-muted-foreground"><code className="font-mono">{shop.shop_slug}</code></td>
                           <td className="px-6 py-4">
@@ -342,7 +342,7 @@ export default function AdminShopsPage() {
                               size="sm"
                               onClick={() => handleViewDetails(shop)}
                               variant="outline"
-                              className="text-violet-600 hover:text-violet-700 hover:bg-violet-50"
+                              className="text-primary hover:text-primary hover:bg-primary"
                             >
                               <Eye className="w-4 h-4" />
                             </Button>
@@ -418,37 +418,37 @@ export default function AdminShopsPage() {
                       <p className="text-muted-foreground text-[10px] uppercase font-bold tracking-wider mb-1">Total Revenue</p>
                       <p className="text-xl font-bold text-emerald-600 font-mono tracking-tighter tabular-nums">GHS {(shopDetails.orders.reduce((sum: number, o: any) => sum + (o.total_price || 0), 0)).toFixed(2)}</p>
                     </div>
-                    <div className="bg-purple-50 p-3 rounded-lg text-center ring-1 ring-purple-100 ring-offset-2">
+                    <div className="bg-primary p-3 rounded-lg text-center ring-1 ring-primary ring-offset-2">
                       <p className="text-muted-foreground text-[10px] uppercase font-bold tracking-wider mb-1">Profit Balance</p>
-                      <p className="text-xl font-bold text-purple-600 font-mono tracking-tighter tabular-nums underline decoration-purple-200 decoration-wavy underline-offset-4">GHS {Number(shopDetails.available_balance || 0).toFixed(2)}</p>
+                      <p className="text-xl font-bold text-primary font-mono tracking-tighter tabular-nums underline decoration-primary decoration-wavy underline-offset-4">GHS {Number(shopDetails.available_balance || 0).toFixed(2)}</p>
                     </div>
                   </div>
                 </div>
 
                 {/* Manual Balance Adjustment */}
                 <div className="p-4 rounded-xl bg-card border border-border shadow-sm transition-all duration-300 hover:shadow-md group">
-                  <h3 className="text-sm font-bold text-indigo-900 mb-4 flex items-center gap-2">
-                    <div className="p-1 rounded bg-indigo-100 group-hover:bg-indigo-200 transition-colors">
-                      <TrendingDown className="w-3.5 h-3.5 text-indigo-600" />
+                  <h3 className="text-sm font-bold text-primary mb-4 flex items-center gap-2">
+                    <div className="p-1 rounded bg-primary group-hover:bg-primary transition-colors">
+                      <TrendingDown className="w-3.5 h-3.5 text-primary" />
                     </div>
                     Manual Balance Adjustment
                   </h3>
                   <div className="grid gap-4">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1.5">
-                        <label className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest pl-1">Amount (GHS)</label>
+                        <label className="text-[10px] font-bold text-primary uppercase tracking-widest pl-1">Amount (GHS)</label>
                         <Input
                           type="number"
                           placeholder="0.00"
-                          className="font-mono h-9 border-border focus:border-border focus:ring-indigo-200 transition-all bg-card/50"
+                          className="font-mono h-9 border-border focus:border-border focus:ring-primary transition-all bg-card/50"
                           id="manual-adj-amount"
                         />
                       </div>
                       <div className="space-y-1.5">
-                        <label className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest pl-1">Description / Reason</label>
+                        <label className="text-[10px] font-bold text-primary uppercase tracking-widest pl-1">Description / Reason</label>
                         <Input
                           placeholder="Reason for adjustment..."
-                          className="h-9 border-border focus:border-border focus:ring-indigo-200 transition-all bg-card/50"
+                          className="h-9 border-border focus:border-border focus:ring-primary transition-all bg-card/50"
                           id="manual-adj-notes"
                         />
                       </div>
@@ -456,7 +456,7 @@ export default function AdminShopsPage() {
                     <div className="flex flex-col sm:flex-row gap-2.5">
                       <Button
                         size="sm"
-                        className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm shadow-indigo-200 h-9 font-bold tracking-tight transition-all active:scale-[0.98]"
+                        className="flex-1 bg-primary hover:bg-primary text-white shadow-sm shadow-primary h-9 font-bold tracking-tight transition-all active:scale-[0.98]"
                         onClick={async () => {
                           const amount = (document.getElementById("manual-adj-amount") as HTMLInputElement).value
                           const notes = (document.getElementById("manual-adj-notes") as HTMLInputElement).value

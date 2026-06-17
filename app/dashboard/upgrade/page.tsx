@@ -364,7 +364,7 @@ export default function UpgradePage() {
         { icon: <Crown className="w-5 h-5 text-amber-500" />, text: "Wholesale pricing on all data packages" },
         { icon: <Users className="w-5 h-5 text-primary" />, text: "Create & manage sub-agents" },
         { icon: <StoreIcon className="w-5 h-5 text-green-500" />, text: "Custom shop branding" },
-        { icon: <ShieldCheck className="w-5 h-5 text-purple-500" />, text: "Priority customer support" },
+        { icon: <ShieldCheck className="w-5 h-5 text-primary" />, text: "Priority customer support" },
     ]
 
     return (
@@ -499,7 +499,7 @@ export default function UpgradePage() {
                                                 ? "bg-gray-300 text-muted-foreground cursor-not-allowed"
                                                 : index === 1
                                                     ? "bg-gradient-to-r from-amber-600 to-yellow-500 hover:from-amber-700 hover:to-yellow-600 text-white shadow-lg"
-                                                    : "bg-gray-900 hover:bg-black text-white"
+                                                    : "bg-gray-900 hover:bg-background text-white"
                                         )}
                                         onClick={() => handleUpgrade(plan)}
                                         disabled={processingId === plan.id || (!upgradesEnabled && currentRole !== 'dealer' && currentRole !== 'admin')}
@@ -726,7 +726,7 @@ export default function UpgradePage() {
                                         : "Verify the number below, then continue to Paystack to complete payment."}
                                 </p>
                                 <div>
-                                    <label className="text-sm font-semibold text-purple-900">Mobile Money number to pay from *</label>
+                                    <label className="text-sm font-semibold text-primary">Mobile Money number to pay from *</label>
                                     <input
                                         type="tel"
                                         inputMode="numeric"
@@ -734,21 +734,21 @@ export default function UpgradePage() {
                                         value={paymentPhone}
                                         onChange={(e) => { setPaymentPhone(e.target.value); if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode(""); otpCooldown.reset() } }}
                                         disabled={walletOtp && otpVerified}
-                                        className="mt-1 w-full rounded-md border border-border bg-card px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                                        className="mt-1 w-full rounded-md border border-border bg-card px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                                     />
                                 </div>
                                 {walletOtp && (!otpVerified ? (
                                     !otpSent ? (
-                                        <Button type="button" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0} className="w-full bg-purple-600 hover:bg-purple-700 text-white">
+                                        <Button type="button" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0} className="w-full bg-primary hover:bg-primary text-white">
                                             {sendingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code…</>) : otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Send verification code"}
                                         </Button>
                                     ) : (
                                         <div className="space-y-2">
                                             <input inputMode="numeric" maxLength={6} placeholder="Enter 6-digit code" value={otpCode}
                                                 onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                                                className="w-full rounded-md border bg-card px-3 py-2 text-center text-lg tracking-[0.4em] font-mono focus:outline-none focus:ring-2 focus:ring-purple-400" />
+                                                className="w-full rounded-md border bg-card px-3 py-2 text-center text-lg tracking-[0.4em] font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
                                             <div className="flex gap-2">
-                                                <Button type="button" onClick={handleVerifyOtp} disabled={verifyingOtp || otpCode.length < 4} className="flex-1 bg-purple-600 hover:bg-purple-700 text-white">
+                                                <Button type="button" onClick={handleVerifyOtp} disabled={verifyingOtp || otpCode.length < 4} className="flex-1 bg-primary hover:bg-primary text-white">
                                                     {verifyingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying…</>) : "Verify"}
                                                 </Button>
                                                 <Button type="button" variant="outline" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0}>{otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Resend"}</Button>
@@ -774,8 +774,8 @@ export default function UpgradePage() {
 
                         {upgradeFlow?.state === "awaiting" && (
                             <div className="text-center space-y-4 py-2">
-                                <div className="mx-auto w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center">
-                                    <Loader2 className="w-8 h-8 text-purple-600 animate-spin" />
+                                <div className="mx-auto w-16 h-16 rounded-full bg-primary flex items-center justify-center">
+                                    <Loader2 className="w-8 h-8 text-primary animate-spin" />
                                 </div>
                                 <DialogHeader><DialogTitle className="text-center">Approve the prompt on your phone</DialogTitle></DialogHeader>
                                 <p className="text-sm text-muted-foreground">

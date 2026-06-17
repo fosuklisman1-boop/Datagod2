@@ -776,7 +776,7 @@ export default function AdminSettingsPage() {
   if (adminLoading || loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="w-8 h-8 animate-spin text-violet-600" />
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     )
   }
@@ -913,15 +913,15 @@ export default function AdminSettingsPage() {
         </Card>
 
         {/* Global Storefront Announcement Override - HIGH VISIBILITY */}
-        <Card className="mb-6 border-border bg-violet-50/50 shadow-md">
+        <Card className="mb-6 border-border bg-primary/50 shadow-md">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-violet-800">
+            <CardTitle className="flex items-center gap-2 text-primary">
               <Megaphone className="w-5 h-5" />
               Global Storefront Announcement Override
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-sm text-violet-900 font-medium bg-card/60 p-3 rounded-lg border border-border">
+            <p className="text-sm text-primary font-medium bg-card/60 p-3 rounded-lg border border-border">
               ⚠️ Toggling this ON will force an override announcement to appear on ALL storefronts across the entire platform. This takes priority over individual shop announcements.
             </p>
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 bg-card border border-border rounded-lg shadow-sm">
@@ -938,7 +938,7 @@ export default function AdminSettingsPage() {
 
             <div className="space-y-4 pt-2">
               <div className="space-y-2">
-                <Label htmlFor="storefrontAnnouncementTitle" className="text-sm font-bold text-violet-900">
+                <Label htmlFor="storefrontAnnouncementTitle" className="text-sm font-bold text-primary">
                   Override Title
                 </Label>
                 <Input
@@ -947,13 +947,13 @@ export default function AdminSettingsPage() {
                   placeholder="e.g. Platform-wide Alert"
                   value={storefrontAnnouncementTitle}
                   onChange={(e) => setStorefrontAnnouncementTitle(e.target.value)}
-                  className="w-full bg-card border-border focus:ring-violet-500"
+                  className="w-full bg-card border-border focus:ring-primary"
                   disabled={!storefrontAnnouncementEnabled}
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="storefrontAnnouncementMessage" className="text-sm font-bold text-violet-900">
+                <Label htmlFor="storefrontAnnouncementMessage" className="text-sm font-bold text-primary">
                   Override Message
                 </Label>
                 <Textarea
@@ -961,7 +961,7 @@ export default function AdminSettingsPage() {
                   placeholder="Enter the message customers will see on ALL shops..."
                   value={storefrontAnnouncementMessage}
                   onChange={(e) => setStorefrontAnnouncementMessage(e.target.value)}
-                  className="w-full min-h-[100px] resize-y bg-card border-border focus:ring-violet-500"
+                  className="w-full min-h-[100px] resize-y bg-card border-border focus:ring-primary"
                   disabled={!storefrontAnnouncementEnabled}
                 />
               </div>
@@ -971,7 +971,7 @@ export default function AdminSettingsPage() {
               <Button
                 onClick={handleSave}
                 disabled={saving}
-                className="w-full sm:w-auto flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-700 shadow-lg shadow-violet-100"
+                className="w-full sm:w-auto flex items-center justify-center gap-2 bg-primary hover:bg-primary shadow-lg shadow-primary"
               >
                 {saving ? (
                   <>
@@ -1086,7 +1086,7 @@ export default function AdminSettingsPage() {
               <Button
                 onClick={handleSave}
                 disabled={saving}
-                className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700"
+                className="flex items-center gap-2 bg-primary hover:bg-primary"
               >
                 {saving ? (
                   <>
@@ -1379,7 +1379,7 @@ export default function AdminSettingsPage() {
               <Button
                 onClick={handleSave}
                 disabled={saving}
-                className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700"
+                className="flex items-center gap-2 bg-primary hover:bg-primary"
               >
                 {saving ? (
                   <>
@@ -1485,8 +1485,8 @@ export default function AdminSettingsPage() {
               </div>
 
               {/* AT - BigTime */}
-              <div className="p-4 bg-purple-50 border border-border rounded-lg">
-                <Label htmlFor="priceAdjAtBigtime" className="text-sm font-medium text-purple-900">
+              <div className="p-4 bg-primary border border-border rounded-lg">
+                <Label htmlFor="priceAdjAtBigtime" className="text-sm font-medium text-primary">
                   AT - BigTime Price Adjustment
                 </Label>
                 <div className="flex items-center gap-2 mt-2">
@@ -1501,9 +1501,9 @@ export default function AdminSettingsPage() {
                     className="flex-1 bg-card"
                     placeholder="0"
                   />
-                  <span className="text-sm font-medium text-purple-800">%</span>
+                  <span className="text-sm font-medium text-primary">%</span>
                 </div>
-                <p className="text-xs text-purple-700 mt-1">
+                <p className="text-xs text-primary mt-1">
                   {priceAdjustmentAtBigtime > 0 ? `+${priceAdjustmentAtBigtime}% markup` : priceAdjustmentAtBigtime < 0 ? `${priceAdjustmentAtBigtime}% discount` : 'No adjustment'}
                 </p>
               </div>
@@ -1531,9 +1531,9 @@ export default function AdminSettingsPage() {
                     GHS {(10 * (1 + priceAdjustmentAtIshare / 100)).toFixed(2)}
                   </p>
                 </div>
-                <div className="text-center p-2 bg-purple-100 rounded">
-                  <p className="text-purple-800 font-medium">AT-BigTime</p>
-                  <p className="text-purple-900 font-bold">
+                <div className="text-center p-2 bg-primary rounded">
+                  <p className="text-primary font-medium">AT-BigTime</p>
+                  <p className="text-primary font-bold">
                     GHS {(10 * (1 + priceAdjustmentAtBigtime / 100)).toFixed(2)}
                   </p>
                 </div>
@@ -1544,7 +1544,7 @@ export default function AdminSettingsPage() {
               <Button
                 onClick={handleSave}
                 disabled={saving}
-                className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700"
+                className="flex items-center gap-2 bg-primary hover:bg-primary"
               >
                 {saving ? (
                   <>
@@ -1565,7 +1565,7 @@ export default function AdminSettingsPage() {
         <Card className="mt-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <LinkIcon className="w-5 h-5 text-purple-600" />
+              <LinkIcon className="w-5 h-5 text-primary" />
               Quick URL Copy
             </CardTitle>
           </CardHeader>
@@ -1604,7 +1604,7 @@ export default function AdminSettingsPage() {
         <Card className="mt-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <LinkIcon className="w-5 h-5 text-purple-600" />
+              <LinkIcon className="w-5 h-5 text-primary" />
               Webhook URLs
             </CardTitle>
           </CardHeader>
@@ -1613,7 +1613,7 @@ export default function AdminSettingsPage() {
               Configure these webhook URLs in your payment provider settings for real-time transaction updates.
             </p>
             <div className="space-y-3">
-              <div className="p-4 border border-border bg-purple-50 rounded-lg space-y-2">
+              <div className="p-4 border border-border bg-primary rounded-lg space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="flex-1">
                     <p className="text-sm font-semibold text-foreground">Paystack Webhook</p>
@@ -1736,18 +1736,18 @@ export default function AdminSettingsPage() {
         </Card>
 
         {/* Checkout Phone-OTP Gate */}
-        <Card className="mt-6 border-2 border-purple-500">
+        <Card className="mt-6 border-2 border-primary">
           <CardHeader className="bg-card">
             <CardTitle className="flex items-center gap-2 text-2xl">
               🔐 Checkout Phone Verification (OTP)
             </CardTitle>
-            <CardDescription className="text-purple-800 mt-1">
+            <CardDescription className="text-primary mt-1">
               Require guests to verify their phone via SMS code before placing a
               shop order. Turn ON during an attack to stop automated orders / card-testing / payment-prompt abuse.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 pt-6">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-purple-50 border-2 border-border rounded-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-primary border-2 border-border rounded-lg">
               <div className="flex-1">
                 <p className="font-bold text-foreground text-lg">Require Phone OTP at Checkout</p>
                 <p className="text-sm text-foreground mt-2">
@@ -1770,7 +1770,7 @@ export default function AdminSettingsPage() {
             </div>
 
             {/* Storefront Direct MoMo Charge — independent of the OTP toggle */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-fuchsia-50 border-2 border-border rounded-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-primary border-2 border-border rounded-lg">
               <div className="flex-1">
                 <p className="font-bold text-foreground text-lg">Direct MoMo Charge at Checkout</p>
                 <p className="text-sm text-foreground mt-2">
@@ -1834,7 +1834,7 @@ export default function AdminSettingsPage() {
             </div>
 
             {/* Wallet/Upgrade Direct MoMo Charge — independent of the OTP toggle */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-cyan-50 border-2 border-border rounded-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-primary border-2 border-border rounded-lg">
               <div className="flex-1">
                 <p className="font-bold text-foreground text-lg">Direct MoMo Charge for Top-ups &amp; Upgrades</p>
                 <p className="text-sm text-foreground mt-2">
@@ -1983,7 +1983,7 @@ export default function AdminSettingsPage() {
         <Card className="mt-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <FileText className="w-5 h-5 text-violet-600" />
+              <FileText className="w-5 h-5 text-primary" />
               Terms of Service
             </CardTitle>
           </CardHeader>
@@ -2018,7 +2018,7 @@ export default function AdminSettingsPage() {
               <Button
                 onClick={handleSaveTerms}
                 disabled={savingTerms}
-                className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700"
+                className="flex items-center gap-2 bg-primary hover:bg-primary"
               >
                 {savingTerms ? (
                   <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</>
@@ -2030,7 +2030,7 @@ export default function AdminSettingsPage() {
                 href="/terms"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-violet-600 border border-border rounded-md hover:bg-violet-50 transition-colors"
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-primary border border-border rounded-md hover:bg-primary transition-colors"
               >
                 <ExternalLink className="w-4 h-4" />
                 Preview Public Page

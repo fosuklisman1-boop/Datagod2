@@ -347,7 +347,7 @@ export default function BuyStockPage() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
+            <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-primary to-pink-600 bg-clip-text text-transparent">
               Buy Stock
             </h1>
             <p className="text-muted-foreground mt-1">Purchase data packages at wholesale prices</p>
@@ -424,7 +424,7 @@ export default function BuyStockPage() {
                 <CardContent className="space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground text-sm">Price:</span>
-                    <span className="font-bold text-lg text-purple-600">GHS {(pkg.parent_price || 0).toFixed(2)}</span>
+                    <span className="font-bold text-lg text-primary">GHS {(pkg.parent_price || 0).toFixed(2)}</span>
                   </div>
 
                   <Button
@@ -461,7 +461,7 @@ export default function BuyStockPage() {
                     <span className="text-muted-foreground text-sm hidden sm:block">{pkg.description}</span>
                   </div>
                   <div className="flex items-center gap-4">
-                    <span className="font-bold text-purple-600">GHS {(pkg.parent_price || 0).toFixed(2)}</span>
+                    <span className="font-bold text-primary">GHS {(pkg.parent_price || 0).toFixed(2)}</span>
                     <Button
                       size="sm"
                       onClick={() => handleBuyClick(pkg)}

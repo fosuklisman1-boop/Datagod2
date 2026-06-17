@@ -261,7 +261,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
       <Card className="w-full border-l-4 border-l-cyan-500 bg-card backdrop-blur-xl border border-border hover:border-border">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <Zap className="h-5 w-5 text-cyan-600" />
+          <Zap className="h-5 w-5 text-primary" />
           Wallet Top Up
         </CardTitle>
         <CardDescription>Add funds to your wallet using Paystack</CardDescription>
@@ -312,7 +312,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
                 variant="outline"
                 onClick={() => handleQuickAmount(quickAmount)}
                 disabled={isLoading}
-                className="text-sm font-semibold hover:bg-cyan-100 hover:border-cyan-400"
+                className="text-sm font-semibold hover:bg-primary hover:border-primary"
               >
                 GHS {quickAmount}
               </Button>
@@ -375,9 +375,9 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
             on — both need the on-page MoMo number. OTP controls render only when
             OTP is required; with direct charge alone the number is charged as typed. */}
         {(walletOtp || walletDirect) && (
-          <div className="p-4 rounded-lg bg-purple-50 border border-border space-y-3">
+          <div className="p-4 rounded-lg bg-primary border border-border space-y-3">
             <div>
-              <label className="text-sm font-semibold text-purple-900">Mobile Money number to pay from *</label>
+              <label className="text-sm font-semibold text-primary">Mobile Money number to pay from *</label>
               <Input
                 type="tel"
                 inputMode="numeric"
@@ -390,13 +390,13 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
                 disabled={(walletOtp && otpVerified) || isLoading}
                 className="mt-1 bg-card font-mono"
               />
-              <p className="text-xs text-purple-700 mt-1">
+              <p className="text-xs text-primary mt-1">
                 {walletOtp ? "The payment prompt is sent to this number. You verify it once." : "The payment prompt is sent to this number."}
               </p>
             </div>
             {walletOtp && (!otpVerified ? (
               !otpSent ? (
-                <Button type="button" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0} className="w-full bg-purple-600 hover:bg-purple-700 text-white">
+                <Button type="button" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0} className="w-full bg-primary hover:bg-primary text-white">
                   {sendingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code…</>) : otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Send verification code"}
                 </Button>
               ) : (
@@ -405,7 +405,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
                     onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
                     className="text-center text-lg tracking-[0.4em] font-mono bg-card" />
                   <div className="flex gap-2">
-                    <Button type="button" onClick={handleVerifyOtp} disabled={verifyingOtp || otpCode.length < 4} className="flex-1 bg-purple-600 hover:bg-purple-700 text-white">
+                    <Button type="button" onClick={handleVerifyOtp} disabled={verifyingOtp || otpCode.length < 4} className="flex-1 bg-primary hover:bg-primary text-white">
                       {verifyingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying…</>) : "Verify"}
                     </Button>
                     <Button type="button" variant="outline" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0}>{otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Resend"}</Button>
@@ -426,7 +426,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
         <Button
           onClick={handleTopUp}
           disabled={isLoading || !amount || (walletOtp && !otpVerified) || (walletDirect && !walletOtp && !/^0?\d{9}$/.test(paymentPhone.replace(/\D/g, "")))}
-          className="w-full bg-gradient-to-r from-cyan-600 to-primary/80 hover:from-cyan-700 hover:to-primary/80 text-white font-semibold py-6 text-lg"
+          className="w-full bg-gradient-to-r from-primary to-primary/80 hover:from-primary hover:to-primary/80 text-white font-semibold py-6 text-lg"
         >
           {isLoading ? (
             <>
@@ -453,12 +453,12 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
 
     {/* Live Mobile Money prompt modal (direct-charge flow) */}
     {momoModal && (
-      <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-[60]">
+      <div className="fixed inset-0 bg-background/60 flex items-center justify-center p-4 z-[60]">
         <Card className="w-full max-w-md bg-card rounded-2xl">
           {momoModal.state === "awaiting" && (
             <CardContent className="pt-8 pb-6 text-center space-y-4">
-              <div className="mx-auto w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center">
-                <Loader2 className="w-8 h-8 text-purple-600 animate-spin" />
+              <div className="mx-auto w-16 h-16 rounded-full bg-primary flex items-center justify-center">
+                <Loader2 className="w-8 h-8 text-primary animate-spin" />
               </div>
               <div>
                 <h3 className="text-lg font-bold text-foreground">Approve the prompt on your phone</h3>
@@ -489,7 +489,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
                   setMomoModal(null); setAmount(""); setPaymentPhone("")
                   setOtpSent(false); setOtpVerified(false); setOtpCode(""); setPaymentStatus("idle")
                 }}
-                className="w-full bg-gradient-to-r from-cyan-600 to-primary/80 hover:from-cyan-700 hover:to-primary/80 text-white"
+                className="w-full bg-gradient-to-r from-primary to-primary/80 hover:from-primary hover:to-primary/80 text-white"
               >
                 Done
               </Button>

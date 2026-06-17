@@ -247,7 +247,7 @@ export default function AirtimePage() {
               onChange={(e) => handlePhoneChange(e.target.value.replace(/\D/g, ""))}
               placeholder="e.g. 0244123456"
               required
-              className="w-full border border-border rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full border border-border rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
             />
             {phoneError && <p className="text-xs text-amber-600 mt-1">{phoneError}</p>}
           </div>
@@ -263,23 +263,23 @@ export default function AirtimePage() {
               onChange={(e) => setAmount(e.target.value)}
               placeholder="e.g. 10"
               required
-              className="w-full border border-border rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full border border-border rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
             />
           </div>
 
           {/* Pay Separately Toggle */}
-          <div className="flex items-start gap-3 p-4 bg-indigo-50 rounded-xl">
+          <div className="flex items-start gap-3 p-4 bg-primary rounded-xl">
             <input
               id="pay-sep"
               type="checkbox"
               checked={paySeparately}
               onChange={(e) => setPaySeparately(e.target.checked)}
-              className="mt-0.5 h-4 w-4 accent-indigo-600 cursor-pointer"
+              className="mt-0.5 h-4 w-4 accent-primary cursor-pointer"
             />
             <label htmlFor="pay-sep" className="text-sm cursor-pointer">
-              <span className="font-semibold text-indigo-800">Pay fee separately</span>
+              <span className="font-semibold text-primary">Pay fee separately</span>
               <br />
-              <span className="text-indigo-700">
+              <span className="text-primary">
                 {paySeparately
                   ? `Recipient gets the full amount you enter; service fee is added on top.`
                   : `Service fee is deducted from the amount before delivery.`}
@@ -324,7 +324,7 @@ export default function AirtimePage() {
           <button
             type="submit"
             disabled={submitting || !!phoneError || !phone || !amount || (walletBalance !== null && totalPaid > walletBalance)}
-            className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-xl transition-colors"
+            className="w-full bg-primary hover:bg-primary disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-xl transition-colors"
           >
             {submitting ? "Processing…" : `Buy Airtime — GHS ${totalPaid > 0 ? totalPaid.toFixed(2) : "0.00"}`}
           </button>

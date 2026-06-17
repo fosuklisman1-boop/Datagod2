@@ -422,7 +422,7 @@ export default function PaymentReverifyPage() {
                               <ShoppingCart className="w-3 h-3 mr-1" />Data
                             </Badge>
                           ) : (
-                            <Badge variant="outline" className="border-purple-500 text-purple-600 text-xs">
+                            <Badge variant="outline" className="border-primary text-primary text-xs">
                               <Smartphone className="w-3 h-3 mr-1" />Airtime
                             </Badge>
                           )}

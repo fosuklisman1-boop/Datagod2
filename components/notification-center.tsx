@@ -166,16 +166,16 @@ export function NotificationCenter() {
 
           {/* Push opt-in banner — only shown when permission hasn't been decided */}
           {pushPermission === 'default' && (
-            <div className="flex items-center gap-3 px-4 py-3 bg-violet-50 border-b border-border">
-              <BellRing className="w-5 h-5 text-violet-500 shrink-0" />
+            <div className="flex items-center gap-3 px-4 py-3 bg-primary border-b border-border">
+              <BellRing className="w-5 h-5 text-primary shrink-0" />
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium text-violet-800">Get push notifications</p>
-                <p className="text-xs text-violet-600">Stay updated even when the app is closed.</p>
+                <p className="text-xs font-medium text-primary">Get push notifications</p>
+                <p className="text-xs text-primary">Stay updated even when the app is closed.</p>
               </div>
               <button
                 onClick={handleEnablePush}
                 disabled={enablingPush}
-                className="shrink-0 text-xs font-semibold bg-violet-600 hover:bg-violet-700 text-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60"
+                className="shrink-0 text-xs font-semibold bg-primary hover:bg-primary text-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60"
               >
                 {enablingPush ? "Enabling…" : "Enable"}
               </button>
@@ -249,7 +249,7 @@ function NotificationItem({
       case "withdrawal_rejected":
         return "bg-red-50 border-l-4 border-red-500"
       case "balance_updated":
-        return "bg-purple-50 border-l-4 border-purple-500"
+        return "bg-primary border-l-4 border-primary"
       default:
         return "bg-muted/40 border-l-4 border-gray-500"
     }

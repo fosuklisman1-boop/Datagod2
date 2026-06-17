@@ -172,7 +172,7 @@ export default function PaymentAttemptsPage() {
   const getTypeBadge = (type: string) => {
     return type === "wallet_topup"
       ? <Badge variant="outline" className="border-primary text-primary"><Wallet className="w-3 h-3 mr-1" />Wallet</Badge>
-      : <Badge variant="outline" className="border-purple-500 text-purple-600"><ShoppingCart className="w-3 h-3 mr-1" />Shop Order</Badge>
+      : <Badge variant="outline" className="border-primary text-primary"><ShoppingCart className="w-3 h-3 mr-1" />Shop Order</Badge>
   }
 
   const clearFilters = () => {

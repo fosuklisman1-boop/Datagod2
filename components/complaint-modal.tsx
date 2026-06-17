@@ -347,7 +347,7 @@ export function ComplaintModal({ isOpen, onClose, orderId, orderType = "regular"
             <Button
               onClick={handleSubmit}
               disabled={isSubmitting}
-              className="bg-gradient-to-r from-primary to-cyan-600 hover:from-primary hover:to-cyan-700"
+              className="bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary"
             >
               {isSubmitting ? (
                 <>

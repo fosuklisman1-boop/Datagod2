@@ -82,7 +82,7 @@ function initials(name: string | null, phone: string): string {
   return phone.slice(-2)
 }
 
-const AVATAR_COLORS = ["bg-emerald-500", "bg-sky-500", "bg-violet-500", "bg-amber-500", "bg-rose-500", "bg-teal-500", "bg-indigo-500", "bg-fuchsia-500"]
+const AVATAR_COLORS = ["bg-emerald-500", "bg-sky-500", "bg-primary", "bg-amber-500", "bg-rose-500", "bg-teal-500", "bg-primary", "bg-primary"]
 function avatarColor(key: string): string {
   let h = 0
   for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0
@@ -455,14 +455,14 @@ export default function WhatsAppInboxPage() {
                 <div key={m.id}>
                   {showDay && (
                     <div className="flex justify-center my-2">
-                      <span className="text-[10px] bg-white/90 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 px-2 py-0.5 rounded-md shadow-sm">{dayLabel(m.created_at)}</span>
+                      <span className="text-[10px] bg-card/90 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 px-2 py-0.5 rounded-md shadow-sm">{dayLabel(m.created_at)}</span>
                     </div>
                   )}
                   <div className={`flex ${out ? "justify-end" : "justify-start"}`}>
                     <div className={`max-w-[78%] rounded-lg px-2.5 py-1.5 shadow-sm ${
                       out
                         ? "bg-[#d9fdd3] dark:bg-emerald-900/50 rounded-tr-none"
-                        : "bg-white dark:bg-neutral-800 rounded-tl-none"
+                        : "bg-card dark:bg-neutral-800 rounded-tl-none"
                     }`}>
                       {m.tool_context?.media_url && (
                         m.tool_context.media_type === "image" ? (

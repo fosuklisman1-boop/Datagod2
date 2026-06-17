@@ -81,7 +81,7 @@ export function PwaInstallButton() {
                         </p>
                         <ol className="space-y-2 text-xs text-muted-foreground dark:text-muted-foreground">
                             <li className="flex items-start gap-2">
-                                <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600 font-bold text-[10px]">1</span>
+                                <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-primary text-primary font-bold text-[10px]">1</span>
                                 <span>
                                     Tap the{" "}
                                     <Share className="inline h-3.5 w-3.5 text-primary" />{" "}
@@ -89,13 +89,13 @@ export function PwaInstallButton() {
                                 </span>
                             </li>
                             <li className="flex items-start gap-2">
-                                <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600 font-bold text-[10px]">2</span>
+                                <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-primary text-primary font-bold text-[10px]">2</span>
                                 <span>
                                     Scroll down and tap <strong>Add to Home Screen</strong>
                                 </span>
                             </li>
                             <li className="flex items-start gap-2">
-                                <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600 font-bold text-[10px]">3</span>
+                                <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-primary text-primary font-bold text-[10px]">3</span>
                                 <span>Tap <strong>Add</strong> — DATAGOD will appear on your home screen</span>
                             </li>
                         </ol>

@@ -367,7 +367,7 @@ Occupation: ${submission.occupation || "N/A"}`
       <div className="space-y-6">
         {/* Page Header */}
         <div>
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-cyan-600 via-primary to-purple-600 bg-clip-text text-transparent">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary via-primary to-primary bg-clip-text text-transparent">
             AFA Management
           </h1>
           <p className="text-muted-foreground mt-1 font-medium">Configure pricing, manage and fulfill AFA registrations</p>
@@ -377,8 +377,8 @@ Occupation: ${submission.occupation || "N/A"}`
         <Card className="border-l-4 border-l-purple-500 bg-card backdrop-blur-xl border border-border">
           <CardHeader>
             <div className="flex items-center gap-3">
-              <div className="bg-gradient-to-br from-purple-400/30 to-blue-400/20 backdrop-blur p-2 rounded-lg border border-border">
-                <Zap className="h-5 w-5 text-purple-600" />
+              <div className="bg-gradient-to-br from-primary/30 to-blue-400/20 backdrop-blur p-2 rounded-lg border border-border">
+                <Zap className="h-5 w-5 text-primary" />
               </div>
               <div>
                 <CardTitle>Auto-Fulfillment</CardTitle>
@@ -413,14 +413,14 @@ Occupation: ${submission.occupation || "N/A"}`
                       onCheckedChange={handleToggleAutoFulfill}
                       disabled={togglingAutoFulfill}
                     />
-                    {togglingAutoFulfill && <Loader2 className="h-4 w-4 animate-spin text-purple-600" />}
+                    {togglingAutoFulfill && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
                   </div>
                 </div>
 
                 <div className="grid md:grid-cols-2 gap-4 text-sm">
-                  <div className="p-3 bg-purple-50 rounded-lg border border-border">
-                    <p className="font-medium text-purple-900 mb-1">🟢 When Enabled</p>
-                    <ul className="text-xs space-y-1 text-purple-800">
+                  <div className="p-3 bg-primary rounded-lg border border-border">
+                    <p className="font-medium text-primary mb-1">🟢 When Enabled</p>
+                    <ul className="text-xs space-y-1 text-primary">
                       <li>✓ Sykes API called on every new order</li>
                       <li>✓ Faster customer registration</li>
                       <li>✓ fulfillment_status tracked automatically</li>
@@ -474,7 +474,7 @@ Occupation: ${submission.occupation || "N/A"}`
                 <Button
                   onClick={handleFulfillAllPending}
                   disabled={bulkFulfilling || stats.unfulfilled === 0}
-                  className="bg-gradient-to-r from-primary to-purple-600 hover:from-primary hover:to-purple-700 text-white font-semibold"
+                  className="bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary text-white font-semibold"
                 >
                   {bulkFulfilling ? (
                     <>
@@ -497,8 +497,8 @@ Occupation: ${submission.occupation || "N/A"}`
         <Card className="border-l-4 border-l-cyan-500 bg-card backdrop-blur-xl border border-border">
           <CardHeader>
             <div className="flex items-center gap-3">
-              <div className="bg-gradient-to-br from-cyan-400/30 to-blue-400/20 backdrop-blur p-2 rounded-lg border border-border">
-                <Settings className="h-5 w-5 text-cyan-600" />
+              <div className="bg-gradient-to-br from-primary/30 to-blue-400/20 backdrop-blur p-2 rounded-lg border border-border">
+                <Settings className="h-5 w-5 text-primary" />
               </div>
               <div>
                 <CardTitle>AFA Price Configuration</CardTitle>
@@ -522,7 +522,7 @@ Occupation: ${submission.occupation || "N/A"}`
               <Button
                 onClick={handleSavePrice}
                 disabled={savingPrice}
-                className="bg-gradient-to-r from-cyan-600 to-primary/80 hover:from-cyan-700 hover:to-primary/80 text-white font-semibold"
+                className="bg-gradient-to-r from-primary to-primary/80 hover:from-primary hover:to-primary/80 text-white font-semibold"
               >
                 {savingPrice ? "Saving..." : "Save Price"}
               </Button>
@@ -593,7 +593,7 @@ Occupation: ${submission.occupation || "N/A"}`
               <select
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
-                className="px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
+                className="px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary text-sm"
               >
                 <option value="all">All Status</option>
                 <option value="pending">Pending</option>
@@ -604,7 +604,7 @@ Occupation: ${submission.occupation || "N/A"}`
               <select
                 value={filterFulfillment}
                 onChange={(e) => setFilterFulfillment(e.target.value)}
-                className="px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
+                className="px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary text-sm"
               >
                 <option value="all">All Fulfillment</option>
                 <option value="unfulfilled">Unfulfilled</option>
@@ -658,7 +658,7 @@ Occupation: ${submission.occupation || "N/A"}`
                             variant="outline"
                             onClick={() => handleFulfillOrder(submission.id)}
                             disabled={fulfillingId === submission.id || bulkFulfilling}
-                            className="text-xs h-7 px-2 border-border text-purple-700 hover:bg-purple-50"
+                            className="text-xs h-7 px-2 border-border text-primary hover:bg-primary"
                           >
                             {fulfillingId === submission.id ? (
                               <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Fulfilling</>
@@ -674,7 +674,7 @@ Occupation: ${submission.occupation || "N/A"}`
                             value={submission.status}
                             onChange={(e) => updateStatus(submission.id, e.target.value)}
                             disabled={updatingId === submission.id}
-                            className="px-2 py-1 text-xs border border-border rounded focus:outline-none focus:ring-2 focus:ring-cyan-500 disabled:opacity-50"
+                            className="px-2 py-1 text-xs border border-border rounded focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
                           >
                             <option value="pending">Pending</option>
                             <option value="processing">Processing</option>

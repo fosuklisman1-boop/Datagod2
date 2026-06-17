@@ -106,7 +106,7 @@ export default function NotificationsPage() {
       case "withdrawal_rejected":
         return "bg-red-50 text-red-700 border-border"
       case "balance_updated":
-        return "bg-purple-50 text-purple-700 border-border"
+        return "bg-primary text-primary border-border"
       default:
         return "bg-muted/40 text-foreground border-border"
     }

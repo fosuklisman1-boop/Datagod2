@@ -85,7 +85,7 @@ export default function AirtimeSettingsPage() {
           <button
             onClick={saveSettings}
             disabled={saving}
-            className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-semibold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50"
+            className="flex items-center gap-2 bg-primary text-white px-6 py-2.5 rounded-xl font-semibold shadow-lg shadow-primary hover:bg-primary transition-all disabled:opacity-50"
           >
             {saving ? <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Save className="h-4 w-4" />}
             {saving ? "Saving…" : "Save Changes"}
@@ -112,7 +112,7 @@ export default function AirtimeSettingsPage() {
                   type="number"
                   value={settings.airtime_min_amount?.amount || ""}
                   onChange={e => handleUpdateSetting("airtime_min_amount", { amount: parseFloat(e.target.value) })}
-                  className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none"
                 />
               </div>
               <div>
@@ -121,7 +121,7 @@ export default function AirtimeSettingsPage() {
                   type="number"
                   value={settings.airtime_max_amount?.amount || ""}
                   onChange={e => handleUpdateSetting("airtime_max_amount", { amount: parseFloat(e.target.value) })}
-                  className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none"
                 />
               </div>
             </div>
@@ -139,7 +139,7 @@ export default function AirtimeSettingsPage() {
                     <span className="font-semibold text-foreground">{net.name}</span>
                     <button
                       onClick={() => handleUpdateSetting(key, { enabled: !isEnabled })}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isEnabled ? 'bg-indigo-600' : 'bg-gray-300'}`}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isEnabled ? 'bg-primary' : 'bg-gray-300'}`}
                     >
                       <span className={`inline-block h-4 w-4 transform rounded-full bg-card transition-transform ${isEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
                     </button>
@@ -193,7 +193,7 @@ export default function AirtimeSettingsPage() {
                       }}
                       disabled={!digiwapyConfigured}
                       className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                        isEnabled && digiwapyConfigured ? "bg-indigo-600" : "bg-gray-300"
+                        isEnabled && digiwapyConfigured ? "bg-primary" : "bg-gray-300"
                       }`}
                     >
                       <span className={`inline-block h-4 w-4 transform rounded-full bg-card transition-transform ${
@@ -235,7 +235,7 @@ export default function AirtimeSettingsPage() {
                             type="number"
                             value={settings[customerKey]?.rate || ""}
                             onChange={e => handleUpdateSetting(customerKey, { rate: parseFloat(e.target.value) })}
-                            className="w-24 border border-border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                            className="w-24 border border-border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none"
                             />
                             <span className="text-muted-foreground font-medium">%</span>
                         </div>
@@ -246,7 +246,7 @@ export default function AirtimeSettingsPage() {
                             type="number"
                             value={settings[dealerKey]?.rate || ""}
                             onChange={e => handleUpdateSetting(dealerKey, { rate: parseFloat(e.target.value) })}
-                            className="w-24 border border-border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                            className="w-24 border border-border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none"
                             />
                             <span className="text-muted-foreground font-medium">%</span>
                         </div>

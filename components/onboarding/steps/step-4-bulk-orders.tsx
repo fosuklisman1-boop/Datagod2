@@ -46,9 +46,9 @@ export function Step4BulkOrders() {
         </div>
 
         {/* Feature 3 */}
-        <div className="flex gap-4 p-4 bg-purple-50 rounded-lg border border-border">
+        <div className="flex gap-4 p-4 bg-primary rounded-lg border border-border">
           <div className="flex-shrink-0">
-            <Zap className="w-6 h-6 text-purple-600 mt-1" />
+            <Zap className="w-6 h-6 text-primary mt-1" />
           </div>
           <div>
             <h4 className="font-semibold text-foreground">Fast Processing</h4>

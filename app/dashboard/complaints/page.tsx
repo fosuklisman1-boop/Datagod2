@@ -268,7 +268,7 @@ export default function ComplaintsPage() {
         <div className="flex justify-center">
           <Button 
             onClick={() => router.push("/dashboard/my-orders")}
-            className="bg-gradient-to-r from-primary to-purple-600 hover:from-primary hover:to-purple-700 px-8"
+            className="bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary px-8"
           >
             Submit New Complaint
           </Button>

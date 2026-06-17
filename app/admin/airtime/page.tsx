@@ -376,7 +376,7 @@ export default function AdminAirtimePage() {
 
   const statCards = stats
     ? [
-        { label: "Revenue",   value: `GHS ${Number(stats.totalRevenue || 0).toFixed(2)}`,  color: "text-indigo-600" },
+        { label: "Revenue",   value: `GHS ${Number(stats.totalRevenue || 0).toFixed(2)}`,  color: "text-primary" },
         { label: "Net Profit", value: `GHS ${Number(stats.totalProfit || 0).toFixed(2)}`,   color: "text-green-600" },
         { label: "Merchant Payout", value: `GHS ${Number(stats.totalMerchantPayout || 0).toFixed(2)}`, color: "text-orange-600" },
         { label: "Volume",    value: `GHS ${Number(stats.totalVolume || 0).toFixed(2)}`,   color: "text-primary" },
@@ -440,7 +440,7 @@ export default function AdminAirtimePage() {
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
           <div className="flex flex-col gap-1">
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-600 via-primary to-pink-600 bg-clip-text text-transparent">
               Airtime Management
             </h1>
             <p className="text-muted-foreground mt-1 font-medium text-sm">Download and manage pending airtime orders</p>
@@ -470,14 +470,14 @@ export default function AdminAirtimePage() {
 
         {/* Digiwapy Balance */}
         {(digiWapyBalance || loadingBalance) && (
-          <div className="flex items-center gap-3 bg-gradient-to-r from-violet-50 to-indigo-50 dark:from-violet-950/30 dark:to-indigo-950/30 border border-violet-200 dark:border-violet-800 rounded-xl px-5 py-3">
-            <Wallet className="w-5 h-5 text-violet-600 shrink-0" />
+          <div className="flex items-center gap-3 bg-gradient-to-r from-primary to-primary dark:from-primary/30 dark:to-primary/30 border border-primary dark:border-primary rounded-xl px-5 py-3">
+            <Wallet className="w-5 h-5 text-primary shrink-0" />
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-violet-700 dark:text-violet-400">Digiwapy Wallet Balance</p>
+              <p className="text-xs font-medium text-primary dark:text-primary">Digiwapy Wallet Balance</p>
               {loadingBalance ? (
                 <p className="text-sm text-muted-foreground">Loading…</p>
               ) : digiWapyBalance ? (
-                <p className="text-xl font-bold text-violet-700 dark:text-violet-300">
+                <p className="text-xl font-bold text-primary dark:text-primary">
                   {digiWapyBalance.currency} {Number(digiWapyBalance.balance).toFixed(2)}
                 </p>
               ) : null}
@@ -490,7 +490,7 @@ export default function AdminAirtimePage() {
             <button
               onClick={() => loadDigiWapyBalance()}
               disabled={loadingBalance}
-              className="text-violet-600 hover:text-violet-800 disabled:opacity-40 transition-colors"
+              className="text-primary hover:text-primary disabled:opacity-40 transition-colors"
               title="Refresh balance"
             >
               <RefreshCw className={`w-4 h-4 ${loadingBalance ? "animate-spin" : ""}`} />
@@ -528,7 +528,7 @@ export default function AdminAirtimePage() {
             >
               <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4 shrink-0" />
               <span>Batches</span>
-              <Badge variant="secondary" className="ml-1 bg-indigo-100 text-indigo-700 text-[10px] px-1.5 h-4">
+              <Badge variant="secondary" className="ml-1 bg-primary text-primary text-[10px] px-1.5 h-4">
                 {batches.length}
               </Badge>
             </TabsTrigger>
@@ -541,12 +541,12 @@ export default function AdminAirtimePage() {
                 <div>
                   <label className="block text-xs font-medium text-muted-foreground mb-1">Date</label>
                   <input type="date" value={date} onChange={e => setDate(e.target.value)}
-                    className="border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                    className="border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-muted-foreground mb-1">Network</label>
                   <select value={network} onChange={e => setNetwork(e.target.value)}
-                    className="border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    className="border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
                     <option value="all">All</option>
                     <option>MTN</option><option>Telecel</option><option>AT</option>
                   </select>
@@ -554,7 +554,7 @@ export default function AdminAirtimePage() {
                 <div>
                   <label className="block text-xs font-medium text-muted-foreground mb-1">Status</label>
                   <select value={status} onChange={e => setStatus(e.target.value)}
-                    className="border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    className="border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
                     <option value="all">All</option>
                     <option>pending</option><option>processing</option><option>completed</option><option>failed</option>
                   </select>
@@ -565,10 +565,10 @@ export default function AdminAirtimePage() {
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <input type="text" value={search} onChange={e => setSearch(e.target.value)}
                       placeholder="Reference or Phone…"
-                      className="w-full border border-border rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                      className="w-full border border-border rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
                   </div>
                 </div>
-                <Button type="submit" variant="default" className="bg-indigo-600 hover:bg-indigo-700">
+                <Button type="submit" variant="default" className="bg-primary hover:bg-primary">
                   Search
                 </Button>
               </form>
@@ -582,7 +582,7 @@ export default function AdminAirtimePage() {
                     <Button
                       onClick={handleAutoFulfillAll}
                       disabled={autoFulfillingAll || eligibleCount === 0}
-                      className="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white font-semibold whitespace-nowrap"
+                      className="bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary text-white font-semibold whitespace-nowrap"
                     >
                       {autoFulfillingAll ? (
                         <Loader2 className="w-4 h-4 animate-spin mr-2" />
@@ -596,7 +596,7 @@ export default function AdminAirtimePage() {
                 <Button
                   onClick={handleDownload}
                   disabled={downloading || orders.filter(o => o.status === 'pending').length === 0}
-                  className="bg-gradient-to-r from-primary to-cyan-600 hover:from-primary hover:to-cyan-700 text-white font-semibold"
+                  className="bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary text-white font-semibold"
                 >
                   {downloading ? (
                     <Loader2 className="w-4 h-4 animate-spin mr-2" />
@@ -631,7 +631,7 @@ export default function AdminAirtimePage() {
                         </Badge>
                         <button
                           onClick={() => copyToClipboard(o.beneficiary_phone, o.id)}
-                          className="font-mono text-xs bg-muted hover:bg-indigo-100 text-foreground px-2 py-1 rounded transition-colors inline-flex items-center gap-1"
+                          className="font-mono text-xs bg-muted hover:bg-primary text-foreground px-2 py-1 rounded transition-colors inline-flex items-center gap-1"
                         >
                           {copiedId === o.id ? "✓" : <Copy className="w-3 h-3" />}
                           {o.beneficiary_phone}
@@ -639,7 +639,7 @@ export default function AdminAirtimePage() {
                       </div>
                       <div className="flex gap-4 text-xs">
                         <div><span className="text-muted-foreground">Airtime </span><span className="font-semibold">GHS {Number(o.airtime_amount || 0).toFixed(2)}</span></div>
-                        <div><span className="text-muted-foreground">Paid </span><span className="font-bold text-indigo-700">GHS {Number(o.total_paid || 0).toFixed(2)}</span></div>
+                        <div><span className="text-muted-foreground">Paid </span><span className="font-bold text-primary">GHS {Number(o.total_paid || 0).toFixed(2)}</span></div>
                       </div>
                       <p className="text-[10px] text-muted-foreground">{o.users?.email || o.customer_email || o.customer_name || "Guest"} · {o.user_shops?.shop_name || "Direct"}</p>
                       <p className="text-[10px] text-muted-foreground">{new Date(o.created_at).toLocaleString()}</p>
@@ -653,7 +653,7 @@ export default function AdminAirtimePage() {
                           Fail
                         </Button>
                         {digiWapyNetworks.has(o.network) && (
-                          <Button size="sm" variant="outline" className="h-7 text-[10px] bg-violet-50 text-violet-700 hover:bg-violet-100 border-border"
+                          <Button size="sm" variant="outline" className="h-7 text-[10px] bg-primary text-primary hover:bg-primary border-border"
                             onClick={() => handleAutoFulfill(o.id)} disabled={autoFulfillingId === o.id || autoFulfillingAll}>
                             {autoFulfillingId === o.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <><Zap className="w-3 h-3 mr-1" />Auto Fulfill</>}
                           </Button>
@@ -693,13 +693,13 @@ export default function AdminAirtimePage() {
                             </td>
                             <td className="px-4 py-3">
                               <button onClick={() => copyToClipboard(o.beneficiary_phone, o.id)}
-                                className="font-mono text-xs bg-muted hover:bg-indigo-100 text-foreground px-2 py-1 rounded transition-colors inline-flex items-center gap-1">
+                                className="font-mono text-xs bg-muted hover:bg-primary text-foreground px-2 py-1 rounded transition-colors inline-flex items-center gap-1">
                                 {copiedId === o.id ? "✓" : <Copy className="w-3 h-3" />}
                                 {o.beneficiary_phone}
                               </button>
                             </td>
                             <td className="px-4 py-3 font-semibold text-foreground">GHS {Number(o.airtime_amount || 0).toFixed(2)}</td>
-                            <td className="px-4 py-3 font-bold text-indigo-700">GHS {Number(o.total_paid || 0).toFixed(2)}</td>
+                            <td className="px-4 py-3 font-bold text-primary">GHS {Number(o.total_paid || 0).toFixed(2)}</td>
                             <td className="px-4 py-3">
                               <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${STATUS_CLASSES[o.status || 'pending'] || "bg-muted text-muted-foreground"}`}>
                                 {(o.status || 'pending').toUpperCase()}
@@ -719,7 +719,7 @@ export default function AdminAirtimePage() {
                                   Fail
                                 </Button>
                                 {digiWapyNetworks.has(o.network) && (
-                                  <Button size="sm" variant="outline" className="h-7 text-[10px] bg-violet-50 text-violet-700 hover:bg-violet-100 border-border"
+                                  <Button size="sm" variant="outline" className="h-7 text-[10px] bg-primary text-primary hover:bg-primary border-border"
                                     onClick={() => handleAutoFulfill(o.id)} disabled={autoFulfillingId === o.id || autoFulfillingAll}>
                                     {autoFulfillingId === o.id ? (
                                       <Loader2 className="w-3 h-3 animate-spin" />
@@ -746,12 +746,12 @@ export default function AdminAirtimePage() {
               <div>
                 <label className="block text-xs font-medium text-muted-foreground mb-1">Date</label>
                 <input type="date" value={date} onChange={e => setDate(e.target.value)}
-                  className="border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  className="border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-muted-foreground mb-1">Network</label>
                 <select value={network} onChange={e => setNetwork(e.target.value)}
-                  className="border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                  className="border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="all">All</option>
                   <option>MTN</option><option>Telecel</option><option>AT</option>
                 </select>
@@ -759,7 +759,7 @@ export default function AdminAirtimePage() {
               <div>
                 <label className="block text-xs font-medium text-muted-foreground mb-1">Status</label>
                 <select value={status} onChange={e => setStatus(e.target.value)}
-                  className="border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                  className="border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="all">All</option>
                   <option>pending</option><option>processing</option><option>completed</option><option>failed</option>
                 </select>
@@ -770,10 +770,10 @@ export default function AdminAirtimePage() {
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <input type="text" value={search} onChange={e => setSearch(e.target.value)}
                     placeholder="Reference or Phone…"
-                    className="w-full border border-border rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                    className="w-full border border-border rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
                 </div>
               </div>
-              <Button type="submit" variant="default" className="bg-indigo-600 hover:bg-indigo-700">
+              <Button type="submit" variant="default" className="bg-primary hover:bg-primary">
                 Search
               </Button>
             </form>
@@ -800,14 +800,14 @@ export default function AdminAirtimePage() {
                           {o.network}
                         </Badge>
                         <button onClick={() => copyToClipboard(o.beneficiary_phone, o.id)}
-                          className="font-mono text-xs bg-muted hover:bg-indigo-100 text-foreground px-2 py-1 rounded transition-colors inline-flex items-center gap-1">
+                          className="font-mono text-xs bg-muted hover:bg-primary text-foreground px-2 py-1 rounded transition-colors inline-flex items-center gap-1">
                           {copiedId === o.id ? "✓" : <Copy className="w-3 h-3" />}
                           {o.beneficiary_phone}
                         </button>
                       </div>
                       <div className="flex gap-4 text-xs">
                         <div><span className="text-muted-foreground">Airtime </span><span className="font-semibold">GHS {Number(o.airtime_amount || 0).toFixed(2)}</span></div>
-                        <div><span className="text-muted-foreground">Paid </span><span className="font-bold text-indigo-700">GHS {Number(o.total_paid || 0).toFixed(2)}</span></div>
+                        <div><span className="text-muted-foreground">Paid </span><span className="font-bold text-primary">GHS {Number(o.total_paid || 0).toFixed(2)}</span></div>
                       </div>
                       <p className="text-[10px] text-muted-foreground">{o.users?.email || o.customer_email || o.customer_name || "Guest"} · {o.user_shops?.shop_name || "Direct"}</p>
                       <p className="text-[10px] text-muted-foreground">{new Date(o.created_at).toLocaleString()}</p>
@@ -857,13 +857,13 @@ export default function AdminAirtimePage() {
                             </td>
                             <td className="px-4 py-3">
                               <button onClick={() => copyToClipboard(o.beneficiary_phone, o.id)}
-                                className="font-mono text-xs bg-muted hover:bg-indigo-100 text-foreground px-2 py-1 rounded transition-colors inline-flex items-center gap-1">
+                                className="font-mono text-xs bg-muted hover:bg-primary text-foreground px-2 py-1 rounded transition-colors inline-flex items-center gap-1">
                                 {copiedId === o.id ? "✓" : <Copy className="w-3 h-3" />}
                                 {o.beneficiary_phone}
                               </button>
                             </td>
                             <td className="px-4 py-3 font-semibold text-foreground">GHS {Number(o.airtime_amount || 0).toFixed(2)}</td>
-                            <td className="px-4 py-3 font-bold text-indigo-700">GHS {Number(o.total_paid || 0).toFixed(2)}</td>
+                            <td className="px-4 py-3 font-bold text-primary">GHS {Number(o.total_paid || 0).toFixed(2)}</td>
                             <td className="px-4 py-3">
                               <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${STATUS_CLASSES[o.status || 'pending'] || "bg-muted text-muted-foreground"}`}>
                                 {(o.status || 'pending').toUpperCase()}
@@ -1038,7 +1038,7 @@ export default function AdminAirtimePage() {
 
         {/* Single Action Modal */}
         {actionModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <div className="fixed inset-0 bg-background/50 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
             <div className="bg-card rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4 transform transition-all scale-100">
               <h3 className="text-lg font-bold text-foreground">
                 {actionModal.action === "completed" ? "✅ Mark as Completed" : "❌ Mark as Failed"}
@@ -1059,7 +1059,7 @@ export default function AdminAirtimePage() {
                   value={notes}
                   onChange={e => setNotes(e.target.value)}
                   placeholder={actionModal.action === "failed" ? "e.g. Network unreachable" : "e.g. Sent via portal"}
-                  className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
               {actionMsg && <p className="text-red-600 text-sm">{actionMsg}</p>}

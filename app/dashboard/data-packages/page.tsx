@@ -356,7 +356,7 @@ export default function DataPackagesPage() {
           <div>
             <h1 className={`text-2xl sm:text-3xl md:text-4xl font-bold bg-clip-text text-transparent ${isDealer
               ? "bg-gradient-to-r from-amber-600 via-orange-600 to-yellow-600"
-              : "bg-gradient-to-r from-cyan-600 via-primary to-violet-600"
+              : "bg-gradient-to-r from-primary via-primary to-primary"
               }`}>Data Packages</h1>
             <p className="text-xs sm:text-sm text-muted-foreground mt-1 font-medium">Browse and purchase data packages from multiple networks</p>
           </div>
@@ -394,7 +394,7 @@ export default function DataPackagesPage() {
                 placeholder="Search packages..."
                 className={`pl-10 focus:ring-2 transition-all bg-card/70 backdrop-blur ${isDealer
                   ? "focus:ring-amber-500 border-border focus:border-amber-400"
-                  : "focus:ring-cyan-500 border-border focus:border-cyan-400"
+                  : "focus:ring-primary border-border focus:border-primary"
                   }`}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -410,10 +410,10 @@ export default function DataPackagesPage() {
                   size="sm"
                   onClick={() => setSelectedNetwork(network)}
                   className={`text-xs sm:text-sm transition-all duration-200 ${selectedNetwork === network
-                    ? isDealer ? "bg-gradient-to-r from-amber-600 to-orange-600 shadow-lg text-white" : "bg-gradient-to-r from-cyan-600 to-primary/80 shadow-lg text-white"
+                    ? isDealer ? "bg-gradient-to-r from-amber-600 to-orange-600 shadow-lg text-white" : "bg-gradient-to-r from-primary to-primary/80 shadow-lg text-white"
                     : isDealer
                       ? "hover:border-amber-400 hover:text-amber-700 hover:bg-amber-50/60 bg-amber-50/30 backdrop-blur border-border text-foreground"
-                      : "hover:border-cyan-400 hover:text-cyan-700 hover:bg-cyan-50/60 bg-cyan-50/30 backdrop-blur border-border text-foreground"
+                      : "hover:border-primary hover:text-primary hover:bg-primary/60 bg-primary/30 backdrop-blur border-border text-foreground"
                     }`}
                 >
                   {network}
@@ -428,8 +428,8 @@ export default function DataPackagesPage() {
                 size="sm"
                 onClick={() => setViewMode("grid")}
                 className={`transition-all duration-200 ${viewMode === "grid"
-                  ? isDealer ? "bg-gradient-to-r from-amber-600 to-orange-600 text-white" : "bg-gradient-to-r from-cyan-600 to-primary/80 text-white"
-                  : isDealer ? "hover:bg-amber-50/80 backdrop-blur bg-amber-50/30 border-border text-foreground hover:text-amber-700 hover:border-amber-400" : "hover:bg-cyan-50/80 backdrop-blur bg-cyan-50/30 border-border text-foreground hover:text-cyan-700 hover:border-cyan-400"
+                  ? isDealer ? "bg-gradient-to-r from-amber-600 to-orange-600 text-white" : "bg-gradient-to-r from-primary to-primary/80 text-white"
+                  : isDealer ? "hover:bg-amber-50/80 backdrop-blur bg-amber-50/30 border-border text-foreground hover:text-amber-700 hover:border-amber-400" : "hover:bg-primary/80 backdrop-blur bg-primary/30 border-border text-foreground hover:text-primary hover:border-primary"
                   }`}
               >
                 <Grid3x3 className="w-4 h-4 mr-2" />
@@ -440,8 +440,8 @@ export default function DataPackagesPage() {
                 size="sm"
                 onClick={() => setViewMode("list")}
                 className={`transition-all duration-200 ${viewMode === "list"
-                  ? isDealer ? "bg-gradient-to-r from-amber-600 to-orange-600 text-white" : "bg-gradient-to-r from-cyan-600 to-primary/80 text-white"
-                  : isDealer ? "hover:bg-amber-50/80 backdrop-blur bg-amber-50/30 border-border text-foreground hover:text-amber-700 hover:border-amber-400" : "hover:bg-cyan-50/80 backdrop-blur bg-cyan-50/30 border-border text-foreground hover:text-cyan-700 hover:border-cyan-400"
+                  ? isDealer ? "bg-gradient-to-r from-amber-600 to-orange-600 text-white" : "bg-gradient-to-r from-primary to-primary/80 text-white"
+                  : isDealer ? "hover:bg-amber-50/80 backdrop-blur bg-amber-50/30 border-border text-foreground hover:text-amber-700 hover:border-amber-400" : "hover:bg-primary/80 backdrop-blur bg-primary/30 border-border text-foreground hover:text-primary hover:border-primary"
                   }`}
               >
                 <List className="w-4 h-4 mr-2" />
@@ -475,14 +475,14 @@ export default function DataPackagesPage() {
                     <div>
                       <Badge className={`mb-2 text-xs sm:text-sm backdrop-blur transition-all bg-opacity-40 border border-opacity-60 ${isDealer
                         ? "bg-gradient-to-r from-amber-400/40 to-orange-400/30 text-amber-900 group-hover:bg-gradient-to-r group-hover:from-amber-600 group-hover:to-orange-600 group-hover:text-white border-border"
-                        : "bg-gradient-to-r from-cyan-400/40 to-blue-400/30 text-cyan-700 group-hover:bg-gradient-to-r group-hover:from-cyan-600 group-hover:to-primary/80 group-hover:text-white border-border"
+                        : "bg-gradient-to-r from-primary/40 to-blue-400/30 text-primary group-hover:bg-gradient-to-r group-hover:from-primary group-hover:to-primary/80 group-hover:text-white border-border"
                         }`}>{pkg.network}</Badge>
-                      <CardTitle className={`text-lg sm:text-xl md:text-2xl transition-colors ${isDealer ? "group-hover:text-amber-600" : "group-hover:text-cyan-600"}`}>{pkg.size.toString().replace(/[^0-9]/g, "")}GB</CardTitle>
+                      <CardTitle className={`text-lg sm:text-xl md:text-2xl transition-colors ${isDealer ? "group-hover:text-amber-600" : "group-hover:text-primary"}`}>{pkg.size.toString().replace(/[^0-9]/g, "")}GB</CardTitle>
                     </div>
                     <div className="text-right">
                       <p className={`text-lg sm:text-xl md:text-2xl font-bold bg-clip-text text-transparent transition-colors ${isDealer
                         ? "bg-gradient-to-r from-amber-600 to-orange-600 group-hover:from-amber-700 group-hover:to-orange-700"
-                        : "bg-gradient-to-r from-cyan-600 to-primary/80 group-hover:from-violet-600 group-hover:to-fuchsia-600"
+                        : "bg-gradient-to-r from-primary to-primary/80 group-hover:from-primary group-hover:to-primary"
                         }`}>GHS {(pkg.price || 0).toFixed(2)}</p>
                     </div>
                   </div>
@@ -508,7 +508,7 @@ export default function DataPackagesPage() {
                     disabled={purchasing === pkg.id || !wallet || wallet.balance < pkg.price || !globalOrderingEnabled}
                     className={`w-full shadow-lg hover:shadow-xl transition-all duration-300 font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm ${isDealer
                       ? "bg-card0 via-orange-500 to-yellow-500 hover:from-amber-600 hover:via-orange-600 hover:to-yellow-600"
-                      : "bg-gradient-to-r from-cyan-600 via-primary to-violet-600 hover:from-cyan-700 hover:via-primary/90 hover:to-violet-700"
+                      : "bg-gradient-to-r from-primary via-primary to-primary hover:from-primary hover:via-primary/90 hover:to-primary"
                       }`}
                   >
                     {purchasing === pkg.id ? (
@@ -547,9 +547,9 @@ export default function DataPackagesPage() {
                       <th className="px-2 sm:px-6 py-2 sm:py-3 text-left font-semibold text-foreground whitespace-nowrap">Action</th>
                     </tr>
                   </thead>
-                  <tbody className={`divide-y ${isDealer ? "divide-amber-100/40" : "divide-cyan-100/40"}`}>
+                  <tbody className={`divide-y ${isDealer ? "divide-amber-100/40" : "divide-primary/40"}`}>
                     {filteredPackages.map((pkg) => (
-                      <tr key={pkg.id} className={`hover:backdrop-blur transition-colors duration-200 cursor-pointer ${isDealer ? "hover:bg-amber-100/30" : "hover:bg-cyan-100/30"
+                      <tr key={pkg.id} className={`hover:backdrop-blur transition-colors duration-200 cursor-pointer ${isDealer ? "hover:bg-amber-100/30" : "hover:bg-primary/30"
                         }`}>
                         <td className="px-2 sm:px-6 py-2 sm:py-4">
                           {getNetworkLogo(pkg.network) && (
@@ -564,7 +564,7 @@ export default function DataPackagesPage() {
                         <td className="px-2 sm:px-6 py-2 sm:py-4 font-semibold text-foreground whitespace-nowrap">{pkg.size.toString().replace(/[^0-9]/g, "")}GB</td>
                         <td className={`px-2 sm:px-6 py-2 sm:py-4 font-bold bg-clip-text text-transparent whitespace-nowrap ${isDealer
                           ? "bg-gradient-to-r from-amber-600 to-orange-600"
-                          : "bg-gradient-to-r from-cyan-600 to-primary/80"
+                          : "bg-gradient-to-r from-primary to-primary/80"
                           }`}>GHS {(pkg.price || 0).toFixed(2)}</td>
                         <td className="px-2 sm:px-6 py-2 sm:py-4 text-muted-foreground whitespace-nowrap">{pkg.description || "-"}</td>
                         <td className="px-2 sm:px-6 py-2 sm:py-4">
@@ -574,7 +574,7 @@ export default function DataPackagesPage() {
                             disabled={purchasing === pkg.id || !wallet || wallet.balance < pkg.price || !globalOrderingEnabled}
                             className={`shadow-md hover:shadow-lg transition-all font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm ${isDealer
                               ? "bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700"
-                              : "bg-gradient-to-r from-cyan-600 to-primary/80 hover:from-cyan-700 hover:to-primary/80"
+                              : "bg-gradient-to-r from-primary to-primary/80 hover:from-primary hover:to-primary/80"
                               }`}
                           >
                             {purchasing === pkg.id ? (

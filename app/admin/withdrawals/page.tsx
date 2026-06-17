@@ -233,7 +233,7 @@ export default function WithdrawalsPage() {
       <div className="space-y-6">
         {/* Page Header */}
         <div>
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-600 via-primary to-pink-600 bg-clip-text text-transparent">
             Withdrawal Approvals
           </h1>
           <p className="text-muted-foreground mt-1 font-medium">Manage shop withdrawal requests</p>
@@ -246,7 +246,7 @@ export default function WithdrawalsPage() {
               key={status}
               variant={filterStatus === status ? "default" : "outline"}
               onClick={() => setFilterStatus(status)}
-              className={filterStatus === status ? "bg-purple-600 hover:bg-purple-700" : ""}
+              className={filterStatus === status ? "bg-primary hover:bg-primary" : ""}
             >
               {status.charAt(0).toUpperCase() + status.slice(1)}
             </Button>
@@ -386,7 +386,7 @@ export default function WithdrawalsPage() {
                             <div>
                               <p className="text-xs text-muted-foreground mb-1">Bank Name</p>
                               <div className="flex items-center gap-2">
-                                <div className="flex-1 bg-purple-50 p-2 rounded border border-border">
+                                <div className="flex-1 bg-primary p-2 rounded border border-border">
                                   <p className="font-mono text-sm text-foreground">
                                     {withdrawal.account_details?.bank_name || "N/A"}
                                   </p>

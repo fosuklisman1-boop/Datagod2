@@ -596,7 +596,7 @@ export default function AdminUsersPage() {
                           </Badge>
                         </td>
                         <td className="px-6 py-4 text-sm text-muted-foreground">
-                          <Badge className="bg-purple-500">
+                          <Badge className="bg-primary">
                             {user.subAgentCount || 0}
                           </Badge>
                         </td>
@@ -758,10 +758,10 @@ export default function AdminUsersPage() {
                               <p className="text-xl font-bold text-orange-700">GHS {Number(userStats.wallet.totalSpent || 0).toFixed(2)}</p>
                             </CardContent>
                           </Card>
-                          <Card className="bg-purple-50 border-border">
+                          <Card className="bg-primary border-border">
                             <CardContent className="p-4">
-                              <p className="text-xs text-purple-600 font-medium">Transactions</p>
-                              <p className="text-xl font-bold text-purple-700">{userStats.wallet.transactionCount}</p>
+                              <p className="text-xs text-primary font-medium">Transactions</p>
+                              <p className="text-xl font-bold text-primary">{userStats.wallet.transactionCount}</p>
                             </CardContent>
                           </Card>
                         </div>
@@ -810,9 +810,9 @@ export default function AdminUsersPage() {
                       <TabsContent value="shop" className="space-y-4 mt-4">
                         {userStats.shop ? (
                           <>
-                            <div className="p-3 bg-purple-50 rounded-lg border border-border">
-                              <p className="font-semibold text-purple-700">{userStats.shop.shopName}</p>
-                              <p className="text-xs text-purple-600">/{userStats.shop.shopSlug}</p>
+                            <div className="p-3 bg-primary rounded-lg border border-border">
+                              <p className="font-semibold text-primary">{userStats.shop.shopName}</p>
+                              <p className="text-xs text-primary">/{userStats.shop.shopSlug}</p>
                               <p className="text-xs text-muted-foreground mt-1">Created: {new Date(userStats.shop.createdAt).toLocaleDateString()}</p>
                               <p className="text-xs text-muted-foreground mt-1">{userStats.shop.profitRecords} profit records</p>
                             </div>
@@ -839,10 +839,10 @@ export default function AdminUsersPage() {
                                   <p className="text-xl font-bold text-emerald-700">GHS {Number(userStats.shop.totalProfit || 0).toFixed(2)}</p>
                                 </CardContent>
                               </Card>
-                              <Card className="bg-purple-50 border-border">
+                              <Card className="bg-primary border-border">
                                 <CardContent className="p-4">
-                                  <p className="text-xs text-purple-600 font-medium">Available Balance</p>
-                                  <p className="text-xl font-bold text-purple-700">GHS {Number(userStats.shop.availableBalance || 0).toFixed(2)}</p>
+                                  <p className="text-xs text-primary font-medium">Available Balance</p>
+                                  <p className="text-xl font-bold text-primary">GHS {Number(userStats.shop.availableBalance || 0).toFixed(2)}</p>
                                 </CardContent>
                               </Card>
                               <Card className="bg-teal-50 border-border">
@@ -1091,7 +1091,7 @@ export default function AdminUsersPage() {
                 <Button
                   onClick={handleChangePassword}
                   disabled={isChangingPassword}
-                  className="w-full bg-gradient-to-r from-primary to-indigo-600 hover:from-primary hover:to-indigo-700"
+                  className="w-full bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary"
                 >
                   {isChangingPassword ? "Changing..." : "Change Password"}
                 </Button>

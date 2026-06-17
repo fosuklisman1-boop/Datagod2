@@ -121,7 +121,7 @@ export default function SubAgentProfitsPage() {
         return (
             <DashboardLayout>
                 <div className="flex items-center justify-center min-h-[400px]">
-                    <Loader2 className="w-8 h-8 animate-spin text-violet-600" />
+                    <Loader2 className="w-8 h-8 animate-spin text-primary" />
                 </div>
             </DashboardLayout>
         )
@@ -143,12 +143,12 @@ export default function SubAgentProfitsPage() {
                     <Card className="bg-card border-border">
                         <CardContent className="pt-6">
                             <div className="flex items-center gap-4">
-                                <div className="p-3 bg-violet-100 rounded-lg">
-                                    <Store className="h-6 w-6 text-violet-600" />
+                                <div className="p-3 bg-primary rounded-lg">
+                                    <Store className="h-6 w-6 text-primary" />
                                 </div>
                                 <div>
                                     <p className="text-sm text-muted-foreground">Parent Shops</p>
-                                    <p className="text-2xl font-bold text-violet-700">{totalParentShops}</p>
+                                    <p className="text-2xl font-bold text-primary">{totalParentShops}</p>
                                 </div>
                             </div>
                         </CardContent>
@@ -228,8 +228,8 @@ export default function SubAgentProfitsPage() {
                                 >
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-4">
-                                            <div className="p-2 bg-violet-100 rounded-lg">
-                                                <Store className="h-5 w-5 text-violet-600" />
+                                            <div className="p-2 bg-primary rounded-lg">
+                                                <Store className="h-5 w-5 text-primary" />
                                             </div>
                                             <div>
                                                 <CardTitle className="text-lg flex items-center gap-2">

@@ -59,7 +59,7 @@ export default function SmsHealthPage() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl font-black text-foreground flex items-center gap-2">
-              <MessageSquare className="w-6 h-6 text-violet-600" /> SMS Health
+              <MessageSquare className="w-6 h-6 text-primary" /> SMS Health
             </h1>
             <p className="text-sm text-muted-foreground mt-1">Real delivery outcomes (delivered vs failed), not just gateway acceptance.</p>
           </div>
@@ -85,7 +85,7 @@ export default function SmsHealthPage() {
         )}
 
         {loading && !data ? (
-          <div className="flex items-center justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-violet-600" /></div>
+          <div className="flex items-center justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
         ) : data ? (
           <>
             {/* OTP auto-failover breaker banner */}
@@ -109,13 +109,13 @@ export default function SmsHealthPage() {
 
             {/* OTP callout */}
             {otp && (
-              <Card className="border-border bg-violet-50/50">
+              <Card className="border-border bg-primary/50">
                 <CardContent className="pt-6 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
-                  <span className="font-bold text-violet-900">OTP codes ({otp.total})</span>
+                  <span className="font-bold text-primary">OTP codes ({otp.total})</span>
                   <span className="text-green-700">✓ {otp.delivered} delivered</span>
                   <span className="text-red-700">✗ {otp.failed} failed</span>
                   <span className="text-amber-700">◷ {otp.sent} awaiting</span>
-                  <span className="ml-auto font-bold text-violet-900">Delivery: {rate(otp.delivered, otp.failed)}</span>
+                  <span className="ml-auto font-bold text-primary">Delivery: {rate(otp.delivered, otp.failed)}</span>
                 </CardContent>
               </Card>
             )}
@@ -170,7 +170,7 @@ export default function SmsHealthPage() {
 }
 
 function StatCard({ label, value, icon, tone }: { label: string; value: number | string; icon?: React.ReactNode; tone?: "green" | "red" | "amber" | "violet" }) {
-  const toneClass = tone === "green" ? "text-green-700" : tone === "red" ? "text-red-700" : tone === "amber" ? "text-amber-700" : tone === "violet" ? "text-violet-700" : "text-foreground"
+  const toneClass = tone === "green" ? "text-green-700" : tone === "red" ? "text-red-700" : tone === "amber" ? "text-amber-700" : tone === "violet" ? "text-primary" : "text-foreground"
   return (
     <Card>
       <CardContent className="pt-5 pb-4">

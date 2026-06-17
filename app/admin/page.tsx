@@ -134,7 +134,7 @@ export default function AdminDashboardPage() {
       <div className="space-y-6">
         {/* Page Header */}
         <div>
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">Admin Dashboard</h1>
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-600 via-primary to-pink-600 bg-clip-text text-transparent">Admin Dashboard</h1>
           <p className="text-muted-foreground mt-1 font-medium">Manage packages, users, and shop approvals</p>
         </div>
 
@@ -148,7 +148,7 @@ export default function AdminDashboardPage() {
                 <Users className="h-4 w-4 text-primary" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold bg-gradient-to-r from-primary to-cyan-600 bg-clip-text text-transparent">{formatCount(stats.totalUsers)}</div>
+                <div className="text-2xl font-bold bg-gradient-to-r from-primary to-primary bg-clip-text text-transparent">{formatCount(stats.totalUsers)}</div>
                 <p className="text-xs text-muted-foreground">Registered users</p>
               </CardContent>
             </Card>
@@ -169,10 +169,10 @@ export default function AdminDashboardPage() {
             <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-purple-500 bg-card backdrop-blur-xl border border-border">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium text-foreground">Total Sub-Agents</CardTitle>
-                <Users className="h-4 w-4 text-purple-600" />
+                <Users className="h-4 w-4 text-primary" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold bg-gradient-to-r from-purple-600 to-fuchsia-600 bg-clip-text text-transparent">{formatCount(stats.totalSubAgents)}</div>
+                <div className="text-2xl font-bold bg-gradient-to-r from-primary to-primary bg-clip-text text-transparent">{formatCount(stats.totalSubAgents)}</div>
                 <p className="text-xs text-muted-foreground">Active sub-agents</p>
               </CardContent>
             </Card>
@@ -193,10 +193,10 @@ export default function AdminDashboardPage() {
             <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-violet-500 bg-card backdrop-blur-xl border border-border">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium text-foreground">Total Revenue</CardTitle>
-                <TrendingUp className="h-4 w-4 text-violet-600" />
+                <TrendingUp className="h-4 w-4 text-primary" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent">GHS {stats.totalRevenue.toFixed(2)}</div>
+                <div className="text-2xl font-bold bg-gradient-to-r from-primary to-primary bg-clip-text text-transparent">GHS {stats.totalRevenue.toFixed(2)}</div>
                 <p className="text-xs text-muted-foreground">Platform revenue</p>
               </CardContent>
             </Card>
@@ -267,7 +267,7 @@ export default function AdminDashboardPage() {
           <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-primary/20 hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-blue-400/30 to-cyan-400/20 backdrop-blur p-2 rounded-lg border border-border">
+                <div className="bg-gradient-to-br from-blue-400/30 to-primary/20 backdrop-blur p-2 rounded-lg border border-border">
                   <Package className="h-5 w-5 text-primary" />
                 </div>
                 <CardTitle>Manage Packages</CardTitle>
@@ -278,7 +278,7 @@ export default function AdminDashboardPage() {
               <Button
                 onClick={() => handleNavigate("/admin/packages")}
                 disabled={navigating !== null}
-                className="w-full bg-gradient-to-r from-primary to-cyan-600 hover:from-primary hover:to-cyan-700 text-white font-semibold"
+                className="w-full bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary text-white font-semibold"
               >
                 {navigating === "/admin/packages" ? (
                   <>
@@ -354,8 +354,8 @@ export default function AdminDashboardPage() {
           <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-border hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-indigo-400/30 to-blue-400/20 backdrop-blur p-2 rounded-lg border border-border">
-                  <Search className="h-5 w-5 text-indigo-600" />
+                <div className="bg-gradient-to-br from-primary/30 to-blue-400/20 backdrop-blur p-2 rounded-lg border border-border">
+                  <Search className="h-5 w-5 text-primary" />
                 </div>
                 <CardTitle>Order Payment Status</CardTitle>
               </div>
@@ -365,7 +365,7 @@ export default function AdminDashboardPage() {
               <Button
                 onClick={() => handleNavigate("/admin/order-payment-status")}
                 disabled={navigating !== null}
-                className="w-full bg-gradient-to-r from-indigo-600 to-primary/80 hover:from-indigo-700 hover:to-primary/80 text-white font-semibold"
+                className="w-full bg-gradient-to-r from-primary to-primary/80 hover:from-primary hover:to-primary/80 text-white font-semibold"
               >
                 {navigating === "/admin/order-payment-status" ? (
                   <>
@@ -383,8 +383,8 @@ export default function AdminDashboardPage() {
           <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-border hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-violet-400/30 to-purple-400/20 backdrop-blur p-2 rounded-lg border border-border">
-                  <Store className="h-5 w-5 text-violet-600" />
+                <div className="bg-gradient-to-br from-primary/30 to-primary/20 backdrop-blur p-2 rounded-lg border border-border">
+                  <Store className="h-5 w-5 text-primary" />
                 </div>
                 <CardTitle>Shop Approvals</CardTitle>
               </div>
@@ -394,7 +394,7 @@ export default function AdminDashboardPage() {
               <Button
                 onClick={() => handleNavigate("/admin/shops")}
                 disabled={navigating !== null}
-                className="w-full bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white font-semibold"
+                className="w-full bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary text-white font-semibold"
               >
                 {navigating === "/admin/shops" ? (
                   <>
@@ -470,8 +470,8 @@ export default function AdminDashboardPage() {
           <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-border hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-indigo-400/30 to-purple-400/20 backdrop-blur p-2 rounded-lg border border-border">
-                  <TrendingUp className="h-5 w-5 text-indigo-600" />
+                <div className="bg-gradient-to-br from-primary/30 to-primary/20 backdrop-blur p-2 rounded-lg border border-border">
+                  <TrendingUp className="h-5 w-5 text-primary" />
                 </div>
                 <CardTitle>Order History</CardTitle>
               </div>
@@ -481,7 +481,7 @@ export default function AdminDashboardPage() {
               <Button
                 onClick={() => handleNavigate("/admin/order-history")}
                 disabled={navigating !== null}
-                className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-semibold"
+                className="w-full bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary text-white font-semibold"
               >
                 {navigating === "/admin/order-history" ? (
                   <>
@@ -499,8 +499,8 @@ export default function AdminDashboardPage() {
           <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-border hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-fuchsia-400/30 to-purple-400/20 backdrop-blur p-2 rounded-lg border border-border">
-                  <TrendingUp className="h-5 w-5 text-fuchsia-600" />
+                <div className="bg-gradient-to-br from-primary/30 to-primary/20 backdrop-blur p-2 rounded-lg border border-border">
+                  <TrendingUp className="h-5 w-5 text-primary" />
                 </div>
                 <CardTitle>Sub-Agent Profits</CardTitle>
               </div>
@@ -510,7 +510,7 @@ export default function AdminDashboardPage() {
               <Button
                 onClick={() => handleNavigate("/admin/sub-agent-profits")}
                 disabled={navigating !== null}
-                className="w-full bg-gradient-to-r from-fuchsia-600 to-purple-600 hover:from-fuchsia-700 hover:to-purple-700 text-white font-semibold"
+                className="w-full bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary text-white font-semibold"
               >
                 {navigating === "/admin/sub-agent-profits" ? (
                   <>
@@ -586,8 +586,8 @@ export default function AdminDashboardPage() {
           <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-border hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-cyan-400/30 to-blue-400/20 backdrop-blur p-2 rounded-lg border border-border">
-                  <Settings className="h-5 w-5 text-cyan-600" />
+                <div className="bg-gradient-to-br from-primary/30 to-blue-400/20 backdrop-blur p-2 rounded-lg border border-border">
+                  <Settings className="h-5 w-5 text-primary" />
                 </div>
                 <CardTitle>AFA Management</CardTitle>
               </div>
@@ -597,7 +597,7 @@ export default function AdminDashboardPage() {
               <Button
                 onClick={() => handleNavigate("/admin/afa-management")}
                 disabled={navigating !== null}
-                className="w-full bg-gradient-to-r from-cyan-600 to-primary/80 hover:from-cyan-700 hover:to-primary/80 text-white font-semibold"
+                className="w-full bg-gradient-to-r from-primary to-primary/80 hover:from-primary hover:to-primary/80 text-white font-semibold"
               >
                 {navigating === "/admin/afa-management" ? (
                   <>
@@ -680,7 +680,7 @@ export default function AdminDashboardPage() {
             <CardContent className="grid grid-cols-2 md:grid-cols-3 gap-6">
               <div>
                 <p className="text-sm text-muted-foreground mb-1">Completed Orders</p>
-                <p className="text-2xl font-bold text-indigo-600">{formatCount(stats.completedOrders)}</p>
+                <p className="text-2xl font-bold text-primary">{formatCount(stats.completedOrders)}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground mb-1">Success Rate</p>

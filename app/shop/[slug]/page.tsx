@@ -654,7 +654,7 @@ export default function ShopStorefront() {
             {/* 3-Line Hamburger Button */}
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="p-2 hover:bg-violet-50 text-foreground hover:text-violet-600 rounded-lg transition-all duration-200 hover:shadow-md"
+              className="p-2 hover:bg-primary text-foreground hover:text-primary rounded-lg transition-all duration-200 hover:shadow-md"
               aria-label="Toggle navigation menu"
               aria-expanded={sidebarOpen}
             >
@@ -663,7 +663,7 @@ export default function ShopStorefront() {
 
             {/* Shop Info */}
             <div className="flex items-center gap-3">
-              <Store className="w-6 h-6 text-violet-600 hidden sm:block" />
+              <Store className="w-6 h-6 text-primary hidden sm:block" />
               <h1 className="text-xl sm:text-2xl font-bold text-foreground truncate">
                 {shop.shop_name || shop.name || "Store"}
               </h1>
@@ -684,7 +684,7 @@ export default function ShopStorefront() {
       {/* Mobile Sidebar Overlay */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 bg-black/40 z-20 transition-opacity duration-200"
+          className="fixed inset-0 bg-background/40 z-20 transition-opacity duration-200"
           onClick={() => setSidebarOpen(false)}
           aria-hidden="true"
         />
@@ -707,7 +707,7 @@ export default function ShopStorefront() {
                       setSidebarOpen(false)
                     }}
                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all duration-200 ${activeTab === tab.id
-                      ? "bg-violet-100 text-violet-700 border-l-4 border-l-violet-600 shadow-sm"
+                      ? "bg-primary text-primary border-l-4 border-l-violet-600 shadow-sm"
                       : "text-foreground hover:bg-accent border-l-4 border-l-transparent"
                       }`}
                   >
@@ -727,7 +727,7 @@ export default function ShopStorefront() {
             alt={shop.shop_name}
             className="w-full h-full object-cover"
           />
-          <div className="absolute inset-0 bg-black/30" />
+          <div className="absolute inset-0 bg-background/30" />
         </div>
       )}
 
@@ -773,7 +773,7 @@ export default function ShopStorefront() {
                   <button
                     onClick={() => setActiveTab("products")}
                     className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all duration-300 ${activeTab === "products"
-                        ? "bg-card text-violet-700 shadow-md scale-[1.02]"
+                        ? "bg-card text-primary shadow-md scale-[1.02]"
                         : "text-muted-foreground hover:text-foreground hover:bg-card/50"
                       }`}
                   >
@@ -783,7 +783,7 @@ export default function ShopStorefront() {
                   <button
                     onClick={() => setActiveTab("airtime")}
                     className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all duration-300 ${activeTab === "airtime"
-                        ? "bg-card text-violet-700 shadow-md scale-[1.02]"
+                        ? "bg-card text-primary shadow-md scale-[1.02]"
                         : "text-muted-foreground hover:text-foreground hover:bg-card/50"
                       }`}
                   >
@@ -793,7 +793,7 @@ export default function ShopStorefront() {
                   <button
                     onClick={() => setActiveTab("vouchers")}
                     className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all duration-300 ${activeTab === "vouchers"
-                        ? "bg-card text-violet-700 shadow-md scale-[1.02]"
+                        ? "bg-card text-primary shadow-md scale-[1.02]"
                         : "text-muted-foreground hover:text-foreground hover:bg-card/50"
                       }`}
                   >
@@ -806,7 +806,7 @@ export default function ShopStorefront() {
                   /* Data Packages Section */
                   <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <div>
-                      <h2 className="text-2xl font-black mb-6 text-foreground border-l-4 border-violet-600 pl-4">Fast Data Packages</h2>
+                      <h2 className="text-2xl font-black mb-6 text-foreground border-l-4 border-primary pl-4">Fast Data Packages</h2>
 
                       {packages.length === 0 ? (
                         <Card className="bg-card/50 border-2 border-dashed border-border backdrop-blur-sm">
@@ -827,12 +827,12 @@ export default function ShopStorefront() {
                                   key={network}
                                   onClick={() => setSelectedNetwork(network as string)}
                                   className={`group cursor-pointer hover:shadow-2xl transition-all duration-500 hover:-translate-y-2 overflow-hidden border-0 ${selectedNetwork === network
-                                      ? "ring-4 ring-violet-600 shadow-xl"
+                                      ? "ring-4 ring-primary shadow-xl"
                                       : "shadow-md bg-card/80"
                                     }`}
                                 >
                                   <div className="flex flex-col h-full relative">
-                                    <div className={`h-24 sm:h-32 w-full flex items-center justify-center relative overflow-hidden transition-colors ${selectedNetwork === network ? 'bg-violet-50' : 'bg-muted/40 group-hover:bg-muted'}`}>
+                                    <div className={`h-24 sm:h-32 w-full flex items-center justify-center relative overflow-hidden transition-colors ${selectedNetwork === network ? 'bg-primary' : 'bg-muted/40 group-hover:bg-muted'}`}>
                                       <img
                                         src={getNetworkLogo(network as string)}
                                         alt={network}
@@ -841,12 +841,12 @@ export default function ShopStorefront() {
                                     </div>
 
                                     <div className="flex-1 p-3 text-center">
-                                      <h3 className={`text-sm sm:text-base font-black uppercase tracking-tight ${selectedNetwork === network ? 'text-violet-700' : 'text-foreground'}`}>{network}</h3>
+                                      <h3 className={`text-sm sm:text-base font-black uppercase tracking-tight ${selectedNetwork === network ? 'text-primary' : 'text-foreground'}`}>{network}</h3>
                                       <p className="text-[10px] sm:text-xs text-muted-foreground font-bold mt-1 uppercase opacity-60">{availableCount} plans</p>
                                     </div>
                                     
                                     {selectedNetwork === network && (
-                                      <div className="absolute top-2 right-2 bg-violet-600 text-white rounded-full p-1 shadow-lg">
+                                      <div className="absolute top-2 right-2 bg-primary text-white rounded-full p-1 shadow-lg">
                                         <CheckCircle2 className="w-3 h-3 sm:w-4 sm:h-4" />
                                       </div>
                                     )}
@@ -860,7 +860,7 @@ export default function ShopStorefront() {
                           {selectedNetwork && (
                             <div ref={packagesRef} className="py-10 border-t border-border animate-in fade-in slide-in-from-bottom-8 duration-700">
                               <div className="flex items-center gap-4 mb-8">
-                                <div className="p-3 bg-violet-100 rounded-2xl">
+                                <div className="p-3 bg-primary rounded-2xl">
                                   <img src={getNetworkLogo(selectedNetwork)} className="w-8 h-8 object-contain" alt={selectedNetwork} />
                                 </div>
                                 <div>
@@ -889,11 +889,11 @@ export default function ShopStorefront() {
 
                                     return (
                                       <Card key={shopPkg.id} className="group hover:shadow-2xl transition-all duration-500 hover:-translate-y-2 border-0 shadow-lg bg-card overflow-hidden rounded-2xl">
-                                        <div className="h-2 bg-gradient-to-r from-violet-600 to-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                                        <div className="h-2 bg-gradient-to-r from-primary to-primary opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
                                         <CardHeader className="pb-2">
                                           <div className="flex items-start justify-between">
                                             <div className="flex-1">
-                                              <CardTitle className="text-2xl font-black text-foreground group-hover:text-violet-700 transition-colors">
+                                              <CardTitle className="text-2xl font-black text-foreground group-hover:text-primary transition-colors">
                                                 {pkg.size}GB
                                               </CardTitle>
                                               <CardDescription className="text-sm font-medium text-muted-foreground mt-1">{pkg.description}</CardDescription>
@@ -913,8 +913,8 @@ export default function ShopStorefront() {
                                             </div>
                                             <div className="flex flex-col items-end">
                                               <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mb-1">Status</span>
-                                              <div className="flex items-center gap-1.5 px-2.5 py-1 bg-violet-50 text-violet-700 rounded-lg text-xs font-bold ring-1 ring-violet-200/50">
-                                                <Zap className="w-3 h-3 fill-violet-700" />
+                                              <div className="flex items-center gap-1.5 px-2.5 py-1 bg-primary text-primary rounded-lg text-xs font-bold ring-1 ring-primary/50">
+                                                <Zap className="w-3 h-3 fill-primary" />
                                                 Instant
                                               </div>
                                             </div>
@@ -923,7 +923,7 @@ export default function ShopStorefront() {
                                           <Button
                                             onClick={() => handleBuyNow(shopPkg)}
                                             disabled={!shopPkg.is_available || !globalOrderingEnabled}
-                                            className="w-full h-14 bg-slate-900 hover:bg-violet-700 text-white font-black rounded-xl shadow-xl transition-all duration-300 disabled:opacity-50 group-hover:scale-[1.02]"
+                                            className="w-full h-14 bg-slate-900 hover:bg-primary text-white font-black rounded-xl shadow-xl transition-all duration-300 disabled:opacity-50 group-hover:scale-[1.02]"
                                           >
                                             <ShoppingCart className="w-5 h-5 mr-3" />
                                             Order Now
@@ -951,19 +951,19 @@ export default function ShopStorefront() {
                     <div className="flex p-1 bg-muted rounded-xl w-full sm:w-fit shadow-inner">
                       <button
                         onClick={() => setRcTab("buy")}
-                        className={`flex-1 sm:flex-none px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-200 ${rcTab === "buy" ? "bg-card text-violet-700 shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                        className={`flex-1 sm:flex-none px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-200 ${rcTab === "buy" ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
                       >
                         Buy Vouchers
                       </button>
                       <button
                         onClick={() => setRcTab("retrieve")}
-                        className={`flex-1 sm:flex-none px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-200 ${rcTab === "retrieve" ? "bg-card text-violet-700 shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                        className={`flex-1 sm:flex-none px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-200 ${rcTab === "retrieve" ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
                       >
                         Retrieve Vouchers
                       </button>
                       <button
                         onClick={() => setRcTab("check")}
-                        className={`flex-1 sm:flex-none px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-200 ${rcTab === "check" ? "bg-card text-violet-700 shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                        className={`flex-1 sm:flex-none px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-200 ${rcTab === "check" ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
                       >
                         Check My Results
                       </button>
@@ -1042,7 +1042,7 @@ export default function ShopStorefront() {
       </div>
       {
         checkoutOpen && selectedPackage && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="fixed inset-0 bg-background/50 flex items-center justify-center p-4 z-50">
             <Card className="w-full max-w-md bg-card max-h-[90vh] flex flex-col">
               <CardHeader className="border-b border-border shrink-0">
                 <CardTitle>Checkout</CardTitle>
@@ -1093,7 +1093,7 @@ export default function ShopStorefront() {
                 <div className="p-4 bg-card rounded-lg border border-border">
                   <div className="flex justify-between items-end mb-3">
                     <span className="font-semibold text-foreground">Total Amount:</span>
-                    <span className="text-2xl font-bold bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent">
+                    <span className="text-2xl font-bold bg-gradient-to-r from-primary to-primary bg-clip-text text-transparent">
                       GHS {(selectedPackage.selling_price !== undefined ? selectedPackage.selling_price : (selectedPackage.packages.price + selectedPackage.profit_margin)).toFixed(2)}
                     </span>
                   </div>
@@ -1115,9 +1115,9 @@ export default function ShopStorefront() {
                     send/verify controls render only when OTP is required; with
                     direct charge alone the number is simply charged as typed. */}
                 {(otpRequired || directCharge) && (
-                  <div className="p-4 rounded-lg bg-purple-50 border border-border space-y-3">
+                  <div className="p-4 rounded-lg bg-primary border border-border space-y-3">
                     <div>
-                      <Label className="text-sm font-semibold text-purple-900">Mobile Money number to pay from *</Label>
+                      <Label className="text-sm font-semibold text-primary">Mobile Money number to pay from *</Label>
                       <Input
                         value={paymentPhone}
                         onChange={(e) => {
@@ -1129,7 +1129,7 @@ export default function ShopStorefront() {
                         className="mt-1 bg-card"
                         disabled={otpRequired && otpVerified}
                       />
-                      <p className="text-xs text-purple-700 mt-1">
+                      <p className="text-xs text-primary mt-1">
                         {otpRequired
                           ? "The payment prompt is sent to this number. You verify it once."
                           : "The payment prompt is sent to this number."}
@@ -1142,7 +1142,7 @@ export default function ShopStorefront() {
                           type="button"
                           onClick={handleSendCheckoutOtp}
                           disabled={sendingOtp || otpCooldown.seconds > 0}
-                          className="w-full bg-purple-600 hover:bg-purple-700 text-white"
+                          className="w-full bg-primary hover:bg-primary text-white"
                         >
                           {sendingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code…</>) : otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Send verification code"}
                         </Button>
@@ -1161,7 +1161,7 @@ export default function ShopStorefront() {
                               type="button"
                               onClick={handleVerifyCheckoutOtp}
                               disabled={verifyingOtp || otpCode.length < 4}
-                              className="flex-1 bg-purple-600 hover:bg-purple-700 text-white"
+                              className="flex-1 bg-primary hover:bg-primary text-white"
                             >
                               {verifyingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying…</>) : "Verify"}
                             </Button>
@@ -1194,7 +1194,7 @@ export default function ShopStorefront() {
                   <Button
                     onClick={handleSubmitOrder}
                     disabled={submitting || (turnstileEnabled && !turnstileToken) || (otpRequired && !otpVerified) || (directCharge && !otpRequired && !/^0?\d{9}$/.test(paymentPhone.replace(/\D/g, "")))}
-                    className="flex-1 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700"
+                    className="flex-1 bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary"
                   >
                     {submitting ? (
                       <>
@@ -1228,12 +1228,12 @@ export default function ShopStorefront() {
           the customer approves the prompt; polls order status until the webhook
           flips it to completed, then shows the order summary. */}
       {momoModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-[60]">
+        <div className="fixed inset-0 bg-background/60 flex items-center justify-center p-4 z-[60]">
           <Card className="w-full max-w-md bg-card">
             {momoModal.state === "awaiting" && (
               <CardContent className="pt-8 pb-6 text-center space-y-4">
-                <div className="mx-auto w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center">
-                  <Loader2 className="w-8 h-8 text-purple-600 animate-spin" />
+                <div className="mx-auto w-16 h-16 rounded-full bg-primary flex items-center justify-center">
+                  <Loader2 className="w-8 h-8 text-primary animate-spin" />
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-foreground">Approve the prompt on your phone</h3>
@@ -1275,7 +1275,7 @@ export default function ShopStorefront() {
                     setOrderData({ customer_name: "", customer_email: "", customer_phone: "" })
                     setPaymentPhone(""); setOtpSent(false); setOtpVerified(false); setOtpCode("")
                   }}
-                  className="w-full bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700"
+                  className="w-full bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary"
                 >
                   Done
                 </Button>
@@ -1293,7 +1293,7 @@ export default function ShopStorefront() {
                 </div>
                 <div className="flex gap-2">
                   <Button variant="outline" onClick={() => setMomoModal(null)} className="flex-1">Close</Button>
-                  <Button onClick={() => { setMomoModal(null); setCheckoutOpen(true) }} className="flex-1 bg-purple-600 hover:bg-purple-700 text-white">Try again</Button>
+                  <Button onClick={() => { setMomoModal(null); setCheckoutOpen(true) }} className="flex-1 bg-primary hover:bg-primary text-white">Try again</Button>
                 </div>
               </CardContent>
             )}
@@ -1376,12 +1376,12 @@ function ShopTermsSection({ termsContent, termsLastUpdated }: { termsContent: st
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2 text-base">
-            <AlignJustify className="w-4 h-4 text-violet-600" />
+            <AlignJustify className="w-4 h-4 text-primary" />
             Platform Terms of Service
           </CardTitle>
           <button
             onClick={() => setExpanded(!expanded)}
-            className="text-xs text-violet-600 hover:text-violet-700 font-medium border border-border hover:border-violet-400 rounded px-2 py-0.5 transition-colors"
+            className="text-xs text-primary hover:text-primary font-medium border border-border hover:border-primary rounded px-2 py-0.5 transition-colors"
           >
             {expanded ? "Hide" : "Read Terms"}
           </button>
@@ -1393,7 +1393,7 @@ function ShopTermsSection({ termsContent, termsLastUpdated }: { termsContent: st
         <CardContent className="space-y-3 pt-0">
           {sections.map((s, i) => (
             <div key={i} className="p-3 bg-muted/40 rounded-lg border border-border">
-              <p className="text-xs font-bold text-violet-700 mb-1">{s.title}</p>
+              <p className="text-xs font-bold text-primary mb-1">{s.title}</p>
               <p className="text-xs text-foreground leading-relaxed">{s.body}</p>
             </div>
           ))}

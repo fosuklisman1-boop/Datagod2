@@ -32,7 +32,7 @@ interface AllOrder {
 function getNetworkColor(network: string): string {
   const colorMap: { [key: string]: string } = {
     "MTN": "bg-yellow-100 text-yellow-800",
-    "Telecel": "bg-purple-100 text-purple-800",
+    "Telecel": "bg-primary text-primary",
     "AT - iShare": "bg-primary/10 text-primary",
     "AT - BigTime": "bg-green-100 text-green-800",
     "iShare": "bg-primary/10 text-primary",
@@ -629,7 +629,7 @@ export default function OrderPaymentStatusPage() {
         <div>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary via-purple-600 to-pink-600 bg-clip-text text-transparent">
+              <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary via-primary to-pink-600 bg-clip-text text-transparent">
                 Order Payment Status
               </h1>
               <p className="text-muted-foreground mt-1 font-medium">View and search all orders by payment reference or phone number</p>

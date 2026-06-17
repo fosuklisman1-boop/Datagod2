@@ -214,17 +214,17 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
   function buttonClass(style?: string) {
     if (style === "danger") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-border bg-red-50 text-red-700 hover:bg-red-100 transition-colors"
     if (style === "secondary") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-border bg-card text-muted-foreground hover:bg-accent transition-colors"
-    return "px-3 py-1.5 rounded-xl text-xs font-medium border border-border bg-violet-50 text-violet-700 hover:bg-violet-100 transition-colors"
+    return "px-3 py-1.5 rounded-xl text-xs font-medium border border-border bg-primary text-primary hover:bg-primary transition-colors"
   }
 
   return (
     <div ref={wrapperRef} className="fixed bottom-24 md:bottom-6 right-6 z-50 flex flex-col items-end gap-2">
       {isOpen && (
         <div className="w-[calc(100vw-3rem)] sm:w-[360px] h-[520px] max-h-[calc(100vh-100px)] bg-card/12 backdrop-blur-3xl backdrop-saturate-150 rounded-2xl border border-white/35 shadow-[inset_0_1px_0_rgba(255,255,255,0.55),inset_0_-1px_0_rgba(0,0,0,0.06),0_24px_48px_rgba(0,0,0,0.14),0_4px_16px_rgba(139,92,246,0.15)] flex flex-col overflow-hidden">
-          <div className="bg-violet-500/55 backdrop-blur-sm text-white px-4 py-3 flex items-center justify-between flex-shrink-0 border-b border-white/20">
+          <div className="bg-primary/55 backdrop-blur-sm text-white px-4 py-3 flex items-center justify-between flex-shrink-0 border-b border-white/20">
             <div>
               <p className="font-semibold text-sm">{shop.shop_name}</p>
-              <p className="text-violet-200 text-xs">AI Assistant</p>
+              <p className="text-primary text-xs">AI Assistant</p>
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -234,12 +234,12 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
                   setActionButtons(null)
                   try { localStorage.removeItem(STORAGE_KEY(shopSlug)) } catch {}
                 }}
-                className="text-violet-200 hover:text-white transition-colors"
+                className="text-primary hover:text-white transition-colors"
                 title="Clear chat"
               >
                 <Trash2 size={15} />
               </button>
-              <button onClick={() => setIsOpen(false)} className="text-violet-200 hover:text-white transition-colors">
+              <button onClick={() => setIsOpen(false)} className="text-primary hover:text-white transition-colors">
                 <X size={18} />
               </button>
             </div>
@@ -260,9 +260,9 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
                       </ReactMarkdown>
                     ) : (
                       <span className="flex gap-1.5 items-center h-4">
-                        <span className="w-2 h-2 bg-violet-500 rounded-full animate-thinking" style={{ animationDelay: "0ms" }} />
-                        <span className="w-2 h-2 bg-violet-500 rounded-full animate-thinking" style={{ animationDelay: "200ms" }} />
-                        <span className="w-2 h-2 bg-violet-500 rounded-full animate-thinking" style={{ animationDelay: "400ms" }} />
+                        <span className="w-2 h-2 bg-primary rounded-full animate-thinking" style={{ animationDelay: "0ms" }} />
+                        <span className="w-2 h-2 bg-primary rounded-full animate-thinking" style={{ animationDelay: "200ms" }} />
+                        <span className="w-2 h-2 bg-primary rounded-full animate-thinking" style={{ animationDelay: "400ms" }} />
                       </span>
                     )}
                   </div>
@@ -285,7 +285,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
             {showScrollBtn && (
               <button
                 onClick={scrollToBottom}
-                className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-violet-600/85 backdrop-blur-sm border border-violet-400/50 text-white shadow-lg hover:bg-violet-600 transition-all hover:scale-110 active:scale-95"
+                className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-primary/85 backdrop-blur-sm border border-primary/50 text-white shadow-lg hover:bg-primary transition-all hover:scale-110 active:scale-95"
                 aria-label="Scroll to bottom"
               >
                 <ChevronDown size={16} />
@@ -301,12 +301,12 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
               onKeyDown={handleKeyDown}
               disabled={isStreaming}
               placeholder="Type a message..."
-              className="flex-1 text-sm bg-card/30 border border-white/40 rounded-xl px-3 py-2 outline-none focus:border-violet-400/80 focus:bg-card/50 disabled:opacity-50 transition-all placeholder:text-muted-foreground text-foreground"
+              className="flex-1 text-sm bg-card/30 border border-white/40 rounded-xl px-3 py-2 outline-none focus:border-primary/80 focus:bg-card/50 disabled:opacity-50 transition-all placeholder:text-muted-foreground text-foreground"
             />
             <button
               onClick={() => sendMessage()}
               disabled={isStreaming || !input.trim()}
-              className="bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white rounded-xl p-2 transition-colors flex-shrink-0"
+              className="bg-primary hover:bg-primary disabled:opacity-40 text-white rounded-xl p-2 transition-colors flex-shrink-0"
             >
               <Send size={16} />
             </button>
@@ -329,23 +329,23 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
       {!isOpen && (
         <div className={`transition-opacity duration-300 ${hintVisible ? "opacity-100" : "opacity-0"}`}>
           <div className="bg-card/95 backdrop-blur-sm rounded-full px-4 py-2 shadow-lg border border-border">
-            <p className="text-xs font-semibold text-violet-600 whitespace-nowrap">{hints[hintIndex]}</p>
+            <p className="text-xs font-semibold text-primary whitespace-nowrap">{hints[hintIndex]}</p>
           </div>
         </div>
       )}
 
       <div className="relative">
         {!isOpen && (
-          <span className="absolute inset-0 rounded-full bg-violet-500 animate-ping opacity-15 pointer-events-none" />
+          <span className="absolute inset-0 rounded-full bg-primary animate-ping opacity-15 pointer-events-none" />
         )}
         <button
           onClick={() => setIsOpen(o => !o)}
-          className="relative flex items-center gap-2 bg-violet-700 border border-violet-400/60 text-white rounded-full px-5 py-2.5 shadow-lg shadow-violet-500/30 hover:shadow-violet-500/50 hover:bg-violet-600 hover:border-border transition-all duration-300 hover:scale-105 active:scale-95"
+          className="relative flex items-center gap-2 bg-primary border border-primary/60 text-white rounded-full px-5 py-2.5 shadow-lg shadow-primary/30 hover:shadow-primary/50 hover:bg-primary hover:border-border transition-all duration-300 hover:scale-105 active:scale-95"
           aria-label="Open AI chat"
         >
           {isOpen
             ? <X size={18} />
-            : <><Sparkles size={17} className="text-violet-200" /><span className="text-sm font-semibold">Ask</span></>
+            : <><Sparkles size={17} className="text-primary" /><span className="text-sm font-semibold">Ask</span></>
           }
         </button>
       </div>

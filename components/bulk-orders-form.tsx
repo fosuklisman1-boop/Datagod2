@@ -519,7 +519,7 @@ export function BulkOrdersForm() {
     <Card className="bg-card backdrop-blur-xl border border-primary/20 hover:border-border hover:shadow-2xl transition-all duration-300">
       <CardHeader>
         <div className="flex items-center gap-2">
-          <Download className="h-5 w-5 text-violet-600" />
+          <Download className="h-5 w-5 text-primary" />
           <div>
             <CardTitle className="text-foreground">Bulk Orders (Excel/Text)</CardTitle>
             <CardDescription>Upload multiple phone numbers at once</CardDescription>
@@ -549,14 +549,14 @@ export function BulkOrdersForm() {
           <Button
             variant={activeTab === "text" ? "default" : "outline"}
             onClick={() => setActiveTab("text")}
-            className={activeTab === "text" ? "bg-gradient-to-r from-violet-600 to-purple-600 text-white" : "hover:border-violet-400 hover:text-violet-700 bg-violet-50/30 border-border text-foreground"}
+            className={activeTab === "text" ? "bg-gradient-to-r from-primary to-primary text-white" : "hover:border-primary hover:text-primary bg-primary/30 border-border text-foreground"}
           >
             Text Input
           </Button>
           <Button
             variant={activeTab === "excel" ? "default" : "outline"}
             onClick={() => setActiveTab("excel")}
-            className={activeTab === "excel" ? "bg-gradient-to-r from-violet-600 to-purple-600 text-white" : "hover:border-violet-400 hover:text-violet-700 bg-violet-50/30 border-border text-foreground"}
+            className={activeTab === "excel" ? "bg-gradient-to-r from-primary to-primary text-white" : "hover:border-primary hover:text-primary bg-primary/30 border-border text-foreground"}
           >
             Excel Upload
           </Button>
@@ -572,7 +572,7 @@ export function BulkOrdersForm() {
               value={textInput}
               onChange={(e) => setTextInput(e.target.value)}
               rows={6}
-              className="font-mono text-sm bg-card/70 backdrop-blur border-border focus:border-violet-400 focus:ring-2 focus:ring-violet-500/50"
+              className="font-mono text-sm bg-card/70 backdrop-blur border-border focus:border-primary focus:ring-2 focus:ring-primary/50"
             />
             <p className="text-xs text-muted-foreground">
               Format: Phone number followed by space and volume in GB
@@ -583,7 +583,7 @@ export function BulkOrdersForm() {
         {/* Excel Upload Tab */}
         {activeTab === "excel" && (
           <div className="space-y-4">
-            <div className="border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-violet-500 transition-colors cursor-pointer">
+            <div className="border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-primary transition-colors cursor-pointer">
               <p className="text-muted-foreground mb-2">Click to upload Excel file or drag and drop</p>
               <p className="text-xs text-muted-foreground">CSV or XLSX files only</p>
               <Input
@@ -608,7 +608,7 @@ export function BulkOrdersForm() {
         <Button
           onClick={handleValidate}
           disabled={isValidating || !selectedNetwork || loading}
-          className="w-full bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 hover:from-violet-700 hover:via-purple-700 hover:to-fuchsia-700 shadow-lg hover:shadow-xl transition-all duration-300 text-white font-semibold"
+          className="w-full bg-gradient-to-r from-primary via-primary to-primary hover:from-primary hover:via-primary hover:to-primary shadow-lg hover:shadow-xl transition-all duration-300 text-white font-semibold"
         >
           {loading ? "Loading..." : isValidating ? "Validating..." : "Validate"}
         </Button>
@@ -722,7 +722,7 @@ export function BulkOrdersForm() {
                   </p>
                   <p className="text-lg font-bold">
                     Total Cost:{" "}
-                    <span className="bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 bg-clip-text text-transparent">
+                    <span className="bg-gradient-to-r from-primary via-primary to-primary bg-clip-text text-transparent">
                       GHS{" "}
                       {validationResults.orders
                         .filter((o) => o.status === "valid")
@@ -735,7 +735,7 @@ export function BulkOrdersForm() {
                   <Button
                     onClick={handleSubmitOrders}
                     disabled={isSubmitting}
-                    className="bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 hover:from-violet-700 hover:via-purple-700 hover:to-fuchsia-700 px-6 shadow-lg hover:shadow-xl transition-all text-white font-semibold"
+                    className="bg-gradient-to-r from-primary via-primary to-primary hover:from-primary hover:via-primary hover:to-primary px-6 shadow-lg hover:shadow-xl transition-all text-white font-semibold"
                   >
                     {isSubmitting ? "Submitting..." : "✓ SUBMIT ORDER"}
                   </Button>
@@ -770,7 +770,7 @@ export function BulkOrdersForm() {
                   </div>
                   <div className="border-t pt-2 flex justify-between">
                     <span className="text-sm text-muted-foreground">Total Cost:</span>
-                    <span className="font-bold text-lg text-violet-600">
+                    <span className="font-bold text-lg text-primary">
                       ₵{validationResults.orders
                         .filter(o => o.status === "valid")
                         .reduce((sum, o) => sum + o.price, 0)
@@ -810,7 +810,7 @@ export function BulkOrdersForm() {
               <Button
                 onClick={handleConfirmSubmission}
                 disabled={isSubmitting}
-                className="bg-gradient-to-r from-violet-600 to-purple-600"
+                className="bg-gradient-to-r from-primary to-primary"
               >
                 {isSubmitting ? "Processing..." : "Confirm & Submit"}
               </Button>

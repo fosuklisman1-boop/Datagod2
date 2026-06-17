@@ -114,7 +114,7 @@ export function Header() {
                 "w-7 h-7 md:w-8 md:h-8 rounded-full flex items-center justify-center transition-all duration-300",
                 isDealer
                   ? "bg-gradient-to-br from-amber-400 to-amber-600 shadow-[0_0_10px_rgba(251,191,36,0.3)]"
-                  : "bg-gradient-to-br from-primary to-violet-600"
+                  : "bg-gradient-to-br from-primary to-primary"
               )}>
                 <User className="w-3 h-3 md:w-4 md:h-4 text-white" />
               </div>

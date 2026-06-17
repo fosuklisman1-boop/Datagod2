@@ -479,7 +479,7 @@ export default function AdminUssdShopsPage() {
                     {codes.filter(c => c.status === 'active').reduce((sum, c) => sum + (c.token_balance ?? 0), 0).toLocaleString()}
                   </p>
                 </div>
-                <Database className="w-8 h-8 text-purple-500 opacity-80 shrink-0" />
+                <Database className="w-8 h-8 text-primary opacity-80 shrink-0" />
               </div>
             </CardContent>
           </Card>

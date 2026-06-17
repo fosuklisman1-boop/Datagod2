@@ -271,7 +271,7 @@ export default function AddToCatalogPage() {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center min-h-[400px]">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-600" />
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
         </div>
       </DashboardLayout>
     )
@@ -446,7 +446,7 @@ export default function AddToCatalogPage() {
                             <Button
                               size="sm"
                               variant={inCatalog ? "outline" : "default"}
-                              className={inCatalog ? "" : "bg-violet-600 hover:bg-violet-700"}
+                              className={inCatalog ? "" : "bg-primary hover:bg-primary"}
                               onClick={() => handleAddToCatalog(pkg)}
                               disabled={saving === pkg.id || !sellingPriceValue || (margin !== null && margin < 0)}
                             >
