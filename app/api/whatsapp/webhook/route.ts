@@ -551,6 +551,13 @@ async function handleWithAI(phone: string, text: string): Promise<string> {
     }
   }
 
+  // Snapshot session state up front. handleWithAI only runs when no bot/USSD session is
+  // active, so if a confirm session exists AFTER the loop it was necessarily seeded by
+  // place_whatsapp_order THIS turn. Capturing it makes the post-loop confirm-menu return
+  // robust — we never echo a stale confirm screen in place of the AI's actual reply (e.g.
+  // when the tool returned a validation error rather than staging an order).
+  const sessionAtStart = await getWaSession(phone)
+
   // Load AI config
   const aiConfig = await loadAiConfig()
 
@@ -616,9 +623,11 @@ The user's WhatsApp number is ${phone}${userId ? " and they have a registered Da
 ${linksSection ? `\nLINKS (share as plain URLs when it helps — the channel when they ask about updates/deals or want to stay informed; the website for browsing, buying online, or self-service):\n${linksSection}\n` : ""}
 GREETING / "what can you do": when you greet someone or they ask what you can help with, briefly cover the full range — buy data, airtime, AFA, results checker; check exam results; track an order; sort out a wallet top-up; AND report a problem/complaint — and feel free to point them to the website or WhatsApp channel.
 
-ORDERING:
-- DATA bundles — the fast path: once you know the network (MTN/Telecel/AirtelTigo/AT-iShare), the bundle size, AND the recipient number, call get_available_packages to quote the REAL price, confirm "network + size + recipient + price" with the customer in one short line, get a clear yes, THEN call place_whatsapp_order. It shows them a final confirm screen where THEY pick Wallet or Mobile Money and approve — payment happens only after they approve there. Never invent a price; never say the order is paid/done before payment is confirmed. If you're still missing the network, size, or recipient, just ask for what's missing (don't call the tool yet).
-- Everything else (airtime, AFA, results checker vouchers, the Results Check Service) OR a customer who just wants to browse: call start_ordering_bot. Use service="rc" for both voucher purchases and the Results Check Service — the menu lets them pick. Never type menu options yourself.
+ORDERING — place_whatsapp_order handles DATA, AIRTIME, and RESULTS-CHECKER VOUCHERS. It drops the customer on a final confirm screen where THEY pick Wallet or Mobile Money and approve — payment happens only after they approve there. Never invent a price; never say an order is paid/done before it's confirmed. Call it only once you have the details below AND the customer has confirmed; if something's missing, just ask (don't call the tool yet).
+  • service="data": need network (MTN/Telecel/AirtelTigo/AT-iShare) + bundle size + recipient number. Call get_available_packages first to quote the REAL price, then confirm network+size+recipient+price.
+  • service="airtime": need the recipient number + the GHS amount they'll pay (network is auto-detected). The recipient receives slightly LESS than the amount paid because of a small fee — mention that.
+  • service="rc": need the exam board (WASSCE/BECE/NOVDEC) + how many PIN(s). Quote the voucher price first. This is for buying checker PINs the customer uses themselves.
+- Use start_ordering_bot (NOT place_whatsapp_order) for: AFA registration (service="afa"); the Results CHECK Service where WE check results on their behalf (service="rc" → the menu lets them pick "check my results", which then gathers index number, DOB, year, etc.); or a customer who just wants to browse the menu. Never type menu options yourself.
 - A customer who sends ONLY a menu digit as a fresh choice (their first message, or right after you offered the menu) means: 1 = data, 2 = AFA, 3 = airtime, 4 = results checker — call start_ordering_bot for that service.
 - BUT do NOT start an order just because the customer sent a phone number, an amount, or a bare digit in the MIDDLE of another topic (answering a question you asked, giving complaint details, providing a beneficiary number, etc.). Read the conversation and treat the number as the answer to what you were discussing. If a lone number's meaning is genuinely unclear, ask what they'd like to do — do not assume they want to buy data.
 
@@ -694,22 +703,25 @@ STYLE:
     return "Sorry, I'm having trouble right now — I've alerted our team and someone will get back to you here shortly."
   }
 
-  // If place_whatsapp_order staged a data order THIS run, show the confirm screen
-  // verbatim — the customer needs the exact "1=Wallet / 2=MoMo / 0=Cancel" gate the
-  // waRouter expects. Any CONFIRM session here is necessarily fresh from this turn
-  // (handleWithAI only runs when no session was active), so payment happens only when
-  // they reply on this screen — never silently.
-  if (result.toolsUsed.includes("place_whatsapp_order")) {
+  // If place_whatsapp_order staged an order THIS run (data / airtime / RC voucher), show
+  // the confirm screen verbatim — the customer needs the exact "1=Wallet / 2=MoMo /
+  // 0=Cancel" gate the waRouter expects. Any confirm session here is necessarily fresh
+  // from this turn (handleWithAI only runs when no session was active), so payment happens
+  // only when they reply on this screen — never silently.
+  if (result.toolsUsed.includes("place_whatsapp_order") && !sessionAtStart) {
     const stagedSession = await getWaSession(phone)
-    if (stagedSession?.step === "CONFIRM") {
-      const { waConfirmMenu } = await import("@/lib/ussd/menus")
-      return waConfirmMenu(
-        stagedSession.network!,
-        stagedSession.bundleSize!,
-        stagedSession.bundlePrice!,
-        stagedSession.recipientPhone!,
-        stagedSession.walletBalance ?? 0,
-      )
+    if (stagedSession) {
+      const { waConfirmMenu, waAirtimeConfirmMenu, waRcConfirmMenu } = await import("@/lib/ussd/menus")
+      const bal = stagedSession.walletBalance ?? 0
+      if (stagedSession.step === "CONFIRM") {
+        return waConfirmMenu(stagedSession.network!, stagedSession.bundleSize!, stagedSession.bundlePrice!, stagedSession.recipientPhone!, bal)
+      }
+      if (stagedSession.step === "AIRTIME_CONFIRM") {
+        return waAirtimeConfirmMenu(stagedSession.airtimeNetwork!, stagedSession.airtimeRecipient!, stagedSession.airtimeAmount!, stagedSession.airtimeToDeliver!, bal)
+      }
+      if (stagedSession.step === "RC_CONFIRM") {
+        return waRcConfirmMenu(stagedSession.rcBoard!, stagedSession.rcQty!, stagedSession.rcTotal!, bal)
+      }
     }
   }
 

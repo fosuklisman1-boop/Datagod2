@@ -850,24 +850,41 @@ const startOrderingBotTool: Anthropic.Tool = {
 
 const placeWhatsappOrderTool: Anthropic.Tool = {
   name: "place_whatsapp_order",
-  description: "Place a DATA bundle order for the customer conversationally. Call this ONLY once you know all three: the network (MTN, Telecel, AirtelTigo, or AT-iShare), the bundle size (e.g. 1GB, 5GB), and the recipient phone number — AND you have called get_available_packages to quote the REAL price and the customer has clearly confirmed (network + size + recipient + price). This pre-fills the order and shows the customer a final confirmation screen where THEY choose Wallet or Mobile Money and approve payment — no money moves until they approve there. Never invent or guess a price. DATA bundles only: for airtime, AFA, or results checker use start_ordering_bot instead. After calling, do NOT claim the order is paid or complete — payment is confirmed separately once the customer approves it.",
+  description: "Place an order for the customer conversationally — DATA bundles, AIRTIME top-ups, or RESULTS-CHECKER voucher PINs. Call this ONLY after you have gathered the needed details, quoted the REAL price/amount, and the customer has clearly confirmed. It pre-fills the order and shows the customer a final confirmation screen where THEY choose Wallet or Mobile Money and approve — no money moves until they approve there. Never invent a price. Set `service`: 'data' needs network + size + recipient_phone (quote the price with get_available_packages first); 'airtime' needs recipient_phone + amount (network is auto-detected, and the recipient gets slightly less than the amount paid because of the small fee — tell them); 'rc' needs board + quantity (quote the voucher price first). For AFA registration or the Results-Check Service (Datagod checks results on the customer's behalf), use start_ordering_bot instead — not this tool. After calling, do NOT claim the order is paid or complete; payment is confirmed separately once the customer approves it.",
   input_schema: {
     type: "object" as const,
     properties: {
+      service: {
+        type: "string",
+        enum: ["data", "airtime", "rc"],
+        description: "What to buy: 'data' = data bundle, 'airtime' = airtime top-up, 'rc' = results-checker voucher PIN(s).",
+      },
       network: {
         type: "string",
-        description: "The data network: 'MTN', 'Telecel', 'AirtelTigo', or 'AT-iShare' (you may also pass 'iShare').",
+        description: "DATA: 'MTN', 'Telecel', 'AirtelTigo', or 'AT-iShare'. AIRTIME: 'MTN', 'Telecel', or 'AT' (optional — auto-detected from the recipient number if omitted). Not used for 'rc'.",
       },
       size: {
         type: "string",
-        description: "The bundle size exactly as get_available_packages lists it, e.g. '1', '5', '10' (GB) or '500MB'.",
+        description: "DATA only: bundle size exactly as get_available_packages lists it, e.g. '1', '5', '10' (GB) or '500MB'.",
       },
       recipient_phone: {
         type: "string",
-        description: "The Ghana phone number that should RECEIVE the data, e.g. '0244123456'.",
+        description: "DATA & AIRTIME: the Ghana number that should RECEIVE the data/airtime, e.g. '0244123456'.",
+      },
+      amount: {
+        type: "string",
+        description: "AIRTIME only: how much the customer pays in Ghana Cedis, e.g. '5' or '10'.",
+      },
+      board: {
+        type: "string",
+        description: "RC only: the exam board — 'WASSCE', 'BECE', or 'NOVDEC'.",
+      },
+      quantity: {
+        type: "string",
+        description: "RC only: how many voucher PINs to buy, e.g. '1', '2'.",
       },
     },
-    required: ["network", "size", "recipient_phone"],
+    required: ["service"],
   },
 }
 
@@ -1406,26 +1423,15 @@ export async function executeToolCall(
       }
 
       case "place_whatsapp_order": {
-        // Conversational DATA order. SAFETY MODEL: this tool writes NO charge code.
-        // It validates inputs and resolves the real package + price tier from the DB
-        // (never trusting the model for price), then seeds a USSD 'CONFIRM' session so
-        // the customer is shown the standard confirm screen. They must then pick
-        // Wallet/MoMo and approve — at which point the EXISTING, tested waRouter CONFIRM
-        // flow (handleConfirm → wallet deduct / MoMo charge → Paystack webhook) moves the
-        // money. handleConfirm independently re-validates the price from the DB and aborts
-        // on >0.01 GHS drift, so a stale or wrong seed can never cause an incorrect charge.
+        // Conversational ordering (DATA / AIRTIME / RC vouchers). SAFETY MODEL: this tool
+        // writes NO charge code. It validates inputs and resolves the real price from the DB
+        // (never trusting the model), then seeds the matching USSD confirm step so the
+        // customer is shown the standard confirm screen. They must pick Wallet/MoMo and
+        // approve — at which point the EXISTING, tested waRouter confirm handlers move the
+        // money and INDEPENDENTLY re-validate price + re-apply the role/bulk tier from the
+        // DB (by the dialing number), so a stale or wrong seed can't cause an incorrect charge.
         const phone = String(ctx.phone || input.phone || "").trim()
         if (!phone) return { error: "phone is required" }
-
-        // Never seed a second order while one is already awaiting confirmation. This
-        // closes the overwrite race (a re-call swapping bundleId under a customer who is
-        // about to tap 1/2 — handleConfirm only re-checks PRICE drift, not a same-price
-        // package swap) AND makes a double tool-call within one AI turn a safe no-op.
-        const { getWaSession, setWaSession } = await import("@/lib/whatsapp-bot/session")
-        const existingSession = await getWaSession(phone)
-        if (existingSession?.step === "CONFIRM") {
-          return { duplicate: true, message: "The customer already has an order on the confirm screen waiting for them to reply 1 (Wallet), 2 (Mobile Money), or 0 (Cancel). Ask them to complete or cancel that one before placing another." }
-        }
 
         const toLocal = (raw: string): string => {
           const r = String(raw || "").replace(/\s+/g, "")
@@ -1433,7 +1439,116 @@ export async function executeToolCall(
             : r.startsWith("233") ? "0" + r.slice(3)
             : r
         }
+        const localSender = toLocal(phone)
+        const service = String(input.service ?? "data").toLowerCase()
 
+        // Never seed a second order while one is already awaiting confirmation — closes the
+        // session-overwrite race AND makes a double tool-call within one AI turn a safe no-op.
+        const { getWaSession, setWaSession } = await import("@/lib/whatsapp-bot/session")
+        const existingSession = await getWaSession(phone)
+        if (existingSession && ["CONFIRM", "PAYMENT_METHOD", "AIRTIME_CONFIRM", "AIRTIME_PAYMENT_METHOD", "RC_CONFIRM", "RC_PAYMENT_METHOD"].includes(existingSession.step)) {
+          return { duplicate: true, message: "The customer already has an order in progress on the confirm/payment screen (reply 1, 2, or 0 to it). Ask them to complete or cancel that one before placing another." }
+        }
+
+        // ── AIRTIME ──────────────────────────────────────────────────────────────
+        if (service === "airtime") {
+          const recipient = toLocal(String(input.recipient_phone ?? ""))
+          if (!/^0[0-9]{9}$/.test(recipient)) {
+            return { error: "invalid_recipient", message: "Ask the customer for a valid Ghana number to top up (e.g. 0244123456)." }
+          }
+          const amount = parseFloat(String(input.amount ?? "").replace(/[^\d.]/g, ""))
+          if (isNaN(amount) || amount <= 0) {
+            return { error: "invalid_amount", message: "Ask the customer how much airtime (in GHS) they want to buy." }
+          }
+          const { detectAirtimeNetwork, isAirtimeEnabled, getAirtimeLimits, airtimeBaseFeeRate, splitInclusive } = await import("@/lib/airtime-pricing")
+          const netIn = String(input.network ?? "").toLowerCase().replace(/[\s_-]/g, "")
+          let airtimeNetwork: string | null =
+            netIn.startsWith("mtn") ? "MTN"
+            : /telecel|vodafone/.test(netIn) ? "Telecel"
+            : /airteltigo|airtel|tigo|^at$/.test(netIn) ? "AT"
+            : null
+          if (!airtimeNetwork) airtimeNetwork = detectAirtimeNetwork(recipient)
+          if (!airtimeNetwork) {
+            return { error: "unknown_network", message: "Ask which network the airtime is for: MTN, Telecel, or AT (AirtelTigo)." }
+          }
+          if (!(await isAirtimeEnabled(airtimeNetwork))) {
+            return { error: "unavailable", message: `${airtimeNetwork} airtime is currently unavailable — let the customer know.` }
+          }
+          const { min, max } = await getAirtimeLimits()
+          if (amount < min || amount > max) {
+            return { error: "out_of_range", message: `Airtime must be between GHS ${min} and GHS ${max}. Ask the customer for an amount in that range.` }
+          }
+          // Light idempotency: skip if an identical airtime order is already awaiting payment.
+          const sinceA = new Date(Date.now() - 90_000).toISOString()
+          const { data: dupA } = await supabaseAdmin
+            .from("airtime_orders").select("id")
+            .eq("beneficiary_phone", recipient).eq("network", airtimeNetwork)
+            .gte("created_at", sinceA).in("payment_status", ["pending_payment", "otp_required"]).limit(1)
+          if (dupA && dupA.length > 0) {
+            return { duplicate: true, message: `There's already a ${airtimeNetwork} airtime order to ${recipient} waiting to be paid. Ask the customer to finish or cancel it before placing another.` }
+          }
+          // Role tier (dealer fee) is re-resolved by handleAirtimeConfirm from the dialing
+          // number; we mirror it here only for an accurate confirm-screen "they receive" figure.
+          const { resolveDialer } = await import("@/lib/ussd/resolve-dialer")
+          const dialer = await resolveDialer(localSender)
+          const isDealer = dialer.role === "dealer" || dialer.role === "sub_agent"
+          const rate = await airtimeBaseFeeRate(airtimeNetwork, isDealer)
+          const { fee, toDeliver } = splitInclusive(amount, rate)
+          await setWaSession(phone, {
+            step: "AIRTIME_CONFIRM",
+            dialingPhone: localSender,
+            airtimeNetwork,
+            airtimeRecipient: recipient,
+            airtimeAmount: amount,
+            airtimeFee: fee,
+            airtimeToDeliver: toDeliver,
+            userId: dialer.userId,
+            walletBalance: dialer.balance,
+          })
+          return { staged: true, service: "airtime", network: airtimeNetwork, recipient, amount, recipient_gets: toDeliver, message: "Airtime order ready — the customer has been shown a confirm screen to pick Wallet or Mobile Money and approve. Do NOT say it is paid yet." }
+        }
+
+        // ── RESULTS-CHECKER VOUCHERS ───────────────────────────────────────────────
+        if (service === "rc") {
+          const { isExamBoardEnabled, getAvailableCount, getMaxQuantity, calculateRCPrice } = await import("@/lib/results-checker-service")
+          const boardIn = String(input.board ?? "").toUpperCase()
+          const board: "WASSCE" | "BECE" | "NOVDEC" | null =
+            /WASSCE|WAEC|WASCE/.test(boardIn) ? "WASSCE"
+            : /BECE/.test(boardIn) ? "BECE"
+            : /NOVDEC|NOV/.test(boardIn) ? "NOVDEC"
+            : null
+          if (!board) {
+            return { error: "unknown_board", message: "Ask which exam the voucher is for: WASSCE, BECE, or NOVDEC." }
+          }
+          if (!(await isExamBoardEnabled(board))) {
+            return { error: "unavailable", message: `${board} vouchers are currently unavailable — let the customer know.` }
+          }
+          const qty = parseInt(String(input.quantity ?? "").replace(/[^\d]/g, ""), 10)
+          if (isNaN(qty) || qty < 1) {
+            return { error: "invalid_quantity", message: "Ask the customer how many voucher PINs they want." }
+          }
+          const [avail, max] = await Promise.all([getAvailableCount(board), getMaxQuantity()])
+          const cap = Math.min(avail, max)
+          if (qty > cap) {
+            return { error: "too_many", message: `Only ${cap} ${board} voucher(s) can be bought right now. Offer the customer up to ${cap}.` }
+          }
+          const pricing = await calculateRCPrice({ examBoard: board, quantity: qty, applyBulk: true })
+          const { resolveDialer } = await import("@/lib/ussd/resolve-dialer")
+          const dialer = await resolveDialer(localSender)
+          await setWaSession(phone, {
+            step: "RC_CONFIRM",
+            dialingPhone: localSender,
+            rcBoard: board,
+            rcQty: qty,
+            rcUnitPrice: pricing.unitPrice,
+            rcTotal: pricing.totalPaid,
+            userId: dialer.userId,
+            walletBalance: dialer.balance,
+          })
+          return { staged: true, service: "rc", board, quantity: qty, total: pricing.totalPaid, message: "Voucher order ready — the customer has been shown a confirm screen to pick Wallet or Mobile Money and approve. Do NOT say it is paid yet." }
+        }
+
+        // ── DATA (default) ─────────────────────────────────────────────────────────
         // Validate the recipient (the number that RECEIVES the data).
         const localRecipient = toLocal(String(input.recipient_phone ?? ""))
         if (!/^0[0-9]{9}$/.test(localRecipient)) {
@@ -1471,7 +1586,6 @@ export async function executeToolCall(
         // menu order are priced identically. Tier is read from the real account role — a
         // regular user/guest can never be assigned a cheaper tier. Sub-agents use catalogue
         // pricing → route them through the menu rather than risk a misprice here.
-        const localSender = toLocal(phone)
         // Resolve the ordering account. PREFER ctx.userId — the webhook already matched the
         // WhatsApp number to a user OR resolved an OTP-linked account whose registered number
         // may DIFFER from the WhatsApp number (so a linked customer messaging from another
