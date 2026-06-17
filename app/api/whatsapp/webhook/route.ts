@@ -422,7 +422,25 @@ async function handleWithAI(phone: string, text: string): Promise<string> {
   const shortcut = MAIN_MENU_SHORTCUTS[text.trim()]
   if (shortcut) {
     const { getPendingComplaint } = await import("@/lib/whatsapp-bot/pending-complaint")
-    if (!(await getPendingComplaint(phone))) {
+    const pending = await getPendingComplaint(phone)
+    // Treat a bare digit as a menu choice ONLY when the customer is AT the menu — their
+    // first message, or right after a greeting / "what can I do". If the bot just asked a
+    // question (gathering complaint details, "which bundle size?", a recipient number…),
+    // the digit is the ANSWER — let the AI handle it so it never hijacks into an order.
+    let atMenu = false
+    if (!pending) {
+      const { data: lastOut } = await supabase
+        .from("whatsapp_messages")
+        .select("message")
+        .eq("phone_number", phone)
+        .eq("direction", "outbound")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      const lastMsg = lastOut?.message ?? ""
+      atMenu = !lastMsg || /how can i help|welcome to datagod|here'?s what i can do|what (i can do|can i help|would you like)|reply with|i'?m here to help/i.test(lastMsg)
+    }
+    if (atMenu) {
       const { setWaSession } = await import("@/lib/whatsapp-bot/session")
       const { networkMenu, rcMenu, airtimeRecipientPrompt, afaEnterNamePrompt } = await import("@/lib/ussd/menus")
       const localPhone = phone.startsWith("233") ? "0" + phone.slice(3) : phone
