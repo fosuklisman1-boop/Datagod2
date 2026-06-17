@@ -236,19 +236,19 @@ export function DashboardAIChatWidget() {
   }
 
   function buttonClass(style?: string) {
-    if (style === "danger") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-border bg-red-50 text-red-700 hover:bg-red-100 transition-colors"
+    if (style === "danger") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors"
     if (style === "secondary") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-border bg-card text-muted-foreground hover:bg-accent transition-colors"
-    return "px-3 py-1.5 rounded-xl text-xs font-medium border border-border bg-primary text-primary hover:bg-primary transition-colors"
+    return "px-3 py-1.5 rounded-xl text-xs font-medium border border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 transition-colors"
   }
 
   return (
     <div ref={wrapperRef} className="fixed bottom-24 md:bottom-6 right-6 z-50 flex flex-col items-end gap-2">
       {isOpen && (
-        <div className="w-[calc(100vw-3rem)] sm:w-[380px] h-[520px] max-h-[calc(100vh-100px)] bg-card/12 backdrop-blur-3xl backdrop-saturate-150 rounded-2xl border border-white/35 shadow-[inset_0_1px_0_rgba(255,255,255,0.55),inset_0_-1px_0_rgba(0,0,0,0.06),0_24px_48px_rgba(0,0,0,0.14),0_4px_16px_rgba(99,102,241,0.15)] flex flex-col overflow-hidden">
-          <div className="bg-primary/55 backdrop-blur-sm text-white px-4 py-3 flex items-center justify-between flex-shrink-0 border-b border-white/20">
+        <div className="w-[calc(100vw-3rem)] sm:w-[380px] h-[520px] max-h-[calc(100vh-100px)] bg-card/80 backdrop-blur-3xl backdrop-saturate-150 rounded-2xl border border-border shadow-[0_24px_48px_rgba(0,0,0,0.14)] shadow-primary/10 flex flex-col overflow-hidden">
+          <div className="bg-primary/55 backdrop-blur-sm text-primary-foreground px-4 py-3 flex items-center justify-between flex-shrink-0 border-b border-border">
             <div>
               <p className="font-semibold text-sm">Datagod Assistant</p>
-              {balance && <p className="text-primary text-xs">Wallet: {balance}</p>}
+              {balance && <p className="text-primary-foreground/70 text-xs">Wallet: {balance}</p>}
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -258,12 +258,12 @@ export function DashboardAIChatWidget() {
                   setActionButtons(null)
                   if (userId) { try { localStorage.removeItem(STORAGE_KEY(userId)) } catch {} }
                 }}
-                className="text-primary hover:text-white transition-colors"
+                className="text-primary-foreground/70 hover:text-primary-foreground transition-colors"
                 title="Clear chat"
               >
                 <Trash2 size={15} />
               </button>
-              <button onClick={() => setIsOpen(false)} className="text-primary hover:text-white transition-colors">
+              <button onClick={() => setIsOpen(false)} className="text-primary-foreground/70 hover:text-primary-foreground transition-colors">
                 <X size={18} />
               </button>
             </div>
@@ -319,7 +319,7 @@ export function DashboardAIChatWidget() {
             {showScrollBtn && (
               <button
                 onClick={scrollToBottom}
-                className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-primary/85 backdrop-blur-sm border border-primary/50 text-white shadow-lg hover:bg-primary transition-all hover:scale-110 active:scale-95"
+                className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-primary/85 backdrop-blur-sm border border-primary/50 text-primary-foreground shadow-lg hover:bg-primary transition-all hover:scale-110 active:scale-95"
                 aria-label="Scroll to bottom"
               >
                 <ChevronDown size={16} />
@@ -327,7 +327,7 @@ export function DashboardAIChatWidget() {
             )}
           </div>
 
-          <div className="border-t border-white/20 bg-card/8 backdrop-blur-sm px-3 py-3 flex items-center gap-2 flex-shrink-0">
+          <div className="border-t border-border bg-card/80 backdrop-blur-sm px-3 py-3 flex items-center gap-2 flex-shrink-0">
             <input
               ref={inputRef}
               value={input}
@@ -335,12 +335,12 @@ export function DashboardAIChatWidget() {
               onKeyDown={handleKeyDown}
               disabled={isStreaming}
               placeholder="Type a message..."
-              className="flex-1 text-sm bg-card/30 border border-white/40 rounded-xl px-3 py-2 outline-none focus:border-primary/80 focus:bg-card/50 disabled:opacity-50 transition-all placeholder:text-muted-foreground text-foreground"
+              className="flex-1 text-sm bg-muted/40 border border-border rounded-xl px-3 py-2 outline-none focus:border-primary/80 focus:bg-card disabled:opacity-50 transition-all placeholder:text-muted-foreground text-foreground"
             />
             <button
               onClick={() => sendMessage()}
               disabled={isStreaming || !input.trim()}
-              className="bg-primary hover:bg-primary disabled:opacity-40 text-white rounded-xl p-2 transition-colors flex-shrink-0"
+              className="bg-primary hover:bg-primary/90 disabled:opacity-40 text-primary-foreground rounded-xl p-2 transition-colors flex-shrink-0"
             >
               <Send size={16} />
             </button>
@@ -374,12 +374,12 @@ export function DashboardAIChatWidget() {
         )}
         <button
           onClick={() => setIsOpen(o => !o)}
-          className="relative flex items-center gap-2 bg-primary border border-primary/60 text-white rounded-full px-5 py-2.5 shadow-lg shadow-primary/30 hover:shadow-primary/50 hover:bg-primary hover:border-border transition-all duration-300 hover:scale-105 active:scale-95"
+          className="relative flex items-center gap-2 bg-primary border border-primary/60 text-primary-foreground rounded-full px-5 py-2.5 shadow-lg shadow-primary/30 hover:shadow-primary/50 hover:bg-primary/90 hover:border-border transition-all duration-300 hover:scale-105 active:scale-95"
           aria-label="Open AI assistant"
         >
           {isOpen
             ? <X size={18} />
-            : <><Sparkles size={17} className="text-primary" /><span className="text-sm font-semibold">Ask</span></>
+            : <><Sparkles size={17} className="text-primary-foreground/70" /><span className="text-sm font-semibold">Ask</span></>
           }
         </button>
       </div>

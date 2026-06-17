@@ -100,7 +100,7 @@ export function HomeAIChatWidget() {
 
   function getButtonClass(style?: string) {
     if (style === "primary")   return "px-3 py-1.5 rounded-xl text-xs font-medium border border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 transition-colors"
-    if (style === "danger")    return "px-3 py-1.5 rounded-xl text-xs font-medium border border-border bg-red-50 text-red-700 hover:bg-red-100 transition-colors"
+    if (style === "danger")    return "px-3 py-1.5 rounded-xl text-xs font-medium border border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors"
     if (style === "secondary") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-border bg-card text-muted-foreground hover:bg-accent transition-colors"
     return "px-3 py-1.5 rounded-xl text-xs font-medium border border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 transition-colors"
   }
@@ -179,14 +179,14 @@ export function HomeAIChatWidget() {
   return (
     <div ref={wrapperRef} className="fixed bottom-24 md:bottom-6 right-6 z-50 flex flex-col items-end gap-2">
       {isOpen && (
-        <div className="w-[calc(100vw-3rem)] sm:w-[360px] h-[500px] max-h-[calc(100vh-120px)] bg-card rounded-2xl border border-primary/20 shadow-[0_24px_48px_rgba(0,0,0,0.12),0_4px_16px_rgba(59,130,246,0.12)] flex flex-col overflow-hidden">
+        <div className="w-[calc(100vw-3rem)] sm:w-[360px] h-[500px] max-h-[calc(100vh-120px)] bg-card rounded-2xl border border-primary/20 shadow-[0_24px_48px_rgba(0,0,0,0.12)] shadow-primary/10 flex flex-col overflow-hidden">
           {/* Header */}
-          <div className="bg-gradient-to-r from-primary to-primary/80 text-white px-4 py-3 flex items-center justify-between flex-shrink-0">
+          <div className="bg-gradient-to-r from-primary to-primary/80 text-primary-foreground px-4 py-3 flex items-center justify-between flex-shrink-0">
             <div>
               <p className="font-semibold text-sm">DATAGOD Assistant</p>
               <p className="text-primary-foreground/70 text-xs">Your AI receptionist</p>
             </div>
-            <button onClick={() => setIsOpen(false)} className="text-primary-foreground/70 hover:text-white transition-colors">
+            <button onClick={() => setIsOpen(false)} className="text-primary-foreground/70 hover:text-primary-foreground transition-colors">
               <X size={18} />
             </button>
           </div>
@@ -200,7 +200,7 @@ export function HomeAIChatWidget() {
               <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm leading-relaxed ${
                   msg.role === "user"
-                    ? "bg-primary text-white rounded-br-sm"
+                    ? "bg-primary text-primary-foreground rounded-br-sm"
                     : "bg-muted text-foreground rounded-bl-sm"
                 }`}>
                   {msg.role === "assistant"
@@ -223,9 +223,9 @@ export function HomeAIChatWidget() {
               <div className="flex justify-start">
                 <div className="bg-muted rounded-2xl rounded-bl-sm px-3 py-2">
                   <span className="flex gap-1">
-                    <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:0ms]" />
-                    <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:150ms]" />
-                    <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:300ms]" />
+                    <span className="w-1.5 h-1.5 bg-muted-foreground/40 rounded-full animate-bounce [animation-delay:0ms]" />
+                    <span className="w-1.5 h-1.5 bg-muted-foreground/40 rounded-full animate-bounce [animation-delay:150ms]" />
+                    <span className="w-1.5 h-1.5 bg-muted-foreground/40 rounded-full animate-bounce [animation-delay:300ms]" />
                   </span>
                 </div>
               </div>
@@ -256,7 +256,7 @@ export function HomeAIChatWidget() {
             {showScrollBtn && (
               <button
                 onClick={scrollToBottom}
-                className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-primary/85 backdrop-blur-sm border border-blue-400/50 text-white shadow-lg hover:bg-primary/90 transition-all hover:scale-110 active:scale-95"
+                className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-primary/85 backdrop-blur-sm border border-primary/50 text-primary-foreground shadow-lg hover:bg-primary/90 transition-all hover:scale-110 active:scale-95"
                 aria-label="Scroll to bottom"
               >
                 <ChevronDown size={16} />
@@ -275,12 +275,12 @@ export function HomeAIChatWidget() {
               onKeyDown={handleKeyDown}
               disabled={isStreaming}
               placeholder="Ask me anything..."
-              className="flex-1 text-sm bg-muted/40 border border-border rounded-xl px-3 py-2 outline-none focus:border-blue-400 focus:bg-card disabled:opacity-50 transition-all placeholder:text-muted-foreground"
+              className="flex-1 text-sm bg-muted/40 border border-border rounded-xl px-3 py-2 outline-none focus:border-primary/80 focus:bg-card disabled:opacity-50 transition-all placeholder:text-muted-foreground"
             />
             <button
               onClick={() => sendMessage()}
               disabled={isStreaming || !input.trim()}
-              className="bg-primary hover:bg-primary/90 disabled:opacity-40 text-white rounded-xl p-2 transition-colors flex-shrink-0"
+              className="bg-primary hover:bg-primary/90 disabled:opacity-40 text-primary-foreground rounded-xl p-2 transition-colors flex-shrink-0"
             >
               <Send size={16} />
             </button>
@@ -317,7 +317,7 @@ export function HomeAIChatWidget() {
         )}
         <button
           onClick={() => setIsOpen(o => !o)}
-          className="relative flex items-center gap-2 bg-primary border border-blue-400/60 text-white rounded-full px-5 py-2.5 shadow-lg shadow-blue-500/30 hover:shadow-blue-500/50 hover:bg-primary hover:border-border transition-all duration-300 hover:scale-105 active:scale-95"
+          className="relative flex items-center gap-2 bg-primary border border-primary/60 text-primary-foreground rounded-full px-5 py-2.5 shadow-lg shadow-primary/30 hover:shadow-primary/50 hover:bg-primary hover:border-border transition-all duration-300 hover:scale-105 active:scale-95"
           aria-label="Open DATAGOD AI assistant"
         >
           {isOpen
