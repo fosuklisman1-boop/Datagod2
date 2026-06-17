@@ -38,14 +38,14 @@ export function AnnouncementModal({ isOpen, onClose, title, message }: Announcem
       <DialogContent className="max-w-2xl bg-card/95 backdrop-blur-xl border border-primary/20 shadow-2xl">
         <DialogHeader>
           <div className="flex items-start justify-between">
-            <DialogTitle className="text-2xl font-bold bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent">
+            <DialogTitle className="text-2xl font-bold text-primary">
               {title}
             </DialogTitle>
             <Button
               variant="ghost"
               size="sm"
               onClick={onClose}
-              className="h-8 w-8 p-0 hover:bg-red-50 hover:text-red-500 rounded-full transition-colors"
+              className="h-8 w-8 p-0 hover:bg-destructive/10 hover:text-destructive rounded-full transition-colors"
             >
               <X className="h-4 w-4" />
             </Button>
@@ -59,7 +59,7 @@ export function AnnouncementModal({ isOpen, onClose, title, message }: Announcem
         <div className="flex justify-end mt-8">
           <Button
             onClick={onClose}
-            className="relative overflow-hidden group bg-gradient-to-r from-primary to-primary/80 hover:from-primary hover:to-primary/80 px-8 py-6 text-lg font-bold shadow-lg shadow-blue-200"
+            className="relative overflow-hidden group bg-primary hover:bg-primary/90 px-8 py-6 text-lg font-bold shadow-lg shadow-primary/20"
           >
             <span className="relative z-10 flex items-center gap-2">
               Got it, thanks! <span className="opacity-70 font-normal">({timeLeft}s)</span>

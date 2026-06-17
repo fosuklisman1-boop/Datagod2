@@ -42,10 +42,10 @@ export function BottomNav() {
       : "text-primary"
 
   const fabGradient = isAdmin && onAdminPage
-    ? "bg-card0 to-primary ring-4 ring-primary dark:ring-primary"
+    ? "bg-gradient-to-br from-primary to-brand-accent ring-4 ring-primary/15"
     : isDealer
-      ? "bg-card0 to-primary ring-4 ring-primary dark:ring-primary"
-      : "bg-gradient-to-br from-primary to-primary ring-4 ring-primary/15"
+      ? "bg-gradient-to-br from-primary to-brand-accent ring-4 ring-primary/15"
+      : "bg-gradient-to-br from-primary to-brand-accent ring-4 ring-primary/15"
 
   const fabLabelColor = isAdmin && onAdminPage
     ? "text-primary"
@@ -53,7 +53,7 @@ export function BottomNav() {
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-card border-t border-border shadow-[0_-4px_20px_rgba(0,0,0,0.08)]"
+      className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-card border-t border-border shadow-[0_-4px_20px_hsl(var(--foreground)/0.08)]"
       style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
     >
       <div className="flex items-end justify-around h-16 px-1">
@@ -72,7 +72,7 @@ export function BottomNav() {
                   "-mt-6 mb-0.5 w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-transform active:scale-95",
                   fabGradient
                 )}>
-                  <Icon className="w-7 h-7 text-white" />
+                  <Icon className="w-7 h-7 text-primary-foreground" />
                 </div>
                 <span className={cn(
                   "text-[10px] font-medium",

@@ -88,7 +88,7 @@ export function PushOptInBanner() {
           <X className="w-4 h-4" />
         </button>
 
-        <div className="shrink-0 mt-0.5 w-10 h-10 rounded-xl bg-primary flex items-center justify-center">
+        <div className="shrink-0 mt-0.5 w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center">
           <Bell className="w-5 h-5 text-primary" />
         </div>
 
@@ -105,7 +105,7 @@ export function PushOptInBanner() {
               <button
                 onClick={handleEnable}
                 disabled={enabling}
-                className="flex-1 text-sm font-semibold bg-primary hover:bg-primary active:bg-primary text-white px-4 py-2 rounded-xl transition-colors disabled:opacity-60"
+                className="flex-1 text-sm font-semibold bg-primary hover:bg-primary/90 active:bg-primary/80 text-primary-foreground px-4 py-2 rounded-xl transition-colors disabled:opacity-60"
               >
                 {enabling ? 'Enabling…' : 'Enable notifications'}
               </button>
