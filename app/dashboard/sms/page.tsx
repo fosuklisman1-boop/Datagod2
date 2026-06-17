@@ -450,7 +450,7 @@ export default function SmsDashboardPage() {
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList className="flex-wrap">
             <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="send" disabled={!isActive}>Send</TabsTrigger>
+            <TabsTrigger value="send" disabled={!isActive}>Compose</TabsTrigger>
             <TabsTrigger value="senders">Sender IDs</TabsTrigger>
             <TabsTrigger value="bundles">Buy Credits</TabsTrigger>
             <TabsTrigger value="history">History</TabsTrigger>
@@ -504,7 +504,6 @@ export default function SmsDashboardPage() {
 
             {isActive && (
               <div className="flex flex-wrap gap-2">
-                <Button onClick={() => setTab("send")}><Send className="h-4 w-4" /> Compose a message</Button>
                 <Button variant="outline" onClick={() => setTab("bundles")}><Plus className="h-4 w-4" /> Buy more credits</Button>
               </div>
             )}
