@@ -848,6 +848,29 @@ const startOrderingBotTool: Anthropic.Tool = {
   },
 }
 
+const placeWhatsappOrderTool: Anthropic.Tool = {
+  name: "place_whatsapp_order",
+  description: "Place a DATA bundle order for the customer conversationally. Call this ONLY once you know all three: the network (MTN, Telecel, AirtelTigo, or AT-iShare), the bundle size (e.g. 1GB, 5GB), and the recipient phone number — AND you have called get_available_packages to quote the REAL price and the customer has clearly confirmed (network + size + recipient + price). This pre-fills the order and shows the customer a final confirmation screen where THEY choose Wallet or Mobile Money and approve payment — no money moves until they approve there. Never invent or guess a price. DATA bundles only: for airtime, AFA, or results checker use start_ordering_bot instead. After calling, do NOT claim the order is paid or complete — payment is confirmed separately once the customer approves it.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      network: {
+        type: "string",
+        description: "The data network: 'MTN', 'Telecel', 'AirtelTigo', or 'AT-iShare' (you may also pass 'iShare').",
+      },
+      size: {
+        type: "string",
+        description: "The bundle size exactly as get_available_packages lists it, e.g. '1', '5', '10' (GB) or '500MB'.",
+      },
+      recipient_phone: {
+        type: "string",
+        description: "The Ghana phone number that should RECEIVE the data, e.g. '0244123456'.",
+      },
+    },
+    required: ["network", "size", "recipient_phone"],
+  },
+}
+
 const requestHumanHandoffTool: Anthropic.Tool = {
   name: "request_human_handoff",
   description: "Flag this WhatsApp chat for a human agent and alert the team. Call this when the customer asks to talk to a human/agent/person, is frustrated or upset, or has an issue you can't resolve. After calling it, reassure the customer that a team member has been notified and will reply right here on WhatsApp shortly. Do NOT call it for normal questions you can answer yourself.",
@@ -981,6 +1004,7 @@ export function aiTools(context: AIChatContext): Anthropic.Tool[] {
     getOrderHistoryTool,
     getKnowledgeBaseTool,
     startOrderingBotTool,
+    placeWhatsappOrderTool,
     requestHumanHandoffTool,
     fileComplaintTool,
     reverifyPaymentTool,
@@ -1379,6 +1403,158 @@ export async function executeToolCall(
         const mapped = serviceSteps[svc]
         await setWaSession(phone, { step: (mapped?.step ?? "MAIN") as any, dialingPhone: localPhone })
         return { message: mapped ? mapped.menu() : mainMenu() }
+      }
+
+      case "place_whatsapp_order": {
+        // Conversational DATA order. SAFETY MODEL: this tool writes NO charge code.
+        // It validates inputs and resolves the real package + price tier from the DB
+        // (never trusting the model for price), then seeds a USSD 'CONFIRM' session so
+        // the customer is shown the standard confirm screen. They must then pick
+        // Wallet/MoMo and approve — at which point the EXISTING, tested waRouter CONFIRM
+        // flow (handleConfirm → wallet deduct / MoMo charge → Paystack webhook) moves the
+        // money. handleConfirm independently re-validates the price from the DB and aborts
+        // on >0.01 GHS drift, so a stale or wrong seed can never cause an incorrect charge.
+        const phone = String(ctx.phone || input.phone || "").trim()
+        if (!phone) return { error: "phone is required" }
+
+        // Never seed a second order while one is already awaiting confirmation. This
+        // closes the overwrite race (a re-call swapping bundleId under a customer who is
+        // about to tap 1/2 — handleConfirm only re-checks PRICE drift, not a same-price
+        // package swap) AND makes a double tool-call within one AI turn a safe no-op.
+        const { getWaSession, setWaSession } = await import("@/lib/whatsapp-bot/session")
+        const existingSession = await getWaSession(phone)
+        if (existingSession?.step === "CONFIRM") {
+          return { duplicate: true, message: "The customer already has an order on the confirm screen waiting for them to reply 1 (Wallet), 2 (Mobile Money), or 0 (Cancel). Ask them to complete or cancel that one before placing another." }
+        }
+
+        const toLocal = (raw: string): string => {
+          const r = String(raw || "").replace(/\s+/g, "")
+          return r.startsWith("+233") ? "0" + r.slice(4)
+            : r.startsWith("233") ? "0" + r.slice(3)
+            : r
+        }
+
+        // Validate the recipient (the number that RECEIVES the data).
+        const localRecipient = toLocal(String(input.recipient_phone ?? ""))
+        if (!/^0[0-9]{9}$/.test(localRecipient)) {
+          return { error: "invalid_recipient", message: "Ask the customer for a valid Ghana recipient number (e.g. 0244123456) before placing the order." }
+        }
+
+        // Map the model's network text to a canonical DB network name.
+        const netRaw = String(input.network ?? "").toLowerCase().replace(/[\s_-]/g, "")
+        const canonicalNetwork =
+          netRaw.startsWith("mtn") ? "MTN"
+          : /telecel|vodafone/.test(netRaw) ? "Telecel"
+          : /ishare/.test(netRaw) ? "AT-iShare"
+          : /airteltigo|airtel|tigo|^at$/.test(netRaw) ? "AirtelTigo"
+          : null
+        if (!canonicalNetwork) {
+          return { error: "unknown_network", message: "Ask the customer which network they want: MTN, Telecel, AirtelTigo, or AT-iShare." }
+        }
+
+        // Normalise the requested size to a GB number for matching ('500MB' → 0.5).
+        const sizeStr = String(input.size ?? "").toLowerCase().replace(/\s+/g, "")
+        const targetGb = (() => {
+          const mb = sizeStr.match(/^(\d+(?:\.\d+)?)mb$/)
+          if (mb) return parseFloat(mb[1]) / 1000
+          const gb = sizeStr.match(/^(\d+(?:\.\d+)?)(gb)?$/)
+          if (gb) return parseFloat(gb[1])
+          const n = parseFloat(sizeStr.replace(/[^\d.]/g, ""))
+          return isNaN(n) ? NaN : n
+        })()
+        if (isNaN(targetGb) || targetGb <= 0) {
+          return { error: "invalid_size", message: "Ask the customer for the bundle size (e.g. 1GB, 5GB), then call get_available_packages to confirm it exists." }
+        }
+
+        // Resolve the price tier from the DIALING (WhatsApp) number, mirroring the menu
+        // flow (handleSelectNetwork, lib/ussd/handlers/bundles.ts) so a quick order and a
+        // menu order are priced identically. Tier is read from the real account role — a
+        // regular user/guest can never be assigned a cheaper tier. Sub-agents use catalogue
+        // pricing → route them through the menu rather than risk a misprice here.
+        const localSender = toLocal(phone)
+        // Resolve the ordering account. PREFER ctx.userId — the webhook already matched the
+        // WhatsApp number to a user OR resolved an OTP-linked account whose registered number
+        // may DIFFER from the WhatsApp number (so a linked customer messaging from another
+        // device still gets their account + wallet). Fall back to a phone lookup only if the
+        // loop didn't resolve one. Tier/wallet are always read from the DB account (never from
+        // model input), so a regular user/guest can never be assigned a cheaper tier.
+        const { data: orderSettings } = await supabaseAdmin.from("app_settings").select("ussd_price_tier").single()
+        let resolvedUserId: string | undefined = ctx.userId
+        let role: string | null = null
+        if (resolvedUserId) {
+          const { data: u } = await supabaseAdmin.from("users").select("role").eq("id", resolvedUserId).maybeSingle()
+          role = u?.role ?? null
+        } else {
+          const { data: u } = await supabaseAdmin.from("users").select("id, role").eq("phone_number", localSender).maybeSingle()
+          if (u) { resolvedUserId = u.id; role = u.role }
+        }
+        if (role === "sub_agent") {
+          return { error: "use_menu", message: "This customer is a sub-agent (catalogue pricing). Use start_ordering_bot so they get their correct sub-agent prices." }
+        }
+        let effectivePriceTier: string = orderSettings?.ussd_price_tier ?? "regular"
+        let walletBalance: number | undefined
+        if (resolvedUserId) {
+          effectivePriceTier = role === "dealer" ? "dealer" : "regular"
+          const { data: walletRow } = await supabaseAdmin.from("wallets").select("balance").eq("user_id", resolvedUserId).maybeSingle()
+          walletBalance = walletRow ? Number(walletRow.balance) : undefined
+        }
+
+        // Find the active package by network + numeric size (avoids '1' vs '1.0' mismatches).
+        const { data: pkgs } = await supabaseAdmin
+          .from("packages")
+          .select("id, network, size, price, dealer_price")
+          .eq("network", canonicalNetwork)
+          .eq("active", true)
+        const pkg = (pkgs ?? []).find((p: { size: string | number }) => Math.abs(parseFloat(String(p.size)) - targetGb) < 1e-6) as
+          | { id: string; network: string; size: string | number; price: number; dealer_price: number | null }
+          | undefined
+        if (!pkg) {
+          return { error: "package_not_found", message: `No active ${canonicalNetwork} bundle matches that size. Call get_available_packages and offer the customer one of the sizes it lists.` }
+        }
+        const tierPrice = effectivePriceTier === "dealer" && pkg.dealer_price && Number(pkg.dealer_price) > 0
+          ? Number(pkg.dealer_price)
+          : Number(pkg.price)
+
+        // Light idempotency: if an identical order is already awaiting payment from the
+        // last ~90s, don't seed another. (The real anti-double-charge guard is the existing
+        // flow: the session is cleared on completion and the Paystack webhook is idempotent.)
+        const since = new Date(Date.now() - 90_000).toISOString()
+        const { data: recentDupes } = await supabaseAdmin
+          .from("ussd_orders")
+          .select("id")
+          .eq("recipient_phone", localRecipient)
+          .eq("network", pkg.network)
+          .eq("package_size", String(pkg.size))
+          .gte("created_at", since)
+          .in("payment_status", ["pending", "otp_required"])
+          .limit(1)
+        if (recentDupes && recentDupes.length > 0) {
+          return { duplicate: true, message: `There's already an order for ${canonicalNetwork} ${String(input.size)} to ${localRecipient} waiting to be paid. Ask the customer to finish paying for it (reply 1 or 2 on the confirm screen) or cancel it before placing another.` }
+        }
+
+        // Seed CONFIRM. The webhook returns the confirm menu verbatim; the customer's next
+        // reply (1=Wallet, 2=MoMo, 0=Cancel) enters the existing waRouter CONFIRM handler.
+        await setWaSession(phone, {
+          step: "CONFIRM",
+          network: pkg.network,
+          bundleId: pkg.id,
+          bundleSize: String(pkg.size),
+          bundlePrice: tierPrice,
+          recipientPhone: localRecipient,
+          dialingPhone: localSender,
+          effectivePriceTier,
+          userId: resolvedUserId,
+          walletBalance,
+        })
+
+        return {
+          staged: true,
+          network: pkg.network,
+          size: String(pkg.size),
+          recipient: localRecipient,
+          price: tierPrice,
+          message: "Order is ready — the customer has been shown a confirm screen to pick Wallet or Mobile Money and approve payment. Do NOT tell them it is paid or done yet.",
+        }
       }
 
       case "request_human_handoff": {

@@ -30,6 +30,19 @@ export interface AIProvider {
     tools: Anthropic.Tool[]
     messages: Anthropic.MessageParam[]
   }): Promise<NormalizedResponse>
+
+  // One-shot image understanding (vision). Returns a plain-text description.
+  // Kept separate from createMessage because the agentic loop's history
+  // converters strip image blocks (the loop is a text-only, multi-provider
+  // transport). Vision needs a direct, provider-native image request, so each
+  // adapter formats the image the way its own API expects.
+  describeImage(params: {
+    model: string
+    base64: string
+    mediaType: string
+    prompt: string
+    maxTokens?: number
+  }): Promise<string>
 }
 
 // ── Anthropic adapter ─────────────────────────────────────────────────────────
@@ -64,6 +77,24 @@ class AnthropicAdapter implements AIProvider {
       stopReason: response.stop_reason === "tool_use" ? "tool_use" : "end_turn",
       anthropicContent: response.content as unknown as AnthropicContentLike[],
     }
+  }
+
+  async describeImage({ model, base64, mediaType, prompt, maxTokens = 250 }: Parameters<AIProvider["describeImage"]>[0]): Promise<string> {
+    const response = await this.client.messages.create({
+      model,
+      max_tokens: maxTokens,
+      messages: [{
+        role: "user",
+        content: [
+          { type: "image", source: { type: "base64", media_type: mediaType as "image/jpeg" | "image/png" | "image/gif" | "image/webp", data: base64 } },
+          { type: "text", text: prompt },
+        ],
+      }],
+    })
+    return response.content
+      .filter((b): b is Anthropic.TextBlock => b.type === "text")
+      .map(b => b.text)
+      .join("")
   }
 }
 
@@ -185,6 +216,21 @@ class OpenAIAdapter implements AIProvider {
       anthropicContent,
     }
   }
+
+  async describeImage({ model, base64, mediaType, prompt, maxTokens = 250 }: Parameters<AIProvider["describeImage"]>[0]): Promise<string> {
+    const response = await this.client.chat.completions.create({
+      model,
+      max_tokens: maxTokens,
+      messages: [{
+        role: "user",
+        content: [
+          { type: "text", text: prompt },
+          { type: "image_url", image_url: { url: `data:${mediaType};base64,${base64}` } },
+        ],
+      }],
+    })
+    return response.choices[0]?.message?.content ?? ""
+  }
 }
 
 // ── Gemini adapter ────────────────────────────────────────────────────────────
@@ -301,6 +347,23 @@ class GeminiAdapter implements AIProvider {
       stopReason: toolCalls.length > 0 ? "tool_use" : "end_turn",
       anthropicContent,
     }
+  }
+
+  async describeImage({ model, base64, mediaType, prompt, maxTokens = 250 }: Parameters<AIProvider["describeImage"]>[0]): Promise<string> {
+    const genModel = this.client.getGenerativeModel({
+      model,
+      generationConfig: { maxOutputTokens: maxTokens },
+    })
+    const response = await genModel.generateContent({
+      contents: [{
+        role: "user",
+        parts: [
+          { text: prompt },
+          { inlineData: { mimeType: mediaType, data: base64 } },
+        ],
+      }],
+    })
+    return response.response.text() ?? ""
   }
 }
 
