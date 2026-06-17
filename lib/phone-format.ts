@@ -43,6 +43,21 @@ export function normalizeGhanaPhone(phone: string): string | null {
   return sig ? "0" + sig : null
 }
 
+/** Ghana mobile network for a number, by prefix. "UNKNOWN" when the prefix
+ *  isn't a recognised mobile range (callers verifying via Moolre coerce UNKNOWN
+ *  to MTN, matching the admin phone-audit). Based on the first two significant
+ *  digits of the canonical 0XXXXXXXXX form. */
+export type GhanaNetwork = "MTN" | "TELECEL" | "AT" | "UNKNOWN"
+export function detectGhanaNetwork(phone: string): GhanaNetwork {
+  const sig = ghanaSignificant(phone)
+  if (!sig) return "UNKNOWN"
+  const p = sig.slice(0, 2)
+  if (["24", "25", "53", "54", "55", "59"].includes(p)) return "MTN"
+  if (["20", "50"].includes(p)) return "TELECEL"
+  if (["26", "27", "56", "57"].includes(p)) return "AT"
+  return "UNKNOWN"
+}
+
 /**
  * All the stored representations a given number might appear as, so a lookup
  * matches however it was historically saved (mixed formats predate

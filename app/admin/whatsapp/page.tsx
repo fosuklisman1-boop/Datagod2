@@ -48,6 +48,7 @@ interface ThreadConvo {
   takeover_active: boolean
   is_stale: boolean
   wants_human: boolean
+  open_complaints: number
 }
 
 function timeAgo(iso: string | null): string {
@@ -119,6 +120,7 @@ export default function WhatsAppInboxPage() {
   const [composer, setComposer] = useState("")
   const [sending, setSending] = useState(false)
   const [toggling, setToggling] = useState(false)
+  const [resolving, setResolving] = useState(false)
   const [uploading, setUploading] = useState(false)
   const fileRef = useRef<HTMLInputElement | null>(null)
 
@@ -348,6 +350,31 @@ export default function WhatsAppInboxPage() {
     }
   }
 
+  // Explicitly resolve the customer's open complaint(s). Deliberate action — sending
+  // a normal reply never resolves complaints (that silently closed them before).
+  async function resolveComplaint() {
+    if (!selected) return
+    if (!confirm("Mark this customer's open complaint(s) as resolved?")) return
+    setResolving(true)
+    try {
+      const headers = await getAuthHeader()
+      const res = await fetch("/api/admin/whatsapp-inbox/resolve-complaint", {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: selected }),
+      })
+      const json = await res.json()
+      if (!res.ok) { toast.error(json.error || "Failed to resolve"); return }
+      toast.success(json.resolved > 0 ? `Resolved ${json.resolved} complaint${json.resolved === 1 ? "" : "s"}` : "No open complaints to resolve")
+      await fetchThread(selected, false)
+      loadConversations()
+    } catch {
+      toast.error("Failed to resolve")
+    } finally {
+      setResolving(false)
+    }
+  }
+
   if (loading) {
     return (
       <DashboardLayout>
@@ -423,6 +450,9 @@ export default function WhatsAppInboxPage() {
               <div className="min-w-0">
                 <div className="font-medium text-sm truncate flex items-center gap-1.5">
                   {threadConvo?.customer_name || selectedConvo?.customer_name || selected}
+                  {threadConvo && threadConvo.open_complaints > 0 && (
+                    <Badge className="text-[10px] px-1.5 py-0 bg-rose-500 hover:bg-rose-600 text-white"><AlertTriangle className="w-3 h-3 mr-0.5" />complaint</Badge>
+                  )}
                   {threadConvo?.wants_human && !threadConvo?.takeover_active && (
                     <Badge className="text-[10px] px-1.5 py-0 bg-warning hover:bg-warning/90 text-primary-foreground"><Hand className="w-3 h-3 mr-0.5" />wants human</Badge>
                   )}
@@ -434,15 +464,28 @@ export default function WhatsAppInboxPage() {
                 </div>
               </div>
             </div>
-            {threadConvo?.takeover_active ? (
-              <Button size="sm" variant="outline" disabled={toggling} onClick={() => toggleTakeover("release")}>
-                {toggling ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Bot className="w-4 h-4 mr-1" />Resume bot</>}
-              </Button>
-            ) : (
-              <Button size="sm" disabled={toggling} onClick={() => toggleTakeover("take")}>
-                {toggling ? <Loader2 className="w-4 h-4 animate-spin" /> : <><UserCheck className="w-4 h-4 mr-1" />Take over</>}
-              </Button>
-            )}
+            <div className="flex items-center gap-2 shrink-0">
+              {threadConvo && threadConvo.open_complaints > 0 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={resolving}
+                  onClick={resolveComplaint}
+                  className="border-rose-300 text-rose-700 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-950/30"
+                >
+                  {resolving ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Check className="w-4 h-4 mr-1" />Resolve complaint</>}
+                </Button>
+              )}
+              {threadConvo?.takeover_active ? (
+                <Button size="sm" variant="outline" disabled={toggling} onClick={() => toggleTakeover("release")}>
+                  {toggling ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Bot className="w-4 h-4 mr-1" />Resume bot</>}
+                </Button>
+              ) : (
+                <Button size="sm" disabled={toggling} onClick={() => toggleTakeover("take")}>
+                  {toggling ? <Loader2 className="w-4 h-4 animate-spin" /> : <><UserCheck className="w-4 h-4 mr-1" />Take over</>}
+                </Button>
+              )}
+            </div>
           </div>
 
           {/* WhatsApp-style thread, from the BUSINESS side: our bot/admin replies

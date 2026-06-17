@@ -87,6 +87,15 @@ export async function GET(
   const isStale =
     !convo?.latest_inbound_at || now - new Date(convo.latest_inbound_at).getTime() > STALE_WINDOW_MS
 
+  // Unclaimed (open) complaints for this customer — surfaced so an admin can resolve
+  // them from the inbox with an explicit action (sending a reply does NOT resolve them).
+  // "claimed" ones are being worked via the WhatsApp "complaints" flow, so not counted here.
+  const { count: openComplaints } = await supabase
+    .from("whatsapp_complaints")
+    .select("id", { count: "exact", head: true })
+    .eq("phone_number", phone)
+    .eq("status", "open")
+
   return NextResponse.json({
     conversation: convo
       ? {
@@ -99,6 +108,7 @@ export async function GET(
           takeover_active: takeoverActive,
           is_stale: isStale,
           wants_human: convo.wants_human === true,
+          open_complaints: openComplaints ?? 0,
         }
       : null,
     messages: messages ?? [],

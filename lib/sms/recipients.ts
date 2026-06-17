@@ -84,13 +84,24 @@ export async function resolveRecipients(
   supabase: SupabaseClient
 ): Promise<ResolveResult> {
   if (spec.type === "group") {
+    // Admin broadcast may target ONLY admin-global groups (sms_account_id IS NULL).
+    // The inner join + NULL filter means a tenant-owned group id resolves to zero
+    // recipients (the route's empty-group guard then rejects it), so an admin can
+    // never broadcast to a tenant's private contact list.
     const { data, error } = await supabase
       .from("sms_contacts")
-      .select("phone_number, first_name, last_name, opted_out")
+      .select("phone_number, first_name, last_name, opted_out, sms_groups!inner(sms_account_id)")
       .eq("group_id", spec.groupId)
+      .is("sms_groups.sms_account_id", null)
 
     if (error) throw error
-    return buildContactList(data ?? [])
+    const rows: RawContactRow[] = (data ?? []).map((r: Record<string, unknown>) => ({
+      phone_number: (r.phone_number as string) ?? "",
+      first_name: (r.first_name as string) ?? null,
+      last_name: (r.last_name as string) ?? null,
+      opted_out: (r.opted_out as boolean) ?? false,
+    }))
+    return buildContactList(rows)
   }
 
   // type === "users": fetch from the users table

@@ -11,6 +11,7 @@ import { logMessage } from "@/lib/whatsapp-bot/log-message"
 import { maybeNotifyAdmins, isHumanRequest } from "@/lib/whatsapp-bot/notify-admins"
 import { runAgenticLoop } from "@/lib/ai-agentic-loop"
 import { resolveProviderForContext, DEFAULT_CONFIG, AIProviderConfig } from "@/lib/ai-providers"
+import { describeImage } from "@/lib/ai-vision"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -206,15 +207,20 @@ async function processInbound(body: unknown): Promise<void> {
         msg.type === "audio" ? "🎤 Voice note" :
         msg.type === "sticker" ? "🌟 Sticker" :
         "📄 Document"
-      await logMessage(from, "inbound", caption || typeLabel, msg.id, { url: publicUrl, type: displayType }, profileName)
+      const imgLog = await logMessage(from, "inbound", caption || typeLabel, msg.id, { url: publicUrl, type: displayType }, profileName)
 
-      // Complaint proof (screenshots/PDF only — not voice notes/videos).
+      // Complaint proof (screenshots/PDF only — not voice notes/videos). When the
+      // image satisfies a complaint (staged, or attached to a recent open one) we
+      // must NOT also run the vision/AI reply below — the screenshot was the
+      // complaint proof, not a question to answer.
+      let handledAsComplaint = false
       if (isImage || mimeType === "application/pdf") {
         const { getPendingComplaint, clearPendingComplaint } = await import("@/lib/whatsapp-bot/pending-complaint")
         const pending = await getPendingComplaint(from)
         const { createComplaint, findRecentOpenComplaint, appendComplaintEvidence, notifyAdminsNewComplaint } =
           await import("@/lib/whatsapp-bot/complaints")
         if (pending) {
+          handledAsComplaint = true
           // A complaint was staged awaiting proof → submit it NOW with this
           // screenshot, then alert admins (so they receive a complete complaint,
           // never a bare one before the proof).
@@ -239,12 +245,26 @@ async function processInbound(body: unknown): Promise<void> {
           // extra screenshot for one already submitted).
           const open = await findRecentOpenComplaint(from)
           if (open) {
+            handledAsComplaint = true
             const added = await appendComplaintEvidence(open.id, publicUrl)
             await sendWhatsAppText(from, added
               ? "📎 Screenshot added to your complaint — our team will review it. Thank you."
               : "Thanks — we already have several screenshots for this complaint, so the team has enough to review it.")
           }
         }
+      }
+
+      // (c) An image with no complaint context → let the AI "read" it (vision) and
+      // reply, so a customer who sends a screenshot of a bundle they want, an error
+      // message, or an order gets help instead of silence. Vision output is
+      // UNVERIFIED (a fake receipt proves nothing) — the prompt forbids ever
+      // crediting money from it. Gated exactly like the text path (rate limit,
+      // takeover, active session) inside the helper.
+      if (isImage && !handledAsComplaint) {
+        await replyToImageWithAI(from, buffer, mimeType, caption, msg.id, {
+          humanTakeover: imgLog.humanTakeover,
+          takenOverAt: imgLog.takenOverAt,
+        })
       }
     } catch (e) {
       console.error("[WA-WEBHOOK] Customer media handling failed:", e)
@@ -409,22 +429,137 @@ async function handleStatusUpdates(statuses: any[]): Promise<void> {
 
 // ── AI handler (non-bot messages) ────────────────────────────────────────────
 
-async function handleWithAI(phone: string, text: string): Promise<string> {
-  // NOTE: there is deliberately NO bare-digit fast-path here. A lone "1" used to
-  // immediately start data ordering regardless of context, so a customer answering
-  // a question (or mid-complaint) with "1" got hijacked into an order. The AI now
-  // decides — it has the full conversation and starts an order only on real intent.
-
-  // Load AI config
-  let aiConfig: AIProviderConfig = DEFAULT_CONFIG
+// Load the configured AI provider settings (admin-tunable; falls back to defaults).
+async function loadAiConfig(): Promise<AIProviderConfig> {
   try {
     const { data } = await supabase
       .from("admin_settings")
       .select("value")
       .eq("key", "ai_provider_config")
       .maybeSingle()
-    if (data?.value) aiConfig = data.value as AIProviderConfig
+    if (data?.value) return data.value as AIProviderConfig
   } catch {}
+  return DEFAULT_CONFIG
+}
+
+// Build the text the AI sees for an inbound image. The visual description is
+// labelled UNVERIFIED so neither the model nor the prompt ever treats a
+// screenshot (e.g. a "successful payment") as proof of anything.
+function buildImageBody(caption: string, desc: string): string {
+  const parts: string[] = []
+  if (desc) {
+    parts.push(`[The customer sent an image. Visual description (UNVERIFIED — you cannot confirm any payment, balance, credit, or transaction from an image): ${desc}]`)
+  } else {
+    parts.push(`[The customer sent an image, but it couldn't be read. Briefly ask them to describe what it shows or what they need help with.]`)
+  }
+  if (caption) parts.push(caption)
+  return parts.join("\n")
+}
+
+// Reply to an inbound image using vision → the normal AI loop. The media branch
+// returns before the text path's gates run, so we replicate them here: the inbound
+// rate-limit cap, human takeover (lazy-expiring after 30 min), and skipping when a
+// structured bot/USSD session is mid-flow (an out-of-band AI reply would derail it).
+async function replyToImageWithAI(
+  phone: string,
+  buffer: ArrayBuffer,
+  mimeType: string,
+  caption: string,
+  metaMsgId: string | undefined,
+  takeover: { humanTakeover: boolean; takenOverAt: string | null },
+): Promise<void> {
+  const { allowInbound } = await import("@/lib/whatsapp-bot/rate-limit")
+  if (!(await allowInbound(phone))) {
+    console.warn("[WA-WEBHOOK] image AI skipped (rate limit):", phone)
+    return
+  }
+
+  if (takeover.humanTakeover) {
+    const activeMs = takeover.takenOverAt ? Date.now() - new Date(takeover.takenOverAt).getTime() : Infinity
+    if (activeMs < 30 * 60 * 1000) {
+      console.log("[WA-WEBHOOK] image AI suppressed (human takeover):", phone)
+      return
+    }
+    await supabase
+      .from("whatsapp_conversations")
+      .update({ human_takeover: false, taken_over_by: null, taken_over_at: null })
+      .eq("phone_number", phone)
+  }
+
+  const session = await getWaSession(phone)
+  if (session) {
+    console.log("[WA-WEBHOOK] image during active session — not auto-replying:", phone)
+    return
+  }
+
+  if (metaMsgId) void sendWaTyping(metaMsgId)
+
+  const aiConfig = await loadAiConfig()
+  const desc = await describeImage(buffer, mimeType, caption, aiConfig)
+  const reply = await handleWithAI(phone, buildImageBody(caption, desc))
+  if (reply) {
+    const out = formatForWhatsApp(reply)
+    const wamid = await sendWhatsAppText(phone, out)
+    await logMessage(phone, "outbound", out, wamid)
+  }
+}
+
+// Bare main-menu digits → services (the shortcut USSD users know).
+const MAIN_MENU_SHORTCUTS: Record<string, string> = {
+  "1": "data", "2": "afa", "3": "airtime", "4": "rc",
+}
+
+async function handleWithAI(phone: string, text: string): Promise<string> {
+  // Bare-digit menu shortcut (1=data, 2=AFA, 3=airtime, 4=results) — instant, no AI,
+  // so "type 1 to buy data" works reliably. GATED: skipped while a complaint is being
+  // collected (screenshot-pending), so a digit sent in that flow can't hijack into an
+  // order — the context the customer complained about.
+  const shortcut = MAIN_MENU_SHORTCUTS[text.trim()]
+  if (shortcut) {
+    const { getPendingComplaint } = await import("@/lib/whatsapp-bot/pending-complaint")
+    const pending = await getPendingComplaint(phone)
+    // Treat a bare digit as a menu choice ONLY when the customer is AT the menu — their
+    // first message, or right after a greeting / "what can I do". If the bot just asked a
+    // question (gathering complaint details, "which bundle size?", a recipient number…),
+    // the digit is the ANSWER — let the AI handle it so it never hijacks into an order.
+    let atMenu = false
+    if (!pending) {
+      const { data: lastOut } = await supabase
+        .from("whatsapp_messages")
+        .select("message")
+        .eq("phone_number", phone)
+        .eq("direction", "outbound")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      const lastMsg = lastOut?.message ?? ""
+      atMenu = !lastMsg || /how can i help|welcome to datagod|here'?s what i can do|what (i can do|can i help|would you like)|reply with|i'?m here to help/i.test(lastMsg)
+    }
+    if (atMenu) {
+      const { setWaSession } = await import("@/lib/whatsapp-bot/session")
+      const { networkMenu, rcMenu, airtimeRecipientPrompt, afaEnterNamePrompt } = await import("@/lib/ussd/menus")
+      const localPhone = phone.startsWith("233") ? "0" + phone.slice(3) : phone
+      const stepMap: Record<string, { step: string; menu: () => string }> = {
+        data:    { step: "SELECT_NETWORK",          menu: networkMenu },
+        airtime: { step: "AIRTIME_ENTER_RECIPIENT", menu: airtimeRecipientPrompt },
+        afa:     { step: "AFA_ENTER_NAME",          menu: afaEnterNamePrompt },
+        rc:      { step: "RC_MENU",                 menu: rcMenu },
+      }
+      const mapped = stepMap[shortcut]
+      await setWaSession(phone, { step: mapped.step as any, dialingPhone: localPhone })
+      return mapped.menu()
+    }
+  }
+
+  // Snapshot session state up front. handleWithAI only runs when no bot/USSD session is
+  // active, so if a confirm session exists AFTER the loop it was necessarily seeded by
+  // place_whatsapp_order THIS turn. Capturing it makes the post-loop confirm-menu return
+  // robust — we never echo a stale confirm screen in place of the AI's actual reply (e.g.
+  // when the tool returned a validation error rather than staging an order).
+  const sessionAtStart = await getWaSession(phone)
+
+  // Load AI config
+  const aiConfig = await loadAiConfig()
 
   const { provider, model } = resolveProviderForContext("whatsapp", aiConfig)
 
@@ -462,7 +597,19 @@ async function handleWithAI(phone: string, text: string): Promise<string> {
   // Append current message
   messages.push({ role: "user", content: text })
 
-  const baseSystem = `You are the Datagod assistant on WhatsApp. Datagod is a Ghanaian platform for mobile data bundles, airtime, AFA registration, and exam results services.
+  // Shareable links the bot can offer in conversation.
+  const siteUrl = process.env.NEXT_PUBLIC_APP_URL || ""
+  let channelLink = ""
+  try {
+    const { data: appSettings } = await supabase.from("app_settings").select("join_community_link").limit(1).maybeSingle()
+    channelLink = (appSettings?.join_community_link as string) || ""
+  } catch {}
+  const linksSection = [
+    siteUrl ? `- Website: ${siteUrl} — browse packages, buy online, top up the wallet, or manage the account.` : "",
+    channelLink ? `- WhatsApp channel (updates, new bundles & deals): ${channelLink}` : "",
+  ].filter(Boolean).join("\n")
+
+  const baseSystem = `You are the Datagod assistant on WhatsApp. Datagod is a Ghanaian platform for mobile data bundles, airtime, AFA registration, exam results services, and customer support.
 
 SERVICES:
 - Data bundles: MTN, Telecel, AirtelTigo — instant delivery after payment
@@ -470,15 +617,22 @@ SERVICES:
 - AFA registration: Ghana government agricultural program registration
 - Results Checker Vouchers: buy WASSCE/BECE/NOVDEC voucher codes — the customer checks their own results on the WAEC portal
 - Results Check Service: Datagod checks exam results on the customer's behalf — they provide index number, date of birth, exam year, exam board and a WhatsApp number; results are delivered to them. Two modes: "Combo" (Datagod supplies the voucher, higher fee) or "Own Voucher" (customer already has a PIN + serial, lower fee).
+- Help & support: track an order, fix a stuck wallet top-up, verify/link an account, or report a problem / file a complaint (e.g. paid but didn't receive, wrong bundle, charged twice) — just tell me what's wrong.
 
 The user's WhatsApp number is ${phone}${userId ? " and they have a registered Datagod account" : ""}.
+${linksSection ? `\nLINKS (share as plain URLs when it helps — the channel when they ask about updates/deals or want to stay informed; the website for browsing, buying online, or self-service):\n${linksSection}\n` : ""}
+GREETING / "what can you do": when you greet someone or they ask what you can help with, briefly cover the full range — buy data, airtime, AFA, results checker; check exam results; track an order; sort out a wallet top-up; AND report a problem/complaint — and feel free to point them to the website or WhatsApp channel.
 
-ORDERING:
-- When the customer clearly wants to BUY/order something (data, airtime, AFA, voucher, or the Results Check Service), call start_ordering_bot. Use service="rc" for both voucher purchases and the Results Check Service — the menu lets them pick. Never type menu options yourself.
+ORDERING — place_whatsapp_order handles DATA, AIRTIME, and RESULTS-CHECKER VOUCHERS. It drops the customer on a final confirm screen where THEY pick Wallet or Mobile Money and approve — payment happens only after they approve there. Never invent a price; never say an order is paid/done before it's confirmed. Call it only once you have the details below AND the customer has confirmed; if something's missing, just ask (don't call the tool yet).
+  • service="data": need network (MTN/Telecel/AirtelTigo/AT-iShare) + bundle size + recipient number. Call get_available_packages first to quote the REAL price, then confirm network+size+recipient+price.
+  • service="airtime": need the recipient number + the GHS amount they'll pay (network is auto-detected). The recipient receives slightly LESS than the amount paid because of a small fee — mention that.
+  • service="rc": need the exam board (WASSCE/BECE/NOVDEC) + how many PIN(s). Quote the voucher price first. This is for buying checker PINs the customer uses themselves.
+- Use start_ordering_bot (NOT place_whatsapp_order) for: AFA registration (service="afa"); the Results CHECK Service where WE check results on their behalf (service="rc" → the menu lets them pick "check my results", which then gathers index number, DOB, year, etc.); or a customer who just wants to browse the menu. Never type menu options yourself.
 - A customer who sends ONLY a menu digit as a fresh choice (their first message, or right after you offered the menu) means: 1 = data, 2 = AFA, 3 = airtime, 4 = results checker — call start_ordering_bot for that service.
 - BUT do NOT start an order just because the customer sent a phone number, an amount, or a bare digit in the MIDDLE of another topic (answering a question you asked, giving complaint details, providing a beneficiary number, etc.). Read the conversation and treat the number as the answer to what you were discussing. If a lone number's meaning is genuinely unclear, ask what they'd like to do — do not assume they want to buy data.
 
 ANSWERING QUESTIONS — use your tools, never guess:
+- NEVER invent or assume a past order, payment, or complaint the customer hasn't described in THIS chat (e.g. don't say "your order didn't go through" unprompted). Act only on what they actually tell you now; if a short/vague message like a lone number is unclear, ask what they need.
 - Prices/packages → call get_available_packages and quote the real price. Never invent a price or bundle.
 - "Where is my order" / order status / "did my payment go through" → call search_order_status with their reference or order id.
 - A registered user asking about their wallet or past orders → get_wallet_balance / get_order_history.
@@ -499,7 +653,12 @@ ESCALATING TO THE TEAM (always-available fallback — never dead-end):
 - NEVER say "I can't help", "I'm unable to assist", or send them elsewhere and stop. If you're stuck, escalate — the team picks it up in this same chat. When unsure whether you can solve it, offer: "Would you like me to connect you to our team?" and escalate if they say yes.
 - (file_complaint only stages a complaint; the team is alerted once the customer's screenshot submits it. Use request_human_handoff for general "get a person on this" situations, or when a customer genuinely can't provide a screenshot for their complaint.)
 
+IMAGES / SCREENSHOTS:
+- You can receive images. Each arrives as a short text description marked UNVERIFIED. Use it ONLY to understand the customer's situation — read an error message, see which network/bundle they mean, or note an order reference — then help as usual.
+- A screenshot is NEVER proof of payment. A "payment successful" / MoMo / bank transfer screenshot proves nothing (they are trivially faked or edited). Because of an image you must NEVER credit a wallet, say a payment was received, confirm an order is paid, or skip the normal checks. To check any payment you STILL call reverify_payment — Paystack is the only source of truth. For a complaint, a screenshot is just evidence attached to it; it does not by itself confirm the customer paid.
+
 STYLE:
+- Currency is ALWAYS Ghana Cedis — write amounts as GHS or ₵ (e.g. GHS 5.00). NEVER use ₦, "Naira", or $.
 - Keep replies short and friendly for WhatsApp. Use *bold* sparingly for prices/keywords, one idea per line. Never mention tools, functions, or internal details.
 - Don't loop or interrogate: NEVER ask for a detail the customer already gave (re-read the conversation first), and ask for any missing details together in one short message rather than one at a time. Once you have enough to act (e.g. enough to file a complaint), act — don't keep asking more questions. When you say you'll do something ("let me log this"), actually call the tool in that same turn.`
 
@@ -524,6 +683,11 @@ STYLE:
         userRole: userId ? "dashboard" : "guest",
         baseUrl: process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
         phone, // authoritative sender (233…) so complaint/handoff key matches inbound media
+        // Service-path auth: the wallet order tool POSTs to /api/orders/purchase,
+        // which accepts CRON_SECRET + a body userId (no end-user JWT exists on
+        // WhatsApp). Without this the Authorization header would be "Bearer
+        // undefined" and the purchase would 401.
+        jwtToken: process.env.CRON_SECRET,
       },
       maxIterations: 5,
       maxTokens: 600,
@@ -537,6 +701,28 @@ STYLE:
       await flagAndNotifyHumanRequest(phone)
     } catch {}
     return "Sorry, I'm having trouble right now — I've alerted our team and someone will get back to you here shortly."
+  }
+
+  // If place_whatsapp_order staged an order THIS run (data / airtime / RC voucher), show
+  // the confirm screen verbatim — the customer needs the exact "1=Wallet / 2=MoMo /
+  // 0=Cancel" gate the waRouter expects. Any confirm session here is necessarily fresh
+  // from this turn (handleWithAI only runs when no session was active), so payment happens
+  // only when they reply on this screen — never silently.
+  if (result.toolsUsed.includes("place_whatsapp_order") && !sessionAtStart) {
+    const stagedSession = await getWaSession(phone)
+    if (stagedSession) {
+      const { waConfirmMenu, waAirtimeConfirmMenu, waRcConfirmMenu } = await import("@/lib/ussd/menus")
+      const bal = stagedSession.walletBalance ?? 0
+      if (stagedSession.step === "CONFIRM") {
+        return waConfirmMenu(stagedSession.network!, stagedSession.bundleSize!, stagedSession.bundlePrice!, stagedSession.recipientPhone!, bal)
+      }
+      if (stagedSession.step === "AIRTIME_CONFIRM") {
+        return waAirtimeConfirmMenu(stagedSession.airtimeNetwork!, stagedSession.airtimeRecipient!, stagedSession.airtimeAmount!, stagedSession.airtimeToDeliver!, bal)
+      }
+      if (stagedSession.step === "RC_CONFIRM") {
+        return waRcConfirmMenu(stagedSession.rcBoard!, stagedSession.rcQty!, stagedSession.rcTotal!, bal)
+      }
+    }
   }
 
   // If start_ordering_bot was called THIS run, show the correct submenu immediately.
@@ -556,6 +742,6 @@ STYLE:
     }
   }
 
-  return result.text || "I'm here to help!\n\nReply with:\n- *data* to buy data bundles\n- *airtime* for airtime top-up\n- *afa* for AFA registration\n- *rc* for results checker vouchers"
+  return result.text || `I'm here to help! 😊\n\nReply with:\n- *data* to buy data bundles\n- *airtime* for airtime top-up\n- *afa* for AFA registration\n- *rc* for results checker / results service\n- *order* to track an order\n- *help* to report a problem or complaint${channelLink ? `\n\nUpdates & deals: ${channelLink}` : ""}`
 }
 

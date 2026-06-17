@@ -14,6 +14,10 @@ const supabaseAdmin = createClient(
 )
 
 const MAX_RECIPIENTS = 500
+// Auto-batching: one enqueueSend call carries up to SMS_BATCH_SIZE recipients;
+// a larger group/list fans out into sequential batches up to SMS_MAX_TOTAL.
+export const SMS_BATCH_SIZE = 500
+export const SMS_MAX_TOTAL = 5000
 
 /** Normalize a phone string to +233XXXXXXXXX (Moolre/E.164 format). */
 function normalizePhoneNumber(phone: string): string | null {
@@ -249,4 +253,97 @@ export async function enqueueSend(
     creditsReserved: creditsNeeded,
     invalidSkipped,
   }
+}
+
+export interface BatchedSendResult {
+  ok: true
+  batches: number          // how many batches actually queued
+  totalQueued: number      // sum of recipients queued across batches
+  segments: number         // per-recipient segments (same for every batch)
+  creditsReserved: number  // sum of credits reserved across batches
+  invalidSkipped: number
+  partial: boolean         // true if it stopped before sending every batch
+  stoppedReason?: string   // the error that stopped further batches (e.g. credits)
+}
+
+/**
+ * Auto-batch a large send: split into SMS_BATCH_SIZE (=500) chunks and enqueue
+ * each sequentially via enqueueSend. Sequential (not parallel) so a mid-run
+ * credit shortfall stops cleanly — earlier batches are already queued, later
+ * ones simply aren't sent, and we report that as a partial success so the user
+ * can top up and resend the rest. Each enqueueSend reserves/refunds its OWN
+ * credits atomically, so there is no cross-batch double-charge.
+ */
+/**
+ * Pure sequential-batch orchestrator (sendChunk injected so it's testable
+ * without the DB). Splits `recipients` into `batchSize` chunks and sends each in
+ * order. Rules:
+ *  - empty / over-ceiling → hard error before any send.
+ *  - a chunk that returns NO_VALID_RECIPIENTS is SKIPPED (not a stop) — a block of
+ *    malformed numbers shouldn't halt the campaign; if EVERY chunk is invalid the
+ *    whole thing returns NO_VALID_RECIPIENTS.
+ *  - any other returned error / a THROW: hard error if nothing's sent yet (safe
+ *    retry — nothing charged), else a partial success reporting what DID go out.
+ */
+export async function runSequentialBatches(
+  recipients: string[],
+  sendChunk: (chunk: string[]) => Promise<EnqueueSendResult | EnqueueSendError>,
+  opts: { batchSize: number; maxTotal: number }
+): Promise<BatchedSendResult | EnqueueSendError> {
+  if (recipients.length === 0) return { ok: false, error: "NO_VALID_RECIPIENTS" }
+  if (recipients.length > opts.maxTotal) return { ok: false, error: "TOO_MANY_RECIPIENTS" }
+
+  const chunks: string[][] = []
+  for (let i = 0; i < recipients.length; i += opts.batchSize) {
+    chunks.push(recipients.slice(i, i + opts.batchSize))
+  }
+
+  let batches = 0
+  let totalQueued = 0
+  let creditsReserved = 0
+  let segments = 0
+  let invalidSkipped = 0
+  const partial = (stoppedReason: string): BatchedSendResult =>
+    ({ ok: true, batches, totalQueued, segments, creditsReserved, invalidSkipped, partial: true, stoppedReason })
+
+  for (const chunk of chunks) {
+    let r: EnqueueSendResult | EnqueueSendError
+    try {
+      r = await sendChunk(chunk)
+    } catch (e) {
+      // A THROW means THIS batch charged nothing (failure before/at the rolled-back
+      // debit). If nothing's gone out yet, rethrow for a safe retry; otherwise report
+      // the earlier delivered+charged batches as a partial.
+      if (batches === 0) throw e
+      return partial("SEND_ERROR")
+    }
+    if (!r.ok) {
+      if (r.error === "NO_VALID_RECIPIENTS") continue // skip an all-invalid chunk
+      if (batches === 0) return r                      // hard gate, nothing sent
+      return partial(r.error)                          // e.g. credits depleted mid-run
+    }
+    batches++
+    totalQueued += r.total
+    creditsReserved += r.creditsReserved
+    segments = r.segments
+    invalidSkipped += r.invalidSkipped
+  }
+
+  if (batches === 0) return { ok: false, error: "NO_VALID_RECIPIENTS" } // every chunk invalid
+  return { ok: true, batches, totalQueued, segments, creditsReserved, invalidSkipped, partial: false }
+}
+
+export async function enqueueSendBatched(
+  userId: string,
+  accountId: string,
+  message: string,
+  recipients: string[],
+  shopTokens?: ShopTokens,
+  senderId?: string
+): Promise<BatchedSendResult | EnqueueSendError> {
+  return runSequentialBatches(
+    recipients,
+    (chunk) => enqueueSend(userId, accountId, message, chunk, shopTokens, senderId),
+    { batchSize: SMS_BATCH_SIZE, maxTotal: SMS_MAX_TOTAL }
+  )
 }

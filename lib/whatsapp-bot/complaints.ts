@@ -92,11 +92,12 @@ export async function createComplaint(
   return { complaint: data as WaComplaint, isNew: true }
 }
 
-// Resolve OPEN complaints for a phone — used when an admin replies from the web
-// inbox, so a complaint handled there doesn't stay open. Only touches "open"
-// (unclaimed) complaints: "claimed" ones are being actively worked via the
-// WhatsApp admin flow (adminComplaintRouter) and must be resolved through it, so
-// we don't clobber their resolution/owner. Returns how many were resolved.
+// Resolve OPEN complaints for a phone — for an EXPLICIT "resolve" action only
+// (e.g. a future inbox button). It is deliberately NOT called on a normal inbox
+// reply: doing so silently closed complaints before anyone claimed them. Only
+// touches "open" (unclaimed) complaints; "claimed" ones are being actively worked
+// via the WhatsApp admin flow (adminComplaintRouter) and must be resolved through
+// it, so we don't clobber their resolution/owner. Returns how many were resolved.
 export async function resolveOpenComplaintsForPhone(
   phone: string,
   resolvedBy: string,

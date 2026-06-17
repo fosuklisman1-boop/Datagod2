@@ -54,13 +54,31 @@ export interface BulkImportResult {
 
 type ServiceResult<T> = { ok: true; data: T } | { ok: false; error: string }
 
+// This service manages ONLY admin/platform-global groups (sms_account_id IS NULL).
+// Migration 0075 introduced tenant-owned groups (sms_account_id NOT NULL) handled
+// by tenant-address-book-service.ts; every read/write here is constrained to the
+// NULL (admin-global) rows so the admin surfaces never see or mutate tenant data
+// — preserving the exact pre-0075 admin behaviour.
+
+/** True only if the group exists AND is admin-global (not owned by a tenant). */
+async function isAdminGlobalGroup(groupId: string): Promise<boolean> {
+  const { data } = await supabaseAdmin
+    .from("sms_groups")
+    .select("id")
+    .eq("id", groupId)
+    .is("sms_account_id", null)
+    .maybeSingle()
+  return !!data
+}
+
 // ---------- Groups ----------
 
-/** List all groups, newest first, each with a derived contact_count. */
+/** List all ADMIN-GLOBAL groups, newest first, each with a derived contact_count. */
 export async function listGroups(): Promise<ServiceResult<SmsGroup[]>> {
   const { data, error } = await supabaseAdmin
     .from("sms_groups")
     .select("*, contact_count:sms_contacts(count)")
+    .is("sms_account_id", null)
     .order("created_at", { ascending: false })
 
   if (error) return { ok: false, error: error.message }
@@ -99,6 +117,7 @@ export async function getGroupWithContacts(
     .from("sms_groups")
     .select("*")
     .eq("id", groupId)
+    .is("sms_account_id", null)
     .maybeSingle()
 
   if (gErr) return { ok: false, error: gErr.message }
@@ -133,6 +152,7 @@ export async function updateGroup(
     .from("sms_groups")
     .update(update)
     .eq("id", groupId)
+    .is("sms_account_id", null)
     .select()
     .maybeSingle()
 
@@ -141,9 +161,13 @@ export async function updateGroup(
   return { ok: true, data: data as SmsGroup }
 }
 
-/** Delete a group (cascades to its contacts via the FK). */
+/** Delete an admin-global group (cascades to its contacts via the FK). */
 export async function deleteGroup(groupId: string): Promise<ServiceResult<{ id: string }>> {
-  const { error } = await supabaseAdmin.from("sms_groups").delete().eq("id", groupId)
+  const { error } = await supabaseAdmin
+    .from("sms_groups")
+    .delete()
+    .eq("id", groupId)
+    .is("sms_account_id", null)
   if (error) return { ok: false, error: error.message }
   return { ok: true, data: { id: groupId } }
 }
@@ -155,6 +179,7 @@ export async function addContact(
   groupId: string,
   contact: { first_name?: string | null; last_name?: string | null; phone_number: string }
 ): Promise<ServiceResult<SmsContact>> {
+  if (!(await isAdminGlobalGroup(groupId))) return { ok: false, error: "Group not found" }
   const phone = normalizeGhanaPhone(contact.phone_number ?? "")
   if (!phone) return { ok: false, error: "Invalid Ghana phone number" }
 
@@ -188,6 +213,7 @@ export async function bulkImportContacts(
   groupId: string,
   rows: { first_name?: string | null; last_name?: string | null; phone_number: string }[]
 ): Promise<ServiceResult<BulkImportResult>> {
+  if (!(await isAdminGlobalGroup(groupId))) return { ok: false, error: "Group not found" }
   const skippedSamples: { phone: string; reason: "invalid" | "duplicate" }[] = []
   const seen = new Set<string>()
   const toInsert: { group_id: string; first_name: string | null; last_name: string | null; phone_number: string }[] = []
@@ -245,18 +271,31 @@ export async function bulkImportContacts(
   return { ok: true, data: { inserted, skipped, skippedSamples } }
 }
 
-/** Delete a single contact by id. */
+/** True only if the contact exists AND lives in an admin-global group. */
+async function isAdminGlobalContact(contactId: string): Promise<boolean> {
+  const { data } = await supabaseAdmin
+    .from("sms_contacts")
+    .select("id, sms_groups!inner(sms_account_id)")
+    .eq("id", contactId)
+    .is("sms_groups.sms_account_id", null)
+    .maybeSingle()
+  return !!data
+}
+
+/** Delete a single contact by id (admin-global groups only). */
 export async function deleteContact(contactId: string): Promise<ServiceResult<{ id: string }>> {
+  if (!(await isAdminGlobalContact(contactId))) return { ok: false, error: "Contact not found" }
   const { error } = await supabaseAdmin.from("sms_contacts").delete().eq("id", contactId)
   if (error) return { ok: false, error: error.message }
   return { ok: true, data: { id: contactId } }
 }
 
-/** Toggle a contact's opted_out flag. */
+/** Toggle a contact's opted_out flag (admin-global groups only). */
 export async function setContactOptedOut(
   contactId: string,
   optedOut: boolean
 ): Promise<ServiceResult<SmsContact>> {
+  if (!(await isAdminGlobalContact(contactId))) return { ok: false, error: "Contact not found" }
   const { data, error } = await supabaseAdmin
     .from("sms_contacts")
     .update({ opted_out: optedOut })

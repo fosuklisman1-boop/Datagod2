@@ -129,6 +129,49 @@ async function handleSelectBundleWa(
   return { message: recipientPrompt(), ussdServiceOp: 2 }
 }
 
+// Map a NATURAL reply to the equivalent menu number for the current ordering step,
+// so customers who type "MTN", "1GB", "4.50" or "Mobile Money" instead of the exact
+// digit still progress through the (completable) USSD flow. Returns the digit string
+// or null if it can't confidently map (caller then tries keywords / escapes to AI).
+async function naturalToDigit(step: string, input: string, session: USSDSession): Promise<string | null> {
+  const lc = input.toLowerCase().replace(/\s+/g, "")
+  if (step === "SELECT_NETWORK" || step === "AIRTIME_SELECT_NETWORK") {
+    if (lc.startsWith("mtn")) return "1"
+    if (/telecel|vodafone/.test(lc)) return "2"
+    if (step === "SELECT_NETWORK" && /ishare|bigtime/.test(lc)) return "4"
+    if (/airteltigo|airtel|tigo|^at$/.test(lc)) return "3"
+    return null
+  }
+  if (step === "SELECT_BUNDLE") {
+    const bundles = await loadAllBundlesWa(session.network ?? "", session.effectivePriceTier ?? "regular", session.subAgentParentShopId)
+    if (!bundles.length) return null
+    let idx = -1
+    const gb = lc.match(/(\d+(?:\.\d+)?)gb/)
+    const mb = lc.match(/(\d+)mb/)
+    if (gb) {
+      const t = parseFloat(gb[1]); idx = bundles.findIndex((b) => parseFloat(b.size) === t)
+    } else if (mb) {
+      const t = parseFloat(mb[1]) / 1000; idx = bundles.findIndex((b) => Math.abs(parseFloat(b.size) - t) < 1e-6)
+    } else {
+      const price = parseFloat(lc.replace(/[^\d.]/g, ""))
+      if (!isNaN(price) && price > 0) idx = bundles.findIndex((b) => Math.abs(b.price - price) < 0.005)
+    }
+    return idx >= 0 ? String(idx + 1) : null
+  }
+  if (step === "CONFIRM" || step === "AIRTIME_CONFIRM" || step === "RC_CONFIRM") {
+    if (/momo|mobilemoney|mobile|mtnmomo|telecelcash/.test(lc)) return "2"
+    if (/wallet|balance/.test(lc)) return "1"
+    if (/^(cancel|stop|no)$/.test(lc)) return "0"
+    return null
+  }
+  if (step === "PAYMENT_METHOD" || step === "AIRTIME_PAYMENT_METHOD" || step === "RC_PAYMENT_METHOD") {
+    if (/momo|mobilemoney|mobile/.test(lc)) return "2"
+    if (/wallet|balance/.test(lc)) return "1"
+    return null
+  }
+  return null
+}
+
 export async function waRouter(phone: string, text: string): Promise<string> {
   const sessionId = phone
   const session = await getWaSession(sessionId)
@@ -137,7 +180,7 @@ export async function waRouter(phone: string, text: string): Promise<string> {
     return 'Your session expired. Send a message to start a new order.'
   }
 
-  const input = text.trim()
+  let input = text.trim()
   let result: UzoResponse = { message: mainMenu(), ussdServiceOp: 2 }
   // Used to override the (possibly truncated) message from a handler
   let overrideMessage: string | null = null
@@ -184,29 +227,34 @@ export async function waRouter(phone: string, text: string): Promise<string> {
         return result.message
       }
     }
-    if (lc.includes('data') || lc.includes('bundle')) {
+    // Forgiving menus: a natural reply (network name, bundle size/price, "MoMo"/
+    // "wallet") maps to the equivalent menu number so the order keeps progressing
+    // through the flow that can actually complete it. If mapped, fall through to the
+    // handler below; otherwise try ordering keywords, then escape to the AI.
+    const mappedDigit = await naturalToDigit(session.step, input, session)
+    if (mappedDigit !== null) {
+      input = mappedDigit
+    } else if (lc.includes('data') || lc.includes('bundle')) {
       await setWaSession(sessionId, { ...session, step: 'SELECT_NETWORK' })
       await extendWaSession(sessionId)
       return networkMenu()
-    }
-    if (lc.includes('airtime')) {
+    } else if (lc.includes('airtime')) {
       await setWaSession(sessionId, { ...session, step: 'AIRTIME_ENTER_RECIPIENT' })
       await extendWaSession(sessionId)
       return airtimeRecipientPrompt()
-    }
-    if (lc.includes('afa') || lc.includes('registr')) {
+    } else if (lc.includes('afa') || lc.includes('registr')) {
       await setWaSession(sessionId, { ...session, step: 'AFA_ENTER_NAME' })
       await extendWaSession(sessionId)
       return afaEnterNamePrompt()
-    }
-    if (lc.includes('result') || lc.includes('checker') || lc.includes('waec') || lc.includes('bece') || lc.includes('voucher')) {
+    } else if (lc.includes('result') || lc.includes('checker') || lc.includes('waec') || lc.includes('bece') || lc.includes('voucher')) {
       await setWaSession(sessionId, { ...session, step: 'RC_MENU' })
       await extendWaSession(sessionId)
       return rcMenu()
+    } else {
+      // No mapping or ordering keyword — escape to AI for a natural response
+      await deleteWaSession(sessionId)
+      return ''
     }
-    // No ordering keyword — escape to AI for a natural response
-    await deleteWaSession(sessionId)
-    return ''
   }
 
   switch (session.step) {
