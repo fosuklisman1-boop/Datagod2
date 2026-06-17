@@ -1,6 +1,7 @@
 "use client"
 import { useEffect, useState, useCallback } from "react"
 import { supabase } from "@/lib/supabase"
+import { DashboardLayout } from "@/components/layout/dashboard-layout"
 
 type Tab = "overview" | "moderation"
 
@@ -170,6 +171,7 @@ export default function AdminSmsPage() {
   const rev = dashboard?.revenue
 
   return (
+    <DashboardLayout>
     <div className="p-6 space-y-4">
       <h1 className="text-2xl font-bold">SMS Admin</h1>
 
@@ -445,5 +447,6 @@ export default function AdminSmsPage() {
         </div>
       )}
     </div>
+    </DashboardLayout>
   )
 }
