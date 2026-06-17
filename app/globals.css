@@ -151,12 +151,12 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(100, 150, 255, 0.6);
+  background: hsl(var(--primary) / 0.45);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(100, 150, 255, 0.9);
+  background: hsl(var(--primary) / 0.75);
 }
 
 /* Scrollbar for sidebar */
@@ -165,16 +165,16 @@ nav::-webkit-scrollbar {
 }
 
 nav::-webkit-scrollbar-track {
-  background: rgba(59, 130, 246, 0.15);
+  background: hsl(var(--primary) / 0.12);
 }
 
 nav::-webkit-scrollbar-thumb {
-  background: rgba(59, 130, 246, 0.5);
+  background: hsl(var(--primary) / 0.5);
   border-radius: 3px;
 }
 
 nav::-webkit-scrollbar-thumb:hover {
-  background: rgba(59, 130, 246, 0.8);
+  background: hsl(var(--primary) / 0.8);
 }
 
 nextjs-portal {
