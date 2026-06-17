@@ -2,20 +2,23 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 
+// Keys use the WASSCE name (the WAEC→WASSCE rename moved admin_settings to _wassce,
+// and results-checker-service reads price/enabled/markup by `*_${board.toLowerCase()}`
+// where the board is now WASSCE). The admin UI was writing the dead _waec keys.
 const RC_SETTING_KEYS = [
-  "results_checker_price_waec",
+  "results_checker_price_wassce",
   "results_checker_price_bece",
   "results_checker_price_novdec",
-  "results_checker_enabled_waec",
+  "results_checker_enabled_wassce",
   "results_checker_enabled_bece",
   "results_checker_enabled_novdec",
-  "results_checker_max_markup_waec",
+  "results_checker_max_markup_wassce",
   "results_checker_max_markup_bece",
   "results_checker_max_markup_novdec",
   "results_checker_max_quantity",
   "results_checker_reservation_timeout",
   "results_checker_bulk_min_quantity",
-  "results_checker_bulk_price_waec",
+  "results_checker_bulk_price_wassce",
   "results_checker_bulk_price_bece",
   "results_checker_bulk_price_novdec",
 ]

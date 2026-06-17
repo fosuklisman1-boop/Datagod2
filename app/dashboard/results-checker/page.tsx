@@ -15,7 +15,7 @@ import {
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
 
-const EXAM_BOARDS = ["WAEC", "BECE", "NOVDEC"]
+const EXAM_BOARDS = ["WASSCE", "BECE", "NOVDEC"]
 
 const STATUS_CLASSES: Record<string, string> = {
   pending:         "bg-warning/10 text-warning",
@@ -51,7 +51,7 @@ export default function ResultsCheckerPage() {
 
   // Purchase form
   const [purchaseOpen, setPurchaseOpen] = useState(false)
-  const [examBoard, setExamBoard] = useState<string>("WAEC")
+  const [examBoard, setExamBoard] = useState<string>("WASSCE")
   const [quantity, setQuantity] = useState(1)
   const [maxQuantity, setMaxQuantity] = useState(50)
   const [shopId, setShopId] = useState<string | undefined>(undefined)
@@ -264,7 +264,7 @@ export default function ResultsCheckerPage() {
               <GraduationCap className="w-6 h-6 text-primary" />
               Results Checker Vouchers
             </h1>
-            <p className="text-muted-foreground text-sm mt-1">Purchase WAEC, BECE &amp; NOVDEC scratch card vouchers</p>
+            <p className="text-muted-foreground text-sm mt-1">Purchase WASSCE, BECE &amp; NOVDEC scratch card vouchers</p>
           </div>
           {walletBalance !== null && (
             <div className="text-right">

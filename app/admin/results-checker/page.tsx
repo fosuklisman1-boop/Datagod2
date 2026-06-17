@@ -16,7 +16,7 @@ import { toast } from "sonner"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { supabase } from "@/lib/supabase"
 
-const EXAM_BOARDS = ["WAEC", "BECE", "NOVDEC"]
+const EXAM_BOARDS = ["WASSCE", "BECE", "NOVDEC"]
 
 const STATUS_CLASSES: Record<string, string> = {
   available:  "bg-success/15 text-success",
@@ -32,7 +32,7 @@ const STATUS_CLASSES: Record<string, string> = {
 }
 
 interface InventorySummary {
-  waec:   { available: number; reserved: number; sold: number; invalid: number; expired: number }
+  wassce: { available: number; reserved: number; sold: number; invalid: number; expired: number }
   bece:   { available: number; reserved: number; sold: number; invalid: number; expired: number }
   novdec: { available: number; reserved: number; sold: number; invalid: number; expired: number }
 }
@@ -412,7 +412,7 @@ export default function AdminResultsCheckerPage() {
       <div className="p-6 space-y-6">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Results Checker Vouchers</h1>
-          <p className="text-muted-foreground text-sm mt-1">Manage WAEC, BECE &amp; NOVDEC voucher inventory and orders</p>
+          <p className="text-muted-foreground text-sm mt-1">Manage WASSCE, BECE &amp; NOVDEC voucher inventory and orders</p>
         </div>
 
         {lowStockBoards.length > 0 && (
@@ -835,7 +835,7 @@ export default function AdminResultsCheckerPage() {
                       className="mt-1 max-w-[160px]" />
                   </div>
                   <div className="grid grid-cols-3 gap-4">
-                    {["waec", "bece", "novdec"].map(board => (
+                    {["wassce", "bece", "novdec"].map(board => (
                       <div key={board}>
                         <Label className="text-xs text-muted-foreground">{board.toUpperCase()} Bulk Price (GHS)</Label>
                         <Input type="number" min="0" step="0.01"

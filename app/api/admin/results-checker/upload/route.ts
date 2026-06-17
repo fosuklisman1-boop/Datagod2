@@ -92,9 +92,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "File too large (max 5MB)" }, { status: 400 })
     }
 
-    const board = (formData.get("board") as string | null)?.trim().toUpperCase()
-    if (!board || !["WAEC", "BECE", "NOVDEC"].includes(board)) {
-      return NextResponse.json({ error: "Valid board is required (WAEC, BECE, or NOVDEC)" }, { status: 400 })
+    let board = (formData.get("board") as string | null)?.trim().toUpperCase()
+    // WAEC (the exam BOARD/org) was renamed to the exam name WASSCE across the DB +
+    // check constraints. Accept a legacy "WAEC" value but store it as WASSCE so the
+    // insert isn't rejected by results_checker_inventory_exam_board_check.
+    if (board === "WAEC") board = "WASSCE"
+    if (!board || !["WASSCE", "BECE", "NOVDEC"].includes(board)) {
+      return NextResponse.json({ error: "Valid board is required (WASSCE, BECE, or NOVDEC)" }, { status: 400 })
     }
 
     const rawText = await fileToCSVText(file)
