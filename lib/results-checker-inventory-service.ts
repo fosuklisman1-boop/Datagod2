@@ -31,7 +31,7 @@ export interface UploadResult {
 }
 
 export interface InventorySummary {
-  waec: { available: number; reserved: number; sold: number; invalid: number; expired: number }
+  wassce: { available: number; reserved: number; sold: number; invalid: number; expired: number }
   bece: { available: number; reserved: number; sold: number; invalid: number; expired: number }
   novdec: { available: number; reserved: number; sold: number; invalid: number; expired: number }
 }
@@ -145,14 +145,14 @@ export async function getInventorySummary(): Promise<InventorySummary> {
     .select("exam_board, status")
 
   const summary: InventorySummary = {
-    waec:   { available: 0, reserved: 0, sold: 0, invalid: 0, expired: 0 },
+    wassce: { available: 0, reserved: 0, sold: 0, invalid: 0, expired: 0 },
     bece:   { available: 0, reserved: 0, sold: 0, invalid: 0, expired: 0 },
     novdec: { available: 0, reserved: 0, sold: 0, invalid: 0, expired: 0 },
   }
 
   for (const row of data ?? []) {
     const board = row.exam_board?.toLowerCase() as keyof InventorySummary
-    const status = row.status as keyof typeof summary.waec
+    const status = row.status as keyof typeof summary.wassce
     if (summary[board] && status in summary[board]) {
       summary[board][status]++
     }

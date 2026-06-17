@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "examBoard and quantity are required" }, { status: 400 })
     }
     if (!isValidExamBoard(examBoard)) {
-      return NextResponse.json({ error: "Invalid examBoard. Must be WAEC, BECE, or NOVDEC" }, { status: 400 })
+      return NextResponse.json({ error: "Invalid examBoard. Must be WASSCE, BECE, or NOVDEC" }, { status: 400 })
     }
 
     const quantity = parseInt(rawQuantity)
