@@ -65,8 +65,12 @@ export function parseVoucherCSV(text: string): ParseResult {
       continue
     }
 
-    if (!/^\d{12}$/.test(pin)) {
-      errors.push({ row: rowNum, reason: "PIN must be exactly 12 digits (numeric only)", raw })
+    // WAEC Ghana checker PINs are numeric, 10–12 digits: BECE cards are commonly
+    // 10-digit, WASSCE 12-digit (and a card checks both). Match the admin UI's
+    // client-side preview (PIN_REGEX = /^\d{10,12}$/) so the server doesn't reject
+    // valid BECE stock the preview accepted.
+    if (!/^\d{10,12}$/.test(pin)) {
+      errors.push({ row: rowNum, reason: "PIN must be 10–12 digits (numeric only)", raw })
       continue
     }
 
