@@ -462,7 +462,19 @@ async function handleWithAI(phone: string, text: string): Promise<string> {
   // Append current message
   messages.push({ role: "user", content: text })
 
-  const baseSystem = `You are the Datagod assistant on WhatsApp. Datagod is a Ghanaian platform for mobile data bundles, airtime, AFA registration, and exam results services.
+  // Shareable links the bot can offer in conversation.
+  const siteUrl = process.env.NEXT_PUBLIC_APP_URL || ""
+  let channelLink = ""
+  try {
+    const { data: appSettings } = await supabase.from("app_settings").select("join_community_link").limit(1).maybeSingle()
+    channelLink = (appSettings?.join_community_link as string) || ""
+  } catch {}
+  const linksSection = [
+    siteUrl ? `- Website: ${siteUrl} — browse packages, buy online, top up the wallet, or manage the account.` : "",
+    channelLink ? `- WhatsApp channel (updates, new bundles & deals): ${channelLink}` : "",
+  ].filter(Boolean).join("\n")
+
+  const baseSystem = `You are the Datagod assistant on WhatsApp. Datagod is a Ghanaian platform for mobile data bundles, airtime, AFA registration, exam results services, and customer support.
 
 SERVICES:
 - Data bundles: MTN, Telecel, AirtelTigo — instant delivery after payment
@@ -470,8 +482,11 @@ SERVICES:
 - AFA registration: Ghana government agricultural program registration
 - Results Checker Vouchers: buy WASSCE/BECE/NOVDEC voucher codes — the customer checks their own results on the WAEC portal
 - Results Check Service: Datagod checks exam results on the customer's behalf — they provide index number, date of birth, exam year, exam board and a WhatsApp number; results are delivered to them. Two modes: "Combo" (Datagod supplies the voucher, higher fee) or "Own Voucher" (customer already has a PIN + serial, lower fee).
+- Help & support: track an order, fix a stuck wallet top-up, verify/link an account, or report a problem / file a complaint (e.g. paid but didn't receive, wrong bundle, charged twice) — just tell me what's wrong.
 
 The user's WhatsApp number is ${phone}${userId ? " and they have a registered Datagod account" : ""}.
+${linksSection ? `\nLINKS (share as plain URLs when it helps — the channel when they ask about updates/deals or want to stay informed; the website for browsing, buying online, or self-service):\n${linksSection}\n` : ""}
+GREETING / "what can you do": when you greet someone or they ask what you can help with, briefly cover the full range — buy data, airtime, AFA, results checker; check exam results; track an order; sort out a wallet top-up; AND report a problem/complaint — and feel free to point them to the website or WhatsApp channel.
 
 ORDERING:
 - When the customer clearly wants to BUY/order something (data, airtime, AFA, voucher, or the Results Check Service), call start_ordering_bot. Use service="rc" for both voucher purchases and the Results Check Service — the menu lets them pick. Never type menu options yourself.
@@ -556,6 +571,6 @@ STYLE:
     }
   }
 
-  return result.text || "I'm here to help!\n\nReply with:\n- *data* to buy data bundles\n- *airtime* for airtime top-up\n- *afa* for AFA registration\n- *rc* for results checker vouchers"
+  return result.text || `I'm here to help! 😊\n\nReply with:\n- *data* to buy data bundles\n- *airtime* for airtime top-up\n- *afa* for AFA registration\n- *rc* for results checker / results service\n- *order* to track an order\n- *help* to report a problem or complaint${channelLink ? `\n\nUpdates & deals: ${channelLink}` : ""}`
 }
 
