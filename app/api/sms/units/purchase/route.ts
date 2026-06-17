@@ -4,6 +4,8 @@ import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
 import { purchaseUnitsByQuantity, quoteCredits } from "@/lib/sms/bundle-service"
 import { initializePayment, chargeMobileMoney, detectMomoProvider } from "@/lib/paystack"
 import { isWalletDirectChargeEnabled, isWalletOtpRequired, isPhoneOtpVerified } from "@/lib/storefront-otp"
+import { applyRateLimit } from "@/lib/rate-limiter"
+import { logSecurityEvent } from "@/lib/security-log"
 
 const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
@@ -50,8 +52,29 @@ export async function POST(request: NextRequest) {
       }
       // OTP gate: when wallet OTP is on, the payment number must be SMS-verified, so a
       // direct charge can never prompt an unverified third-party number.
-      if ((await isWalletOtpRequired()) && !(await isPhoneOtpVerified(phone))) {
+      const otpRequired = await isWalletOtpRequired()
+      if (otpRequired && !(await isPhoneOtpVerified(phone))) {
         return NextResponse.json({ error: "Please verify your payment number to continue.", code: "OTP_REQUIRED" }, { status: 403 })
+      }
+      // Throttle MoMo prompt-spam. Per-IP (bounds account-rotation behind one IP) + per-user
+      // always; per-phone when OTP is off (the OTP gate is the per-number guardrail when on).
+      // Mirrors /api/payments/initialize.
+      const ipCap = await applyRateLimit(request, "sms_momodirect_ip", 6, 60_000)
+      if (!ipCap.allowed) {
+        logSecurityEvent("sms_momodirect_ip_cap", { channel: "sms_credits", userId: user.id, paymentPhone: phone })
+        return NextResponse.json({ error: "Too many payment attempts. Please try again later." }, { status: 429 })
+      }
+      const userCap = await applyRateLimit(request, "sms_momodirect_user", 5, 30 * 60 * 1000, `su:${user.id}`)
+      if (!userCap.allowed) {
+        logSecurityEvent("sms_momodirect_user_cap", { channel: "sms_credits", userId: user.id, paymentPhone: phone })
+        return NextResponse.json({ error: "Too many payment attempts. Please try again later." }, { status: 429 })
+      }
+      if (!otpRequired) {
+        const phoneCap = await applyRateLimit(request, "momodirect_phone", 3, 60 * 60 * 1000, `mp:${phone.replace(/\D/g, "")}`)
+        if (!phoneCap.allowed) {
+          logSecurityEvent("momodirect_phone_cap", { channel: "sms_credits", userId: user.id, paymentPhone: phone })
+          return NextResponse.json({ error: "Too many payment attempts for this number. Please try again later." }, { status: 429 })
+        }
       }
       const charge = await chargeMobileMoney({
         email: user.email, amount: cost, phone, provider, reference, metadata,

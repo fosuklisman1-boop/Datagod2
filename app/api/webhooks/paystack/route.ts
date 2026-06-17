@@ -130,6 +130,69 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ received: true, type: "sms_activation" })
       }
 
+      // Metadata-LESS fallback for SMS purchases. Paystack sometimes omits metadata on a
+      // mobile_money charge.success (and these SMS purchases create NO wallet_payments row),
+      // so without this they'd fall through to the 404 lookup below and be PAID-BUT-NEVER-
+      // CREDITED with no retry. Resolve from the structured reference (account UUID is a fixed
+      // 36 chars), re-verifying the amount exactly like the metadata branches. Idempotent:
+      // ref-based credit (units/bundle) / status-guarded (activation).
+      if (reference.startsWith("smsbundle-")) {
+        const rest = reference.slice("smsbundle-".length) // "<uuid>-<bundleId>-<ts>"
+        const accountId = rest.slice(0, 36)
+        const afterAccount = rest.slice(37) // "<bundleId>-<ts>"
+        const lastDash = afterAccount.lastIndexOf("-")
+        const bundleId = lastDash > 0 ? afterAccount.slice(0, lastDash) : ""
+        if (accountId.length === 36 && bundleId) {
+          const { data: smsBundle } = await supabase
+            .from("sms_bundles").select("units, price_ghs").eq("id", bundleId).maybeSingle()
+          if (!smsBundle) {
+            console.error("[WEBHOOK] sms_bundle ref-fallback: bundle not found", bundleId)
+          } else {
+            const paidGhs = amount / 100
+            if (paidGhs >= Number(smsBundle.price_ghs) - 0.01) {
+              const { creditUnitsForPaystack } = await import("@/lib/sms/bundle-service")
+              const result = await creditUnitsForPaystack(accountId, Number(smsBundle.units), reference)
+              if (!result.ok) console.error("[WEBHOOK] sms_bundle (ref fallback) credit failed:", result.error)
+            } else {
+              console.error(`[WEBHOOK] sms_bundle ref-fallback underpayment: paid ${paidGhs} < ${smsBundle.price_ghs}`)
+            }
+          }
+        } else {
+          console.error("[WEBHOOK] sms_bundle ref-fallback: unparseable reference", reference)
+        }
+        return NextResponse.json({ received: true, type: "sms_bundle", via: "ref_fallback" })
+      }
+      if (reference.startsWith("smsqty-") || reference.startsWith("smsactivate-")) {
+        const paidGhs = amount / 100
+        if (reference.startsWith("smsqty-")) {
+          const rest = reference.slice("smsqty-".length) // "<uuid>-<credits>-<ts>"
+          const accountId = rest.slice(0, 36)
+          const credits = Number(rest.slice(37).split("-")[0])
+          if (accountId.length === 36 && Number.isInteger(credits) && credits > 0) {
+            const { getPricePerCredit, creditUnitsForPaystack } = await import("@/lib/sms/bundle-service")
+            const expected = Math.round(credits * (await getPricePerCredit()) * 100) / 100
+            if (paidGhs >= expected - 0.01) {
+              const result = await creditUnitsForPaystack(accountId, credits, reference)
+              if (!result.ok) console.error("[WEBHOOK] sms_units_qty (ref fallback) credit failed:", result.error)
+            } else {
+              console.error(`[WEBHOOK] smsqty ref-fallback underpayment: paid ${paidGhs} < ${expected}`)
+            }
+          } else {
+            console.error("[WEBHOOK] smsqty ref-fallback: unparseable reference", reference)
+          }
+          return NextResponse.json({ received: true, type: "sms_units_qty", via: "ref_fallback" })
+        }
+        const accountId = reference.slice("smsactivate-".length, "smsactivate-".length + 36)
+        if (accountId.length === 36) {
+          const { finalizeActivationPaystack } = await import("@/lib/sms/activation-service")
+          const result = await finalizeActivationPaystack(accountId, reference, paidGhs)
+          if (!result.ok && !result.alreadyDone) console.error("[WEBHOOK] sms_activation (ref fallback) failed:", result.error)
+        } else {
+          console.error("[WEBHOOK] smsactivate ref-fallback: unparseable reference", reference)
+        }
+        return NextResponse.json({ received: true, type: "sms_activation", via: "ref_fallback" })
+      }
+
       // Handle USSD shop token purchases (MoMo) — reference is USSD-SHOP-... prefixed
       const { data: shopTokenPurchase, error: stpErr } = await supabase
         .from("ussd_shop_token_purchases")

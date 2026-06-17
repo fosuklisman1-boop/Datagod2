@@ -74,7 +74,8 @@ export async function activateViaWallet(_userId: string, accountId: string): Pro
 export async function initActivationPaystack(
   userId: string,
   accountId: string,
-  userEmail: string
+  userEmail: string,
+  channels?: string[]
 ): Promise<{ ok: boolean; authorizationUrl?: string; reference?: string; error?: string }> {
   const account = await fetchAccount(accountId)
   if (!account) return { ok: false, error: "Account not found" }
@@ -92,6 +93,9 @@ export async function initActivationPaystack(
     amount: fee,
     reference,
     purpose: "SMS Account Activation",
+    // When direct charge is the legit path, strip mobile_money so the hosted page
+    // can't prompt an arbitrary victim number (mirrors the Buy-Credits route).
+    channels,
     metadata: {
       type: "sms_activation",
       sms_account_id: accountId,
