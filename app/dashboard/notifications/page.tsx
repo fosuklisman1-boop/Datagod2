@@ -98,13 +98,13 @@ export default function NotificationsPage() {
       case "order_update":
         return "bg-primary/5 text-primary border-primary/20"
       case "complaint_resolved":
-        return "bg-green-50 text-green-700 border-border"
+        return "bg-success/10 text-success border-border"
       case "payment_success":
-        return "bg-green-50 text-green-700 border-border"
+        return "bg-success/10 text-success border-border"
       case "withdrawal_approved":
-        return "bg-green-50 text-green-700 border-border"
+        return "bg-success/10 text-success border-border"
       case "withdrawal_rejected":
-        return "bg-red-50 text-red-700 border-border"
+        return "bg-destructive/10 text-destructive border-border"
       case "balance_updated":
         return "bg-primary text-primary border-border"
       default:
@@ -159,7 +159,7 @@ export default function NotificationsPage() {
               <CardTitle className="text-sm font-medium text-foreground">Unread</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-red-600">{unreadCount}</div>
+              <div className="text-2xl font-bold text-destructive">{unreadCount}</div>
               <p className="text-xs text-muted-foreground mt-1">Need attention</p>
             </CardContent>
           </Card>
@@ -169,7 +169,7 @@ export default function NotificationsPage() {
               <CardTitle className="text-sm font-medium text-foreground">Read</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600">
+              <div className="text-2xl font-bold text-success">
                 {notifications.length - unreadCount}
               </div>
               <p className="text-xs text-muted-foreground mt-1">Viewed</p>
@@ -215,7 +215,7 @@ export default function NotificationsPage() {
           <Card>
             <CardContent className="pt-12 pb-12 text-center">
               <div className="flex flex-col items-center gap-3">
-                <Bell className="w-12 h-12 text-gray-300" />
+                <Bell className="w-12 h-12 text-muted-foreground" />
                 <h3 className="font-semibold text-foreground">No notifications</h3>
                 <p className="text-muted-foreground text-sm">
                   {filter === "unread"
@@ -292,7 +292,7 @@ export default function NotificationsPage() {
                           size="sm"
                           variant="ghost"
                           onClick={() => handleDelete(notification.id)}
-                          className="text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+                          className="text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
                         >
                           <Trash2 className="w-3 h-3 mr-1" />
                           Delete

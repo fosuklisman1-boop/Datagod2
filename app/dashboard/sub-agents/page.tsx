@@ -251,7 +251,7 @@ export default function SubAgentsPage() {
               <CardTitle className="text-sm text-muted-foreground">Your Earnings from Sub-Agents</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600">
+              <div className="text-2xl font-bold text-success">
                 GHS {(stats.totalEarningsFromSubAgents || 0).toFixed(2)}
               </div>
               <p className="text-xs text-muted-foreground">From their sales</p>
@@ -314,7 +314,7 @@ export default function SubAgentsPage() {
                           <div className="text-muted-foreground">Sales</div>
                         </div>
                         <div className="text-center">
-                          <div className="font-semibold text-green-600">GHS {(agent.your_earnings || 0).toFixed(2)}</div>
+                          <div className="font-semibold text-success">GHS {(agent.your_earnings || 0).toFixed(2)}</div>
                           <div className="text-muted-foreground">Your Earnings</div>
                         </div>
                       </div>
@@ -388,9 +388,9 @@ export default function SubAgentsPage() {
 
             {newInviteUrl ? (
               <div className="space-y-4">
-                <Alert className="border-border bg-green-50">
-                  <CheckCircle className="w-4 h-4 text-green-600" />
-                  <AlertDescription className="text-green-800">
+                <Alert className="border-border bg-success/10">
+                  <CheckCircle className="w-4 h-4 text-success" />
+                  <AlertDescription className="text-foreground">
                     Invite created! Share this link with your sub-agent.
                   </AlertDescription>
                 </Alert>

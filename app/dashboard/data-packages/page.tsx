@@ -345,8 +345,8 @@ export default function DataPackagesPage() {
     <DashboardLayout>
       <div className="space-y-6 px-2 sm:px-4 md:px-8 w-full max-w-full">
         {!globalOrderingEnabled && (
-          <Alert className="mb-8 border-red-500 bg-red-50 shadow-md">
-            <AlertDescription className="text-red-800 font-bold text-center">
+          <Alert className="mb-8 border-destructive/30 bg-destructive/10 shadow-md">
+            <AlertDescription className="text-destructive font-bold text-center">
               The system is currently in maintenance mode. Data package purchases are temporarily disabled.
             </AlertDescription>
           </Alert>
@@ -354,9 +354,9 @@ export default function DataPackagesPage() {
         {/* Page Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
           <div>
-            <h1 className={`text-2xl sm:text-3xl md:text-4xl font-bold bg-clip-text text-transparent ${isDealer
-              ? "bg-gradient-to-r from-amber-600 via-orange-600 to-yellow-600"
-              : "bg-gradient-to-r from-primary via-primary to-primary"
+            <h1 className={`text-2xl sm:text-3xl md:text-4xl font-bold ${isDealer
+              ? "text-warning"
+              : "bg-gradient-to-r from-primary via-primary to-primary bg-clip-text text-transparent"
               }`}>Data Packages</h1>
             <p className="text-xs sm:text-sm text-muted-foreground mt-1 font-medium">Browse and purchase data packages from multiple networks</p>
           </div>
@@ -367,9 +367,9 @@ export default function DataPackagesPage() {
               }`}>
               <CardContent className="pt-4 sm:pt-6">
                 <p className="text-xs sm:text-sm text-muted-foreground">Wallet Balance</p>
-                <p className={`text-lg sm:text-xl md:text-2xl font-bold bg-clip-text text-transparent ${isDealer
-                  ? "bg-gradient-to-r from-amber-600 to-orange-600"
-                  : "bg-gradient-to-r from-emerald-600 to-teal-600"
+                <p className={`text-lg sm:text-xl md:text-2xl font-bold ${isDealer
+                  ? "text-warning"
+                  : "text-success"
                   }`}>
                   GHS {Math.max(0, wallet.balance || 0).toFixed(2)}
                 </p>
@@ -412,7 +412,7 @@ export default function DataPackagesPage() {
                   className={`text-xs sm:text-sm transition-all duration-200 ${selectedNetwork === network
                     ? isDealer ? "bg-gradient-to-r from-amber-600 to-orange-600 shadow-lg text-white" : "bg-gradient-to-r from-primary to-primary/80 shadow-lg text-white"
                     : isDealer
-                      ? "hover:border-amber-400 hover:text-amber-700 hover:bg-amber-50/60 bg-amber-50/30 backdrop-blur border-border text-foreground"
+                      ? "hover:border-warning/30 hover:text-warning hover:bg-warning/15 bg-warning/10 backdrop-blur border-border text-foreground"
                       : "hover:border-primary hover:text-primary hover:bg-primary/60 bg-primary/30 backdrop-blur border-border text-foreground"
                     }`}
                 >
@@ -429,7 +429,7 @@ export default function DataPackagesPage() {
                 onClick={() => setViewMode("grid")}
                 className={`transition-all duration-200 ${viewMode === "grid"
                   ? isDealer ? "bg-gradient-to-r from-amber-600 to-orange-600 text-white" : "bg-gradient-to-r from-primary to-primary/80 text-white"
-                  : isDealer ? "hover:bg-amber-50/80 backdrop-blur bg-amber-50/30 border-border text-foreground hover:text-amber-700 hover:border-amber-400" : "hover:bg-primary/80 backdrop-blur bg-primary/30 border-border text-foreground hover:text-primary hover:border-primary"
+                  : isDealer ? "hover:bg-warning/15 backdrop-blur bg-warning/10 border-border text-foreground hover:text-warning hover:border-warning/30" : "hover:bg-primary/80 backdrop-blur bg-primary/30 border-border text-foreground hover:text-primary hover:border-primary"
                   }`}
               >
                 <Grid3x3 className="w-4 h-4 mr-2" />
@@ -441,7 +441,7 @@ export default function DataPackagesPage() {
                 onClick={() => setViewMode("list")}
                 className={`transition-all duration-200 ${viewMode === "list"
                   ? isDealer ? "bg-gradient-to-r from-amber-600 to-orange-600 text-white" : "bg-gradient-to-r from-primary to-primary/80 text-white"
-                  : isDealer ? "hover:bg-amber-50/80 backdrop-blur bg-amber-50/30 border-border text-foreground hover:text-amber-700 hover:border-amber-400" : "hover:bg-primary/80 backdrop-blur bg-primary/30 border-border text-foreground hover:text-primary hover:border-primary"
+                  : isDealer ? "hover:bg-warning/15 backdrop-blur bg-warning/10 border-border text-foreground hover:text-warning hover:border-warning/30" : "hover:bg-primary/80 backdrop-blur bg-primary/30 border-border text-foreground hover:text-primary hover:border-primary"
                   }`}
               >
                 <List className="w-4 h-4 mr-2" />
@@ -456,7 +456,7 @@ export default function DataPackagesPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredPackages.map((pkg) => (
               <Card key={pkg.id} className={`hover:shadow-lg transition-all duration-300 hover:-translate-y-1 cursor-pointer group border-l-4 border overflow-hidden flex flex-col w-full min-w-0 ${isDealer
-                ? "border-l-amber-500 bg-card border-border hover:border-border"
+                ? "border-l-warning/30 bg-card border-border hover:border-border"
                 : "border-l-primary bg-card border-border hover:border-primary/40"
                 }`}>
                 {/* Logo Section */}
@@ -474,15 +474,15 @@ export default function DataPackagesPage() {
                   <div className="flex justify-between items-start gap-2">
                     <div>
                       <Badge className={`mb-2 text-xs sm:text-sm backdrop-blur transition-all bg-opacity-40 border border-opacity-60 ${isDealer
-                        ? "bg-gradient-to-r from-amber-400/40 to-orange-400/30 text-amber-900 group-hover:bg-gradient-to-r group-hover:from-amber-600 group-hover:to-orange-600 group-hover:text-white border-border"
+                        ? "bg-warning/10 text-warning group-hover:bg-warning group-hover:text-white border-border"
                         : "bg-gradient-to-r from-primary/40 to-blue-400/30 text-primary group-hover:bg-gradient-to-r group-hover:from-primary group-hover:to-primary/80 group-hover:text-white border-border"
                         }`}>{pkg.network}</Badge>
-                      <CardTitle className={`text-lg sm:text-xl md:text-2xl transition-colors ${isDealer ? "group-hover:text-amber-600" : "group-hover:text-primary"}`}>{pkg.size.toString().replace(/[^0-9]/g, "")}GB</CardTitle>
+                      <CardTitle className={`text-lg sm:text-xl md:text-2xl transition-colors ${isDealer ? "group-hover:text-warning" : "group-hover:text-primary"}`}>{pkg.size.toString().replace(/[^0-9]/g, "")}GB</CardTitle>
                     </div>
                     <div className="text-right">
-                      <p className={`text-lg sm:text-xl md:text-2xl font-bold bg-clip-text text-transparent transition-colors ${isDealer
-                        ? "bg-gradient-to-r from-amber-600 to-orange-600 group-hover:from-amber-700 group-hover:to-orange-700"
-                        : "bg-gradient-to-r from-primary to-primary/80 group-hover:from-primary group-hover:to-primary"
+                      <p className={`text-lg sm:text-xl md:text-2xl font-bold transition-colors ${isDealer
+                        ? "text-warning"
+                        : "bg-gradient-to-r from-primary to-primary/80 group-hover:from-primary group-hover:to-primary bg-clip-text text-transparent"
                         }`}>GHS {(pkg.price || 0).toFixed(2)}</p>
                     </div>
                   </div>
@@ -494,12 +494,12 @@ export default function DataPackagesPage() {
                     </p>
                   )}
                   <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-sm text-green-600 group-hover:text-green-700 transition-colors">
-                      <div className="w-1.5 h-1.5 bg-green-600 rounded-full"></div>
+                    <div className="flex items-center gap-2 text-sm text-success group-hover:text-success/80 transition-colors">
+                      <div className="w-1.5 h-1.5 bg-success rounded-full"></div>
                       No expiry
                     </div>
-                    <div className="flex items-center gap-2 text-sm text-green-600 group-hover:text-green-700 transition-colors">
-                      <div className="w-1.5 h-1.5 bg-green-600 rounded-full"></div>
+                    <div className="flex items-center gap-2 text-sm text-success group-hover:text-success/80 transition-colors">
+                      <div className="w-1.5 h-1.5 bg-success rounded-full"></div>
                       Instant delivery
                     </div>
                   </div>
@@ -507,7 +507,7 @@ export default function DataPackagesPage() {
                     onClick={() => handlePurchase(pkg)}
                     disabled={purchasing === pkg.id || !wallet || wallet.balance < pkg.price || !globalOrderingEnabled}
                     className={`w-full shadow-lg hover:shadow-xl transition-all duration-300 font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm ${isDealer
-                      ? "bg-card0 via-orange-500 to-yellow-500 hover:from-amber-600 hover:via-orange-600 hover:to-yellow-600"
+                      ? "bg-warning hover:bg-warning/90"
                       : "bg-gradient-to-r from-primary via-primary to-primary hover:from-primary hover:via-primary/90 hover:to-primary"
                       }`}
                   >
@@ -547,9 +547,9 @@ export default function DataPackagesPage() {
                       <th className="px-2 sm:px-6 py-2 sm:py-3 text-left font-semibold text-foreground whitespace-nowrap">Action</th>
                     </tr>
                   </thead>
-                  <tbody className={`divide-y ${isDealer ? "divide-amber-100/40" : "divide-primary/40"}`}>
+                  <tbody className={`divide-y ${isDealer ? "divide-warning/10" : "divide-primary/40"}`}>
                     {filteredPackages.map((pkg) => (
-                      <tr key={pkg.id} className={`hover:backdrop-blur transition-colors duration-200 cursor-pointer ${isDealer ? "hover:bg-amber-100/30" : "hover:bg-primary/30"
+                      <tr key={pkg.id} className={`hover:backdrop-blur transition-colors duration-200 cursor-pointer ${isDealer ? "hover:bg-warning/10" : "hover:bg-primary/30"
                         }`}>
                         <td className="px-2 sm:px-6 py-2 sm:py-4">
                           {getNetworkLogo(pkg.network) && (
@@ -562,9 +562,9 @@ export default function DataPackagesPage() {
                         </td>
                         <td className="px-2 sm:px-6 py-2 sm:py-4 font-medium text-foreground whitespace-nowrap">{pkg.network}</td>
                         <td className="px-2 sm:px-6 py-2 sm:py-4 font-semibold text-foreground whitespace-nowrap">{pkg.size.toString().replace(/[^0-9]/g, "")}GB</td>
-                        <td className={`px-2 sm:px-6 py-2 sm:py-4 font-bold bg-clip-text text-transparent whitespace-nowrap ${isDealer
-                          ? "bg-gradient-to-r from-amber-600 to-orange-600"
-                          : "bg-gradient-to-r from-primary to-primary/80"
+                        <td className={`px-2 sm:px-6 py-2 sm:py-4 font-bold whitespace-nowrap ${isDealer
+                          ? "text-warning"
+                          : "bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent"
                           }`}>GHS {(pkg.price || 0).toFixed(2)}</td>
                         <td className="px-2 sm:px-6 py-2 sm:py-4 text-muted-foreground whitespace-nowrap">{pkg.description || "-"}</td>
                         <td className="px-2 sm:px-6 py-2 sm:py-4">

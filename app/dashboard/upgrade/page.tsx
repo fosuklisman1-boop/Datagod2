@@ -371,10 +371,10 @@ export default function UpgradePage() {
         <DashboardLayout>
             <div className="p-6 max-w-6xl mx-auto">
                 <div className="text-center mb-12">
-                    <Badge className="mb-4 bg-amber-100 text-amber-700 hover:bg-amber-100 transition-colors py-1 px-4 border-border">
+                    <Badge className="mb-4 bg-warning/10 text-warning hover:bg-warning/10 transition-colors py-1 px-4 border-border">
                         PREMIUM MEMBERSHIP
                     </Badge>
-                    <h1 className="text-4xl md:text-5xl font-extrabold mb-4 bg-gradient-to-r from-amber-600 via-yellow-500 to-amber-600 bg-clip-text text-transparent">
+                    <h1 className="text-4xl md:text-5xl font-extrabold mb-4 text-warning">
                         Become a DATAGOD Dealer
                     </h1>
                     <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
@@ -383,24 +383,24 @@ export default function UpgradePage() {
                 </div>
 
                 {!upgradesEnabled && currentRole !== 'dealer' && currentRole !== 'admin' && (
-                    <div className="mb-8 p-4 bg-red-50 border border-border rounded-xl text-center">
-                        <AlertCircle className="w-8 h-8 text-red-500 mx-auto mb-2" />
-                        <h3 className="text-lg font-bold text-red-900">Upgrades Temporarily Disabled</h3>
-                        <p className="text-red-700">Account upgrades are currently paused for system maintenance. Please check back later!</p>
+                    <div className="mb-8 p-4 bg-destructive/10 border border-border rounded-xl text-center">
+                        <AlertCircle className="w-8 h-8 text-destructive mx-auto mb-2" />
+                        <h3 className="text-lg font-bold text-destructive">Upgrades Temporarily Disabled</h3>
+                        <p className="text-destructive">Account upgrades are currently paused for system maintenance. Please check back later!</p>
                     </div>
                 )}
 
                 {(currentRole === 'dealer' || currentRole === 'admin') && (
                     <div className="mb-12 p-6 bg-card border border-border rounded-2xl flex flex-col md:flex-row items-center justify-between gap-6">
                         <div className="flex items-center gap-4">
-                            <div className="p-3 bg-amber-500 rounded-full text-white shadow-lg ring-4 ring-amber-100">
+                            <div className="p-3 bg-warning rounded-full text-white shadow-lg ring-4 ring-amber-100">
                                 <Crown className="w-8 h-8" />
                             </div>
                             <div>
-                                <h3 className="text-xl font-bold text-amber-900">Active Dealer Access</h3>
-                                <p className="text-amber-800/70">
+                                <h3 className="text-xl font-bold text-foreground">Active Dealer Access</h3>
+                                <p className="text-muted-foreground">
                                     {daysLeft !== null ? (
-                                        <>Your subscription expires in <span className="font-bold text-amber-600">{daysLeft} days</span>.</>
+                                        <>Your subscription expires in <span className="font-bold text-warning">{daysLeft} days</span>.</>
                                     ) : (
                                         "Enjoy your exclusive benefits and wholesale pricing."
                                     )}
@@ -409,11 +409,11 @@ export default function UpgradePage() {
                         </div>
                         <div className="flex gap-3">
                             {daysLeft !== null && daysLeft <= 7 && (
-                                <Badge className="bg-red-100 text-red-700 border-border py-2 px-4 whitespace-nowrap">
+                                <Badge className="bg-destructive/15 text-destructive border-border py-2 px-4 whitespace-nowrap">
                                     EXPIRES SOON
                                 </Badge>
                             )}
-                            <Button variant="outline" className="border-border text-amber-700 hover:bg-amber-100" onClick={() => router.push('/dashboard')}>
+                            <Button variant="outline" className="border-border text-warning hover:bg-warning/10" onClick={() => router.push('/dashboard')}>
                                 Go to Dashboard
                             </Button>
                         </div>
@@ -453,7 +453,7 @@ export default function UpgradePage() {
                                 )}
                             >
                                 {index === 1 && (
-                                    <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-gradient-to-r from-amber-600 to-yellow-500 text-white text-xs font-bold px-4 py-1 rounded-full shadow-lg z-10 flex items-center gap-1">
+                                    <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-warning text-white text-xs font-bold px-4 py-1 rounded-full shadow-lg z-10 flex items-center gap-1">
                                         <Sparkles className="w-3 h-3" /> MOST POPULAR
                                     </div>
                                 )}
@@ -471,8 +471,8 @@ export default function UpgradePage() {
                                     <ul className="space-y-4 mb-8">
                                         {features.map((feature, i) => (
                                             <li key={i} className="flex items-start gap-3">
-                                                <div className="mt-1 p-0.5 bg-green-100 rounded-full flex-shrink-0">
-                                                    <Check className="w-3 h-3 text-green-600" />
+                                                <div className="mt-1 p-0.5 bg-success/15 rounded-full flex-shrink-0">
+                                                    <Check className="w-3 h-3 text-success" />
                                                 </div>
                                                 <span className="text-sm text-muted-foreground">{feature}</span>
                                             </li>
@@ -482,7 +482,7 @@ export default function UpgradePage() {
                                 <CardFooter className="pb-8 flex flex-col gap-3">
                                     <Button
                                         variant="outline"
-                                        className="w-full h-10 font-semibold border-border text-amber-700 hover:bg-amber-50 hover:border-amber-400 transition-all"
+                                        className="w-full h-10 font-semibold border-border text-warning hover:bg-warning/10 hover:border-warning/30 transition-all"
                                         onClick={handleViewPriceList}
                                     >
                                         {priceListLoading ? (
@@ -498,7 +498,7 @@ export default function UpgradePage() {
                                             !upgradesEnabled && currentRole !== 'dealer' && currentRole !== 'admin'
                                                 ? "bg-gray-300 text-muted-foreground cursor-not-allowed"
                                                 : index === 1
-                                                    ? "bg-gradient-to-r from-amber-600 to-yellow-500 hover:from-amber-700 hover:to-yellow-600 text-white shadow-lg"
+                                                    ? "bg-warning hover:bg-warning/90 text-white shadow-lg"
                                                     : "bg-gray-900 hover:bg-background text-white"
                                         )}
                                         onClick={() => handleUpgrade(plan)}
@@ -565,8 +565,8 @@ export default function UpgradePage() {
                                                         className={cn(
                                                             "px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all",
                                                             priceListNetwork === net
-                                                                ? "bg-amber-500 text-white shadow"
-                                                                : "bg-muted text-muted-foreground hover:bg-amber-50 hover:text-amber-700"
+                                                                ? "bg-warning text-white shadow"
+                                                                : "bg-muted text-muted-foreground hover:bg-warning/10 hover:text-warning"
                                                         )}
                                                     >
                                                         {net}
@@ -581,8 +581,8 @@ export default function UpgradePage() {
                                                             <tr className="text-left">
                                                                 <th className="pb-3 font-semibold text-muted-foreground uppercase text-xs tracking-wide">Package</th>
                                                                 <th className="pb-3 font-semibold text-muted-foreground uppercase text-xs tracking-wide text-right">Regular</th>
-                                                                <th className="pb-3 font-semibold text-amber-600 uppercase text-xs tracking-wide text-right">Dealer Price</th>
-                                                                <th className="pb-3 font-semibold text-green-600 uppercase text-xs tracking-wide text-right">Savings</th>
+                                                                <th className="pb-3 font-semibold text-warning uppercase text-xs tracking-wide text-right">Dealer Price</th>
+                                                                <th className="pb-3 font-semibold text-success uppercase text-xs tracking-wide text-right">Savings</th>
                                                             </tr>
                                                         </thead>
                                                         <tbody className="divide-y divide-border">
@@ -602,7 +602,7 @@ export default function UpgradePage() {
                                                                 .map((pkg) => {
                                                                     const savings = pkg.regular_price - pkg.dealer_price
                                                                     return (
-                                                                        <tr key={pkg.id} className="hover:bg-amber-50/50 transition-colors">
+                                                                        <tr key={pkg.id} className="hover:bg-warning/10 transition-colors">
                                                                             <td className="py-3 pr-4">
                                                                                 <div className="font-bold text-foreground">{pkg.size}GB</div>
                                                                                 {pkg.description && (
@@ -617,12 +617,12 @@ export default function UpgradePage() {
                                                                             </td>
                                                                             <td className="py-3 text-right">
                                                                                 {pkg.has_discount ? (
-                                                                                    <span className="inline-flex items-center gap-1 bg-green-100 text-green-700 text-xs font-bold px-2 py-0.5 rounded-full">
+                                                                                    <span className="inline-flex items-center gap-1 bg-success/15 text-success text-xs font-bold px-2 py-0.5 rounded-full">
                                                                                         <TrendingDown className="w-3 h-3" />
                                                                                         GHS {savings.toFixed(2)}
                                                                                     </span>
                                                                                 ) : (
-                                                                                    <span className="text-gray-300 text-xs">—</span>
+                                                                                    <span className="text-muted-foreground text-xs">—</span>
                                                                                 )}
                                                                             </td>
                                                                         </tr>
@@ -638,8 +638,8 @@ export default function UpgradePage() {
                             </div>
                         )}
 
-                        <div className="px-6 py-4 border-t flex-shrink-0 bg-amber-50/60">
-                            <p className="text-xs text-amber-700 text-center font-medium">
+                        <div className="px-6 py-4 border-t flex-shrink-0 bg-warning/10">
+                            <p className="text-xs text-warning text-center font-medium">
                                 These prices are available exclusively to active DATAGOD Dealers.
                             </p>
                         </div>
@@ -650,7 +650,7 @@ export default function UpgradePage() {
                 <Dialog open={showSuccessModal} onOpenChange={setShowSuccessModal}>
                     <DialogContent showCloseButton={false} className="sm:max-w-md overflow-hidden p-0 border-0">
                         {/* Header Gradient */}
-                        <div className="bg-card0 via-yellow-400 to-amber-600 px-6 pt-10 pb-8 text-center relative overflow-hidden">
+                        <div className="bg-warning px-6 pt-10 pb-8 text-center relative overflow-hidden">
                             {/* Decorative circles */}
                             <div className="absolute top-0 left-0 w-32 h-32 bg-card/10 rounded-full -translate-x-1/2 -translate-y-1/2" />
                             <div className="absolute bottom-0 right-0 w-24 h-24 bg-card/10 rounded-full translate-x-1/3 translate-y-1/3" />
@@ -690,7 +690,7 @@ export default function UpgradePage() {
 
                             <div className="flex flex-col gap-2 pt-2">
                                 <Button
-                                    className="w-full h-12 text-base font-bold bg-gradient-to-r from-amber-600 to-yellow-500 hover:from-amber-700 hover:to-yellow-600 text-white shadow-lg"
+                                    className="w-full h-12 text-base font-bold bg-warning hover:bg-warning/90 text-white shadow-lg"
                                     onClick={() => {
                                         setShowSuccessModal(false)
                                         router.push('/dashboard')
@@ -757,15 +757,15 @@ export default function UpgradePage() {
                                         </div>
                                     )
                                 ) : (
-                                    <div className="p-3 rounded-lg bg-green-50 border border-border flex items-center gap-2">
-                                        <ShieldCheck className="w-5 h-5 text-green-600" />
-                                        <span className="text-sm font-medium text-green-900">Payment number verified ✓</span>
+                                    <div className="p-3 rounded-lg bg-success/10 border border-border flex items-center gap-2">
+                                        <ShieldCheck className="w-5 h-5 text-success" />
+                                        <span className="text-sm font-medium text-foreground">Payment number verified ✓</span>
                                     </div>
                                 ))}
                                 <Button
                                     onClick={confirmUpgrade}
                                     disabled={(walletOtp && !otpVerified) || (walletDirect && !walletOtp && !/^0?\d{9}$/.test(paymentPhone.replace(/\D/g, ""))) || processingId === upgradeFlow.plan?.id}
-                                    className="w-full bg-card0 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-white"
+                                    className="w-full bg-warning hover:bg-warning/90 text-white"
                                 >
                                     {processingId === upgradeFlow.plan?.id ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Starting…</>) : `Pay GHS ${Number(upgradeFlow.plan?.price || 0).toFixed(2)}`}
                                 </Button>
@@ -787,19 +787,19 @@ export default function UpgradePage() {
 
                         {upgradeFlow?.state === "success" && (
                             <div className="text-center space-y-4 py-2">
-                                <div className="mx-auto w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
-                                    <PartyPopper className="w-9 h-9 text-green-600" />
+                                <div className="mx-auto w-16 h-16 rounded-full bg-success/15 flex items-center justify-center">
+                                    <PartyPopper className="w-9 h-9 text-success" />
                                 </div>
                                 <DialogHeader><DialogTitle className="text-center">Welcome to the Dealer Club 🎉</DialogTitle></DialogHeader>
                                 <p className="text-sm text-muted-foreground">Your upgrade is active. Enjoy wholesale pricing and dealer tools.</p>
-                                <Button onClick={() => { setUpgradeFlow(null); router.refresh() }} className="w-full bg-card0 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-white">Done</Button>
+                                <Button onClick={() => { setUpgradeFlow(null); router.refresh() }} className="w-full bg-warning hover:bg-warning/90 text-white">Done</Button>
                             </div>
                         )}
 
                         {upgradeFlow?.state === "failed" && (
                             <div className="text-center space-y-4 py-2">
-                                <div className="mx-auto w-16 h-16 rounded-full bg-red-100 flex items-center justify-center">
-                                    <AlertCircle className="w-9 h-9 text-red-600" />
+                                <div className="mx-auto w-16 h-16 rounded-full bg-destructive/15 flex items-center justify-center">
+                                    <AlertCircle className="w-9 h-9 text-destructive" />
                                 </div>
                                 <DialogHeader><DialogTitle className="text-center">Payment not completed</DialogTitle></DialogHeader>
                                 <p className="text-sm text-muted-foreground">{upgradeFlow.message || "The prompt was not approved. Please try again."}</p>

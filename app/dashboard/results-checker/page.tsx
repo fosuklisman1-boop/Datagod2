@@ -18,10 +18,10 @@ import { supabase } from "@/lib/supabase"
 const EXAM_BOARDS = ["WAEC", "BECE", "NOVDEC"]
 
 const STATUS_CLASSES: Record<string, string> = {
-  pending:         "bg-yellow-100 text-yellow-800",
+  pending:         "bg-warning/10 text-warning",
   pending_payment: "bg-primary text-primary",
-  completed:       "bg-green-100 text-green-700",
-  failed:          "bg-red-100 text-red-700",
+  completed:       "bg-success/15 text-success",
+  failed:          "bg-destructive/15 text-destructive",
 }
 
 interface RCOrder {
@@ -337,9 +337,9 @@ export default function ResultsCheckerPage() {
                     if (pricing.bulkApplied && bs?.bulkPrice) {
                       const saved = parseFloat(((bs.basePrice - bs.bulkPrice) * quantity).toFixed(2))
                       return (
-                        <div className="text-xs bg-green-50 dark:bg-green-950/40 rounded px-2 py-1.5 space-y-0.5">
-                          <p className="font-bold text-green-700">Bulk rate applied — GHS {bs.bulkPrice.toFixed(2)}/voucher</p>
-                          <p className="text-green-600">You save GHS {saved.toFixed(2)} on this order</p>
+                        <div className="text-xs bg-success/10 dark:bg-success/20 rounded px-2 py-1.5 space-y-0.5">
+                          <p className="font-bold text-success">Bulk rate applied — GHS {bs.bulkPrice.toFixed(2)}/voucher</p>
+                          <p className="text-success">You save GHS {saved.toFixed(2)} on this order</p>
                         </div>
                       )
                     }
@@ -373,7 +373,7 @@ export default function ResultsCheckerPage() {
                     <span>GHS {pricing.totalPaid.toFixed(2)}</span>
                   </div>
                   {walletBalance !== null && pricing.totalPaid > walletBalance && (
-                    <p className="text-red-600 text-xs font-medium flex items-center gap-1">
+                    <p className="text-destructive text-xs font-medium flex items-center gap-1">
                       <AlertCircle className="w-3 h-3" />Insufficient balance. Top up your wallet first.
                     </p>
                   )}
@@ -401,7 +401,7 @@ export default function ResultsCheckerPage() {
               {/* Header */}
               <div className="text-center px-6 pt-6 pb-3 flex-shrink-0">
                 <div className="text-4xl mb-2">🎓</div>
-                <h2 className="text-lg font-bold text-green-700">Vouchers Delivered!</h2>
+                <h2 className="text-lg font-bold text-success">Vouchers Delivered!</h2>
                 <p className="text-sm text-muted-foreground mt-0.5">Ref: {successOrder.reference_code}</p>
               </div>
 
@@ -428,7 +428,7 @@ export default function ResultsCheckerPage() {
                       <button onClick={() => handleCopyVoucher(v, `success-${i}`)}
                         className="flex-shrink-0 p-2 border border-border hover:bg-muted rounded-lg transition-colors mt-1">
                         {copiedKey === `success-${i}`
-                          ? <CheckCircle className="w-4 h-4 text-green-600" />
+                          ? <CheckCircle className="w-4 h-4 text-success" />
                           : <Copy className="w-4 h-4 text-muted-foreground" />}
                       </button>
                     </div>
@@ -459,7 +459,7 @@ export default function ResultsCheckerPage() {
           ) : orders.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center">
-                <GraduationCap className="w-10 h-10 mx-auto text-gray-300 mb-3" />
+                <GraduationCap className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
                 <p className="text-muted-foreground">No vouchers purchased yet</p>
               </CardContent>
             </Card>
@@ -508,7 +508,7 @@ export default function ResultsCheckerPage() {
                                 </div>
                                 <button onClick={() => handleCopyVoucher(v, `${order.id}-${i}`)} className="flex-shrink-0 p-2 border border-border hover:bg-accent rounded-lg mt-1">
                                   {copiedKey === `${order.id}-${i}`
-                                    ? <CheckCircle className="w-4 h-4 text-green-600" />
+                                    ? <CheckCircle className="w-4 h-4 text-success" />
                                     : <Copy className="w-4 h-4 text-muted-foreground" />}
                                 </button>
                               </div>

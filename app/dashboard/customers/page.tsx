@@ -209,13 +209,13 @@ export default function CustomersPage() {
           </Card>
 
           {/* Avg Spend */}
-          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-emerald-500 bg-card backdrop-blur-xl border border-border">
+          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-success/30 bg-card backdrop-blur-xl border border-border">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Avg Spend</CardTitle>
-              <DollarSign className="h-4 w-4 text-emerald-600" />
+              <DollarSign className="h-4 w-4 text-success" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
+              <div className="text-2xl font-bold text-success">
                 GHS {customers.length > 0 ? (customers.reduce((sum, c) => sum + c.total_spent, 0) / customers.length).toFixed(2) : "0.00"}
               </div>
               <p className="text-xs text-muted-foreground">Per customer LTV</p>
@@ -339,7 +339,7 @@ export default function CustomersPage() {
                             </td>
                             <td className="px-4 py-3 text-center">
                               {customer.repeat_customer ? (
-                                <Badge className="bg-green-100 text-green-800 border-border">Repeat</Badge>
+                                <Badge className="bg-success/15 text-success border-border">Repeat</Badge>
                               ) : (
                                 <Badge className="bg-primary/10 text-primary border-primary/20">New</Badge>
                               )}
@@ -484,10 +484,10 @@ export default function CustomersPage() {
                                   <Badge
                                     className={
                                       order.order_status === "completed"
-                                        ? "bg-green-100 text-green-800 border-border"
+                                        ? "bg-success/15 text-success border-border"
                                         : order.order_status === "failed"
-                                          ? "bg-red-100 text-red-800 border-border"
-                                          : "bg-yellow-100 text-yellow-800 border-border"
+                                          ? "bg-destructive/15 text-destructive border-border"
+                                          : "bg-warning/10 text-warning border-border"
                                     }
                                   >
                                     {order.order_status}

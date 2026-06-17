@@ -145,7 +145,7 @@ export default function ShopSettingsPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <MessageCircle className="w-5 h-5 text-green-600" />
+              <MessageCircle className="w-5 h-5 text-success" />
               WhatsApp Link
             </CardTitle>
           </CardHeader>
@@ -178,14 +178,14 @@ export default function ShopSettingsPage() {
             </div>
 
             {whatsappLink && (
-              <div className="p-3 bg-green-50 border border-border rounded-lg mt-4">
-                <p className="text-sm text-green-700">
+              <div className="p-3 bg-success/10 border border-border rounded-lg mt-4">
+                <p className="text-sm text-success">
                   <span className="font-semibold">Preview:</span>{" "}
                   <a
                     href={whatsappLink}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-green-600 hover:underline break-all"
+                    className="text-success hover:underline break-all"
                   >
                     {whatsappLink}
                   </a>

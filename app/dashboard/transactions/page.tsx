@@ -148,7 +148,7 @@ export default function TransactionsPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Today's Income</CardTitle>
-              <TrendingUp className="h-4 w-4 text-green-600" />
+              <TrendingUp className="h-4 w-4 text-success" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">GHS {formatAmount(stats.todayIncome)}</div>
@@ -159,7 +159,7 @@ export default function TransactionsPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Today's Expenses</CardTitle>
-              <TrendingDown className="h-4 w-4 text-red-600" />
+              <TrendingDown className="h-4 w-4 text-destructive" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">GHS {formatAmount(stats.todayExpenses)}</div>
@@ -170,7 +170,7 @@ export default function TransactionsPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Today's Refunds</CardTitle>
-              <DollarSign className="h-4 w-4 text-orange-600" />
+              <DollarSign className="h-4 w-4 text-warning" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">GHS {formatAmount(stats.todayRefunds)}</div>
@@ -254,9 +254,9 @@ export default function TransactionsPage() {
                           <p className="text-sm text-foreground mt-1 line-clamp-1">{txn.description}</p>
                         </div>
                         <Badge className={
-                          txn.status === "completed" ? "bg-green-100 text-green-800" :
-                          txn.status === "pending" ? "bg-yellow-100 text-yellow-800" :
-                          "bg-red-100 text-red-800"
+                          txn.status === "completed" ? "bg-success/15 text-success" :
+                          txn.status === "pending" ? "bg-warning/10 text-warning" :
+                          "bg-destructive/15 text-destructive"
                         }>
                           {txn.status.charAt(0).toUpperCase() + txn.status.slice(1)}
                         </Badge>
@@ -265,14 +265,14 @@ export default function TransactionsPage() {
                       {/* Amount + Type */}
                       <div className="flex justify-between items-center mb-3">
                         <Badge className={
-                          txn.type === "credit" ? "bg-green-100 text-green-800" :
-                          txn.type === "debit" ? "bg-red-100 text-red-800" :
-                          "bg-orange-100 text-orange-800"
+                          txn.type === "credit" ? "bg-success/15 text-success" :
+                          txn.type === "debit" ? "bg-destructive/15 text-destructive" :
+                          "bg-warning/10 text-warning"
                         }>
                           {txn.type.charAt(0).toUpperCase() + txn.type.slice(1)}
                         </Badge>
                         <span className={`text-lg font-bold ${
-                          txn.type === "credit" ? "text-green-600" : "text-red-600"
+                          txn.type === "credit" ? "text-success" : "text-destructive"
                         }`}>
                           {txn.type === "credit" ? "+" : "-"}GHS {formatAmount(txn.amount)}
                         </span>
@@ -323,16 +323,16 @@ export default function TransactionsPage() {
                           <td className="px-4 py-3">{new Date(txn.created_at).toLocaleDateString()}</td>
                           <td className="px-4 py-3">
                             <Badge className={
-                              txn.type === "credit" ? "bg-green-100 text-green-800" :
-                              txn.type === "debit" ? "bg-red-100 text-red-800" :
-                              "bg-orange-100 text-orange-800"
+                              txn.type === "credit" ? "bg-success/15 text-success" :
+                              txn.type === "debit" ? "bg-destructive/15 text-destructive" :
+                              "bg-warning/10 text-warning"
                             }>
                               {txn.type.charAt(0).toUpperCase() + txn.type.slice(1)}
                             </Badge>
                           </td>
                           <td className="px-4 py-3">{txn.description}</td>
                           <td className={`px-4 py-3 font-semibold ${
-                            txn.type === "credit" ? "text-green-600" : "text-red-600"
+                            txn.type === "credit" ? "text-success" : "text-destructive"
                           }`}>
                             {txn.type === "credit" ? "+" : "-"}GHS {formatAmount(txn.amount)}
                           </td>
@@ -340,9 +340,9 @@ export default function TransactionsPage() {
                           <td className="px-4 py-3 font-semibold">GHS {formatAmount(Math.max(0, txn.balance_after))}</td>
                           <td className="px-4 py-3">
                             <Badge className={
-                              txn.status === "completed" ? "bg-green-100 text-green-800" :
-                              txn.status === "pending" ? "bg-yellow-100 text-yellow-800" :
-                              "bg-red-100 text-red-800"
+                              txn.status === "completed" ? "bg-success/15 text-success" :
+                              txn.status === "pending" ? "bg-warning/10 text-warning" :
+                              "bg-destructive/15 text-destructive"
                             }>
                               {txn.status.charAt(0).toUpperCase() + txn.status.slice(1)}
                             </Badge>

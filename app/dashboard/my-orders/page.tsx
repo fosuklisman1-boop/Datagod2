@@ -152,11 +152,11 @@ export default function MyOrdersPage() {
   const getStatusBadgeColor = (status: string) => {
     switch (status) {
       case "completed":
-        return "bg-green-100 text-green-800"
+        return "bg-success/15 text-success"
       case "processing":
-        return "bg-yellow-100 text-yellow-800"
+        return "bg-warning/10 text-warning"
       case "failed":
-        return "bg-red-100 text-red-800"
+        return "bg-destructive/15 text-destructive"
       case "placed":
         return "bg-primary/10 text-primary"
       default:
@@ -195,7 +195,7 @@ export default function MyOrdersPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Completed</CardTitle>
-              <CheckCircle className="h-4 w-4 text-green-600" />
+              <CheckCircle className="h-4 w-4 text-success" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{formatCount(stats.completed)}</div>
@@ -206,7 +206,7 @@ export default function MyOrdersPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Processing</CardTitle>
-              <Clock className="h-4 w-4 text-yellow-600" />
+              <Clock className="h-4 w-4 text-warning" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{formatCount(stats.processing)}</div>
@@ -217,7 +217,7 @@ export default function MyOrdersPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Failed</CardTitle>
-              <AlertCircle className="h-4 w-4 text-red-600" />
+              <AlertCircle className="h-4 w-4 text-destructive" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{formatCount(stats.failed)}</div>

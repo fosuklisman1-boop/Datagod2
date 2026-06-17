@@ -419,7 +419,7 @@ export default function ProfilePage() {
 
         {/* Profile Header Card */}
         <Card className={`border-0 text-white ${isDealer
-            ? "bg-card0 via-orange-500 to-yellow-500"
+            ? "bg-warning"
             : "bg-gradient-to-r from-primary to-primary"
           }`}>
           <CardContent className="pt-6">
@@ -435,7 +435,7 @@ export default function ProfilePage() {
                     <Badge className={`bg-card ${isDealer ? "text-amber-600" : "text-primary"}`}>
                       {profile.role ? profile.role.toUpperCase() : "USER"}
                     </Badge>
-                    <Badge className="bg-green-500">{profile.status}</Badge>
+                    <Badge className="bg-success">{profile.status}</Badge>
                   </div>
                 </div>
               </div>
@@ -491,7 +491,7 @@ export default function ProfilePage() {
                     </button>
                   ) : profile.phoneVerified ? (
                     <>
-                      <span className="flex items-center gap-1 text-xs text-green-600 font-medium shrink-0">
+                      <span className="flex items-center gap-1 text-xs text-success font-medium shrink-0">
                         <CheckCircle2 className="w-4 h-4" /> Verified
                       </span>
                       <button
@@ -504,7 +504,7 @@ export default function ProfilePage() {
                   ) : (
                     <button
                       onClick={() => setShowPhoneVerifyModal(true)}
-                      className="flex items-center gap-1 text-xs text-amber-600 font-medium shrink-0 hover:text-amber-700"
+                      className="flex items-center gap-1 text-xs text-warning font-medium shrink-0 hover:text-warning"
                     >
                       <ShieldAlert className="w-4 h-4" /> Verify
                     </button>
@@ -539,7 +539,7 @@ export default function ProfilePage() {
                 <label className="text-sm font-medium text-foreground">Status</label>
                 <div className="mt-1 flex items-center gap-2">
                   <Input value={profile.status} readOnly />
-                  <Badge className="bg-green-100 text-green-800">Active</Badge>
+                  <Badge className="bg-success/15 text-success">Active</Badge>
                 </div>
               </div>
               <div>
@@ -562,17 +562,17 @@ export default function ProfilePage() {
                 <p className="text-sm text-muted-foreground">Total Orders</p>
                 <p className="text-2xl font-bold text-primary">{stats.totalOrders.toLocaleString()}</p>
               </div>
-              <div className="p-4 bg-green-50 rounded-lg">
+              <div className="p-4 bg-success/10 rounded-lg">
                 <p className="text-sm text-muted-foreground">Completed Orders</p>
-                <p className="text-2xl font-bold text-green-600">{stats.completedOrders.toLocaleString()}</p>
+                <p className="text-2xl font-bold text-success">{stats.completedOrders.toLocaleString()}</p>
               </div>
               <div className="p-4 bg-primary rounded-lg">
                 <p className="text-sm text-muted-foreground">Success Rate</p>
                 <p className="text-2xl font-bold text-primary">{stats.successRate.toFixed(1)}%</p>
               </div>
-              <div className="p-4 bg-orange-50 rounded-lg">
+              <div className="p-4 bg-warning/10 rounded-lg">
                 <p className="text-sm text-muted-foreground">Lifetime Spent</p>
-                <p className="text-2xl font-bold text-orange-600">GHS {stats.totalSpent.toFixed(2)}</p>
+                <p className="text-2xl font-bold text-warning">GHS {stats.totalSpent.toFixed(2)}</p>
               </div>
             </div>
           </CardContent>
@@ -617,7 +617,7 @@ export default function ProfilePage() {
                 <p className="font-semibold">Active Sessions</p>
                 <p className="text-sm text-muted-foreground">You have 1 active session</p>
               </div>
-              <Button variant="outline" className="text-red-600 border-border hover:bg-red-50">
+              <Button variant="outline" className="text-destructive border-border hover:bg-destructive/10">
                 <LogOut className="w-4 h-4 mr-2" />
                 Logout All Devices
               </Button>

@@ -39,10 +39,10 @@ interface AirtimeOrder {
 }
 
 const STATUS_CLASSES: Record<string, string> = {
-  pending:    "bg-yellow-100 text-yellow-800",
+  pending:    "bg-warning/10 text-warning",
   processing: "bg-primary/10 text-primary",
-  completed:  "bg-green-100 text-green-800",
-  failed:     "bg-red-100 text-red-800",
+  completed:  "bg-success/15 text-success",
+  failed:     "bg-destructive/15 text-destructive",
 }
 
 export default function AirtimePage() {
@@ -227,7 +227,7 @@ export default function AirtimePage() {
             ))}
           </div>
           {availableNetworks.length === 0 && !loadingOrders && (
-            <div className="bg-red-50 text-red-700 p-4 rounded-xl border border-border text-center font-medium">
+            <div className="bg-destructive/10 text-destructive p-4 rounded-xl border border-border text-center font-medium">
               Airtime services are temporarily unavailable. Please check back later.
             </div>
           )}
@@ -249,7 +249,7 @@ export default function AirtimePage() {
               required
               className="w-full border border-border rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
             />
-            {phoneError && <p className="text-xs text-amber-600 mt-1">{phoneError}</p>}
+            {phoneError && <p className="text-xs text-warning mt-1">{phoneError}</p>}
           </div>
 
           {/* Amount */}
@@ -307,7 +307,7 @@ export default function AirtimePage() {
                 <span>GHS {totalPaid.toFixed(2)}</span>
               </div>
               {walletBalance !== null && totalPaid > walletBalance && (
-                <p className="text-red-600 text-xs font-medium">⚠ Insufficient wallet balance</p>
+                <p className="text-destructive text-xs font-medium">⚠ Insufficient wallet balance</p>
               )}
             </div>
           )}
@@ -315,7 +315,7 @@ export default function AirtimePage() {
           {/* Feedback message */}
           {message && (
             <div className={`text-sm rounded-lg px-4 py-3 font-medium ${
-              message.type === "success" ? "bg-green-50 text-green-800" : "bg-red-50 text-red-700"
+              message.type === "success" ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"
             }`}>
               {message.text}
             </div>

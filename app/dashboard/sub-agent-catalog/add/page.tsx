@@ -395,7 +395,7 @@ export default function AddToCatalogPage() {
                       <div
                         key={pkg.id}
                         className={`p-4 rounded-lg border transition-colors ${inCatalog
-                          ? "bg-green-50 border-border"
+                          ? "bg-success/10 border-border"
                           : "bg-card border-border hover:border-border"
                           }`}
                       >
@@ -405,7 +405,7 @@ export default function AddToCatalogPage() {
                             <div className="flex items-center gap-2">
                               <span className="font-medium">{pkg.size}</span>
                               {inCatalog && (
-                                <Badge className="bg-green-500 text-white">
+                                <Badge className="bg-success text-white">
                                   <Check className="h-3 w-3 mr-1" />
                                   In Catalog
                                 </Badge>
@@ -437,7 +437,7 @@ export default function AddToCatalogPage() {
                             {margin !== null && !isNaN(margin) && margin >= 0 && (
                               <div className="text-sm">
                                 <span className="text-muted-foreground">Profit: </span>
-                                <span className="font-bold text-green-600">
+                                <span className="font-bold text-success">
                                   GHS {typeof margin === 'number' && !isNaN(margin) ? margin.toFixed(2) : '0.00'}
                                 </span>
                               </div>

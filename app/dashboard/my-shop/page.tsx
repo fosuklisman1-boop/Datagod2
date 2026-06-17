@@ -622,9 +622,9 @@ export default function MyShopPage() {
           </div>
 
           {dbError && (
-            <Alert className="border-border bg-red-50">
-              <AlertCircle className="h-4 w-4 text-red-600" />
-              <AlertDescription className="text-red-700">
+            <Alert className="border-border bg-destructive/10">
+              <AlertCircle className="h-4 w-4 text-destructive" />
+              <AlertDescription className="text-destructive">
                 {dbError}
                 <div className="mt-2 text-xs">
                   Run the SQL schema from <code className="bg-red-100 px-1 rounded">lib/shop-schema.sql</code> in your Supabase SQL Editor to set up tables.
@@ -636,7 +636,7 @@ export default function MyShopPage() {
           <Card className="bg-card backdrop-blur-xl border border-border">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Store className="w-5 h-5 text-emerald-600" />
+                <Store className="w-5 h-5 text-success" />
                 Create Your Shop
               </CardTitle>
               <CardDescription>Get started selling data packages to your customers</CardDescription>
@@ -731,7 +731,7 @@ export default function MyShopPage() {
                   }
                 }}
                 disabled={loading}
-                className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 font-semibold"
+                className="w-full bg-success hover:bg-success/90 font-semibold"
               >
                 {loading ? "Creating..." : "Create Shop"}
               </Button>
@@ -767,7 +767,7 @@ export default function MyShopPage() {
                 <CardDescription className="mt-1 sm:mt-2 text-sm">{shop.description || "No description"}</CardDescription>
               </div>
             </div>
-            <Badge className="bg-gradient-to-r from-green-600 to-emerald-600">
+            <Badge className="bg-success">
               {shop.is_active ? "Active" : "Inactive"}
             </Badge>
           </CardHeader>
@@ -802,7 +802,7 @@ export default function MyShopPage() {
               </div>
               <div className="p-3 bg-card/40 rounded-lg border border-white/20">
                 <p className="text-xs text-muted-foreground">Shop Status</p>
-                <Badge className={shop?.is_active ? "bg-green-600" : "bg-orange-600"}>
+                <Badge className={shop?.is_active ? "bg-success" : "bg-warning"}>
                   {shop?.is_active ? "Active" : "Pending Approval"}
                 </Badge>
               </div>
@@ -813,9 +813,9 @@ export default function MyShopPage() {
             </div>
 
             {!shop?.is_active && (
-              <Alert className="border-border bg-orange-50">
-                <AlertCircle className="h-4 w-4 text-orange-600" />
-                <AlertDescription className="text-xs text-orange-700">
+              <Alert className="border-border bg-warning/10">
+                <AlertCircle className="h-4 w-4 text-warning" />
+                <AlertDescription className="text-xs text-warning">
                   Your shop is pending admin approval. Once approved, you'll be able to accept customer orders and process payments.
                 </AlertDescription>
               </Alert>
@@ -878,7 +878,7 @@ export default function MyShopPage() {
                   <Button
                     onClick={handleUpdateShop}
                     disabled={updatingShop}
-                    className="flex-1 bg-green-600 hover:bg-green-700"
+                    className="flex-1 bg-success hover:bg-success/90"
                   >
                     {updatingShop ? (
                       <>
@@ -1111,7 +1111,7 @@ export default function MyShopPage() {
         <Card className="bg-card backdrop-blur-xl border border-border">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <MessageCircle className="w-5 h-5 text-green-600" />
+              <MessageCircle className="w-5 h-5 text-success" />
               WhatsApp Link
             </CardTitle>
             <CardDescription>Configure WhatsApp contact link for your customers</CardDescription>
@@ -1145,14 +1145,14 @@ export default function MyShopPage() {
             </div>
 
             {whatsappLink && (
-              <div className="p-3 bg-green-50 border border-border rounded-lg">
-                <p className="text-sm text-green-700">
+              <div className="p-3 bg-success/10 border border-border rounded-lg">
+                <p className="text-sm text-success">
                   <span className="font-semibold">Preview:</span>{" "}
                   <a
                     href={whatsappLink}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-green-600 hover:underline break-all"
+                    className="text-success hover:underline break-all"
                   >
                     {whatsappLink}
                   </a>
@@ -1257,7 +1257,7 @@ export default function MyShopPage() {
                     {!addingPackage && (
                       <Button
                         onClick={() => setAddingPackage(true)}
-                        className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700"
+                        className="bg-success hover:bg-success/90"
                       >
                         <Plus className="w-4 h-4 mr-2" />
                         Add Product
@@ -1325,7 +1325,7 @@ export default function MyShopPage() {
                                   <Card key={pkg.id} className="border border-border bg-card">
                                     <CardContent className="p-4 space-y-3">
                                       <div>
-                                        <p className="font-semibold text-emerald-900">{pkg.network} - {pkg.size}GB</p>
+                                        <p className="font-semibold text-foreground">{pkg.network} - {pkg.size}GB</p>
                                         <p className="text-sm text-muted-foreground">
                                           {shop?.parent_shop_id ? "Your Cost (Parent Price):" : "Base Price:"} GHS {displayBasePrice.toFixed(2)}
                                         </p>
@@ -1377,14 +1377,14 @@ export default function MyShopPage() {
                                           const isNegative = profit < 0
                                           return (
                                             <div className={`p-2 rounded-md text-xs space-y-1 ${isNegative
-                                              ? "bg-red-50 border border-border"
-                                              : "bg-emerald-50"
+                                              ? "bg-destructive/10 border border-border"
+                                              : "bg-success/10"
                                               }`}>
-                                              <p className={isNegative ? "text-red-700" : "text-emerald-700"}>
+                                              <p className={isNegative ? "text-destructive" : "text-success"}>
                                                 <span className="font-semibold">Your Profit:</span> GHS {profit.toFixed(2)}
                                               </p>
                                               {isNegative && (
-                                                <p className="text-red-600 text-xs">
+                                                <p className="text-destructive text-xs">
                                                   ⚠️ Selling price must be higher than base price
                                                 </p>
                                               )}
@@ -1411,7 +1411,7 @@ export default function MyShopPage() {
                                             size="sm"
                                             className={`w-full ${isAdded
                                               ? "bg-primary hover:bg-primary/90"
-                                              : "bg-emerald-600 hover:bg-emerald-700"
+                                              : "bg-success hover:bg-success/90"
                                               } disabled:opacity-50`}
                                           >
                                             {isAdded ? "✓ Edit" : "Add to Shop"}
@@ -1460,7 +1460,7 @@ export default function MyShopPage() {
                             <Card key={shopPkg.id} className="border border-border bg-card">
                               <CardContent className="p-4 space-y-3">
                                 <div>
-                                  <p className="font-semibold text-emerald-900">{pkg?.network} - {pkg?.size}GB</p>
+                                  <p className="font-semibold text-foreground">{pkg?.network} - {pkg?.size}GB</p>
                                   <p className="text-sm text-muted-foreground">
                                     {shop?.parent_shop_id ? "Your Cost (Parent Price):" : "Base Price:"} GHS {displayBasePrice.toFixed(2)}
                                   </p>
@@ -1480,12 +1480,12 @@ export default function MyShopPage() {
 
                                 <div className="flex items-center gap-2 pt-2">
                                   {shopPkg.is_available ? (
-                                    <Badge className="bg-green-100 text-green-700">Available</Badge>
+                                    <Badge className="bg-success/15 text-success">Available</Badge>
                                   ) : (
                                     <Badge className="bg-muted text-foreground">Unavailable</Badge>
                                   )}
                                   {availablePkg && !availablePkg.active && (
-                                    <Badge className="bg-red-100 text-red-700 text-xs">Parent Disabled</Badge>
+                                    <Badge className="bg-destructive/15 text-destructive text-xs">Parent Disabled</Badge>
                                   )}
                                 </div>
 

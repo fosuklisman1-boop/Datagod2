@@ -65,13 +65,13 @@ export default function ComplaintsPage() {
   const getStatusColor = (status: string) => {
     switch (status?.toLowerCase()) {
       case "pending":
-        return "bg-yellow-100 text-yellow-800"
+        return "bg-warning/10 text-warning"
       case "in_review":
         return "bg-primary/10 text-primary"
       case "resolved":
-        return "bg-green-100 text-green-800"
+        return "bg-success/15 text-success"
       case "rejected":
-        return "bg-red-100 text-red-800"
+        return "bg-destructive/15 text-destructive"
       default:
         return "bg-muted text-foreground"
     }
@@ -80,11 +80,11 @@ export default function ComplaintsPage() {
   const getPriorityColor = (priority: string) => {
     switch (priority?.toLowerCase()) {
       case "high":
-        return "text-red-600"
+        return "text-destructive"
       case "medium":
-        return "text-orange-600"
+        return "text-warning"
       case "low":
-        return "text-green-600"
+        return "text-success"
       default:
         return "text-muted-foreground"
     }
@@ -123,7 +123,7 @@ export default function ComplaintsPage() {
         </div>
 
         {/* Header Banner */}
-        <Card className="bg-card0 to-red-600 text-white border-0">
+        <Card className="bg-destructive text-white border-0">
           <CardContent className="pt-6">
             <div className="flex items-start gap-4">
               <AlertCircle className="w-8 h-8 flex-shrink-0 mt-1" />
@@ -156,7 +156,7 @@ export default function ComplaintsPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Pending</CardTitle>
-              <AlertCircle className="h-4 w-4 text-yellow-600" />
+              <AlertCircle className="h-4 w-4 text-warning" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.pending}</div>
@@ -167,7 +167,7 @@ export default function ComplaintsPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Resolved</CardTitle>
-              <AlertCircle className="h-4 w-4 text-green-600" />
+              <AlertCircle className="h-4 w-4 text-success" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.resolved}</div>
@@ -178,7 +178,7 @@ export default function ComplaintsPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Rejected</CardTitle>
-              <AlertCircle className="h-4 w-4 text-red-600" />
+              <AlertCircle className="h-4 w-4 text-destructive" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.rejected}</div>
@@ -214,7 +214,7 @@ export default function ComplaintsPage() {
               </div>
             ) : filteredComplaints.length === 0 ? (
               <div className="text-center py-8">
-                <AlertCircle className="w-12 h-12 text-gray-300 mx-auto mb-2" />
+                <AlertCircle className="w-12 h-12 text-muted-foreground mx-auto mb-2" />
                 <p className="text-muted-foreground">No complaints found</p>
               </div>
             ) : (

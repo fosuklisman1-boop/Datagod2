@@ -435,15 +435,15 @@ export default function ShopDashboardPage() {
           </Card>
 
           {/* Total Profit */}
-          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-emerald-500 bg-card backdrop-blur-xl border border-border">
+          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-success/30 bg-card backdrop-blur-xl border border-border">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Profit</CardTitle>
-              <div className="bg-gradient-to-br from-emerald-400/30 to-teal-400/20 backdrop-blur p-2 rounded-lg border border-border">
-                <TrendingUp className="h-4 w-4 text-emerald-600" />
+              <div className="bg-gradient-to-br from-success/30 to-success/20 backdrop-blur p-2 rounded-lg border border-border">
+                <TrendingUp className="h-4 w-4 text-success" />
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
+              <div className="text-2xl font-bold text-success">
                 GHS {(totalProfit || 0).toFixed(2)}
               </div>
               <p className="text-xs text-muted-foreground">All time profit</p>
@@ -459,7 +459,7 @@ export default function ShopDashboardPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold bg-gradient-to-r from-amber-600 to-orange-600 bg-clip-text text-transparent">
+              <div className="text-2xl font-bold text-warning">
                 {orders.length}
               </div>
               <p className="text-xs text-muted-foreground">All orders</p>
@@ -475,7 +475,7 @@ export default function ShopDashboardPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold bg-gradient-to-r from-rose-600 to-pink-600 bg-clip-text text-transparent">
+              <div className="text-2xl font-bold text-destructive">
                 {pendingWithdrawals.length}
               </div>
               <p className="text-xs text-muted-foreground">Awaiting approval</p>
@@ -512,7 +512,7 @@ export default function ShopDashboardPage() {
                 <CardTitle className="text-sm font-medium">Repeat Customers</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold bg-gradient-to-r from-pink-600 to-rose-600 bg-clip-text text-transparent">
+                <div className="text-2xl font-bold text-destructive">
                   {customerStats.repeat_customers}
                 </div>
                 <p className="text-xs text-muted-foreground">
@@ -529,7 +529,7 @@ export default function ShopDashboardPage() {
                 <CardTitle className="text-sm font-medium">New This Month</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
+                <div className="text-2xl font-bold text-success">
                   {customerStats.new_customers_month}
                 </div>
                 <p className="text-xs text-muted-foreground">Recent acquisitions</p>
@@ -555,7 +555,7 @@ export default function ShopDashboardPage() {
                 <CardTitle className="text-sm font-medium">Customer Revenue</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold bg-gradient-to-r from-orange-600 to-amber-600 bg-clip-text text-transparent">
+                <div className="text-2xl font-bold text-warning">
                   GHS {(customerStats.total_revenue || 0).toFixed(2)}
                 </div>
                 <p className="text-xs text-muted-foreground">Total from customers</p>
@@ -567,8 +567,8 @@ export default function ShopDashboardPage() {
         {balance > 0 && !showWithdrawalForm && (
           <>
             {withdrawals.some(w => w.status === "pending" || w.status === "processing") ? (
-              <div className="w-full p-4 bg-yellow-50 border border-border rounded-lg">
-                <p className="text-yellow-800 text-sm font-medium">
+              <div className="w-full p-4 bg-warning/10 border border-border rounded-lg">
+                <p className="text-warning text-sm font-medium">
                   {withdrawals.some(w => w.status === "processing")
                     ? "⏳ Your withdrawal is being transferred. It will complete automatically."
                     : "⏳ You have a pending withdrawal request. Please wait for it to be approved or rejected before requesting another."}
@@ -678,12 +678,12 @@ export default function ShopDashboardPage() {
                       Enter your number and click <span className="font-medium text-primary">Verify</span> to confirm the account name before submitting.
                     </p>
                     {nameVerified && withdrawalForm.accountName && (
-                      <p className="text-xs text-green-600 mt-1 flex items-center gap-1 font-medium">
+                      <p className="text-xs text-success mt-1 flex items-center gap-1 font-medium">
                         <CheckCircle className="h-3 w-3" /> Account: {withdrawalForm.accountName}
                       </p>
                     )}
                     {!nameVerified && !isFetchingName && withdrawalForm.phone && (
-                      <p className="text-xs text-amber-600 mt-1">
+                      <p className="text-xs text-warning mt-1">
                         Account not yet verified — click Verify to proceed.
                       </p>
                     )}
@@ -754,12 +754,12 @@ export default function ShopDashboardPage() {
                       Select your bank, enter account number, then click <span className="font-medium text-primary">Verify</span> to confirm.
                     </p>
                     {bankVerified && withdrawalForm.accountName && (
-                      <p className="text-xs text-green-600 mt-1 flex items-center gap-1 font-medium">
+                      <p className="text-xs text-success mt-1 flex items-center gap-1 font-medium">
                         <CheckCircle className="h-3 w-3" /> Account: {withdrawalForm.accountName}
                       </p>
                     )}
                     {!bankVerified && !isFetchingBankName && withdrawalForm.accountNumber && withdrawalForm.bankSublistId && (
-                      <p className="text-xs text-amber-600 mt-1">
+                      <p className="text-xs text-warning mt-1">
                         Account not yet verified — click Verify to proceed.
                       </p>
                     )}
@@ -768,22 +768,22 @@ export default function ShopDashboardPage() {
               )}
 
               {withdrawalForm.amount && parseFloat(withdrawalForm.amount) > 0 && (
-                <div className="bg-amber-50 border border-border rounded-lg p-3 space-y-2">
-                  <h4 className="font-semibold text-sm text-amber-900">Withdrawal Breakdown</h4>
+                <div className="bg-warning/10 border border-border rounded-lg p-3 space-y-2">
+                  <h4 className="font-semibold text-sm text-warning">Withdrawal Breakdown</h4>
                   <div className="text-sm space-y-1">
                     <div className="flex justify-between">
-                      <span className="text-amber-700">Requested amount:</span>
-                      <span className="font-medium text-amber-900">GHS {parseFloat(withdrawalForm.amount).toFixed(2)}</span>
+                      <span className="text-warning">Requested amount:</span>
+                      <span className="font-medium text-warning">GHS {parseFloat(withdrawalForm.amount).toFixed(2)}</span>
                     </div>
                     {withdrawalFeePercentage > 0 && (
                       <>
                         <div className="flex justify-between">
-                          <span className="text-amber-700">Withdrawal fee ({withdrawalFeePercentage}%):</span>
-                          <span className="font-medium text-orange-600">-GHS {(parseFloat(withdrawalForm.amount) * withdrawalFeePercentage / 100).toFixed(2)}</span>
+                          <span className="text-warning">Withdrawal fee ({withdrawalFeePercentage}%):</span>
+                          <span className="font-medium text-warning">-GHS {(parseFloat(withdrawalForm.amount) * withdrawalFeePercentage / 100).toFixed(2)}</span>
                         </div>
                         <div className="border-t border-border pt-1 flex justify-between">
-                          <span className="text-amber-900 font-semibold">You will receive:</span>
-                          <span className="font-bold text-green-600">GHS {(parseFloat(withdrawalForm.amount) - (parseFloat(withdrawalForm.amount) * withdrawalFeePercentage / 100)).toFixed(2)}</span>
+                          <span className="text-warning font-semibold">You will receive:</span>
+                          <span className="font-bold text-success">GHS {(parseFloat(withdrawalForm.amount) - (parseFloat(withdrawalForm.amount) * withdrawalFeePercentage / 100)).toFixed(2)}</span>
                         </div>
                       </>
                     )}
@@ -867,8 +867,8 @@ export default function ShopDashboardPage() {
                           <p className="font-semibold text-primary">+GHS {(order.profit_amount || 0).toFixed(2)}</p>
                           <Badge variant="outline" className={
                             order.order_status === "completed"
-                              ? "bg-green-100 text-green-700"
-                              : "bg-amber-100 text-amber-700"
+                              ? "bg-success/15 text-success"
+                              : "bg-warning/10 text-warning"
                           }>
                             {order.order_status}
                           </Badge>
@@ -906,7 +906,7 @@ export default function ShopDashboardPage() {
                           <p className="text-xs text-muted-foreground">{new Date(profit.created_at).toLocaleDateString()}</p>
                         </div>
                         <div className="text-right">
-                          <Badge className="bg-emerald-600">
+                          <Badge className="bg-success">
                             {profit.status || "Completed"}
                           </Badge>
                         </div>
@@ -943,15 +943,15 @@ export default function ShopDashboardPage() {
                         </div>
                         <Badge className={
                           withdrawal.status === "completed"
-                            ? "bg-green-600"
+                            ? "bg-success"
                             : withdrawal.status === "processing"
                             ? "bg-primary"
                             : withdrawal.status === "pending"
-                            ? "bg-amber-600"
+                            ? "bg-warning"
                             : withdrawal.status === "approved"
                             ? "bg-primary"
                             : withdrawal.status === "failed"
-                            ? "bg-red-600"
+                            ? "bg-destructive"
                             : "bg-gray-500"
                         }>
                           {withdrawal.status === "processing" ? "Transferring..." : withdrawal.status}
@@ -983,7 +983,7 @@ export default function ShopDashboardPage() {
                     <CardTitle className="text-sm font-medium text-muted-foreground">Completed</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <p className="text-3xl font-bold text-green-600">{orderStats.completed}</p>
+                    <p className="text-3xl font-bold text-success">{orderStats.completed}</p>
                   </CardContent>
                 </Card>
 
@@ -992,7 +992,7 @@ export default function ShopDashboardPage() {
                     <CardTitle className="text-sm font-medium text-muted-foreground">Pending</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <p className="text-3xl font-bold text-orange-600">{orderStats.pending}</p>
+                    <p className="text-3xl font-bold text-warning">{orderStats.pending}</p>
                   </CardContent>
                 </Card>
 
@@ -1001,7 +1001,7 @@ export default function ShopDashboardPage() {
                     <CardTitle className="text-sm font-medium text-muted-foreground">Failed</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <p className="text-3xl font-bold text-red-600">{orderStats.failed}</p>
+                    <p className="text-3xl font-bold text-destructive">{orderStats.failed}</p>
                   </CardContent>
                 </Card>
 
@@ -1081,9 +1081,9 @@ export default function ShopDashboardPage() {
                                 <td className="py-3 px-4 text-foreground">{order.volume_gb} GB</td>
                                 <td className="py-3 px-4">
                                   <Badge className={
-                                    order.order_status === "completed" ? "bg-green-600" :
-                                      order.order_status === "pending" ? "bg-orange-600" :
-                                        "bg-red-600"
+                                    order.order_status === "completed" ? "bg-success" :
+                                      order.order_status === "pending" ? "bg-warning" :
+                                        "bg-destructive"
                                   }>
                                     {order.order_status}
                                   </Badge>
@@ -1113,7 +1113,7 @@ export default function ShopDashboardPage() {
                                       }}
                                       variant="outline"
                                       size="sm"
-                                      className="text-orange-600 border-orange-600 hover:bg-orange-50"
+                                      className="text-warning border-warning/30 hover:bg-warning/10"
                                     >
                                       <MessageCircle className="w-4 h-4 mr-1" />
                                       Complain

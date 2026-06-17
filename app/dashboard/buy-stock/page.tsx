@@ -338,8 +338,8 @@ export default function BuyStockPage() {
     <DashboardLayout>
       <div className="space-y-6">
         {!globalOrderingEnabled && (
-          <Alert className="mb-8 border-red-500 bg-red-50 shadow-md">
-            <AlertDescription className="text-red-800 font-bold text-center">
+          <Alert className="mb-8 border-destructive/30 bg-destructive/10 shadow-md">
+            <AlertDescription className="text-destructive font-bold text-center">
               The system is currently in maintenance mode. Data package purchases are temporarily disabled.
             </AlertDescription>
           </Alert>
@@ -356,10 +356,10 @@ export default function BuyStockPage() {
           {/* Wallet Balance */}
           <Card className="w-fit">
             <CardContent className="p-4 flex items-center gap-3">
-              <Wallet className="w-5 h-5 text-green-600" />
+              <Wallet className="w-5 h-5 text-success" />
               <div>
                 <p className="text-xs text-muted-foreground">Wallet Balance</p>
-                <p className="text-lg font-bold text-green-600">GHS {Math.max(0, walletBalance || 0).toFixed(2)}</p>
+                <p className="text-lg font-bold text-success">GHS {Math.max(0, walletBalance || 0).toFixed(2)}</p>
               </div>
             </CardContent>
           </Card>

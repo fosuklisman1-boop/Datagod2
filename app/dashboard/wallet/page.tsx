@@ -375,7 +375,7 @@ export default function WalletPage() {
 
         {/* Balance Card */}
         <Card className={`text-white border-0 ${isDealer
-          ? "bg-card0 via-orange-500 to-yellow-500"
+          ? "bg-warning"
           : "bg-gradient-to-r from-primary to-primary"
           }`}>
           <CardHeader>

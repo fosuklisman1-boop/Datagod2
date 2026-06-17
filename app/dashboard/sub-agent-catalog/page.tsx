@@ -197,8 +197,8 @@ export default function SubAgentCatalogPage() {
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center gap-4">
-                <div className="p-3 bg-green-100 rounded-lg">
-                  <Users className="h-6 w-6 text-green-600" />
+                <div className="p-3 bg-success/15 rounded-lg">
+                  <Users className="h-6 w-6 text-success" />
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Has Sub-Agents</p>
@@ -279,7 +279,7 @@ export default function SubAgentCatalogPage() {
                         <TableCell className="font-medium">{item.package.network}</TableCell>
                         <TableCell>{item.package.size}</TableCell>
                         <TableCell className="text-right">GHS {(item.package?.price || 0).toFixed(2)}</TableCell>
-                        <TableCell className="text-right text-green-600">
+                        <TableCell className="text-right text-success">
                           +GHS {(item.wholesale_margin || 0).toFixed(2)}
                         </TableCell>
                         <TableCell className="text-right font-bold">
@@ -289,7 +289,7 @@ export default function SubAgentCatalogPage() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
                             onClick={() => handleRemoveFromCatalog(item.id)}
                           >
                             <Trash2 className="h-4 w-4" />
