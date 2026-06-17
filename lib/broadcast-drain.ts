@@ -408,18 +408,38 @@ export async function drainBroadcasts(
     .eq("status", "claimed")
     .lt("claimed_at", cutoff)
 
-  // 2. Which broadcasts to drain.
-  let query = supabase
-    .from("broadcast_logs")
-    .select("id, channels, subject, message")
-    .eq("status", "processing")
-    .order("created_at", { ascending: true })
-    .limit(10)
-  if (opts.broadcastId) query = supabase.from("broadcast_logs").select("id, channels, subject, message").eq("id", opts.broadcastId)
-
-  const { data: broadcasts, error } = await query
-  if (error) throw error
-  if (!broadcasts || broadcasts.length === 0) return { processed: 0, broadcasts: 0 }
+  // 2. Which broadcasts to drain. Select ONLY broadcasts that still have CLAIMABLE
+  //    work (pending, or failed-but-retryable). Otherwise stale 'processing'
+  //    broadcasts that have nothing left (never flipped to 'completed') fill the
+  //    LIMIT and starve newer broadcasts that DO have pending recipients — the bug
+  //    here: ~14 old 0-pending 'processing' rows blocked a fresh 970-pending
+  //    broadcast from ever being drained by the cron.
+  let broadcasts: BroadcastRow[]
+  if (opts.broadcastId) {
+    const { data, error } = await supabase
+      .from("broadcast_logs").select("id, channels, subject, message").eq("id", opts.broadcastId)
+    if (error) throw error
+    broadcasts = (data ?? []) as BroadcastRow[]
+  } else {
+    const { data: work, error: wErr } = await supabase
+      .from("broadcast_recipients")
+      .select("broadcast_id")
+      .or(`status.eq.pending,and(status.eq.failed,attempts.lt.${MAX_ATTEMPTS})`)
+      .limit(1000)
+    if (wErr) throw wErr
+    const ids = [...new Set((work ?? []).map((r: { broadcast_id: string }) => r.broadcast_id))]
+    if (ids.length === 0) return { processed: 0, broadcasts: 0 }
+    const { data, error } = await supabase
+      .from("broadcast_logs")
+      .select("id, channels, subject, message")
+      .in("id", ids)
+      .eq("status", "processing")
+      .order("created_at", { ascending: true })
+      .limit(10)
+    if (error) throw error
+    broadcasts = (data ?? []) as BroadcastRow[]
+  }
+  if (broadcasts.length === 0) return { processed: 0, broadcasts: 0 }
 
   let budget = opts.maxRecipients ?? MAX_RECIPIENTS_PER_RUN
   let processed = 0
