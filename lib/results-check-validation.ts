@@ -8,12 +8,17 @@ export function isValidIndexNumber(examBoard: ExamBoard, index: string): boolean
   return examBoard === "BECE" ? /^\d{10}$|^\d{12}$/.test(index) : /^\d{10}$/.test(index)
 }
 
-export function isValidVoucherPin(pin: string): boolean {
-  return /^\d{12}$/.test(pin)
+// Board-aware: WAEC Ghana cards differ by board. WASSCE/NOVDEC = 12-digit NUMERIC
+// PIN + letter-prefixed serial (e.g. WGR1900112581). BECE = ALPHANUMERIC PIN
+// (e.g. 5FBR336742D4) + NUMERIC serial (e.g. 252100270719) — the reverse layout.
+export function isValidVoucherPin(examBoard: ExamBoard, pin: string): boolean {
+  const p = pin.trim()
+  return examBoard === "BECE" ? /^[A-Za-z0-9]{10,12}$/.test(p) : /^\d{12}$/.test(p)
 }
 
-export function isValidVoucherSerial(serial: string): boolean {
-  return /^[A-Z]{1,4}\d{7,15}$/.test(serial.toUpperCase())
+export function isValidVoucherSerial(examBoard: ExamBoard, serial: string): boolean {
+  const s = serial.trim()
+  return examBoard === "BECE" ? /^\d{8,14}$/.test(s) : /^[A-Z]{1,4}\d{7,15}$/.test(s.toUpperCase())
 }
 
 // Validates a real calendar date in DD/MM/YYYY form (not just the shape):

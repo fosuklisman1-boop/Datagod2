@@ -198,10 +198,10 @@ export async function POST(request: NextRequest) {
     let normalizedVoucherPin: string | null = null
     let normalizedVoucherSerial: string | null = null
     if (mode === "own_voucher") {
-      if (!voucherPin || !isValidVoucherPin(String(voucherPin))) {
-        return NextResponse.json({ error: "Invalid voucher PIN. Must be 12 digits" }, { status: 400 })
+      if (!voucherPin || !isValidVoucherPin(board, String(voucherPin))) {
+        return NextResponse.json({ error: board === "BECE" ? "Invalid voucher PIN (BECE PINs are 10–12 letters/digits)" : "Invalid voucher PIN. Must be 12 digits" }, { status: 400 })
       }
-      if (!voucherSerial || !isValidVoucherSerial(String(voucherSerial))) {
+      if (!voucherSerial || !isValidVoucherSerial(board, String(voucherSerial))) {
         return NextResponse.json({ error: "Invalid voucher serial number" }, { status: 400 })
       }
       normalizedVoucherPin = String(voucherPin).trim()

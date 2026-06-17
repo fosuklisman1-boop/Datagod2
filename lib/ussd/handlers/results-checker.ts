@@ -517,9 +517,15 @@ export async function handleRcCheckVoucher(
   const parts = raw.split(/[\/,\s]+/)
   const pin = parts[0] ?? ''
   const serial = parts[1] ?? ''
-  // PIN: exactly 12 digits. Serial: 1-4 letters followed by 7-15 digits (e.g. WGR1900112581)
-  if (!pin || !serial || !/^\d{12}$/.test(pin) || !/^[A-Z]{1,4}\d{7,15}$/.test(serial)) {
-    return cont("Invalid PIN or serial.\nPIN: 12 digits\nSerial: e.g. WGR1900112581\n\nFormat: PIN/Serial\ne.g. 012345678912/WGR1900112581\n\n0. Back")
+  // Board-aware: WASSCE/NOVDEC = 12-digit numeric PIN + WGR-style serial; BECE =
+  // alphanumeric PIN (e.g. 5FBR336742D4) + numeric serial (e.g. 252100270719).
+  const rcBoard = session.rcCheckBoard
+  const pinOk = rcBoard === "BECE" ? /^[A-Za-z0-9]{10,12}$/.test(pin) : /^\d{12}$/.test(pin)
+  const serialOk = rcBoard === "BECE" ? /^\d{8,14}$/.test(serial) : /^[A-Z]{1,4}\d{7,15}$/.test(serial)
+  if (!pin || !serial || !pinOk || !serialOk) {
+    return cont(rcBoard === "BECE"
+      ? "Invalid PIN or serial.\nPIN: 10-12 letters/digits\nSerial: digits e.g. 252100270719\n\nFormat: PIN/Serial\n\n0. Back"
+      : "Invalid PIN or serial.\nPIN: 12 digits\nSerial: e.g. WGR1900112581\n\nFormat: PIN/Serial\ne.g. 012345678912/WGR1900112581\n\n0. Back")
   }
   await setSession(sessionId, {
     ...session,

@@ -245,10 +245,12 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
   const fieldError = (field: string): string | null => {
     switch (field) {
       case "voucherPin":
-        return mode === "own_voucher" && !isValidVoucherPin(formData.voucherPin.trim())
-          ? "Enter a valid 12-digit voucher PIN" : null
+        if (!selectedBoard) return null
+        return mode === "own_voucher" && !isValidVoucherPin(selectedBoard, formData.voucherPin.trim())
+          ? (selectedBoard === "BECE" ? "Enter a valid voucher PIN (10–12 letters/digits)" : "Enter a valid 12-digit voucher PIN") : null
       case "voucherSerial":
-        return mode === "own_voucher" && !isValidVoucherSerial(formData.voucherSerial.trim())
+        if (!selectedBoard) return null
+        return mode === "own_voucher" && !isValidVoucherSerial(selectedBoard, formData.voucherSerial.trim())
           ? "Enter a valid voucher serial number" : null
       case "indexNumber":
         if (!selectedBoard) return null
