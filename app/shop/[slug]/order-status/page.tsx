@@ -151,14 +151,14 @@ export default function OrderStatusPage() {
   const getStatusColor = (status: string) => {
     switch (status?.toLowerCase()) {
       case "completed":
-        return "bg-green-100 text-green-800 border-border"
+        return "bg-success/15 text-success border-success/30"
       case "processing":
         return "bg-primary/10 text-primary border-primary/20"
       case "pending":
-        return "bg-yellow-100 text-yellow-800 border-border"
+        return "bg-warning/15 text-warning border-warning/30"
       case "failed":
       case "cancelled":
-        return "bg-red-100 text-red-800 border-border"
+        return "bg-destructive/15 text-destructive border-destructive/30"
       default:
         return "bg-muted text-foreground border-border"
     }
@@ -183,11 +183,11 @@ export default function OrderStatusPage() {
   const getPaymentStatusColor = (status: string) => {
     switch (status?.toLowerCase()) {
       case "completed":
-        return "bg-green-50 border-border"
+        return "bg-success/10 border-border"
       case "pending":
-        return "bg-yellow-50 border-border"
+        return "bg-warning/10 border-border"
       case "failed":
-        return "bg-red-50 border-border"
+        return "bg-destructive/10 border-border"
       default:
         return "bg-muted/40 border-border"
     }
@@ -424,12 +424,12 @@ export default function OrderStatusPage() {
 
                       {/* Payment Verification for pending orders */}
                       {(order.payment_status === "pending" || order.payment_status === "abandoned") && (
-                        <div className="pt-3 border-t bg-yellow-50 -mx-6 px-6 pb-1 rounded-b-lg">
+                        <div className="pt-3 border-t bg-warning/10 -mx-6 px-6 pb-1 rounded-b-lg">
                           <div className="flex items-center gap-2 mb-2">
-                            <CreditCard className="w-4 h-4 text-yellow-600" />
-                            <p className="text-sm font-semibold text-yellow-800">Payment not confirmed?</p>
+                            <CreditCard className="w-4 h-4 text-warning" />
+                            <p className="text-sm font-semibold text-warning">Payment not confirmed?</p>
                           </div>
-                          <p className="text-xs text-yellow-700 mb-3">
+                          <p className="text-xs text-warning/80 mb-3">
                             If you completed payment but it&apos;s still showing as pending, enter the payment reference from your Paystack email below.
                           </p>
                           <div className="flex gap-2">
@@ -445,7 +445,7 @@ export default function OrderStatusPage() {
                               size="sm"
                               onClick={() => verifyPaymentReference(order)}
                               disabled={verifyingOrder === order.id || !referenceInputs[order.id]?.trim()}
-                              className="bg-yellow-600 hover:bg-yellow-700 text-white whitespace-nowrap"
+                              className="bg-warning hover:bg-warning/90 text-white whitespace-nowrap"
                             >
                               {verifyingOrder === order.id ? (
                                 <Loader2 className="w-4 h-4 animate-spin" />

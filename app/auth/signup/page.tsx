@@ -351,8 +351,8 @@ export default function SignupPage() {
               </div>
             ) : signupsEnabled === false ? (
               <div className="text-center space-y-4 py-8">
-                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-red-100 mb-2">
-                  <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-destructive/10 mb-2">
+                  <svg className="w-8 h-8 text-destructive" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
                 </div>
                 <h3 className="text-xl font-bold text-foreground">Signups Temporarily Disabled</h3>
                 <p className="text-muted-foreground max-w-sm mx-auto">
@@ -407,10 +407,10 @@ export default function SignupPage() {
                         value={formData.phoneNumber}
                         onChange={handleChange}
                         required
-                        className={phoneVerified ? "pr-8 border-green-500 focus-visible:ring-green-500" : ""}
+                        className={phoneVerified ? "pr-8 border-success focus-visible:ring-success" : ""}
                       />
                       {phoneVerified && (
-                        <CheckCircle2 className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500" />
+                        <CheckCircle2 className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-success" />
                       )}
                     </div>
                     <Button

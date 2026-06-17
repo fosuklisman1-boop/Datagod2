@@ -58,7 +58,7 @@ export default function ForgotPasswordPage() {
           {success ? (
             <div className="text-center space-y-4 px-2">
               <div className="flex justify-center">
-                <CheckCircle2 className="h-12 w-12 text-emerald-500" />
+                <CheckCircle2 className="h-12 w-12 text-success" />
               </div>
               <h3 className="text-lg font-medium text-foreground">Registration Checked</h3>
               <p className="text-sm text-muted-foreground">
@@ -89,14 +89,14 @@ export default function ForgotPasswordPage() {
               </div>
 
               {error && (
-                <div className="p-3 text-sm text-red-500 bg-red-50 rounded-md">
+                <div className="p-3 text-sm text-destructive bg-destructive/10 rounded-md">
                   {error}
                 </div>
               )}
 
               <Button
                 type="submit"
-                className="w-full bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary text-white"
+                className="w-full"
                 disabled={loading || !contact}
               >
                 {loading ? (

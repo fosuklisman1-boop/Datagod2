@@ -209,7 +209,7 @@ export default function LoginForm() {
             <Skeleton className="mt-3 h-10 w-full rounded-md" />
           ) : communityLink ? (
             <a href={communityLink} target="_blank" rel="noopener noreferrer" className="mt-3 block">
-              <Button type="button" className="w-full gap-2 bg-green-600 hover:bg-green-700 text-white">
+              <Button type="button" className="w-full gap-2 bg-success hover:bg-success/90 text-primary-foreground">
                 <MessageCircle className="h-4 w-4" /> Join Community
               </Button>
             </a>

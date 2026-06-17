@@ -61,8 +61,8 @@ export default function OrderConfirmation() {
     return (
       <div className="min-h-screen bg-card p-4">
         <div className="max-w-2xl mx-auto pt-20">
-          <Alert className="border-border bg-red-50">
-            <AlertDescription className="text-red-700">
+          <Alert className="border-border bg-destructive/10">
+            <AlertDescription className="text-destructive">
               Order not found. Please check your email for order confirmation.
             </AlertDescription>
           </Alert>
@@ -77,7 +77,7 @@ export default function OrderConfirmation() {
         {/* Success Message */}
         <div className="text-center mb-8">
           <div className="flex justify-center mb-4">
-            <div className="bg-gradient-to-br from-green-400 to-emerald-500 rounded-full p-3">
+            <div className="bg-success rounded-full p-3">
               <CheckCircle className="w-12 h-12 text-white" />
             </div>
           </div>
@@ -111,7 +111,7 @@ export default function OrderConfirmation() {
               </div>
               <div className="p-3 bg-card/50 rounded-lg">
                 <p className="text-xs text-muted-foreground">Order Status</p>
-                <Badge className="mt-1 bg-amber-100 text-amber-700">
+                <Badge className="mt-1 bg-warning/15 text-warning">
                   {order.order_status}
                 </Badge>
               </div>
@@ -119,8 +119,8 @@ export default function OrderConfirmation() {
                 <p className="text-xs text-muted-foreground">Payment Status</p>
                 <Badge className={`mt-1 ${
                   order.payment_status === "completed"
-                    ? "bg-green-100 text-green-700"
-                    : "bg-amber-100 text-amber-700"
+                    ? "bg-success/15 text-success"
+                    : "bg-warning/15 text-warning"
                 }`}>
                   {order.payment_status}
                 </Badge>
@@ -137,7 +137,7 @@ export default function OrderConfirmation() {
             </div>
 
             {/* Package Details */}
-            <div className="border-t border-white/20 pt-4">
+            <div className="border-t border-border pt-4">
               <h3 className="font-semibold mb-3">Package Details</h3>
               <div className="space-y-2 p-3 bg-card/50 rounded-lg">
                 <div className="flex justify-between">
@@ -152,7 +152,7 @@ export default function OrderConfirmation() {
             </div>
 
             {/* Customer Info */}
-            <div className="border-t border-white/20 pt-4">
+            <div className="border-t border-border pt-4">
               <h3 className="font-semibold mb-3">Delivery Information</h3>
               <div className="space-y-2 p-3 bg-card/50 rounded-lg text-sm">
                 <div>
@@ -205,7 +205,7 @@ export default function OrderConfirmation() {
                 href={shopWhatsapp.startsWith("http") ? shopWhatsapp : `https://wa.me/${shopWhatsapp.replace(/\D/g, "")}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-2 inline-flex items-center gap-2 font-semibold text-green-600 hover:text-green-700"
+                className="mt-2 inline-flex items-center gap-2 font-semibold text-success hover:text-success/80"
               >
                 <MessageCircle className="w-4 h-4" />
                 Chat on WhatsApp

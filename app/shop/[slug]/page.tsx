@@ -741,7 +741,7 @@ export default function ShopStorefront() {
                 href={shopSettings.whatsapp_link}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-colors"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-success hover:bg-success/90 text-primary-foreground rounded-lg font-semibold transition-colors"
               >
                 <MessageCircle className="w-4 h-4" />
                 Contact on WhatsApp

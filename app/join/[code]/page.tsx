@@ -170,8 +170,8 @@ export default function JoinPage() {
       <div className="min-h-screen flex items-center justify-center bg-card p-4">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
-            <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-            <CardTitle className="text-red-600">Invalid Invite</CardTitle>
+            <AlertCircle className="w-12 h-12 text-destructive mx-auto mb-4" />
+            <CardTitle className="text-destructive">Invalid Invite</CardTitle>
             <CardDescription>{error}</CardDescription>
           </CardHeader>
           <CardContent className="text-center">
@@ -189,8 +189,8 @@ export default function JoinPage() {
       <div className="min-h-screen flex items-center justify-center bg-card p-4">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
-            <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-4" />
-            <CardTitle className="text-green-600">Account Created!</CardTitle>
+            <CheckCircle className="w-12 h-12 text-success mx-auto mb-4" />
+            <CardTitle className="text-success">Account Created!</CardTitle>
             <CardDescription>
               Your sub-agent account has been created successfully. Redirecting to login...
             </CardDescription>
@@ -223,19 +223,19 @@ export default function JoinPage() {
           <CardContent>
             <ul className="space-y-2 text-sm">
               <li className="flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-green-500" />
+                <CheckCircle className="w-4 h-4 text-success" />
                 Your own storefront to sell data
               </li>
               <li className="flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-green-500" />
+                <CheckCircle className="w-4 h-4 text-success" />
                 Buy data at wholesale prices
               </li>
               <li className="flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-green-500" />
+                <CheckCircle className="w-4 h-4 text-success" />
                 Set your own prices and keep the profit
               </li>
               <li className="flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-green-500" />
+                <CheckCircle className="w-4 h-4 text-success" />
                 Withdraw earnings to your mobile money
               </li>
             </ul>

@@ -218,9 +218,9 @@ export default function ShopAirtimePage() {
   if (!shop) {
     return (
       <div className="min-h-screen p-4 bg-muted/40 flex items-center justify-center">
-        <Alert className="max-w-md border-border bg-red-50 shadow-lg">
-          <AlertCircle className="w-4 h-4 text-red-600" />
-          <AlertDescription className="text-red-700 font-medium">Shop not found or inactive.</AlertDescription>
+        <Alert className="max-w-md border-border bg-destructive/10 shadow-lg">
+          <AlertCircle className="w-4 h-4 text-destructive" />
+          <AlertDescription className="text-destructive font-medium">Shop not found or inactive.</AlertDescription>
         </Alert>
       </div>
     )
@@ -247,7 +247,7 @@ export default function ShopAirtimePage() {
             <img src={shop.logo_url} className="w-10 h-10 rounded-xl object-cover border border-border shadow-sm" alt="Logo" />
           ) : (
             <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center">
-              <Zap className="w-5 h-5 text-primary" />
+              <Zap className="w-5 h-5 text-primary-foreground" />
             </div>
           )}
         </div>
@@ -255,19 +255,19 @@ export default function ShopAirtimePage() {
 
       <main className="max-w-xl mx-auto px-4 pt-8">
         <Card className="border-0 shadow-2xl overflow-hidden rounded-2xl">
-          <div className="h-2 bg-gradient-to-r from-primary via-primary to-primary" />
+          <div className="h-2 bg-primary" />
           <CardHeader className="bg-card border-b border-border">
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle className="text-2xl font-black text-slate-900 flex items-center gap-2">
+                <CardTitle className="text-2xl font-black text-foreground flex items-center gap-2">
                   <Zap className="w-6 h-6 text-primary fill-primary" />
                   Buy Airtime
                 </CardTitle>
-                <CardDescription className="text-slate-500 font-medium mt-1">
+                <CardDescription className="text-muted-foreground font-medium mt-1">
                   Secure instant top-up for any network
                 </CardDescription>
               </div>
-              <Badge className="bg-green-100 text-green-700 border-border">
+              <Badge className="bg-success/15 text-success border-success/30">
                 <ShieldCheck className="w-3 h-3 mr-1" />
                 Verified
               </Badge>
@@ -278,7 +278,7 @@ export default function ShopAirtimePage() {
             <form onSubmit={handleSubmit} className="space-y-8">
               {/* Network Selection */}
               <div className="space-y-4">
-                <Label className="text-slate-900 font-bold flex items-center gap-2">
+                <Label className="text-foreground font-bold flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-primary" />
                   1. Select Network
                 </Label>
@@ -297,15 +297,15 @@ export default function ShopAirtimePage() {
                       {networkLogos[net.id] ? (
                         <img src={networkLogos[net.id]} alt={net.name} className="w-12 h-12 object-contain mb-2" />
                       ) : (
-                        <div className="w-12 h-12 bg-slate-200 rounded-full mb-2 flex items-center justify-center">
-                           <span className="font-bold text-slate-500">{net.name[0]}</span>
+                        <div className="w-12 h-12 bg-muted rounded-full mb-2 flex items-center justify-center">
+                           <span className="font-bold text-muted-foreground">{net.name[0]}</span>
                         </div>
                       )}
-                      <span className={`text-xs font-black uppercase ${selectedNetwork === net.id ? "text-primary" : "text-slate-500"}`}>
+                      <span className={`text-xs font-black uppercase ${selectedNetwork === net.id ? "text-primary" : "text-muted-foreground"}`}>
                         {net.name}
                       </span>
                       {selectedNetwork === net.id && (
-                        <div className="absolute -top-2 -right-2 bg-primary text-white rounded-full p-1 shadow-md">
+                        <div className="absolute -top-2 -right-2 bg-primary text-primary-foreground rounded-full p-1 shadow-md">
                           <CheckCircle2 className="w-3 h-3" />
                         </div>
                       )}
@@ -316,14 +316,14 @@ export default function ShopAirtimePage() {
 
               {/* Form Fields */}
               <div className="space-y-6">
-                <Label className="text-slate-900 font-bold flex items-center gap-2">
+                <Label className="text-foreground font-bold flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-primary" />
                   2. Order Details
                 </Label>
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="customerName" className="text-slate-600">Full Name</Label>
+                    <Label htmlFor="customerName" className="text-muted-foreground">Full Name</Label>
                     <Input 
                       id="customerName"
                       placeholder="E.g John Doe"
@@ -333,7 +333,7 @@ export default function ShopAirtimePage() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="customerEmail" className="text-slate-600">Email Address *</Label>
+                    <Label htmlFor="customerEmail" className="text-muted-foreground">Email Address *</Label>
                     <Input 
                       id="customerEmail"
                       type="email"
@@ -348,7 +348,7 @@ export default function ShopAirtimePage() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="phone" className="text-slate-600">Beneficiary Number *</Label>
+                    <Label htmlFor="phone" className="text-muted-foreground">Beneficiary Number *</Label>
                     <Input 
                       id="phone"
                       type="tel"
@@ -360,7 +360,7 @@ export default function ShopAirtimePage() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="amount" className="text-slate-600">Amount (GHS) *</Label>
+                    <Label htmlFor="amount" className="text-muted-foreground">Amount (GHS) *</Label>
                     <Input 
                       id="amount"
                       type="number"
@@ -385,8 +385,8 @@ export default function ShopAirtimePage() {
                   className="mt-1 h-5 w-5 text-primary border-border rounded focus:ring-primary cursor-pointer"
                 />
                 <label htmlFor="pay-sep" className="flex-1 cursor-pointer">
-                  <span className="text-primary font-bold text-sm block">Pay fee separately</span>
-                  <p className="text-primary text-xs mt-1 leading-relaxed">
+                  <span className="text-primary-foreground font-bold text-sm block">Pay fee separately</span>
+                  <p className="text-primary-foreground/80 text-xs mt-1 leading-relaxed">
                     {paySeparately 
                       ? "Recipient gets the full amount; service fee is added to your total." 
                       : "Service fee is deducted from the amount before delivery."}
@@ -396,33 +396,33 @@ export default function ShopAirtimePage() {
 
               {/* Price Summary */}
               <div className="group relative">
-                <div className="absolute -inset-1 bg-gradient-to-r from-primary to-primary rounded-2xl blur opacity-25 group-hover:opacity-40 transition duration-1000"></div>
+                <div className="absolute -inset-1 bg-primary rounded-2xl blur opacity-25 group-hover:opacity-40 transition duration-1000"></div>
                 <div className="relative p-6 bg-muted/40 rounded-2xl border border-border">
                   <div className="flex justify-between items-center mb-1">
-                    <span className="text-slate-500 font-semibold">Amount to Send:</span>
-                    <span className="text-slate-900 font-bold">GHS {parseFloat(formData.amount || "0").toFixed(2)}</span>
+                    <span className="text-muted-foreground font-semibold">Amount to Send:</span>
+                    <span className="text-foreground font-bold">GHS {parseFloat(formData.amount || "0").toFixed(2)}</span>
                   </div>
                   {constraints && (
                     <div className="flex justify-between items-center mb-1">
-                      <span className="text-slate-500 font-semibold">
+                      <span className="text-muted-foreground font-semibold">
                         Service Fee {paySeparately ? "(added on top)" : "(deducted from amount)"}:
                       </span>
-                      <span className="text-orange-600 font-bold">GHS {calculateFeeAmount().toFixed(2)}</span>
+                      <span className="text-warning font-bold">GHS {calculateFeeAmount().toFixed(2)}</span>
                     </div>
                   )}
                   <div className="flex justify-between items-center mb-4 pb-4 border-b border-border">
-                    <span className="text-slate-500 font-semibold">Recipient Gets:</span>
-                    <span className="text-green-600 font-black">
+                    <span className="text-muted-foreground font-semibold">Recipient Gets:</span>
+                    <span className="text-success font-black">
                        GHS {calculateRecipientGets().toFixed(2)}
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-slate-900 text-lg font-black">Total to Pay:</span>
+                    <span className="text-foreground text-lg font-black">Total to Pay:</span>
                     <div className="text-right">
-                      <span className="text-3xl font-black bg-gradient-to-r from-primary to-primary bg-clip-text text-transparent">
+                      <span className="text-3xl font-black text-primary">
                         GHS {calculateTotal().toFixed(2)}
                       </span>
-                      <p className="text-[10px] text-slate-400 mt-1 uppercase tracking-wider font-bold">
+                      <p className="text-[10px] text-muted-foreground mt-1 uppercase tracking-wider font-bold">
                         {paySeparately ? "Amount + Service Fee" : "Fee Included in Amount"}
                       </p>
                     </div>
@@ -433,7 +433,7 @@ export default function ShopAirtimePage() {
               <Button 
                 type="submit" 
                 disabled={submitting || !selectedNetwork}
-                className="w-full h-16 bg-gradient-to-r from-primary via-primary to-primary hover:scale-[1.02] active:scale-95 text-white text-xl font-black rounded-2xl shadow-xl shadow-primary transition-all duration-300 disabled:opacity-50 disabled:grayscale"
+                className="w-full h-16 bg-primary hover:bg-primary/90 hover:scale-[1.02] active:scale-95 text-primary-foreground text-xl font-black rounded-2xl shadow-xl shadow-primary transition-all duration-300 disabled:opacity-50 disabled:grayscale"
               >
                 {submitting ? (
                   <div className="flex items-center gap-3">
@@ -456,7 +456,7 @@ export default function ShopAirtimePage() {
           <div className="flex items-center justify-center gap-6 grayscale opacity-60">
              <img src="/paystack-logo.png" alt="Paystack" className="h-4" />
           </div>
-          <p className="text-xs text-slate-500 font-medium">Your connection is encrypted and payment is handled securely by Paystack.</p>
+          <p className="text-xs text-muted-foreground font-medium">Your connection is encrypted and payment is handled securely by Paystack.</p>
           <div className="pt-4">
              <Button variant="link" onClick={() => router.push(shopHome)} className="text-primary hover:text-primary font-bold">
                 Return to Storefront
