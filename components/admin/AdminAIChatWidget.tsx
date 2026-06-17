@@ -54,7 +54,6 @@ export function AdminAIChatWidget() {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const tokenRef = useRef<string | null>(null)
-  const wrapperRef = useRef<HTMLDivElement>(null)
   const [showScrollBtn, setShowScrollBtn] = useState(false)
 
   useEffect(() => {
@@ -108,13 +107,14 @@ export function AdminAIChatWidget() {
 
   useEffect(() => {
     if (!isOpen) return
-    function handleClickOutside(e: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
-        setIsOpen(false)
-      }
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setIsOpen(false) }
+    window.addEventListener("keydown", onKey)
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      window.removeEventListener("keydown", onKey)
+      document.body.style.overflow = prevOverflow
     }
-    document.addEventListener("mousedown", handleClickOutside)
-    return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [isOpen])
 
   useEffect(() => {
@@ -239,9 +239,10 @@ export function AdminAIChatWidget() {
   }
 
   return (
-    <div ref={wrapperRef} className="fixed bottom-24 md:bottom-6 right-6 z-50 flex flex-col items-end gap-2">
+    <>
       {isOpen && (
-        <div className="w-[calc(100vw-3rem)] sm:w-[420px] h-[580px] max-h-[calc(100vh-100px)] bg-black/25 backdrop-blur-3xl backdrop-saturate-150 rounded-2xl border border-white/12 shadow-[inset_0_1px_0_rgba(255,255,255,0.18),inset_0_-1px_0_rgba(0,0,0,0.3),0_32px_64px_rgba(0,0,0,0.35),0_4px_16px_rgba(0,0,0,0.2)] flex flex-col overflow-hidden">
+        <div className="fixed inset-0 z-[60] flex bg-black/50 backdrop-blur-sm sm:items-center sm:justify-center sm:p-4" onClick={() => setIsOpen(false)}>
+          <div className="w-full h-full sm:h-[85vh] sm:max-h-[700px] sm:w-[460px] sm:max-w-[calc(100vw-2rem)] bg-black/25 backdrop-blur-3xl backdrop-saturate-150 sm:rounded-2xl border border-white/12 shadow-[inset_0_1px_0_rgba(255,255,255,0.18),inset_0_-1px_0_rgba(0,0,0,0.3),0_32px_64px_rgba(0,0,0,0.35),0_4px_16px_rgba(0,0,0,0.2)] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
           <div className="bg-black/30 backdrop-blur-sm text-white px-4 py-3 flex items-center justify-between flex-shrink-0 border-b border-white/10">
             <div>
               <p className="font-semibold text-sm">Admin AI Assistant</p>
@@ -342,9 +343,11 @@ export function AdminAIChatWidget() {
               <Send size={16} />
             </button>
           </div>
+          </div>
         </div>
       )}
 
+      <div className="fixed bottom-24 md:bottom-6 right-6 z-50 flex flex-col items-end gap-2">
       {!isOpen && (
         <button
           onClick={() => window.location.reload()}
@@ -381,5 +384,6 @@ export function AdminAIChatWidget() {
         </button>
       </div>
     </div>
+    </>
   )
 }

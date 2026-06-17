@@ -51,7 +51,6 @@ export function HomeAIChatWidget() {
   const messagesEndRef    = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const inputRef          = useRef<HTMLInputElement>(null)
-  const wrapperRef        = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -63,13 +62,14 @@ export function HomeAIChatWidget() {
 
   useEffect(() => {
     if (!isOpen) return
-    function handleClickOutside(e: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
-        setIsOpen(false)
-      }
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setIsOpen(false) }
+    window.addEventListener("keydown", onKey)
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      window.removeEventListener("keydown", onKey)
+      document.body.style.overflow = prevOverflow
     }
-    document.addEventListener("mousedown", handleClickOutside)
-    return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [isOpen])
 
   useEffect(() => {
@@ -177,9 +177,10 @@ export function HomeAIChatWidget() {
   }
 
   return (
-    <div ref={wrapperRef} className="fixed bottom-24 md:bottom-6 right-6 z-50 flex flex-col items-end gap-2">
+    <>
       {isOpen && (
-        <div className="w-[calc(100vw-3rem)] sm:w-[360px] h-[500px] max-h-[calc(100vh-120px)] bg-card rounded-2xl border border-primary/20 shadow-[0_24px_48px_rgba(0,0,0,0.12),0_4px_16px_rgba(59,130,246,0.12)] flex flex-col overflow-hidden">
+        <div className="fixed inset-0 z-[60] flex bg-black/50 backdrop-blur-sm sm:items-center sm:justify-center sm:p-4" onClick={() => setIsOpen(false)}>
+          <div className="w-full h-full sm:h-[85vh] sm:max-h-[700px] sm:w-[420px] sm:max-w-[calc(100vw-2rem)] bg-card sm:rounded-2xl border border-primary/20 shadow-[0_24px_48px_rgba(0,0,0,0.12),0_4px_16px_rgba(59,130,246,0.12)] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
           {/* Header */}
           <div className="bg-gradient-to-r from-primary to-primary/80 text-white px-4 py-3 flex items-center justify-between flex-shrink-0">
             <div>
@@ -285,9 +286,11 @@ export function HomeAIChatWidget() {
               <Send size={16} />
             </button>
           </div>
+          </div>
         </div>
       )}
 
+      <div className="fixed bottom-24 md:bottom-6 right-6 z-50 flex flex-col items-end gap-2">
       {/* Refresh button — hidden when chat is open */}
       {!isOpen && (
         <button
@@ -326,6 +329,7 @@ export function HomeAIChatWidget() {
           }
         </button>
       </div>
-    </div>
+      </div>
+    </>
   )
 }
