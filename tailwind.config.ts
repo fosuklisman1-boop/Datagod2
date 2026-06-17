@@ -74,6 +74,13 @@ const config = {
           border: 'hsl(var(--sidebar-border))',
           ring: 'hsl(var(--sidebar-ring))',
         },
+        'brand-accent': 'hsl(var(--brand-accent))',
+        footer: 'hsl(var(--footer))',
+      },
+      fontFamily: {
+        sans: ['var(--font-dm-sans)', 'system-ui', 'sans-serif'],
+        display: ['var(--font-inter)', 'system-ui', 'sans-serif'],
+        mono: ['var(--font-jetbrains)', 'ui-monospace', 'monospace'],
       },
       borderRadius: {
         lg: 'var(--radius)',

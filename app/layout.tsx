@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
+import { Inter, DM_Sans, JetBrains_Mono } from "next/font/google";
 import { headers } from "next/headers";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -14,7 +14,10 @@ import { PushNotificationRegister } from "@/components/push-notification-registe
 import { PushOptInBanner } from "@/components/push-opt-in-banner";
 import { MaintenanceScreen } from "@/components/maintenance-screen";
 
-const inter = Inter({ subsets: ["latin"] });
+// Per design spec: Inter = display/headings, DM Sans = body, JetBrains Mono = labels/metadata.
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
+const dmSans = DM_Sans({ subsets: ["latin"], weight: ["400", "500", "600", "700"], variable: "--font-dm-sans", display: "swap" });
+const jetbrains = JetBrains_Mono({ subsets: ["latin"], weight: ["500", "600"], variable: "--font-jetbrains", display: "swap" });
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -23,7 +26,7 @@ export const viewport: Viewport = {
   // viewport-fit=cover extends content into the notch/Dynamic Island area so the
   // apple-touch-startup-image media queries can match the full physical screen height.
   viewportFit: "cover",
-  themeColor: "#4f46e5",
+  themeColor: "#030303",
 };
 
 export const metadata: Metadata = {
@@ -196,7 +199,7 @@ export default async function RootLayout({
           }}
         />
       </head>
-      <body className={inter.className}>
+      <body className={`${dmSans.variable} ${inter.variable} ${jetbrains.variable} font-sans`}>
         {maintenanceMode ? (
           <MaintenanceScreen />
         ) : (
