@@ -45,8 +45,8 @@ export default function GuestPurchaseButton({ variant = 'outline', className = '
     if (!config.url) return null
 
     const buttonStyles = {
-        primary: 'bg-primary hover:bg-primary/90 text-white',
-        secondary: 'bg-gray-600 hover:bg-gray-700 text-white',
+        primary: 'bg-primary hover:bg-primary/90 text-primary-foreground',
+        secondary: 'bg-secondary hover:bg-secondary/80 text-secondary-foreground',
         outline: 'border-2 border-primary text-primary hover:bg-primary/5'
     }
 
