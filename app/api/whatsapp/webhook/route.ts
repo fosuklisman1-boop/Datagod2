@@ -409,11 +409,34 @@ async function handleStatusUpdates(statuses: any[]): Promise<void> {
 
 // ── AI handler (non-bot messages) ────────────────────────────────────────────
 
+// Bare main-menu digits → services (the shortcut USSD users know).
+const MAIN_MENU_SHORTCUTS: Record<string, string> = {
+  "1": "data", "2": "afa", "3": "airtime", "4": "rc",
+}
+
 async function handleWithAI(phone: string, text: string): Promise<string> {
-  // NOTE: there is deliberately NO bare-digit fast-path here. A lone "1" used to
-  // immediately start data ordering regardless of context, so a customer answering
-  // a question (or mid-complaint) with "1" got hijacked into an order. The AI now
-  // decides — it has the full conversation and starts an order only on real intent.
+  // Bare-digit menu shortcut (1=data, 2=AFA, 3=airtime, 4=results) — instant, no AI,
+  // so "type 1 to buy data" works reliably. GATED: skipped while a complaint is being
+  // collected (screenshot-pending), so a digit sent in that flow can't hijack into an
+  // order — the context the customer complained about.
+  const shortcut = MAIN_MENU_SHORTCUTS[text.trim()]
+  if (shortcut) {
+    const { getPendingComplaint } = await import("@/lib/whatsapp-bot/pending-complaint")
+    if (!(await getPendingComplaint(phone))) {
+      const { setWaSession } = await import("@/lib/whatsapp-bot/session")
+      const { networkMenu, rcMenu, airtimeRecipientPrompt, afaEnterNamePrompt } = await import("@/lib/ussd/menus")
+      const localPhone = phone.startsWith("233") ? "0" + phone.slice(3) : phone
+      const stepMap: Record<string, { step: string; menu: () => string }> = {
+        data:    { step: "SELECT_NETWORK",          menu: networkMenu },
+        airtime: { step: "AIRTIME_ENTER_RECIPIENT", menu: airtimeRecipientPrompt },
+        afa:     { step: "AFA_ENTER_NAME",          menu: afaEnterNamePrompt },
+        rc:      { step: "RC_MENU",                 menu: rcMenu },
+      }
+      const mapped = stepMap[shortcut]
+      await setWaSession(phone, { step: mapped.step as any, dialingPhone: localPhone })
+      return mapped.menu()
+    }
+  }
 
   // Load AI config
   let aiConfig: AIProviderConfig = DEFAULT_CONFIG
@@ -494,6 +517,7 @@ ORDERING:
 - BUT do NOT start an order just because the customer sent a phone number, an amount, or a bare digit in the MIDDLE of another topic (answering a question you asked, giving complaint details, providing a beneficiary number, etc.). Read the conversation and treat the number as the answer to what you were discussing. If a lone number's meaning is genuinely unclear, ask what they'd like to do — do not assume they want to buy data.
 
 ANSWERING QUESTIONS — use your tools, never guess:
+- NEVER invent or assume a past order, payment, or complaint the customer hasn't described in THIS chat (e.g. don't say "your order didn't go through" unprompted). Act only on what they actually tell you now; if a short/vague message like a lone number is unclear, ask what they need.
 - Prices/packages → call get_available_packages and quote the real price. Never invent a price or bundle.
 - "Where is my order" / order status / "did my payment go through" → call search_order_status with their reference or order id.
 - A registered user asking about their wallet or past orders → get_wallet_balance / get_order_history.
