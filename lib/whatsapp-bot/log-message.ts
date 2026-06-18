@@ -66,6 +66,10 @@ export async function logMessage(
       tool_context: media ? { media_url: media.url, media_type: media.type } : null,
     })
 
+    // Push the admin inbox so it updates instantly instead of on the next poll.
+    const { notifyInboxChange } = await import("./realtime-notify")
+    notifyInboxChange(phone, direction)
+
     return {
       conversationId,
       humanTakeover: conv?.human_takeover === true,
