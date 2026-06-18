@@ -201,7 +201,8 @@ export default function WhatsAppInboxPage() {
   useEffect(() => {
     if (!isAdmin) return
     loadConversations()
-    listPollRef.current = setInterval(loadConversations, 5000)
+    // Fallback poll (realtime below makes updates instant; this just backstops it).
+    listPollRef.current = setInterval(loadConversations, 2500)
     return () => { if (listPollRef.current) clearInterval(listPollRef.current) }
   }, [isAdmin, loadConversations])
 
@@ -240,9 +241,26 @@ export default function WhatsAppInboxPage() {
     setThread([])
     setThreadConvo(null)
     fetchThread(selected, false)
-    threadPollRef.current = setInterval(() => fetchThread(selected, true), 3000)
+    // Fallback poll (realtime below pushes updates instantly; this backstops it).
+    threadPollRef.current = setInterval(() => fetchThread(selected, true), 1500)
     return () => { if (threadPollRef.current) clearInterval(threadPollRef.current) }
   }, [selected, fetchThread])
+
+  // Realtime: the moment any WhatsApp message is logged (customer, bot, or admin), the
+  // webhook broadcasts on the "wa-inbox" channel (lib/whatsapp-bot/realtime-notify.ts) and
+  // we refresh instantly — no waiting for the poll. Polling above stays as a fallback.
+  useEffect(() => {
+    if (!isAdmin) return
+    const channel = supabase
+      .channel("wa-inbox")
+      .on("broadcast", { event: "message" }, ({ payload }) => {
+        loadConversations()
+        const phone = (payload as { phone?: string })?.phone
+        if (phone && selectedRef.current === phone) fetchThread(selectedRef.current, true)
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [isAdmin, loadConversations, fetchThread])
 
   // Auto-scroll to newest message.
   useEffect(() => {
