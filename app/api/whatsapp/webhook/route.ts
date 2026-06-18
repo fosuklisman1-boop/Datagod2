@@ -564,19 +564,28 @@ async function handleWithAI(phone: string, text: string): Promise<string> {
   const { provider, model } = resolveProviderForContext("whatsapp", aiConfig)
 
   // Load matched user: the WhatsApp number IS a registered number, or it was
-  // verified-and-linked to an account (see account-verify.ts).
+  // verified-and-linked to an account (see account-verify.ts). Capture the real
+  // account ROLE too — tools like get_available_packages price by ctx.userRole
+  // ('dealer' → dealer_price), so passing a placeholder made dealers see retail.
   let userId: string | undefined
+  let userRole: string | undefined
   const localPhone = phone.startsWith("233") ? "0" + phone.slice(3) : phone
   try {
     const { data: userRow } = await supabase
       .from("users")
-      .select("id")
+      .select("id, role")
       .eq("phone_number", localPhone)
       .maybeSingle()
     userId = userRow?.id
+    userRole = userRow?.role ?? undefined
     if (!userId) {
       const { resolveLinkedUserId } = await import("@/lib/whatsapp-bot/account-link")
-      userId = (await resolveLinkedUserId(phone)) ?? undefined
+      const linked = (await resolveLinkedUserId(phone)) ?? undefined
+      if (linked) {
+        userId = linked
+        const { data: linkedUser } = await supabase.from("users").select("role").eq("id", linked).maybeSingle()
+        userRole = linkedUser?.role ?? undefined
+      }
     }
   } catch {}
 
@@ -680,7 +689,8 @@ STYLE:
       messages,
       toolCtx: {
         userId,
-        userRole: userId ? "dashboard" : "guest",
+        // Real account role so dealer pricing (get_available_packages) works on WhatsApp.
+        userRole: userId ? (userRole ?? "user") : "guest",
         baseUrl: process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
         phone, // authoritative sender (233…) so complaint/handoff key matches inbound media
         // Service-path auth: the wallet order tool POSTs to /api/orders/purchase,
