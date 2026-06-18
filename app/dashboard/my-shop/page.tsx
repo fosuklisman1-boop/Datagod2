@@ -142,7 +142,7 @@ export default function MyShopPage() {
         })
 
         setRcMarkups({
-          waec:   (userShop.results_checker_markup_waec   ?? 0).toString(),
+          waec:   (userShop.results_checker_markup_wassce ?? 0).toString(),  // local key 'waec' = the WASSCE slot
           bece:   (userShop.results_checker_markup_bece   ?? 0).toString(),
           novdec: (userShop.results_checker_markup_novdec ?? 0).toString(),
         })
@@ -316,7 +316,7 @@ export default function MyShopPage() {
       const bece   = Math.min(parseFloat(rcMarkups.bece   || "0"), rcMaxMarkups.bece)
       const novdec = Math.min(parseFloat(rcMarkups.novdec || "0"), rcMaxMarkups.novdec)
       const updated = await shopService.updateShop(shop.id, {
-        results_checker_markup_waec:   waec,
+        results_checker_markup_wassce: waec,  // local 'waec' value = WASSCE markup
         results_checker_markup_bece:   bece,
         results_checker_markup_novdec: novdec,
       })
