@@ -45,6 +45,18 @@ function transform(file) {
     // spinner (w-8 h-8) lives only inside bg-primary circles; the admin Bot sits in a bg-primary square.
     ['w-8 h-8 text-primary animate-spin', 'w-8 h-8 text-primary-foreground animate-spin'],
     ['<Bot size={22} className="text-primary" />', '<Bot size={22} className="text-primary-foreground" />'],
+    // Solid emerald CHIPS/CARDS wrapping emerald icons/text (parent-child, no border-border so
+    // Rule D missed them). Tint the chip so the emerald child shows. Trailing `"` keeps the
+    // generic `p-N bg-primary rounded-*` strings from hitting filled badges (text-primary-foreground).
+    ['p-3 bg-primary rounded-lg"', 'p-3 bg-primary/10 rounded-lg"'],
+    ['p-2 bg-primary rounded-lg"', 'p-2 bg-primary/10 rounded-lg"'],
+    ['p-3 bg-primary rounded-xl"', 'p-3 bg-primary/10 rounded-xl"'],
+    ['p-1 rounded bg-primary group-hover:bg-primary transition-colors', 'p-1 rounded bg-primary/10 group-hover:bg-primary/10 transition-colors'],
+    ['w-14 h-14 bg-primary rounded-2xl mb-4', 'w-14 h-14 bg-primary/10 rounded-2xl mb-4'],
+    ['p-4 bg-primary rounded-lg border border-primary', 'p-4 bg-primary/10 rounded-lg border border-primary'],
+    ['text-center p-2 bg-primary rounded"', 'text-center p-2 bg-primary/10 rounded"'],
+    ['? "bg-primary border-primary" : "hover:bg-accent"', '? "bg-primary/10 border-primary" : "hover:bg-accent"'],
+    ['items-start gap-3 p-4 bg-primary rounded-xl', 'items-start gap-3 p-4 bg-primary/10 rounded-xl'],
   ]
   for (const [a, b] of LITERAL) src = src.split(a).join(b)
   // Rule D — light-tint CARDS collapsed to solid color. Signature: a solid bg-{primary|status}

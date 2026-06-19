@@ -1531,7 +1531,7 @@ export default function AdminSettingsPage() {
                     GHS {(10 * (1 + priceAdjustmentAtIshare / 100)).toFixed(2)}
                   </p>
                 </div>
-                <div className="text-center p-2 bg-primary rounded">
+                <div className="text-center p-2 bg-primary/10 rounded">
                   <p className="text-primary font-medium">AT-BigTime</p>
                   <p className="text-primary font-bold">
                     GHS {(10 * (1 + priceAdjustmentAtBigtime / 100)).toFixed(2)}

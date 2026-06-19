@@ -143,7 +143,7 @@ export default function SubAgentProfitsPage() {
                     <Card className="bg-card border-border">
                         <CardContent className="pt-6">
                             <div className="flex items-center gap-4">
-                                <div className="p-3 bg-primary rounded-lg">
+                                <div className="p-3 bg-primary/10 rounded-lg">
                                     <Store className="h-6 w-6 text-primary" />
                                 </div>
                                 <div>
@@ -228,7 +228,7 @@ export default function SubAgentProfitsPage() {
                                 >
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-4">
-                                            <div className="p-2 bg-primary rounded-lg">
+                                            <div className="p-2 bg-primary/10 rounded-lg">
                                                 <Store className="h-5 w-5 text-primary" />
                                             </div>
                                             <div>

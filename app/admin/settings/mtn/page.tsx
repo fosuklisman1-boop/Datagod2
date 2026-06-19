@@ -616,7 +616,7 @@ export default function MTNSettingsPage() {
 
               {/* EazyGhData Package Sync */}
               {mtnProvider === "eazyghdata" && (
-                <div className="p-4 bg-primary rounded-lg border border-primary">
+                <div className="p-4 bg-primary/10 rounded-lg border border-primary">
                   <p className="text-sm font-medium text-primary mb-2">EazyGhData Package Mapping</p>
                   <p className="text-xs text-primary mb-3">
                     EazyGhData requires a package_id UUID per GB size. Sync packages to keep the mapping up to date.

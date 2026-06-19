@@ -95,7 +95,7 @@ export default async function TermsPage() {
 
       <main className="max-w-4xl mx-auto px-4 py-12">
         <div className="mb-10 text-center">
-          <div className="inline-flex items-center justify-center w-14 h-14 bg-primary rounded-2xl mb-4">
+          <div className="inline-flex items-center justify-center w-14 h-14 bg-primary/10 rounded-2xl mb-4">
             <Shield className="w-7 h-7 text-primary" />
           </div>
           <h1 className="text-4xl font-black text-foreground mb-4">Terms of Service</h1>

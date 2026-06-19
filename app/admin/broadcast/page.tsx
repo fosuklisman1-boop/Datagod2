@@ -429,7 +429,7 @@ export default function BroadcastPage() {
                                         <MessageSquare className="ml-auto w-5 h-5 text-success" />
                                     </label>
                                 </div>
-                                <label className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all ${channels.includes("push") ? "bg-primary border-primary" : "hover:bg-accent"}`}>
+                                <label className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all ${channels.includes("push") ? "bg-primary/10 border-primary" : "hover:bg-accent"}`}>
                                     <Checkbox checked={channels.includes("push")} onCheckedChange={(val) => setChannels(prev => val ? [...prev, "push"] : prev.filter(c => c !== "push"))} />
                                     <div className="flex flex-col">
                                         <span className="font-semibold text-primary">Push Notification</span>

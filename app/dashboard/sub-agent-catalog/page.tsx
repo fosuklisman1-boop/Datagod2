@@ -183,7 +183,7 @@ export default function SubAgentCatalogPage() {
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center gap-4">
-                <div className="p-3 bg-primary rounded-lg">
+                <div className="p-3 bg-primary/10 rounded-lg">
                   <Package className="h-6 w-6 text-primary" />
                 </div>
                 <div>

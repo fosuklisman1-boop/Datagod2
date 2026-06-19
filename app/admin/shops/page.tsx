@@ -428,7 +428,7 @@ export default function AdminShopsPage() {
                 {/* Manual Balance Adjustment */}
                 <div className="p-4 rounded-xl bg-card border border-border shadow-sm transition-all duration-300 hover:shadow-md group">
                   <h3 className="text-sm font-bold text-primary mb-4 flex items-center gap-2">
-                    <div className="p-1 rounded bg-primary group-hover:bg-primary transition-colors">
+                    <div className="p-1 rounded bg-primary/10 group-hover:bg-primary/10 transition-colors">
                       <TrendingDown className="w-3.5 h-3.5 text-primary" />
                     </div>
                     Manual Balance Adjustment

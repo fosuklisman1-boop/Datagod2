@@ -268,7 +268,7 @@ export default function AirtimePage() {
           </div>
 
           {/* Pay Separately Toggle */}
-          <div className="flex items-start gap-3 p-4 bg-primary rounded-xl">
+          <div className="flex items-start gap-3 p-4 bg-primary/10 rounded-xl">
             <input
               id="pay-sep"
               type="checkbox"

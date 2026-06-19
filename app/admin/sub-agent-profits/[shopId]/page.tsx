@@ -183,7 +183,7 @@ export default function SubAgentProfitDetailPage() {
                     <CardHeader>
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-4">
-                                <div className="p-3 bg-primary rounded-xl">
+                                <div className="p-3 bg-primary/10 rounded-xl">
                                     <Store className="h-8 w-8 text-primary" />
                                 </div>
                                 <div>
