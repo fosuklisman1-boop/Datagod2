@@ -30,8 +30,19 @@ function transform(file) {
   const before = src
   // Rule A — restore contrast (skip text-primary-foreground via negative lookahead)
   src = src.replace(/bg-primary text-primary(?!-)/g, 'bg-primary/10 text-primary')
-  // Rule B — keep ghost buttons readable on hover
+  // Rule B — keep ghost buttons readable on hover (text-primary immediately before hover)
   src = src.replace(/text-primary hover:bg-primary(?![/\w-])/g, 'text-primary hover:bg-primary/20')
+  // Rule C — non-adjacent emerald-on-emerald: a solid hover:bg-primary on a button whose
+  // text is/turns emerald (text-primary / hover:text-primary) would hide the label on hover;
+  // and one chip with text-primary + solid bg-primary on the same element. Targeted, exact.
+  const LITERAL = [
+    ['rounded-md hover:bg-primary transition-colors', 'rounded-md hover:bg-primary/10 transition-colors'],
+    ['hover:bg-primary text-foreground hover:text-primary rounded-xl', 'hover:bg-primary/10 text-foreground hover:text-primary rounded-xl'],
+    ['hover:bg-primary text-foreground hover:text-primary rounded-lg', 'hover:bg-primary/10 text-foreground hover:text-primary rounded-lg'],
+    ['text-primary border-primary hover:bg-primary"', 'text-primary border-primary hover:bg-primary/10"'],
+    ['text-primary font-semibold text-xs bg-primary rounded-lg', 'text-primary font-semibold text-xs bg-primary/10 rounded-lg'],
+  ]
+  for (const [a, b] of LITERAL) src = src.split(a).join(b)
   if (src !== before) {
     writeFileSync(file, src)
     filesChanged++

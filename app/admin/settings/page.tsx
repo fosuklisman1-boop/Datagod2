@@ -2030,7 +2030,7 @@ export default function AdminSettingsPage() {
                 href="/terms"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-primary border border-border rounded-md hover:bg-primary transition-colors"
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-primary border border-border rounded-md hover:bg-primary/10 transition-colors"
               >
                 <ExternalLink className="w-4 h-4" />
                 Preview Public Page

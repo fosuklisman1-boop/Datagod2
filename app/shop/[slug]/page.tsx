@@ -654,7 +654,7 @@ export default function ShopStorefront() {
             {/* 3-Line Hamburger Button */}
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="p-2 hover:bg-primary text-foreground hover:text-primary rounded-lg transition-all duration-200 hover:shadow-md"
+              className="p-2 hover:bg-primary/10 text-foreground hover:text-primary rounded-lg transition-all duration-200 hover:shadow-md"
               aria-label="Toggle navigation menu"
               aria-expanded={sidebarOpen}
             >

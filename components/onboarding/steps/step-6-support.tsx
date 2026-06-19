@@ -70,7 +70,7 @@ export function Step6Support() {
             <Button
               variant="outline"
               size="sm"
-              className="mt-3 text-primary border-primary hover:bg-primary"
+              className="mt-3 text-primary border-primary hover:bg-primary/10"
             >
               View FAQ
             </Button>

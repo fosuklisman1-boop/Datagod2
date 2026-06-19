@@ -233,7 +233,7 @@ export default function ShopAirtimePage() {
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <button 
             onClick={() => router.push(shopHome)} 
-            className="p-2 hover:bg-primary text-foreground hover:text-primary rounded-xl transition-all"
+            className="p-2 hover:bg-primary/10 text-foreground hover:text-primary rounded-xl transition-all"
           >
             <ChevronLeft className="w-6 h-6" />
           </button>

@@ -523,7 +523,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
               <span>GHS {effectivePricePerVoucher.toFixed(2)} × {quantity}</span>
             </div>
             {bulkActive && (
-              <div className="flex items-center gap-1.5 text-primary font-semibold text-xs bg-primary rounded-lg px-3 py-1.5">
+              <div className="flex items-center gap-1.5 text-primary font-semibold text-xs bg-primary/10 rounded-lg px-3 py-1.5">
                 <span>✓ Bulk rate applied — GHS {activeBoardInfo!.bulkPrice!.toFixed(2)}/ea (save GHS {((activeBoardInfo!.customerPrice - activeBoardInfo!.bulkPrice!) * quantity).toFixed(2)})</span>
               </div>
             )}
