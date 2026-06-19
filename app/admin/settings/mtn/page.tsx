@@ -626,7 +626,7 @@ export default function MTNSettingsPage() {
                     disabled={syncingPackages}
                     variant="outline"
                     size="sm"
-                    className="border-primary text-primary hover:bg-primary"
+                    className="border-primary text-primary hover:bg-primary/20"
                   >
                     {syncingPackages ? (
                       <>

@@ -658,7 +658,7 @@ Occupation: ${submission.occupation || "N/A"}`
                             variant="outline"
                             onClick={() => handleFulfillOrder(submission.id)}
                             disabled={fulfillingId === submission.id || bulkFulfilling}
-                            className="text-xs h-7 px-2 border-border text-primary hover:bg-primary"
+                            className="text-xs h-7 px-2 border-border text-primary hover:bg-primary/20"
                           >
                             {fulfillingId === submission.id ? (
                               <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Fulfilling</>

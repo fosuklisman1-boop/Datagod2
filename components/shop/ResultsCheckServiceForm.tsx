@@ -479,7 +479,7 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
                   onClick={() => { setCandidateType(ct); scrollToRef(modeRef) }}
                   className={`p-4 rounded-xl border-2 font-semibold transition-colors ${
                     candidateType === ct
-                      ? "border-primary bg-primary text-primary"
+                      ? "border-primary bg-primary/10 text-primary"
                       : "border-border text-foreground hover:border-primary"
                   }`}
                 >

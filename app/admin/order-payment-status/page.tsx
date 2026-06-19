@@ -32,7 +32,7 @@ interface AllOrder {
 function getNetworkColor(network: string): string {
   const colorMap: { [key: string]: string } = {
     "MTN": "bg-yellow-100 text-yellow-800",
-    "Telecel": "bg-primary text-primary",
+    "Telecel": "bg-primary/10 text-primary",
     "AT - iShare": "bg-primary/10 text-primary",
     "AT - BigTime": "bg-green-100 text-green-800",
     "iShare": "bg-primary/10 text-primary",

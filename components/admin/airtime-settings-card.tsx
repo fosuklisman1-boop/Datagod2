@@ -29,7 +29,7 @@ export default function AirtimeSettingsCard() {
             </Button>
           </Link>
           <Link href="/admin/airtime" className="flex-1 min-w-[200px]">
-            <Button variant="outline" className="w-full flex items-center justify-between border-border text-primary hover:bg-primary h-11">
+            <Button variant="outline" className="w-full flex items-center justify-between border-border text-primary hover:bg-primary/20 h-11">
               View Airtime Orders
               <ChevronRight className="w-4 h-4 ml-1 opacity-50" />
             </Button>

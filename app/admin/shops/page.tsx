@@ -342,7 +342,7 @@ export default function AdminShopsPage() {
                               size="sm"
                               onClick={() => handleViewDetails(shop)}
                               variant="outline"
-                              className="text-primary hover:text-primary hover:bg-primary"
+                              className="text-primary hover:text-primary hover:bg-primary/20"
                             >
                               <Eye className="w-4 h-4" />
                             </Button>

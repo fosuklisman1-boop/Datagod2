@@ -337,7 +337,7 @@ export default function ShopStorefront() {
                         key={tab.id}
                         onClick={() => setActiveTab(tab.id)}
                         className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all ${activeTab === tab.id
-                            ? "bg-primary text-primary border-l-4 border-l-violet-600"
+                            ? "bg-primary/10 text-primary border-l-4 border-l-violet-600"
                             : "text-foreground hover:bg-accent"
                           }`}
                       >

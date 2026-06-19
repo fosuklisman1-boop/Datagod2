@@ -528,7 +528,7 @@ export default function AdminAirtimePage() {
             >
               <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4 shrink-0" />
               <span>Batches</span>
-              <Badge variant="secondary" className="ml-1 bg-primary text-primary text-[10px] px-1.5 h-4">
+              <Badge variant="secondary" className="ml-1 bg-primary/10 text-primary text-[10px] px-1.5 h-4">
                 {batches.length}
               </Badge>
             </TabsTrigger>
@@ -653,7 +653,7 @@ export default function AdminAirtimePage() {
                           Fail
                         </Button>
                         {digiWapyNetworks.has(o.network) && (
-                          <Button size="sm" variant="outline" className="h-7 text-[10px] bg-primary text-primary hover:bg-primary border-border"
+                          <Button size="sm" variant="outline" className="h-7 text-[10px] bg-primary/10 text-primary hover:bg-primary/20 border-border"
                             onClick={() => handleAutoFulfill(o.id)} disabled={autoFulfillingId === o.id || autoFulfillingAll}>
                             {autoFulfillingId === o.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <><Zap className="w-3 h-3 mr-1" />Auto Fulfill</>}
                           </Button>
@@ -719,7 +719,7 @@ export default function AdminAirtimePage() {
                                   Fail
                                 </Button>
                                 {digiWapyNetworks.has(o.network) && (
-                                  <Button size="sm" variant="outline" className="h-7 text-[10px] bg-primary text-primary hover:bg-primary border-border"
+                                  <Button size="sm" variant="outline" className="h-7 text-[10px] bg-primary/10 text-primary hover:bg-primary/20 border-border"
                                     onClick={() => handleAutoFulfill(o.id)} disabled={autoFulfillingId === o.id || autoFulfillingAll}>
                                     {autoFulfillingId === o.id ? (
                                       <Loader2 className="w-3 h-3 animate-spin" />

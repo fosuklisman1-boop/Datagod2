@@ -19,7 +19,7 @@ const EXAM_BOARDS = ["WASSCE", "BECE", "NOVDEC"]
 
 const STATUS_CLASSES: Record<string, string> = {
   pending:         "bg-warning/10 text-warning",
-  pending_payment: "bg-primary text-primary",
+  pending_payment: "bg-primary/10 text-primary",
   completed:       "bg-success/15 text-success",
   failed:          "bg-destructive/15 text-destructive",
 }
@@ -298,7 +298,7 @@ export default function ResultsCheckerPage() {
                       disabled={!boardSettings[board]?.enabled}
                       className={`flex flex-col items-center p-4 rounded-xl border-2 transition-all font-semibold text-sm disabled:opacity-40 disabled:cursor-not-allowed ${
                         examBoard === board
-                          ? "border-primary bg-primary text-primary"
+                          ? "border-primary bg-primary/10 text-primary"
                           : "border-border hover:border-border text-foreground"
                       }`}
                     >

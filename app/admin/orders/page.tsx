@@ -725,8 +725,8 @@ export default function AdminOrdersPage() {
     const colors: { [key: string]: string } = {
       "MTN": "bg-orange-100 text-orange-800 border-orange-200",
       "Telecel": "bg-red-100 text-red-800 border-red-200",
-      "AT - iShare": "bg-primary text-primary border-primary",
-      "AT - BigTime": "bg-primary text-primary border-primary",
+      "AT - iShare": "bg-primary/10 text-primary border-primary",
+      "AT - BigTime": "bg-primary/10 text-primary border-primary",
     }
     return colors[network] || "bg-muted text-muted-foreground border-border"
   }
@@ -909,8 +909,8 @@ export default function AdminOrdersPage() {
                               <td className="px-2 sm:px-4 py-3 font-mono text-xs font-semibold break-all max-w-[120px]">{order.id}</td>
                               <td className="px-2 sm:px-4 py-3">
                                 <Badge variant="outline" className={`text-xs capitalize ${
-                                  order.type === 'api' ? 'bg-primary text-primary border-primary' :
-                                  order.type === 'bulk' ? 'bg-primary text-primary border-primary' :
+                                  order.type === 'api' ? 'bg-primary/10 text-primary border-primary' :
+                                  order.type === 'bulk' ? 'bg-primary/10 text-primary border-primary' :
                                   'bg-warning/10 text-warning border-warning/30'
                                 }`}>
                                   {order.type || 'Shop'}
@@ -1205,8 +1205,8 @@ export default function AdminOrdersPage() {
                                   <td className="px-2 sm:px-4 py-3 font-mono text-xs font-semibold">{order.id}</td>
                                   <td className="px-2 sm:px-4 py-3">
                                     <Badge variant="outline" className={`text-xs capitalize ${
-                                       order.type === 'api' ? 'bg-primary text-primary border-primary' :
-                                       order.type === 'bulk' ? 'bg-primary text-primary border-primary' :
+                                       order.type === 'api' ? 'bg-primary/10 text-primary border-primary' :
+                                       order.type === 'bulk' ? 'bg-primary/10 text-primary border-primary' :
                                        'bg-warning/10 text-warning border-warning/30'
                                      }`}>
                                        {order.type || 'Shop'}
@@ -1287,9 +1287,9 @@ export default function AdminOrdersPage() {
                   {/* Affected Networks */}
                   <div className="flex flex-wrap gap-2">
                     <span className="text-sm text-muted-foreground">Affected networks:</span>
-                    <Badge className="bg-primary text-primary border border-primary">AT - iShare</Badge>
+                    <Badge className="bg-primary/10 text-primary border border-primary">AT - iShare</Badge>
                     <Badge className="bg-red-100 text-red-800 border border-red-200">Telecel</Badge>
-                    <Badge className="bg-primary text-primary border border-primary">AT - BigTime</Badge>
+                    <Badge className="bg-primary/10 text-primary border border-primary">AT - BigTime</Badge>
                   </div>
 
                   {/* Status Description */}
@@ -1424,8 +1424,8 @@ export default function AdminOrdersPage() {
                           </div>
                           <div className="flex items-center gap-2 flex-wrap">
                             <Badge variant="outline" className={`text-xs capitalize ${
-                               order.type === 'api' ? 'bg-primary text-primary border-primary' :
-                               order.type === 'bulk' ? 'bg-primary text-primary border-primary' :
+                               order.type === 'api' ? 'bg-primary/10 text-primary border-primary' :
+                               order.type === 'bulk' ? 'bg-primary/10 text-primary border-primary' :
                                'bg-warning/10 text-warning border-warning/30'
                              }`}>
                                {order.type || 'Shop'}

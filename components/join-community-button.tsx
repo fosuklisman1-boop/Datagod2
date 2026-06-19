@@ -15,7 +15,7 @@ export function JoinCommunityButton() {
     <Button
       asChild
       variant="outline"
-      className="w-full gap-2 justify-center border-border hover:bg-primary text-primary hover:text-primary"
+      className="w-full gap-2 justify-center border-border hover:bg-primary/10 text-primary hover:text-primary"
     >
       <a href={joinCommunityLink} target="_blank" rel="noopener noreferrer">
         <Users className="w-4 h-4" />

@@ -707,7 +707,7 @@ export default function ShopStorefront() {
                       setSidebarOpen(false)
                     }}
                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all duration-200 ${activeTab === tab.id
-                      ? "bg-primary text-primary border-l-4 border-l-violet-600 shadow-sm"
+                      ? "bg-primary/10 text-primary border-l-4 border-l-violet-600 shadow-sm"
                       : "text-foreground hover:bg-accent border-l-4 border-l-transparent"
                       }`}
                   >
@@ -913,7 +913,7 @@ export default function ShopStorefront() {
                                             </div>
                                             <div className="flex flex-col items-end">
                                               <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mb-1">Status</span>
-                                              <div className="flex items-center gap-1.5 px-2.5 py-1 bg-primary text-primary rounded-lg text-xs font-bold ring-1 ring-primary/50">
+                                              <div className="flex items-center gap-1.5 px-2.5 py-1 bg-primary/10 text-primary rounded-lg text-xs font-bold ring-1 ring-primary/50">
                                                 <Zap className="w-3 h-3 fill-primary" />
                                                 Instant
                                               </div>

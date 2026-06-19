@@ -669,7 +669,7 @@ export default function ShopDashboardPage() {
                         variant="outline"
                         disabled={!withdrawalForm.phone || isFetchingName}
                         onClick={() => handleValidateAccount(withdrawalForm.phone, withdrawalForm.network)}
-                        className="shrink-0 border-border text-primary hover:bg-primary"
+                        className="shrink-0 border-border text-primary hover:bg-primary/20"
                       >
                         {isFetchingName ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify"}
                       </Button>
@@ -745,7 +745,7 @@ export default function ShopDashboardPage() {
                         variant="outline"
                         disabled={!withdrawalForm.accountNumber || !withdrawalForm.bankSublistId || isFetchingBankName}
                         onClick={handleValidateBankAccount}
-                        className="shrink-0 border-border text-primary hover:bg-primary"
+                        className="shrink-0 border-border text-primary hover:bg-primary/20"
                       >
                         {isFetchingBankName ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify"}
                       </Button>

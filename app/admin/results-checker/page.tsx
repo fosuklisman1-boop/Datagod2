@@ -26,7 +26,7 @@ const STATUS_CLASSES: Record<string, string> = {
   expired:    "bg-warning/15 text-warning",
   invalid:    "bg-destructive/15 text-destructive",
   pending:         "bg-warning/15 text-warning",
-  pending_payment: "bg-primary text-primary",
+  pending_payment: "bg-primary/10 text-primary",
   completed:       "bg-success/15 text-success",
   failed:          "bg-destructive/15 text-destructive",
 }

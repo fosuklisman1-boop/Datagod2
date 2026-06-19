@@ -399,7 +399,7 @@ export default function ResultsCheckRequestsPage() {
                           {req.status}
                         </Badge>
                         {req.claimed_by && req.claimed_at && Date.now() - new Date(req.claimed_at).getTime() < 15 * 60 * 1000 && (
-                          <Badge className="text-xs border bg-primary text-primary border-primary">
+                          <Badge className="text-xs border bg-primary/10 text-primary border-primary">
                             Claimed via WhatsApp
                           </Badge>
                         )}

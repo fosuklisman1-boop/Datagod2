@@ -372,7 +372,7 @@ export default function AdminFulfillmentPage() {
                 size="sm"
                 variant="outline"
                 disabled={syncingCodecraft}
-                className="border-border text-primary hover:bg-primary"
+                className="border-border text-primary hover:bg-primary/20"
               >
                 {syncingCodecraft
                   ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
