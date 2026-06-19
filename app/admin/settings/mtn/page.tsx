@@ -428,7 +428,7 @@ export default function MTNSettingsPage() {
 
                   {/* Xpress Balance */}
                   <div className={`p-4 rounded-lg border-2 transition-all ${balance.balances.xpress?.is_active
-                    ? 'bg-primary border-border shadow-md'
+                    ? 'bg-primary/10 border-border shadow-md'
                     : 'bg-muted/40 border-border'
                     }`}>
                     <div className="flex items-center justify-between mb-2">
@@ -457,7 +457,7 @@ export default function MTNSettingsPage() {
 
                   {/* EazyGhData Balance */}
                   <div className={`p-4 rounded-lg border-2 transition-all ${balance.balances.eazyghdata?.is_active
-                    ? 'bg-primary border-border shadow-md'
+                    ? 'bg-primary/10 border-border shadow-md'
                     : 'bg-muted/40 border-border'
                     }`}>
                     <div className="flex items-center justify-between mb-2">
@@ -661,7 +661,7 @@ export default function MTNSettingsPage() {
         {/* Info Cards */}
         <div className="grid md:grid-cols-2 gap-4">
           {/* View Fulfillment Logs Card */}
-          <Card className="bg-primary border-border">
+          <Card className="bg-primary/10 border-border">
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <FileText className="h-5 w-5 text-primary" />

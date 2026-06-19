@@ -775,7 +775,7 @@ export default function UpgradePage() {
                         {upgradeFlow?.state === "awaiting" && (
                             <div className="text-center space-y-4 py-2">
                                 <div className="mx-auto w-16 h-16 rounded-full bg-primary flex items-center justify-center">
-                                    <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                                    <Loader2 className="w-8 h-8 text-primary-foreground animate-spin" />
                                 </div>
                                 <DialogHeader><DialogTitle className="text-center">Approve the prompt on your phone</DialogTitle></DialogHeader>
                                 <p className="text-sm text-muted-foreground">

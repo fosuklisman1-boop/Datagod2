@@ -758,7 +758,7 @@ export default function AdminUsersPage() {
                               <p className="text-xl font-bold text-warning">GHS {Number(userStats.wallet.totalSpent || 0).toFixed(2)}</p>
                             </CardContent>
                           </Card>
-                          <Card className="bg-primary border-border">
+                          <Card className="bg-primary/10 border-border">
                             <CardContent className="p-4">
                               <p className="text-xs text-primary font-medium">Transactions</p>
                               <p className="text-xl font-bold text-primary">{userStats.wallet.transactionCount}</p>
@@ -810,7 +810,7 @@ export default function AdminUsersPage() {
                       <TabsContent value="shop" className="space-y-4 mt-4">
                         {userStats.shop ? (
                           <>
-                            <div className="p-3 bg-primary rounded-lg border border-border">
+                            <div className="p-3 bg-primary/10 rounded-lg border border-border">
                               <p className="font-semibold text-primary">{userStats.shop.shopName}</p>
                               <p className="text-xs text-primary">/{userStats.shop.shopSlug}</p>
                               <p className="text-xs text-muted-foreground mt-1">Created: {new Date(userStats.shop.createdAt).toLocaleDateString()}</p>
@@ -839,7 +839,7 @@ export default function AdminUsersPage() {
                                   <p className="text-xl font-bold text-success">GHS {Number(userStats.shop.totalProfit || 0).toFixed(2)}</p>
                                 </CardContent>
                               </Card>
-                              <Card className="bg-primary border-border">
+                              <Card className="bg-primary/10 border-border">
                                 <CardContent className="p-4">
                                   <p className="text-xs text-primary font-medium">Available Balance</p>
                                   <p className="text-xl font-bold text-primary">GHS {Number(userStats.shop.availableBalance || 0).toFixed(2)}</p>

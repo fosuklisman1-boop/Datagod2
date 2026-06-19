@@ -386,7 +386,7 @@ export default function WithdrawalsPage() {
                             <div>
                               <p className="text-xs text-muted-foreground mb-1">Bank Name</p>
                               <div className="flex items-center gap-2">
-                                <div className="flex-1 bg-primary p-2 rounded border border-border">
+                                <div className="flex-1 bg-primary/10 p-2 rounded border border-border">
                                   <p className="font-mono text-sm text-foreground">
                                     {withdrawal.account_details?.bank_name || "N/A"}
                                   </p>

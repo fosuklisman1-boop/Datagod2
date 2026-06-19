@@ -290,7 +290,7 @@ export default function UssdShopPage() {
 
             {/* Buy Sessions */}
             {shopCode.activation_fee_paid && (
-              <Card className="border-border bg-primary">
+              <Card className="border-border bg-primary/10">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base text-primary flex items-center gap-2">
                     <Coins className="w-4 h-4" />

@@ -46,7 +46,7 @@ export function Step4BulkOrders() {
         </div>
 
         {/* Feature 3 */}
-        <div className="flex gap-4 p-4 bg-primary rounded-lg border border-border">
+        <div className="flex gap-4 p-4 bg-primary/10 rounded-lg border border-border">
           <div className="flex-shrink-0">
             <Zap className="w-6 h-6 text-primary mt-1" />
           </div>

@@ -568,7 +568,7 @@ export default function ShopStorefront() {
                       )}
 
                       {shop.location && (
-                        <div className="w-full flex items-center gap-3 p-4 bg-primary border border-border rounded-lg">
+                        <div className="w-full flex items-center gap-3 p-4 bg-primary/10 border border-border rounded-lg">
                           <MapPin className="w-6 h-6 text-primary flex-shrink-0" />
                           <div className="flex-1 text-left">
                             <p className="font-semibold text-primary">Location</p>

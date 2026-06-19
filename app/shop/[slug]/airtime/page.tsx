@@ -376,7 +376,7 @@ export default function ShopAirtimePage() {
               </div>
 
               {/* Fee Toggle */}
-              <div className="p-4 bg-primary rounded-2xl border border-border flex items-start gap-3 transition-all">
+              <div className="p-4 bg-primary/10 rounded-2xl border border-border flex items-start gap-3 transition-all">
                 <input
                   id="pay-sep"
                   type="checkbox"

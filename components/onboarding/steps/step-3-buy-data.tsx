@@ -46,7 +46,7 @@ export function Step3BuyData() {
         </div>
 
         {/* Step 3 */}
-        <div className="flex gap-4 p-4 bg-primary rounded-lg border border-border">
+        <div className="flex gap-4 p-4 bg-primary/10 rounded-lg border border-border">
           <div className="flex-shrink-0 flex items-center justify-center w-8 h-8 bg-primary text-white rounded-full font-semibold text-sm">
             3
           </div>

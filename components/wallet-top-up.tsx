@@ -375,7 +375,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
             on — both need the on-page MoMo number. OTP controls render only when
             OTP is required; with direct charge alone the number is charged as typed. */}
         {(walletOtp || walletDirect) && (
-          <div className="p-4 rounded-lg bg-primary border border-border space-y-3">
+          <div className="p-4 rounded-lg bg-primary/10 border border-border space-y-3">
             <div>
               <label className="text-sm font-semibold text-primary">Mobile Money number to pay from *</label>
               <Input
@@ -458,7 +458,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
           {momoModal.state === "awaiting" && (
             <CardContent className="pt-8 pb-6 text-center space-y-4">
               <div className="mx-auto w-16 h-16 rounded-full bg-primary flex items-center justify-center">
-                <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                <Loader2 className="w-8 h-8 text-primary-foreground animate-spin" />
               </div>
               <div>
                 <h3 className="text-lg font-bold text-foreground">Approve the prompt on your phone</h3>

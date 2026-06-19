@@ -418,7 +418,7 @@ Occupation: ${submission.occupation || "N/A"}`
                 </div>
 
                 <div className="grid md:grid-cols-2 gap-4 text-sm">
-                  <div className="p-3 bg-primary rounded-lg border border-border">
+                  <div className="p-3 bg-primary/10 rounded-lg border border-border">
                     <p className="font-medium text-primary mb-1">🟢 When Enabled</p>
                     <ul className="text-xs space-y-1 text-primary">
                       <li>✓ Sykes API called on every new order</li>

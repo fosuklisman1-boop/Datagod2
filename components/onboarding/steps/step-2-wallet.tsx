@@ -59,7 +59,7 @@ export function Step2Wallet({ onStartInteractiveWallet }: Step2Props) {
         </div>
 
         {/* Feature 3 */}
-        <div className="flex gap-4 p-4 bg-primary rounded-lg border border-border">
+        <div className="flex gap-4 p-4 bg-primary/10 rounded-lg border border-border">
           <div className="flex-shrink-0">
             <TrendingUp className="w-6 h-6 text-primary mt-1" />
           </div>

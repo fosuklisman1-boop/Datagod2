@@ -477,7 +477,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
           </div>
 
           {/* Fee Toggle */}
-          <div className="p-4 bg-primary rounded-2xl border border-border flex items-start gap-3 transition-all">
+          <div className="p-4 bg-primary/10 rounded-2xl border border-border flex items-start gap-3 transition-all">
             <input
               id="pay-sep"
               type="checkbox"
@@ -537,7 +537,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
               on — both need the on-page MoMo number. OTP controls render only when
               OTP is required; with direct charge alone the number is charged as typed. */}
           {(otpRequired || directCharge) && (
-            <div className="p-4 rounded-2xl bg-primary border border-border space-y-3">
+            <div className="p-4 rounded-2xl bg-primary/10 border border-border space-y-3">
               <div className="space-y-2">
                 <Label className="text-sm font-semibold text-primary">Mobile Money number to pay from *</Label>
                 <Input
@@ -619,7 +619,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
           {momoModal.state === "awaiting" && (
             <CardContent className="pt-8 pb-6 text-center space-y-4">
               <div className="mx-auto w-16 h-16 rounded-full bg-primary flex items-center justify-center">
-                <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                <Loader2 className="w-8 h-8 text-primary-foreground animate-spin" />
               </div>
               <div>
                 <h3 className="text-lg font-bold text-foreground">Approve the prompt on your phone</h3>

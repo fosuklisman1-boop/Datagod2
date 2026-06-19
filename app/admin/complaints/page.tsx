@@ -686,7 +686,7 @@ export default function AdminComplaintsPage() {
           <CardContent>
             {/* Bulk action bar */}
             {selectedIds.size > 0 && (
-              <div className="mb-4 flex items-center justify-between gap-3 p-3 bg-primary border border-border rounded-lg">
+              <div className="mb-4 flex items-center justify-between gap-3 p-3 bg-primary/10 border border-border rounded-lg">
                 <span className="text-sm font-medium text-primary">
                   {selectedIds.size} complaint{selectedIds.size !== 1 ? "s" : ""} selected
                 </span>

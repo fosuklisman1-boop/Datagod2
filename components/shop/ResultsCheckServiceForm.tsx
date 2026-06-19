@@ -645,7 +645,7 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
               </div>
 
               {/* Price summary */}
-              <div className="bg-primary rounded-xl p-4 space-y-2 text-sm border border-border">
+              <div className="bg-primary/10 rounded-xl p-4 space-y-2 text-sm border border-border">
                 <div className="flex justify-between text-muted-foreground">
                   <span>{selectedBoard} results check{mode === "combo" ? " + voucher" : ""}</span>
                   <span>GHS {totalPrice.toFixed(2)}</span>
@@ -662,7 +662,7 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
                   on — both need the on-page MoMo number. OTP controls render only when
                   OTP is required; with direct charge alone the number is charged as typed. */}
               {(otpRequired || directCharge) && (
-                <div className="p-4 rounded-xl bg-primary border border-border space-y-3">
+                <div className="p-4 rounded-xl bg-primary/10 border border-border space-y-3">
                   <div>
                     <Label className="text-sm font-semibold text-primary">Mobile Money number to pay from</Label>
                     <Input
@@ -744,7 +744,7 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
             {momoModal.state === "awaiting" && (
               <CardContent className="pt-8 pb-6 text-center space-y-4">
                 <div className="mx-auto w-16 h-16 rounded-full bg-primary flex items-center justify-center">
-                  <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                  <Loader2 className="w-8 h-8 text-primary-foreground animate-spin" />
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-foreground">Approve the prompt on your phone</h3>

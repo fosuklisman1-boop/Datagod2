@@ -41,8 +41,24 @@ function transform(file) {
     ['hover:bg-primary text-foreground hover:text-primary rounded-lg', 'hover:bg-primary/10 text-foreground hover:text-primary rounded-lg'],
     ['text-primary border-primary hover:bg-primary"', 'text-primary border-primary hover:bg-primary/10"'],
     ['text-primary font-semibold text-xs bg-primary rounded-lg', 'text-primary font-semibold text-xs bg-primary/10 rounded-lg'],
+    // Emerald icons inside a SOLID bg-primary circle/square (invisible). The MoMo "awaiting"
+    // spinner (w-8 h-8) lives only inside bg-primary circles; the admin Bot sits in a bg-primary square.
+    ['w-8 h-8 text-primary animate-spin', 'w-8 h-8 text-primary-foreground animate-spin'],
+    ['<Bot size={22} className="text-primary" />', '<Bot size={22} className="text-primary-foreground" />'],
   ]
   for (const [a, b] of LITERAL) src = src.split(a).join(b)
+  // Rule D — light-tint CARDS collapsed to solid color. Signature: a solid bg-{primary|status}
+  // on an element that ALSO has a neutral `border-border` (real buttons never pair a loud solid
+  // fill with a neutral border). Such cards lost their tint, hiding their neutral/colored text.
+  // Restore the tint -> bg-{color}/10. Line-scoped + excludes buttons (text-*-foreground / text-white).
+  src = src
+    .split('\n')
+    .map((line) => {
+      if (!line.includes('border-border')) return line
+      if (/text-(?:primary|success|warning|destructive)-foreground|text-white/.test(line)) return line
+      return line.replace(/bg-(primary|success|warning|destructive)\b(?!\/)/g, 'bg-$1/10')
+    })
+    .join('\n')
   if (src !== before) {
     writeFileSync(file, src)
     filesChanged++

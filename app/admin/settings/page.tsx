@@ -1485,7 +1485,7 @@ export default function AdminSettingsPage() {
               </div>
 
               {/* AT - BigTime */}
-              <div className="p-4 bg-primary border border-border rounded-lg">
+              <div className="p-4 bg-primary/10 border border-border rounded-lg">
                 <Label htmlFor="priceAdjAtBigtime" className="text-sm font-medium text-primary">
                   AT - BigTime Price Adjustment
                 </Label>
@@ -1613,7 +1613,7 @@ export default function AdminSettingsPage() {
               Configure these webhook URLs in your payment provider settings for real-time transaction updates.
             </p>
             <div className="space-y-3">
-              <div className="p-4 border border-border bg-primary rounded-lg space-y-2">
+              <div className="p-4 border border-border bg-primary/10 rounded-lg space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="flex-1">
                     <p className="text-sm font-semibold text-foreground">Paystack Webhook</p>
@@ -1747,7 +1747,7 @@ export default function AdminSettingsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 pt-6">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-primary border-2 border-border rounded-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-primary/10 border-2 border-border rounded-lg">
               <div className="flex-1">
                 <p className="font-bold text-foreground text-lg">Require Phone OTP at Checkout</p>
                 <p className="text-sm text-foreground mt-2">
@@ -1770,7 +1770,7 @@ export default function AdminSettingsPage() {
             </div>
 
             {/* Storefront Direct MoMo Charge — independent of the OTP toggle */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-primary border-2 border-border rounded-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-primary/10 border-2 border-border rounded-lg">
               <div className="flex-1">
                 <p className="font-bold text-foreground text-lg">Direct MoMo Charge at Checkout</p>
                 <p className="text-sm text-foreground mt-2">
@@ -1834,7 +1834,7 @@ export default function AdminSettingsPage() {
             </div>
 
             {/* Wallet/Upgrade Direct MoMo Charge — independent of the OTP toggle */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-primary border-2 border-border rounded-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-primary/10 border-2 border-border rounded-lg">
               <div className="flex-1">
                 <p className="font-bold text-foreground text-lg">Direct MoMo Charge for Top-ups &amp; Upgrades</p>
                 <p className="text-sm text-foreground mt-2">

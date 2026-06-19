@@ -166,7 +166,7 @@ export function NotificationCenter() {
 
           {/* Push opt-in banner — only shown when permission hasn't been decided */}
           {pushPermission === 'default' && (
-            <div className="flex items-center gap-3 px-4 py-3 bg-primary border-b border-border">
+            <div className="flex items-center gap-3 px-4 py-3 bg-primary/10 border-b border-border">
               <BellRing className="w-5 h-5 text-primary shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-medium text-primary">Get push notifications</p>
