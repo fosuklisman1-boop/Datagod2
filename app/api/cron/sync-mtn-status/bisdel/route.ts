@@ -1,0 +1,257 @@
+import { NextRequest, NextResponse } from "next/server"
+import { createClient } from "@supabase/supabase-js"
+import { checkMTNOrderStatus } from "@/lib/mtn-fulfillment"
+import { verifyCronAuth } from "@/lib/cron-auth"
+import { sendPushToUser } from "@/lib/push-service"
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+const supabase = createClient(supabaseUrl, serviceRoleKey)
+
+// Stay well below Bisdel rate limits
+const BATCH_SIZE = 15
+const DELAY_BETWEEN_REQUESTS_MS = 1500
+const DELAY_ON_429_MS = 10000
+
+function sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+/**
+ * GET /api/cron/sync-mtn-status/bisdel
+ *
+ * Polls Bisdel /status.php?order_reference=... for each pending/processing
+ * order and updates mtn_fulfillment_tracking + the originating order table.
+ * Sends in-app notifications on completed/failed — same as the main Sykes cron.
+ */
+export async function GET(request: NextRequest) {
+    const { authorized, errorResponse } = verifyCronAuth(request)
+    if (!authorized && errorResponse) return errorResponse
+
+    try {
+        console.log("[CRON-BISDEL] Starting status sync...")
+
+        const { data: pendingOrders, error: fetchError } = await supabase
+            .from("mtn_fulfillment_tracking")
+            .select("id, mtn_order_id, status, shop_order_id, order_id, api_order_id, order_type")
+            .eq("provider", "bisdel")
+            .in("status", ["pending", "processing"])
+            .order("created_at", { ascending: true })
+            .limit(BATCH_SIZE)
+
+        if (fetchError) {
+            console.error("[CRON-BISDEL] Error fetching orders:", fetchError)
+            return NextResponse.json({ error: "Failed to fetch orders" }, { status: 500 })
+        }
+
+        if (!pendingOrders || pendingOrders.length === 0) {
+            return NextResponse.json({ success: true, message: "No Bisdel orders to sync" })
+        }
+
+        console.log(`[CRON-BISDEL] Found ${pendingOrders.length} orders to sync`)
+
+        let synced = 0
+        let failed = 0
+        let rateLimited = 0
+        const results = []
+
+        for (let i = 0; i < pendingOrders.length; i++) {
+            const order = pendingOrders[i]
+
+            try {
+                console.log(`[CRON-BISDEL] Syncing ${i + 1}/${pendingOrders.length}: ${order.mtn_order_id}`)
+
+                const result = await checkMTNOrderStatus(order.mtn_order_id, "bisdel")
+
+                if (!result.success && result.message?.includes("429")) {
+                    console.warn(`[CRON-BISDEL] Rate limited on ${order.mtn_order_id}, waiting ${DELAY_ON_429_MS}ms...`)
+                    rateLimited++
+                    failed++
+                    results.push({ id: order.id, mtn_order_id: order.mtn_order_id, success: false, status: order.status, message: "Rate limited" })
+                    await sleep(DELAY_ON_429_MS)
+                    continue
+                }
+
+                if (result.success && result.status) {
+                    const oldStatus = order.status
+                    const newStatus = result.status
+
+                    // Prevent status regression
+                    const statusPriority: Record<string, number> = { pending: 1, processing: 2, completed: 3, failed: 3 }
+                    const currentPriority = statusPriority[oldStatus] ?? 0
+                    const newPriority = statusPriority[newStatus] ?? 0
+
+                    if (newPriority < currentPriority) {
+                        console.log(`[CRON-BISDEL] ⛔ Skipping regression ${oldStatus} -> ${newStatus} for order ${order.mtn_order_id}`)
+                    } else if (newStatus !== oldStatus) {
+                        await supabase
+                            .from("mtn_fulfillment_tracking")
+                            .update({
+                                status: newStatus,
+                                external_status: result.order?.status || newStatus,
+                                external_message: result.message,
+                                updated_at: new Date().toISOString(),
+                            })
+                            .eq("id", order.id)
+
+                        // Mirror status to the originating order table and collect user/order details
+                        const orderTableStatus = newStatus === "failed" ? "pending" : newStatus
+                        let userId: string | null = null
+                        let orderDetails: { network?: string; size?: string; phone?: string } = {}
+
+                        if (order.order_type === "bulk" && order.order_id) {
+                            const { data: orderData, error: orderError } = await supabase
+                                .from("orders")
+                                .update({ status: orderTableStatus, updated_at: new Date().toISOString() })
+                                .eq("id", order.order_id)
+                                .select("user_id, network, size, phone_number")
+                                .single()
+                            if (orderError) {
+                                console.error(`[CRON-BISDEL] ⚠️ Failed to update bulk order ${order.order_id}:`, orderError)
+                            } else if (orderData) {
+                                userId = orderData.user_id
+                                orderDetails = { network: orderData.network, size: orderData.size, phone: orderData.phone_number }
+                            }
+                        } else if (order.order_type === "api" && (order.api_order_id || order.order_id)) {
+                            const apiId = order.api_order_id || order.order_id
+                            const { data: apiData, error: apiError } = await supabase
+                                .from("api_orders")
+                                .update({ status: orderTableStatus, updated_at: new Date().toISOString() })
+                                .eq("id", apiId)
+                                .select("user_id, network, volume_gb, recipient_phone")
+                                .single()
+                            if (apiError) {
+                                console.error(`[CRON-BISDEL] ⚠️ Failed to update API order ${apiId}:`, apiError)
+                            } else if (apiData) {
+                                userId = apiData.user_id
+                                orderDetails = { network: apiData.network, size: `${apiData.volume_gb}GB`, phone: apiData.recipient_phone }
+                            }
+                        } else if (order.order_type === "ussd" && order.order_id) {
+                            const { data: ussdData, error: ussdError } = await supabase
+                                .from("ussd_orders")
+                                .update({ order_status: orderTableStatus, updated_at: new Date().toISOString() })
+                                .eq("id", order.order_id)
+                                .select("network, package_size, recipient_phone")
+                                .single()
+                            if (ussdError) {
+                                console.error(`[CRON-BISDEL] ⚠️ Failed to update USSD order ${order.order_id}:`, ussdError)
+                            } else if (ussdData) {
+                                orderDetails = { network: ussdData.network, size: ussdData.package_size, phone: ussdData.recipient_phone }
+                            }
+                        } else if (order.order_type === "ussd_shop" && order.order_id) {
+                            const { data: ussdShopData, error: ussdShopError } = await supabase
+                                .from("ussd_shop_orders")
+                                .update({ order_status: orderTableStatus, updated_at: new Date().toISOString() })
+                                .eq("id", order.order_id)
+                                .select("network, package_size, recipient_phone")
+                                .single()
+                            if (ussdShopError) {
+                                console.error(`[CRON-BISDEL] ⚠️ Failed to update USSD shop order ${order.order_id}:`, ussdShopError)
+                            } else if (ussdShopData) {
+                                orderDetails = { network: ussdShopData.network, size: ussdShopData.package_size, phone: ussdShopData.recipient_phone }
+                            }
+                        } else if (order.shop_order_id) {
+                            const { data: shopData, error: shopError } = await supabase
+                                .from("shop_orders")
+                                .update({ order_status: orderTableStatus, updated_at: new Date().toISOString() })
+                                .eq("id", order.shop_order_id)
+                                .select("shop_id, network, volume_gb, customer_phone")
+                                .single()
+                            if (shopError) {
+                                console.error(`[CRON-BISDEL] ⚠️ Failed to update shop order ${order.shop_order_id}:`, shopError)
+                            } else if (shopData) {
+                                const { data: shopOwner } = await supabase
+                                    .from("user_shops")
+                                    .select("user_id")
+                                    .eq("id", shopData.shop_id)
+                                    .single()
+                                userId = shopOwner?.user_id || null
+                                orderDetails = { network: shopData.network, size: `${shopData.volume_gb}GB`, phone: shopData.customer_phone }
+                            }
+                        }
+
+                        // Send in-app notification on terminal status
+                        if (userId && (newStatus === "completed" || newStatus === "failed")) {
+                            const notifTitle = newStatus === "completed"
+                                ? "Order Delivered Successfully"
+                                : "Order Delivery Failed"
+                            const notifMessage = newStatus === "completed"
+                                ? `Your MTN ${orderDetails.size || ""} data order to ${orderDetails.phone || "recipient"} has been delivered successfully.`
+                                : `Your MTN ${orderDetails.size || ""} data order to ${orderDetails.phone || "recipient"} failed. Please contact support.`
+
+                            const { error: notifError } = await supabase
+                                .from("notifications")
+                                .insert({
+                                    user_id: userId,
+                                    title: notifTitle,
+                                    message: notifMessage,
+                                    type: newStatus === "completed" ? "order_completed" : "order_failed",
+                                    reference_id: order.api_order_id || order.order_id || order.shop_order_id,
+                                    action_url: order.order_type === "bulk"
+                                        ? `/dashboard/my-orders?orderId=${order.order_id}`
+                                        : order.order_type === "api"
+                                            ? `/dashboard/profile`
+                                            : `/dashboard/shop/orders`,
+                                    read: false,
+                                })
+
+                            if (notifError) {
+                                console.error(`[CRON-BISDEL] ⚠️ Failed to send notification for order ${order.mtn_order_id}:`, notifError)
+                            } else {
+                                console.log(`[CRON-BISDEL] 🔔 Notification sent to user ${userId} for order ${order.mtn_order_id} (${newStatus})`)
+                            }
+
+                            sendPushToUser(userId, {
+                                title: notifTitle,
+                                body: notifMessage,
+                                data: {
+                                    url: order.order_type === "bulk"
+                                        ? `/dashboard/my-orders?orderId=${order.order_id}`
+                                        : order.order_type === "api"
+                                            ? `/dashboard/profile`
+                                            : `/dashboard/shop/orders`,
+                                },
+                            }).catch(() => {})
+                        }
+
+                        console.log(`[CRON-BISDEL] ✅ ${order.mtn_order_id}: ${oldStatus} -> ${newStatus}`)
+                        synced++
+                    } else {
+                        console.log(`[CRON-BISDEL] ${order.mtn_order_id}: unchanged (${newStatus})`)
+                    }
+                } else {
+                    console.warn(`[CRON-BISDEL] Failed to get status for ${order.mtn_order_id}:`, result.message)
+                    failed++
+                }
+
+                results.push({
+                    id: order.id,
+                    mtn_order_id: order.mtn_order_id,
+                    success: result.success,
+                    status: result.status || order.status,
+                    message: result.message,
+                })
+
+                if (i < pendingOrders.length - 1) {
+                    await sleep(DELAY_BETWEEN_REQUESTS_MS)
+                }
+            } catch (err) {
+                console.error(`[CRON-BISDEL] Error processing ${order.mtn_order_id}:`, err)
+                failed++
+            }
+        }
+
+        return NextResponse.json({
+            success: true,
+            synced,
+            failed,
+            rateLimited,
+            total: pendingOrders.length,
+            results,
+            config: { batchSize: BATCH_SIZE, delayBetweenRequests: DELAY_BETWEEN_REQUESTS_MS },
+        })
+    } catch (error) {
+        console.error("[CRON-BISDEL] Critical error:", error)
+        return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+    }
+}

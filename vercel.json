@@ -22,6 +22,10 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/sync-mtn-status/bisdel",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/verify-pending-payments",
       "schedule": "*/2 * * * *"
     },
