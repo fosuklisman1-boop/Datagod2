@@ -32,13 +32,23 @@ function authHeaders(extra?: Record<string, string>): Record<string, string> {
   return { "X-API-Key": BISDEL_API_KEY, "X-API-Secret": BISDEL_API_SECRET, ...(extra ?? {}) }
 }
 
-/** Normalize a Bisdel status string into our canonical set. */
+/**
+ * Normalize a Bisdel status string into our canonical set.
+ *
+ * Mirrors the Sykes provider's mapping: only explicit pending values stay
+ * pending, and any unknown / in-flight status falls through to "processing"
+ * (NOT "pending"). Without this, a Bisdel in-flight status we don't explicitly
+ * list would map to "pending" and the sync cron — seeing the tracking row is
+ * already "pending" — would never advance the order, so it would sit at
+ * "pending" instead of "processing" the way Sykes orders do.
+ */
 export function normalizeStatus(raw: string): "pending" | "processing" | "completed" | "failed" {
   const s = (raw || "").toLowerCase().trim().replace(/[\s-]+/g, "_")
-  if (["completed", "complete", "success", "successful", "delivered", "done", "sent"].includes(s)) return "completed"
-  if (["failed", "error", "cancelled", "canceled", "rejected", "refunded"].includes(s)) return "failed"
-  if (["processing", "in_progress", "queued", "submitted", "accepted", "ongoing"].includes(s)) return "processing"
-  return "pending"
+  if (["completed", "complete", "success", "successful", "delivered", "done", "sent", "fulfilled"].includes(s)) return "completed"
+  if (["failed", "error", "cancelled", "canceled", "rejected", "refunded", "expired"].includes(s)) return "failed"
+  if (["pending", "waiting", "new"].includes(s)) return "pending"
+  // Unknown / blank / any in-flight status → processing (matches Sykes)
+  return "processing"
 }
 
 /** Parse a GB number from a Bisdel data_volume value e.g. "1GB", "1.5 GB", "500MB". */

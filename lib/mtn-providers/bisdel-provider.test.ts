@@ -19,8 +19,15 @@ describe("normalizeStatus", () => {
   it("maps success synonyms to completed", () => expect(normalizeStatus("Delivered")).toBe("completed"))
   it("maps failure synonyms to failed", () => expect(normalizeStatus("Cancelled")).toBe("failed"))
   it("maps in-progress synonyms to processing", () => expect(normalizeStatus("in progress")).toBe("processing"))
-  it("defaults unknown to pending", () => expect(normalizeStatus("whatever")).toBe("pending"))
-  it("handles empty", () => expect(normalizeStatus("")).toBe("pending"))
+  it("keeps explicit pending values pending", () => {
+    expect(normalizeStatus("pending")).toBe("pending")
+    expect(normalizeStatus("Waiting")).toBe("pending")
+    expect(normalizeStatus("new")).toBe("pending")
+  })
+  // Mirrors Sykes: unknown / blank statuses fall through to processing, NOT pending,
+  // so a placed Bisdel order advances past pending the way Sykes orders do.
+  it("defaults unknown to processing (matches Sykes)", () => expect(normalizeStatus("whatever")).toBe("processing"))
+  it("treats empty as processing", () => expect(normalizeStatus("")).toBe("processing"))
 })
 
 describe("findProductIdInCatalog", () => {
