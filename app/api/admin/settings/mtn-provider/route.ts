@@ -61,9 +61,9 @@ export async function POST(request: NextRequest) {
         const { provider } = body
 
         // Validate provider
-        if (!["sykes", "datakazina", "xpress", "eazyghdata"].includes(provider)) {
+        if (!["sykes", "datakazina", "xpress", "eazyghdata", "bisdel"].includes(provider)) {
             return NextResponse.json(
-                { error: "Invalid provider. Must be 'sykes', 'datakazina', 'xpress', or 'eazyghdata'" },
+                { error: "Invalid provider. Must be 'sykes', 'datakazina', 'xpress', 'eazyghdata', or 'bisdel'" },
                 { status: 400 }
             )
         }
