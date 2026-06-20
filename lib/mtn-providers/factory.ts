@@ -10,6 +10,7 @@ import { SykesProvider } from "./sykes-provider"
 import { DataKazinaProvider } from "./datakazina-provider"
 import { XpressProvider } from "./xpress-provider"
 import { EazyGhDataProvider } from "./eazyghdata-provider"
+import { BisdelProvider } from "./bisdel-provider"
 
 /**
  * Get the currently selected provider from database settings
@@ -30,7 +31,7 @@ async function getSelectedProvider(): Promise<MTNProviderName> {
         const provider = data?.value?.provider as MTNProviderName | undefined
 
         // Validate provider name
-        if (provider === "sykes" || provider === "datakazina" || provider === "xpress" || provider === "eazyghdata") {
+        if (provider === "sykes" || provider === "datakazina" || provider === "xpress" || provider === "eazyghdata" || provider === "bisdel") {
             return provider
         }
 
@@ -54,6 +55,8 @@ export async function getMTNProvider(): Promise<MTNProvider> {
     console.log(`[MTN-Factory] Using provider: ${providerName}`)
 
     switch (providerName) {
+        case "bisdel":
+            return new BisdelProvider()
         case "datakazina":
             return new DataKazinaProvider()
         case "xpress":
@@ -71,6 +74,8 @@ export async function getMTNProvider(): Promise<MTNProvider> {
  */
 export function getProviderByName(name: MTNProviderName): MTNProvider {
     switch (name) {
+        case "bisdel":
+            return new BisdelProvider()
         case "datakazina":
             return new DataKazinaProvider()
         case "xpress":
