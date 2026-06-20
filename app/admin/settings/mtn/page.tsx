@@ -33,6 +33,7 @@ interface MTNBalance {
     datakazina: ProviderBalance
     xpress: ProviderBalance
     eazyghdata: ProviderBalance
+    bisdel: ProviderBalance
   }
   threshold: number
   active_provider: string
@@ -48,9 +49,13 @@ export default function MTNSettingsPage() {
   const [loadingSettings, setLoadingSettings] = useState(true)
   const [loadingBalance, setLoadingBalance] = useState(true)
   const [toggling, setToggling] = useState(false)
-  const [mtnProvider, setMtnProvider] = useState<"sykes" | "datakazina" | "xpress" | "eazyghdata">("sykes")
+  const [mtnProvider, setMtnProvider] = useState<"sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel">("sykes")
   const [syncingPackages, setSyncingPackages] = useState(false)
   const [savingProvider, setSavingProvider] = useState(false)
+  const [bisdelCategories, setBisdelCategories] = useState<string[]>([])
+  const [bisdelCategory, setBisdelCategory] = useState<string>("")
+  const [syncingBisdel, setSyncingBisdel] = useState(false)
+  const [savingBisdelCategory, setSavingBisdelCategory] = useState(false)
 
   useEffect(() => {
     if (adminLoading) return
@@ -60,6 +65,7 @@ export default function MTNSettingsPage() {
     loadSettings()
     loadBalance()
     loadProvider()
+    loadBisdelCatalog()
 
     // Refresh balance every 30 seconds
     const balanceInterval = setInterval(loadBalance, 30000)
@@ -180,6 +186,23 @@ export default function MTNSettingsPage() {
     }
   }
 
+  const loadBisdelCatalog = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) return
+      const response = await fetch("/api/admin/fulfillment/bisdel-products", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setBisdelCategories(data.categories || [])
+        setBisdelCategory(data.selected_category || "")
+      }
+    } catch (error) {
+      console.error("Error loading Bisdel catalog:", error)
+    }
+  }
+
   const handleSyncEazyGhDataPackages = async () => {
     setSyncingPackages(true)
     try {
@@ -209,7 +232,56 @@ export default function MTNSettingsPage() {
     }
   }
 
-  const handleMTNProviderChange = async (provider: "sykes" | "datakazina" | "xpress" | "eazyghdata") => {
+  const handleSyncBisdelProducts = async () => {
+    setSyncingBisdel(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) { toast.error("Authentication required"); return }
+      const response = await fetch("/api/admin/fulfillment/bisdel-products", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setBisdelCategories(data.categories || [])
+        toast.success(`Synced ${data.count} Bisdel products`)
+      } else {
+        const err = await response.json()
+        toast.error(err.error || "Failed to sync products")
+      }
+    } catch (error) {
+      console.error("Error syncing Bisdel products:", error)
+      toast.error("Error syncing Bisdel products")
+    } finally {
+      setSyncingBisdel(false)
+    }
+  }
+
+  const handleSelectBisdelCategory = async (category: string) => {
+    setSavingBisdelCategory(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) { toast.error("Authentication required"); return }
+      const response = await fetch("/api/admin/fulfillment/bisdel-products", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ category }),
+      })
+      if (response.ok) {
+        setBisdelCategory(category)
+        toast.success(`Bisdel category set to ${category}`)
+      } else {
+        toast.error("Failed to set category")
+      }
+    } catch (error) {
+      console.error("Error setting Bisdel category:", error)
+      toast.error("Error setting Bisdel category")
+    } finally {
+      setSavingBisdelCategory(false)
+    }
+  }
+
+  const handleMTNProviderChange = async (provider: "sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel") => {
     setSavingProvider(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
@@ -366,8 +438,8 @@ export default function MTNSettingsPage() {
               </div>
             ) : balance ? (
               <div className="space-y-4">
-                {/* Quad Balance Display */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {/* Quint Balance Display */}
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                   {/* Sykes Balance */}
                   <div className={`p-4 rounded-lg border-2 transition-all ${balance.balances.sykes.is_active
                     ? 'bg-primary/5 border-border shadow-md'
@@ -483,10 +555,39 @@ export default function MTNSettingsPage() {
                       <p className="text-sm text-muted-foreground">Unable to fetch</p>
                     )}
                   </div>
+
+                  {/* Bisdel Balance */}
+                  <div className={`p-4 rounded-lg border-2 transition-all ${balance.balances.bisdel?.is_active
+                    ? 'bg-indigo-50 border-border shadow-md'
+                    : 'bg-muted/40 border-border'
+                    }`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-foreground">Bisdel</span>
+                      {balance.balances.bisdel?.is_active && (
+                        <Badge className="bg-indigo-600">Active</Badge>
+                      )}
+                    </div>
+                    {balance.balances.bisdel?.balance !== null && balance.balances.bisdel?.balance !== undefined ? (
+                      <>
+                        <div className="flex items-baseline gap-2">
+                          <span className={`text-3xl font-bold ${balance.balances.bisdel.is_low ? 'text-orange-600' : 'text-emerald-900'
+                            }`}>
+                            ₵{balance.balances.bisdel.balance.toFixed(2)}
+                          </span>
+                          <span className="text-sm text-muted-foreground">GHS</span>
+                        </div>
+                        {balance.balances.bisdel.is_low && (
+                          <p className="text-xs text-orange-600 mt-2">⚠️ Low balance</p>
+                        )}
+                      </>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Unable to fetch</p>
+                    )}
+                  </div>
                 </div>
 
                 {/* Low Balance Alerts */}
-                {(balance.balances.sykes.is_low || balance.balances.datakazina.is_low || balance.balances.xpress?.is_low || balance.balances.eazyghdata?.is_low) && (
+                {(balance.balances.sykes.is_low || balance.balances.datakazina.is_low || balance.balances.xpress?.is_low || balance.balances.eazyghdata?.is_low || balance.balances.bisdel?.is_low) && (
                   <Alert className="border-border bg-orange-50">
                     <AlertCircle className="h-4 w-4 text-orange-600" />
                     <AlertDescription className="text-orange-700">
@@ -494,6 +595,7 @@ export default function MTNSettingsPage() {
                       {balance.balances.datakazina.alert && <p>• {balance.balances.datakazina.alert}</p>}
                       {balance.balances.xpress?.alert && <p>• {balance.balances.xpress.alert}</p>}
                       {balance.balances.eazyghdata?.alert && <p>• {balance.balances.eazyghdata.alert}</p>}
+                      {balance.balances.bisdel?.alert && <p>• {balance.balances.bisdel.alert}</p>}
                       <p className="mt-1 font-medium">SMS alert has been sent to admin.</p>
                     </AlertDescription>
                   </Alert>
@@ -540,7 +642,7 @@ export default function MTNSettingsPage() {
                 Choose your preferred MTN data provider. Switching only affects new orders.
               </p>
 
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 {/* Sykes Option */}
                 <button
                   onClick={() => handleMTNProviderChange("sykes")}
@@ -612,6 +714,24 @@ export default function MTNSettingsPage() {
                   </div>
                   <p className="text-sm text-muted-foreground">Package-based provider</p>
                 </button>
+
+                {/* Bisdel Option */}
+                <button
+                  onClick={() => handleMTNProviderChange("bisdel")}
+                  disabled={savingProvider || mtnProvider === "bisdel"}
+                  className={`p-4 rounded-lg border-2 transition-all text-left ${mtnProvider === "bisdel"
+                      ? "bg-indigo-50 border-indigo-500 shadow-md"
+                      : "bg-card border-border hover:border-border"
+                    } ${savingProvider ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-semibold text-foreground">Bisdel</span>
+                    {mtnProvider === "bisdel" && (
+                      <Badge className="bg-indigo-600">Active</Badge>
+                    )}
+                  </div>
+                  <p className="text-sm text-muted-foreground">Category-based provider</p>
+                </button>
               </div>
 
               {/* EazyGhData Package Sync */}
@@ -637,6 +757,52 @@ export default function MTNSettingsPage() {
                       "Sync EazyGhData Packages"
                     )}
                   </Button>
+                </div>
+              )}
+
+              {/* Bisdel Product Sync + Category */}
+              {mtnProvider === "bisdel" && (
+                <div className="p-4 bg-indigo-50 rounded-lg border border-indigo-200 space-y-3">
+                  <p className="text-sm font-medium text-indigo-900">Bisdel Products &amp; Category</p>
+                  <p className="text-xs text-indigo-700">
+                    Bisdel matches each order by GB within a single category. Sync products, then choose the
+                    category orders are fulfilled from. Orders fail until a category is selected.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Button
+                      onClick={handleSyncBisdelProducts}
+                      disabled={syncingBisdel}
+                      variant="outline"
+                      size="sm"
+                      className="border-indigo-400 text-indigo-800 hover:bg-indigo-100"
+                    >
+                      {syncingBisdel ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Syncing...
+                        </>
+                      ) : (
+                        "Sync Bisdel Products"
+                      )}
+                    </Button>
+
+                    <select
+                      value={bisdelCategory}
+                      onChange={(e) => handleSelectBisdelCategory(e.target.value)}
+                      disabled={savingBisdelCategory || bisdelCategories.length === 0}
+                      className="px-3 py-2 text-sm rounded-md border border-indigo-300 bg-white text-indigo-900 disabled:opacity-50"
+                    >
+                      <option value="" disabled>
+                        {bisdelCategories.length === 0 ? "Sync products first" : "Select a category"}
+                      </option>
+                      {bisdelCategories.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                    {bisdelCategory && (
+                      <span className="text-xs text-indigo-700">Active: <strong>{bisdelCategory}</strong></span>
+                    )}
+                  </div>
                 </div>
               )}
 
