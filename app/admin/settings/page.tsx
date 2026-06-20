@@ -44,7 +44,7 @@ export default function AdminSettingsPage() {
   const [savingUssdTier, setSavingUssdTier] = useState(false)
 
   // MTN Provider settings
-  const [mtnProvider, setMtnProvider] = useState<"sykes" | "datakazina" | "xpress" | "eazyghdata">("sykes")
+  const [mtnProvider, setMtnProvider] = useState<"sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel">("sykes")
   const [savingProvider, setSavingProvider] = useState(false)
 
   // Announcement settings
