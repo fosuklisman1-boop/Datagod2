@@ -16,22 +16,41 @@ export const authService = {
         throw new Error(phoneCheckData.error || "Phone number validation failed")
       }
 
-      // Now safe to create auth user
+      // Now safe to create the auth user. Carry the profile fields as
+      // user_metadata and set emailRedirectTo so that when email confirmation is
+      // ON, the confirmation link routes through /auth/callback — which finalizes
+      // the profile from this metadata. When confirmation is OFF we finalize
+      // immediately below (a session already exists).
+      const emailRedirectTo =
+        typeof window !== "undefined" ? `${window.location.origin}/auth/callback` : undefined
+
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
         password,
+        options: {
+          data: {
+            first_name: userData.first_name,
+            last_name: userData.last_name,
+            phone_number: userData.phone_number,
+          },
+          ...(emailRedirectTo ? { emailRedirectTo } : {}),
+        },
       })
 
       if (authError) throw authError
 
       if (!authData.user) throw new Error("User creation failed")
 
-      // Create user profile via API route (server-side)
-      // Send the session token so the server can verify the identity server-side
+      // Email confirmation ON → no session until the user clicks the link. Do NOT
+      // throw: surface a "confirmation required" result so the page can tell the
+      // user to check their email. The /auth/callback handler finalizes the
+      // profile (name/phone/OTP/wallet) once they confirm.
       if (!authData.session?.access_token) {
-        throw new Error("No session token after signup — email confirmation may be required")
+        return { user: authData.user, profile: null, confirmationRequired: true }
       }
 
+      // Email confirmation OFF (autoconfirm) → finalize the profile now via the
+      // service-role route, passing the session token for identity verification.
       const response = await fetch("/api/auth/signup", {
         method: "POST",
         headers: {
@@ -52,7 +71,7 @@ export const authService = {
       }
 
       const profileData = await response.json()
-      return { user: authData.user, profile: profileData.profile }
+      return { user: authData.user, profile: profileData.profile, confirmationRequired: false }
     } catch (error) {
       console.error("Sign up error:", error)
       throw error

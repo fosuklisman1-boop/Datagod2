@@ -64,6 +64,45 @@ export async function GET(request: NextRequest) {
   // longer the signal — a row WITHOUT a phone (or no row at all) both mean "not yet
   // onboarded" → complete-profile (which collects phone + terms + name).
   if (!profile || !profile.phone_number) {
+    // Email-confirmation signups carry first/last/phone in user_metadata (set in
+    // authService.signUp). Finalize the profile via the service-role signup route
+    // — it re-checks the phone OTP, creates the wallet, and sends the welcome
+    // email — so the user skips re-entering their phone. Fall through to
+    // complete-profile on any miss (OTP expired, or a Google OAuth user with no
+    // metadata phone).
+    const md = (user.user_metadata || {}) as {
+      first_name?: string
+      last_name?: string
+      phone_number?: string
+    }
+    if (md.phone_number) {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const token = sessionData.session?.access_token
+      if (token) {
+        try {
+          const res = await fetch(`${origin}/api/auth/signup`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              email: user.email,
+              firstName: md.first_name,
+              lastName: md.last_name,
+              phoneNumber: md.phone_number,
+            }),
+          })
+          if (res.ok) {
+            const safeNext = next.startsWith("/") ? next : "/dashboard"
+            return NextResponse.redirect(`${origin}${safeNext}`)
+          }
+          console.warn("[AUTH CALLBACK] profile finalize returned", res.status)
+        } catch (e) {
+          console.error("[AUTH CALLBACK] profile finalize error:", e)
+        }
+      }
+    }
     return NextResponse.redirect(`${origin}/auth/complete-profile`)
   }
 
