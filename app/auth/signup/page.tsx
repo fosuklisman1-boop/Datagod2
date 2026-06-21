@@ -78,6 +78,7 @@ function passwordStrength(pw: string): number {
 export default function SignupPage() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
+  const [confirmationSent, setConfirmationSent] = useState(false)
   const [formData, setFormData] = useState({
     firstName: "",
     lastName: "",
@@ -270,14 +271,23 @@ export default function SignupPage() {
       }
 
       // Sign up with Supabase
-      await authService.signUp(formData.email, formData.password, {
+      const result = await authService.signUp(formData.email, formData.password, {
         first_name: formData.firstName,
         last_name: formData.lastName,
         phone_number: formData.phoneNumber,
       })
 
-      toast.success("Account created! Please check your email to verify your account.")
-      router.push("/auth/login")
+      if (result?.confirmationRequired) {
+        // Email confirmation is ON — no session yet. Show the "check your email"
+        // screen instead of bouncing to login (where they can't sign in until
+        // they confirm). The confirmation link routes through /auth/confirm,
+        // which finalizes the profile and logs them in.
+        setConfirmationSent(true)
+      } else {
+        // Auto-confirm path (confirmation off): profile already created.
+        toast.success("Account created! You can now sign in.")
+        router.push("/auth/login")
+      }
     } catch (error: any) {
       const { message, type } = getAuthErrorMessage(error)
 
@@ -361,6 +371,23 @@ export default function SignupPage() {
                 <div className="pt-4">
                   <Link href="/auth/login" className="text-primary hover:underline font-medium">
                     Return to Login
+                  </Link>
+                </div>
+              </div>
+            ) : confirmationSent ? (
+              <div className="text-center space-y-4 py-8">
+                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-success/10 mb-2">
+                  <Mail className="w-8 h-8 text-success" />
+                </div>
+                <h3 className="text-xl font-bold text-foreground">Check your email</h3>
+                <p className="text-muted-foreground max-w-sm mx-auto">
+                  We&apos;ve sent a confirmation link to{" "}
+                  <strong className="text-foreground">{formData.email}</strong>. Click it to activate your DATAGOD account, then sign in.
+                </p>
+                <p className="text-xs text-muted-foreground">Don&apos;t see it? Check your Spam or Promotions folder.</p>
+                <div className="pt-4">
+                  <Link href="/auth/login">
+                    <Button className="w-full font-semibold">Go to Login</Button>
                   </Link>
                 </div>
               </div>
