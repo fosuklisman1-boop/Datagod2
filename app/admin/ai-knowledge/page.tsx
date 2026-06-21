@@ -183,7 +183,7 @@ export default function AIKnowledgePage() {
                         onClick={() => toggleContext(ctx)}
                         className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
                           form.contexts?.includes(ctx)
-                            ? "bg-violet-600 text-white border-violet-600"
+                            ? "bg-primary text-primary-foreground border-primary"
                             : "bg-card text-muted-foreground border-border"
                         }`}
                       >
@@ -210,7 +210,7 @@ export default function AIKnowledgePage() {
                   onChange={e => setForm(f => ({ ...f, answer: e.target.value }))}
                   rows={4}
                   placeholder="Write the full answer the AI should give..."
-                  className="w-full text-sm border border-border rounded-lg px-3 py-2 outline-none focus:border-violet-400 resize-none"
+                  className="w-full text-sm border border-border rounded-lg px-3 py-2 outline-none focus:border-primary resize-none"
                 />
               </div>
 
@@ -270,7 +270,7 @@ export default function AIKnowledgePage() {
                             </button>
                             <button
                               onClick={() => remove(entry.id)}
-                              className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-50 transition-colors"
+                              className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
                             >
                               <Trash2 size={15} />
                             </button>

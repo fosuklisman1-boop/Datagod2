@@ -157,13 +157,13 @@ export default function PaymentAttemptsPage() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "completed":
-        return <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle className="w-3 h-3 mr-1" />Completed</Badge>
+        return <Badge className="bg-success hover:bg-success/90"><CheckCircle className="w-3 h-3 mr-1" />Completed</Badge>
       case "pending":
-        return <Badge className="bg-yellow-500 hover:bg-yellow-600"><Clock className="w-3 h-3 mr-1" />Pending</Badge>
+        return <Badge className="bg-warning hover:bg-warning/90"><Clock className="w-3 h-3 mr-1" />Pending</Badge>
       case "failed":
-        return <Badge className="bg-red-500 hover:bg-red-600"><XCircle className="w-3 h-3 mr-1" />Failed</Badge>
+        return <Badge className="bg-destructive hover:bg-destructive/90"><XCircle className="w-3 h-3 mr-1" />Failed</Badge>
       case "abandoned":
-        return <Badge className="bg-gray-500 hover:bg-gray-600"><AlertTriangle className="w-3 h-3 mr-1" />Abandoned</Badge>
+        return <Badge className="bg-muted-foreground hover:bg-muted-foreground/90"><AlertTriangle className="w-3 h-3 mr-1" />Abandoned</Badge>
       default:
         return <Badge variant="secondary">{status}</Badge>
     }
@@ -172,7 +172,7 @@ export default function PaymentAttemptsPage() {
   const getTypeBadge = (type: string) => {
     return type === "wallet_topup"
       ? <Badge variant="outline" className="border-primary text-primary"><Wallet className="w-3 h-3 mr-1" />Wallet</Badge>
-      : <Badge variant="outline" className="border-purple-500 text-purple-600"><ShoppingCart className="w-3 h-3 mr-1" />Shop Order</Badge>
+      : <Badge variant="outline" className="border-primary text-primary"><ShoppingCart className="w-3 h-3 mr-1" />Shop Order</Badge>
   }
 
   const clearFilters = () => {
@@ -269,7 +269,7 @@ export default function PaymentAttemptsPage() {
               <Button
                 onClick={markAsCompletedByReference}
                 disabled={referenceLoading || !referenceInput.trim()}
-                className="bg-green-600 hover:bg-green-700"
+                className="bg-success hover:bg-success/90"
               >
                 {referenceLoading ? (
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -297,10 +297,10 @@ export default function PaymentAttemptsPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Completed</CardTitle>
-              <CheckCircle className="h-4 w-4 text-green-500" />
+              <CheckCircle className="h-4 w-4 text-success" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600">{stats.completed}</div>
+              <div className="text-2xl font-bold text-success">{stats.completed}</div>
               <p className="text-xs text-muted-foreground">{formatCurrency(stats.completedAmount)}</p>
             </CardContent>
           </Card>
@@ -308,10 +308,10 @@ export default function PaymentAttemptsPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Pending</CardTitle>
-              <Clock className="h-4 w-4 text-yellow-500" />
+              <Clock className="h-4 w-4 text-warning" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-yellow-600">{stats.pending}</div>
+              <div className="text-2xl font-bold text-warning">{stats.pending}</div>
               <p className="text-xs text-muted-foreground">Awaiting payment</p>
             </CardContent>
           </Card>
@@ -319,10 +319,10 @@ export default function PaymentAttemptsPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Failed</CardTitle>
-              <XCircle className="h-4 w-4 text-red-500" />
+              <XCircle className="h-4 w-4 text-destructive" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-red-600">{stats.failed}</div>
+              <div className="text-2xl font-bold text-destructive">{stats.failed}</div>
               <p className="text-xs text-muted-foreground">Payment failed</p>
             </CardContent>
           </Card>
@@ -516,7 +516,7 @@ export default function PaymentAttemptsPage() {
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
                                   <DropdownMenuItem onClick={() => markAsCompleted(attempt.id)}>
-                                    <Check className="w-4 h-4 mr-2 text-green-500" />
+                                    <Check className="w-4 h-4 mr-2 text-success" />
                                     Mark as Completed
                                   </DropdownMenuItem>
                                 </DropdownMenuContent>

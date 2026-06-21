@@ -45,7 +45,7 @@ export const ErrorRecovery: React.FC<ErrorRecoveryProps> = ({
         <AlertTitle className="text-base">{title}</AlertTitle>
         <AlertDescription className="mt-2 text-sm">{message}</AlertDescription>
         {error && (
-          <AlertDescription className="mt-2 text-xs bg-red-100 p-2 rounded font-mono overflow-auto max-h-24">
+          <AlertDescription className="mt-2 text-xs bg-destructive/15 p-2 rounded font-mono overflow-auto max-h-24">
             {error}
           </AlertDescription>
         )}
@@ -53,23 +53,23 @@ export const ErrorRecovery: React.FC<ErrorRecoveryProps> = ({
 
       {/* Draft Info */}
       {isDraft && draftInfo && (
-        <Card className="bg-amber-50 border-border">
+        <Card className="bg-warning/10 border-border">
           <CardContent className="pt-4 pb-4">
             <div className="space-y-2">
               <div className="flex items-start gap-2">
-                <div className="text-amber-600 mt-1">💾</div>
+                <div className="text-warning mt-1">💾</div>
                 <div className="flex-1">
-                  <p className="font-semibold text-amber-900 text-sm">Incomplete Order Saved</p>
-                  <p className="text-xs text-amber-800 mt-1">
+                  <p className="font-semibold text-warning text-sm">Incomplete Order Saved</p>
+                  <p className="text-xs text-warning mt-1">
                     We found your unsaved order from {draftInfo.savedAt}
                   </p>
                   {draftInfo.package && (
-                    <p className="text-xs text-amber-800 mt-1">
+                    <p className="text-xs text-warning mt-1">
                       Package: <span className="font-semibold">{draftInfo.package}</span>
                     </p>
                   )}
                   {draftInfo.network && (
-                    <p className="text-xs text-amber-800">
+                    <p className="text-xs text-warning">
                       Network: <span className="font-semibold">{draftInfo.network}</span>
                     </p>
                   )}

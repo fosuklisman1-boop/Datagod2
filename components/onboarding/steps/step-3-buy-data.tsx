@@ -33,8 +33,8 @@ export function Step3BuyData() {
         </div>
 
         {/* Step 2 */}
-        <div className="flex gap-4 p-4 bg-green-50 rounded-lg border border-border">
-          <div className="flex-shrink-0 flex items-center justify-center w-8 h-8 bg-green-600 text-white rounded-full font-semibold text-sm">
+        <div className="flex gap-4 p-4 bg-success/10 rounded-lg border border-border">
+          <div className="flex-shrink-0 flex items-center justify-center w-8 h-8 bg-success text-primary-foreground rounded-full font-semibold text-sm">
             2
           </div>
           <div>
@@ -46,8 +46,8 @@ export function Step3BuyData() {
         </div>
 
         {/* Step 3 */}
-        <div className="flex gap-4 p-4 bg-purple-50 rounded-lg border border-border">
-          <div className="flex-shrink-0 flex items-center justify-center w-8 h-8 bg-purple-600 text-white rounded-full font-semibold text-sm">
+        <div className="flex gap-4 p-4 bg-primary/10 rounded-lg border border-border">
+          <div className="flex-shrink-0 flex items-center justify-center w-8 h-8 bg-primary text-white rounded-full font-semibold text-sm">
             3
           </div>
           <div>
@@ -61,7 +61,7 @@ export function Step3BuyData() {
 
       <div className="grid grid-cols-3 gap-3 mt-6">
         <div className="text-center p-3 bg-muted/40 rounded-lg">
-          <Zap className="w-6 h-6 text-yellow-500 mx-auto mb-2" />
+          <Zap className="w-6 h-6 text-warning mx-auto mb-2" />
           <p className="text-xs font-semibold text-foreground">Instant</p>
           <p className="text-xs text-muted-foreground">Delivery</p>
         </div>
@@ -71,7 +71,7 @@ export function Step3BuyData() {
           <p className="text-xs text-muted-foreground">Networks</p>
         </div>
         <div className="text-center p-3 bg-muted/40 rounded-lg">
-          <Smartphone className="w-6 h-6 text-green-500 mx-auto mb-2" />
+          <Smartphone className="w-6 h-6 text-success mx-auto mb-2" />
           <p className="text-xs font-semibold text-foreground">Any</p>
           <p className="text-xs text-muted-foreground">Number</p>
         </div>

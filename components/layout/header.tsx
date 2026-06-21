@@ -54,7 +54,7 @@ export function Header() {
 
   return (
     <div
-      className={`fixed right-0 left-0 top-0 z-30 transition-all duration-300 w-full border-b border-border ${isDealer ? "bg-amber-50/90 dark:bg-amber-950/40 backdrop-blur" : "bg-card/95 backdrop-blur"}`}
+      className={`fixed right-0 left-0 top-0 z-30 transition-all duration-300 w-full border-b border-border bg-card/95 backdrop-blur`}
       style={{ paddingTop: "env(safe-area-inset-top)" }}
     >
       <div className="h-14 md:h-16 flex items-center justify-between px-2 sm:px-3 md:px-4 lg:px-6">
@@ -113,14 +113,14 @@ export function Header() {
               <div className={cn(
                 "w-7 h-7 md:w-8 md:h-8 rounded-full flex items-center justify-center transition-all duration-300",
                 isDealer
-                  ? "bg-gradient-to-br from-amber-400 to-amber-600 shadow-[0_0_10px_rgba(251,191,36,0.3)]"
-                  : "bg-gradient-to-br from-primary to-violet-600"
+                  ? "bg-gradient-to-br from-primary to-brand-accent shadow-[0_0_10px_hsl(var(--primary)/0.3)]"
+                  : "bg-gradient-to-br from-primary to-brand-accent"
               )}>
-                <User className="w-3 h-3 md:w-4 md:h-4 text-white" />
+                <User className="w-3 h-3 md:w-4 md:h-4 text-primary-foreground" />
               </div>
               {isDealer && (
                 <div className="absolute -top-1 -right-1 rotate-12">
-                  <Crown className="w-3 h-3 md:w-4 md:h-4 text-amber-500 fill-amber-300 drop-shadow-sm" />
+                  <Crown className="w-3 h-3 md:w-4 md:h-4 text-brand-accent fill-brand-accent/60 drop-shadow-sm" />
                 </div>
               )}
             </Button>
@@ -141,7 +141,7 @@ export function Header() {
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={handleLogout}
-              className="text-red-600 text-xs sm:text-sm cursor-pointer"
+              className="text-destructive text-xs sm:text-sm cursor-pointer"
             >
               <LogOut className="w-3 h-3 sm:w-4 sm:h-4 mr-2" />
               <span>Logout</span>

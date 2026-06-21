@@ -338,8 +338,8 @@ export default function BuyStockPage() {
     <DashboardLayout>
       <div className="space-y-6">
         {!globalOrderingEnabled && (
-          <Alert className="mb-8 border-red-500 bg-red-50 shadow-md">
-            <AlertDescription className="text-red-800 font-bold text-center">
+          <Alert className="mb-8 border-destructive/30 bg-destructive/10 shadow-md">
+            <AlertDescription className="text-destructive font-bold text-center">
               The system is currently in maintenance mode. Data package purchases are temporarily disabled.
             </AlertDescription>
           </Alert>
@@ -347,7 +347,7 @@ export default function BuyStockPage() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
+            <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-primary to-pink-600 bg-clip-text text-transparent">
               Buy Stock
             </h1>
             <p className="text-muted-foreground mt-1">Purchase data packages at wholesale prices</p>
@@ -356,10 +356,10 @@ export default function BuyStockPage() {
           {/* Wallet Balance */}
           <Card className="w-fit">
             <CardContent className="p-4 flex items-center gap-3">
-              <Wallet className="w-5 h-5 text-green-600" />
+              <Wallet className="w-5 h-5 text-success" />
               <div>
                 <p className="text-xs text-muted-foreground">Wallet Balance</p>
-                <p className="text-lg font-bold text-green-600">GHS {Math.max(0, walletBalance || 0).toFixed(2)}</p>
+                <p className="text-lg font-bold text-success">GHS {Math.max(0, walletBalance || 0).toFixed(2)}</p>
               </div>
             </CardContent>
           </Card>
@@ -424,7 +424,7 @@ export default function BuyStockPage() {
                 <CardContent className="space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground text-sm">Price:</span>
-                    <span className="font-bold text-lg text-purple-600">GHS {(pkg.parent_price || 0).toFixed(2)}</span>
+                    <span className="font-bold text-lg text-primary">GHS {(pkg.parent_price || 0).toFixed(2)}</span>
                   </div>
 
                   <Button
@@ -461,7 +461,7 @@ export default function BuyStockPage() {
                     <span className="text-muted-foreground text-sm hidden sm:block">{pkg.description}</span>
                   </div>
                   <div className="flex items-center gap-4">
-                    <span className="font-bold text-purple-600">GHS {(pkg.parent_price || 0).toFixed(2)}</span>
+                    <span className="font-bold text-primary">GHS {(pkg.parent_price || 0).toFixed(2)}</span>
                     <Button
                       size="sm"
                       onClick={() => handleBuyClick(pkg)}

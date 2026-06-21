@@ -291,7 +291,7 @@ export default function ShopStorefront() {
             alt={shop.shop_name}
             className="w-full h-full object-cover"
           />
-          <div className="absolute inset-0 bg-black/30" />
+          <div className="absolute inset-0 bg-background/30" />
         </div>
       )}
 
@@ -337,7 +337,7 @@ export default function ShopStorefront() {
                         key={tab.id}
                         onClick={() => setActiveTab(tab.id)}
                         className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all ${activeTab === tab.id
-                            ? "bg-violet-100 text-violet-700 border-l-4 border-l-violet-600"
+                            ? "bg-primary/10 text-primary border-l-4 border-l-violet-600"
                             : "text-foreground hover:bg-accent"
                           }`}
                       >
@@ -406,7 +406,7 @@ export default function ShopStorefront() {
                               key={network}
                               onClick={() => setSelectedNetwork(network as string)}
                               className={`cursor-pointer hover:shadow-lg transition-all duration-300 hover:-translate-y-1 overflow-hidden ${selectedNetwork === network
-                                  ? "ring-2 ring-violet-600"
+                                  ? "ring-2 ring-primary"
                                   : "hover:shadow-lg"
                                 }`}
                             >
@@ -451,7 +451,7 @@ export default function ShopStorefront() {
                                           <CardTitle className="text-lg">{pkg.size}GB</CardTitle>
                                           <CardDescription className="text-sm">{pkg.description}</CardDescription>
                                         </div>
-                                        <Badge className="bg-gradient-to-r from-violet-600 to-purple-600">
+                                        <Badge className="bg-gradient-to-r from-primary to-primary">
                                           {shopPkg.is_available ? "Available" : "Unavailable"}
                                         </Badge>
                                       </div>
@@ -459,7 +459,7 @@ export default function ShopStorefront() {
                                     <CardContent className="space-y-4">
                                       <div className="flex justify-between items-end pt-4 border-t border-white/20">
                                         <span className="font-semibold text-foreground">Price:</span>
-                                        <span className="text-2xl font-bold bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent">
+                                        <span className="text-2xl font-bold bg-gradient-to-r from-primary to-primary bg-clip-text text-transparent">
                                           GHS {totalPrice.toFixed(2)}
                                         </span>
                                       </div>
@@ -467,7 +467,7 @@ export default function ShopStorefront() {
                                       <Button
                                         onClick={() => handleBuyNow(shopPkg)}
                                         disabled={!shopPkg.is_available || !globalOrderingEnabled}
-                                        className="w-full bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 disabled:opacity-50"
+                                        className="w-full bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary disabled:opacity-50"
                                       >
                                         <ShoppingCart className="w-4 h-4 mr-2" />
                                         Buy Now
@@ -568,11 +568,11 @@ export default function ShopStorefront() {
                       )}
 
                       {shop.location && (
-                        <div className="w-full flex items-center gap-3 p-4 bg-purple-50 border border-border rounded-lg">
-                          <MapPin className="w-6 h-6 text-purple-600 flex-shrink-0" />
+                        <div className="w-full flex items-center gap-3 p-4 bg-primary/10 border border-border rounded-lg">
+                          <MapPin className="w-6 h-6 text-primary flex-shrink-0" />
                           <div className="flex-1 text-left">
-                            <p className="font-semibold text-purple-900">Location</p>
-                            <p className="text-sm text-purple-700">{shop.location}</p>
+                            <p className="font-semibold text-primary">Location</p>
+                            <p className="text-sm text-primary">{shop.location}</p>
                           </div>
                         </div>
                       )}
@@ -607,7 +607,7 @@ export default function ShopStorefront() {
 
       {/* Checkout Modal */}
       {checkoutOpen && selectedPackage && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-background/50 flex items-center justify-center p-4 z-50">
           <Card className="w-full max-w-md bg-card">
             <CardHeader className="border-b border-border">
               <CardTitle>Checkout</CardTitle>
@@ -654,7 +654,7 @@ export default function ShopStorefront() {
               <div className="p-4 bg-card rounded-lg border border-border">
                 <div className="flex justify-between items-end mb-3">
                   <span className="font-semibold text-foreground">Total Amount:</span>
-                  <span className="text-2xl font-bold bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent">
+                  <span className="text-2xl font-bold bg-gradient-to-r from-primary to-primary bg-clip-text text-transparent">
                     GHS {(selectedPackage.packages.price + selectedPackage.profit_margin).toFixed(2)}
                   </span>
                 </div>
@@ -671,7 +671,7 @@ export default function ShopStorefront() {
                 <Button
                   onClick={handleSubmitOrder}
                   disabled={submitting}
-                  className="flex-1 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700"
+                  className="flex-1 bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary"
                 >
                   {submitting ? "Processing..." : "Place Order"}
                   {!submitting && <ArrowRight className="w-4 h-4 ml-2" />}

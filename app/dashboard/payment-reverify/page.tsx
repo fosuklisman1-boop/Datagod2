@@ -164,13 +164,13 @@ export default function ShopPaymentReverifyPage() {
       case "success":
         return result.action === "already_processed"
           ? <Badge className="bg-primary text-xs">Already Done</Badge>
-          : <Badge className="bg-green-500 text-xs"><CheckCircle className="w-3 h-3 mr-1" />Verified</Badge>
+          : <Badge className="bg-success text-xs"><CheckCircle className="w-3 h-3 mr-1" />Verified</Badge>
       case "failed":
-        return <Badge className="bg-red-500 text-xs"><XCircle className="w-3 h-3 mr-1" />Failed</Badge>
+        return <Badge className="bg-destructive text-xs"><XCircle className="w-3 h-3 mr-1" />Failed</Badge>
       case "abandoned":
-        return <Badge className="bg-gray-500 text-xs"><AlertTriangle className="w-3 h-3 mr-1" />Abandoned</Badge>
+        return <Badge className="bg-muted-foreground text-xs"><AlertTriangle className="w-3 h-3 mr-1" />Abandoned</Badge>
       case "pending":
-        return <Badge className="bg-yellow-500 text-xs"><Clock className="w-3 h-3 mr-1" />Still Pending</Badge>
+        return <Badge className="bg-warning text-xs"><Clock className="w-3 h-3 mr-1" />Still Pending</Badge>
       default:
         return <Badge variant="secondary" className="text-xs">{result.paystack_status}</Badge>
     }
@@ -259,7 +259,7 @@ export default function ShopPaymentReverifyPage() {
                 ) : orders.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
-                      <CheckCircle className="w-8 h-8 mx-auto mb-2 text-green-500" />
+                      <CheckCircle className="w-8 h-8 mx-auto mb-2 text-success" />
                       No pending orders
                     </TableCell>
                   </TableRow>
@@ -270,7 +270,7 @@ export default function ShopPaymentReverifyPage() {
                     return (
                       <TableRow
                         key={order.id}
-                        className={result?.paystack_status === "success" && result.action !== "already_processed" ? "bg-green-50" : undefined}
+                        className={result?.paystack_status === "success" && result.action !== "already_processed" ? "bg-success/10" : undefined}
                       >
                         <TableCell>
                           <p className="font-mono text-xs">{order.wallet_reference}</p>

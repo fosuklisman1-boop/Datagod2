@@ -121,22 +121,22 @@ export default function ResultsCheckerConfirmationPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+      <div className="min-h-screen bg-card flex items-center justify-center">
         <div className="text-center space-y-4">
-          <Loader2 className="w-10 h-10 animate-spin text-violet-400 mx-auto" />
-          <p className="text-white font-medium">Confirming your payment…</p>
-          <p className="text-slate-400 text-sm">Please wait, this takes a few seconds</p>
+          <Loader2 className="w-10 h-10 animate-spin text-primary mx-auto" />
+          <p className="text-foreground font-medium">Confirming your payment…</p>
+          <p className="text-muted-foreground text-sm">Please wait, this takes a few seconds</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4 py-12">
+    <div className="min-h-screen bg-card flex flex-col items-center justify-center p-4 py-12">
       <div className="w-full max-w-md space-y-6">
 
         {/* Header card */}
-        <div className={`rounded-2xl p-8 text-center ${isSuccess ? "bg-green-600" : isFailed ? "bg-red-600" : isPending ? "bg-amber-500" : "bg-slate-700"}`}>
+        <div className={`rounded-2xl p-8 text-center ${isSuccess ? "bg-success" : isFailed ? "bg-destructive" : isPending ? "bg-warning" : "bg-muted"}`}>
           {isSuccess ? (
             <CheckCircle2 className="w-16 h-16 text-white mx-auto mb-4" />
           ) : isFailed ? (
@@ -146,10 +146,10 @@ export default function ResultsCheckerConfirmationPage() {
           ) : (
             <GraduationCap className="w-16 h-16 text-white mx-auto mb-4" />
           )}
-          <h1 className="text-2xl font-black text-white">
+          <h1 className="text-2xl font-black text-primary-foreground">
             {isSuccess ? "Vouchers Delivered!" : isFailed ? "Order Failed" : isPending ? "Payment Confirmed" : "Processing…"}
           </h1>
-          <p className="text-white/80 text-sm mt-1">
+          <p className="text-primary-foreground/80 text-sm mt-1">
             {isSuccess
               ? `${order.exam_board} · Ref: ${order?.reference_code}`
               : isFailed
@@ -162,10 +162,10 @@ export default function ResultsCheckerConfirmationPage() {
 
         {/* Awaiting stock notice */}
         {isPending && (
-          <div className="bg-amber-50 border border-border rounded-xl p-4 text-sm text-amber-800 space-y-1">
+          <div className="bg-warning/10 border border-warning/30 rounded-xl p-4 text-sm text-warning space-y-1">
             <p className="font-semibold">Your payment was received ✓</p>
             <p>We&apos;re currently out of <strong>{order.exam_board}</strong> vouchers. Your order is queued and will be fulfilled automatically as soon as new stock is uploaded — no action needed from you.</p>
-            <p className="text-xs text-amber-600 mt-1">You&apos;ll receive your serial numbers &amp; PINs via SMS and email once ready.</p>
+            <p className="text-xs text-warning/80 mt-1">You&apos;ll receive your serial numbers &amp; PINs via SMS and email once ready.</p>
           </div>
         )}
 
@@ -173,10 +173,10 @@ export default function ResultsCheckerConfirmationPage() {
         {isSuccess && vouchers.length > 0 && (
           <div className="space-y-3">
             <div className="flex items-center justify-between px-1">
-              <p className="text-white font-semibold text-sm">Your Voucher{vouchers.length > 1 ? "s" : ""}</p>
+              <p className="text-foreground font-semibold text-sm">Your Voucher{vouchers.length > 1 ? "s" : ""}</p>
               <button
                 onClick={() => triggerExcelDownload(order, vouchers)}
-                className="flex items-center gap-1.5 text-xs text-violet-400 hover:text-violet-300 font-medium"
+                className="flex items-center gap-1.5 text-xs text-primary hover:text-primary font-medium"
               >
                 <Download className="w-3.5 h-3.5" />
                 Download receipt
@@ -184,20 +184,20 @@ export default function ResultsCheckerConfirmationPage() {
             </div>
 
             {vouchers.map((v, i) => (
-              <div key={i} className="bg-slate-800 rounded-xl p-4 border border-slate-700">
+              <div key={i} className="bg-muted rounded-xl p-4 border border-border">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
-                    <p className="text-slate-400 text-xs mb-2">Voucher {i + 1}</p>
+                    <p className="text-muted-foreground text-xs mb-2">Voucher {i + 1}</p>
                     <div className="space-y-1.5">
                       <div>
-                        <p className="text-slate-500 text-xs">Serial Number</p>
-                        <p className="font-mono font-bold text-white tracking-wider text-lg">
+                        <p className="text-muted-foreground text-xs">Serial Number</p>
+                        <p className="font-mono font-bold text-foreground tracking-wider text-lg">
                           {v.serial_number ?? "N/A"}
                         </p>
                       </div>
                       <div>
-                        <p className="text-slate-500 text-xs">PIN</p>
-                        <p className="font-mono font-bold text-violet-300 tracking-widest text-xl">
+                        <p className="text-muted-foreground text-xs">PIN</p>
+                        <p className="font-mono font-bold text-primary tracking-widest text-xl">
                           {v.pin}
                         </p>
                       </div>
@@ -205,18 +205,18 @@ export default function ResultsCheckerConfirmationPage() {
                   </div>
                   <button
                     onClick={() => handleCopy(v, i)}
-                    className="flex-shrink-0 p-2.5 rounded-lg bg-slate-700 hover:bg-slate-600 transition-colors mt-4"
+                    className="flex-shrink-0 p-2.5 rounded-lg bg-card hover:bg-muted transition-colors mt-4 border border-border"
                     title="Copy serial & PIN"
                   >
                     {copied === i
-                      ? <CheckCircle2 className="w-5 h-5 text-green-400" />
-                      : <Copy className="w-5 h-5 text-slate-300" />}
+                      ? <CheckCircle2 className="w-5 h-5 text-success" />
+                      : <Copy className="w-5 h-5 text-muted-foreground" />}
                   </button>
                 </div>
               </div>
             ))}
 
-            <p className="text-slate-500 text-xs text-center pt-1">
+            <p className="text-muted-foreground text-xs text-center pt-1">
               Vouchers also sent to your email and phone · Keep these safe
             </p>
           </div>
@@ -224,33 +224,33 @@ export default function ResultsCheckerConfirmationPage() {
 
         {/* Order summary */}
         {order && (
-          <div className="bg-slate-800 rounded-xl p-4 border border-slate-700 space-y-2 text-sm">
-            <div className="flex justify-between text-slate-400">
-              <span>Exam Board</span><span className="text-white font-semibold">{order.exam_board}</span>
+          <div className="bg-muted rounded-xl p-4 border border-border space-y-2 text-sm">
+            <div className="flex justify-between text-muted-foreground">
+              <span>Exam Board</span><span className="text-foreground font-semibold">{order.exam_board}</span>
             </div>
-            <div className="flex justify-between text-slate-400">
-              <span>Quantity</span><span className="text-white font-semibold">{order.quantity}</span>
+            <div className="flex justify-between text-muted-foreground">
+              <span>Quantity</span><span className="text-foreground font-semibold">{order.quantity}</span>
             </div>
             {order.unit_price != null && (
-              <div className="flex justify-between text-slate-400">
+              <div className="flex justify-between text-muted-foreground">
                 <span>Rate</span>
-                <span className="text-white font-semibold">GHS {Number(order.unit_price).toFixed(2)}/ea</span>
+                <span className="text-foreground font-semibold">GHS {Number(order.unit_price).toFixed(2)}/ea</span>
               </div>
             )}
-            <div className="flex justify-between text-slate-400 border-t border-slate-700 pt-2">
-              <span>Total Paid</span><span className="text-white font-bold">GHS {Number(order.total_paid).toFixed(2)}</span>
+            <div className="flex justify-between text-muted-foreground border-t border-border pt-2">
+              <span>Total Paid</span><span className="text-foreground font-bold">GHS {Number(order.total_paid).toFixed(2)}</span>
             </div>
           </div>
         )}
 
         <Button
           onClick={() => window.location.href = shopHome}
-          className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold h-12 rounded-xl"
+          className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-bold h-12 rounded-xl"
         >
           Back to Store
         </Button>
 
-        <p className="text-center text-xs text-slate-600">Powered by DATAGOD · Secure Transaction</p>
+        <p className="text-center text-xs text-muted-foreground">Powered by DATAGOD · Secure Transaction</p>
       </div>
     </div>
   )

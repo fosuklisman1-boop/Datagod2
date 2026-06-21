@@ -190,12 +190,12 @@ export default function AdminPackagesPage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary to-cyan-600 bg-clip-text text-transparent">Package Management</h1>
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary to-primary bg-clip-text text-transparent">Package Management</h1>
             <p className="text-muted-foreground mt-1">Create, edit, and delete data packages</p>
           </div>
           <Button
             onClick={() => !showForm ? setShowForm(true) : resetForm()}
-            className="bg-gradient-to-r from-primary to-cyan-600 hover:from-primary hover:to-cyan-700"
+            className="bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary"
           >
             <Plus className="w-4 h-4 mr-2" />
             {showForm ? "Cancel" : "Add Package"}
@@ -283,7 +283,7 @@ export default function AdminPackagesPage() {
                 <Button
                   onClick={handleSubmit}
                   disabled={isSubmitting}
-                  className="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
+                  className="flex-1 bg-success hover:bg-success/90"
                 >
                   {isSubmitting ? (
                     <>
@@ -332,16 +332,16 @@ export default function AdminPackagesPage() {
                       <td className="px-6 py-4 font-medium text-foreground">{pkg.network}</td>
                       <td className="px-6 py-4 text-foreground">{pkg.size}</td>
                       <td className="px-6 py-4 font-semibold text-primary">GHS {(pkg.price || 0).toFixed(2)}</td>
-                      <td className="px-6 py-4 font-semibold text-purple-600">{pkg.dealer_price ? `GHS ${pkg.dealer_price.toFixed(2)}` : "-"}</td>
+                      <td className="px-6 py-4 font-semibold text-primary">{pkg.dealer_price ? `GHS ${pkg.dealer_price.toFixed(2)}` : "-"}</td>
                       <td className="px-6 py-4 text-sm text-muted-foreground">{pkg.description || "-"}</td>
                       <td className="px-6 py-4">
                         <Button
                           size="sm"
                           onClick={() => toggleAvailability(pkg.id, pkg.is_available !== false)}
                           className={`${pkg.is_available !== false
-                            ? "bg-green-600 hover:bg-green-700"
-                            : "bg-gray-400 hover:bg-gray-500"
-                            } text-white`}
+                            ? "bg-success hover:bg-success/90"
+                            : "bg-muted-foreground hover:bg-muted-foreground/90"
+                            } text-primary-foreground`}
                         >
                           <Power className="w-4 h-4 mr-1" />
                           {pkg.is_available !== false ? "Enabled" : "Disabled"}
@@ -361,7 +361,7 @@ export default function AdminPackagesPage() {
                           variant="outline"
                           onClick={() => handleDelete(pkg.id)}
                           disabled={isDeletingId === pkg.id}
-                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
                         >
                           {isDeletingId === pkg.id ? (
                             <span className="animate-spin">⏳</span>

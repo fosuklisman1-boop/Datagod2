@@ -296,7 +296,7 @@ export default function OrderHistoryPage() {
                                                 <TableCell>{order.size} GB</TableCell>
                                                 <TableCell className="text-right">GHS {order.price?.toFixed(2)}</TableCell>
                                                 <TableCell className="text-center">
-                                                    <Badge variant="secondary" className="bg-green-100 text-green-800 hover:bg-green-100">
+                                                    <Badge variant="secondary" className="bg-success/15 text-success hover:bg-success/15">
                                                         {order.status}
                                                     </Badge>
                                                 </TableCell>

@@ -10,13 +10,13 @@ interface ChatMessageProps {
 
 export function ChatMessage({ role, content, variant = "violet" }: ChatMessageProps) {
   const isUser = role === "user"
-  const userBg = variant === "dark" ? "bg-gray-900" : "bg-violet-600"
+  const userBg = variant === "dark" ? "bg-card" : "bg-primary"
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm leading-relaxed ${
         isUser
-          ? `${userBg} text-white rounded-br-sm`
+          ? `${userBg} text-primary-foreground rounded-br-sm`
           : "bg-muted text-foreground rounded-bl-sm"
       }`}>
         {isUser ? (

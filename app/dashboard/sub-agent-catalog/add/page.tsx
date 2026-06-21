@@ -271,7 +271,7 @@ export default function AddToCatalogPage() {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center min-h-[400px]">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-600" />
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
         </div>
       </DashboardLayout>
     )
@@ -395,7 +395,7 @@ export default function AddToCatalogPage() {
                       <div
                         key={pkg.id}
                         className={`p-4 rounded-lg border transition-colors ${inCatalog
-                          ? "bg-green-50 border-border"
+                          ? "bg-success/10 border-border"
                           : "bg-card border-border hover:border-border"
                           }`}
                       >
@@ -405,7 +405,7 @@ export default function AddToCatalogPage() {
                             <div className="flex items-center gap-2">
                               <span className="font-medium">{pkg.size}</span>
                               {inCatalog && (
-                                <Badge className="bg-green-500 text-white">
+                                <Badge className="bg-success text-white">
                                   <Check className="h-3 w-3 mr-1" />
                                   In Catalog
                                 </Badge>
@@ -437,7 +437,7 @@ export default function AddToCatalogPage() {
                             {margin !== null && !isNaN(margin) && margin >= 0 && (
                               <div className="text-sm">
                                 <span className="text-muted-foreground">Profit: </span>
-                                <span className="font-bold text-green-600">
+                                <span className="font-bold text-success">
                                   GHS {typeof margin === 'number' && !isNaN(margin) ? margin.toFixed(2) : '0.00'}
                                 </span>
                               </div>
@@ -446,7 +446,7 @@ export default function AddToCatalogPage() {
                             <Button
                               size="sm"
                               variant={inCatalog ? "outline" : "default"}
-                              className={inCatalog ? "" : "bg-violet-600 hover:bg-violet-700"}
+                              className={inCatalog ? "" : "bg-primary hover:bg-primary"}
                               onClick={() => handleAddToCatalog(pkg)}
                               disabled={saving === pkg.id || !sellingPriceValue || (margin !== null && margin < 0)}
                             >

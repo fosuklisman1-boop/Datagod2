@@ -88,15 +88,15 @@ export function PushOptInBanner() {
           <X className="w-4 h-4" />
         </button>
 
-        <div className="shrink-0 mt-0.5 w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center">
-          <Bell className="w-5 h-5 text-violet-600" />
+        <div className="shrink-0 mt-0.5 w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center">
+          <Bell className="w-5 h-5 text-primary" />
         </div>
 
         {mode === 'push' ? (
           <div className="flex-1 min-w-0 pr-5">
             <p className="text-sm font-semibold text-foreground flex items-center gap-1.5">
               Stay in the loop
-              <Sparkles className="w-3.5 h-3.5 text-violet-500" />
+              <Sparkles className="w-3.5 h-3.5 text-primary" />
             </p>
             <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
               Get instant alerts for order updates, withdrawals, and payments — even when the app is closed.
@@ -105,7 +105,7 @@ export function PushOptInBanner() {
               <button
                 onClick={handleEnable}
                 disabled={enabling}
-                className="flex-1 text-sm font-semibold bg-violet-600 hover:bg-violet-700 active:bg-violet-800 text-white px-4 py-2 rounded-xl transition-colors disabled:opacity-60"
+                className="flex-1 text-sm font-semibold bg-primary hover:bg-primary/90 active:bg-primary/80 text-primary-foreground px-4 py-2 rounded-xl transition-colors disabled:opacity-60"
               >
                 {enabling ? 'Enabling…' : 'Enable notifications'}
               </button>
@@ -134,7 +134,7 @@ export function PushOptInBanner() {
                 Select <span className="font-semibold">Add to Home Screen</span>
               </li>
               <li className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Bell className="w-3.5 h-3.5 text-violet-500 shrink-0" />
+                <Bell className="w-3.5 h-3.5 text-primary shrink-0" />
                 Open the app and enable notifications
               </li>
             </ol>

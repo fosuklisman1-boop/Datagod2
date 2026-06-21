@@ -134,7 +134,7 @@ export default function AFAOrdersPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Pending</CardTitle>
-              <Clock className="h-4 w-4 text-yellow-600" />
+              <Clock className="h-4 w-4 text-warning" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.pending}</div>
@@ -145,7 +145,7 @@ export default function AFAOrdersPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Processing</CardTitle>
-              <Clock className="h-4 w-4 text-orange-600" />
+              <Clock className="h-4 w-4 text-warning" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.processing}</div>
@@ -156,7 +156,7 @@ export default function AFAOrdersPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Delivered</CardTitle>
-              <CheckCircle className="h-4 w-4 text-green-600" />
+              <CheckCircle className="h-4 w-4 text-success" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.completed}</div>
@@ -167,7 +167,7 @@ export default function AFAOrdersPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Cancelled</CardTitle>
-              <XCircle className="h-4 w-4 text-red-600" />
+              <XCircle className="h-4 w-4 text-destructive" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.cancelled}</div>
@@ -220,12 +220,12 @@ export default function AFAOrdersPage() {
                           <Badge
                             className={
                               order.status === "completed"
-                                ? "bg-green-100 text-green-800"
+                                ? "bg-success/15 text-success"
                                 : order.status === "pending"
-                                ? "bg-yellow-100 text-yellow-800"
+                                ? "bg-warning/10 text-warning"
                                 : order.status === "processing"
                                 ? "bg-primary/10 text-primary"
-                                : "bg-red-100 text-red-800"
+                                : "bg-destructive/15 text-destructive"
                             }
                           >
                             {order.status.toUpperCase()}

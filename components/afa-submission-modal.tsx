@@ -197,7 +197,7 @@ export function AFASubmissionModal({
         <div className="space-y-6 overflow-y-auto flex-1 px-4 sm:px-6">
           {/* Package Info */}
           <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
-            <h3 className="font-semibold text-blue-900 mb-2">Exclusive Member Package</h3>
+            <h3 className="font-semibold text-foreground mb-2">Exclusive Member Package</h3>
             <p className="text-sm text-primary">
               Amount: <span className="font-bold">GHS {(afaPrice || 0).toFixed(2)}</span>
             </p>
@@ -213,23 +213,23 @@ export function AFASubmissionModal({
             ) : (
               <div className={`p-3 rounded-lg border ${
                 hasSufficientBalance
-                  ? "bg-green-50 border-border"
-                  : "bg-red-50 border-border"
+                  ? "bg-success/10 border-border"
+                  : "bg-destructive/10 border-border"
               }`}>
                 <div className="flex items-center gap-2">
                   {hasSufficientBalance ? (
-                    <CheckCircle className="w-5 h-5 text-green-600" />
+                    <CheckCircle className="w-5 h-5 text-success" />
                   ) : (
-                    <AlertCircle className="w-5 h-5 text-red-600" />
+                    <AlertCircle className="w-5 h-5 text-destructive" />
                   )}
                   <div>
                     <p className={`text-sm font-medium ${
-                      hasSufficientBalance ? "text-green-900" : "text-red-900"
+                      hasSufficientBalance ? "text-success" : "text-destructive"
                     }`}>
                       Wallet Balance: GHS {(walletBalance || 0).toFixed(2)}
                     </p>
                     {!hasSufficientBalance && (
-                      <p className="text-xs text-red-700">
+                      <p className="text-xs text-destructive">
                         Insufficient balance. Top up your wallet to proceed.
                       </p>
                     )}
@@ -244,7 +244,7 @@ export function AFASubmissionModal({
             <form id="afa-form" onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1">
-                  Full Name <span className="text-red-500">*</span>
+                  Full Name <span className="text-destructive">*</span>
                 </label>
                 <Input
                   placeholder="e.g. John Doe"
@@ -260,7 +260,7 @@ export function AFASubmissionModal({
 
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1">
-                  Phone Number <span className="text-red-500">*</span>
+                  Phone Number <span className="text-destructive">*</span>
                 </label>
                 <Input
                   placeholder="e.g. 0241234567"
@@ -276,7 +276,7 @@ export function AFASubmissionModal({
 
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1">
-                  GH Card Number <span className="text-red-500">*</span>
+                  GH Card Number <span className="text-destructive">*</span>
                 </label>
                 <Input
                   placeholder="e.g. GHA-123456789-0"
@@ -293,7 +293,7 @@ export function AFASubmissionModal({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-1">
-                    Location <span className="text-red-500">*</span>
+                    Location <span className="text-destructive">*</span>
                   </label>
                   <Input
                     placeholder="e.g. Accra"
@@ -306,7 +306,7 @@ export function AFASubmissionModal({
 
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-1">
-                    Region <span className="text-red-500">*</span>
+                    Region <span className="text-destructive">*</span>
                   </label>
                   <select
                     value={region}
@@ -366,7 +366,7 @@ export function AFASubmissionModal({
           {/* Success Message */}
           {submitted && (
             <div className="py-8 text-center">
-              <CheckCircle className="w-12 h-12 text-green-600 mx-auto mb-3" />
+              <CheckCircle className="w-12 h-12 text-success mx-auto mb-3" />
               <h3 className="font-semibold text-lg text-foreground mb-2">Application Submitted!</h3>
               <p className="text-sm text-muted-foreground">
                 Your AFA registration has been submitted successfully.

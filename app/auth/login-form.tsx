@@ -89,11 +89,11 @@ export default function LoginForm() {
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[1.05fr_1fr]">
       {/* Brand panel (desktop only) */}
-      <div className="relative hidden lg:flex flex-col justify-between overflow-hidden bg-gradient-to-br from-primary to-violet-600 p-12 text-white">
-        <div aria-hidden className="absolute -right-20 -top-16 h-72 w-72 rounded-full bg-white/10" />
-        <div aria-hidden className="absolute -left-12 -bottom-12 h-48 w-48 rounded-full bg-white/10" />
+      <div className="relative hidden lg:flex flex-col justify-between overflow-hidden bg-gradient-to-br from-primary to-primary p-12 text-white">
+        <div aria-hidden className="absolute -right-20 -top-16 h-72 w-72 rounded-full bg-card/10" />
+        <div aria-hidden className="absolute -left-12 -bottom-12 h-48 w-48 rounded-full bg-card/10" />
         <Link href="/" className="relative flex items-center gap-3">
-          <div className="rounded-xl bg-white/15 p-2">
+          <div className="rounded-xl bg-card/15 p-2">
             <img src="/favicon-v2.jpeg" alt="DATAGOD" className="h-7 w-7 rounded-lg object-cover" />
           </div>
           <span className="text-xl font-extrabold tracking-tight">DATAGOD</span>
@@ -106,7 +106,7 @@ export default function LoginForm() {
           <ul className="mt-6 space-y-3 text-sm">
             {["Instant delivery on all networks", "Resell & earn with your own storefront", "Secure wallet & fast withdrawals"].map((t) => (
               <li key={t} className="flex items-center gap-3">
-                <span className="grid h-5 w-5 place-items-center rounded-full bg-white/20">
+                <span className="grid h-5 w-5 place-items-center rounded-full bg-card/20">
                   <Check className="h-3 w-3" />
                 </span>
                 {t}
@@ -209,7 +209,7 @@ export default function LoginForm() {
             <Skeleton className="mt-3 h-10 w-full rounded-md" />
           ) : communityLink ? (
             <a href={communityLink} target="_blank" rel="noopener noreferrer" className="mt-3 block">
-              <Button type="button" className="w-full gap-2 bg-green-600 hover:bg-green-700 text-white">
+              <Button type="button" className="w-full gap-2 bg-success hover:bg-success/90 text-primary-foreground">
                 <MessageCircle className="h-4 w-4" /> Join Community
               </Button>
             </a>

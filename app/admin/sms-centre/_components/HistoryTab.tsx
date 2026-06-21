@@ -155,7 +155,7 @@ export default function HistoryTab() {
                   </div>
                   <div className="rounded-lg border p-2">
                     <p className="text-xs text-muted-foreground">Sent</p>
-                    <p className="text-lg font-bold text-green-600">{sent}</p>
+                    <p className="text-lg font-bold text-success">{sent}</p>
                   </div>
                   <div className="rounded-lg border p-2">
                     <p className="text-xs text-muted-foreground">Failed</p>

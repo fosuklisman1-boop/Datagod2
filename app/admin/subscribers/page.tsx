@@ -136,7 +136,7 @@ export default function AdminSubscribersPage() {
         return (
             <DashboardLayout>
                 <div className="flex items-center justify-center min-h-[60vh]">
-                    <Loader2 className="w-8 h-8 animate-spin text-amber-600" />
+                    <Loader2 className="w-8 h-8 animate-spin text-warning" />
                 </div>
             </DashboardLayout>
         )
@@ -162,12 +162,12 @@ export default function AdminSubscribersPage() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                     <Card className="bg-card border-border">
                         <CardHeader className="flex flex-row items-center justify-between pb-2">
-                            <CardTitle className="text-sm font-medium text-amber-900">Active Dealers</CardTitle>
-                            <Crown className="h-4 w-4 text-amber-600" />
+                            <CardTitle className="text-sm font-medium text-warning">Active Dealers</CardTitle>
+                            <Crown className="h-4 w-4 text-warning" />
                         </CardHeader>
                         <CardContent>
-                            <div className="text-2xl font-bold text-amber-950">{stats.active}</div>
-                            <p className="text-xs text-amber-700/70 mt-1">Currently powered up</p>
+                            <div className="text-2xl font-bold text-warning">{stats.active}</div>
+                            <p className="text-xs text-warning/70 mt-1">Currently powered up</p>
                         </CardContent>
                     </Card>
                     <Card>
@@ -177,7 +177,7 @@ export default function AdminSubscribersPage() {
                         </CardHeader>
                         <CardContent>
                             <div className="text-2xl font-bold">{stats.expired}</div>
-                            <p className="text-xs text-muted-foreground mt-1 text-red-500">Accounts reverted to 'user'</p>
+                            <p className="text-xs text-muted-foreground mt-1 text-destructive">Accounts reverted to 'user'</p>
                         </CardContent>
                     </Card>
                     <Card className="bg-card border-primary/20">
@@ -276,14 +276,14 @@ export default function AdminSubscribersPage() {
                                                             <Badge
                                                                 className={
                                                                     sub.status === "active"
-                                                                        ? "bg-green-100 text-green-700 hover:bg-green-100 border-border w-fit"
-                                                                        : "bg-red-100 text-red-700 hover:bg-red-100 border-border w-fit"
+                                                                        ? "bg-success/15 text-success hover:bg-success/15 border-border w-fit"
+                                                                        : "bg-destructive/15 text-destructive hover:bg-destructive/15 border-border w-fit"
                                                                 }
                                                             >
                                                                 {sub.status.toUpperCase()}
                                                             </Badge>
                                                             {sub.status === "active" && (
-                                                                <div className={`text-[10px] font-bold mt-1 flex items-center gap-1 ${daysRemaining <= 7 ? "text-red-500" : "text-amber-600"}`}>
+                                                                <div className={`text-[10px] font-bold mt-1 flex items-center gap-1 ${daysRemaining <= 7 ? "text-destructive" : "text-warning"}`}>
                                                                     <Clock className="h-3 w-3" />
                                                                     {daysRemaining > 0 ? `${daysRemaining} days left` : "Expires today"}
                                                                 </div>

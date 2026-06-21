@@ -121,7 +121,7 @@ export default function SubAgentProfitsPage() {
         return (
             <DashboardLayout>
                 <div className="flex items-center justify-center min-h-[400px]">
-                    <Loader2 className="w-8 h-8 animate-spin text-violet-600" />
+                    <Loader2 className="w-8 h-8 animate-spin text-primary" />
                 </div>
             </DashboardLayout>
         )
@@ -143,12 +143,12 @@ export default function SubAgentProfitsPage() {
                     <Card className="bg-card border-border">
                         <CardContent className="pt-6">
                             <div className="flex items-center gap-4">
-                                <div className="p-3 bg-violet-100 rounded-lg">
-                                    <Store className="h-6 w-6 text-violet-600" />
+                                <div className="p-3 bg-primary/10 rounded-lg">
+                                    <Store className="h-6 w-6 text-primary" />
                                 </div>
                                 <div>
                                     <p className="text-sm text-muted-foreground">Parent Shops</p>
-                                    <p className="text-2xl font-bold text-violet-700">{totalParentShops}</p>
+                                    <p className="text-2xl font-bold text-primary">{totalParentShops}</p>
                                 </div>
                             </div>
                         </CardContent>
@@ -171,12 +171,12 @@ export default function SubAgentProfitsPage() {
                     <Card className="bg-card border-border">
                         <CardContent className="pt-6">
                             <div className="flex items-center gap-4">
-                                <div className="p-3 bg-green-100 rounded-lg">
-                                    <DollarSign className="h-6 w-6 text-green-600" />
+                                <div className="p-3 bg-success/15 rounded-lg">
+                                    <DollarSign className="h-6 w-6 text-success" />
                                 </div>
                                 <div>
                                     <p className="text-sm text-muted-foreground">Total Earned</p>
-                                    <p className="text-2xl font-bold text-green-700">GHS {totalEarned.toFixed(2)}</p>
+                                    <p className="text-2xl font-bold text-success">GHS {totalEarned.toFixed(2)}</p>
                                 </div>
                             </div>
                         </CardContent>
@@ -185,12 +185,12 @@ export default function SubAgentProfitsPage() {
                     <Card className="bg-card border-border">
                         <CardContent className="pt-6">
                             <div className="flex items-center gap-4">
-                                <div className="p-3 bg-orange-100 rounded-lg">
-                                    <TrendingUp className="h-6 w-6 text-orange-600" />
+                                <div className="p-3 bg-warning/15 rounded-lg">
+                                    <TrendingUp className="h-6 w-6 text-warning" />
                                 </div>
                                 <div>
                                     <p className="text-sm text-muted-foreground">Sub-Agent Orders</p>
-                                    <p className="text-2xl font-bold text-orange-700">{totalOrders}</p>
+                                    <p className="text-2xl font-bold text-warning">{totalOrders}</p>
                                 </div>
                             </div>
                         </CardContent>
@@ -212,7 +212,7 @@ export default function SubAgentProfitsPage() {
                 {filteredShops.length === 0 ? (
                     <Card>
                         <CardContent className="py-12 text-center">
-                            <Store className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                            <Store className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
                             <p className="text-muted-foreground">
                                 {searchQuery ? "No parent shops match your search" : "No parent shops with sub-agents found"}
                             </p>
@@ -228,14 +228,14 @@ export default function SubAgentProfitsPage() {
                                 >
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-4">
-                                            <div className="p-2 bg-violet-100 rounded-lg">
-                                                <Store className="h-5 w-5 text-violet-600" />
+                                            <div className="p-2 bg-primary/10 rounded-lg">
+                                                <Store className="h-5 w-5 text-primary" />
                                             </div>
                                             <div>
                                                 <CardTitle className="text-lg flex items-center gap-2">
                                                     {shop.shop_name}
                                                     {shop.is_active ? (
-                                                        <Badge className="bg-green-100 text-green-700">Active</Badge>
+                                                        <Badge className="bg-success/15 text-success">Active</Badge>
                                                     ) : (
                                                         <Badge className="bg-muted text-muted-foreground">Inactive</Badge>
                                                     )}
@@ -254,7 +254,7 @@ export default function SubAgentProfitsPage() {
                                             </div>
                                             <div className="text-right">
                                                 <p className="text-sm text-muted-foreground">Total Earned</p>
-                                                <p className="text-lg font-bold text-green-600">GHS {shop.total_earned_from_subagents.toFixed(2)}</p>
+                                                <p className="text-lg font-bold text-success">GHS {shop.total_earned_from_subagents.toFixed(2)}</p>
                                             </div>
                                             <div className="flex items-center gap-2">
                                                 <Button
@@ -308,12 +308,12 @@ export default function SubAgentProfitsPage() {
                                                         </div>
                                                         <div className="text-center">
                                                             <p className="text-muted-foreground">Profit to Parent</p>
-                                                            <p className="font-semibold text-green-600">
+                                                            <p className="font-semibold text-success">
                                                                 GHS {subAgent.total_profit_to_parent.toFixed(2)}
                                                             </p>
                                                         </div>
                                                         {subAgent.is_active ? (
-                                                            <Badge variant="outline" className="bg-green-50 text-green-700 border-border">
+                                                            <Badge variant="outline" className="bg-success/10 text-success border-success/30">
                                                                 Active
                                                             </Badge>
                                                         ) : (

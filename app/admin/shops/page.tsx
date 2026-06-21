@@ -208,7 +208,7 @@ export default function AdminShopsPage() {
       <div className="space-y-6">
         {/* Header */}
         <div>
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent">Shop Management</h1>
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary to-primary bg-clip-text text-transparent">Shop Management</h1>
           <p className="text-muted-foreground mt-1">Approve or reject shop creation requests</p>
         </div>
 
@@ -234,7 +234,7 @@ export default function AdminShopsPage() {
             {pendingShops.length === 0 ? (
               <Card className="bg-card backdrop-blur-xl border border-border">
                 <CardContent className="pt-12 pb-12 text-center">
-                  <CheckCircle className="w-12 h-12 text-green-600 mx-auto mb-4" />
+                  <CheckCircle className="w-12 h-12 text-success mx-auto mb-4" />
                   <p className="text-lg font-semibold text-foreground">No Pending Approvals</p>
                   <p className="text-muted-foreground">All shops have been reviewed</p>
                 </CardContent>
@@ -242,13 +242,13 @@ export default function AdminShopsPage() {
             ) : (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {pendingShops.map((shop) => (
-                  <Card key={shop.id} className="border-l-4 border-l-orange-500 bg-card backdrop-blur-xl border border-border hover:border-border hover:shadow-lg transition-all">
+                  <Card key={shop.id} className="border-l-4 border-l-warning/30 bg-card backdrop-blur-xl border border-border hover:border-border hover:shadow-lg transition-all">
                     <CardContent className="pt-6">
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
                           <div className="flex items-center gap-3 mb-2">
                             <h3 className="text-lg font-bold text-foreground">{shop.shop_name}</h3>
-                            <Badge className="bg-orange-600">Pending</Badge>
+                            <Badge className="bg-warning">Pending</Badge>
                           </div>
                           <p className="text-sm text-muted-foreground mb-2">{shop.description || "No description"}</p>
                           <div className="flex gap-4 text-xs text-muted-foreground">
@@ -269,7 +269,7 @@ export default function AdminShopsPage() {
                           <Button
                             size="sm"
                             onClick={() => handleApprove(shop.id)}
-                            className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
+                            className="bg-success hover:bg-success/90"
                           >
                             <CheckCircle className="w-4 h-4 mr-1" />
                             Approve
@@ -277,7 +277,7 @@ export default function AdminShopsPage() {
                           <Button
                             size="sm"
                             onClick={() => handleReject(shop.id)}
-                            className="bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700"
+                            className="bg-destructive hover:bg-destructive/90"
                           >
                             <XCircle className="w-4 h-4 mr-1" />
                             Reject
@@ -317,23 +317,23 @@ export default function AdminShopsPage() {
                         <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Actions</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-violet-100/40">
+                    <tbody className="divide-y divide-primary/40">
                       {allShops
                         .filter(shop => 
                           shop.shop_name.toLowerCase().includes(searchQuery.toLowerCase()) || 
                           shop.shop_slug.toLowerCase().includes(searchQuery.toLowerCase())
                         )
                         .map((shop) => (
-                        <tr key={shop.id} className="hover:bg-violet-100/30 backdrop-blur transition-colors">
+                        <tr key={shop.id} className="hover:bg-primary/30 backdrop-blur transition-colors">
                           <td className="px-6 py-4 font-medium text-foreground">{shop.shop_name}</td>
                           <td className="px-6 py-4 text-sm text-muted-foreground"><code className="font-mono">{shop.shop_slug}</code></td>
                           <td className="px-6 py-4">
                             {shop.is_blocked ? (
-                              <Badge className="bg-red-600">Blocked</Badge>
+                              <Badge className="bg-destructive">Blocked</Badge>
                             ) : shop.is_active ? (
-                              <Badge className="bg-green-600">Active</Badge>
+                              <Badge className="bg-success">Active</Badge>
                             ) : (
-                              <Badge className="bg-orange-600">Pending</Badge>
+                              <Badge className="bg-warning">Pending</Badge>
                             )}
                           </td>
                           <td className="px-6 py-4 text-sm text-muted-foreground">{new Date(shop.created_at).toLocaleDateString()}</td>
@@ -342,7 +342,7 @@ export default function AdminShopsPage() {
                               size="sm"
                               onClick={() => handleViewDetails(shop)}
                               variant="outline"
-                              className="text-violet-600 hover:text-violet-700 hover:bg-violet-50"
+                              className="text-primary hover:text-primary hover:bg-primary/20"
                             >
                               <Eye className="w-4 h-4" />
                             </Button>
@@ -382,7 +382,7 @@ export default function AdminShopsPage() {
                           variant="outline"
                           disabled={rotateLoading}
                           onClick={() => handleRotateSlug(selectedShop!.id)}
-                          className="h-7 px-2 text-xs border-border text-amber-700 hover:bg-amber-50"
+                          className="h-7 px-2 text-xs border-border text-warning hover:bg-warning/10"
                           title="Generate a new URL and break the old one (anti-attack)"
                         >
                           {rotateLoading ? "Rotating…" : "🔄 Rotate URL"}
@@ -392,11 +392,11 @@ export default function AdminShopsPage() {
                     <div>
                       <p className="text-muted-foreground">Status</p>
                       {shopDetails.shop.is_blocked ? (
-                        <Badge className="bg-red-600">Blocked</Badge>
+                        <Badge className="bg-destructive">Blocked</Badge>
                       ) : shopDetails.shop.is_active ? (
-                        <Badge className="bg-green-600">Active</Badge>
+                        <Badge className="bg-success">Active</Badge>
                       ) : (
-                        <Badge className="bg-orange-600">Pending</Badge>
+                        <Badge className="bg-warning">Pending</Badge>
                       )}
                     </div>
                     <div>
@@ -414,41 +414,41 @@ export default function AdminShopsPage() {
                       <p className="text-muted-foreground text-[10px] uppercase font-bold tracking-wider mb-1">Total Orders</p>
                       <p className="text-xl font-bold text-primary font-mono italic">{shopDetails.orders.length}</p>
                     </div>
-                    <div className="bg-emerald-50 p-3 rounded-lg text-center hover:shadow-inner transition-all border border-border">
+                    <div className="bg-success/10 p-3 rounded-lg text-center hover:shadow-inner transition-all border border-border">
                       <p className="text-muted-foreground text-[10px] uppercase font-bold tracking-wider mb-1">Total Revenue</p>
-                      <p className="text-xl font-bold text-emerald-600 font-mono tracking-tighter tabular-nums">GHS {(shopDetails.orders.reduce((sum: number, o: any) => sum + (o.total_price || 0), 0)).toFixed(2)}</p>
+                      <p className="text-xl font-bold text-success font-mono tracking-tighter tabular-nums">GHS {(shopDetails.orders.reduce((sum: number, o: any) => sum + (o.total_price || 0), 0)).toFixed(2)}</p>
                     </div>
-                    <div className="bg-purple-50 p-3 rounded-lg text-center ring-1 ring-purple-100 ring-offset-2">
+                    <div className="bg-primary p-3 rounded-lg text-center ring-1 ring-primary ring-offset-2">
                       <p className="text-muted-foreground text-[10px] uppercase font-bold tracking-wider mb-1">Profit Balance</p>
-                      <p className="text-xl font-bold text-purple-600 font-mono tracking-tighter tabular-nums underline decoration-purple-200 decoration-wavy underline-offset-4">GHS {Number(shopDetails.available_balance || 0).toFixed(2)}</p>
+                      <p className="text-xl font-bold text-primary font-mono tracking-tighter tabular-nums underline decoration-primary decoration-wavy underline-offset-4">GHS {Number(shopDetails.available_balance || 0).toFixed(2)}</p>
                     </div>
                   </div>
                 </div>
 
                 {/* Manual Balance Adjustment */}
                 <div className="p-4 rounded-xl bg-card border border-border shadow-sm transition-all duration-300 hover:shadow-md group">
-                  <h3 className="text-sm font-bold text-indigo-900 mb-4 flex items-center gap-2">
-                    <div className="p-1 rounded bg-indigo-100 group-hover:bg-indigo-200 transition-colors">
-                      <TrendingDown className="w-3.5 h-3.5 text-indigo-600" />
+                  <h3 className="text-sm font-bold text-primary mb-4 flex items-center gap-2">
+                    <div className="p-1 rounded bg-primary/10 group-hover:bg-primary/10 transition-colors">
+                      <TrendingDown className="w-3.5 h-3.5 text-primary" />
                     </div>
                     Manual Balance Adjustment
                   </h3>
                   <div className="grid gap-4">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1.5">
-                        <label className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest pl-1">Amount (GHS)</label>
+                        <label className="text-[10px] font-bold text-primary uppercase tracking-widest pl-1">Amount (GHS)</label>
                         <Input
                           type="number"
                           placeholder="0.00"
-                          className="font-mono h-9 border-border focus:border-border focus:ring-indigo-200 transition-all bg-card/50"
+                          className="font-mono h-9 border-border focus:border-border focus:ring-primary transition-all bg-card/50"
                           id="manual-adj-amount"
                         />
                       </div>
                       <div className="space-y-1.5">
-                        <label className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest pl-1">Description / Reason</label>
+                        <label className="text-[10px] font-bold text-primary uppercase tracking-widest pl-1">Description / Reason</label>
                         <Input
                           placeholder="Reason for adjustment..."
-                          className="h-9 border-border focus:border-border focus:ring-indigo-200 transition-all bg-card/50"
+                          className="h-9 border-border focus:border-border focus:ring-primary transition-all bg-card/50"
                           id="manual-adj-notes"
                         />
                       </div>
@@ -456,7 +456,7 @@ export default function AdminShopsPage() {
                     <div className="flex flex-col sm:flex-row gap-2.5">
                       <Button
                         size="sm"
-                        className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm shadow-indigo-200 h-9 font-bold tracking-tight transition-all active:scale-[0.98]"
+                        className="flex-1 bg-primary hover:bg-primary text-primary-foreground shadow-sm shadow-primary h-9 font-bold tracking-tight transition-all active:scale-[0.98]"
                         onClick={async () => {
                           const amount = (document.getElementById("manual-adj-amount") as HTMLInputElement).value
                           const notes = (document.getElementById("manual-adj-notes") as HTMLInputElement).value
@@ -479,7 +479,7 @@ export default function AdminShopsPage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        className="flex-1 border-border text-rose-600 hover:bg-rose-50 hover:border-border h-9 font-bold tracking-tight transition-all active:scale-[0.98]"
+                        className="flex-1 border-border text-destructive hover:bg-destructive/10 hover:border-border h-9 font-bold tracking-tight transition-all active:scale-[0.98]"
                         onClick={async () => {
                           const amount = (document.getElementById("manual-adj-amount") as HTMLInputElement).value
                           const notes = (document.getElementById("manual-adj-notes") as HTMLInputElement).value
@@ -506,20 +506,20 @@ export default function AdminShopsPage() {
                 {/* Block / Unblock — only for active shops */}
                 {selectedShop?.is_active && (
                   <div className="p-4 rounded-xl bg-card border border-border shadow-sm space-y-3">
-                    <h3 className="text-sm font-bold text-red-900 flex items-center gap-2">
-                      <ShieldOff className="w-3.5 h-3.5 text-red-600" />
+                    <h3 className="text-sm font-bold text-destructive flex items-center gap-2">
+                      <ShieldOff className="w-3.5 h-3.5 text-destructive" />
                       Temporary Block
                     </h3>
                     {shopDetails?.shop.is_blocked ? (
                       <div className="space-y-2">
-                        <p className="text-xs text-red-700">
+                        <p className="text-xs text-destructive">
                           <span className="font-semibold">Current reason:</span> {shopDetails.shop.block_reason || "—"}
                         </p>
                         <Button
                           size="sm"
                           disabled={blockLoading}
                           onClick={() => handleUnblock(selectedShop.id)}
-                          className="bg-green-600 hover:bg-green-700 text-white w-full"
+                          className="bg-success hover:bg-success/90 text-primary-foreground w-full"
                         >
                           <ShieldCheck className="w-4 h-4 mr-2" />
                           Unblock Shop
@@ -537,7 +537,7 @@ export default function AdminShopsPage() {
                           size="sm"
                           disabled={blockLoading || !blockReason.trim()}
                           onClick={() => handleBlock(selectedShop.id)}
-                          className="bg-red-600 hover:bg-red-700 text-white w-full"
+                          className="bg-destructive hover:bg-destructive/90 text-primary-foreground w-full"
                         >
                           <ShieldOff className="w-4 h-4 mr-2" />
                           Block Shop
@@ -552,14 +552,14 @@ export default function AdminShopsPage() {
                   <div className="flex flex-col sm:flex-row gap-2 border-t pt-4">
                     <Button
                       onClick={() => handleApprove(selectedShop!.id)}
-                      className="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
+                      className="flex-1 bg-success hover:bg-success/90"
                     >
                       <CheckCircle className="w-4 h-4 mr-2" />
                       Approve Shop
                     </Button>
                     <Button
                       onClick={() => handleReject(selectedShop!.id)}
-                      className="flex-1 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700"
+                      className="flex-1 bg-destructive hover:bg-destructive/90"
                     >
                       <XCircle className="w-4 h-4 mr-2" />
                       Reject Shop

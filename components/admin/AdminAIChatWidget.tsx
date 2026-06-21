@@ -233,17 +233,17 @@ export function AdminAIChatWidget() {
   }
 
   function buttonClass(style?: string) {
-    if (style === "danger") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-border bg-red-50 text-red-700 hover:bg-red-100 transition-colors"
+    if (style === "danger") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors"
     if (style === "secondary") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-border bg-card text-muted-foreground hover:bg-accent transition-colors"
-    return "px-3 py-1.5 rounded-xl text-xs font-medium border border-gray-600 bg-gray-800 text-gray-100 hover:bg-gray-700 transition-colors"
+    return "px-3 py-1.5 rounded-xl text-xs font-medium border border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 transition-colors"
   }
 
   return (
     <>
       {isOpen && (
         <div className="fixed inset-0 z-[60] flex bg-black/50 backdrop-blur-sm sm:items-center sm:justify-center sm:p-4" onClick={() => setIsOpen(false)}>
-          <div className="w-full h-full sm:h-[85vh] sm:max-h-[700px] sm:w-[460px] sm:max-w-[calc(100vw-2rem)] bg-black/25 backdrop-blur-3xl backdrop-saturate-150 sm:rounded-2xl border border-white/12 shadow-[inset_0_1px_0_rgba(255,255,255,0.18),inset_0_-1px_0_rgba(0,0,0,0.3),0_32px_64px_rgba(0,0,0,0.35),0_4px_16px_rgba(0,0,0,0.2)] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
-          <div className="bg-black/30 backdrop-blur-sm text-white px-4 py-3 flex items-center justify-between flex-shrink-0 border-b border-white/10">
+          <div className="w-full h-full sm:h-[85vh] sm:max-h-[700px] sm:w-[460px] sm:max-w-[calc(100vw-2rem)] bg-card/80 backdrop-blur-3xl backdrop-saturate-150 sm:rounded-2xl border border-border shadow-[0_32px_64px_rgba(0,0,0,0.35)] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-muted/60 backdrop-blur-sm text-foreground px-4 py-3 flex items-center justify-between flex-shrink-0 border-b border-border">
             <div>
               <p className="font-semibold text-sm">Admin AI Assistant</p>
               <p className="text-muted-foreground text-xs">Full platform access</p>
@@ -256,12 +256,12 @@ export function AdminAIChatWidget() {
                   setActionButtons(null)
                   if (userId) { try { localStorage.removeItem(STORAGE_KEY(userId)) } catch {} }
                 }}
-                className="text-muted-foreground hover:text-white transition-colors"
+                className="text-muted-foreground hover:text-foreground transition-colors"
                 title="Clear chat"
               >
                 <Trash2 size={15} />
               </button>
-              <button onClick={() => setIsOpen(false)} className="text-muted-foreground hover:text-white transition-colors">
+              <button onClick={() => setIsOpen(false)} className="text-muted-foreground hover:text-foreground transition-colors">
                 <X size={18} />
               </button>
             </div>
@@ -282,9 +282,9 @@ export function AdminAIChatWidget() {
                       </ReactMarkdown>
                     ) : (
                       <span className="flex gap-1.5 items-center h-4">
-                        <span className="w-2 h-2 bg-gray-500 rounded-full animate-thinking" style={{ animationDelay: "0ms" }} />
-                        <span className="w-2 h-2 bg-gray-500 rounded-full animate-thinking" style={{ animationDelay: "200ms" }} />
-                        <span className="w-2 h-2 bg-gray-500 rounded-full animate-thinking" style={{ animationDelay: "400ms" }} />
+                        <span className="w-2 h-2 bg-muted-foreground/40 rounded-full animate-thinking" style={{ animationDelay: "0ms" }} />
+                        <span className="w-2 h-2 bg-muted-foreground/40 rounded-full animate-thinking" style={{ animationDelay: "200ms" }} />
+                        <span className="w-2 h-2 bg-muted-foreground/40 rounded-full animate-thinking" style={{ animationDelay: "400ms" }} />
                       </span>
                     )}
                   </div>
@@ -317,7 +317,7 @@ export function AdminAIChatWidget() {
             {showScrollBtn && (
               <button
                 onClick={scrollToBottom}
-                className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-card/20 backdrop-blur-sm border border-white/30 text-white shadow-lg hover:bg-card/30 transition-all hover:scale-110 active:scale-95"
+                className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-muted backdrop-blur-sm border border-border text-foreground shadow-lg hover:bg-accent transition-all hover:scale-110 active:scale-95"
                 aria-label="Scroll to bottom"
               >
                 <ChevronDown size={16} />
@@ -325,7 +325,7 @@ export function AdminAIChatWidget() {
             )}
           </div>
 
-          <div className="border-t border-white/10 bg-black/15 backdrop-blur-sm px-3 py-3 flex items-center gap-2 flex-shrink-0">
+          <div className="border-t border-border bg-card/80 backdrop-blur-sm px-3 py-3 flex items-center gap-2 flex-shrink-0">
             <input
               ref={inputRef}
               value={input}
@@ -333,12 +333,12 @@ export function AdminAIChatWidget() {
               onKeyDown={handleKeyDown}
               disabled={isStreaming}
               placeholder="Ask anything..."
-              className="flex-1 text-sm bg-card/10 border border-white/18 text-white rounded-xl px-3 py-2 outline-none focus:border-white/35 focus:bg-card/15 disabled:opacity-50 transition-all placeholder:text-muted-foreground"
+              className="flex-1 text-sm bg-muted/40 border border-border text-foreground rounded-xl px-3 py-2 outline-none focus:border-primary/80 focus:bg-card disabled:opacity-50 transition-all placeholder:text-muted-foreground"
             />
             <button
               onClick={() => sendMessage()}
               disabled={isStreaming || !input.trim()}
-              className="bg-gray-900 hover:bg-gray-700 disabled:opacity-40 text-white rounded-xl p-2 transition-colors flex-shrink-0"
+              className="bg-primary hover:bg-primary/90 disabled:opacity-40 text-primary-foreground rounded-xl p-2 transition-colors flex-shrink-0"
             >
               <Send size={16} />
             </button>
@@ -370,20 +370,20 @@ export function AdminAIChatWidget() {
 
       <div className="relative">
         {!isOpen && (
-          <span className="absolute inset-0 rounded-full bg-amber-500 animate-ping opacity-15 pointer-events-none" />
+          <span className="absolute inset-0 rounded-full bg-primary animate-ping opacity-15 pointer-events-none" />
         )}
         <button
           onClick={() => setIsOpen(o => !o)}
-          className="relative flex items-center gap-2 bg-amber-600 border border-amber-400/60 text-white rounded-full px-5 py-2.5 shadow-lg shadow-amber-500/30 hover:shadow-amber-500/50 hover:bg-amber-500 hover:border-border transition-all duration-300 hover:scale-105 active:scale-95"
+          className="relative flex items-center gap-2 bg-primary border border-primary/60 text-primary-foreground rounded-full px-5 py-2.5 shadow-lg shadow-primary/30 hover:shadow-primary/50 hover:bg-primary/90 hover:border-border transition-all duration-300 hover:scale-105 active:scale-95"
           aria-label="Open admin AI assistant"
         >
           {isOpen
             ? <X size={18} />
-            : <><Sparkles size={17} className="text-amber-100" /><span className="text-sm font-semibold">Ask</span></>
+            : <><Sparkles size={17} className="text-primary-foreground/70" /><span className="text-sm font-semibold">Ask</span></>
           }
         </button>
       </div>
-    </div>
+      </div>
     </>
   )
 }

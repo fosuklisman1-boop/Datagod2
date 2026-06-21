@@ -281,15 +281,15 @@ export default function AdminUssdShopsPage() {
   }
 
   const statusBadge = (status: string) => {
-    if (status === 'active') return <Badge className="bg-green-100 text-green-800 border-border">Active</Badge>
-    if (status === 'suspended') return <Badge className="bg-yellow-100 text-yellow-800 border-border">Suspended</Badge>
+    if (status === 'active') return <Badge className="bg-success/15 text-success border-border">Active</Badge>
+    if (status === 'suspended') return <Badge className="bg-warning/15 text-warning border-border">Suspended</Badge>
     return <Badge className="bg-muted text-muted-foreground border-border">Inactive</Badge>
   }
 
   const paymentBadge = (status: string) => {
-    if (status === 'completed') return <Badge className="bg-green-100 text-green-800 text-xs">Paid</Badge>
-    if (status === 'failed') return <Badge className="bg-red-100 text-red-800 text-xs">Failed</Badge>
-    if (status === 'otp_required') return <Badge className="bg-yellow-100 text-yellow-800 text-xs">OTP</Badge>
+    if (status === 'completed') return <Badge className="bg-success/15 text-success text-xs">Paid</Badge>
+    if (status === 'failed') return <Badge className="bg-destructive/15 text-destructive text-xs">Failed</Badge>
+    if (status === 'otp_required') return <Badge className="bg-warning/15 text-warning text-xs">OTP</Badge>
     return <Badge className="bg-muted text-muted-foreground text-xs">Pending</Badge>
   }
 
@@ -440,7 +440,7 @@ export default function AdminUssdShopsPage() {
                     {codes.filter(c => c.activation_fee_paid && c.status === 'active').length}
                   </p>
                 </div>
-                <ShieldCheck className="w-8 h-8 text-green-500 opacity-80 shrink-0" />
+                <ShieldCheck className="w-8 h-8 text-success opacity-80 shrink-0" />
               </div>
             </CardContent>
           </Card>
@@ -466,7 +466,7 @@ export default function AdminUssdShopsPage() {
                     GH¢{activationRevenue.toFixed(2)}
                   </p>
                 </div>
-                <Banknote className="w-8 h-8 text-yellow-500 opacity-80 shrink-0" />
+                <Banknote className="w-8 h-8 text-warning opacity-80 shrink-0" />
               </div>
             </CardContent>
           </Card>
@@ -479,7 +479,7 @@ export default function AdminUssdShopsPage() {
                     {codes.filter(c => c.status === 'active').reduce((sum, c) => sum + (c.token_balance ?? 0), 0).toLocaleString()}
                   </p>
                 </div>
-                <Database className="w-8 h-8 text-purple-500 opacity-80 shrink-0" />
+                <Database className="w-8 h-8 text-primary opacity-80 shrink-0" />
               </div>
             </CardContent>
           </Card>
@@ -492,7 +492,7 @@ export default function AdminUssdShopsPage() {
                     GH¢{todayActivationRevenue.toFixed(2)}
                   </p>
                 </div>
-                <Banknote className="w-8 h-8 text-orange-500 opacity-80 shrink-0" />
+                <Banknote className="w-8 h-8 text-warning opacity-80 shrink-0" />
               </div>
             </CardContent>
           </Card>
@@ -550,11 +550,11 @@ export default function AdminUssdShopsPage() {
                             </td>
                             <td className="py-3 pr-4">{statusBadge(code.status)}</td>
                             <td className="py-3 pr-4">
-                              <span className={`font-bold ${code.token_balance <= 5 ? 'text-red-600' : 'text-foreground'}`}>
+                              <span className={`font-bold ${code.token_balance <= 5 ? 'text-destructive' : 'text-foreground'}`}>
                                 {code.token_balance}
                               </span>
                               {code.token_balance <= 5 && code.token_balance > 0 && (
-                                <span className="text-xs text-red-500 ml-1">low</span>
+                                <span className="text-xs text-destructive ml-1">low</span>
                               )}
                             </td>
                             <td className="py-3 pr-4 text-muted-foreground">{code.order_count}</td>
@@ -563,7 +563,7 @@ export default function AdminUssdShopsPage() {
                                 {!code.activation_fee_paid && (
                                   <Button
                                     size="sm" variant="outline"
-                                    className="h-7 text-xs border-border text-green-700 hover:bg-green-50"
+                                    className="h-7 text-xs border-border text-success hover:bg-success/10"
                                     onClick={() => { setActivateTarget(code); setShowActivate(true) }}
                                   >
                                     <CheckCircle className="w-3 h-3 mr-1" /> Activate
@@ -579,7 +579,7 @@ export default function AdminUssdShopsPage() {
                                 {code.activation_fee_paid && (
                                   <Button
                                     size="sm" variant="outline"
-                                    className={`h-7 text-xs ${code.status === 'active' ? 'border-border text-yellow-700 hover:bg-yellow-50' : 'border-border text-green-700 hover:bg-green-50'}`}
+                                    className={`h-7 text-xs ${code.status === 'active' ? 'border-border text-warning hover:bg-warning/10' : 'border-border text-success hover:bg-success/10'}`}
                                     onClick={() => handleStatusToggle(code)}
                                   >
                                     <PauseCircle className="w-3 h-3 mr-1" />
@@ -588,7 +588,7 @@ export default function AdminUssdShopsPage() {
                                 )}
                                 <Button
                                   size="sm" variant="outline"
-                                  className="h-7 text-xs border-border text-red-600 hover:bg-red-50"
+                                  className="h-7 text-xs border-border text-destructive hover:bg-destructive/10"
                                   onClick={() => handleDelete(code)}
                                 >
                                   <Trash2 className="w-3 h-3" />
@@ -632,7 +632,7 @@ export default function AdminUssdShopsPage() {
                         {codes.filter(c => c.status === 'active').map(code => (
                           <tr key={code.id} className="border-b last:border-0 hover:bg-accent">
                             <td className="py-3 pr-4">
-                              <code className="bg-green-50 text-green-800 font-mono font-bold text-base px-2 py-1 rounded border border-border">
+                              <code className="bg-success/10 text-success font-mono font-bold text-base px-2 py-1 rounded border border-border">
                                 {code.code}
                               </code>
                             </td>
@@ -640,14 +640,14 @@ export default function AdminUssdShopsPage() {
                               <span className="font-medium text-foreground">{code.shop_name}</span>
                             </td>
                             <td className="py-3 pr-4">
-                              <span className={`font-bold ${code.token_balance <= 5 ? 'text-red-600' : 'text-foreground'}`}>
+                              <span className={`font-bold ${code.token_balance <= 5 ? 'text-destructive' : 'text-foreground'}`}>
                                 {code.token_balance}
                               </span>
                               {code.token_balance <= 5 && code.token_balance > 0 && (
-                                <span className="text-xs text-red-500 ml-1">low</span>
+                                <span className="text-xs text-destructive ml-1">low</span>
                               )}
                               {code.token_balance === 0 && (
-                                <span className="text-xs text-red-500 ml-1">empty</span>
+                                <span className="text-xs text-destructive ml-1">empty</span>
                               )}
                             </td>
                             <td className="py-3 pr-4 text-muted-foreground">{code.order_count}</td>
@@ -662,7 +662,7 @@ export default function AdminUssdShopsPage() {
                                 </Button>
                                 <Button
                                   size="sm" variant="outline"
-                                  className="h-7 text-xs border-border text-yellow-700 hover:bg-yellow-50"
+                                  className="h-7 text-xs border-border text-warning hover:bg-warning/10"
                                   onClick={() => handleStatusToggle(code)}
                                 >
                                   <PauseCircle className="w-3 h-3 mr-1" /> Suspend
@@ -842,7 +842,7 @@ export default function AdminUssdShopsPage() {
             <div className="flex gap-2 pt-2">
               <Button variant="outline" onClick={() => setShowActivate(false)} className="flex-1">Cancel</Button>
               <Button onClick={handleActivate} disabled={activating}
-                className="flex-1 bg-green-600 hover:bg-green-700">
+                className="flex-1 bg-success hover:bg-success/90 text-primary-foreground">
                 {activating ? "Activating..." : "Activate Shop"}
               </Button>
             </div>

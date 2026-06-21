@@ -36,24 +36,24 @@ export function BottomNav() {
   // Colour tokens — admin theme only applies when inside /admin pages.
   // Dealer uses the "Bold Telco" fuchsia/purple accent; everyone else the Fintech primary.
   const activeColor = isAdmin && onAdminPage
-    ? "text-violet-600 dark:text-violet-400"
+    ? "text-primary dark:text-primary"
     : isDealer
-      ? "text-fuchsia-600 dark:text-fuchsia-400"
+      ? "text-primary dark:text-primary"
       : "text-primary"
 
   const fabGradient = isAdmin && onAdminPage
-    ? "bg-card0 to-violet-700 ring-4 ring-violet-100 dark:ring-violet-900"
+    ? "bg-gradient-to-br from-primary to-brand-accent ring-4 ring-primary/15"
     : isDealer
-      ? "bg-card0 to-purple-700 ring-4 ring-fuchsia-100 dark:ring-fuchsia-900"
-      : "bg-gradient-to-br from-primary to-violet-600 ring-4 ring-primary/15"
+      ? "bg-gradient-to-br from-primary to-brand-accent ring-4 ring-primary/15"
+      : "bg-gradient-to-br from-primary to-brand-accent ring-4 ring-primary/15"
 
   const fabLabelColor = isAdmin && onAdminPage
-    ? "text-violet-600"
-    : isDealer ? "text-fuchsia-600" : "text-primary"
+    ? "text-primary"
+    : isDealer ? "text-primary" : "text-primary"
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-card border-t border-border shadow-[0_-4px_20px_rgba(0,0,0,0.08)]"
+      className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-card border-t border-border shadow-[0_-4px_20px_hsl(var(--foreground)/0.08)]"
       style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
     >
       <div className="flex items-end justify-around h-16 px-1">
@@ -72,7 +72,7 @@ export function BottomNav() {
                   "-mt-6 mb-0.5 w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-transform active:scale-95",
                   fabGradient
                 )}>
-                  <Icon className="w-7 h-7 text-white" />
+                  <Icon className="w-7 h-7 text-primary-foreground" />
                 </div>
                 <span className={cn(
                   "text-[10px] font-medium",

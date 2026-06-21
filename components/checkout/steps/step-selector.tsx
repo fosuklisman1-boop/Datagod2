@@ -31,7 +31,7 @@ const getNetworkColor = (slug: string): string => {
     'airtel-tigo': 'border-green-400 hover:border-green-500 bg-green-50/30',
     'at-mobile': 'border-blue-400 hover:border-primary bg-primary/5',
   }
-  return colors[slug] || 'border-border hover:border-gray-400 bg-muted/40'
+  return colors[slug] || 'border-border hover:border-border bg-muted/40'
 }
 
 export const StepSelector: React.FC<StepSelectorProps> = ({
@@ -118,7 +118,7 @@ export const StepSelector: React.FC<StepSelectorProps> = ({
       {networks.length === 0 && (
         <Card className="border-dashed">
           <CardContent className="pt-12 pb-12 text-center">
-            <Network className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+            <Network className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
             <p className="text-sm text-muted-foreground">No networks available</p>
           </CardContent>
         </Card>

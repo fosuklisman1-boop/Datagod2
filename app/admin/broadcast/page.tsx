@@ -280,7 +280,7 @@ export default function BroadcastPage() {
         return (
             <DashboardLayout>
                 <div className="flex items-center justify-center h-64">
-                    <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+                    <Loader2 className="w-8 h-8 animate-spin text-success" />
                 </div>
             </DashboardLayout>
         )
@@ -292,7 +292,7 @@ export default function BroadcastPage() {
                 <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
                         <div className="flex items-center gap-3 mb-2">
-                            <div className="p-2 bg-card0 to-rose-600 rounded-lg text-white">
+                            <div className="p-2 bg-primary rounded-lg text-primary-foreground">
                                 <Send className="w-6 h-6" />
                             </div>
                             <h1 className="text-3xl font-bold bg-gradient-to-r from-pink-600 to-rose-600 bg-clip-text text-transparent">
@@ -318,10 +318,10 @@ export default function BroadcastPage() {
                             <CardHeader>
                                 <CardTitle className="text-lg flex items-center justify-between">
                                     <div className="flex items-center gap-2">
-                                        <Users className="w-5 h-5 text-emerald-600" />
+                                        <Users className="w-5 h-5 text-success" />
                                         Recipients
                                     </div>
-                                    <Badge variant="secondary" className="bg-emerald-100 text-emerald-700">
+                                    <Badge variant="secondary" className="bg-success/15 text-success">
                                         {recipientCount} Users
                                     </Badge>
                                 </CardTitle>
@@ -331,13 +331,13 @@ export default function BroadcastPage() {
                                 <div className="flex gap-2 p-1 bg-muted rounded-lg">
                                     <button
                                         onClick={() => setTargetType("roles")}
-                                        className={`flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all ${targetType === "roles" ? "bg-card shadow-sm text-emerald-600" : "text-muted-foreground hover:text-foreground"}`}
+                                        className={`flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all ${targetType === "roles" ? "bg-card shadow-sm text-success" : "text-muted-foreground hover:text-foreground"}`}
                                     >
                                         By Group
                                     </button>
                                     <button
                                         onClick={() => setTargetType("specific")}
-                                        className={`flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all ${targetType === "specific" ? "bg-card shadow-sm text-emerald-600" : "text-muted-foreground hover:text-foreground"}`}
+                                        className={`flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all ${targetType === "specific" ? "bg-card shadow-sm text-success" : "text-muted-foreground hover:text-foreground"}`}
                                     >
                                         Specific Users
                                     </button>
@@ -348,14 +348,14 @@ export default function BroadcastPage() {
                                         <div className="flex justify-end">
                                             <button
                                                 onClick={handleSelectAllRoles}
-                                                className="text-xs text-emerald-600 hover:text-emerald-700 font-medium border border-border hover:border-emerald-400 rounded px-2 py-0.5 transition-colors"
+                                                className="text-xs text-success hover:text-success font-medium border border-border hover:border-success/30 rounded px-2 py-0.5 transition-colors"
                                             >
                                                 {selectedRoles.length === 4 ? "Deselect All" : "Select All"}
                                             </button>
                                         </div>
                                         <div className="grid grid-cols-2 gap-2">
                                             {["admin", "shop_owner", "sub_agent", "user"].map(role => (
-                                                <label key={role} className={`flex items-center gap-2 p-2 border rounded-lg cursor-pointer transition-all ${selectedRoles.includes(role) ? "bg-emerald-50 border-emerald-500" : "hover:bg-accent"}`}>
+                                                <label key={role} className={`flex items-center gap-2 p-2 border rounded-lg cursor-pointer transition-all ${selectedRoles.includes(role) ? "bg-success/10 border-success/30" : "hover:bg-accent"}`}>
                                                     <Checkbox
                                                         checked={selectedRoles.includes(role)}
                                                         onCheckedChange={() => handleToggleRole(role)}
@@ -392,7 +392,7 @@ export default function BroadcastPage() {
                                         </div>
                                         <div className="flex flex-wrap gap-2">
                                             {selectedUsers.map(user => (
-                                                <Badge key={user.id} className="bg-emerald-100 text-emerald-700 hover:bg-emerald-200 border-none px-2 py-1 flex items-center gap-1">
+                                                <Badge key={user.id} className="bg-success/15 text-success hover:bg-success/20 border-none px-2 py-1 flex items-center gap-1">
                                                     {user.email || user.phone_number}
                                                     <X className="w-3 h-3 cursor-pointer" onClick={() => handleRemoveUser(user.id)} />
                                                 </Badge>
@@ -420,22 +420,22 @@ export default function BroadcastPage() {
                                         </div>
                                         <Mail className="ml-auto w-5 h-5 text-pink-400" />
                                     </label>
-                                    <label className={`flex-1 flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all ${channels.includes("sms") ? "bg-emerald-50 border-emerald-500" : "hover:bg-accent"}`}>
+                                    <label className={`flex-1 flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all ${channels.includes("sms") ? "bg-success/10 border-success/30" : "hover:bg-accent"}`}>
                                         <Checkbox checked={channels.includes("sms")} onCheckedChange={(val) => setChannels(prev => val ? [...prev, "sms"] : prev.filter(c => c !== "sms"))} />
                                         <div className="flex flex-col">
-                                            <span className="font-semibold text-emerald-700">SMS</span>
+                                            <span className="font-semibold text-success">SMS</span>
                                             <span className="text-xs text-muted-foreground">Fast delivery</span>
                                         </div>
-                                        <MessageSquare className="ml-auto w-5 h-5 text-emerald-400" />
+                                        <MessageSquare className="ml-auto w-5 h-5 text-success" />
                                     </label>
                                 </div>
-                                <label className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all ${channels.includes("push") ? "bg-violet-50 border-violet-500" : "hover:bg-accent"}`}>
+                                <label className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all ${channels.includes("push") ? "bg-primary/10 border-primary" : "hover:bg-accent"}`}>
                                     <Checkbox checked={channels.includes("push")} onCheckedChange={(val) => setChannels(prev => val ? [...prev, "push"] : prev.filter(c => c !== "push"))} />
                                     <div className="flex flex-col">
-                                        <span className="font-semibold text-violet-700">Push Notification</span>
+                                        <span className="font-semibold text-primary">Push Notification</span>
                                         <span className="text-xs text-muted-foreground">In-browser notification — only reaches users who have allowed notifications</span>
                                     </div>
-                                    <Bell className="ml-auto w-5 h-5 text-violet-400" />
+                                    <Bell className="ml-auto w-5 h-5 text-primary" />
                                 </label>
                                 <label className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all ${channels.includes("whatsapp") ? "bg-green-50 border-green-500" : "hover:bg-accent"}`}>
                                     <Checkbox checked={channels.includes("whatsapp")} onCheckedChange={(val) => setChannels(prev => val ? [...prev, "whatsapp"] : prev.filter(c => c !== "whatsapp"))} />
@@ -493,7 +493,7 @@ export default function BroadcastPage() {
                                         </div>
                                         <div className="h-2 bg-muted rounded-full overflow-hidden">
                                             <div
-                                                className="h-full bg-card0 to-rose-600 transition-all duration-300"
+                                                className="h-full bg-primary transition-all duration-300"
                                                 style={{ width: `${progress.percentage}%` }}
                                             />
                                         </div>
@@ -512,10 +512,10 @@ export default function BroadcastPage() {
                         </Card>
 
                         {results && (
-                            <Card className="border-border bg-emerald-50/50">
+                            <Card className="border-border bg-success/10">
                                 <CardHeader className="pb-2">
                                     <CardTitle className="text-sm flex items-center gap-2">
-                                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                                        <CheckCircle2 className="w-4 h-4 text-success" />
                                         Broadcast Results
                                     </CardTitle>
                                 </CardHeader>
@@ -523,19 +523,19 @@ export default function BroadcastPage() {
                                     <div className="grid grid-cols-2 gap-4 text-sm">
                                         <div className="p-3 bg-card rounded-lg border">
                                             <p className="text-muted-foreground text-xs">Email Delivery</p>
-                                            <p className="text-xl font-bold text-emerald-600">
+                                            <p className="text-xl font-bold text-success">
                                                 {results.email?.sent ?? 0} <span className="text-xs text-muted-foreground">/ {results.total}</span>
                                             </p>
                                         </div>
                                         <div className="p-3 bg-card rounded-lg border">
                                             <p className="text-muted-foreground text-xs">SMS Delivery</p>
-                                            <p className="text-xl font-bold text-emerald-600">
+                                            <p className="text-xl font-bold text-success">
                                                 {results.sms?.sent ?? 0} <span className="text-xs text-muted-foreground">/ {results.total}</span>
                                             </p>
                                         </div>
                                         <div className="p-3 bg-card rounded-lg border">
                                             <p className="text-muted-foreground text-xs">WhatsApp Delivery</p>
-                                            <p className="text-xl font-bold text-emerald-600">
+                                            <p className="text-xl font-bold text-success">
                                                 {results.whatsapp?.sent ?? 0} <span className="text-xs text-muted-foreground">/ {results.total}</span>
                                             </p>
                                         </div>

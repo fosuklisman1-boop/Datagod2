@@ -100,7 +100,7 @@ export default function RateLimitsPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2">
-              <Shield className="w-6 h-6 text-red-500" />
+              <Shield className="w-6 h-6 text-destructive" />
               Rate Limit Blocks
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
@@ -179,7 +179,7 @@ export default function RateLimitsPage() {
               </div>
             ) : blocks.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
-                <Shield className="w-10 h-10 mx-auto mb-3 text-gray-300" />
+                <Shield className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
                 <p>No rate limit blocks found.</p>
               </div>
             ) : (

@@ -109,7 +109,7 @@ export const StepReview: React.FC<StepReviewProps> = ({
                     {selectedPackage.package_type === 'data' ? (
                       <Database className="h-4 w-4 text-primary" />
                     ) : (
-                      <Zap className="h-4 w-4 text-yellow-500" />
+                      <Zap className="h-4 w-4 text-warning" />
                     )}
                     <span className="font-semibold">{selectedPackage.name}</span>
                   </div>

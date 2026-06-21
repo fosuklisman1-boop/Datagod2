@@ -617,14 +617,14 @@ export default function MyShopPage() {
       <DashboardLayout>
         <div className="space-y-6">
           <div>
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 bg-clip-text text-transparent">My Shop</h1>
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary via-primary to-primary bg-clip-text text-transparent">My Shop</h1>
             <p className="text-muted-foreground mt-1">Create your store and start reselling data packages</p>
           </div>
 
           {dbError && (
-            <Alert className="border-border bg-red-50">
-              <AlertCircle className="h-4 w-4 text-red-600" />
-              <AlertDescription className="text-red-700">
+            <Alert className="border-border bg-destructive/10">
+              <AlertCircle className="h-4 w-4 text-destructive" />
+              <AlertDescription className="text-destructive">
                 {dbError}
                 <div className="mt-2 text-xs">
                   Run the SQL schema from <code className="bg-red-100 px-1 rounded">lib/shop-schema.sql</code> in your Supabase SQL Editor to set up tables.
@@ -636,7 +636,7 @@ export default function MyShopPage() {
           <Card className="bg-card backdrop-blur-xl border border-border">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Store className="w-5 h-5 text-emerald-600" />
+                <Store className="w-5 h-5 text-success" />
                 Create Your Shop
               </CardTitle>
               <CardDescription>Get started selling data packages to your customers</CardDescription>
@@ -731,7 +731,7 @@ export default function MyShopPage() {
                   }
                 }}
                 disabled={loading}
-                className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 font-semibold"
+                className="w-full bg-success hover:bg-success/90 font-semibold"
               >
                 {loading ? "Creating..." : "Create Shop"}
               </Button>
@@ -747,7 +747,7 @@ export default function MyShopPage() {
       <div className="space-y-6">
         {/* Header */}
         <div>
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 bg-clip-text text-transparent">My Shop</h1>
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary via-primary to-primary bg-clip-text text-transparent">My Shop</h1>
           <p className="text-sm sm:text-base text-muted-foreground mt-1">Manage your store and resell data packages</p>
         </div>
 
@@ -767,7 +767,7 @@ export default function MyShopPage() {
                 <CardDescription className="mt-1 sm:mt-2 text-sm">{shop.description || "No description"}</CardDescription>
               </div>
             </div>
-            <Badge className="bg-gradient-to-r from-green-600 to-emerald-600">
+            <Badge className="bg-success">
               {shop.is_active ? "Active" : "Inactive"}
             </Badge>
           </CardHeader>
@@ -779,7 +779,7 @@ export default function MyShopPage() {
                   size="sm"
                   variant="ghost"
                   onClick={copyShopLink}
-                  className="hover:bg-violet-100 flex-1 sm:flex-none"
+                  className="hover:bg-primary flex-1 sm:flex-none"
                 >
                   <Copy className="w-4 h-4" />
                 </Button>
@@ -787,7 +787,7 @@ export default function MyShopPage() {
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="hover:bg-violet-100"
+                    className="hover:bg-primary"
                   >
                     <ExternalLink className="w-4 h-4" />
                   </Button>
@@ -798,11 +798,11 @@ export default function MyShopPage() {
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 pt-4">
               <div className="p-3 bg-card/40 rounded-lg border border-white/20">
                 <p className="text-xs text-muted-foreground">Total Products</p>
-                <p className="text-2xl font-bold text-violet-600">{packages.length}</p>
+                <p className="text-2xl font-bold text-primary">{packages.length}</p>
               </div>
               <div className="p-3 bg-card/40 rounded-lg border border-white/20">
                 <p className="text-xs text-muted-foreground">Shop Status</p>
-                <Badge className={shop?.is_active ? "bg-green-600" : "bg-orange-600"}>
+                <Badge className={shop?.is_active ? "bg-success" : "bg-warning"}>
                   {shop?.is_active ? "Active" : "Pending Approval"}
                 </Badge>
               </div>
@@ -813,9 +813,9 @@ export default function MyShopPage() {
             </div>
 
             {!shop?.is_active && (
-              <Alert className="border-border bg-orange-50">
-                <AlertCircle className="h-4 w-4 text-orange-600" />
-                <AlertDescription className="text-xs text-orange-700">
+              <Alert className="border-border bg-warning/10">
+                <AlertCircle className="h-4 w-4 text-warning" />
+                <AlertDescription className="text-xs text-warning">
                   Your shop is pending admin approval. Once approved, you'll be able to accept customer orders and process payments.
                 </AlertDescription>
               </Alert>
@@ -824,7 +824,7 @@ export default function MyShopPage() {
             {!editingShop ? (
               <Button
                 onClick={() => setEditingShop(true)}
-                className="bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 w-full"
+                className="bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary w-full"
               >
                 Edit Shop
               </Button>
@@ -878,7 +878,7 @@ export default function MyShopPage() {
                   <Button
                     onClick={handleUpdateShop}
                     disabled={updatingShop}
-                    className="flex-1 bg-green-600 hover:bg-green-700"
+                    className="flex-1 bg-success hover:bg-success/90"
                   >
                     {updatingShop ? (
                       <>
@@ -1007,7 +1007,7 @@ export default function MyShopPage() {
         <Card className="bg-card backdrop-blur-xl border border-border">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <GraduationCap className="w-5 h-5 text-violet-600" />
+              <GraduationCap className="w-5 h-5 text-primary" />
               Results Checker Profit Markups
             </CardTitle>
             <CardDescription>Set your extra charge per voucher for WASSCE, BECE &amp; NOVDEC</CardDescription>
@@ -1019,7 +1019,7 @@ export default function MyShopPage() {
                   <Label htmlFor={`rc-markup-${board}`} className="flex justify-between">
                     <span>{board.toUpperCase()} Markup (GHS)</span>
                     {rcMaxMarkups[board] > 0 && (
-                      <span className="text-[10px] text-violet-500 font-medium">Max: GHS {rcMaxMarkups[board].toFixed(2)}</span>
+                      <span className="text-[10px] text-primary font-medium">Max: GHS {rcMaxMarkups[board].toFixed(2)}</span>
                     )}
                   </Label>
                   <Input
@@ -1044,13 +1044,13 @@ export default function MyShopPage() {
                 </div>
               ))}
             </div>
-            <p className="text-xs text-violet-500/80 bg-violet-50/50 p-2 rounded-lg border border-border">
+            <p className="text-xs text-primary/80 bg-primary/50 p-2 rounded-lg border border-border">
               This amount is added on top of the base voucher price. The maximum is set by the admin and enforced at checkout.
             </p>
             <Button
               onClick={handleSaveRcMarkups}
               disabled={savingRcMarkups}
-              className="w-full bg-violet-600 hover:bg-violet-700"
+              className="w-full bg-primary hover:bg-primary"
             >
               {savingRcMarkups ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving…</> : "Save Results Checker Markups"}
             </Button>
@@ -1061,7 +1061,7 @@ export default function MyShopPage() {
         <Card className="bg-card backdrop-blur-xl border border-border">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <ClipboardCheck className="w-5 h-5 text-violet-600" />
+              <ClipboardCheck className="w-5 h-5 text-primary" />
               Results Check Service Markup
             </CardTitle>
             <CardDescription>Set your extra charge on the &quot;Check My Results&quot; service fee</CardDescription>
@@ -1071,7 +1071,7 @@ export default function MyShopPage() {
               <Label htmlFor="rc-check-markup" className="flex justify-between">
                 <span>Markup (GHS)</span>
                 {rcCheckMaxMarkup > 0 && (
-                  <span className="text-[10px] text-violet-500 font-medium">Max: GHS {rcCheckMaxMarkup.toFixed(2)}</span>
+                  <span className="text-[10px] text-primary font-medium">Max: GHS {rcCheckMaxMarkup.toFixed(2)}</span>
                 )}
               </Label>
               <Input
@@ -1094,13 +1094,13 @@ export default function MyShopPage() {
                 className="mt-1"
               />
             </div>
-            <p className="text-xs text-violet-500/80 bg-violet-50/50 p-2 rounded-lg border border-border">
+            <p className="text-xs text-primary/80 bg-primary/50 p-2 rounded-lg border border-border">
               This amount is added on top of the base &quot;Check My Results&quot; fee. The maximum is set by the admin and enforced at checkout.
             </p>
             <Button
               onClick={handleSaveRcCheckMarkup}
               disabled={savingRcCheckMarkup}
-              className="w-full bg-violet-600 hover:bg-violet-700"
+              className="w-full bg-primary hover:bg-primary"
             >
               {savingRcCheckMarkup ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving…</> : "Save Results Check Markup"}
             </Button>
@@ -1111,7 +1111,7 @@ export default function MyShopPage() {
         <Card className="bg-card backdrop-blur-xl border border-border">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <MessageCircle className="w-5 h-5 text-green-600" />
+              <MessageCircle className="w-5 h-5 text-success" />
               WhatsApp Link
             </CardTitle>
             <CardDescription>Configure WhatsApp contact link for your customers</CardDescription>
@@ -1145,14 +1145,14 @@ export default function MyShopPage() {
             </div>
 
             {whatsappLink && (
-              <div className="p-3 bg-green-50 border border-border rounded-lg">
-                <p className="text-sm text-green-700">
+              <div className="p-3 bg-success/10 border border-border rounded-lg">
+                <p className="text-sm text-success">
                   <span className="font-semibold">Preview:</span>{" "}
                   <a
                     href={whatsappLink}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-green-600 hover:underline break-all"
+                    className="text-success hover:underline break-all"
                   >
                     {whatsappLink}
                   </a>
@@ -1166,7 +1166,7 @@ export default function MyShopPage() {
         <Card className="bg-card backdrop-blur-xl border border-border hover:border-border">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Megaphone className="w-5 h-5 text-violet-600" />
+              <Megaphone className="w-5 h-5 text-primary" />
               Storefront Announcement
             </CardTitle>
             <CardDescription>Display a pop-up message to customers on your store</CardDescription>
@@ -1184,7 +1184,7 @@ export default function MyShopPage() {
                 id="announcement-enabled"
                 checked={announcementEnabled}
                 onChange={(e) => setAnnouncementEnabled(e.target.checked)}
-                className="w-5 h-5 rounded border-border text-violet-600 focus:ring-violet-500"
+                className="w-5 h-5 rounded border-border text-primary focus:ring-primary"
               />
             </div>
 
@@ -1217,7 +1217,7 @@ export default function MyShopPage() {
             <Button
               onClick={handleSaveStorefrontSettings}
               disabled={savingSettings}
-              className="w-full bg-violet-600 hover:bg-violet-700 font-semibold"
+              className="w-full bg-primary hover:bg-primary font-semibold"
             >
               {savingSettings ? (
                 <>
@@ -1240,7 +1240,7 @@ export default function MyShopPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Package className="w-5 h-5 text-violet-600" />
+              <Package className="w-5 h-5 text-primary" />
               Manage Packages
             </CardTitle>
             <CardDescription>Add data packages to your shop</CardDescription>
@@ -1257,7 +1257,7 @@ export default function MyShopPage() {
                     {!addingPackage && (
                       <Button
                         onClick={() => setAddingPackage(true)}
-                        className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700"
+                        className="bg-success hover:bg-success/90"
                       >
                         <Plus className="w-4 h-4 mr-2" />
                         Add Product
@@ -1325,7 +1325,7 @@ export default function MyShopPage() {
                                   <Card key={pkg.id} className="border border-border bg-card">
                                     <CardContent className="p-4 space-y-3">
                                       <div>
-                                        <p className="font-semibold text-emerald-900">{pkg.network} - {pkg.size}GB</p>
+                                        <p className="font-semibold text-foreground">{pkg.network} - {pkg.size}GB</p>
                                         <p className="text-sm text-muted-foreground">
                                           {shop?.parent_shop_id ? "Your Cost (Parent Price):" : "Base Price:"} GHS {displayBasePrice.toFixed(2)}
                                         </p>
@@ -1377,14 +1377,14 @@ export default function MyShopPage() {
                                           const isNegative = profit < 0
                                           return (
                                             <div className={`p-2 rounded-md text-xs space-y-1 ${isNegative
-                                              ? "bg-red-50 border border-border"
-                                              : "bg-emerald-50"
+                                              ? "bg-destructive/10 border border-border"
+                                              : "bg-success/10"
                                               }`}>
-                                              <p className={isNegative ? "text-red-700" : "text-emerald-700"}>
+                                              <p className={isNegative ? "text-destructive" : "text-success"}>
                                                 <span className="font-semibold">Your Profit:</span> GHS {profit.toFixed(2)}
                                               </p>
                                               {isNegative && (
-                                                <p className="text-red-600 text-xs">
+                                                <p className="text-destructive text-xs">
                                                   ⚠️ Selling price must be higher than base price
                                                 </p>
                                               )}
@@ -1411,7 +1411,7 @@ export default function MyShopPage() {
                                             size="sm"
                                             className={`w-full ${isAdded
                                               ? "bg-primary hover:bg-primary/90"
-                                              : "bg-emerald-600 hover:bg-emerald-700"
+                                              : "bg-success hover:bg-success/90"
                                               } disabled:opacity-50`}
                                           >
                                             {isAdded ? "✓ Edit" : "Add to Shop"}
@@ -1460,7 +1460,7 @@ export default function MyShopPage() {
                             <Card key={shopPkg.id} className="border border-border bg-card">
                               <CardContent className="p-4 space-y-3">
                                 <div>
-                                  <p className="font-semibold text-emerald-900">{pkg?.network} - {pkg?.size}GB</p>
+                                  <p className="font-semibold text-foreground">{pkg?.network} - {pkg?.size}GB</p>
                                   <p className="text-sm text-muted-foreground">
                                     {shop?.parent_shop_id ? "Your Cost (Parent Price):" : "Base Price:"} GHS {displayBasePrice.toFixed(2)}
                                   </p>
@@ -1480,12 +1480,12 @@ export default function MyShopPage() {
 
                                 <div className="flex items-center gap-2 pt-2">
                                   {shopPkg.is_available ? (
-                                    <Badge className="bg-green-100 text-green-700">Available</Badge>
+                                    <Badge className="bg-success/15 text-success">Available</Badge>
                                   ) : (
                                     <Badge className="bg-muted text-foreground">Unavailable</Badge>
                                   )}
                                   {availablePkg && !availablePkg.active && (
-                                    <Badge className="bg-red-100 text-red-700 text-xs">Parent Disabled</Badge>
+                                    <Badge className="bg-destructive/15 text-destructive text-xs">Parent Disabled</Badge>
                                   )}
                                 </div>
 

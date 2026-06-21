@@ -349,7 +349,7 @@ export default function ContactsTab() {
                               {c.opted_out ? (
                                 <Badge variant="destructive">opted out</Badge>
                               ) : (
-                                <Badge className="bg-green-100 text-green-700">active</Badge>
+                                <Badge className="bg-success/15 text-success">active</Badge>
                               )}
                             </td>
                             <td className="py-2 text-right">
@@ -390,7 +390,7 @@ export default function ContactsTab() {
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction
             disabled={busy}
-            className="bg-destructive text-white hover:bg-destructive/90"
+            className="bg-destructive text-primary-foreground hover:bg-destructive/90"
             onClick={() => {
               if (pendingDelete) {
                 const g = pendingDelete

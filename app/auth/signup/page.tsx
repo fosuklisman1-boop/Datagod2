@@ -305,11 +305,11 @@ export default function SignupPage() {
     <>
       <div className="min-h-screen lg:grid lg:grid-cols-[1.05fr_1fr]">
         {/* Brand panel (desktop only) */}
-        <div className="relative hidden lg:flex flex-col justify-between overflow-hidden bg-gradient-to-br from-primary to-violet-600 p-12 text-white">
-          <div aria-hidden className="absolute -right-20 -top-16 h-72 w-72 rounded-full bg-white/10" />
-          <div aria-hidden className="absolute -left-12 -bottom-12 h-48 w-48 rounded-full bg-white/10" />
+        <div className="relative hidden lg:flex flex-col justify-between overflow-hidden bg-gradient-to-br from-primary to-primary p-12 text-white">
+          <div aria-hidden className="absolute -right-20 -top-16 h-72 w-72 rounded-full bg-card/10" />
+          <div aria-hidden className="absolute -left-12 -bottom-12 h-48 w-48 rounded-full bg-card/10" />
           <Link href="/" className="relative flex items-center gap-3">
-            <div className="rounded-xl bg-white/15 p-2">
+            <div className="rounded-xl bg-card/15 p-2">
               <img src="/favicon-v2.jpeg" alt="DATAGOD" className="h-7 w-7 rounded-lg object-cover" />
             </div>
             <span className="text-xl font-extrabold tracking-tight">DATAGOD</span>
@@ -320,7 +320,7 @@ export default function SignupPage() {
             <ul className="mt-6 space-y-3 text-sm">
               {["Free to create — no charges", "Instant wallet on signup", "Sell MTN, Telecel & AT bundles"].map((t) => (
                 <li key={t} className="flex items-center gap-3">
-                  <span className="grid h-5 w-5 place-items-center rounded-full bg-white/20">
+                  <span className="grid h-5 w-5 place-items-center rounded-full bg-card/20">
                     <Check className="h-3 w-3" />
                   </span>
                   {t}
@@ -351,8 +351,8 @@ export default function SignupPage() {
               </div>
             ) : signupsEnabled === false ? (
               <div className="text-center space-y-4 py-8">
-                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-red-100 mb-2">
-                  <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-destructive/10 mb-2">
+                  <svg className="w-8 h-8 text-destructive" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
                 </div>
                 <h3 className="text-xl font-bold text-foreground">Signups Temporarily Disabled</h3>
                 <p className="text-muted-foreground max-w-sm mx-auto">
@@ -407,10 +407,10 @@ export default function SignupPage() {
                         value={formData.phoneNumber}
                         onChange={handleChange}
                         required
-                        className={phoneVerified ? "pr-8 border-green-500 focus-visible:ring-green-500" : ""}
+                        className={phoneVerified ? "pr-8 border-success focus-visible:ring-success" : ""}
                       />
                       {phoneVerified && (
-                        <CheckCircle2 className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500" />
+                        <CheckCircle2 className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-success" />
                       )}
                     </div>
                     <Button

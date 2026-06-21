@@ -191,7 +191,7 @@ export default function TemplatesTab() {
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction
             disabled={busy}
-            className="bg-destructive text-white hover:bg-destructive/90"
+            className="bg-destructive text-primary-foreground hover:bg-destructive/90"
             onClick={() => {
               if (pendingDelete) {
                 const t = pendingDelete

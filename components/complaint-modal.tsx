@@ -253,7 +253,7 @@ export function ComplaintModal({ isOpen, onClose, orderId, orderType = "regular"
                       alt="Data Balance"
                       className="w-full h-full object-contain"
                     />
-                    <div className="absolute top-2 right-2 bg-green-500 text-white rounded-full p-1">
+                    <div className="absolute top-2 right-2 bg-success text-primary-foreground rounded-full p-1">
                       <CheckCircle className="w-4 h-4" />
                     </div>
                   </div>
@@ -302,7 +302,7 @@ export function ComplaintModal({ isOpen, onClose, orderId, orderType = "regular"
                       alt="MoMo Receipt"
                       className="w-full h-full object-contain"
                     />
-                    <div className="absolute top-2 right-2 bg-green-500 text-white rounded-full p-1">
+                    <div className="absolute top-2 right-2 bg-success text-primary-foreground rounded-full p-1">
                       <CheckCircle className="w-4 h-4" />
                     </div>
                   </div>
@@ -347,7 +347,7 @@ export function ComplaintModal({ isOpen, onClose, orderId, orderType = "regular"
             <Button
               onClick={handleSubmit}
               disabled={isSubmitting}
-              className="bg-gradient-to-r from-primary to-cyan-600 hover:from-primary hover:to-cyan-700"
+              className="bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary"
             >
               {isSubmitting ? (
                 <>

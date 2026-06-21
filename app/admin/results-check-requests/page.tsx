@@ -38,10 +38,10 @@ interface CheckRequest {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  pending: "bg-yellow-100 text-yellow-800 border-yellow-200",
-  checking: "bg-blue-100 text-blue-800 border-blue-200",
-  completed: "bg-green-100 text-green-800 border-green-200",
-  failed: "bg-red-100 text-red-800 border-red-200",
+  pending: "bg-warning/15 text-warning border-warning/30",
+  checking: "bg-warning/15 text-warning border-warning/30",
+  completed: "bg-success/15 text-success border-success/30",
+  failed: "bg-destructive/15 text-destructive border-destructive/30",
 }
 
 export default function ResultsCheckRequestsPage() {
@@ -399,7 +399,7 @@ export default function ResultsCheckRequestsPage() {
                           {req.status}
                         </Badge>
                         {req.claimed_by && req.claimed_at && Date.now() - new Date(req.claimed_at).getTime() < 15 * 60 * 1000 && (
-                          <Badge className="text-xs border bg-purple-100 text-purple-800 border-purple-200">
+                          <Badge className="text-xs border bg-primary/10 text-primary border-primary">
                             Claimed via WhatsApp
                           </Badge>
                         )}
@@ -442,7 +442,7 @@ export default function ResultsCheckRequestsPage() {
                       className="shrink-0 p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
                       title="Copy details"
                     >
-                      {copied[req.id] ? <Check size={15} className="text-green-600" /> : <Copy size={15} />}
+                      {copied[req.id] ? <Check size={15} className="text-success" /> : <Copy size={15} />}
                     </button>
                   </div>
 

@@ -325,12 +325,12 @@ export default function DashboardPage() {
         <div className="grid gap-4 lg:grid-cols-3">
           <Card
             data-tour="wallet-balance"
-            className={`lg:col-span-2 border-0 text-white relative overflow-hidden ${isDealer
-              ? "bg-gradient-to-br from-[#37146b] to-[#7c1bd6]"
-              : "bg-gradient-to-br from-primary to-violet-600"
+            className={`lg:col-span-2 border-0 text-primary-foreground relative overflow-hidden ${isDealer
+              ? "bg-gradient-to-br from-primary to-brand-accent"
+              : "bg-gradient-to-br from-primary to-primary"
               }`}
           >
-            <div className="absolute -right-10 -top-12 w-48 h-48 rounded-full bg-white/10" />
+            <div className="absolute -right-10 -top-12 w-48 h-48 rounded-full bg-card/10" />
             <CardContent className="p-6 relative">
               <p className="text-sm font-medium text-white/85">Wallet Balance</p>
               <p className="text-4xl font-extrabold tracking-tight tabular-nums mt-2">
@@ -338,13 +338,13 @@ export default function DashboardPage() {
               </p>
               <p className="text-xs text-white/75 mt-1">Available funds</p>
               <div className="flex flex-wrap gap-2 mt-5">
-                <Button onClick={() => router.push("/dashboard/wallet")} className="bg-white text-violet-700 hover:bg-white/90 font-semibold">
+                <Button onClick={() => router.push("/dashboard/wallet")} className="bg-card text-primary hover:bg-card/90 font-semibold">
                   ＋ Top Up
                 </Button>
-                <Button onClick={() => router.push("/dashboard/data-packages")} className="bg-white/15 text-white hover:bg-white/25 border-0">
+                <Button onClick={() => router.push("/dashboard/data-packages")} className="bg-card/15 text-white hover:bg-card/25 border-0">
                   Buy Data
                 </Button>
-                <Button onClick={() => router.push("/dashboard/my-orders")} className="bg-white/15 text-white hover:bg-white/25 border-0">
+                <Button onClick={() => router.push("/dashboard/my-orders")} className="bg-card/15 text-white hover:bg-card/25 border-0">
                   My Orders
                 </Button>
               </div>

@@ -83,7 +83,7 @@ export default function AirtimeConfirmationPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-muted/40">
         <div className="text-center space-y-4">
-          <Loader2 className="w-10 h-10 animate-spin text-violet-600 mx-auto" />
+          <Loader2 className="w-10 h-10 animate-spin text-primary mx-auto" />
           <p className="text-muted-foreground font-medium">Verifying your payment...</p>
         </div>
       </div>
@@ -100,13 +100,13 @@ export default function AirtimeConfirmationPage() {
           {shop?.logo_url ? (
             <img src={shop.logo_url} className="w-16 h-16 rounded-xl shadow-md object-cover" alt="Logo" />
           ) : (
-            <Store className="w-12 h-12 text-violet-600" />
+            <Store className="w-12 h-12 text-primary" />
           )}
           <h2 className="text-xl font-bold">{shop?.shop_name || "Store"}</h2>
         </div>
 
         <Card className="border-0 shadow-xl overflow-hidden">
-          <CardHeader className={`${isSuccess ? 'bg-green-600' : 'bg-red-600'} text-white text-center py-8`}>
+          <CardHeader className={`${isSuccess ? 'bg-success' : 'bg-destructive'} text-white text-center py-8`}>
             {isSuccess ? (
               <CheckCircle2 className="w-16 h-16 mx-auto mb-4" />
             ) : (
@@ -133,7 +133,7 @@ export default function AirtimeConfirmationPage() {
               </div>
               <div className="flex justify-between items-center text-sm border-b pb-2">
                 <span className="text-muted-foreground font-medium">Recipient Gets</span>
-                <span className="font-bold text-green-600">GHS {order?.airtime_amount?.toFixed(2) || "0.00"}</span>
+                <span className="font-bold text-success">GHS {order?.airtime_amount?.toFixed(2) || "0.00"}</span>
               </div>
               <div className="flex justify-between items-center text-sm border-b pb-2">
                 <span className="text-muted-foreground font-medium">Recipient Number</span>
@@ -141,7 +141,7 @@ export default function AirtimeConfirmationPage() {
               </div>
               <div className="flex justify-between items-center text-sm">
                 <span className="text-muted-foreground font-medium">Order Status</span>
-                <Badge className={isSuccess ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}>
+                <Badge className={isSuccess ? "bg-success/15 text-success" : "bg-destructive/15 text-destructive"}>
                   {order?.status?.toUpperCase() || "PENDING"}
                 </Badge>
               </div>
@@ -156,7 +156,7 @@ export default function AirtimeConfirmationPage() {
 
             <Button 
               onClick={() => router.push(shopHome)}
-              className="w-full bg-slate-900 hover:bg-slate-800 text-white"
+              className="w-full bg-foreground hover:bg-foreground/90 text-background"
             >
               Back to Store
               <ChevronRight className="w-4 h-4 ml-2" />

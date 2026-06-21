@@ -155,15 +155,15 @@ export default function UssdShopPage() {
   }
 
   const statusBadge = (status: string, tokenBalance: number) => {
-    if (status === 'suspended') return <Badge className="bg-yellow-100 text-yellow-800 border-border">Suspended</Badge>
-    if (status === 'active' && tokenBalance === 0) return <Badge className="bg-orange-100 text-orange-700 border-border">No Sessions</Badge>
-    if (status === 'active') return <Badge className="bg-green-100 text-green-800 border-border">Active</Badge>
+    if (status === 'suspended') return <Badge className="bg-warning/10 text-warning border-border">Suspended</Badge>
+    if (status === 'active' && tokenBalance === 0) return <Badge className="bg-warning/10 text-warning border-border">No Sessions</Badge>
+    if (status === 'active') return <Badge className="bg-success/15 text-success border-border">Active</Badge>
     return <Badge className="bg-muted text-muted-foreground border-border">Inactive</Badge>
   }
 
   const orderStatusBadge = (status: string) => {
-    if (status === 'completed') return <Badge className="bg-green-100 text-green-800 text-xs">Completed</Badge>
-    if (status === 'failed') return <Badge className="bg-red-100 text-red-800 text-xs">Failed</Badge>
+    if (status === 'completed') return <Badge className="bg-success/15 text-success text-xs">Completed</Badge>
+    if (status === 'failed') return <Badge className="bg-destructive/15 text-destructive text-xs">Failed</Badge>
     if (status === 'processing') return <Badge className="bg-primary/10 text-primary text-xs">Processing</Badge>
     return <Badge className="bg-muted text-muted-foreground text-xs">Pending</Badge>
   }
@@ -236,34 +236,34 @@ export default function UssdShopPage() {
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Coins className="w-4 h-4 text-primary" />
                     <span>
-                      <strong className={shopCode.token_balance <= 5 ? 'text-red-600' : 'text-foreground'}>
+                      <strong className={shopCode.token_balance <= 5 ? 'text-destructive' : 'text-foreground'}>
                         {shopCode.token_balance}
                       </strong>
                       {' '}session{shopCode.token_balance !== 1 ? 's' : ''} remaining
                     </span>
                     {shopCode.token_balance <= 5 && shopCode.token_balance > 0 && (
-                      <Badge className="bg-red-100 text-red-700 text-xs ml-1">Low</Badge>
+                      <Badge className="bg-destructive/15 text-destructive text-xs ml-1">Low</Badge>
                     )}
                     {shopCode.token_balance === 0 && (
-                      <Badge className="bg-red-100 text-red-700 text-xs ml-1">Depleted</Badge>
+                      <Badge className="bg-destructive/15 text-destructive text-xs ml-1">Depleted</Badge>
                     )}
                   </div>
                 </div>
 
                 {shopCode.token_balance === 0 && shopCode.activation_fee_paid && (
-                  <div className="mt-3 flex items-start gap-2 p-3 bg-red-50 border border-border rounded-lg text-sm text-red-700">
+                  <div className="mt-3 flex items-start gap-2 p-3 bg-destructive/10 border border-border rounded-lg text-sm text-destructive">
                     <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                     <span>Your session tokens are depleted. Top up below so customers can access your shop.</span>
                   </div>
                 )}
 
                 {!shopCode.activation_fee_paid && (
-                  <div className="mt-3 p-4 bg-yellow-50 border border-border rounded-lg space-y-3">
-                    <div className="flex items-start gap-2 text-sm text-yellow-800">
+                  <div className="mt-3 p-4 bg-warning/10 border border-border rounded-lg space-y-3">
+                    <div className="flex items-start gap-2 text-sm text-warning">
                       <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                       <div>
                         <p className="font-medium">Activation required</p>
-                        <p className="text-yellow-700 mt-0.5">
+                        <p className="text-warning mt-0.5">
                           One-time fee: <strong>GHS {activationFee.toFixed(2)}</strong>
                           {walletBalance !== null && (
                             <span className="ml-2 text-muted-foreground">· Wallet: GHS {walletBalance.toFixed(2)}</span>
@@ -275,13 +275,13 @@ export default function UssdShopPage() {
                       size="sm"
                       disabled={activating || (walletBalance !== null && walletBalance < activationFee)}
                       onClick={handleActivate}
-                      className="w-full bg-yellow-600 hover:bg-yellow-700 text-white"
+                      className="w-full bg-warning hover:bg-warning/90 text-white"
                     >
                       {activating ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Wallet className="w-3 h-3 mr-1" />}
                       Activate with Wallet
                     </Button>
                     {walletBalance !== null && walletBalance < activationFee && activationFee > 0 && (
-                      <p className="text-xs text-red-600">Insufficient wallet balance. Top up your wallet first.</p>
+                      <p className="text-xs text-destructive">Insufficient wallet balance. Top up your wallet first.</p>
                     )}
                   </div>
                 )}
@@ -290,13 +290,13 @@ export default function UssdShopPage() {
 
             {/* Buy Sessions */}
             {shopCode.activation_fee_paid && (
-              <Card className="border-border bg-indigo-50">
+              <Card className="border-border bg-primary/10">
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-base text-indigo-800 flex items-center gap-2">
+                  <CardTitle className="text-base text-primary flex items-center gap-2">
                     <Coins className="w-4 h-4" />
                     Buy Sessions
                   </CardTitle>
-                  <CardDescription className="text-indigo-600">
+                  <CardDescription className="text-primary">
                     Each session = one customer entering your shop code.
                     {sessionPrice > 0 && ` GHS ${sessionPrice.toFixed(2)} per session.`}
                   </CardDescription>
@@ -304,7 +304,7 @@ export default function UssdShopPage() {
                 <CardContent className="space-y-3">
                   <div className="flex gap-2 items-end">
                     <div className="flex-1 space-y-1">
-                      <label className="text-xs text-indigo-700">
+                      <label className="text-xs text-primary">
                         Number of sessions ({minSessions}–{maxSessions})
                       </label>
                       <input
@@ -314,11 +314,11 @@ export default function UssdShopPage() {
                         placeholder={`Min ${minSessions}`}
                         value={sessionQty}
                         onChange={e => setSessionQty(e.target.value)}
-                        className="w-full border border-border rounded-md px-3 py-2 text-sm bg-card focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                        className="w-full border border-border rounded-md px-3 py-2 text-sm bg-card focus:outline-none focus:ring-2 focus:ring-primary"
                       />
                     </div>
                     {sessionPrice > 0 && sessionQty && parseInt(sessionQty) >= minSessions && (
-                      <div className="text-sm text-indigo-700 font-medium pb-2 shrink-0">
+                      <div className="text-sm text-primary font-medium pb-2 shrink-0">
                         = GHS {(sessionPrice * (parseInt(sessionQty) || 0)).toFixed(2)}
                       </div>
                     )}
@@ -327,7 +327,7 @@ export default function UssdShopPage() {
                     size="sm"
                     disabled={buyingSessions || !sessionQty || parseInt(sessionQty) < minSessions || (walletBalance !== null && walletBalance < sessionPrice * (parseInt(sessionQty) || 0))}
                     onClick={handleBuySessions}
-                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white"
+                    className="w-full bg-primary hover:bg-primary text-white"
                   >
                     {buyingSessions ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Wallet className="w-3 h-3 mr-1" />}
                     Buy with Wallet

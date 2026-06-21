@@ -137,20 +137,20 @@ function parseRows(text: string): BulkRow[] {
 }
 
 const LOG_BADGE: Record<string, string> = {
-  queued: "bg-amber-100 text-amber-800", sending: "bg-blue-100 text-blue-800",
-  sent: "bg-green-100 text-green-800", partial: "bg-orange-100 text-orange-800",
-  failed: "bg-red-100 text-red-800", blocked: "bg-red-200 text-red-900",
+  queued: "bg-warning/10 text-warning", sending: "bg-blue-100 text-blue-800",
+  sent: "bg-success/15 text-success", partial: "bg-warning/10 text-warning",
+  failed: "bg-destructive/15 text-destructive", blocked: "bg-destructive/15 text-destructive",
 }
 const SENDER_BADGE: Record<string, string> = {
-  active: "bg-green-100 text-green-700", pending: "bg-amber-100 text-amber-700",
-  rejected: "bg-red-100 text-red-700",
+  active: "bg-success/15 text-success", pending: "bg-warning/10 text-warning",
+  rejected: "bg-destructive/15 text-destructive",
 }
 // Per-recipient (sms_messages) status → friendly label + colour for the detail modal.
 const MSG_STATUS: Record<string, { label: string; cls: string }> = {
-  pending: { label: "queued", cls: "bg-amber-100 text-amber-800" },
+  pending: { label: "queued", cls: "bg-warning/10 text-warning" },
   claimed: { label: "sending", cls: "bg-blue-100 text-blue-800" },
-  sent: { label: "sent", cls: "bg-green-100 text-green-800" },
-  failed: { label: "failed", cls: "bg-red-100 text-red-800" },
+  sent: { label: "sent", cls: "bg-success/15 text-success" },
+  failed: { label: "failed", cls: "bg-destructive/15 text-destructive" },
 }
 /** True while a batch still has work the cron will keep processing. */
 const isInFlight = (status: string) => status === "queued" || status === "sending"
@@ -1005,9 +1005,9 @@ export default function SmsDashboardPage() {
             )}
 
             {showBonus && (
-              <Card className="border-amber-300/50 bg-amber-50/40">
+              <Card className="border-warning/30 bg-warning/10">
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2"><Sparkles className="h-5 w-5 text-amber-500" /> Claim welcome bonus</CardTitle>
+                  <CardTitle className="flex items-center gap-2"><Sparkles className="h-5 w-5 text-warning" /> Claim welcome bonus</CardTitle>
                   <CardDescription>Grab your {account.welcomeBonusCredits} free SMS credits — one-time offer.</CardDescription>
                 </CardHeader>
                 <CardContent><Button onClick={claimBonus} disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} Claim {account.welcomeBonusCredits} credits</Button></CardContent>
@@ -1156,7 +1156,7 @@ export default function SmsDashboardPage() {
                     </p>
                     <div className="rounded-md bg-background p-3">
                       {resolved.trim() ? (
-                        <span className="inline-block max-w-[80%] rounded-2xl rounded-bl-sm bg-green-500 px-3 py-2 text-sm text-white whitespace-pre-wrap break-words">
+                        <span className="inline-block max-w-[80%] rounded-2xl rounded-bl-sm bg-success px-3 py-2 text-sm text-white whitespace-pre-wrap break-words">
                           {resolved}
                         </span>
                       ) : (
@@ -1259,7 +1259,7 @@ export default function SmsDashboardPage() {
                           <p className="font-medium">{tpl.name}</p>
                           <p className="truncate text-sm text-muted-foreground">{tpl.body}</p>
                         </button>
-                        <Button size="sm" variant="ghost" onClick={() => deleteTemplate(tpl.id)} disabled={busy} className="text-red-600 hover:text-red-700">
+                        <Button size="sm" variant="ghost" onClick={() => deleteTemplate(tpl.id)} disabled={busy} className="text-destructive hover:text-destructive">
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </li>
@@ -1296,7 +1296,7 @@ export default function SmsDashboardPage() {
                       <li key={s.id} className="flex items-center justify-between py-2.5">
                         <div className="flex items-center gap-2">
                           <span className="font-mono font-medium">{s.sender_id}</span>
-                          {s.local_status === "active" && <BadgeCheck className="h-4 w-4 text-green-600" />}
+                          {s.local_status === "active" && <BadgeCheck className="h-4 w-4 text-success" />}
                         </div>
                         <Badge className={SENDER_BADGE[s.local_status] ?? ""} variant="secondary">{s.local_status}</Badge>
                       </li>
@@ -1728,9 +1728,9 @@ export default function SmsDashboardPage() {
                     </div>
                   )
                 ) : (
-                  <div className="flex items-center gap-2 rounded-lg border border-green-300/50 bg-green-50 p-3">
-                    <CheckCircle className="h-5 w-5 text-green-600" />
-                    <span className="text-sm font-medium text-green-900">Payment number verified ✓</span>
+                  <div className="flex items-center gap-2 rounded-lg border border-success/30 bg-success/10 p-3">
+                    <CheckCircle className="h-5 w-5 text-success" />
+                    <span className="text-sm font-medium text-foreground">Payment number verified ✓</span>
                   </div>
                 ))}
 
@@ -1766,8 +1766,8 @@ export default function SmsDashboardPage() {
             {/* DONE stage (rare — usually closes on success, this is the fallback) */}
             {momo.stage === "done" && (
               <div className="space-y-4 py-2 text-center">
-                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-100">
-                  <CheckCircle className="h-9 w-9 text-green-600" />
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-success/15">
+                  <CheckCircle className="h-9 w-9 text-success" />
                 </div>
                 <h3 className="text-lg font-bold">{momo.kind === "credits" ? "Credits added 🎉" : "Account activated 🎉"}</h3>
                 <Button onClick={closeMomo} className="w-full">Done</Button>
@@ -1777,8 +1777,8 @@ export default function SmsDashboardPage() {
             {/* ERROR / timeout stage */}
             {momo.stage === "error" && (
               <div className="space-y-4 py-2 text-center">
-                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-red-100">
-                  <AlertCircle className="h-9 w-9 text-red-600" />
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-destructive/15">
+                  <AlertCircle className="h-9 w-9 text-destructive" />
                 </div>
                 <p className="text-sm text-muted-foreground">{momo.message || "The payment was not completed. Please try again."}</p>
                 <div className="flex gap-2">

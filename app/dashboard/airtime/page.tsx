@@ -39,10 +39,10 @@ interface AirtimeOrder {
 }
 
 const STATUS_CLASSES: Record<string, string> = {
-  pending:    "bg-yellow-100 text-yellow-800",
+  pending:    "bg-warning/10 text-warning",
   processing: "bg-primary/10 text-primary",
-  completed:  "bg-green-100 text-green-800",
-  failed:     "bg-red-100 text-red-800",
+  completed:  "bg-success/15 text-success",
+  failed:     "bg-destructive/15 text-destructive",
 }
 
 export default function AirtimePage() {
@@ -227,7 +227,7 @@ export default function AirtimePage() {
             ))}
           </div>
           {availableNetworks.length === 0 && !loadingOrders && (
-            <div className="bg-red-50 text-red-700 p-4 rounded-xl border border-border text-center font-medium">
+            <div className="bg-destructive/10 text-destructive p-4 rounded-xl border border-border text-center font-medium">
               Airtime services are temporarily unavailable. Please check back later.
             </div>
           )}
@@ -247,9 +247,9 @@ export default function AirtimePage() {
               onChange={(e) => handlePhoneChange(e.target.value.replace(/\D/g, ""))}
               placeholder="e.g. 0244123456"
               required
-              className="w-full border border-border rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full border border-border rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
             />
-            {phoneError && <p className="text-xs text-amber-600 mt-1">{phoneError}</p>}
+            {phoneError && <p className="text-xs text-warning mt-1">{phoneError}</p>}
           </div>
 
           {/* Amount */}
@@ -263,23 +263,23 @@ export default function AirtimePage() {
               onChange={(e) => setAmount(e.target.value)}
               placeholder="e.g. 10"
               required
-              className="w-full border border-border rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full border border-border rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
             />
           </div>
 
           {/* Pay Separately Toggle */}
-          <div className="flex items-start gap-3 p-4 bg-indigo-50 rounded-xl">
+          <div className="flex items-start gap-3 p-4 bg-primary/10 rounded-xl">
             <input
               id="pay-sep"
               type="checkbox"
               checked={paySeparately}
               onChange={(e) => setPaySeparately(e.target.checked)}
-              className="mt-0.5 h-4 w-4 accent-indigo-600 cursor-pointer"
+              className="mt-0.5 h-4 w-4 accent-primary cursor-pointer"
             />
             <label htmlFor="pay-sep" className="text-sm cursor-pointer">
-              <span className="font-semibold text-indigo-800">Pay fee separately</span>
+              <span className="font-semibold text-primary">Pay fee separately</span>
               <br />
-              <span className="text-indigo-700">
+              <span className="text-primary">
                 {paySeparately
                   ? `Recipient gets the full amount you enter; service fee is added on top.`
                   : `Service fee is deducted from the amount before delivery.`}
@@ -307,7 +307,7 @@ export default function AirtimePage() {
                 <span>GHS {totalPaid.toFixed(2)}</span>
               </div>
               {walletBalance !== null && totalPaid > walletBalance && (
-                <p className="text-red-600 text-xs font-medium">⚠ Insufficient wallet balance</p>
+                <p className="text-destructive text-xs font-medium">⚠ Insufficient wallet balance</p>
               )}
             </div>
           )}
@@ -315,7 +315,7 @@ export default function AirtimePage() {
           {/* Feedback message */}
           {message && (
             <div className={`text-sm rounded-lg px-4 py-3 font-medium ${
-              message.type === "success" ? "bg-green-50 text-green-800" : "bg-red-50 text-red-700"
+              message.type === "success" ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"
             }`}>
               {message.text}
             </div>
@@ -324,7 +324,7 @@ export default function AirtimePage() {
           <button
             type="submit"
             disabled={submitting || !!phoneError || !phone || !amount || (walletBalance !== null && totalPaid > walletBalance)}
-            className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-xl transition-colors"
+            className="w-full bg-primary hover:bg-primary disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-xl transition-colors"
           >
             {submitting ? "Processing…" : `Buy Airtime — GHS ${totalPaid > 0 ? totalPaid.toFixed(2) : "0.00"}`}
           </button>

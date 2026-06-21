@@ -9,11 +9,11 @@ export function MaintenanceScreen() {
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-card px-6">
       <div className="w-full max-w-md text-center">
-        <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-r from-violet-600 to-fuchsia-600 shadow-lg">
-          <Wrench className="h-10 w-10 text-white" />
+        <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-r from-primary to-primary shadow-lg">
+          <Wrench className="h-10 w-10 text-primary-foreground" />
         </div>
 
-        <h1 className="mb-3 bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 bg-clip-text text-3xl font-bold text-transparent sm:text-4xl">
+        <h1 className="mb-3 bg-gradient-to-r from-primary via-primary to-primary bg-clip-text text-3xl font-bold text-transparent sm:text-4xl">
           We&apos;ll be right back
         </h1>
 
@@ -29,7 +29,7 @@ export function MaintenanceScreen() {
           Need urgent help? Reach us at{" "}
           <a
             href="mailto:support@datagod.com"
-            className="font-semibold text-violet-600 hover:text-violet-700"
+            className="font-semibold text-primary hover:text-primary"
           >
             support@datagod.com
           </a>

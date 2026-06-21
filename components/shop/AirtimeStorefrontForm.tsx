@@ -342,19 +342,19 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
   return (
     <>
     <Card className="border-0 shadow-2xl overflow-hidden rounded-2xl w-full max-w-xl mx-auto">
-      <div className="h-2 bg-gradient-to-r from-violet-600 via-indigo-600 to-purple-600" />
+      <div className="h-2 bg-gradient-to-r from-primary via-primary to-primary" />
       <CardHeader className="bg-card border-b border-border">
         <div className="flex items-center justify-between">
           <div>
             <CardTitle className="text-2xl font-black text-slate-900 flex items-center gap-2">
-              <Zap className="w-6 h-6 text-violet-600 fill-violet-600" />
+              <Zap className="w-6 h-6 text-primary fill-primary" />
               Buy Airtime
             </CardTitle>
             <CardDescription className="text-slate-500 font-medium mt-1">
               Secure instant top-up for any network
             </CardDescription>
           </div>
-          <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold border bg-green-100 text-green-700 border-border">
+          <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold border bg-success/15 text-success border-border">
             <ShieldCheck className="w-3 h-3 mr-1" />
             Verified
           </div>
@@ -366,7 +366,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
           {/* Network Selection */}
           <div className="space-y-4">
             <Label className="text-slate-900 font-bold flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-violet-600" />
+              <CheckCircle2 className="w-4 h-4 text-primary" />
               1. Select Network
             </Label>
             <div className="grid grid-cols-3 gap-3">
@@ -380,14 +380,14 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                     onClick={() => setSelectedNetwork(net.id)}
                     className={`relative flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all duration-300 ${
                       selectedNetwork === net.id
-                        ? "border-violet-600 bg-violet-50 ring-4 ring-violet-100 shadow-lg scale-[1.05]"
+                        ? "border-primary bg-primary ring-4 ring-primary shadow-lg scale-[1.05]"
                         : isAvail 
                           ? "border-border bg-muted/40 hover:border-border hover:bg-muted"
                           : "border-border bg-muted/40 grayscale opacity-60 cursor-not-allowed"
                     }`}
                   >
                     {!isAvail && (
-                      <div className="absolute top-1 right-1 bg-red-100 text-red-600 text-[8px] font-black px-1 rounded-sm border border-border">
+                      <div className="absolute top-1 right-1 bg-destructive/15 text-destructive text-[8px] font-black px-1 rounded-sm border border-border">
                         OOS
                       </div>
                     )}
@@ -398,11 +398,11 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                          <span className="font-bold text-slate-500">{net.name[0]}</span>
                       </div>
                     )}
-                    <span className={`text-xs font-black uppercase ${selectedNetwork === net.id ? "text-violet-700" : "text-slate-500"}`}>
+                    <span className={`text-xs font-black uppercase ${selectedNetwork === net.id ? "text-primary" : "text-slate-500"}`}>
                       {net.name}
                     </span>
                     {selectedNetwork === net.id && (
-                      <div className="absolute -top-2 -right-2 bg-violet-600 text-white rounded-full p-1 shadow-md">
+                      <div className="absolute -top-2 -right-2 bg-primary text-white rounded-full p-1 shadow-md">
                         <CheckCircle2 className="w-3 h-3" />
                       </div>
                     )}
@@ -415,7 +415,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
           {/* Form Fields */}
           <div className="space-y-6">
             <Label className="text-slate-900 font-bold flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-violet-600" />
+              <CheckCircle2 className="w-4 h-4 text-primary" />
               2. Order Details
             </Label>
             
@@ -425,7 +425,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                 <Input 
                   id="customerName"
                   placeholder="E.g John Doe"
-                  className="bg-muted/40 border-border focus:ring-violet-500 focus:border-violet-500 rounded-xl"
+                  className="bg-muted/40 border-border focus:ring-primary focus:border-primary rounded-xl"
                   value={formData.customerName}
                   onChange={e => setFormData({...formData, customerName: e.target.value})}
                 />
@@ -437,7 +437,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                   type="email"
                   required
                   placeholder="john@example.com"
-                  className="bg-muted/40 border-border focus:ring-violet-500 focus:border-violet-500 rounded-xl"
+                  className="bg-muted/40 border-border focus:ring-primary focus:border-primary rounded-xl"
                   value={formData.customerEmail}
                   onChange={e => setFormData({...formData, customerEmail: e.target.value})}
                 />
@@ -452,7 +452,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                   type="tel"
                   required
                   placeholder="024XXXXXXX"
-                  className="bg-muted/40 border-border focus:ring-violet-500 focus:border-violet-500 rounded-xl font-mono text-lg"
+                  className="bg-muted/40 border-border focus:ring-primary focus:border-primary rounded-xl font-mono text-lg"
                   value={formData.beneficiaryPhone}
                   onChange={e => {
                     setFormData({...formData, beneficiaryPhone: e.target.value})
@@ -468,7 +468,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                   min="1"
                   required
                   placeholder="10.00"
-                  className="bg-muted/40 border-border focus:ring-violet-500 focus:border-violet-500 rounded-xl font-bold text-lg"
+                  className="bg-muted/40 border-border focus:ring-primary focus:border-primary rounded-xl font-bold text-lg"
                   value={formData.amount}
                   onChange={e => setFormData({...formData, amount: e.target.value})}
                 />
@@ -477,17 +477,17 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
           </div>
 
           {/* Fee Toggle */}
-          <div className="p-4 bg-violet-50 rounded-2xl border border-border flex items-start gap-3 transition-all">
+          <div className="p-4 bg-primary/10 rounded-2xl border border-border flex items-start gap-3 transition-all">
             <input
               id="pay-sep"
               type="checkbox"
               checked={paySeparately}
               onChange={(e) => setPaySeparately(e.target.checked)}
-              className="mt-1 h-5 w-5 text-violet-600 border-border rounded focus:ring-violet-500 cursor-pointer"
+              className="mt-1 h-5 w-5 text-primary border-border rounded focus:ring-primary cursor-pointer"
             />
             <label htmlFor="pay-sep" className="flex-1 cursor-pointer">
-              <span className="text-violet-900 font-bold text-sm block">Pay fee separately</span>
-              <p className="text-violet-600 text-xs mt-1 leading-relaxed">
+              <span className="text-primary font-bold text-sm block">Pay fee separately</span>
+              <p className="text-primary text-xs mt-1 leading-relaxed">
                 {paySeparately 
                   ? "Recipient gets the full amount; service fee is added to your total." 
                   : "Service fee is deducted from the amount before delivery."}
@@ -497,7 +497,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
 
           {/* Price Summary */}
           <div className="group relative">
-            <div className="absolute -inset-1 bg-gradient-to-r from-violet-600 to-indigo-600 rounded-2xl blur opacity-25 group-hover:opacity-40 transition duration-1000"></div>
+            <div className="absolute -inset-1 bg-gradient-to-r from-primary to-primary rounded-2xl blur opacity-25 group-hover:opacity-40 transition duration-1000"></div>
             <div className="relative p-6 bg-muted/40 rounded-2xl border border-border">
               <div className="flex justify-between items-center mb-1">
                 <span className="text-slate-500 font-semibold">Amount to Send:</span>
@@ -508,19 +508,19 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                   <span className="text-slate-500 font-semibold">
                     Service Fee {paySeparately ? "(added on top)" : "(deducted from amount)"}:
                   </span>
-                  <span className="text-orange-600 font-bold">GHS {calculateFeeAmount().toFixed(2)}</span>
+                  <span className="text-warning font-bold">GHS {calculateFeeAmount().toFixed(2)}</span>
                 </div>
               )}
               <div className="flex justify-between items-center mb-4 pb-4 border-b border-border">
                 <span className="text-slate-500 font-semibold">Recipient Gets:</span>
-                <span className="text-green-600 font-black">
+                <span className="text-success font-black">
                    GHS {calculateRecipientGets().toFixed(2)}
                 </span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-slate-900 text-lg font-black">Total to Pay:</span>
                 <div className="text-right">
-                  <span className="text-3xl font-black bg-gradient-to-r from-violet-700 to-indigo-800 bg-clip-text text-transparent">
+                  <span className="text-3xl font-black bg-gradient-to-r from-primary to-primary bg-clip-text text-transparent">
                     GHS {calculateTotal().toFixed(2)}
                   </span>
                   <p className="text-[10px] text-slate-400 mt-1 uppercase tracking-wider font-bold">
@@ -537,9 +537,9 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
               on — both need the on-page MoMo number. OTP controls render only when
               OTP is required; with direct charge alone the number is charged as typed. */}
           {(otpRequired || directCharge) && (
-            <div className="p-4 rounded-2xl bg-purple-50 border border-border space-y-3">
+            <div className="p-4 rounded-2xl bg-primary/10 border border-border space-y-3">
               <div className="space-y-2">
-                <Label className="text-sm font-semibold text-purple-900">Mobile Money number to pay from *</Label>
+                <Label className="text-sm font-semibold text-primary">Mobile Money number to pay from *</Label>
                 <Input
                   type="tel"
                   inputMode="numeric"
@@ -552,14 +552,14 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                   disabled={otpRequired && otpVerified}
                   className="bg-card border-border rounded-xl font-mono"
                 />
-                <p className="text-xs text-purple-700">
+                <p className="text-xs text-primary">
                   {otpRequired ? "The payment prompt is sent to this number. You verify it once." : "The payment prompt is sent to this number."}
                 </p>
               </div>
 
               {otpRequired && (!otpVerified ? (
                 !otpSent ? (
-                  <Button type="button" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0} className="w-full bg-purple-600 hover:bg-purple-700 text-white rounded-xl">
+                  <Button type="button" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0} className="w-full bg-primary hover:bg-primary text-white rounded-xl">
                     {sendingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code…</>) : otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Send verification code"}
                   </Button>
                 ) : (
@@ -568,7 +568,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                       onChange={e => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
                       className="text-center text-lg tracking-[0.4em] font-mono bg-card" />
                     <div className="flex gap-2">
-                      <Button type="button" onClick={handleVerifyOtp} disabled={verifyingOtp || otpCode.length < 4} className="flex-1 bg-purple-600 hover:bg-purple-700 text-white rounded-xl">
+                      <Button type="button" onClick={handleVerifyOtp} disabled={verifyingOtp || otpCode.length < 4} className="flex-1 bg-primary hover:bg-primary text-white rounded-xl">
                         {verifyingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying…</>) : "Verify"}
                       </Button>
                       <Button type="button" variant="outline" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0}>{otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Resend"}</Button>
@@ -577,9 +577,9 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                   </div>
                 )
               ) : (
-                <div className="p-3 rounded-xl bg-green-50 border border-border flex items-center gap-2">
-                  <CheckCircle2 className="w-5 h-5 text-green-600" />
-                  <span className="text-sm font-medium text-green-900">Payment number verified ✓</span>
+                <div className="p-3 rounded-xl bg-success/10 border border-border flex items-center gap-2">
+                  <CheckCircle2 className="w-5 h-5 text-success" />
+                  <span className="text-sm font-medium text-success">Payment number verified ✓</span>
                 </div>
               ))}
             </div>
@@ -594,7 +594,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
           <Button
             type="submit"
             disabled={submitting || !selectedNetwork || (turnstileEnabled && !turnstileToken) || (otpRequired && !otpVerified) || (directCharge && !otpRequired && !/^0?\d{9}$/.test(paymentPhone.replace(/\D/g, "")))}
-            className="w-full h-16 bg-gradient-to-r from-violet-600 via-indigo-700 to-purple-600 hover:scale-[1.02] active:scale-95 text-white text-xl font-black rounded-2xl shadow-xl shadow-violet-200 transition-all duration-300 disabled:opacity-50 disabled:grayscale"
+            className="w-full h-16 bg-gradient-to-r from-primary via-primary to-primary hover:scale-[1.02] active:scale-95 text-white text-xl font-black rounded-2xl shadow-xl shadow-primary transition-all duration-300 disabled:opacity-50 disabled:grayscale"
           >
             {submitting ? (
               <div className="flex items-center gap-3">
@@ -614,12 +614,12 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
 
     {/* Live Mobile Money prompt modal (direct-charge flow). */}
     {momoModal && (
-      <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-[60]">
+      <div className="fixed inset-0 bg-background/60 flex items-center justify-center p-4 z-[60]">
         <Card className="w-full max-w-md bg-card rounded-2xl">
           {momoModal.state === "awaiting" && (
             <CardContent className="pt-8 pb-6 text-center space-y-4">
-              <div className="mx-auto w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center">
-                <Loader2 className="w-8 h-8 text-purple-600 animate-spin" />
+              <div className="mx-auto w-16 h-16 rounded-full bg-primary flex items-center justify-center">
+                <Loader2 className="w-8 h-8 text-primary-foreground animate-spin" />
               </div>
               <div>
                 <h3 className="text-lg font-bold text-foreground">Approve the prompt on your phone</h3>
@@ -638,8 +638,8 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
 
           {momoModal.state === "success" && (
             <CardContent className="pt-8 pb-6 text-center space-y-4">
-              <div className="mx-auto w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
-                <CheckCircle2 className="w-9 h-9 text-green-600" />
+              <div className="mx-auto w-16 h-16 rounded-full bg-success/15 flex items-center justify-center">
+                <CheckCircle2 className="w-9 h-9 text-success" />
               </div>
               <div>
                 <h3 className="text-lg font-bold text-foreground">Payment successful 🎉</h3>
@@ -660,7 +660,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                   setFormData({ customerName: "", customerEmail: "", beneficiaryPhone: "", amount: "10" })
                   setPaymentPhone(""); setOtpSent(false); setOtpVerified(false); setOtpCode(""); setSelectedNetwork(null)
                 }}
-                className="w-full bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 rounded-xl"
+                className="w-full bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary rounded-xl"
               >
                 Done
               </Button>
@@ -669,8 +669,8 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
 
           {momoModal.state === "failed" && (
             <CardContent className="pt-8 pb-6 text-center space-y-4">
-              <div className="mx-auto w-16 h-16 rounded-full bg-red-100 flex items-center justify-center">
-                <AlertCircle className="w-9 h-9 text-red-600" />
+              <div className="mx-auto w-16 h-16 rounded-full bg-destructive/15 flex items-center justify-center">
+                <AlertCircle className="w-9 h-9 text-destructive" />
               </div>
               <div>
                 <h3 className="text-lg font-bold text-foreground">Payment not completed</h3>

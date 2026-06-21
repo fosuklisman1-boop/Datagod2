@@ -199,15 +199,15 @@ export default function AISettingsPage() {
     { provider: "openai",    label: "OpenAI",       placeholder: "sk-proj-...",      color: "bg-green-600" },
     { provider: "gemini",    label: "Google Gemini",placeholder: "AIzaSy...",        color: "bg-primary"  },
     { provider: "deepseek",  label: "DeepSeek",     placeholder: "sk-...",           color: "bg-sky-500"   },
-    { provider: "groq",      label: "Groq",         placeholder: "gsk_...",          color: "bg-purple-600"},
+    { provider: "groq",      label: "Groq",         placeholder: "gsk_...",          color: "bg-primary"},
   ]
 
   return (
     <DashboardLayout>
       <div className="max-w-2xl mx-auto py-8 px-4 space-y-6">
         <div className="flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-violet-100">
-            <Bot size={22} className="text-violet-600" />
+          <div className="p-2 rounded-xl bg-primary">
+            <Bot size={22} className="text-primary-foreground" />
           </div>
           <div>
             <h1 className="text-xl font-bold text-foreground">AI Provider Settings</h1>
@@ -231,7 +231,7 @@ export default function AISettingsPage() {
                   <span className={`w-2 h-2 rounded-full ${color}`} />
                   <Label className="text-sm font-medium">{label}</Label>
                   {config[`${provider}_key_set` as keyof ConfigState]
-                    ? <Badge variant="outline" className="text-[10px] text-green-600 border-border">Configured</Badge>
+                    ? <Badge variant="outline" className="text-[10px] text-success border-border">Configured</Badge>
                     : <Badge variant="outline" className="text-[10px] text-muted-foreground">Not set</Badge>
                   }
                 </div>
@@ -284,7 +284,7 @@ export default function AISettingsPage() {
                 id="same-for-all"
                 checked={sameForAll}
                 onChange={e => setSameForAll(e.target.checked)}
-                className="mt-0.5 accent-violet-600"
+                className="mt-0.5 accent-primary"
               />
               <label htmlFor="same-for-all" className="text-sm font-medium text-foreground cursor-pointer">
                 Use the same model for all widgets
@@ -303,7 +303,7 @@ export default function AISettingsPage() {
                         setAllProvider(p)
                         setAllModel(PROVIDER_MODELS[p][0].id)
                       }}
-                      className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-card focus:outline-none focus:border-violet-400"
+                      className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-card focus:outline-none focus:border-primary"
                     >
                       {providers.map(p => (
                         <option key={p} value={p}>{PROVIDER_LABELS[p]}</option>
@@ -315,7 +315,7 @@ export default function AISettingsPage() {
                     <select
                       value={allModel}
                       onChange={e => setAllModel(e.target.value)}
-                      className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-card focus:outline-none focus:border-violet-400"
+                      className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-card focus:outline-none focus:border-primary"
                     >
                       {PROVIDER_MODELS[allProvider].map(m => (
                         <option key={m.id} value={m.id}>{m.label}</option>
@@ -335,7 +335,7 @@ export default function AISettingsPage() {
                         <select
                           value={config[`${ctx}_provider` as keyof ConfigState] as string}
                           onChange={e => setContextProvider(ctx, e.target.value as ProviderName)}
-                          className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-card focus:outline-none focus:border-violet-400"
+                          className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-card focus:outline-none focus:border-primary"
                         >
                           {providers.map(p => (
                             <option key={p} value={p}>{PROVIDER_LABELS[p]}</option>
@@ -347,7 +347,7 @@ export default function AISettingsPage() {
                         <select
                           value={config[`${ctx}_model` as keyof ConfigState] as string}
                           onChange={e => setContextModel(ctx, e.target.value)}
-                          className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-card focus:outline-none focus:border-violet-400"
+                          className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-card focus:outline-none focus:border-primary"
                         >
                           {PROVIDER_MODELS[config[`${ctx}_provider` as keyof ConfigState] as ProviderName].map(m => (
                             <option key={m.id} value={m.id}>{m.label}</option>

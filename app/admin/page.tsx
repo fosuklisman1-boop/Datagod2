@@ -134,7 +134,7 @@ export default function AdminDashboardPage() {
       <div className="space-y-6">
         {/* Page Header */}
         <div>
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">Admin Dashboard</h1>
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-600 via-primary to-pink-600 bg-clip-text text-transparent">Admin Dashboard</h1>
           <p className="text-muted-foreground mt-1 font-medium">Manage packages, users, and shop approvals</p>
         </div>
 
@@ -148,19 +148,19 @@ export default function AdminDashboardPage() {
                 <Users className="h-4 w-4 text-primary" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold bg-gradient-to-r from-primary to-cyan-600 bg-clip-text text-transparent">{formatCount(stats.totalUsers)}</div>
+                <div className="text-2xl font-bold bg-gradient-to-r from-primary to-primary bg-clip-text text-transparent">{formatCount(stats.totalUsers)}</div>
                 <p className="text-xs text-muted-foreground">Registered users</p>
               </CardContent>
             </Card>
 
             {/* Total Shops */}
-            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-emerald-500 bg-card backdrop-blur-xl border border-border">
+            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-success/30 bg-card backdrop-blur-xl border border-border">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium text-foreground">Total Shops</CardTitle>
-                <Store className="h-4 w-4 text-emerald-600" />
+                <Store className="h-4 w-4 text-success" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">{formatCount(stats.totalShops)}</div>
+                <div className="text-2xl font-bold bg-gradient-to-r from-success to-success bg-clip-text text-transparent">{formatCount(stats.totalShops)}</div>
                 <p className="text-xs text-muted-foreground">Active shops</p>
               </CardContent>
             </Card>
@@ -169,22 +169,22 @@ export default function AdminDashboardPage() {
             <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-purple-500 bg-card backdrop-blur-xl border border-border">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium text-foreground">Total Sub-Agents</CardTitle>
-                <Users className="h-4 w-4 text-purple-600" />
+                <Users className="h-4 w-4 text-primary" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold bg-gradient-to-r from-purple-600 to-fuchsia-600 bg-clip-text text-transparent">{formatCount(stats.totalSubAgents)}</div>
+                <div className="text-2xl font-bold bg-gradient-to-r from-primary to-primary bg-clip-text text-transparent">{formatCount(stats.totalSubAgents)}</div>
                 <p className="text-xs text-muted-foreground">Active sub-agents</p>
               </CardContent>
             </Card>
 
             {/* Total Orders */}
-            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-amber-500 bg-card backdrop-blur-xl border border-border">
+            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-warning/30 bg-card backdrop-blur-xl border border-border">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium text-foreground">Total Orders</CardTitle>
-                <Package className="h-4 w-4 text-amber-600" />
+                <Package className="h-4 w-4 text-warning" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold bg-gradient-to-r from-amber-600 to-orange-600 bg-clip-text text-transparent">{formatCount(stats.totalOrders)}</div>
+                <div className="text-2xl font-bold bg-gradient-to-r from-warning to-warning bg-clip-text text-transparent">{formatCount(stats.totalOrders)}</div>
                 <p className="text-xs text-muted-foreground">All time orders</p>
               </CardContent>
             </Card>
@@ -193,10 +193,10 @@ export default function AdminDashboardPage() {
             <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-violet-500 bg-card backdrop-blur-xl border border-border">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium text-foreground">Total Revenue</CardTitle>
-                <TrendingUp className="h-4 w-4 text-violet-600" />
+                <TrendingUp className="h-4 w-4 text-primary" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent">GHS {stats.totalRevenue.toFixed(2)}</div>
+                <div className="text-2xl font-bold bg-gradient-to-r from-primary to-primary bg-clip-text text-transparent">GHS {stats.totalRevenue.toFixed(2)}</div>
                 <p className="text-xs text-muted-foreground">Platform revenue</p>
               </CardContent>
             </Card>
@@ -207,13 +207,13 @@ export default function AdminDashboardPage() {
         {stats && (
           <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:gap-4">
             {/* Total Wallet Balance */}
-            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-green-500 bg-card backdrop-blur-xl border border-border">
+            <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-success/30 bg-card backdrop-blur-xl border border-border">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium text-foreground">Users Wallet Balance</CardTitle>
-                <Wallet className="h-4 w-4 text-green-600" />
+                <Wallet className="h-4 w-4 text-success" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">GHS {stats.totalWalletBalance.toFixed(2)}</div>
+                <div className="text-2xl font-bold bg-gradient-to-r from-success to-success bg-clip-text text-transparent">GHS {stats.totalWalletBalance.toFixed(2)}</div>
                 <p className="text-xs text-muted-foreground">Total available wallet balance</p>
               </CardContent>
             </Card>
@@ -234,10 +234,10 @@ export default function AdminDashboardPage() {
 
         {/* Pending Approvals Alert */}
         {stats && stats.pendingShops > 0 && (
-          <Card className="border-l-4 border-l-orange-500 bg-card backdrop-blur-xl border border-border">
+          <Card className="border-l-4 border-l-warning/30 bg-card backdrop-blur-xl border border-border">
             <CardContent className="pt-6 flex items-center justify-between">
               <div className="flex items-center gap-4">
-                <AlertCircle className="h-6 w-6 text-orange-600" />
+                <AlertCircle className="h-6 w-6 text-warning" />
                 <div>
                   <p className="font-semibold text-foreground">{formatCount(stats.pendingShops)} Pending Shop Approval{stats.pendingShops !== 1 ? "s" : ""}</p>
                   <p className="text-sm text-muted-foreground">There are shops waiting for approval</p>
@@ -246,7 +246,7 @@ export default function AdminDashboardPage() {
               <Button
                 onClick={() => handleNavigate("/admin/shops")}
                 disabled={navigating !== null}
-                className="bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-700 hover:to-red-700"
+                className="bg-warning hover:bg-warning/90"
               >
                 {navigating === "/admin/shops" ? (
                   <>
@@ -267,7 +267,7 @@ export default function AdminDashboardPage() {
           <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-primary/20 hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-blue-400/30 to-cyan-400/20 backdrop-blur p-2 rounded-lg border border-border">
+                <div className="bg-gradient-to-br from-blue-400/30 to-primary/20 backdrop-blur p-2 rounded-lg border border-border">
                   <Package className="h-5 w-5 text-primary" />
                 </div>
                 <CardTitle>Manage Packages</CardTitle>
@@ -278,7 +278,7 @@ export default function AdminDashboardPage() {
               <Button
                 onClick={() => handleNavigate("/admin/packages")}
                 disabled={navigating !== null}
-                className="w-full bg-gradient-to-r from-primary to-cyan-600 hover:from-primary hover:to-cyan-700 text-white font-semibold"
+                className="w-full bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary text-primary-foreground font-semibold"
               >
                 {navigating === "/admin/packages" ? (
                   <>
@@ -296,8 +296,8 @@ export default function AdminDashboardPage() {
           <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-border hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-emerald-400/30 to-teal-400/20 backdrop-blur p-2 rounded-lg border border-border">
-                  <Users className="h-5 w-5 text-emerald-600" />
+                <div className="bg-success/15 backdrop-blur p-2 rounded-lg border border-border">
+                  <Users className="h-5 w-5 text-success" />
                 </div>
                 <CardTitle>Manage Users</CardTitle>
               </div>
@@ -307,7 +307,7 @@ export default function AdminDashboardPage() {
               <Button
                 onClick={() => handleNavigate("/admin/users")}
                 disabled={navigating !== null}
-                className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-semibold"
+                className="w-full bg-success hover:bg-success/90 text-primary-foreground font-semibold"
               >
                 {navigating === "/admin/users" ? (
                   <>
@@ -325,8 +325,8 @@ export default function AdminDashboardPage() {
           <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-border hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-orange-400/30 to-amber-400/20 backdrop-blur p-2 rounded-lg border border-border">
-                  <Download className="h-5 w-5 text-orange-600" />
+                <div className="bg-warning/15 backdrop-blur p-2 rounded-lg border border-border">
+                  <Download className="h-5 w-5 text-warning" />
                 </div>
                 <CardTitle>Order Management</CardTitle>
               </div>
@@ -336,7 +336,7 @@ export default function AdminDashboardPage() {
               <Button
                 onClick={() => handleNavigate("/admin/orders")}
                 disabled={navigating !== null}
-                className="w-full bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white font-semibold"
+                className="w-full bg-warning hover:bg-warning/90 text-primary-foreground font-semibold"
               >
                 {navigating === "/admin/orders" ? (
                   <>
@@ -354,8 +354,8 @@ export default function AdminDashboardPage() {
           <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-border hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-indigo-400/30 to-blue-400/20 backdrop-blur p-2 rounded-lg border border-border">
-                  <Search className="h-5 w-5 text-indigo-600" />
+                <div className="bg-gradient-to-br from-primary/30 to-blue-400/20 backdrop-blur p-2 rounded-lg border border-border">
+                  <Search className="h-5 w-5 text-primary" />
                 </div>
                 <CardTitle>Order Payment Status</CardTitle>
               </div>
@@ -365,7 +365,7 @@ export default function AdminDashboardPage() {
               <Button
                 onClick={() => handleNavigate("/admin/order-payment-status")}
                 disabled={navigating !== null}
-                className="w-full bg-gradient-to-r from-indigo-600 to-primary/80 hover:from-indigo-700 hover:to-primary/80 text-white font-semibold"
+                className="w-full bg-gradient-to-r from-primary to-primary/80 hover:from-primary hover:to-primary/80 text-primary-foreground font-semibold"
               >
                 {navigating === "/admin/order-payment-status" ? (
                   <>
@@ -383,8 +383,8 @@ export default function AdminDashboardPage() {
           <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-border hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-violet-400/30 to-purple-400/20 backdrop-blur p-2 rounded-lg border border-border">
-                  <Store className="h-5 w-5 text-violet-600" />
+                <div className="bg-gradient-to-br from-primary/30 to-primary/20 backdrop-blur p-2 rounded-lg border border-border">
+                  <Store className="h-5 w-5 text-primary" />
                 </div>
                 <CardTitle>Shop Approvals</CardTitle>
               </div>
@@ -394,7 +394,7 @@ export default function AdminDashboardPage() {
               <Button
                 onClick={() => handleNavigate("/admin/shops")}
                 disabled={navigating !== null}
-                className="w-full bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white font-semibold"
+                className="w-full bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary text-primary-foreground font-semibold"
               >
                 {navigating === "/admin/shops" ? (
                   <>
@@ -412,8 +412,8 @@ export default function AdminDashboardPage() {
           <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-border hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-amber-400/30 to-yellow-400/20 backdrop-blur p-2 rounded-lg border border-border">
-                  <Wallet className="h-5 w-5 text-amber-600" />
+                <div className="bg-warning/15 backdrop-blur p-2 rounded-lg border border-border">
+                  <Wallet className="h-5 w-5 text-warning" />
                 </div>
                 <CardTitle>Withdrawal Approvals</CardTitle>
               </div>
@@ -423,7 +423,7 @@ export default function AdminDashboardPage() {
               <Button
                 onClick={() => handleNavigate("/admin/withdrawals")}
                 disabled={navigating !== null}
-                className="w-full bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-700 hover:to-yellow-700 text-white font-semibold"
+                className="w-full bg-warning hover:bg-warning/90 text-primary-foreground font-semibold"
               >
                 {navigating === "/admin/withdrawals" ? (
                   <>
@@ -441,8 +441,8 @@ export default function AdminDashboardPage() {
           <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-border hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-lime-400/30 to-green-400/20 backdrop-blur p-2 rounded-lg border border-border">
-                  <Banknote className="h-5 w-5 text-lime-600" />
+                <div className="bg-success/15 backdrop-blur p-2 rounded-lg border border-border">
+                  <Banknote className="h-5 w-5 text-success" />
                 </div>
                 <CardTitle>Profits History</CardTitle>
               </div>
@@ -452,7 +452,7 @@ export default function AdminDashboardPage() {
               <Button
                 onClick={() => handleNavigate("/admin/profits-history")}
                 disabled={navigating !== null}
-                className="w-full bg-gradient-to-r from-lime-600 to-green-600 hover:from-lime-700 hover:to-green-700 text-white font-semibold"
+                className="w-full bg-success hover:bg-success/90 text-primary-foreground font-semibold"
               >
                 {navigating === "/admin/profits-history" ? (
                   <>
@@ -470,8 +470,8 @@ export default function AdminDashboardPage() {
           <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-border hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-indigo-400/30 to-purple-400/20 backdrop-blur p-2 rounded-lg border border-border">
-                  <TrendingUp className="h-5 w-5 text-indigo-600" />
+                <div className="bg-gradient-to-br from-primary/30 to-primary/20 backdrop-blur p-2 rounded-lg border border-border">
+                  <TrendingUp className="h-5 w-5 text-primary" />
                 </div>
                 <CardTitle>Order History</CardTitle>
               </div>
@@ -481,7 +481,7 @@ export default function AdminDashboardPage() {
               <Button
                 onClick={() => handleNavigate("/admin/order-history")}
                 disabled={navigating !== null}
-                className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-semibold"
+                className="w-full bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary text-primary-foreground font-semibold"
               >
                 {navigating === "/admin/order-history" ? (
                   <>
@@ -499,8 +499,8 @@ export default function AdminDashboardPage() {
           <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-border hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-fuchsia-400/30 to-purple-400/20 backdrop-blur p-2 rounded-lg border border-border">
-                  <TrendingUp className="h-5 w-5 text-fuchsia-600" />
+                <div className="bg-gradient-to-br from-primary/30 to-primary/20 backdrop-blur p-2 rounded-lg border border-border">
+                  <TrendingUp className="h-5 w-5 text-primary" />
                 </div>
                 <CardTitle>Sub-Agent Profits</CardTitle>
               </div>
@@ -510,7 +510,7 @@ export default function AdminDashboardPage() {
               <Button
                 onClick={() => handleNavigate("/admin/sub-agent-profits")}
                 disabled={navigating !== null}
-                className="w-full bg-gradient-to-r from-fuchsia-600 to-purple-600 hover:from-fuchsia-700 hover:to-purple-700 text-white font-semibold"
+                className="w-full bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary text-primary-foreground font-semibold"
               >
                 {navigating === "/admin/sub-agent-profits" ? (
                   <>
@@ -528,8 +528,8 @@ export default function AdminDashboardPage() {
           <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-border hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-amber-400/30 to-orange-400/20 backdrop-blur p-2 rounded-lg border border-border">
-                  <Crown className="h-5 w-5 text-amber-600" />
+                <div className="bg-warning/15 backdrop-blur p-2 rounded-lg border border-border">
+                  <Crown className="h-5 w-5 text-warning" />
                 </div>
                 <CardTitle>Dealer Subscriptions</CardTitle>
               </div>
@@ -539,7 +539,7 @@ export default function AdminDashboardPage() {
               <Button
                 onClick={() => handleNavigate("/admin/subscribers")}
                 disabled={navigating !== null}
-                className="w-full bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 text-white font-semibold"
+                className="w-full bg-warning hover:bg-warning/90 text-primary-foreground font-semibold"
               >
                 {navigating === "/admin/subscribers" ? (
                   <>
@@ -557,8 +557,8 @@ export default function AdminDashboardPage() {
           <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-border hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-red-400/30 to-pink-400/20 backdrop-blur p-2 rounded-lg border border-border">
-                  <MessageSquare className="h-5 w-5 text-red-600" />
+                <div className="bg-destructive/15 backdrop-blur p-2 rounded-lg border border-border">
+                  <MessageSquare className="h-5 w-5 text-destructive" />
                 </div>
                 <CardTitle>Customer Complaints</CardTitle>
               </div>
@@ -568,7 +568,7 @@ export default function AdminDashboardPage() {
               <Button
                 onClick={() => handleNavigate("/admin/complaints")}
                 disabled={navigating !== null}
-                className="w-full bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 text-white font-semibold"
+                className="w-full bg-destructive hover:bg-destructive/90 text-primary-foreground font-semibold"
               >
                 {navigating === "/admin/complaints" ? (
                   <>
@@ -586,8 +586,8 @@ export default function AdminDashboardPage() {
           <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-border hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-cyan-400/30 to-blue-400/20 backdrop-blur p-2 rounded-lg border border-border">
-                  <Settings className="h-5 w-5 text-cyan-600" />
+                <div className="bg-gradient-to-br from-primary/30 to-blue-400/20 backdrop-blur p-2 rounded-lg border border-border">
+                  <Settings className="h-5 w-5 text-primary" />
                 </div>
                 <CardTitle>AFA Management</CardTitle>
               </div>
@@ -597,7 +597,7 @@ export default function AdminDashboardPage() {
               <Button
                 onClick={() => handleNavigate("/admin/afa-management")}
                 disabled={navigating !== null}
-                className="w-full bg-gradient-to-r from-cyan-600 to-primary/80 hover:from-cyan-700 hover:to-primary/80 text-white font-semibold"
+                className="w-full bg-gradient-to-r from-primary to-primary/80 hover:from-primary hover:to-primary/80 text-primary-foreground font-semibold"
               >
                 {navigating === "/admin/afa-management" ? (
                   <>
@@ -626,7 +626,7 @@ export default function AdminDashboardPage() {
               <Button
                 onClick={() => handleNavigate("/admin/broadcast")}
                 disabled={navigating !== null}
-                className="w-full bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-700 hover:to-rose-700 text-white font-semibold"
+                className="w-full bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-700 hover:to-rose-700 text-primary-foreground font-semibold"
               >
                 {navigating === "/admin/broadcast" ? (
                   <>
@@ -644,8 +644,8 @@ export default function AdminDashboardPage() {
           <Card className="hover:shadow-2xl transition-all duration-300 cursor-pointer group bg-card backdrop-blur-xl border border-border hover:border-border">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="bg-gradient-to-br from-orange-400/30 to-yellow-400/20 backdrop-blur p-2 rounded-lg border border-border">
-                  <Banknote className="h-5 w-5 text-orange-600" />
+                <div className="bg-warning/15 backdrop-blur p-2 rounded-lg border border-border">
+                  <Banknote className="h-5 w-5 text-warning" />
                 </div>
                 <CardTitle>Airtime Orders</CardTitle>
               </div>
@@ -655,7 +655,7 @@ export default function AdminDashboardPage() {
               <Button
                 onClick={() => handleNavigate("/admin/airtime")}
                 disabled={navigating !== null}
-                className="w-full bg-gradient-to-r from-orange-600 to-yellow-600 hover:from-orange-700 hover:to-yellow-700 text-white font-semibold"
+                className="w-full bg-warning hover:bg-warning/90 text-primary-foreground font-semibold"
               >
                 {navigating === "/admin/airtime" ? (
                   <>
@@ -680,15 +680,15 @@ export default function AdminDashboardPage() {
             <CardContent className="grid grid-cols-2 md:grid-cols-3 gap-6">
               <div>
                 <p className="text-sm text-muted-foreground mb-1">Completed Orders</p>
-                <p className="text-2xl font-bold text-indigo-600">{formatCount(stats.completedOrders)}</p>
+                <p className="text-2xl font-bold text-primary">{formatCount(stats.completedOrders)}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground mb-1">Success Rate</p>
-                <p className="text-2xl font-bold text-emerald-600">{stats.successRate}%</p>
+                <p className="text-2xl font-bold text-success">{stats.successRate}%</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground mb-1">Pending Approvals</p>
-                <Badge className="bg-orange-600">{stats.pendingShops}</Badge>
+                <Badge className="bg-warning">{stats.pendingShops}</Badge>
               </div>
             </CardContent>
           </Card>

@@ -19,16 +19,16 @@ import { supabase } from "@/lib/supabase"
 const EXAM_BOARDS = ["WASSCE", "BECE", "NOVDEC"]
 
 const STATUS_CLASSES: Record<string, string> = {
-  available:  "bg-green-100 text-green-700",
-  reserved:   "bg-yellow-100 text-yellow-800",
+  available:  "bg-success/15 text-success",
+  reserved:   "bg-warning/15 text-warning",
   sold:       "bg-primary/10 text-primary",
   used:       "bg-muted text-muted-foreground",
-  expired:    "bg-orange-100 text-orange-700",
-  invalid:    "bg-red-100 text-red-700",
-  pending:         "bg-yellow-100 text-yellow-800",
-  pending_payment: "bg-purple-100 text-purple-700",
-  completed:       "bg-green-100 text-green-700",
-  failed:          "bg-red-100 text-red-700",
+  expired:    "bg-warning/15 text-warning",
+  invalid:    "bg-destructive/15 text-destructive",
+  pending:         "bg-warning/15 text-warning",
+  pending_payment: "bg-primary/10 text-primary",
+  completed:       "bg-success/15 text-success",
+  failed:          "bg-destructive/15 text-destructive",
 }
 
 interface InventorySummary {
@@ -399,7 +399,7 @@ export default function AdminResultsCheckerPage() {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center h-64">
-          <Loader2 className="w-8 h-8 animate-spin text-violet-600" />
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
         </div>
       </DashboardLayout>
     )
@@ -418,7 +418,7 @@ export default function AdminResultsCheckerPage() {
         </div>
 
         {lowStockBoards.length > 0 && (
-          <div className="flex items-center gap-2 px-4 py-3 bg-orange-50 border border-border rounded-lg text-orange-800 text-sm font-medium">
+          <div className="flex items-center gap-2 px-4 py-3 bg-warning/10 border border-border rounded-lg text-warning text-sm font-medium">
             <AlertCircle className="w-4 h-4 flex-shrink-0" />
             Low stock alert: {lowStockBoards.map(b => `${b} (${summary?.[b.toLowerCase() as keyof InventorySummary]?.available ?? 0} left)`).join(", ")}
           </div>
@@ -444,10 +444,10 @@ export default function AdminResultsCheckerPage() {
                       <CardTitle className="text-sm font-semibold text-foreground">{board}</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-1 text-sm">
-                      <div className="flex justify-between"><span className="text-green-600 font-medium">Available</span><span className="font-bold">{s?.available ?? 0}</span></div>
-                      <div className="flex justify-between"><span className="text-yellow-600">Reserved</span><span>{s?.reserved ?? 0}</span></div>
+                      <div className="flex justify-between"><span className="text-success font-medium">Available</span><span className="font-bold">{s?.available ?? 0}</span></div>
+                      <div className="flex justify-between"><span className="text-warning">Reserved</span><span>{s?.reserved ?? 0}</span></div>
                       <div className="flex justify-between"><span className="text-primary">Sold</span><span>{s?.sold ?? 0}</span></div>
-                      <div className="flex justify-between"><span className="text-red-500">Invalid</span><span>{s?.invalid ?? 0}</span></div>
+                      <div className="flex justify-between"><span className="text-destructive">Invalid</span><span>{s?.invalid ?? 0}</span></div>
                     </CardContent>
                   </Card>
                 )
@@ -537,28 +537,28 @@ export default function AdminResultsCheckerPage() {
 
                 {/* Board selector — required before upload */}
                 <div>
-                  <Label className="text-sm font-semibold text-foreground">Exam Board <span className="text-red-500">*</span></Label>
+                  <Label className="text-sm font-semibold text-foreground">Exam Board <span className="text-destructive">*</span></Label>
                   <div className="flex gap-2 mt-2">
                     {EXAM_BOARDS.map(b => (
                       <button key={b} onClick={() => { setUploadBoard(b); setParsePreview(null); setParseErrors([]); setUploadResult(null) }}
                         className={`px-5 py-2 rounded-lg font-bold text-sm border-2 transition-all ${
                           uploadBoard === b
-                            ? "border-violet-600 bg-violet-50 text-violet-700 shadow-sm"
+                            ? "border-primary bg-primary text-primary-foreground shadow-sm"
                             : "border-border text-muted-foreground hover:border-border"
                         }`}
                       >{b}</button>
                     ))}
                   </div>
-                  {!uploadBoard && <p className="text-xs text-amber-600 mt-1">Select a board to enable upload</p>}
+                  {!uploadBoard && <p className="text-xs text-warning mt-1">Select a board to enable upload</p>}
                 </div>
 
                 {/* Mode toggle */}
                 <div className="flex gap-2">
                   <button onClick={() => { setUploadMode("file"); setParsePreview(null); setParseErrors([]) }}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${uploadMode === "file" ? "bg-violet-600 text-white" : "bg-muted text-muted-foreground hover:bg-muted"}`}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${uploadMode === "file" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted"}`}
                   >File Upload</button>
                   <button onClick={() => { setUploadMode("text"); setParsePreview(null); setParseErrors([]) }}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${uploadMode === "text" ? "bg-violet-600 text-white" : "bg-muted text-muted-foreground hover:bg-muted"}`}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${uploadMode === "text" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted"}`}
                   >Paste / Type</button>
                 </div>
 
@@ -566,14 +566,14 @@ export default function AdminResultsCheckerPage() {
                   <>
                     <p className="text-xs text-muted-foreground">File columns: <code className="bg-muted px-1 rounded">pin, serial_number, expiry_date, notes</code> — no exam_board column needed</p>
                     <div
-                      className="border-2 border-dashed border-border rounded-lg p-8 text-center cursor-pointer hover:border-violet-400 transition-colors"
+                      className="border-2 border-dashed border-border rounded-lg p-8 text-center cursor-pointer hover:border-primary transition-colors"
                       onClick={() => document.getElementById("csv-input")?.click()}
                       onDragOver={e => e.preventDefault()}
                       onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFileSelect(f) }}
                     >
                       <Upload className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
                       {csvFile ? (
-                        <p className="text-sm font-medium text-violet-700">{csvFile.name} ({(csvFile.size / 1024).toFixed(1)} KB)</p>
+                        <p className="text-sm font-medium text-primary">{csvFile.name} ({(csvFile.size / 1024).toFixed(1)} KB)</p>
                       ) : (
                         <p className="text-sm text-muted-foreground">Drag &amp; drop a .xlsx or .csv file, or click to browse</p>
                       )}
@@ -592,7 +592,7 @@ export default function AdminResultsCheckerPage() {
                       onChange={e => handleTextChange(e.target.value)}
                       placeholder={"WGR1900112581\n123456789012\nWGR1900112582\n987654321098\n\n(blank serial below means no serial)\n\n456789012345"}
                       rows={12}
-                      className="w-full font-mono text-sm border rounded-lg p-3 resize-y focus:outline-none focus:ring-2 focus:ring-violet-400"
+                      className="w-full font-mono text-sm border rounded-lg p-3 resize-y focus:outline-none focus:ring-2 focus:ring-primary"
                     />
                   </>
                 )}
@@ -610,7 +610,7 @@ export default function AdminResultsCheckerPage() {
                               {(parsePreview as any[]).map((row, i) => (
                                 <tr key={i}>
                                   <td className="px-3 py-2 text-muted-foreground">{i + 1}</td>
-                                  <td className="px-3 py-2 font-semibold text-violet-700">{row.board}</td>
+                                  <td className="px-3 py-2 font-semibold text-primary">{row.board}</td>
                                   <td className="px-3 py-2 font-mono">{row.pin}</td>
                                   <td className="px-3 py-2 font-mono text-muted-foreground">{row.serial}</td>
                                 </tr>
@@ -634,21 +634,21 @@ export default function AdminResultsCheckerPage() {
 
                 {/* Parse errors */}
                 {parseErrors.length > 0 && (
-                  <div className="bg-red-50 border border-border rounded-lg p-3 space-y-1">
-                    <p className="text-sm font-semibold text-red-700">{parseErrors.length} row error{parseErrors.length > 1 ? "s" : ""}</p>
+                  <div className="bg-destructive/10 border border-border rounded-lg p-3 space-y-1">
+                    <p className="text-sm font-semibold text-destructive">{parseErrors.length} row error{parseErrors.length > 1 ? "s" : ""}</p>
                     {parseErrors.slice(0, 5).map(e => (
-                      <p key={e.row} className="text-xs text-red-600">Row {e.row}: {e.reason}</p>
+                      <p key={e.row} className="text-xs text-destructive">Row {e.row}: {e.reason}</p>
                     ))}
-                    {parseErrors.length > 5 && <p className="text-xs text-red-500">…and {parseErrors.length - 5} more</p>}
+                    {parseErrors.length > 5 && <p className="text-xs text-destructive">…and {parseErrors.length - 5} more</p>}
                   </div>
                 )}
 
                 {/* Upload result */}
                 {uploadResult && (
-                  <div className="bg-green-50 border border-border rounded-lg p-3 text-sm text-green-800">
+                  <div className="bg-success/10 border border-border rounded-lg p-3 text-sm text-success">
                     <p className="font-semibold">Upload complete</p>
                     <p>{uploadResult.inserted} inserted · {uploadResult.skipped} duplicates skipped</p>
-                    <p className="text-xs text-green-600 mt-1">Batch ID: {uploadResult.batchId}</p>
+                    <p className="text-xs text-success mt-1">Batch ID: {uploadResult.batchId}</p>
                   </div>
                 )}
 

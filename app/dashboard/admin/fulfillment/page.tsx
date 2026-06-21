@@ -195,9 +195,9 @@ export default function AdminFulfillmentPage() {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "success":
-        return <CheckCircle className="w-4 h-4 text-green-600" />
+        return <CheckCircle className="w-4 h-4 text-success" />
       case "failed":
-        return <XCircle className="w-4 h-4 text-red-600" />
+        return <XCircle className="w-4 h-4 text-destructive" />
       case "processing":
         return <Clock className="w-4 h-4 text-primary" />
       default:
@@ -208,9 +208,9 @@ export default function AdminFulfillmentPage() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case "success":
-        return "bg-green-100 text-green-800"
+        return "bg-success/15 text-success"
       case "failed":
-        return "bg-red-100 text-red-800"
+        return "bg-destructive/15 text-destructive"
       case "processing":
         return "bg-primary/10 text-primary"
       default:
@@ -298,18 +298,18 @@ export default function AdminFulfillmentPage() {
               </div>
             </CardContent>
           </Card>
-          <Card className="bg-green-50">
+          <Card className="bg-success/10">
             <CardContent className="pt-6">
               <div className="text-center">
-                <p className="text-3xl font-bold text-green-600">{formatCount(stats.success)}</p>
+                <p className="text-3xl font-bold text-success">{formatCount(stats.success)}</p>
                 <p className="text-sm text-muted-foreground">Success</p>
               </div>
             </CardContent>
           </Card>
-          <Card className="bg-red-50">
+          <Card className="bg-destructive/10">
             <CardContent className="pt-6">
               <div className="text-center">
-                <p className="text-3xl font-bold text-red-600">{formatCount(stats.failed)}</p>
+                <p className="text-3xl font-bold text-destructive">{formatCount(stats.failed)}</p>
                 <p className="text-sm text-muted-foreground">Failed</p>
               </div>
             </CardContent>
@@ -372,7 +372,7 @@ export default function AdminFulfillmentPage() {
                 size="sm"
                 variant="outline"
                 disabled={syncingCodecraft}
-                className="border-border text-purple-700 hover:bg-purple-50"
+                className="border-border text-primary hover:bg-primary/20"
               >
                 {syncingCodecraft
                   ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
@@ -456,7 +456,7 @@ export default function AdminFulfillmentPage() {
                         </td>
                         <td className="py-3 px-4 text-xs">
                           {fulfillment.error_message ? (
-                            <div className="max-w-xs text-red-600 truncate">
+                            <div className="max-w-xs text-destructive truncate">
                               {fulfillment.error_message}
                             </div>
                           ) : (

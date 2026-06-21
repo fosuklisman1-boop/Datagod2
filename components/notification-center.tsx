@@ -130,7 +130,7 @@ export function NotificationCenter() {
       >
         <Bell className="w-6 h-6" />
         {unreadCount > 0 && (
-          <span className="absolute top-0 right-0 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
+          <span className="absolute top-0 right-0 bg-destructive text-primary-foreground text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
@@ -166,16 +166,16 @@ export function NotificationCenter() {
 
           {/* Push opt-in banner — only shown when permission hasn't been decided */}
           {pushPermission === 'default' && (
-            <div className="flex items-center gap-3 px-4 py-3 bg-violet-50 border-b border-border">
-              <BellRing className="w-5 h-5 text-violet-500 shrink-0" />
+            <div className="flex items-center gap-3 px-4 py-3 bg-primary/10 border-b border-border">
+              <BellRing className="w-5 h-5 text-primary shrink-0" />
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium text-violet-800">Get push notifications</p>
-                <p className="text-xs text-violet-600">Stay updated even when the app is closed.</p>
+                <p className="text-xs font-medium text-primary">Get push notifications</p>
+                <p className="text-xs text-primary">Stay updated even when the app is closed.</p>
               </div>
               <button
                 onClick={handleEnablePush}
                 disabled={enablingPush}
-                className="shrink-0 text-xs font-semibold bg-violet-600 hover:bg-violet-700 text-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60"
+                className="shrink-0 text-xs font-semibold bg-primary hover:bg-primary text-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60"
               >
                 {enablingPush ? "Enabling…" : "Enable"}
               </button>
@@ -241,17 +241,17 @@ function NotificationItem({
       case "order_update":
         return "bg-primary/5 border-l-4 border-primary"
       case "complaint_resolved":
-        return "bg-green-50 border-l-4 border-green-500"
+        return "bg-success/10 border-l-4 border-success/30"
       case "payment_success":
-        return "bg-green-50 border-l-4 border-green-500"
+        return "bg-success/10 border-l-4 border-success/30"
       case "withdrawal_approved":
-        return "bg-green-50 border-l-4 border-green-500"
+        return "bg-success/10 border-l-4 border-success/30"
       case "withdrawal_rejected":
-        return "bg-red-50 border-l-4 border-red-500"
+        return "bg-destructive/10 border-l-4 border-destructive/30"
       case "balance_updated":
-        return "bg-purple-50 border-l-4 border-purple-500"
+        return "bg-primary border-l-4 border-primary"
       default:
-        return "bg-muted/40 border-l-4 border-gray-500"
+        return "bg-muted/40 border-l-4 border-border"
     }
   }
 
@@ -259,13 +259,13 @@ function NotificationItem({
     switch (type) {
       case "payment_success":
       case "withdrawal_approved":
-        return <div className="w-2 h-2 bg-green-500 rounded-full" />
+        return <div className="w-2 h-2 bg-success rounded-full" />
       case "order_update":
         return <div className="w-2 h-2 bg-primary rounded-full" />
       case "withdrawal_rejected":
-        return <div className="w-2 h-2 bg-red-500 rounded-full" />
+        return <div className="w-2 h-2 bg-destructive rounded-full" />
       default:
-        return <div className="w-2 h-2 bg-gray-500 rounded-full" />
+        return <div className="w-2 h-2 bg-muted-foreground rounded-full" />
     }
   }
 
@@ -318,7 +318,7 @@ function NotificationItem({
             {!notification.read && (
               <button
                 onClick={() => onMarkAsRead(notification.id)}
-                className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 border border-border hover:border-gray-400 rounded px-1.5 py-0.5 transition-colors"
+                className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 border border-border hover:border-border rounded px-1.5 py-0.5 transition-colors"
               >
                 <Check className="w-3 h-3" />
                 <span className="hidden sm:inline">Mark read</span>

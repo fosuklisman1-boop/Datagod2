@@ -390,7 +390,7 @@ export default function MTNSettingsPage() {
 
                 <div className="grid md:grid-cols-2 gap-4 text-sm">
                   <div className="p-4 bg-primary/5 rounded-lg border border-primary/20">
-                    <p className="font-medium text-blue-900 mb-2">🟢 When Enabled</p>
+                    <p className="font-medium text-foreground mb-2">🟢 When Enabled</p>
                     <ul className="space-y-1 text-primary text-xs">
                       <li>✓ Orders auto-fulfill immediately</li>
                       <li>✓ Faster customer delivery</li>
@@ -399,9 +399,9 @@ export default function MTNSettingsPage() {
                     </ul>
                   </div>
 
-                  <div className="p-4 bg-amber-50 rounded-lg border border-border">
-                    <p className="font-medium text-amber-900 mb-2">⚪ When Disabled</p>
-                    <ul className="space-y-1 text-amber-800 text-xs">
+                  <div className="p-4 bg-warning/10 rounded-lg border border-border">
+                    <p className="font-medium text-warning mb-2">⚪ When Disabled</p>
+                    <ul className="space-y-1 text-warning text-xs">
                       <li>✓ Orders go to Downloads tab</li>
                       <li>✓ Admin controls fulfillment</li>
                       <li>✓ Manual review before execution</li>
@@ -454,14 +454,14 @@ export default function MTNSettingsPage() {
                     {balance.balances.sykes.balance !== null ? (
                       <>
                         <div className="flex items-baseline gap-2">
-                          <span className={`text-3xl font-bold ${balance.balances.sykes.is_low ? 'text-orange-600' : 'text-emerald-900'
+                          <span className={`text-3xl font-bold ${balance.balances.sykes.is_low ? 'text-warning' : 'text-success'
                             }`}>
                             ₵{balance.balances.sykes.balance.toFixed(2)}
                           </span>
                           <span className="text-sm text-muted-foreground">GHS</span>
                         </div>
                         {balance.balances.sykes.is_low && (
-                          <p className="text-xs text-orange-600 mt-2">⚠️ Low balance</p>
+                          <p className="text-xs text-warning mt-2">⚠️ Low balance</p>
                         )}
                       </>
                     ) : (
@@ -471,26 +471,26 @@ export default function MTNSettingsPage() {
 
                   {/* DataKazina Balance */}
                   <div className={`p-4 rounded-lg border-2 transition-all ${balance.balances.datakazina.is_active
-                    ? 'bg-green-50 border-border shadow-md'
+                    ? 'bg-success/10 border-border shadow-md'
                     : 'bg-muted/40 border-border'
                     }`}>
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm font-medium text-foreground">DataKazina API</span>
                       {balance.balances.datakazina.is_active && (
-                        <Badge className="bg-green-600">Active</Badge>
+                        <Badge className="bg-success">Active</Badge>
                       )}
                     </div>
                     {balance.balances.datakazina.balance !== null ? (
                       <>
                         <div className="flex items-baseline gap-2">
-                          <span className={`text-3xl font-bold ${balance.balances.datakazina.is_low ? 'text-orange-600' : 'text-emerald-900'
+                          <span className={`text-3xl font-bold ${balance.balances.datakazina.is_low ? 'text-warning' : 'text-success'
                             }`}>
                             ₵{balance.balances.datakazina.balance.toFixed(2)}
                           </span>
                           <span className="text-sm text-muted-foreground">GHS</span>
                         </div>
                         {balance.balances.datakazina.is_low && (
-                          <p className="text-xs text-orange-600 mt-2">⚠️ Low balance</p>
+                          <p className="text-xs text-warning mt-2">⚠️ Low balance</p>
                         )}
                       </>
                     ) : (
@@ -500,26 +500,26 @@ export default function MTNSettingsPage() {
 
                   {/* Xpress Balance */}
                   <div className={`p-4 rounded-lg border-2 transition-all ${balance.balances.xpress?.is_active
-                    ? 'bg-purple-50 border-border shadow-md'
+                    ? 'bg-primary/10 border-border shadow-md'
                     : 'bg-muted/40 border-border'
                     }`}>
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm font-medium text-foreground">Xpress API</span>
                       {balance.balances.xpress?.is_active && (
-                        <Badge className="bg-purple-600">Active</Badge>
+                        <Badge className="bg-primary">Active</Badge>
                       )}
                     </div>
                     {balance.balances.xpress?.balance !== null && balance.balances.xpress?.balance !== undefined ? (
                       <>
                         <div className="flex items-baseline gap-2">
-                          <span className={`text-3xl font-bold ${balance.balances.xpress.is_low ? 'text-orange-600' : 'text-emerald-900'
+                          <span className={`text-3xl font-bold ${balance.balances.xpress.is_low ? 'text-warning' : 'text-success'
                             }`}>
                             ₵{balance.balances.xpress.balance.toFixed(2)}
                           </span>
                           <span className="text-sm text-muted-foreground">GHS</span>
                         </div>
                         {balance.balances.xpress.is_low && (
-                          <p className="text-xs text-orange-600 mt-2">⚠️ Low balance</p>
+                          <p className="text-xs text-warning mt-2">⚠️ Low balance</p>
                         )}
                       </>
                     ) : (
@@ -529,26 +529,26 @@ export default function MTNSettingsPage() {
 
                   {/* EazyGhData Balance */}
                   <div className={`p-4 rounded-lg border-2 transition-all ${balance.balances.eazyghdata?.is_active
-                    ? 'bg-cyan-50 border-border shadow-md'
+                    ? 'bg-primary/10 border-border shadow-md'
                     : 'bg-muted/40 border-border'
                     }`}>
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm font-medium text-foreground">EazyGhData</span>
                       {balance.balances.eazyghdata?.is_active && (
-                        <Badge className="bg-cyan-600">Active</Badge>
+                        <Badge className="bg-primary">Active</Badge>
                       )}
                     </div>
                     {balance.balances.eazyghdata?.balance !== null && balance.balances.eazyghdata?.balance !== undefined ? (
                       <>
                         <div className="flex items-baseline gap-2">
-                          <span className={`text-3xl font-bold ${balance.balances.eazyghdata.is_low ? 'text-orange-600' : 'text-emerald-900'
+                          <span className={`text-3xl font-bold ${balance.balances.eazyghdata.is_low ? 'text-warning' : 'text-success'
                             }`}>
                             ₵{balance.balances.eazyghdata.balance.toFixed(2)}
                           </span>
                           <span className="text-sm text-muted-foreground">GHS</span>
                         </div>
                         {balance.balances.eazyghdata.is_low && (
-                          <p className="text-xs text-orange-600 mt-2">⚠️ Low balance</p>
+                          <p className="text-xs text-warning mt-2">⚠️ Low balance</p>
                         )}
                       </>
                     ) : (
@@ -588,9 +588,10 @@ export default function MTNSettingsPage() {
 
                 {/* Low Balance Alerts */}
                 {(balance.balances.sykes.is_low || balance.balances.datakazina.is_low || balance.balances.xpress?.is_low || balance.balances.eazyghdata?.is_low || balance.balances.bisdel?.is_low) && (
-                  <Alert className="border-border bg-orange-50">
-                    <AlertCircle className="h-4 w-4 text-orange-600" />
-                    <AlertDescription className="text-orange-700">
+                  <Alert className="border-border bg-warning/10">
+                    <AlertCircle className="h-4 w-4 text-warning" />
+                    <AlertDescription className="text-warning">
+
                       {balance.balances.sykes.alert && <p>• {balance.balances.sykes.alert}</p>}
                       {balance.balances.datakazina.alert && <p>• {balance.balances.datakazina.alert}</p>}
                       {balance.balances.xpress?.alert && <p>• {balance.balances.xpress.alert}</p>}
@@ -666,14 +667,14 @@ export default function MTNSettingsPage() {
                   onClick={() => handleMTNProviderChange("datakazina")}
                   disabled={savingProvider || mtnProvider === "datakazina"}
                   className={`p-4 rounded-lg border-2 transition-all text-left ${mtnProvider === "datakazina"
-                      ? "bg-green-50 border-green-500 shadow-md"
+                      ? "bg-success/10 border-success shadow-md"
                       : "bg-card border-border hover:border-border"
                     } ${savingProvider ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
                 >
                   <div className="flex items-center justify-between mb-2">
                     <span className="font-semibold text-foreground">DataKazina API</span>
                     {mtnProvider === "datakazina" && (
-                      <Badge className="bg-green-600">Active</Badge>
+                      <Badge className="bg-success">Active</Badge>
                     )}
                   </div>
                   <p className="text-sm text-muted-foreground">Alternative MTN provider</p>
@@ -684,14 +685,14 @@ export default function MTNSettingsPage() {
                   onClick={() => handleMTNProviderChange("xpress")}
                   disabled={savingProvider || mtnProvider === "xpress"}
                   className={`p-4 rounded-lg border-2 transition-all text-left ${mtnProvider === "xpress"
-                      ? "bg-purple-50 border-purple-500 shadow-md"
+                      ? "bg-primary border-primary shadow-md"
                       : "bg-card border-border hover:border-border"
                     } ${savingProvider ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
                 >
                   <div className="flex items-center justify-between mb-2">
                     <span className="font-semibold text-foreground">Xpress API</span>
                     {mtnProvider === "xpress" && (
-                      <Badge className="bg-purple-600">Active</Badge>
+                      <Badge className="bg-primary">Active</Badge>
                     )}
                   </div>
                   <p className="text-sm text-muted-foreground">Batch-enabled provider</p>
@@ -702,14 +703,14 @@ export default function MTNSettingsPage() {
                   onClick={() => handleMTNProviderChange("eazyghdata")}
                   disabled={savingProvider || mtnProvider === "eazyghdata"}
                   className={`p-4 rounded-lg border-2 transition-all text-left ${mtnProvider === "eazyghdata"
-                      ? "bg-cyan-50 border-cyan-500 shadow-md"
+                      ? "bg-primary border-primary shadow-md"
                       : "bg-card border-border hover:border-border"
                     } ${savingProvider ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
                 >
                   <div className="flex items-center justify-between mb-2">
                     <span className="font-semibold text-foreground">EazyGhData</span>
                     {mtnProvider === "eazyghdata" && (
-                      <Badge className="bg-cyan-600">Active</Badge>
+                      <Badge className="bg-primary">Active</Badge>
                     )}
                   </div>
                   <p className="text-sm text-muted-foreground">Package-based provider</p>
@@ -736,9 +737,9 @@ export default function MTNSettingsPage() {
 
               {/* EazyGhData Package Sync */}
               {mtnProvider === "eazyghdata" && (
-                <div className="p-4 bg-cyan-50 rounded-lg border border-cyan-200">
-                  <p className="text-sm font-medium text-cyan-900 mb-2">EazyGhData Package Mapping</p>
-                  <p className="text-xs text-cyan-700 mb-3">
+                <div className="p-4 bg-primary/10 rounded-lg border border-primary">
+                  <p className="text-sm font-medium text-primary mb-2">EazyGhData Package Mapping</p>
+                  <p className="text-xs text-primary mb-3">
                     EazyGhData requires a package_id UUID per GB size. Sync packages to keep the mapping up to date.
                   </p>
                   <Button
@@ -746,7 +747,7 @@ export default function MTNSettingsPage() {
                     disabled={syncingPackages}
                     variant="outline"
                     size="sm"
-                    className="border-cyan-400 text-cyan-800 hover:bg-cyan-100"
+                    className="border-primary text-primary hover:bg-primary/20"
                   >
                     {syncingPackages ? (
                       <>
@@ -813,9 +814,9 @@ export default function MTNSettingsPage() {
                 </div>
               )}
 
-              <Alert className="border-border bg-amber-50">
-                <AlertCircle className="h-4 w-4 text-amber-600" />
-                <AlertDescription className="text-amber-700 text-sm">
+              <Alert className="border-border bg-warning/10">
+                <AlertCircle className="h-4 w-4 text-warning" />
+                <AlertDescription className="text-warning text-sm">
                   <strong>Note:</strong> Switching providers only affects NEW orders.
                   In-flight orders will continue with their original provider.
                 </AlertDescription>
@@ -827,19 +828,19 @@ export default function MTNSettingsPage() {
         {/* Info Cards */}
         <div className="grid md:grid-cols-2 gap-4">
           {/* View Fulfillment Logs Card */}
-          <Card className="bg-purple-50 border-border">
+          <Card className="bg-primary/10 border-border">
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
-                <FileText className="h-5 w-5 text-purple-600" />
+                <FileText className="h-5 w-5 text-primary" />
                 Fulfillment Logs
               </CardTitle>
             </CardHeader>
-            <CardContent className="text-sm space-y-3 text-purple-900">
+            <CardContent className="text-sm space-y-3 text-primary">
               <p>
                 View all MTN orders sent to the API, their status, and retry failed orders.
               </p>
               <Link href="/admin/mtn-logs">
-                <Button className="w-full bg-purple-600 hover:bg-purple-700">
+                <Button className="w-full bg-primary hover:bg-primary">
                   <FileText className="h-4 w-4 mr-2" />
                   View MTN Fulfillment Logs
                 </Button>
@@ -854,7 +855,7 @@ export default function MTNSettingsPage() {
                 How It Works
               </CardTitle>
             </CardHeader>
-            <CardContent className="text-sm space-y-2 text-blue-900">
+            <CardContent className="text-sm space-y-2 text-foreground">
               <p>
                 <strong>Enabled:</strong> Orders bypass the download queue and are sent directly to
                 MTN API for instant fulfillment.
@@ -868,14 +869,14 @@ export default function MTNSettingsPage() {
         </div>
 
         <div className="grid md:grid-cols-1 gap-4">
-          <Card className="bg-amber-50 border-border">
+          <Card className="bg-warning/10 border-border">
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
-                <AlertCircle className="h-5 w-5 text-amber-600" />
+                <AlertCircle className="h-5 w-5 text-warning" />
                 Pro Tip
               </CardTitle>
             </CardHeader>
-            <CardContent className="text-sm space-y-2 text-amber-900">
+            <CardContent className="text-sm space-y-2 text-warning">
               <p>
                 Start with <strong>Disabled</strong> to test your setup. Once confident, enable
                 auto-fulfillment for faster order processing.

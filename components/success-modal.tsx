@@ -48,7 +48,7 @@ export function SuccessModal({
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+    <div className="fixed inset-0 bg-background/50 flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
       <div className="bg-card rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300">
         {/* Close Button */}
         <div className="flex justify-end p-3 pb-0">
@@ -63,7 +63,7 @@ export function SuccessModal({
         {/* Icon & Title */}
         <div className="text-center px-6 pb-4">
           <div className="flex justify-center mb-4">
-            <div className="bg-gradient-to-br from-green-400 to-emerald-500 rounded-full p-4 shadow-lg shadow-green-200">
+            <div className="bg-success rounded-full p-4 shadow-lg shadow-success/20">
               <CheckCircle className="w-10 h-10 text-white" />
             </div>
           </div>
@@ -88,7 +88,7 @@ export function SuccessModal({
           {actionLabel && onAction && (
             <Button
               onClick={onAction}
-              className="w-full bg-card0 to-emerald-600 hover:from-green-600 hover:to-emerald-700"
+              className="w-full bg-success hover:bg-success/90 text-primary-foreground"
             >
               {actionLabel}
             </Button>

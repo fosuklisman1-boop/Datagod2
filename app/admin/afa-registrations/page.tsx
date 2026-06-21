@@ -143,13 +143,13 @@ export default function AFARegistrationsAdminPage() {
   const getStatusBadge = (status: string) => {
     switch (status.toLowerCase()) {
       case "pending":
-        return <Badge className="bg-yellow-100 text-yellow-800">Pending</Badge>
+        return <Badge className="bg-warning/15 text-warning">Pending</Badge>
       case "processing":
         return <Badge className="bg-primary/10 text-primary">Processing</Badge>
       case "completed":
-        return <Badge className="bg-green-100 text-green-800">Completed</Badge>
+        return <Badge className="bg-success/15 text-success">Completed</Badge>
       case "cancelled":
-        return <Badge className="bg-red-100 text-red-800">Cancelled</Badge>
+        return <Badge className="bg-destructive/15 text-destructive">Cancelled</Badge>
       default:
         return <Badge>{status}</Badge>
     }

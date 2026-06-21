@@ -55,8 +55,8 @@ export const StepConfirmation: React.FC<StepConfirmationProps> = ({
       <div className="text-center space-y-4">
         <div className="flex justify-center">
           <div className="relative">
-            <div className="absolute inset-0 bg-green-100 rounded-full animate-pulse"></div>
-            <CheckCircle2 className="h-16 w-16 text-green-600 relative" />
+            <div className="absolute inset-0 bg-success/15 rounded-full animate-pulse"></div>
+            <CheckCircle2 className="h-16 w-16 text-success relative" />
           </div>
         </div>
         <div>
@@ -67,7 +67,7 @@ export const StepConfirmation: React.FC<StepConfirmationProps> = ({
 
       {/* Order Details */}
       {order && (
-        <Card className="border-2 border-border bg-green-50/50">
+        <Card className="border-2 border-border bg-success/10">
           <CardContent className="pt-6 pb-6">
             <div className="space-y-4">
               {/* Order ID */}
@@ -90,7 +90,7 @@ export const StepConfirmation: React.FC<StepConfirmationProps> = ({
                   </div>
                   <div className="flex items-center justify-between pt-2 border-t">
                     <span className="text-sm font-medium">Amount to Pay</span>
-                    <span className="text-lg font-bold text-green-600">
+                    <span className="text-lg font-bold text-success">
                       {formatAmount(order.package.amount)}
                     </span>
                   </div>

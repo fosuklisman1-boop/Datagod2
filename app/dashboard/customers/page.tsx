@@ -162,12 +162,12 @@ export default function CustomersPage() {
             variant="ghost"
             size="icon"
             onClick={() => router.back()}
-            className="hover:bg-indigo-100"
+            className="hover:bg-primary"
           >
             <ChevronLeft className="w-5 h-5" />
           </Button>
           <div>
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary via-primary to-pink-600 bg-clip-text text-transparent">
               Customers
             </h1>
             <p className="text-muted-foreground mt-1">Manage and analyze your customer base</p>
@@ -183,7 +183,7 @@ export default function CustomersPage() {
               <Users className="h-4 w-4 text-primary" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold bg-gradient-to-r from-primary to-cyan-600 bg-clip-text text-transparent">
+              <div className="text-2xl font-bold bg-gradient-to-r from-primary to-primary bg-clip-text text-transparent">
                 {totalCount}
               </div>
               <p className="text-xs text-muted-foreground">Unique customers</p>
@@ -194,10 +194,10 @@ export default function CustomersPage() {
           <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-purple-500 bg-card backdrop-blur-xl border border-border">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Repeat Customers</CardTitle>
-              <TrendingUp className="h-4 w-4 text-purple-600" />
+              <TrendingUp className="h-4 w-4 text-primary" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
+              <div className="text-2xl font-bold bg-gradient-to-r from-primary to-pink-600 bg-clip-text text-transparent">
                 {customers.filter((c) => c.repeat_customer).length}
               </div>
               <p className="text-xs text-muted-foreground">
@@ -209,13 +209,13 @@ export default function CustomersPage() {
           </Card>
 
           {/* Avg Spend */}
-          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-emerald-500 bg-card backdrop-blur-xl border border-border">
+          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-success/30 bg-card backdrop-blur-xl border border-border">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Avg Spend</CardTitle>
-              <DollarSign className="h-4 w-4 text-emerald-600" />
+              <DollarSign className="h-4 w-4 text-success" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
+              <div className="text-2xl font-bold text-success">
                 GHS {customers.length > 0 ? (customers.reduce((sum, c) => sum + c.total_spent, 0) / customers.length).toFixed(2) : "0.00"}
               </div>
               <p className="text-xs text-muted-foreground">Per customer LTV</p>
@@ -278,7 +278,7 @@ export default function CustomersPage() {
                         setSortBy(e.target.value as any)
                         setPagination({ ...pagination, offset: 0 })
                       }}
-                      className="w-full px-3 py-2 border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      className="w-full px-3 py-2 border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                     >
                       <option value="last_purchase">Last Purchase</option>
                       <option value="total_spent">Highest Spend</option>
@@ -339,7 +339,7 @@ export default function CustomersPage() {
                             </td>
                             <td className="px-4 py-3 text-center">
                               {customer.repeat_customer ? (
-                                <Badge className="bg-green-100 text-green-800 border-border">Repeat</Badge>
+                                <Badge className="bg-success/15 text-success border-border">Repeat</Badge>
                               ) : (
                                 <Badge className="bg-primary/10 text-primary border-primary/20">New</Badge>
                               )}
@@ -451,7 +451,7 @@ export default function CustomersPage() {
                   <CardContent>
                     {historyLoading ? (
                       <div className="flex justify-center py-8">
-                        <Loader2 className="h-6 w-6 animate-spin text-purple-600" />
+                        <Loader2 className="h-6 w-6 animate-spin text-primary" />
                       </div>
                     ) : customerHistory.length === 0 ? (
                       <Alert>
@@ -484,10 +484,10 @@ export default function CustomersPage() {
                                   <Badge
                                     className={
                                       order.order_status === "completed"
-                                        ? "bg-green-100 text-green-800 border-border"
+                                        ? "bg-success/15 text-success border-border"
                                         : order.order_status === "failed"
-                                          ? "bg-red-100 text-red-800 border-border"
-                                          : "bg-yellow-100 text-yellow-800 border-border"
+                                          ? "bg-destructive/15 text-destructive border-border"
+                                          : "bg-warning/10 text-warning border-border"
                                     }
                                   >
                                     {order.order_status}

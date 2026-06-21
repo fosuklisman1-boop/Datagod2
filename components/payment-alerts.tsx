@@ -9,9 +9,9 @@ export function PopupBlockerAlert({ show = true }: PopupBlockerAlertProps) {
   if (!show) return null
 
   return (
-    <Alert className="border-border bg-orange-50 mb-4">
-      <AlertCircle className="h-4 w-4 text-orange-600" />
-      <AlertDescription className="text-orange-800">
+    <Alert className="border-border bg-warning/10 mb-4">
+      <AlertCircle className="h-4 w-4 text-warning" />
+      <AlertDescription className="text-warning">
         <div className="font-semibold mb-1">Popup Blocker Detected</div>
         <p className="text-sm mb-2">
           Your browser may be blocking payment popups. If payment fails to load:

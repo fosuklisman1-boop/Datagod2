@@ -32,7 +32,7 @@ interface AllOrder {
 function getNetworkColor(network: string): string {
   const colorMap: { [key: string]: string } = {
     "MTN": "bg-yellow-100 text-yellow-800",
-    "Telecel": "bg-purple-100 text-purple-800",
+    "Telecel": "bg-primary/10 text-primary",
     "AT - iShare": "bg-primary/10 text-primary",
     "AT - BigTime": "bg-green-100 text-green-800",
     "iShare": "bg-primary/10 text-primary",
@@ -629,7 +629,7 @@ export default function OrderPaymentStatusPage() {
         <div>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary via-purple-600 to-pink-600 bg-clip-text text-transparent">
+              <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary via-primary to-pink-600 bg-clip-text text-transparent">
                 Order Payment Status
               </h1>
               <p className="text-muted-foreground mt-1 font-medium">View and search all orders by payment reference or phone number</p>
@@ -638,7 +638,7 @@ export default function OrderPaymentStatusPage() {
               <Button
                 onClick={handleBulkManualFulfill}
                 disabled={loadingMTNOrders}
-                className="bg-card0 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-bold shadow-lg transform transition hover:scale-105"
+                className="bg-destructive hover:bg-destructive/90 text-primary-foreground font-bold shadow-lg transform transition hover:scale-105"
               >
                 {loadingMTNOrders ? (
                   <Loader2 className="h-5 w-5 mr-2 animate-spin" />
@@ -776,7 +776,7 @@ export default function OrderPaymentStatusPage() {
                   <Button
                     onClick={handleBulkStatusUpdate}
                     disabled={bulkUpdating || !bulkDate || !bulkStatus}
-                    className="bg-primary hover:bg-primary/90 text-white min-w-[140px]"
+                    className="bg-primary hover:bg-primary/90 text-primary-foreground min-w-[140px]"
                   >
                     {bulkUpdating ? (
                       <>
@@ -795,7 +795,7 @@ export default function OrderPaymentStatusPage() {
                     variant="outline"
                     onClick={handleBulkDownload}
                     disabled={bulkDownloading || !bulkDate}
-                    className="border-border hover:bg-green-50 text-green-700 font-semibold"
+                    className="border-border hover:bg-success/10 text-success font-semibold"
                   >
                     {bulkDownloading ? (
                       <>
@@ -814,7 +814,7 @@ export default function OrderPaymentStatusPage() {
                     variant="outline"
                     onClick={handleBulkDownloadFailed}
                     disabled={bulkDownloadingFailed || !bulkDate}
-                    className="border-border hover:bg-red-50 text-red-700 font-semibold"
+                    className="border-border hover:bg-destructive/10 text-destructive font-semibold"
                   >
                     {bulkDownloadingFailed ? (
                       <>
@@ -925,11 +925,11 @@ export default function OrderPaymentStatusPage() {
                           <td className="px-4 py-3 text-center">
                             <Badge
                               className={`text-xs border ${order.payment_status === "completed"
-                                ? "bg-green-100 text-green-800 border-border"
+                                ? "bg-success/15 text-success border-border"
                                 : order.payment_status === "pending"
-                                  ? "bg-yellow-100 text-yellow-800 border-border"
+                                  ? "bg-warning/15 text-warning border-border"
                                   : order.payment_status === "failed"
-                                    ? "bg-red-100 text-red-800 border-border"
+                                    ? "bg-destructive/15 text-destructive border-border"
                                     : "bg-muted text-foreground border-border"
                                 }`}
                             >
@@ -939,13 +939,13 @@ export default function OrderPaymentStatusPage() {
                           <td className="px-4 py-3 text-center">
                             <Badge
                               className={`text-xs border ${order.status === "completed"
-                                ? "bg-green-100 text-green-800 border-border"
+                                ? "bg-success/15 text-success border-border"
                                 : order.status === "pending"
-                                  ? "bg-yellow-100 text-yellow-800 border-border"
+                                  ? "bg-warning/15 text-warning border-border"
                                   : order.status === "processing"
                                     ? "bg-primary/10 text-primary border-primary/20"
                                     : order.status === "failed"
-                                      ? "bg-red-100 text-red-800 border-border"
+                                      ? "bg-destructive/15 text-destructive border-border"
                                       : "bg-muted text-foreground border-border"
                                 }`}
                             >
