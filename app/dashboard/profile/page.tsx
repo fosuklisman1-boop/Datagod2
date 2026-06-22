@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { User, Mail, Phone, Briefcase, Key, LogOut, Loader2, CheckCircle2, ShieldAlert } from "lucide-react"
+import { User, Mail, Phone, Briefcase, Key, LogOut, Loader2, CheckCircle2, ShieldAlert, Monitor } from "lucide-react"
 import { PhoneVerifyModal } from "@/components/phone-verify-modal"
 import ApiKeysManager from "@/components/developer/ApiKeysManager"
 
@@ -34,6 +34,28 @@ interface UserStats {
   completedOrders: number
   successRate: number
   totalSpent: number
+}
+
+interface ActiveSession {
+  id: string
+  device: string
+  ip: string | null
+  lastActive: string
+  createdAt: string
+  current: boolean
+}
+
+function formatLastActive(iso: string): string {
+  const then = new Date(iso).getTime()
+  if (isNaN(then)) return "unknown"
+  const mins = Math.floor((Date.now() - then) / 60000)
+  if (mins < 1) return "just now"
+  if (mins < 60) return `${mins} min ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`
+  const days = Math.floor(hours / 24)
+  if (days < 30) return `${days} day${days === 1 ? "" : "s"} ago`
+  return new Date(iso).toLocaleDateString()
 }
 
 export default function ProfilePage() {
@@ -79,6 +101,10 @@ export default function ProfilePage() {
   })
   const [isSavingProfile, setIsSavingProfile] = useState(false)
   const [showPhoneVerifyModal, setShowPhoneVerifyModal] = useState(false)
+  const [sessions, setSessions] = useState<ActiveSession[]>([])
+  const [sessionsLoading, setSessionsLoading] = useState(true)
+  const [revokingId, setRevokingId] = useState<string | null>(null)
+  const [loggingOutOthers, setLoggingOutOthers] = useState(false)
 
   // Auth protection
   useEffect(() => {
@@ -91,8 +117,89 @@ export default function ProfilePage() {
   useEffect(() => {
     if (user) {
       fetchUserProfile()
+      fetchSessions()
     }
   }, [user])
+
+  const fetchSessions = async () => {
+    setSessionsLoading(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) return
+      const res = await fetch("/api/auth/sessions", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+      if (!res.ok) throw new Error("Failed to load sessions")
+      const data = await res.json()
+      // Current device first, then most recently active.
+      const list: ActiveSession[] = (data.sessions || []).sort(
+        (a: ActiveSession, b: ActiveSession) =>
+          Number(b.current) - Number(a.current) ||
+          new Date(b.lastActive).getTime() - new Date(a.lastActive).getTime()
+      )
+      setSessions(list)
+    } catch (error) {
+      console.error("Error fetching sessions:", error)
+    } finally {
+      setSessionsLoading(false)
+    }
+  }
+
+  const handleRevokeSession = async (sessionId: string) => {
+    setRevokingId(sessionId)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) { toast.error("Not authenticated"); return }
+      const res = await fetch("/api/auth/sessions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ action: "revoke", sessionId }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || "Failed to sign out device")
+      }
+      setSessions((prev) => prev.filter((s) => s.id !== sessionId))
+      toast.success("Device signed out")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to sign out device")
+    } finally {
+      setRevokingId(null)
+    }
+  }
+
+  const handleLogoutOtherDevices = async () => {
+    const others = sessions.filter((s) => !s.current).length
+    if (others === 0) { toast.info("No other devices are signed in"); return }
+    if (!confirm(`Sign out ${others} other device${others === 1 ? "" : "s"}? They will need to log in again.`)) return
+    setLoggingOutOthers(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) { toast.error("Not authenticated"); return }
+      const res = await fetch("/api/auth/sessions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ action: "logout_others" }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || "Failed to sign out other devices")
+      }
+      const data = await res.json()
+      setSessions((prev) => prev.filter((s) => s.current))
+      toast.success(`Signed out ${data.revoked ?? others} other device${(data.revoked ?? others) === 1 ? "" : "s"}`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to sign out other devices")
+    } finally {
+      setLoggingOutOthers(false)
+    }
+  }
 
   const fetchUserProfile = async () => {
     try {
@@ -612,15 +719,77 @@ export default function ProfilePage() {
                 {isOAuthUser ? "Set Password" : "Change Password"}
               </Button>
             </div>
-            <div className="flex items-center justify-between p-4 border rounded-lg">
-              <div>
-                <p className="font-semibold">Active Sessions</p>
-                <p className="text-sm text-muted-foreground">You have 1 active session</p>
+            <div className="p-4 border rounded-lg space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="font-semibold">Active Sessions</p>
+                  <p className="text-sm text-muted-foreground">
+                    {sessionsLoading
+                      ? "Loading sessions…"
+                      : `You have ${sessions.length} active session${sessions.length === 1 ? "" : "s"}`}
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  className="text-destructive border-border hover:bg-destructive/10"
+                  onClick={handleLogoutOtherDevices}
+                  disabled={loggingOutOthers || sessionsLoading || sessions.filter((s) => !s.current).length === 0}
+                >
+                  {loggingOutOthers ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <LogOut className="w-4 h-4 mr-2" />
+                  )}
+                  Logout All Devices
+                </Button>
               </div>
-              <Button variant="outline" className="text-destructive border-border hover:bg-destructive/10">
-                <LogOut className="w-4 h-4 mr-2" />
-                Logout All Devices
-              </Button>
+
+              {sessionsLoading ? (
+                <div className="flex items-center justify-center py-4 text-muted-foreground">
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Loading…
+                </div>
+              ) : sessions.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No active sessions found.</p>
+              ) : (
+                <div className="space-y-2">
+                  {sessions.map((s) => (
+                    <div
+                      key={s.id}
+                      className="flex items-center justify-between gap-3 p-3 rounded-md border bg-muted/30"
+                    >
+                      <div className="flex items-start gap-3 min-w-0">
+                        <Monitor className="w-4 h-4 mt-0.5 text-muted-foreground shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium flex items-center gap-2">
+                            <span className="truncate">{s.device}</span>
+                            {s.current && (
+                              <Badge variant="secondary" className="text-xs">This device</Badge>
+                            )}
+                          </p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {s.ip || "Unknown IP"} · active {formatLastActive(s.lastActive)}
+                          </p>
+                        </div>
+                      </div>
+                      {!s.current && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:bg-destructive/10 shrink-0"
+                          onClick={() => handleRevokeSession(s.id)}
+                          disabled={revokingId === s.id}
+                        >
+                          {revokingId === s.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            "Sign out"
+                          )}
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
