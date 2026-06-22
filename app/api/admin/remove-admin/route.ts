@@ -6,7 +6,7 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
 export async function POST(req: NextRequest) {
-  const { isAdmin, errorResponse } = await verifyAdminAccess(req)
+  const { isAdmin, errorResponse, userId: adminUserId } = await verifyAdminAccess(req)
   if (!isAdmin) return errorResponse
 
   try {
@@ -48,7 +48,17 @@ export async function POST(req: NextRequest) {
 
     console.log("[REMOVE-ADMIN] Admin role removed from user", userId)
 
-    return NextResponse.json({ 
+    // Audit trail: who revoked admin from whom (best-effort).
+    adminClient.from("admin_audit_log").insert([{
+      admin_id: adminUserId || null,
+      action: "revoke_admin",
+      target_user_id: userId,
+      old_value: { role: "admin" },
+      new_value: { role: "user" },
+      created_at: new Date().toISOString(),
+    }]).then(({ error }) => { if (error) console.warn("[ADMIN-AUDIT] remove-admin log failed:", error.message) })
+
+    return NextResponse.json({
       success: true, 
       message: "Admin role removed",
       user: authData.user,

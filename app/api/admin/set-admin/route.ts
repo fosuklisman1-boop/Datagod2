@@ -6,7 +6,7 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
 export async function POST(req: NextRequest) {
-  const { isAdmin, errorResponse } = await verifyAdminAccess(req)
+  const { isAdmin, errorResponse, userId: adminUserId } = await verifyAdminAccess(req)
   if (!isAdmin) return errorResponse
 
   try {
@@ -53,7 +53,17 @@ export async function POST(req: NextRequest) {
 
     console.log("[SET-ADMIN] User", userId, "has been granted admin role")
 
-    return NextResponse.json({ 
+    // Audit trail: who granted admin to whom (best-effort).
+    adminClient.from("admin_audit_log").insert([{
+      admin_id: adminUserId || null,
+      action: "grant_admin",
+      target_user_id: userId,
+      old_value: { role: "user" },
+      new_value: { role: "admin" },
+      created_at: new Date().toISOString(),
+    }]).then(({ error }) => { if (error) console.warn("[ADMIN-AUDIT] set-admin log failed:", error.message) })
+
+    return NextResponse.json({
       success: true, 
       message: "Admin role granted",
       user: authData.user,

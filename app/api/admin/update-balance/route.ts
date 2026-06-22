@@ -11,7 +11,7 @@ const supabase = createClient(
 )
 export async function POST(request: NextRequest) {
   // Server-side admin check
-  const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+  const { isAdmin, errorResponse, userId: adminUserId } = await verifyAdminAccess(request)
   if (!isAdmin) {
     return errorResponse
   }
@@ -125,6 +125,22 @@ export async function POST(request: NextRequest) {
     } else {
       console.log(`[ADMIN] Transaction record created for ${transactionType} of GHS ${amount.toFixed(2)}`)
     }
+
+    // Audit trail: record the admin action (admin_audit_log was previously never
+    // written — wired 2026-06-22). Best-effort; never fails the operation.
+    supabase
+      .from("admin_audit_log")
+      .insert([{
+        admin_id: adminUserId || null,
+        action: type === "credit" ? "wallet_credit" : "wallet_debit",
+        target_user_id: userId,
+        old_value: { balance: currentBalance },
+        new_value: { balance: newBalance, amount, type },
+        created_at: new Date().toISOString(),
+      }])
+      .then(({ error }) => {
+        if (error) console.warn("[ADMIN-AUDIT] log insert failed:", error.message)
+      })
 
     // Send notification to user about the balance update
     try {

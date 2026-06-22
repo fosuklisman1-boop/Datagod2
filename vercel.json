@@ -88,6 +88,10 @@
     {
       "path": "/api/cron/sms-contact-verify",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/security-alerts",
+      "schedule": "* * * * *"
     }
   ]
 }
