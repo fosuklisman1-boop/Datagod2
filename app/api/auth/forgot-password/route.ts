@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
+import { phoneVariants } from "@/lib/phone-format"
 export async function POST(request: NextRequest) {
   // Apply rate limiting
   const rateLimit = await applyRateLimit(
@@ -65,11 +66,10 @@ export async function POST(request: NextRequest) {
       let phoneQuery = normalizedContact
       if (phoneQuery.startsWith('0')) {
         // Allow fallback lookup
-        const withCode = '+233' + phoneQuery.substring(1)
         const { data: phoneUser } = await supabaseServiceRole
           .from("users")
           .select("id, email, phone_number, first_name")
-          .or(`phone_number.ilike.%${phoneQuery}%,phone_number.ilike.%${withCode}%`)
+          .in("phone_number", phoneVariants(phoneQuery))
           .limit(1)
           .maybeSingle()
           
@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
         const { data: phoneUser } = await supabaseServiceRole
           .from("users")
           .select("id, email, phone_number, first_name")
-          .ilike("phone_number", `%${phoneQuery}%`)
+          .in("phone_number", phoneVariants(phoneQuery))
           .limit(1)
           .maybeSingle()
           

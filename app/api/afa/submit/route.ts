@@ -61,12 +61,31 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // NEVER trust the client-supplied `amount`: a negative value would mint
+    // balance via deduct_wallet (also blocked in-DB now) and a tiny value
+    // underpays the AFA fee. Charge the AUTHORITATIVE server price (same source
+    // as GET /api/afa/price).
+    let afaPrice = 50.0
+    {
+      const { data: priceRow } = await supabase
+        .from("afa_registration_prices")
+        .select("price")
+        .eq("is_active", true)
+        .eq("name", "default")
+        .maybeSingle()
+      if (priceRow?.price != null) afaPrice = parseFloat(priceRow.price)
+    }
+    if (!Number.isFinite(afaPrice) || afaPrice <= 0) {
+      console.error("[AFA-SUBMIT] Invalid server AFA price:", afaPrice)
+      return NextResponse.json({ error: "AFA price unavailable, try again later" }, { status: 503 })
+    }
+
     // Atomic wallet deduction — prevents double-spend race condition
     console.log("[AFA-SUBMIT] Attempting atomic wallet deduction")
     const { data: deductResult, error: deductError } = await supabase
       .rpc('deduct_wallet', {
         p_user_id: user.id,
-        p_amount: amount,
+        p_amount: afaPrice,
       })
 
     if (deductError) {
@@ -107,7 +126,7 @@ export async function POST(request: NextRequest) {
         location: location,
         region: region,
         occupation: occupation,
-        amount,
+        amount: afaPrice,
         status: "pending",
         created_at: new Date().toISOString(),
       })

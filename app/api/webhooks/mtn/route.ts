@@ -53,24 +53,25 @@ export async function POST(request: NextRequest) {
 
     log("info", "Webhook", "Received webhook request", { traceId, hasSignature: !!signature, contentType, headers })
 
-    // Verify webhook signature
-    if (signature) {
-      const isValid = verifyWebhookSignature(rawBody, signature)
-      if (!isValid) {
-        log("warn", "Webhook", "Invalid webhook signature", { traceId })
-        return NextResponse.json(
-          { error: "Invalid signature", traceId },
-          { status: 401 }
-        )
-      }
-      log("debug", "Webhook", "Signature verified", { traceId })
-    } else if (process.env.NODE_ENV === "production") {
-      log("warn", "Webhook", "Missing webhook signature in production", { traceId })
+    // Verify webhook signature — reject unsigned UNCONDITIONALLY (not only in
+    // production; the genuine MTN gateway always signs, so any unsigned request
+    // is forged regardless of env).
+    if (!signature) {
+      log("warn", "Webhook", "Missing webhook signature", { traceId })
       return NextResponse.json(
         { error: "Missing signature", traceId },
         { status: 401 }
       )
     }
+    const isValid = verifyWebhookSignature(rawBody, signature)
+    if (!isValid) {
+      log("warn", "Webhook", "Invalid webhook signature", { traceId })
+      return NextResponse.json(
+        { error: "Invalid signature", traceId },
+        { status: 401 }
+      )
+    }
+    log("debug", "Webhook", "Signature verified", { traceId })
 
     // Parse webhook payload
     let payload: MTNWebhookPayload | null = null

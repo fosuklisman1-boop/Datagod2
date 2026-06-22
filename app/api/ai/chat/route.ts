@@ -203,9 +203,8 @@ export async function POST(req: NextRequest) {
   // Unauthenticated home requests fall back to IP — cap them tightly since
   // there is no per-user identity to bind the limit to.
   const rlKey = userId ?? (
-    req.headers.get("cf-connecting-ip") ||
-    req.headers.get("x-real-ip") ||
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    req.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim() ||
+    req.headers.get("x-forwarded-for")?.split(",").pop()?.trim() ||
     "unknown"
   )
   const rl = await applyRateLimit(req, "ai_chat", RATE_LIMITS.AI_CHAT.maxRequests, RATE_LIMITS.AI_CHAT.windowMs, rlKey)

@@ -86,10 +86,10 @@ export async function verifyTurnstileToken(token: string | undefined | null, rem
 }
 
 export function getRequestIp(headers: Headers): string | undefined {
+  // Vercel-trusted IP only; cf-connecting-ip/x-real-ip/leftmost-xff are spoofable here.
   return (
-    headers.get("cf-connecting-ip") ||
-    headers.get("x-real-ip") ||
-    headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim() ||
+    headers.get("x-forwarded-for")?.split(",").pop()?.trim() ||
     undefined
   )
 }

@@ -53,10 +53,13 @@ function getLimiter(maxRequests: number, windowMs: number): Ratelimit {
 export function getClientIdentifier(request: NextRequest, userId?: string): string {
   if (userId) return `user:${userId}`
 
+  // Trust ONLY Vercel's x-vercel-forwarded-for (set by Vercel, NOT client-
+  // spoofable). cf-connecting-ip / x-real-ip / the leftmost x-forwarded-for are
+  // attacker-controlled on this Vercel-only app (no Cloudflare fronts it), which
+  // let an attacker rotate the header to mint unlimited fresh rate-limit buckets.
   const ip =
-    request.headers.get("cf-connecting-ip") ||
-    request.headers.get("x-real-ip") ||
-    request.headers.get("x-forwarded-for")?.split(",")[0] ||
+    request.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim() ||
+    request.headers.get("x-forwarded-for")?.split(",").pop()?.trim() ||
     "unknown"
 
   return `ip:${ip}`

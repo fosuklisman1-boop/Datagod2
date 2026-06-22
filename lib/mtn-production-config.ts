@@ -30,7 +30,12 @@ export function loadMTNConfig(): MTNConfig {
   const config: MTNConfig = {
     apiKey: process.env.MTN_API_KEY || "",
     apiBaseUrl: process.env.MTN_API_BASE_URL || "https://sykesofficial.net",
-    webhookSecret: process.env.MTN_WEBHOOK_SECRET || process.env.MTN_API_KEY || "",
+    // No MTN_API_KEY fallback: that key is sent to MTN on every outbound call
+    // and appears in logs, so reusing it as the webhook secret would let a
+    // side-channel leak forge webhooks. Fail closed — an empty secret makes
+    // verifyWebhookSignature return false (rejecting all webhooks) until a
+    // dedicated MTN_WEBHOOK_SECRET is set.
+    webhookSecret: process.env.MTN_WEBHOOK_SECRET || "",
     requestTimeout: parseInt(process.env.MTN_REQUEST_TIMEOUT || "30000", 10),
     maxRetries: parseInt(process.env.MTN_MAX_RETRIES || "4", 10),
     retryBackoffBase: parseInt(process.env.MTN_RETRY_BACKOFF_BASE || "5000", 10),
