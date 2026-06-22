@@ -135,6 +135,54 @@ export async function deliverSecurityAlert(alertId: string): Promise<DeliverResu
   return { ok: true, channels: sent }
 }
 
+/**
+ * Raise a security alert from app code (inserting the row fires the pg_net
+ * delivery trigger). Optional de-dup: if a `dedupeKey` alert of the same
+ * category exists within `dedupeWindowMin`, this is a no-op (returns false) —
+ * keeps log-drain / rate bursts from spamming admins.
+ */
+export async function raiseSecurityAlert(opts: {
+  severity: "critical" | "high" | "info"
+  category: string
+  title: string
+  detail?: Record<string, any>
+  actor?: string | null
+  ip?: string | null
+  source?: string
+  dedupeKey?: string
+  dedupeWindowMin?: number
+}): Promise<boolean> {
+  const supabase = serviceClient()
+
+  if (opts.dedupeKey && opts.dedupeWindowMin) {
+    const cutoff = new Date(Date.now() - opts.dedupeWindowMin * 60000).toISOString()
+    const { data } = await supabase
+      .from("security_alerts")
+      .select("id")
+      .eq("category", opts.category)
+      .gte("created_at", cutoff)
+      .filter("detail->>dedupe", "eq", opts.dedupeKey)
+      .limit(1)
+    if (data && data.length) return false
+  }
+
+  const detail = { ...(opts.detail || {}), ...(opts.dedupeKey ? { dedupe: opts.dedupeKey } : {}) }
+  const { error } = await supabase.from("security_alerts").insert([{
+    severity: opts.severity,
+    category: opts.category,
+    title: opts.title,
+    detail,
+    actor: opts.actor ?? null,
+    ip: opts.ip ?? null,
+    source: opts.source ?? "app",
+  }])
+  if (error) {
+    console.warn("[SECURITY-ALERT] raise failed:", error.message)
+    return false
+  }
+  return true
+}
+
 /** Drain any alerts older than `minAgeSeconds` that pg_net failed to deliver. */
 export async function drainPendingAlerts(minAgeSeconds = 60): Promise<{ drained: number }> {
   const supabase = serviceClient()
