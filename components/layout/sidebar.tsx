@@ -470,6 +470,28 @@ export function Sidebar() {
                   {isOpen && "Admin Panel"}
                 </Button>
               </Link>
+              <Link href="/admin/security" onClick={() => handleNavigation("/admin/security")}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    userRole === 'dealer'
+                      ? (pathname === "/admin/security" ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-lg" : "text-primary hover:bg-card/10")
+                      : (pathname === "/admin/security" ? "bg-primary/10 text-primary font-medium" : "text-sidebar-foreground hover:bg-accent"),
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/security" && "opacity-70"
+                  )}
+                  title={!isOpen ? "Security" : undefined}
+                  disabled={loadingPath === "/admin/security"}
+                >
+                  {loadingPath === "/admin/security" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <Shield className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && "Security"}
+                </Button>
+              </Link>
               <Link href="/admin/settings" onClick={() => handleNavigation("/admin/settings")}>
                 <Button
                   variant="ghost"
