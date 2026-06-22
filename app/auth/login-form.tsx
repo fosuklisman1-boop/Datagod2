@@ -28,9 +28,13 @@ export default function LoginForm() {
   })
   const [showPassword, setShowPassword] = useState(false)
 
-  // Get redirect URL from query params (default to /dashboard)
+  // Get redirect URL from query params (default to /dashboard).
+  // Only honor INTERNAL paths — a single leading "/" but not "//" (protocol-
+  // relative) or a full URL — to prevent post-login open-redirect to attacker
+  // sites. Mirrors the OAuth `next` guard in lib/auth-complete.ts.
   useEffect(() => {
-    const redirect = searchParams.get("redirect") || "/dashboard"
+    const raw = searchParams.get("redirect")
+    const redirect = raw && /^\/(?!\/)/.test(raw) ? raw : "/dashboard"
     setRedirectTo(redirect)
   }, [searchParams])
 

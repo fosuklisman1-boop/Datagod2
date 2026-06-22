@@ -130,14 +130,17 @@ export async function POST(req: NextRequest) {
   const messages: Anthropic.MessageParam[] = (Array.isArray(rawMessages) ? rawMessages : [])
     .slice(-20)
     .flatMap(m => {
+      // Null-guard: a null/non-object element (or null content block) must not
+      // throw a TypeError here — that previously escaped to an unhandled 500.
+      if (!m || typeof m !== "object") return []
       const role = m.role === "assistant" ? "assistant" : "user"
       let content: string
       if (typeof m.content === "string") {
         content = m.content.slice(0, 4000)
       } else if (Array.isArray(m.content)) {
         // Only keep text blocks — strip tool_use, tool_result, and image blocks
-        content = (m.content as Array<{ type?: string; text?: string }>)
-          .filter(b => b.type === "text")
+        content = (m.content as Array<{ type?: string; text?: string } | null>)
+          .filter((b): b is { type?: string; text?: string } => !!b && typeof b === "object" && b.type === "text")
           .map(b => String(b.text ?? "").slice(0, 4000))
           .join("")
       } else {

@@ -82,65 +82,33 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Get wallet (select only needed columns)
-    console.log("[WALLET-DEBIT] Fetching wallet...")
-    const { data: wallet, error: walletError } = await supabase
-      .from("wallets")
-      .select("balance, total_spent")
-      .eq("user_id", user.id)
-      .maybeSingle()
+    // Atomic, race-safe deduction. deduct_wallet performs a single guarded
+    // UPDATE (balance >= amount) and returns NO rows when the balance is
+    // insufficient — so N concurrent debits can't each pass a stale-read check
+    // and double-spend (the prior read-modify-write allowed exactly that).
+    // Mirrors every other money path (orders/airtime/afa/ussd-shop).
+    console.log("[WALLET-DEBIT] Deducting amount (atomic)...")
+    const { data: deductResult, error: deductError } = await supabase.rpc("deduct_wallet", {
+      p_user_id: user.id,
+      p_amount: amount,
+    })
 
-    if (walletError) {
-      console.error("[WALLET-DEBIT] Wallet fetch error:", walletError)
-      return NextResponse.json(
-        { error: "Failed to fetch wallet" },
-        { status: 400 }
-      )
+    if (deductError) {
+      console.error("[WALLET-DEBIT] Deduct RPC error:", deductError)
+      return NextResponse.json({ error: "Failed to update wallet" }, { status: 400 })
     }
 
-    if (!wallet) {
-      return NextResponse.json(
-        { error: "Wallet not found" },
-        { status: 404 }
-      )
+    const deductRow = Array.isArray(deductResult) ? deductResult[0] : deductResult
+    if (!deductRow) {
+      // No row = insufficient balance (atomic check failed) or no wallet.
+      console.warn("[WALLET-DEBIT] Insufficient balance (atomic)")
+      return NextResponse.json({ error: "Insufficient balance", required: amount }, { status: 400 })
     }
 
-    const currentBalance = wallet.balance || 0
-    console.log("[WALLET-DEBIT] Wallet fetched")
-
-    if (currentBalance < amount) {
-      console.warn("[WALLET-DEBIT] Insufficient balance")
-      return NextResponse.json(
-        {
-          error: "Insufficient balance",
-          currentBalance,
-          required: amount,
-        },
-        { status: 400 }
-      )
-    }
-
-    // Deduct from wallet
-    console.log("[WALLET-DEBIT] Deducting amount...")
-    const newBalance = currentBalance - amount
-    const newTotalSpent = (wallet.total_spent || 0) + amount
-
-    const { error: updateError } = await supabase
-      .from("wallets")
-      .update({
-        balance: newBalance,
-        total_spent: newTotalSpent,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("user_id", user.id)
-
-    if (updateError) {
-      console.error("[WALLET-DEBIT] Update error:", updateError)
-      return NextResponse.json(
-        { error: "Failed to update wallet" },
-        { status: 400 }
-      )
-    }
+    const currentBalance = Number(deductRow.old_balance)
+    const newBalance = Number(deductRow.new_balance)
+    const prevTotalSpent = Number(deductRow.new_total_spent) - amount
+    console.log("[WALLET-DEBIT] Deducted (atomic)")
 
     // Create debit transaction
     console.log("[WALLET-DEBIT] Creating transaction...")
@@ -182,12 +150,13 @@ export async function POST(request: NextRequest) {
         if (Math.abs(amount - shopOrder.total_price) > tolerance) {
           console.error(`[WALLET-DEBIT] ❌ AMOUNT MISMATCH! Debit: ${amount}, Order Total: ${shopOrder.total_price}, Order ID: ${orderId}`)
 
-          // Refund the incorrectly debited amount
+          // Refund the incorrectly debited amount (restore the pre-debit state
+          // captured atomically from deduct_wallet's returned old values).
           await supabase
             .from("wallets")
             .update({
-              balance: currentBalance, // Restore original balance
-              total_spent: wallet.total_spent || 0, // Restore original spent
+              balance: currentBalance, // Restore original balance (old_balance)
+              total_spent: prevTotalSpent, // Restore original spent
               updated_at: new Date().toISOString(),
             })
             .eq("user_id", user.id)

@@ -13,6 +13,11 @@ export const dynamic = "force-dynamic"
 // flags — all of which are already reflected in customer-facing prices).
 const SAFE_ADMIN_PREFIXES = ["results_checker_", "airtime_", "results_check_"]
 
+// Explicit deny-list: keys that match a SAFE prefix but must NEVER be public.
+// `results_check_admin_phones` holds the operators' MoMo/support numbers (used
+// only server-side for results delivery) — exposing them enables SIM-swap/vishing.
+const DENY_ADMIN_KEYS = new Set(["results_check_admin_phones"])
+
 // app_settings COLUMNS that are safe to expose.
 const SAFE_APP_COLUMNS = [
   "terms_content",
@@ -41,7 +46,7 @@ export async function GET() {
     // Build admin_settings key→value map, defensively filtered to the allowlist
     const adminSettings: Record<string, any> = {}
     for (const row of adminRes.data ?? []) {
-      if (SAFE_ADMIN_PREFIXES.some((p) => row.key?.startsWith(p))) {
+      if (SAFE_ADMIN_PREFIXES.some((p) => row.key?.startsWith(p)) && !DENY_ADMIN_KEYS.has(row.key)) {
         adminSettings[row.key] = row.value
       }
     }
