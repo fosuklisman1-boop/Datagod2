@@ -100,12 +100,24 @@ function getBaseUrl(): string {
 }
 
 export async function POST(req: NextRequest) {
-  const { messages: rawMessages, context, shopSlug, shopId: clientShopId } = await req.json() as {
+  // Parse defensively: malformed / non-JSON bodies (fuzzers send form-encoded or
+  // garbage payloads) must return a clean 400, not crash the handler with an
+  // unhandled SyntaxError (which surfaced as a flood of 500s in the logs).
+  let body: {
     messages: Array<{ role: string; content: unknown }>
     context: AIChatContext
     shopSlug?: string
     shopId?: string  // not trusted — verified server-side below
   }
+  try {
+    body = await req.json()
+  } catch {
+    return new Response(
+      JSON.stringify({ error: "Invalid JSON body" }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    )
+  }
+  const { messages: rawMessages, context, shopSlug, shopId: clientShopId } = body
 
   if (context === "whatsapp") {
     return new Response(
