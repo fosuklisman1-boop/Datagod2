@@ -159,7 +159,7 @@ export async function POST(request: NextRequest) {
   // Fetch order — the shop_id check prevents cross-shop access
   const { data: order, error: orderError } = await supabase
     .from("shop_orders")
-    .select("id, reference_code, network, customer_phone, volume_gb, customer_name, shop_id, profit_amount, parent_shop_id, parent_profit_amount, payment_status, order_status")
+    .select("id, reference_code, network, customer_phone, volume_gb, customer_name, shop_id, profit_amount, parent_shop_id, parent_profit_amount, total_price, payment_status, order_status")
     .eq("id", orderId)
     .eq("shop_id", shopId)
     .single()
@@ -183,6 +183,21 @@ export async function POST(request: NextRequest) {
   const paystack = await verifyWithPaystack(walletReference)
 
   if (paystack.status === "success") {
+    // SECURITY: Paystack "success" is NOT sufficient — verify the amount actually
+    // paid covers the order total. A reference can succeed for less than the order
+    // price (manipulated/partial charge), and without this an underpaid order would
+    // be fulfilled in full. Matches the webhook/verify/wallet-debit guards.
+    const paidGhs = paystack.amount ?? 0
+    const expectedGhs = Number(order.total_price) || 0
+    if (paidGhs + 0.01 < expectedGhs) {
+      console.error(`[SHOP-REVERIFY] ❌ UNDERPAYMENT! Order ${order.id} paid ${paidGhs} < expected ${expectedGhs} — marking failed, NOT fulfilling`)
+      await supabase
+        .from("shop_orders")
+        .update({ payment_status: "failed", order_status: "failed", updated_at: new Date().toISOString() })
+        .eq("id", order.id)
+      return NextResponse.json({ paystack_status: "success", action: "underpayment_rejected" }, { status: 400 })
+    }
+
     // Idempotency: re-fetch to catch concurrent updates
     const { data: current } = await supabase
       .from("shop_orders")

@@ -208,6 +208,8 @@ export async function POST(request: NextRequest) {
     parent_shop_id?: string
     parent_profit_amount?: number
     merchant_commission?: number
+    total_price?: number   // data orders
+    total_paid?: number    // airtime orders
   }
 
   let orders: OrderRow[] = []
@@ -219,7 +221,7 @@ export async function POST(request: NextRequest) {
     if (types.includes("data")) {
       const { data } = await supabase
         .from("shop_orders")
-        .select("id, reference_code, network, customer_phone, volume_gb, customer_name, shop_id, profit_amount, parent_shop_id, parent_profit_amount")
+        .select("id, reference_code, network, customer_phone, volume_gb, customer_name, shop_id, profit_amount, parent_shop_id, parent_profit_amount, total_price")
         .eq("payment_status", "pending")
         .order("created_at", { ascending: true })
         .limit(BULK_LIMIT)
@@ -229,7 +231,7 @@ export async function POST(request: NextRequest) {
     if (types.includes("airtime")) {
       const { data } = await supabase
         .from("airtime_orders")
-        .select("id, reference_code, network, beneficiary_phone, merchant_commission, shop_id")
+        .select("id, reference_code, network, beneficiary_phone, merchant_commission, shop_id, total_paid")
         .eq("payment_status", "pending")
         .order("created_at", { ascending: true })
         .limit(BULK_LIMIT)
@@ -250,14 +252,14 @@ export async function POST(request: NextRequest) {
     if (orderType === "data") {
       const { data } = await supabase
         .from("shop_orders")
-        .select("id, reference_code, network, customer_phone, volume_gb, customer_name, shop_id, profit_amount, parent_shop_id, parent_profit_amount")
+        .select("id, reference_code, network, customer_phone, volume_gb, customer_name, shop_id, profit_amount, parent_shop_id, parent_profit_amount, total_price")
         .eq("id", orderId)
         .single()
       if (data) orders = [{ ...data, order_type: "data" }]
     } else {
       const { data } = await supabase
         .from("airtime_orders")
-        .select("id, reference_code, network, beneficiary_phone, merchant_commission, shop_id")
+        .select("id, reference_code, network, beneficiary_phone, merchant_commission, shop_id, total_paid")
         .eq("id", orderId)
         .single()
       if (data) orders = [{ ...data, order_type: "airtime", customer_phone: data.beneficiary_phone }]
@@ -308,6 +310,29 @@ export async function POST(request: NextRequest) {
       const paystack = await verifyWithPaystack(order.wallet_reference)
 
       if (paystack.status === "success") {
+        // SECURITY: verify the amount actually paid covers the order total before
+        // fulfilling. Paystack "success" alone is not enough — a reference can
+        // succeed for less than the order price. Mirrors the webhook/verify guards.
+        const paidGhs = paystack.amount ?? 0
+        const expectedGhs = order.order_type === "airtime"
+          ? Number(order.total_paid) || 0
+          : Number(order.total_price) || 0
+        if (paidGhs + 0.01 < expectedGhs) {
+          const table = order.order_type === "data" ? "shop_orders" : "airtime_orders"
+          console.error(`[REVERIFY] ❌ UNDERPAYMENT! ${order.order_type} order ${order.id} paid ${paidGhs} < expected ${expectedGhs} — marking failed, NOT fulfilling`)
+          // shop_orders uses order_status; airtime_orders uses status.
+          const failUpdate: Record<string, unknown> = { payment_status: "failed", updated_at: new Date().toISOString() }
+          if (order.order_type === "data") failUpdate.order_status = "failed"
+          else failUpdate.status = "failed"
+          await supabase
+            .from(table)
+            .update(failUpdate)
+            .eq("id", order.id)
+          failed++
+          results.push({ id: order.id, reference: order.wallet_reference, order_type: order.order_type, paystack_status: "success", action: "underpayment_rejected" })
+          continue
+        }
+
         if (order.order_type === "data") {
           // Idempotency: skip if already processed
           const { data: current } = await supabase

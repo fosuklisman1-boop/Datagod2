@@ -157,7 +157,7 @@ export async function GET(request: NextRequest) {
     // Include "abandoned" so if user retries and succeeds, we can process it
       const { data: pendingOrders, error: fetchError } = await supabase
         .from("shop_orders")
-        .select("id, reference_code, network, customer_phone, volume_gb, customer_name, payment_status, order_status, created_at")
+        .select("id, reference_code, network, customer_phone, volume_gb, customer_name, total_price, payment_status, order_status, created_at")
         .in("payment_status", ["pending", "abandoned"]) // Check both pending and abandoned
         .eq("order_status", "pending") // Only orders not yet processing/completed
         .not("reference_code", "is", null)
@@ -216,7 +216,25 @@ export async function GET(request: NextRequest) {
 
         if (paystackResult.status === "success") {
           // Payment is successful - update and trigger fulfillment
-          
+
+          // SECURITY: verify the amount actually paid covers the order total.
+          // Paystack "success" alone is not enough — a reference can succeed for
+          // less than the order price (manipulated/partial charge). Every other
+          // fulfillment path checks this; the cron must too, or an underpaid order
+          // gets fulfilled in full.
+          const paidGhs = paystackResult.amount ?? 0
+          const expectedGhs = Number(order.total_price) || 0
+          if (paidGhs + 0.01 < expectedGhs) {
+            console.error(`[VERIFY-PAYMENT] ❌ UNDERPAYMENT! Order ${order.id} paid ${paidGhs} < expected ${expectedGhs} — marking failed, NOT fulfilling`)
+            await supabase
+              .from("shop_orders")
+              .update({ payment_status: "failed", order_status: "failed", updated_at: new Date().toISOString() })
+              .eq("id", order.id)
+            results.push({ id: order.id, reference: walletReference, paystack_status: "success", action: "underpayment_rejected" })
+            failed++
+            continue
+          }
+
           // SAFETY CHECK: Re-fetch order to ensure it wasn't already processed
           const { data: currentOrder } = await supabase
             .from("shop_orders")
