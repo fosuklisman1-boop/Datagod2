@@ -29,7 +29,14 @@ export interface PublicShop {
 
 // Shop operations
 export const shopService = {
-  // Create a shop for user
+  // Create a shop for the signed-in user.
+  //
+  // Goes through the service-role /api/shop/create route rather than inserting
+  // directly: migration 0077 revoked INSERT on user_shops from the browser
+  // (`authenticated`) client, so a direct insert now fails with "permission
+  // denied for table user_shops". The route also re-derives user_id from the
+  // verified JWT and forces is_active=false, so the `userId` arg is only used to
+  // confirm a session exists — the server is the source of truth for ownership.
   async createShop(userId: string, shopData: {
     shop_name: string
     shop_slug: string
@@ -37,24 +44,28 @@ export const shopService = {
     logo_url?: string
     banner_url?: string
   }) {
-    const { data, error } = await supabase
-      .from("user_shops")
-      .insert([{ user_id: userId, ...shopData, is_active: false }])
-      .select()
-
-    if (error) {
-      console.error("Shop creation error:", error)
-      if (error.message?.includes("relation")) {
-        throw new Error("Database tables not yet set up. Please run the SQL schema in Supabase first.")
-      }
-      throw error
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token) {
+      throw new Error("You must be signed in to create a shop.")
     }
 
-    if (!data || data.length === 0) {
+    const res = await fetch("/api/shop/create", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify(shopData),
+    })
+
+    const payload = await res.json().catch(() => null)
+    if (!res.ok) {
+      throw new Error(payload?.error || "Failed to create shop")
+    }
+    if (!payload?.shop) {
       throw new Error("Failed to create shop: no data returned")
     }
-
-    return data[0]
+    return payload.shop
   },
 
   // Get user's shop
@@ -91,35 +102,46 @@ export const shopService = {
   },
 
   // Update shop
+  // Update the signed-in owner's shop. Routed through the service-role
+  // /api/shop/manage endpoint because 0077 revoked browser UPDATE on user_shops;
+  // the route also whitelists editable columns (no is_active/is_blocked/user_id).
   async updateShop(shopId: string, updates: any) {
-    const { data, error } = await supabase
-      .from("user_shops")
-      .update({ ...updates, updated_at: new Date().toISOString() })
-      .eq("id", shopId)
-      .select()
-
-    if (error) throw error
-    return data[0]
+    return shopManageRequest({ action: "update_shop", shopId, updates }, "shop")
   },
+}
+
+// Shared helper: call the service-role shop-management endpoint with the caller's
+// session token and return the named field from the response. Browser-only (the
+// My Shop page); server code uses supabaseAdmin directly.
+async function shopManageRequest(body: Record<string, unknown>, resultKey: "shop" | "package") {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session?.access_token) {
+    throw new Error("You must be signed in to manage your shop.")
+  }
+  const res = await fetch("/api/shop/manage", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify(body),
+  })
+  const payload = await res.json().catch(() => null)
+  if (!res.ok) {
+    throw new Error(payload?.error || "Request failed")
+  }
+  return payload?.[resultKey]
 }
 
 // Shop Packages operations
 export const shopPackageService = {
-  // Add package to shop with profit margin
+  // Add package to shop with profit margin (service-role route — 0077 revoked
+  // browser INSERT on shop_packages).
   async addPackageToShop(shopId: string, packageId: string, profitMargin: number, customName?: string) {
-    const { data, error } = await supabase
-      .from("shop_packages")
-      .insert([{
-        shop_id: shopId,
-        package_id: packageId,
-        profit_margin: profitMargin,
-        custom_name: customName,
-        is_available: true
-      }])
-      .select()
-
-    if (error) throw error
-    return data[0]
+    return shopManageRequest(
+      { action: "add_package", shopId, packageId, profitMargin, customName },
+      "package"
+    )
   },
 
   // Get shop packages
@@ -203,28 +225,20 @@ export const shopPackageService = {
     return adjustedData
   },
 
-  // Update package profit margin
+  // Update package profit margin (service-role route — 0077 revoked browser UPDATE).
   async updatePackageProfitMargin(shopPackageId: string, profitMargin: number) {
-    const { data, error } = await supabase
-      .from("shop_packages")
-      .update({ profit_margin: profitMargin, updated_at: new Date().toISOString() })
-      .eq("id", shopPackageId)
-      .select()
-
-    if (error) throw error
-    return data[0]
+    return shopManageRequest(
+      { action: "update_package_margin", shopPackageId, profitMargin },
+      "package"
+    )
   },
 
-  // Toggle package availability
+  // Toggle package availability (service-role route — 0077 revoked browser UPDATE).
   async togglePackageAvailability(shopPackageId: string, isAvailable: boolean) {
-    const { data, error } = await supabase
-      .from("shop_packages")
-      .update({ is_available: isAvailable, updated_at: new Date().toISOString() })
-      .eq("id", shopPackageId)
-      .select()
-
-    if (error) throw error
-    return data[0]
+    return shopManageRequest(
+      { action: "toggle_package", shopPackageId, isAvailable },
+      "package"
+    )
   },
 
   // Remove package from shop
