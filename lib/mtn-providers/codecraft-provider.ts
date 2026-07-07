@@ -54,10 +54,10 @@ export class CodeCraftMTNProvider implements MTNProvider {
             }
 
             const phoneNumber = normalizePhoneNumber(order.recipient_phone)
+            // CodeCraft infers network from the phone number — do not send a network field
             const requestBody = {
                 recipient_number: phoneNumber,
-                gig: order.size_gb,
-                network: "MTN",
+                gig: String(order.size_gb),
             }
 
             log("debug", "Order", "Calling CodeCraft API", { traceId, requestBody })
@@ -145,7 +145,7 @@ export class CodeCraftMTNProvider implements MTNProvider {
             log("info", "StatusCheck", `Checking CodeCraft order ${orderId}`, { traceId })
 
             const response = await fetch(
-                `${CODECRAFT_API_URL}/response_regular.php?reference_id=${orderId}`,
+                `${CODECRAFT_API_URL}/status.php?reference_id=${orderId}`,
                 {
                     method: "GET",
                     headers: { "x-api-key": CODECRAFT_API_KEY },
@@ -166,8 +166,8 @@ export class CodeCraftMTNProvider implements MTNProvider {
                 return { success: false, message: `Invalid JSON response: ${responseText.slice(0, 100)}` }
             }
 
-            // Status is nested under data.order_status in CodeCraft responses
-            const rawStatus: string = data?.data?.order_status || data?.order_status || data?.status_message || "Pending"
+            // Response shape: { status:200, data: { order_status: "Pending|Successful|..." } }
+            const rawStatus: string = data?.data?.order_status || data?.order_status || "Pending"
             const normalizedStatus = normalizeCodeCraftStatus(rawStatus)
 
             log("info", "StatusCheck", `CodeCraft status: ${rawStatus} -> ${normalizedStatus}`, { traceId })
@@ -184,8 +184,31 @@ export class CodeCraftMTNProvider implements MTNProvider {
         }
     }
 
-    // CodeCraft does not expose a balance endpoint
     async checkBalance(): Promise<number | null> {
-        return null
+        try {
+            const response = await fetch(`${CODECRAFT_API_URL}/wallet.php`, {
+                method: "GET",
+                headers: { "x-api-key": CODECRAFT_API_KEY },
+                signal: AbortSignal.timeout(REQUEST_TIMEOUT),
+            })
+
+            if (!response.ok) {
+                console.warn(`[CodeCraft] Balance check failed: ${response.status}`)
+                return null
+            }
+
+            const data = await response.json()
+            // Response: { status:200, data: { wallet: 10.00 } }
+            const balance = data?.data?.wallet ?? data?.wallet
+            if (typeof balance === "number") return balance
+            if (typeof balance === "string") {
+                const parsed = parseFloat(balance)
+                return isNaN(parsed) ? null : parsed
+            }
+            return null
+        } catch (error) {
+            console.error("[CodeCraft] Error checking balance:", error)
+            return null
+        }
     }
 }

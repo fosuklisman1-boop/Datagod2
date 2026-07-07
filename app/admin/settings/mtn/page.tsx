@@ -722,12 +722,26 @@ export default function MTNSettingsPage() {
                         <Badge className="bg-violet-600">Active</Badge>
                       )}
                     </div>
-                    <p className="text-sm text-muted-foreground">No balance API</p>
+                    {balance.balances.codecraft?.balance !== null && balance.balances.codecraft?.balance !== undefined ? (
+                      <>
+                        <div className="flex items-baseline gap-2">
+                          <span className={`text-3xl font-bold ${balance.balances.codecraft.is_low ? 'text-orange-600' : 'text-emerald-900'}`}>
+                            ₵{balance.balances.codecraft.balance.toFixed(2)}
+                          </span>
+                          <span className="text-sm text-muted-foreground">GHS</span>
+                        </div>
+                        {balance.balances.codecraft.is_low && (
+                          <p className="text-xs text-orange-600 mt-2">⚠️ Low balance</p>
+                        )}
+                      </>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Unable to fetch</p>
+                    )}
                   </div>
                 </div>
 
                 {/* Low Balance Alerts */}
-                {(balance.balances.sykes.is_low || balance.balances.datakazina.is_low || balance.balances.xpress?.is_low || balance.balances.eazyghdata?.is_low || balance.balances.bisdel?.is_low) && (
+                {(balance.balances.sykes.is_low || balance.balances.datakazina.is_low || balance.balances.xpress?.is_low || balance.balances.eazyghdata?.is_low || balance.balances.bisdel?.is_low || balance.balances.codecraft?.is_low) && (
                   <Alert className="border-border bg-warning/10">
                     <AlertCircle className="h-4 w-4 text-warning" />
                     <AlertDescription className="text-warning">
@@ -737,6 +751,7 @@ export default function MTNSettingsPage() {
                       {balance.balances.xpress?.alert && <p>• {balance.balances.xpress.alert}</p>}
                       {balance.balances.eazyghdata?.alert && <p>• {balance.balances.eazyghdata.alert}</p>}
                       {balance.balances.bisdel?.alert && <p>• {balance.balances.bisdel.alert}</p>}
+                      {balance.balances.codecraft?.alert && <p>• {balance.balances.codecraft.alert}</p>}
                       <p className="mt-1 font-medium">SMS alert has been sent to admin.</p>
                     </AlertDescription>
                   </Alert>
