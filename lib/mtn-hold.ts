@@ -30,15 +30,19 @@ export function statusColumnFor(table: MtnOrderTable): "status" | "order_status"
 }
 
 /**
- * Pure gate decision. Hold iff the gate is enabled AND the registry does not
- * say 'registered' (missing row counts as not registered).
+ * Pure gate decision. Hold iff the gate is enabled AND the registry says the
+ * number is awaiting registration (pending/submitted, or missing entirely).
+ * 'registered' passes (fulfillable). 'rejected' ALSO passes — a rejected
+ * number (non-MTN prefix / provider-rejected) can never be activated, so
+ * holding would strand the order forever; instead it fails fast at the
+ * provider and lands in the manual queue, exactly as before the gate existed.
  */
 export function decideMtnGate(
   gateEnabled: boolean,
   registryStatus: string | null
 ): { hold: boolean } {
   if (!gateEnabled) return { hold: false }
-  return { hold: registryStatus !== "registered" }
+  return { hold: registryStatus !== "registered" && registryStatus !== "rejected" }
 }
 
 /** Phone (beneficiary) column per table — same mapping as the Phase 1 capture trigger. */

@@ -347,7 +347,7 @@ export async function createMTNOrder(order: MTNOrderRequest): Promise<MTNOrderRe
     try {
       if (await isRegistrationGateEnabled()) {
         const { decideMtnGate } = await import("@/lib/mtn-hold")
-        const { normalizeGhanaPhone } = await import("@/lib/phone-format")
+        const { normalizeGhanaPhone, detectGhanaNetwork } = await import("@/lib/phone-format")
         const norm = normalizeGhanaPhone(order.recipient_phone)
         let registryStatus: string | null = null
         if (norm) {
@@ -359,9 +359,16 @@ export async function createMTNOrder(order: MTNOrderRequest): Promise<MTNOrderRe
           registryStatus = reg?.status ?? null
           if (!reg) {
             // Defensive: capture trigger should have enrolled it at order INSERT.
+            // Classify by prefix — a non-MTN-prefix number (mistaken-network
+            // order) is 'rejected' (never exported, never held), not 'pending'.
+            const classified = detectGhanaNetwork(norm) === "MTN" ? "pending" : "rejected"
             await supabase
               .from("mtn_number_registry")
-              .upsert({ phone: norm, source: "gate", status: "pending" }, { onConflict: "phone", ignoreDuplicates: true })
+              .upsert(
+                { phone: norm, source: "gate", status: classified },
+                { onConflict: "phone", ignoreDuplicates: true }
+              )
+            registryStatus = classified
           }
         }
         if (decideMtnGate(true, registryStatus).hold) {

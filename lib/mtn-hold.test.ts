@@ -9,10 +9,15 @@ describe('decideMtnGate', () => {
   it('passes registered numbers', () => {
     expect(decideMtnGate(true, 'registered').hold).toBe(false)
   })
-  it('holds pending / submitted / rejected', () => {
+  it('holds pending / submitted', () => {
     expect(decideMtnGate(true, 'pending').hold).toBe(true)
     expect(decideMtnGate(true, 'submitted').hold).toBe(true)
-    expect(decideMtnGate(true, 'rejected').hold).toBe(true)
+  })
+  it('passes rejected numbers through (fail-fast at provider, never held)', () => {
+    // A rejected number (non-MTN prefix / provider-rejected) can never be
+    // activated — holding would strand the order forever. Let it fail at the
+    // provider and land in the manual queue, exactly as before the gate.
+    expect(decideMtnGate(true, 'rejected').hold).toBe(false)
   })
   it('holds when the number is missing from the registry', () => {
     expect(decideMtnGate(true, null).hold).toBe(true)
