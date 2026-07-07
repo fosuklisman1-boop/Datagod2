@@ -50,6 +50,8 @@ export default function MTNSettingsPage() {
   const [loadingSettings, setLoadingSettings] = useState(true)
   const [loadingBalance, setLoadingBalance] = useState(true)
   const [toggling, setToggling] = useState(false)
+  const [gateSettings, setGateSettings] = useState<{ enabled: boolean; updated_at?: string } | null>(null)
+  const [gateToggling, setGateToggling] = useState(false)
   const [mtnProvider, setMtnProvider] = useState<"sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft">("sykes")
   const [syncingPackages, setSyncingPackages] = useState(false)
   const [savingProvider, setSavingProvider] = useState(false)
@@ -64,6 +66,7 @@ export default function MTNSettingsPage() {
     if (!isAdmin) return // useAdminProtected handles redirect
 
     loadSettings()
+    loadGateSettings()
     loadBalance()
     loadProvider()
     loadBisdelCatalog()
@@ -102,6 +105,35 @@ export default function MTNSettingsPage() {
       toast.error("Error loading MTN settings")
     } finally {
       setLoadingSettings(false)
+    }
+  }
+
+  const loadGateSettings = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        router.push("/login")
+        return
+      }
+      const response = await fetch("/api/admin/settings/mtn-registration-gate", {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setGateSettings({
+          enabled: data.enabled,
+          updated_at: data.updated_at,
+        })
+      } else {
+        toast.error("Failed to load registration gate settings")
+      }
+    } catch (error) {
+      console.error("Error loading gate settings:", error)
+      toast.error("Error loading registration gate settings")
     }
   }
 
@@ -164,6 +196,45 @@ export default function MTNSettingsPage() {
       toast.error("Error updating MTN setting")
     } finally {
       setToggling(false)
+    }
+  }
+
+  const handleGateToggle = async () => {
+    if (!gateSettings) return
+
+    try {
+      setGateToggling(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        return
+      }
+      const response = await fetch("/api/admin/settings/mtn-registration-gate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          enabled: !gateSettings.enabled,
+        }),
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setGateSettings({
+          enabled: data.enabled,
+          updated_at: new Date().toISOString(),
+        })
+        toast.success(data.message)
+      } else {
+        toast.error("Failed to update setting")
+      }
+    } catch (error) {
+      console.error("Error updating gate setting:", error)
+      toast.error("Error updating registration gate setting")
+    } finally {
+      setGateToggling(false)
     }
   }
 
@@ -417,6 +488,60 @@ export default function MTNSettingsPage() {
                   </p>
                 )}
               </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Registration Gate Toggle */}
+        <Card className="border-2">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CheckCircle className="h-5 w-5" />
+              Registration Gate
+            </CardTitle>
+            <CardDescription>
+              Hold MTN orders for numbers not yet registered with MTN. Enable ONLY after the registry
+              back-catalog has been marked registered — otherwise every MTN order will hold.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="flex items-center justify-between p-4 bg-muted/40 rounded-lg">
+              <div className="space-y-1">
+                <p className="font-medium text-foreground">
+                  {gateSettings?.enabled
+                    ? "🟢 ENABLED — unregistered numbers are held"
+                    : "⚪ DISABLED — orders flow as before"}
+                </p>
+              </div>
+              <Button
+                onClick={handleGateToggle}
+                disabled={gateToggling || !gateSettings}
+                variant={gateSettings?.enabled ? "destructive" : "default"}
+                className="min-w-[120px]"
+              >
+                {gateToggling ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Updating...
+                  </>
+                ) : gateSettings?.enabled ? (
+                  <>
+                    <WifiOff className="h-4 w-4 mr-2" />
+                    Turn Off
+                  </>
+                ) : (
+                  <>
+                    <Zap className="h-4 w-4 mr-2" />
+                    Turn On
+                  </>
+                )}
+              </Button>
+            </div>
+
+            {gateSettings?.updated_at && (
+              <p className="text-xs text-muted-foreground">
+                Last updated: {new Date(gateSettings.updated_at).toLocaleString()}
+              </p>
             )}
           </CardContent>
         </Card>
