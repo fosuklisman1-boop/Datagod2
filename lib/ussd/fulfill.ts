@@ -70,6 +70,11 @@ export async function fulfillUssdOrder(
       const mtnResponse = await createMTNOrder(orderRequest)
 
       if (!mtnResponse.success || !mtnResponse.order_id) {
+        if (mtnResponse.held) {
+          const { holdMtnOrder } = await import("@/lib/mtn-hold")
+          await holdMtnOrder({ table: orderTable, orderId, phone: normalizedPhone })
+          return { success: false, message: "Held: number pending MTN registration" }
+        }
         console.error("[USSD-FULFILL] MTN API failed:", mtnResponse.message)
         // Mark processing (not failed) — payment succeeded, admin must manually deliver
         await markUssdOrderStatus(orderId, 'pending', orderTable)

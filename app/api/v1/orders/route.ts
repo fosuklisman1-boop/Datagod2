@@ -225,7 +225,10 @@ export async function POST(request: NextRequest) {
             client_ref: orderId ? String(orderId) : undefined, // echoed back in DataKazina's webhook reference
           }
           const mtnResult = await createMTNOrder(mtnRequest)
-          if (orderId && mtnResult.order_id) {
+          if (orderId && mtnResult.held) {
+            const { holdMtnOrder } = await import("@/lib/mtn-hold")
+            await holdMtnOrder({ table: "api_orders", orderId: String(orderId), phone: normalizePhoneNumber(cleanRecipient) })
+          } else if (orderId && mtnResult.order_id) {
             await saveMTNTracking(String(orderId), mtnResult.order_id, mtnRequest, mtnResult, "api", mtnResult.provider || "sykes")
             if (mtnResult.success) {
               await supabase.from("api_orders").update({ status: "processing" }).eq("id", orderId)

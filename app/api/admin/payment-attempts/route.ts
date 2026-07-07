@@ -601,7 +601,10 @@ export async function PATCH(request: NextRequest) {
                 const mtnResult = await createMTNOrder(mtnRequest)
                 console.log(`[ADMIN-PAYMENT-ATTEMPTS] ✓ MTN API response for order ${attempt.order_id}:`, mtnResult)
 
-                if (mtnResult.order_id) {
+                if (mtnResult.held) {
+                  const { holdMtnOrder } = await import("@/lib/mtn-hold")
+                  await holdMtnOrder({ table: "shop_orders", orderId: String(attempt.order_id), phone: normalizedPhone })
+                } else if (mtnResult.order_id) {
                   await saveMTNTracking(
                     attempt.order_id,
                     mtnResult.order_id,
@@ -610,17 +613,17 @@ export async function PATCH(request: NextRequest) {
                     "shop",
                     mtnResult.provider || "sykes"
                   )
-                }
 
-                if (mtnResult.success) {
-                  await supabase
-                    .from("shop_orders")
-                    .update({
-                      order_status: "processing",
-                      fulfillment_method: "auto_mtn",
-                      updated_at: new Date().toISOString(),
-                    })
-                    .eq("id", attempt.order_id)
+                  if (mtnResult.success) {
+                    await supabase
+                      .from("shop_orders")
+                      .update({
+                        order_status: "processing",
+                        fulfillment_method: "auto_mtn",
+                        updated_at: new Date().toISOString(),
+                      })
+                      .eq("id", attempt.order_id)
+                  }
                 }
               }
             } catch (err) {

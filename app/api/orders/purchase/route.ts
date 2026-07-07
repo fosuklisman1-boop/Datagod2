@@ -436,6 +436,12 @@ export async function POST(request: NextRequest) {
 
             console.log(`[FULFILLMENT] ✓ MTN API response for order ${order[0].id}:`, mtnResult)
 
+            if (mtnResult.held) {
+              const { holdMtnOrder } = await import("@/lib/mtn-hold")
+              await holdMtnOrder({ table: "orders", orderId: String(order[0].id), phone: normalizedPhone })
+              return
+            }
+
             // Save tracking record (bulk order type since this is from orders table)
             if (mtnResult.order_id) {
               await saveMTNTracking(

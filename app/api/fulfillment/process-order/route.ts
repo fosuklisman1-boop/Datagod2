@@ -290,6 +290,14 @@ async function handleMTNAutoFulfillment(
     const mtnResponse = await createMTNOrder(orderRequest)
 
     if (!mtnResponse.success || !mtnResponse.order_id) {
+      if (mtnResponse.held) {
+        const { holdMtnOrder } = await import("@/lib/mtn-hold")
+        await holdMtnOrder({ table: "shop_orders", orderId: shopOrderId, phone: phoneNumber })
+        return NextResponse.json({
+          success: true,
+          message: "Order held pending MTN number registration",
+        })
+      }
       console.error("[FULFILLMENT] MTN API failed:", mtnResponse.message)
 
       // Update shop_orders with pending status instead of failed
