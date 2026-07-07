@@ -13,6 +13,8 @@ import {
   saveMTNTracking,
   normalizePhoneNumber,
 } from "@/lib/mtn-fulfillment"
+import { validateNetworkPrefix } from "@/lib/phone-format"
+import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -76,6 +78,16 @@ export async function POST(request: NextRequest) {
     // Validate required fields
     if (!phoneNumber) {
       return NextResponse.json({ error: "Phone number is required" }, { status: 400 })
+    }
+
+    // Order-time network↔prefix validation (hard block; admin-toggleable).
+    const { enabled: prefixCheckEnabled, map: prefixMap } = await getPrefixValidationConfig()
+    if (prefixCheckEnabled) {
+      const prefixCheck = validateNetworkPrefix(network, phoneNumber, prefixMap)
+      if (!prefixCheck.ok) {
+        console.warn(`[PURCHASE] ⛔ Prefix mismatch: ${network} / ${String(phoneNumber).slice(0, 12)}`)
+        return NextResponse.json({ error: prefixCheck.message }, { status: 400 })
+      }
     }
 
     // Get auth token from header

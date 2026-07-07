@@ -10,6 +10,8 @@ import { verifyTurnstileToken, getRequestIp, isTurnstileEnabled } from "@/lib/tu
 import { secureTimestampedReference } from "@/lib/secure-random"
 import { checkEmailQuality } from "@/lib/email-heuristics"
 import { isStorefrontOtpRequired, isPhoneOtpVerified } from "@/lib/storefront-otp"
+import { validateNetworkPrefix } from "@/lib/phone-format"
+import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -131,6 +133,16 @@ export async function POST(request: NextRequest) {
     if (!/^0\d{9}$/.test(normalizedPhone)) {
       console.warn(`[SHOP-ORDER] ❌ Invalid phone format for shop ${shop_id}: ${String(customer_phone).slice(0, 20)}`)
       return NextResponse.json({ error: "Please enter a valid phone number." }, { status: 400 })
+    }
+
+    // Order-time network↔prefix validation (hard block; admin-toggleable).
+    const { enabled: prefixCheckEnabled, map: prefixMap } = await getPrefixValidationConfig()
+    if (prefixCheckEnabled) {
+      const prefixCheck = validateNetworkPrefix(network, normalizedPhone, prefixMap)
+      if (!prefixCheck.ok) {
+        console.warn(`[SHOP-ORDER] ⛔ Prefix mismatch for shop ${shop_id}: ${network} / ${normalizedPhone.slice(0, 12)}`)
+        return NextResponse.json({ error: prefixCheck.message }, { status: 400 })
+      }
     }
 
     // Bypass cookie + Turnstile checks ONLY for genuine sub-agent stock purchases:

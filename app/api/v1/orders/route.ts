@@ -4,6 +4,8 @@ import { createClient } from "@supabase/supabase-js"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { createMTNOrder, saveMTNTracking, normalizePhoneNumber, isAutoFulfillmentEnabled as isMTNAutoEnabled } from "@/lib/mtn-fulfillment"
 import { atishareService } from "@/lib/at-ishare-service"
+import { validateNetworkPrefix } from "@/lib/phone-format"
+import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -133,6 +135,18 @@ export async function POST(request: NextRequest) {
 
   // Sanitize network — strip SQL LIKE wildcards to prevent ilike injection
   const sanitizedNetwork = String(network).replace(/[%_]/g, "")
+
+  // Order-time network↔prefix validation (hard block; admin-toggleable).
+  const { enabled: prefixCheckEnabled, map: prefixMap } = await getPrefixValidationConfig()
+  if (prefixCheckEnabled) {
+    const prefixCheck = validateNetworkPrefix(sanitizedNetwork, cleanRecipient, prefixMap)
+    if (!prefixCheck.ok) {
+      return NextResponse.json(
+        { success: false, error: prefixCheck.message, error_code: "NETWORK_MISMATCH" },
+        { status: 400 }
+      )
+    }
+  }
 
   // 1. Fetch pricing from global packages table based on role
   // Database stores size as just "1", "2", "5" etc (string)

@@ -11,6 +11,8 @@ import {
   normalizePhoneNumber,
 } from "@/lib/mtn-fulfillment"
 import { atishareService } from "@/lib/at-ishare-service"
+import { validateNetworkPrefix } from "@/lib/phone-format"
+import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import { supabaseAdmin } from "@/lib/supabase" // Need admin client for checking settings if not already available, but usage below checks 'supabase' which is user client?
 // create-bulk uses `supabase` created with serviceRoleKey which IS admin privileges.
 // But `isAutoFulfillmentEnabled` helper in purchase uses `supabaseAdmin`.
@@ -63,6 +65,27 @@ export async function POST(request: NextRequest) {
         { error: "Network is required" },
         { status: 400 }
       )
+    }
+
+    // Order-time network↔prefix validation — reject the WHOLE batch with an
+    // itemized list so the uploader can fix their file (partial acceptance
+    // would complicate wallet pricing/refunds).
+    const { enabled: prefixCheckEnabled, map: prefixMap } = await getPrefixValidationConfig()
+    if (prefixCheckEnabled) {
+      const invalidRows: Array<{ row: number; phone: string; message: string }> = []
+      for (let i = 0; i < orders.length; i++) {
+        const check = validateNetworkPrefix(network, orders[i].phone_number, prefixMap)
+        if (!check.ok) invalidRows.push({ row: i + 1, phone: orders[i].phone_number, message: check.message })
+      }
+      if (invalidRows.length > 0) {
+        return NextResponse.json(
+          {
+            error: `${invalidRows.length} number(s) don't match the ${network} network. Fix these rows and re-upload.`,
+            invalidRows: invalidRows.slice(0, 50),
+          },
+          { status: 400 }
+        )
+      }
     }
 
     console.log(`[BULK-ORDERS] Creating ${orders.length} orders for network: ${network}`)
