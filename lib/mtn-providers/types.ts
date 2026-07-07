@@ -61,4 +61,4 @@ export interface MTNProvider {
 /**
  * Supported provider names
  */
-export type MTNProviderName = "sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel"
+export type MTNProviderName = "sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft"

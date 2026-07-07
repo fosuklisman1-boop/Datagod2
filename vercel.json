@@ -26,6 +26,10 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/sync-mtn-status/codecraft",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/verify-pending-payments",
       "schedule": "*/2 * * * *"
     },

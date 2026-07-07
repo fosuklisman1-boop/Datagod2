@@ -524,6 +524,8 @@ export default function MTNFulfillmentLogsPage() {
                                 <Badge className="bg-primary/10 text-primary border-border">EazyGhData</Badge>
                               ) : log.provider === "bisdel" ? (
                                 <Badge className="bg-primary/10 text-primary border-border">Bisdel</Badge>
+                              ) : log.provider === "codecraft" ? (
+                                <Badge className="bg-violet-100 text-violet-800 border-border">CodeCraft</Badge>
                               ) : (
                                 <Badge className="bg-primary/10 text-primary border-primary/20">Sykes</Badge>
                               )}

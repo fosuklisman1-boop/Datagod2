@@ -34,6 +34,7 @@ interface MTNBalance {
     xpress: ProviderBalance
     eazyghdata: ProviderBalance
     bisdel: ProviderBalance
+    codecraft: ProviderBalance
   }
   threshold: number
   active_provider: string
@@ -49,7 +50,7 @@ export default function MTNSettingsPage() {
   const [loadingSettings, setLoadingSettings] = useState(true)
   const [loadingBalance, setLoadingBalance] = useState(true)
   const [toggling, setToggling] = useState(false)
-  const [mtnProvider, setMtnProvider] = useState<"sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel">("sykes")
+  const [mtnProvider, setMtnProvider] = useState<"sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft">("sykes")
   const [syncingPackages, setSyncingPackages] = useState(false)
   const [savingProvider, setSavingProvider] = useState(false)
   const [bisdelCategories, setBisdelCategories] = useState<string[]>([])
@@ -281,7 +282,7 @@ export default function MTNSettingsPage() {
     }
   }
 
-  const handleMTNProviderChange = async (provider: "sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel") => {
+  const handleMTNProviderChange = async (provider: "sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft") => {
     setSavingProvider(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
@@ -584,6 +585,20 @@ export default function MTNSettingsPage() {
                       <p className="text-sm text-muted-foreground">Unable to fetch</p>
                     )}
                   </div>
+
+                  {/* CodeCraft Balance */}
+                  <div className={`p-4 rounded-lg border-2 transition-all ${balance.balances.codecraft?.is_active
+                    ? 'bg-violet-50 border-border shadow-md'
+                    : 'bg-muted/40 border-border'
+                    }`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-foreground">CodeCraft</span>
+                      {balance.balances.codecraft?.is_active && (
+                        <Badge className="bg-violet-600">Active</Badge>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground">No balance API</p>
+                  </div>
                 </div>
 
                 {/* Low Balance Alerts */}
@@ -643,7 +658,7 @@ export default function MTNSettingsPage() {
                 Choose your preferred MTN data provider. Switching only affects new orders.
               </p>
 
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
                 {/* Sykes Option */}
                 <button
                   onClick={() => handleMTNProviderChange("sykes")}
@@ -732,6 +747,24 @@ export default function MTNSettingsPage() {
                     )}
                   </div>
                   <p className="text-sm text-muted-foreground">Category-based provider</p>
+                </button>
+
+                {/* CodeCraft Option */}
+                <button
+                  onClick={() => handleMTNProviderChange("codecraft")}
+                  disabled={savingProvider || mtnProvider === "codecraft"}
+                  className={`p-4 rounded-lg border-2 transition-all text-left ${mtnProvider === "codecraft"
+                      ? "bg-violet-50 border-violet-500 shadow-md"
+                      : "bg-card border-border hover:border-border"
+                    } ${savingProvider ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-semibold text-foreground">CodeCraft</span>
+                    {mtnProvider === "codecraft" && (
+                      <Badge className="bg-violet-600">Active</Badge>
+                    )}
+                  </div>
+                  <p className="text-sm text-muted-foreground">MTN via CodeCraft API</p>
                 </button>
               </div>
 

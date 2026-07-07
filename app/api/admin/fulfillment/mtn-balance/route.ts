@@ -7,6 +7,7 @@ import { DataKazinaProvider } from "@/lib/mtn-providers/datakazina-provider"
 import { XpressProvider } from "@/lib/mtn-providers/xpress-provider"
 import { EazyGhDataProvider } from "@/lib/mtn-providers/eazyghdata-provider"
 import { BisdelProvider } from "@/lib/mtn-providers/bisdel-provider"
+import { CodeCraftMTNProvider } from "@/lib/mtn-providers/codecraft-provider"
 import { notifyAdmins } from "@/lib/email-service"
 
 /**
@@ -27,13 +28,15 @@ export async function GET(request: NextRequest) {
     const xpressProvider = new XpressProvider()
     const eazyghDataProvider = new EazyGhDataProvider()
     const bisdelProvider = new BisdelProvider()
+    const codeCraftProvider = new CodeCraftMTNProvider()
 
-    const [sykesBalance, datakazinaBalance, xpressBalance, eazyghDataBalance, bisdelBalance] = await Promise.all([
+    const [sykesBalance, datakazinaBalance, xpressBalance, eazyghDataBalance, bisdelBalance, codeCraftBalance] = await Promise.all([
       sykesProvider.checkBalance().catch(() => null),
       datakazinaProvider.checkBalance().catch(() => null),
       xpressProvider.checkBalance().catch(() => null),
       eazyghDataProvider.checkBalance().catch(() => null),
       bisdelProvider.checkBalance().catch(() => null),
+      codeCraftProvider.checkBalance().catch(() => null),
     ])
 
     // Get the currently selected provider
@@ -54,6 +57,7 @@ export async function GET(request: NextRequest) {
     const xpressLow = xpressBalance !== null && xpressBalance < threshold
     const eazyghDataLow = eazyghDataBalance !== null && eazyghDataBalance < threshold
     const bisdelLow = bisdelBalance !== null && bisdelBalance < threshold
+    // CodeCraft has no balance endpoint — codeCraftBalance is always null, so never low
 
     // Send SMS alert if any balance is low
     if (sykesLow || datakazinaLow || xpressLow || eazyghDataLow || bisdelLow) {
@@ -97,6 +101,13 @@ export async function GET(request: NextRequest) {
           is_low: bisdelLow,
           is_active: activeProvider.name === "bisdel",
           alert: bisdelLow && bisdelBalance !== null ? `Bisdel balance is below threshold of ₵${threshold}` : null,
+        },
+        codecraft: {
+          balance: codeCraftBalance,
+          currency: "GHS",
+          is_low: false,
+          is_active: activeProvider.name === "codecraft",
+          alert: null,
         },
       },
       threshold,
