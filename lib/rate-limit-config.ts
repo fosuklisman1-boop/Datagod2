@@ -153,6 +153,8 @@ export const HEAVY_ADMIN_OPERATIONS = [
     '/api/admin/orders/bulk-update-status',
     '/api/admin/orders/download',
     '/api/admin/orders/phone-export',
+    '/api/admin/mtn-registration/export',
+    '/api/admin/mtn-registration/batch',
 ] as const
 
 /**

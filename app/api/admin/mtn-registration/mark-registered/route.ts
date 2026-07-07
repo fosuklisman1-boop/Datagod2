@@ -4,6 +4,8 @@ import { verifyAdminAccess } from "@/lib/admin-auth"
 
 export const dynamic = "force-dynamic"
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 export async function POST(request: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -14,24 +16,25 @@ export async function POST(request: NextRequest) {
 
   try {
     const { batchId } = await request.json()
-    if (typeof batchId !== "string" || !/^[0-9a-f-]{36}$/i.test(batchId)) {
+    if (typeof batchId !== "string" || !UUID_RE.test(batchId)) {
       return NextResponse.json({ error: "Invalid batchId" }, { status: 400 })
     }
 
     const now = new Date().toISOString()
 
-    // Flip the batch first (guarded), so a wrong/already-registered id is a no-op.
-    const { data: batchRows, error: batchErr } = await supabase
+    // Confirm the batch exists first (bogus ids -> 404 without touching the registry).
+    const { data: batch, error: batchFetchErr } = await supabase
       .from("mtn_registration_batches")
-      .update({ status: "registered", registered_at: now })
+      .select("id, status")
       .eq("id", batchId)
-      .eq("status", "submitted")
-      .select("id, number_count")
-    if (batchErr) throw batchErr
-    if (!batchRows || batchRows.length === 0) {
-      return NextResponse.json({ error: "Batch not found or already registered" }, { status: 404 })
+      .single()
+    if (batchFetchErr || !batch) {
+      return NextResponse.json({ error: "Batch not found" }, { status: 404 })
     }
 
+    // Numbers FIRST, batch LAST — if anything fails in between, the batch stays
+    // 'submitted' and a retry converges (numbers already flipped -> 0 rows, then
+    // the batch completes). The reverse order strands numbers un-registered.
     const { data: numRows, error: numErr } = await supabase
       .from("mtn_number_registry")
       .update({ status: "registered", registered_at: now, updated_at: now })
@@ -39,6 +42,13 @@ export async function POST(request: NextRequest) {
       .eq("status", "submitted")
       .select("id")
     if (numErr) throw numErr
+
+    const { error: batchErr } = await supabase
+      .from("mtn_registration_batches")
+      .update({ status: "registered", registered_at: now })
+      .eq("id", batchId)
+      .eq("status", "submitted")
+    if (batchErr) throw batchErr
 
     // Audit: registration state change (awaited, best-effort).
     try {

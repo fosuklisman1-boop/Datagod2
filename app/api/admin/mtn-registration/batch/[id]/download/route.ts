@@ -6,6 +6,8 @@ import { buildMtnRegistrationRows } from "@/lib/mtn-registration"
 
 export const dynamic = "force-dynamic"
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -19,7 +21,7 @@ export async function GET(
 
   try {
     const { id } = await params
-    if (!/^[0-9a-f-]{36}$/i.test(id)) {
+    if (!UUID_RE.test(id)) {
       return NextResponse.json({ error: "Invalid batch id" }, { status: 400 })
     }
 

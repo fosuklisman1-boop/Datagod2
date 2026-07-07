@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
       .limit(20)
     if (batchErr) throw batchErr
 
-    return NextResponse.json({ counts, batches: batches ?? [] })
+    return NextResponse.json({ counts, batches: batches ?? [] }, { headers: { "Cache-Control": "no-store" } })
   } catch (error) {
     console.error("[MTN-REG-LIST] error:", error)
     return NextResponse.json({ error: "Failed to load registration status" }, { status: 500 })
