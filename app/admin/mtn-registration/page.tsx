@@ -160,17 +160,22 @@ export default function MtnRegistrationPage() {
           </Button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {(["pending", "submitted", "registered"] as const).map(status => (
-            <Card key={status}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {([
+            ["pending", "pending"],
+            ["submitted", "submitted"],
+            ["registered", "registered"],
+            ["held_orders", "held orders"],
+          ] as const).map(([key, label]) => (
+            <Card key={key}>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium capitalize text-muted-foreground">
-                  {status}
+                  {label}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="text-3xl font-bold">
-                  {loading ? "—" : (counts[status] ?? 0).toLocaleString()}
+                  {loading ? "—" : (counts[key] ?? 0).toLocaleString()}
                 </div>
               </CardContent>
             </Card>

@@ -159,6 +159,8 @@ export default function OrderStatusPage() {
       case "failed":
       case "cancelled":
         return "bg-destructive/15 text-destructive border-destructive/30"
+      case "held_registration":
+        return "bg-warning/15 text-warning border-warning/30"
       default:
         return "bg-muted text-foreground border-border"
     }
@@ -175,10 +177,17 @@ export default function OrderStatusPage() {
       case "failed":
       case "cancelled":
         return <XCircle className="w-4 h-4" />
+      case "held_registration":
+        return <Clock className="w-4 h-4" />
       default:
         return <AlertCircle className="w-4 h-4" />
     }
   }
+
+  const getStatusLabel = (status: string) =>
+    status?.toLowerCase() === "held_registration"
+      ? "Activating number"
+      : status?.charAt(0).toUpperCase() + status?.slice(1)
 
   const getPaymentStatusColor = (status: string) => {
     switch (status?.toLowerCase()) {
@@ -376,7 +385,7 @@ export default function OrderStatusPage() {
                         <div className="text-right space-y-1">
                           <div className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-semibold border ${getStatusColor(order.order_status)}`}>
                             {getStatusIcon(order.order_status)}
-                            {order.order_status?.charAt(0).toUpperCase() + order.order_status?.slice(1)}
+                            {getStatusLabel(order.order_status)}
                           </div>
                           {order.payment_status && (
                             <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold border ml-2 ${getPaymentStatusColor(order.payment_status)}`}>
@@ -388,6 +397,13 @@ export default function OrderStatusPage() {
                     </CardHeader>
 
                     <CardContent className="space-y-3">
+                      {order.order_status === "held_registration" && (
+                        <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2">
+                          <p className="text-xs text-warning">
+                            This number is being activated for MTN data. Your bundle will be delivered automatically once it&apos;s active — usually within a day.
+                          </p>
+                        </div>
+                      )}
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         <div className="space-y-1">
                           <p className="text-xs text-muted-foreground">Price</p>

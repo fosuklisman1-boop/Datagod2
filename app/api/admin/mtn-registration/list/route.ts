@@ -25,6 +25,24 @@ export async function GET(request: NextRequest) {
       counts[status] = count ?? 0
     }
 
+    // Held orders across the 5 data tables (Phase 2 gate).
+    const HELD_TABLES: Array<[string, string]> = [
+      ["orders", "status"],
+      ["shop_orders", "order_status"],
+      ["api_orders", "status"],
+      ["ussd_orders", "order_status"],
+      ["ussd_shop_orders", "order_status"],
+    ]
+    let heldOrders = 0
+    for (const [table, col] of HELD_TABLES) {
+      const { count, error } = await supabase
+        .from(table)
+        .select("*", { count: "exact", head: true })
+        .eq(col, "held_registration")
+      if (!error) heldOrders += count ?? 0
+    }
+    counts["held_orders"] = heldOrders
+
     const { data: batches, error: batchErr } = await supabase
       .from("mtn_registration_batches")
       .select("id, batch_time, number_count, status, registered_at, downloaded_by_email")
