@@ -14,6 +14,7 @@ import { shopOrigin } from "@/lib/shop-url"
 import { supabase } from "@/lib/supabase"
 import { useShopSettings } from "@/hooks/use-shop-settings"
 import { validatePhoneNumber } from "@/lib/phone-validation"
+import { DEFAULT_NETWORK_PREFIXES, type NetworkPrefixMap } from "@/lib/phone-format"
 import { redirectToPayment } from "@/lib/payment-redirect"
 import { useResendCooldown } from "@/lib/use-resend-cooldown"
 import {
@@ -94,6 +95,10 @@ export default function ShopStorefront() {
   const [showAnnouncement, setShowAnnouncement] = useState(false)
   const [activeAnnouncement, setActiveAnnouncement] = useState<{title: string, message: string} | null>(null)
 
+  // Live network->prefix map (admin-editable) for order-time hints/validation;
+  // falls back to the hardcoded default if the fetch fails.
+  const [prefixMap, setPrefixMap] = useState<NetworkPrefixMap>(DEFAULT_NETWORK_PREFIXES)
+
   // Pass the slug — getShopBySlug no longer exposes the internal shop id;
   // the settings API resolves slug/subdomain server-side.
   const { settings: shopSettings } = useShopSettings(shop ? shopSlug : undefined)
@@ -112,6 +117,13 @@ export default function ShopStorefront() {
       })
       .catch(() => { setTurnstileEnabled(true); setOtpRequired(false); setDirectCharge(false) })
   }, [shopSlug])
+
+  useEffect(() => {
+    fetch("/api/network-prefixes")
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d?.map) setPrefixMap(d.map) })
+      .catch(() => {}) // fall back to defaults silently
+  }, [])
 
   useEffect(() => {
     // Scroll to packages when network is selected
@@ -239,8 +251,8 @@ export default function ShopStorefront() {
     return ""
   }
 
-  const validatePhoneNumberField = (phone: string, network?: string): boolean => {
-    const result = validatePhoneNumber(phone, network)
+  const validatePhoneNumberField = (phone: string, network?: string, map?: NetworkPrefixMap): boolean => {
+    const result = validatePhoneNumber(phone, network, map)
     return result.isValid
   }
 
@@ -318,7 +330,7 @@ export default function ShopStorefront() {
       return
     }
 
-    if (!validatePhoneNumberField(orderData.customer_phone, selectedPackage.network)) {
+    if (!validatePhoneNumberField(orderData.customer_phone, selectedPackage.network, prefixMap)) {
       toast.error("Please enter a valid phone number")
       return
     }
@@ -329,7 +341,7 @@ export default function ShopStorefront() {
       console.log("[CHECKOUT] Starting order submission...")
 
       // Normalize phone number using shared utility
-      const phoneResult = validatePhoneNumber(orderData.customer_phone, selectedPackage.network)
+      const phoneResult = validatePhoneNumber(orderData.customer_phone, selectedPackage.network, prefixMap)
       if (!phoneResult.isValid) {
         throw new Error(phoneResult.error || "Invalid phone number")
       }
@@ -1085,7 +1097,9 @@ export default function ShopStorefront() {
                     className="mt-1"
                   />
                   <p className="text-xs text-muted-foreground mt-1">
-                    Format: 10 digits starting with 02 or 05 (e.g., 0201234567)
+                    {selectedPackage?.packages?.network
+                      ? `Must be a ${selectedPackage.packages.network} number — the prefix is checked at checkout.`
+                      : "Format: 10 digits starting with 02 or 05 (e.g., 0201234567)"}
                   </p>
                 </div>
 
