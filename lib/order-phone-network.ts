@@ -18,9 +18,6 @@ export const ORDER_SOURCE_TABLES = [
   'results_checker_orders',
 ] as const
 
-/** Order tables that have NO network column — network is inferred for these. */
-export const NO_NETWORK_SOURCES = ['afa_orders', 'ussd_afa_orders', 'results_checker_orders'] as const
-
 /** AFA is an MTN government scheme; its unknown-network phones default to MTN. */
 export const AFA_SOURCES = ['afa_orders', 'ussd_afa_orders'] as const
 
@@ -86,6 +83,12 @@ function later(a: string | null, b: string | null): string | null {
  *   2. AFA source with no known network -> MTN.
  *   3. Otherwise infer from the phone prefix.
  *   4. Unknown prefix / un-normalizable -> Unknown. Nothing is dropped.
+ *
+ * Caveat: when a no-network row (AFA / results-checker) belongs to a phone that
+ * was seen on multiple KNOWN real networks, its order_count is added in full to
+ * EACH of those network sheets (known-network-wins). In that rare corner case the
+ * Summary TOTAL "Total Orders" is therefore not a strict unique-order count — the
+ * no-network row's orders are counted once per known sheet. This is intentional.
  */
 export function groupPhonesByNetwork(rows: RawPhoneRow[]): Map<NetworkSheet, PhoneEntry[]> {
   // Step 1: known-network map (only rows that actually carry a network).
@@ -98,7 +101,7 @@ export function groupPhonesByNetwork(rows: RawPhoneRow[]): Map<NetworkSheet, Pho
   }
 
   // Step 2: accumulate into (sheet -> phone -> entry).
-  const acc = new Map<NetworkSheet, Map<string, PhoneEntry & { _products: Set<string> }>>()
+  const acc = new Map<NetworkSheet, Map<string, Omit<PhoneEntry, 'products'> & { _products: Set<string> }>>()
   for (const s of NETWORK_SHEETS) acc.set(s, new Map())
 
   const addTo = (sheet: NetworkSheet, r: RawPhoneRow) => {
@@ -106,7 +109,7 @@ export function groupPhonesByNetwork(rows: RawPhoneRow[]): Map<NetworkSheet, Pho
     let e = bucket.get(r.phone)
     if (!e) {
       e = { phone: r.phone, orderCount: 0, firstOrderAt: null, lastOrderAt: null,
-            products: [], _products: new Set<string>() }
+            _products: new Set<string>() }
       bucket.set(r.phone, e)
     }
     e.orderCount += Number(r.order_count) || 0
