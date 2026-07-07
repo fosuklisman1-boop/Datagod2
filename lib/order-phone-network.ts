@@ -146,3 +146,44 @@ export function groupPhonesByNetwork(rows: RawPhoneRow[]): Map<NetworkSheet, Pho
   }
   return out
 }
+
+const dateOnly = (iso: string | null): string => (iso ? iso.split('T')[0] : '')
+
+export interface SheetRow {
+  Phone: string
+  Orders: number
+  'First Order': string
+  'Last Order': string
+  Products: string
+}
+
+export function toSheetRows(entries: PhoneEntry[]): SheetRow[] {
+  return entries.map(e => ({
+    Phone: e.phone,
+    Orders: e.orderCount,
+    'First Order': dateOnly(e.firstOrderAt),
+    'Last Order': dateOnly(e.lastOrderAt),
+    Products: e.products.join(', '),
+  }))
+}
+
+export interface SummaryRow {
+  Network: string
+  'Unique Phones': number
+  'Total Orders': number
+}
+
+export function buildSummaryRows(grouped: Map<NetworkSheet, PhoneEntry[]>): SummaryRow[] {
+  const rows: SummaryRow[] = []
+  let totalPhones = 0
+  let totalOrders = 0
+  for (const sheet of NETWORK_SHEETS) {
+    const entries = grouped.get(sheet) ?? []
+    const orders = entries.reduce((n, e) => n + e.orderCount, 0)
+    totalPhones += entries.length
+    totalOrders += orders
+    rows.push({ Network: sheet, 'Unique Phones': entries.length, 'Total Orders': orders })
+  }
+  rows.push({ Network: 'TOTAL', 'Unique Phones': totalPhones, 'Total Orders': totalOrders })
+  return rows
+}

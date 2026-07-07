@@ -126,3 +126,43 @@ describe('groupPhonesByNetwork', () => {
     expect(g.get('MTN')!.map(e => e.phone)).toEqual(['0242222222', '0241111111'])
   })
 })
+
+import { toSheetRows, buildSummaryRows } from './order-phone-network'
+
+describe('toSheetRows', () => {
+  it('shapes entries into flat spreadsheet rows with date-only dates', () => {
+    const rows = toSheetRows([
+      { phone: '0241234567', orderCount: 4, firstOrderAt: '2026-01-02T09:00:00Z',
+        lastOrderAt: '2026-03-04T10:00:00Z', products: ['airtime', 'data'] },
+    ])
+    expect(rows).toEqual([
+      { Phone: '0241234567', Orders: 4, 'First Order': '2026-01-02',
+        'Last Order': '2026-03-04', Products: 'airtime, data' },
+    ])
+  })
+
+  it('renders empty dates as empty strings', () => {
+    const rows = toSheetRows([
+      { phone: 'garbage', orderCount: 1, firstOrderAt: null, lastOrderAt: null, products: ['results'] },
+    ])
+    expect(rows[0]['First Order']).toBe('')
+    expect(rows[0]['Last Order']).toBe('')
+  })
+})
+
+describe('buildSummaryRows', () => {
+  it('produces one row per network plus a TOTAL row', () => {
+    const g = groupPhonesByNetwork([
+      row({ network_raw: 'MTN', phone: '0241234567', order_count: 3 }),
+      row({ network_raw: 'MTN', phone: '0242222222', order_count: 1 }),
+      row({ network_raw: 'Telecel', phone: '0201112223', order_count: 2 }),
+    ])
+    const summary = buildSummaryRows(g)
+    const mtn = summary.find(s => s.Network === 'MTN')!
+    expect(mtn['Unique Phones']).toBe(2)
+    expect(mtn['Total Orders']).toBe(4)
+    const total = summary.find(s => s.Network === 'TOTAL')!
+    expect(total['Unique Phones']).toBe(3)
+    expect(total['Total Orders']).toBe(6)
+  })
+})
