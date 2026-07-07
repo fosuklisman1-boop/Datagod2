@@ -57,6 +57,6 @@ export async function getPrefixValidationConfig(): Promise<PrefixValidationConfi
     }
   } catch (err) {
     console.error("[PREFIX-CONFIG] read failed — using defaults (enabled):", err)
-    return { enabled: true, map: DEFAULT_NETWORK_PREFIXES }
+    return { enabled: true, map: sanitizeMap(undefined) }
   }
 }

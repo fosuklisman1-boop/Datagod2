@@ -140,14 +140,14 @@ export function validateNetworkPrefix(
     return {
       ok: false,
       detected,
-      message: `${norm} doesn't match any Ghana mobile network — please check the number.`,
+      message: `${norm} doesn't match any Ghana mobile network - please check the number.`,
     }
   }
   if (detected !== expected) {
     return {
       ok: false,
       detected,
-      message: `${norm} looks like a ${NETWORK_DISPLAY[detected]} number — check the number or switch to ${NETWORK_DISPLAY[detected]}.`,
+      message: `${norm} looks like a ${NETWORK_DISPLAY[detected]} number - check the number or switch to ${NETWORK_DISPLAY[detected]}.`,
     }
   }
   return { ok: true, detected }

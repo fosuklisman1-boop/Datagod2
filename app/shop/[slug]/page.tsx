@@ -330,7 +330,7 @@ export default function ShopStorefront() {
       return
     }
 
-    if (!validatePhoneNumberField(orderData.customer_phone, selectedPackage.network, prefixMap)) {
+    if (!validatePhoneNumberField(orderData.customer_phone, selectedPackage.packages.network, prefixMap)) {
       toast.error("Please enter a valid phone number")
       return
     }
@@ -341,7 +341,7 @@ export default function ShopStorefront() {
       console.log("[CHECKOUT] Starting order submission...")
 
       // Normalize phone number using shared utility
-      const phoneResult = validatePhoneNumber(orderData.customer_phone, selectedPackage.network, prefixMap)
+      const phoneResult = validatePhoneNumber(orderData.customer_phone, selectedPackage.packages.network, prefixMap)
       if (!phoneResult.isValid) {
         throw new Error(phoneResult.error || "Invalid phone number")
       }

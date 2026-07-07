@@ -1567,6 +1567,17 @@ export async function executeToolCall(
           return { error: "unknown_network", message: "Ask the customer which network they want: MTN, Telecel, AirtelTigo, or AT-iShare." }
         }
 
+        // Order-time network↔prefix validation (same guard as the 6 order-creation sites).
+        const { getPrefixValidationConfig } = await import("@/lib/network-prefix-config")
+        const { validateNetworkPrefix } = await import("@/lib/phone-format")
+        const { enabled: prefixCheckEnabled, map: prefixMap } = await getPrefixValidationConfig()
+        if (prefixCheckEnabled) {
+          const prefixCheck = validateNetworkPrefix(canonicalNetwork, localRecipient, prefixMap)
+          if (!prefixCheck.ok) {
+            return { error: "network_mismatch", message: prefixCheck.message }
+          }
+        }
+
         // Normalise the requested size to a GB number for matching ('500MB' → 0.5).
         const sizeStr = String(input.size ?? "").toLowerCase().replace(/\s+/g, "")
         const targetGb = (() => {
