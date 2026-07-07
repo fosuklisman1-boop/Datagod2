@@ -61,6 +61,7 @@ export default function AdminOrdersPage() {
   const [loadingPending, setLoadingPending] = useState(true)
   const [loadingDownloaded, setLoadingDownloaded] = useState(false)
   const [downloading, setDownloading] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [updatingBatch, setUpdatingBatch] = useState<string | null>(null)
 
   const [showNetworkSelection, setShowNetworkSelection] = useState(false)
@@ -522,6 +523,40 @@ export default function AdminOrdersPage() {
     }
   }
 
+  const handleExportPhoneNumbers = async () => {
+    setExporting(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Session expired. Please sign in again.")
+        return
+      }
+      const response = await fetch("/api/admin/orders/phone-export", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}))
+        throw new Error(err.error || "Failed to export phone numbers")
+      }
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const element = document.createElement("a")
+      element.setAttribute("href", url)
+      element.setAttribute("download", `order-phones-${new Date().toISOString().split("T")[0]}.xlsx`)
+      element.style.display = "none"
+      document.body.appendChild(element)
+      element.click()
+      document.body.removeChild(element)
+      window.URL.revokeObjectURL(url)
+      toast.success("Exported all-time order phone numbers by network.")
+    } catch (error) {
+      console.error("Error exporting phone numbers:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to export phone numbers")
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const handleRedownloadBatch = async (batchKey: string) => {
     const batch = downloadedOrders[batchKey]
     if (!batch) return
@@ -823,11 +858,23 @@ export default function AdminOrdersPage() {
     <DashboardLayout>
       <div className="space-y-6">
         {/* Page Header */}
-        <div>
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-600 via-primary to-pink-600 bg-clip-text text-transparent">
-            Order Management
-          </h1>
-          <p className="text-muted-foreground mt-1 font-medium">Download and manage pending orders</p>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-600 via-primary to-pink-600 bg-clip-text text-transparent">
+              Order Management
+            </h1>
+            <p className="text-muted-foreground mt-1 font-medium">Download and manage pending orders</p>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={handleExportPhoneNumbers} disabled={exporting}>
+              {exporting ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4 mr-2" />
+              )}
+              {exporting ? "Exporting…" : "Download phone numbers"}
+            </Button>
+          </div>
         </div>
 
         {/* Tabs */}
