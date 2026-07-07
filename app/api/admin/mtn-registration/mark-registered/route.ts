@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
       .update({ status: "registered", registered_at: now, updated_at: now })
       .eq("submitted_batch", batchId)
       .eq("status", "submitted")
-      .select("id")
+      .select("id, phone")
     if (numErr) throw numErr
 
     const { error: batchErr } = await supabase
@@ -49,6 +49,20 @@ export async function POST(request: NextRequest) {
       .eq("id", batchId)
       .eq("status", "submitted")
     if (batchErr) throw batchErr
+
+    // Push release: fulfill any held orders for the just-registered numbers.
+    // Best-effort — a failure here is caught by the hourly self-heal cron.
+    let ordersReleased = 0
+    try {
+      const phones = (numRows ?? []).map((r: any) => r.phone).filter(Boolean)
+      if (phones.length > 0) {
+        const { releaseHeldMtnOrders } = await import("@/lib/mtn-hold")
+        const rel = await releaseHeldMtnOrders(phones)
+        ordersReleased = rel.released
+      }
+    } catch (relErr) {
+      console.error("[MTN-REG-MARK] release failed (cron will catch):", relErr)
+    }
 
     // Audit: registration state change (awaited, best-effort).
     try {
@@ -65,7 +79,7 @@ export async function POST(request: NextRequest) {
       console.warn("[MTN-REG-MARK] audit insert threw:", auditErr)
     }
 
-    return NextResponse.json({ ok: true, numbersRegistered: numRows?.length ?? 0 })
+    return NextResponse.json({ ok: true, numbersRegistered: numRows?.length ?? 0, ordersReleased })
   } catch (error) {
     console.error("[MTN-REG-MARK] error:", error)
     return NextResponse.json({ error: "Failed to mark batch registered" }, { status: 500 })

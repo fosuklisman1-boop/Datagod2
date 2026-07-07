@@ -96,6 +96,10 @@
     {
       "path": "/api/cron/security-alerts",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/release-held-mtn-orders",
+      "schedule": "7 * * * *"
     }
   ]
 }
