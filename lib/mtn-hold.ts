@@ -69,7 +69,7 @@ export async function holdMtnOrder(params: {
     .from(table)
     .update({ [statusCol]: HOLD_STATUS, updated_at: new Date().toISOString() })
     .eq("id", orderId)
-    .in(statusCol, ["pending", "processing"]) // never clobber terminal states
+    .in(statusCol, ["pending", "processing", "failed"]) // failed = re-dispatchable (admin reprocess); never clobber completed/cancelled
     .select("id")
 
   if (error || !data || data.length === 0) {
@@ -105,14 +105,14 @@ export async function holdMtnOrder(params: {
  */
 export async function releaseHeldMtnOrders(
   phones?: string[]
-): Promise<{ checked: number; released: number; dispatched: number; failed: number }> {
+): Promise<{ checked: number; released: number; dispatched: number; queuedManual: number; failed: number }> {
   const supabase = serviceClient()
   const { normalizeGhanaPhone } = await import("@/lib/phone-format")
   const hint = phones?.length
     ? new Set(phones.map(p => normalizeGhanaPhone(p) ?? p))
     : null
 
-  let checked = 0, released = 0, dispatched = 0, failed = 0
+  let checked = 0, released = 0, dispatched = 0, queuedManual = 0, failed = 0
 
   for (const table of MTN_ORDER_TABLES) {
     const statusCol = statusColumnFor(table)
@@ -170,7 +170,9 @@ export async function releaseHeldMtnOrders(
             row.id, row.network ?? "MTN", row[phoneCol], row.package_size ?? "",
             false, table
           )
-          res.success ? dispatched++ : failed++
+          if (res.success && res.message.toLowerCase().includes("manual")) queuedManual++
+          else if (res.success) dispatched++
+          else failed++
         } else {
           const { processManualFulfillment } = await import("@/lib/fulfillment-service")
           const orderType = table === "orders" ? "bulk" : table === "api_orders" ? "api" : "shop"
@@ -184,6 +186,6 @@ export async function releaseHeldMtnOrders(
     }
   }
 
-  if (checked > 0) console.log(`[MTN-RELEASE] checked=${checked} released=${released} dispatched=${dispatched} failed=${failed}`)
-  return { checked, released, dispatched, failed }
+  if (checked > 0) console.log(`[MTN-RELEASE] checked=${checked} released=${released} dispatched=${dispatched} queuedManual=${queuedManual} failed=${failed}`)
+  return { checked, released, dispatched, queuedManual, failed }
 }

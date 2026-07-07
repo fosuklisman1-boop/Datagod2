@@ -318,9 +318,10 @@ export async function POST(request: NextRequest) {
           .eq("payment_type", "ussd")
 
         // Trigger fulfillment directly (avoids shop_order coupling of /api/fulfillment/process-order)
+        let fulfillResult: { success: boolean; message: string; held?: boolean } | undefined
         try {
           const { fulfillUssdOrder } = await import("@/lib/ussd/fulfill")
-          const fulfillResult = await fulfillUssdOrder(
+          fulfillResult = await fulfillUssdOrder(
             ussdOrderId,
             ussdOrder.network,
             ussdOrder.recipient_phone,
@@ -357,17 +358,19 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // SMS to recipient
-        try {
-          const channelLink = await getJoinCommunityLink()
-          await sendSMS({
-            phone: ussdOrder.recipient_phone,
-            message: SMSTemplates.ussdOrderConfirmed(ussdOrder.package_size, ussdOrder.network, channelLink),
-            type: 'order_confirmation',
-            reference: ussdOrderId,
-          })
-        } catch (smsErr) {
-          console.warn("[WEBHOOK] USSD recipient SMS failed:", smsErr)
+        // SMS to recipient — skip if held: holdMtnOrder already sent the hold SMS
+        if (!fulfillResult?.held) {
+          try {
+            const channelLink = await getJoinCommunityLink()
+            await sendSMS({
+              phone: ussdOrder.recipient_phone,
+              message: SMSTemplates.ussdOrderConfirmed(ussdOrder.package_size, ussdOrder.network, channelLink),
+              type: 'order_confirmation',
+              reference: ussdOrderId,
+            })
+          } catch (smsErr) {
+            console.warn("[WEBHOOK] USSD recipient SMS failed:", smsErr)
+          }
         }
 
         // SMS to payer (dialing phone) only if it's a DIFFERENT number from the
@@ -519,9 +522,10 @@ export async function POST(request: NextRequest) {
           .eq("payment_type", "ussd_shop")
 
         // Trigger fulfillment
+        let fulfillResult: { success: boolean; message: string; held?: boolean } | undefined
         try {
           const { fulfillUssdOrder } = await import("@/lib/ussd/fulfill")
-          const fulfillResult = await fulfillUssdOrder(
+          fulfillResult = await fulfillUssdOrder(
             ussdShopOrder.id,
             ussdShopOrder.network,
             ussdShopOrder.recipient_phone,
@@ -550,15 +554,18 @@ export async function POST(request: NextRequest) {
         }
 
         // SMS to recipient (USSD shop orders intentionally omit the channel link)
-        try {
-          await sendSMS({
-            phone: ussdShopOrder.recipient_phone,
-            message: SMSTemplates.ussdOrderConfirmed(ussdShopOrder.package_size, ussdShopOrder.network),
-            type: 'order_confirmation',
-            reference: ussdShopOrder.id,
-          })
-        } catch (smsErr) {
-          console.warn("[WEBHOOK] USSD shop SMS failed:", smsErr)
+        // Skip if held: holdMtnOrder already sent the hold SMS
+        if (!fulfillResult?.held) {
+          try {
+            await sendSMS({
+              phone: ussdShopOrder.recipient_phone,
+              message: SMSTemplates.ussdOrderConfirmed(ussdShopOrder.package_size, ussdShopOrder.network),
+              type: 'order_confirmation',
+              reference: ussdShopOrder.id,
+            })
+          } catch (smsErr) {
+            console.warn("[WEBHOOK] USSD shop SMS failed:", smsErr)
+          }
         }
 
         return NextResponse.json({ received: true })
