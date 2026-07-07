@@ -17,6 +17,7 @@ import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import PhoneBlacklistManager from "@/components/admin/phone-blacklist-manager"
 import AirtimeSettingsCard from "@/components/admin/airtime-settings-card"
+import NetworkPrefixSettingsCard from "@/components/admin/network-prefix-settings-card"
 
 export default function AdminSettingsPage() {
   const { isAdmin, loading: adminLoading } = useAdminProtected()
@@ -990,6 +991,8 @@ export default function AdminSettingsPage() {
         </Card>
 
         <AirtimeSettingsCard />
+
+        <NetworkPrefixSettingsCard />
 
         {/* USSD Settings */}
         <Card className="mb-6 border-border bg-success/10">
