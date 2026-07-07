@@ -144,7 +144,7 @@ export function groupPhonesByNetwork(rows: RawPhoneRow[]): Map<NetworkSheet, Pho
       lastOrderAt: e.lastOrderAt,
       products: [...e._products].sort(),
     }))
-    entries.sort((a, b) => b.orderCount - a.orderCount || a.phone.localeCompare(b.phone))
+    entries.sort((a, b) => b.orderCount - a.orderCount || (a.phone ?? '').localeCompare(b.phone ?? ''))
     out.set(s, entries)
   }
   return out

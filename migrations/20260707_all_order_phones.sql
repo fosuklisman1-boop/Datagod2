@@ -8,6 +8,7 @@ CREATE OR REPLACE FUNCTION normalize_gh_phone(raw text)
 RETURNS text
 LANGUAGE sql
 IMMUTABLE
+SET search_path = public
 AS $$
   WITH d AS (
     SELECT regexp_replace(COALESCE(raw, ''), '\D', '', 'g') AS digits
@@ -26,7 +27,7 @@ $$;
 
 -- 2. Union view. network_raw is canonicalized here; NULL for the no-network tables.
 DROP VIEW IF EXISTS all_order_phones;
-CREATE VIEW all_order_phones AS
+CREATE VIEW all_order_phones WITH (security_invoker = true) AS
 SELECT 'orders'::text AS source_table, 'data'::text AS product_type,
        normalize_gh_phone(o.phone_number) AS phone, o.phone_number AS phone_original,
        CASE
@@ -127,6 +128,7 @@ CREATE OR REPLACE FUNCTION get_all_order_phones()
 RETURNS jsonb
 LANGUAGE sql
 STABLE
+SET search_path = public
 AS $$
   SELECT COALESCE(jsonb_agg(row_to_json(t)), '[]'::jsonb)
   FROM (
@@ -140,7 +142,17 @@ AS $$
       MIN(created_at)     AS first_order_at,
       MAX(created_at)     AS last_order_at
     FROM all_order_phones
+    WHERE COALESCE(phone, phone_original) IS NOT NULL
     GROUP BY source_table, product_type, network_raw,
              COALESCE(phone, phone_original), (phone IS NOT NULL)
   ) t;
 $$;
+
+-- Lock down: the export route uses the service role (bypasses RLS). No other
+-- role may read customer phone numbers in bulk through these objects.
+REVOKE ALL ON FUNCTION get_all_order_phones() FROM PUBLIC, anon, authenticated;
+GRANT  EXECUTE ON FUNCTION get_all_order_phones() TO service_role;
+REVOKE ALL ON FUNCTION normalize_gh_phone(text)  FROM PUBLIC, anon, authenticated;
+GRANT  EXECUTE ON FUNCTION normalize_gh_phone(text) TO service_role;
+REVOKE ALL ON all_order_phones FROM anon, authenticated;
+GRANT  SELECT ON all_order_phones TO service_role;

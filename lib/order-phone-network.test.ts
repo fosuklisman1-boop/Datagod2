@@ -118,6 +118,20 @@ describe('groupPhonesByNetwork', () => {
     expect(g.get('Unknown')!.map(e => e.phone)).toEqual(['0241234567'])
   })
 
+  it('does not throw when a phone is null (no-network row); routes it to Unknown', () => {
+    expect(() => groupPhonesByNetwork([
+      row({ source_table: 'results_checker_orders', product_type: 'results', network_raw: null,
+            phone: null as unknown as string, normalized: false, order_count: 1 }),
+      row({ source_table: 'results_checker_orders', product_type: 'results', network_raw: null,
+            phone: 'garbage', normalized: false, order_count: 1 }),
+    ])).not.toThrow()
+    const g = groupPhonesByNetwork([
+      row({ source_table: 'results_checker_orders', product_type: 'results', network_raw: null,
+            phone: null as unknown as string, normalized: false, order_count: 1 }),
+    ])
+    expect(g.get('Unknown')!.length).toBe(1)
+  })
+
   it('sorts each sheet by order count descending', () => {
     const g = groupPhonesByNetwork([
       row({ phone: '0241111111', order_count: 1 }),

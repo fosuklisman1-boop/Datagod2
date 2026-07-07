@@ -10,6 +10,8 @@ import {
   type RawPhoneRow,
 } from "@/lib/order-phone-network"
 
+export const dynamic = "force-dynamic"
+
 export async function GET(request: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -76,6 +78,7 @@ export async function GET(request: NextRequest) {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "Content-Disposition": `attachment; filename="${fileName}"`,
+        "Cache-Control": "no-store",
       },
     })
   } catch (error) {
