@@ -82,6 +82,10 @@ export const SMSTemplates = {
   orderPaymentConfirmed: (network: string, volume: string, phone: string) =>
     `You have successfully placed an order of ${networkColor(network)} ${volume}G.B to ${phone}. If delayed over 2 hours, contact support.`,
 
+  // Phase 2 registration gate: order held while the number is activated.
+  mtnRegistrationHold: (phone: string) =>
+    `DTGOD: ${phone} is being activated for ${networkColor("MTN")} data service. Your order will be delivered automatically once activation completes (usually within a day).`,
+
   // Storefront order confirmation (shop name excluded from message)
   shopOrderConfirmed: (shopName: string, network: string, volume: string, phone: string, ownerPhone: string) =>
     `You have successfully placed an order of ${networkColor(network)} ${volume}G.B to ${phone}. If delayed over 2 hours, contact shop owner: ${ownerPhone}`,

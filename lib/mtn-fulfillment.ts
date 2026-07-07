@@ -32,6 +32,9 @@ export interface MTNOrderResponse {
   traceId?: string
   error_type?: string
   provider?: string // Which provider was used: "sykes" or "datakazina"
+  /** Registration gate: number not yet registered with MTN — order should be
+   *  HELD (lib/mtn-hold.ts), not treated as a provider failure. */
+  held?: boolean
 }
 
 export interface DataKazinaWebhookPayload {
@@ -177,6 +180,53 @@ export async function isAutoFulfillmentEnabled(): Promise<boolean> {
 }
 
 /**
+ * Registration gate kill-switch (Phase 2). Default OFF — enable ONLY after the
+ * registry back-catalog has been confirmed registered by the provider,
+ * otherwise every MTN order would hold.
+ */
+export async function isRegistrationGateEnabled(): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from("admin_settings")
+      .select("value")
+      .eq("key", "mtn_registration_gate_enabled")
+      .maybeSingle()
+    if (error) {
+      console.error("[MTN-GATE] Error checking gate setting:", error)
+      return false
+    }
+    return data?.value?.enabled === true
+  } catch (error) {
+    console.error("[MTN-GATE] Error checking gate setting:", error)
+    return false
+  }
+}
+
+export async function setRegistrationGateEnabled(enabled: boolean): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from("admin_settings")
+      .upsert(
+        {
+          key: "mtn_registration_gate_enabled",
+          value: { enabled },
+          description: "Phase 2 MTN registration gate: hold orders for numbers not yet registered with MTN",
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "key" }
+      )
+    if (error) {
+      console.error("[MTN-GATE] Error updating gate setting:", error)
+      return false
+    }
+    return true
+  } catch (error) {
+    console.error("[MTN-GATE] Error updating gate setting:", error)
+    return false
+  }
+}
+
+/**
  * Set MTN auto-fulfillment status
  */
 export async function setAutoFulfillmentEnabled(enabled: boolean): Promise<boolean> {
@@ -291,6 +341,44 @@ export async function createMTNOrder(order: MTNOrderRequest): Promise<MTNOrderRe
   const { getMTNProvider, getProviderByName } = await import("@/lib/mtn-providers/factory")
 
   try {
+    // Registration gate (Phase 2): MTN only fulfills pre-registered numbers.
+    // Fails OPEN on plumbing errors — the gate is a UX layer, never a new
+    // point of fulfillment failure.
+    try {
+      if (await isRegistrationGateEnabled()) {
+        const { decideMtnGate } = await import("@/lib/mtn-hold")
+        const { normalizeGhanaPhone } = await import("@/lib/phone-format")
+        const norm = normalizeGhanaPhone(order.recipient_phone)
+        let registryStatus: string | null = null
+        if (norm) {
+          const { data: reg } = await supabase
+            .from("mtn_number_registry")
+            .select("status")
+            .eq("phone", norm)
+            .maybeSingle()
+          registryStatus = reg?.status ?? null
+          if (!reg) {
+            // Defensive: capture trigger should have enrolled it at order INSERT.
+            await supabase
+              .from("mtn_number_registry")
+              .upsert({ phone: norm, source: "gate", status: "pending" }, { onConflict: "phone", ignoreDuplicates: true })
+          }
+        }
+        if (decideMtnGate(true, registryStatus).hold) {
+          console.log(`[MTN-GATE] HOLD — ${norm ?? order.recipient_phone} not registered (status=${registryStatus ?? "missing"})`)
+          return {
+            success: false,
+            held: true,
+            message: "Number not yet registered with MTN — order held",
+            traceId: order.traceId,
+            error_type: "NUMBER_NOT_REGISTERED",
+          }
+        }
+      }
+    } catch (gateErr) {
+      console.error("[MTN-GATE] Gate check failed — failing open:", gateErr)
+    }
+
     // Get the selected provider (either forced in request or from global settings)
     const provider = order.provider
       ? getProviderByName(order.provider as any)
