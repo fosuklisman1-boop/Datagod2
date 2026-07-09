@@ -101,10 +101,12 @@ function extractGbFromPackage(p: Record<string, unknown>): number | null {
 }
 
 /**
- * Look up the EazyGhData package_id UUID for a given GB size.
+ * Look up the EazyGhData package_id UUID for a given GB size and network.
  * Packages are cached in admin_settings under key "eazyghdata_packages".
+ * Filters to MTN packages first to prevent accidentally picking an AT/Telecel
+ * package with the same GB size (EazyGhData syncs all networks together).
  */
-async function getPackageId(sizeGb: number): Promise<string | null> {
+async function getPackageId(sizeGb: number, network = "MTN"): Promise<string | null> {
     try {
         const { data } = await supabaseAdmin
             .from("admin_settings")
@@ -120,16 +122,35 @@ async function getPackageId(sizeGb: number): Promise<string | null> {
             console.warn("[EazyGhData] No packages cached in admin_settings")
         }
 
-        const targetGb = sizeGb
-        const match = packages.find(p => {
+        // Normalize the requested network for comparison (e.g. "AirtelTigo" → "AT")
+        const normalizeNet = (n: string) => {
+            const u = n.toUpperCase().trim()
+            if (u === "AIRTELTIGO" || u.startsWith("AT")) return "AT"
+            if (u === "TELECEL") return "TELECEL"
+            return "MTN"
+        }
+        const targetNet = normalizeNet(network)
+
+        // Filter to packages matching the requested network, fall back to all if none tagged
+        const networkPackages = packages.filter(p => {
+            const pNet = typeof p.network === "string" ? normalizeNet(p.network) : null
+            return pNet === targetNet
+        })
+        const searchPool = networkPackages.length > 0 ? networkPackages : packages
+
+        if (networkPackages.length === 0 && packages.length > 0) {
+            console.warn(`[EazyGhData] No packages tagged as ${targetNet} — searching all ${packages.length} packages (may include other networks)`)
+        }
+
+        const match = searchPool.find(p => {
             const gb = extractGbFromPackage(p)
             if (gb === null) return false
-            return Math.round(gb) === Math.round(targetGb)
+            return Math.round(gb) === Math.round(sizeGb)
         })
 
         if (!match) {
-            const found = packages.map(p => extractGbFromPackage(p)).filter(Boolean)
-            console.warn(`[EazyGhData] No package match for ${targetGb}GB. Available sizes: ${found.join(", ")}GB`)
+            const found = searchPool.map(p => extractGbFromPackage(p)).filter(Boolean)
+            console.warn(`[EazyGhData] No ${targetNet} package match for ${sizeGb}GB. Available sizes: ${found.join(", ")}GB`)
         }
 
         return (match?.id ?? match?.package_id ?? null) as string | null
@@ -161,7 +182,7 @@ export class EazyGhDataProvider implements MTNProvider {
                 return { success: false, message: `Phone number does not match ${order.network} network`, traceId, error_type: "VALIDATION" }
             }
 
-            const packageId = await getPackageId(order.size_gb)
+            const packageId = await getPackageId(order.size_gb, order.network)
             if (!packageId) {
                 return {
                     success: false,
