@@ -38,6 +38,32 @@ async function isAutoFulfillmentEnabled(): Promise<boolean> {
   }
 }
 
+/**
+ * Combine multiple orders to the SAME number into ONE supplier row with the TOTAL
+ * gigs summed. A bulk-delivery file can't list a number twice, so orders for the
+ * same (phone, network) are merged — e.g. 1GB + 2GB + 2GB → one row "…, 5". Grouped
+ * by NETWORK too so a number that (rarely) has orders on two networks isn't merged
+ * into a nonsensical cross-network total. Every underlying order is still claimed
+ * and tracked individually; only the exported spreadsheet is de-duplicated.
+ */
+function combineOrdersToRows(list: any[]): { Phone: string; Size: number | string }[] {
+  const map = new Map<string, { phone: string; total: number; unparsed: string | null }>()
+  for (const o of list) {
+    const phone = o.phone_number
+    const key = `${phone}|${o.network ?? ""}`
+    const raw = (o.size ?? o.volume_gb)
+    const n = parseFloat(raw?.toString().replace(/[^0-9.]/g, ""))
+    const cur = map.get(key) ?? { phone, total: 0, unparsed: null }
+    if (!isNaN(n)) cur.total += n
+    else if (cur.total === 0) cur.unparsed = (raw ?? "").toString() // keep a fallback only if nothing parseable
+    map.set(key, cur)
+  }
+  return Array.from(map.values()).map(v => ({
+    Phone: v.phone,
+    Size: v.total > 0 ? Math.round(v.total * 100) / 100 : (v.unparsed ?? ""),
+  }))
+}
+
 export async function POST(request: NextRequest) {
   const { isAdmin, errorResponse, userId: callerUserId, userEmail: callerEmail } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse
@@ -111,14 +137,7 @@ export async function POST(request: NextRequest) {
 
       console.log(`[DOWNLOAD] Failed orders export: ${failedOrders.length} orders`)
 
-      const excelData = failedOrders.map((order: any) => {
-        const cleanSizeStr = order.volume_gb?.toString().replace(/[^0-9.]/g, "")
-        const parsedSize = parseFloat(cleanSizeStr)
-        return {
-          Phone: order.phone_number,
-          Size: !isNaN(parsedSize) ? parsedSize : (order.volume_gb || "")
-        }
-      })
+      const excelData = combineOrdersToRows(failedOrders)
 
       const worksheet = XLSX.utils.json_to_sheet(excelData)
       const workbook = XLSX.utils.book_new()
@@ -427,15 +446,8 @@ export async function POST(request: NextRequest) {
       // Continue anyway - batch tracking is optional
     }
 
-    // Generate Excel file
-    const excelData = orders.map((order: any) => {
-      const cleanSizeStr = order.size?.toString().replace(/[^0-9.]/g, "");
-      const parsedSize = parseFloat(cleanSizeStr);
-      return {
-        Phone: order.phone_number,
-        Size: !isNaN(parsedSize) ? parsedSize : (order.size || "") // Remove "GB", format as number to drop trailing .00
-      };
-    })
+    // Generate Excel file — combine multiple orders per number into one summed row.
+    const excelData = combineOrdersToRows(orders)
 
     const worksheet = XLSX.utils.json_to_sheet(excelData)
     const workbook = XLSX.utils.book_new()
