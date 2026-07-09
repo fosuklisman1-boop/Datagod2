@@ -82,6 +82,27 @@ function buildExcelRows(list: any[], combineDuplicates: boolean) {
   return combineDuplicates ? combineOrdersToRows(list) : expandOrdersToRows(list)
 }
 
+/**
+ * PostgREST encodes `.in(...)` values into the request URL, so a few thousand IDs
+ * overflow the allowed URL length and the whole request fails ("Failed to fetch").
+ * Run the query builder over the IDs in safe-sized chunks and concatenate the rows
+ * it returns. Works for SELECT and for UPDATE(...).select() alike. On the first
+ * chunk error it stops and returns whatever was gathered plus the error.
+ */
+async function inChunks<T = any>(
+  ids: string[],
+  build: (chunk: string[]) => PromiseLike<{ data: T[] | null; error: any }>,
+  chunkSize = 200
+): Promise<{ data: T[]; error: any }> {
+  const out: T[] = []
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const { data, error } = await build(ids.slice(i, i + chunkSize))
+    if (error) return { data: out, error }
+    if (data) out.push(...data)
+  }
+  return { data: out, error: null }
+}
+
 export async function POST(request: NextRequest) {
   const { isAdmin, errorResponse, userId: callerUserId, userEmail: callerEmail } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse
@@ -137,7 +158,7 @@ export async function POST(request: NextRequest) {
 
       // Query A: orders whose latest tracking row is "failed"
       if (failedOrderIds.length > 0) {
-        const { data: queryA } = await buildQuery().in("id", failedOrderIds)
+        const { data: queryA } = await inChunks(failedOrderIds, (chunk) => buildQuery().in("id", chunk))
         for (const o of queryA || []) {
           if (!seenIds.has(o.id)) { seenIds.add(o.id); failedOrders.push(o) }
         }
@@ -181,12 +202,24 @@ export async function POST(request: NextRequest) {
     let bulkOrderIds: string[] = []
     let shopOrderIds: string[] = []
 
-    // 1. Fetch data from View if filters or orderIds are provided
-    let query = supabase
-      .from("combined_orders_view")
-      .select("*")
+    // 1. Fetch order rows — by explicit IDs, or by filters when no IDs are given.
+    //    orderType + auto-fulfill exclusions apply to both paths.
+    const applyCommon = (q: any) => {
+      if (orderType && orderType !== "all") q = q.eq("type", orderType)
+      if (autoFulfillEnabled) {
+        q = q
+          .neq("network", "AT - iShare")
+          .neq("network", "Telecel")
+          .neq("network", "AT - BigTime")
+      }
+      return q
+    }
+
+    let fetchResult: any[] = []
+    let fetchError: any = null
 
     if (filters && orderIds.length === 0) {
+      let query = supabase.from("combined_orders_view").select("*")
       if (filters.date) {
         const date = filters.date
         query = query.gte("created_at", `${date}T00:00:00Z`)
@@ -207,25 +240,16 @@ export async function POST(request: NextRequest) {
       if (filters.onlyPending) {
         query = query.eq("status", "pending")
       }
+      const res = await applyCommon(query)
+      fetchResult = res.data || []
+      fetchError = res.error
     } else {
-      // Use provided IDs
-      query = query.in("id", orderIds)
+      // Chunk the ID list — a multi-thousand `.in(...)` overflows PostgREST's URL length.
+      const res = await inChunks(orderIds, (chunk) =>
+        applyCommon(supabase.from("combined_orders_view").select("*").in("id", chunk)))
+      fetchResult = res.data
+      fetchError = res.error
     }
-
-    // Filter by order type if specified
-    if (orderType && orderType !== "all") {
-      query = query.eq("type", orderType)
-    }
-
-    // Exclude auto-fulfilled networks if auto-fulfillment is enabled
-    if (autoFulfillEnabled) {
-      query = query
-        .neq("network", "AT - iShare")
-        .neq("network", "Telecel")
-        .neq("network", "AT - BigTime")
-    }
-
-    const { data: fetchResult, error: fetchError } = await query
 
     if (fetchError) {
       throw new Error(`Failed to fetch orders for download: ${fetchError.message}`)
@@ -264,12 +288,13 @@ export async function POST(request: NextRequest) {
       if (bulkOrderIds.length > 0) {
         // Use update with WHERE clause to only update pending orders
         // This returns only the orders that were actually updated (still pending)
-        const { data: updatedBulk, error: updateError } = await supabase
-          .from("orders")
-          .update({ status: "processing", updated_at: new Date().toISOString() })
-          .in("id", bulkOrderIds)
-          .eq("status", "pending")
-          .select("id")
+        const { data: updatedBulk, error: updateError } = await inChunks(bulkOrderIds, (chunk) =>
+          supabase
+            .from("orders")
+            .update({ status: "processing", updated_at: new Date().toISOString() })
+            .in("id", chunk)
+            .eq("status", "pending")
+            .select("id"))
 
         if (updateError) {
           throw new Error(`Failed to update bulk order status: ${updateError.message}`)
@@ -287,12 +312,13 @@ export async function POST(request: NextRequest) {
 
       if (shopOrderIds.length > 0) {
         // Use update with WHERE clause to only update pending orders
-        const { data: updatedShop, error: updateError } = await supabase
-          .from("shop_orders")
-          .update({ order_status: "processing", updated_at: new Date().toISOString() })
-          .in("id", shopOrderIds)
-          .eq("order_status", "pending")
-          .select("id")
+        const { data: updatedShop, error: updateError } = await inChunks(shopOrderIds, (chunk) =>
+          supabase
+            .from("shop_orders")
+            .update({ order_status: "processing", updated_at: new Date().toISOString() })
+            .in("id", chunk)
+            .eq("order_status", "pending")
+            .select("id"))
 
         if (updateError) {
           throw new Error(`Failed to update shop order status: ${updateError.message}`)
@@ -309,12 +335,13 @@ export async function POST(request: NextRequest) {
 
       let actualUssdOrderIds: string[] = []
       if (ussdOrderIds.length > 0) {
-        const { data: updatedUssd, error: ussdUpdateError } = await supabase
-          .from("ussd_orders")
-          .update({ order_status: "processing", updated_at: new Date().toISOString() })
-          .in("id", ussdOrderIds)
-          .eq("order_status", "pending")
-          .select("id")
+        const { data: updatedUssd, error: ussdUpdateError } = await inChunks(ussdOrderIds, (chunk) =>
+          supabase
+            .from("ussd_orders")
+            .update({ order_status: "processing", updated_at: new Date().toISOString() })
+            .in("id", chunk)
+            .eq("order_status", "pending")
+            .select("id"))
 
         if (ussdUpdateError) {
           throw new Error(`Failed to update USSD order status: ${ussdUpdateError.message}`)
@@ -326,12 +353,13 @@ export async function POST(request: NextRequest) {
 
       let actualUssdShopOrderIds: string[] = []
       if (ussdShopOrderIds.length > 0) {
-        const { data: updatedUssdShop, error: ussdShopUpdateError } = await supabase
-          .from("ussd_shop_orders")
-          .update({ order_status: "processing", updated_at: new Date().toISOString() })
-          .in("id", ussdShopOrderIds)
-          .eq("order_status", "pending")
-          .select("id")
+        const { data: updatedUssdShop, error: ussdShopUpdateError } = await inChunks(ussdShopOrderIds, (chunk) =>
+          supabase
+            .from("ussd_shop_orders")
+            .update({ order_status: "processing", updated_at: new Date().toISOString() })
+            .in("id", chunk)
+            .eq("order_status", "pending")
+            .select("id"))
 
         if (ussdShopUpdateError) {
           throw new Error(`Failed to update USSD shop order status: ${ussdShopUpdateError.message}`)
@@ -343,12 +371,13 @@ export async function POST(request: NextRequest) {
 
       let actualApiOrderIds: string[] = []
       if (apiOrderIds.length > 0) {
-        const { data: updatedApi, error: apiUpdateError } = await supabase
-          .from("api_orders")
-          .update({ status: "processing", updated_at: new Date().toISOString() })
-          .in("id", apiOrderIds)
-          .eq("status", "pending")
-          .select("id")
+        const { data: updatedApi, error: apiUpdateError } = await inChunks(apiOrderIds, (chunk) =>
+          supabase
+            .from("api_orders")
+            .update({ status: "processing", updated_at: new Date().toISOString() })
+            .in("id", chunk)
+            .eq("status", "pending")
+            .select("id"))
 
         if (apiUpdateError) {
           throw new Error(`Failed to update API order status: ${apiUpdateError.message}`)
@@ -391,17 +420,19 @@ export async function POST(request: NextRequest) {
       try {
         // Get user info for all orders to send notifications
         const bulkOrdersWithUsers = bulkOrderIds.length > 0
-          ? await supabase
-            .from("orders")
-            .select("id, user_id, network, size, phone_number")
-            .in("id", bulkOrderIds)
+          ? await inChunks(bulkOrderIds, (chunk) =>
+            supabase
+              .from("orders")
+              .select("id, user_id, network, size, phone_number")
+              .in("id", chunk))
           : { data: [] }
 
         const shopOrdersWithUsers = shopOrderIds.length > 0
-          ? await supabase
-            .from("shop_orders")
-            .select("id, user_id, network, volume_gb, phone_number")
-            .in("id", shopOrderIds)
+          ? await inChunks(shopOrderIds, (chunk) =>
+            supabase
+              .from("shop_orders")
+              .select("id, user_id, network, volume_gb, phone_number")
+              .in("id", chunk))
           : { data: [] }
 
         const allOrdersWithUsers = [
