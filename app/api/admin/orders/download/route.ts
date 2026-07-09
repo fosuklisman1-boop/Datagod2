@@ -9,6 +9,11 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
+// A large pending backlog (thousands of orders) needs room to claim + notify +
+// build the workbook; without this the function times out mid-request and the
+// browser reports "Failed to fetch".
+export const maxDuration = 300
+
 /**
  * Check if auto-fulfillment is enabled in admin settings
  */
@@ -367,30 +372,25 @@ export async function POST(request: NextRequest) {
           ...(shopOrdersWithUsers.data || []).map(o => ({ ...o, type: "shop", size: o.volume_gb }))
         ]
 
-        for (const order of allOrdersWithUsers) {
-          try {
-            const { error: notifError } = await supabase
-              .from("notifications")
-              .insert([
-                {
-                  user_id: order.user_id,
-                  title: "Order Processing",
-                  message: `Your ${order.network} ${order.size}GB data order is now being processed. Phone: ${order.phone_number}`,
-                  type: "order_update" as NotificationType,
-                  reference_id: order.id,
-                  action_url: order.type === "shop" ? `/dashboard/shop-orders` : `/dashboard/my-orders`,
-                  read: false,
-                },
-              ])
-
-            if (notifError) {
-              console.warn(`[DOWNLOAD] Failed to send processing notification for order ${order.id}:`, notifError)
-            }
-          } catch (notifError) {
-            console.warn(`[DOWNLOAD] Error sending notification for order ${order.id}:`, notifError)
-          }
+        // BATCH the inserts (was one round-trip PER order — the main cause of the
+        // "Failed to fetch" timeout on a large backlog). Chunk to stay under payload
+        // limits, and only notify orders that actually have a user_id.
+        const notifRows = allOrdersWithUsers
+          .filter(o => o.user_id)
+          .map(order => ({
+            user_id: order.user_id,
+            title: "Order Processing",
+            message: `Your ${order.network} ${order.size}GB data order is now being processed. Phone: ${order.phone_number}`,
+            type: "order_update" as NotificationType,
+            reference_id: order.id,
+            action_url: order.type === "shop" ? `/dashboard/shop-orders` : `/dashboard/my-orders`,
+            read: false,
+          }))
+        for (let i = 0; i < notifRows.length; i += 500) {
+          const { error: notifError } = await supabase.from("notifications").insert(notifRows.slice(i, i + 500))
+          if (notifError) console.warn("[DOWNLOAD] Batch notification insert failed:", notifError.message)
         }
-        console.log(`[DOWNLOAD] ✓ Sent processing notifications for ${allOrdersWithUsers.length} orders`)
+        console.log(`[DOWNLOAD] ✓ Sent processing notifications for ${notifRows.length} orders`)
       } catch (notifError) {
         console.warn("[DOWNLOAD] Error sending notifications:", notifError)
       }
