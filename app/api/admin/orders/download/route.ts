@@ -64,12 +64,30 @@ function combineOrdersToRows(list: any[]): { Phone: string; Size: number | strin
   }))
 }
 
+/**
+ * One spreadsheet row per order (a number with several orders appears several
+ * times). Used when the admin turns OFF "combine duplicates" — e.g. a supplier
+ * that only fulfils fixed pack sizes and can't accept a summed total.
+ */
+function expandOrdersToRows(list: any[]): { Phone: string; Size: number | string }[] {
+  return list.map((o) => {
+    const raw = (o.size ?? o.volume_gb)
+    const n = parseFloat(raw?.toString().replace(/[^0-9.]/g, ""))
+    return { Phone: o.phone_number, Size: !isNaN(n) ? n : (raw ?? "").toString() }
+  })
+}
+
+/** Pick the row builder for this download based on the admin's toggle. */
+function buildExcelRows(list: any[], combineDuplicates: boolean) {
+  return combineDuplicates ? combineOrdersToRows(list) : expandOrdersToRows(list)
+}
+
 export async function POST(request: NextRequest) {
   const { isAdmin, errorResponse, userId: callerUserId, userEmail: callerEmail } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse
 
   try {
-    const { orderIds: providedIds, orderType, isRedownload, filters } = await request.json()
+    const { orderIds: providedIds, orderType, isRedownload, filters, combineDuplicates = false } = await request.json()
     let orderIds = providedIds || []
 
     console.log("[DOWNLOAD] Admin", callerUserId, "downloading. Filters:", !!filters, "OrderIds count:", orderIds.length)
@@ -137,7 +155,7 @@ export async function POST(request: NextRequest) {
 
       console.log(`[DOWNLOAD] Failed orders export: ${failedOrders.length} orders`)
 
-      const excelData = combineOrdersToRows(failedOrders)
+      const excelData = buildExcelRows(failedOrders, combineDuplicates)
 
       const worksheet = XLSX.utils.json_to_sheet(excelData)
       const workbook = XLSX.utils.book_new()
@@ -446,8 +464,9 @@ export async function POST(request: NextRequest) {
       // Continue anyway - batch tracking is optional
     }
 
-    // Generate Excel file — combine multiple orders per number into one summed row.
-    const excelData = combineOrdersToRows(orders)
+    // Generate Excel file. When the admin enables "combine duplicates" each number
+    // appears once with its gigs summed; otherwise one row per order.
+    const excelData = buildExcelRows(orders, combineDuplicates)
 
     const worksheet = XLSX.utils.json_to_sheet(excelData)
     const workbook = XLSX.utils.book_new()

@@ -66,6 +66,9 @@ export default function AdminOrdersPage() {
 
   const [showNetworkSelection, setShowNetworkSelection] = useState(false)
   const [selectedNetworks, setSelectedNetworks] = useState<string[]>([])
+  // When ON, a number with several pending orders is exported as ONE row with the
+  // gigs summed. Turn OFF for suppliers that only accept fixed pack sizes.
+  const [combineDuplicates, setCombineDuplicates] = useState(true)
   const [downloadedBatchFilter, setDownloadedBatchFilter] = useState("all")
   const [downloadedBatchStatusFilter, setDownloadedBatchStatusFilter] = useState("all")
   const [downloadedBatchSearch, setDownloadedBatchSearch] = useState("")
@@ -471,7 +474,8 @@ export default function AdminOrdersPage() {
           Authorization: `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
-          orderIds: filteredOrders.map((o: any) => o.id)
+          orderIds: filteredOrders.map((o: any) => o.id),
+          combineDuplicates,
         })
       })
 
@@ -1609,6 +1613,27 @@ export default function AdminOrdersPage() {
                 )
               })}
             </div>
+
+            {/* Combine-duplicates toggle: sum a number's multiple orders into one row */}
+            <button
+              type="button"
+              onClick={() => setCombineDuplicates(v => !v)}
+              className="w-full flex items-start gap-3 p-3 mt-2 rounded border-2 border-border bg-card text-left hover:border-blue-400 transition-all"
+            >
+              {combineDuplicates ? (
+                <ToggleRight className="h-6 w-6 flex-shrink-0 text-blue-600" />
+              ) : (
+                <ToggleLeft className="h-6 w-6 flex-shrink-0 text-muted-foreground" />
+              )}
+              <div className="flex-1">
+                <span className="font-medium text-foreground">Combine duplicate numbers</span>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {combineDuplicates
+                    ? "A number with several orders is exported once, with the gigs added together (e.g. 1 + 2 + 2 → 5GB)."
+                    : "One row per order — a number with several orders is listed multiple times. Use for suppliers that only accept fixed pack sizes."}
+                </p>
+              </div>
+            </button>
 
             <DialogFooter className="flex gap-2">
               <Button
