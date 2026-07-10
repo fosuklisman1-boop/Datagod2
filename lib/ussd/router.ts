@@ -44,7 +44,15 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
     const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString()
     const phoneFilter = `dialing_phone.eq.${msisdn},dialing_phone.eq.${localPhone}`
 
-    const [{ data: pendingData }, { data: pendingAirtime }, { data: pendingRc }, { data: pendingCheck }, { data: whitelistSetting }, { data: registeredUser }] = await Promise.all([
+    const [
+      { data: pendingData },
+      { data: pendingAirtime },
+      { data: pendingRc },
+      { data: pendingCheck },
+      { data: whitelistSetting },
+      { data: pastOrder },
+      { data: pastUssdOrder },
+    ] = await Promise.all([
       supabase.from("ussd_orders").select("id, created_at")
         .or(phoneFilter).eq("payment_status", "otp_required").gte("created_at", cutoff)
         .order("created_at", { ascending: false }).limit(1).maybeSingle(),
@@ -58,10 +66,14 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
         .or(phoneFilter).eq("payment_status", "otp_required").eq("channel", "ussd").gte("created_at", cutoff)
         .order("created_at", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("admin_settings").select("value").eq("key", "ussd_data_whitelist_enabled").maybeSingle(),
-      supabase.from("users").select("id").eq("phone_number", localPhone).maybeSingle(),
+      // orders.phone_number = web/dashboard purchase recipient
+      supabase.from("orders").select("id").eq("phone_number", localPhone).limit(1).maybeSingle(),
+      // ussd_orders.dialing_phone = whoever placed the USSD call
+      supabase.from("ussd_orders").select("id").or(`dialing_phone.eq.${msisdn},dialing_phone.eq.${localPhone}`).limit(1).maybeSingle(),
     ])
 
-    const dataBlocked = whitelistSetting?.value?.enabled === true && !registeredUser
+    const hasPurchased = !!(pastOrder || pastUssdOrder)
+    const dataBlocked = whitelistSetting?.value?.enabled === true && !hasPurchased
 
     const candidates = [
       pendingData ? { id: pendingData.id, created_at: pendingData.created_at, table: undefined } : null,
