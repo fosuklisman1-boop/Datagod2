@@ -16,8 +16,10 @@ function truncate(msg: string): string {
 }
 
 export function mainMenu(showData = true): string {
-  const dataLine = showData ? '1. Buy Data Bundle\n' : ''
-  return `Welcome to Datagod\n${dataLine}2. AFA Registration\n3. Buy Airtime\n4. Results Checker\n0. Exit`
+  if (showData) {
+    return 'Welcome to Datagod\n1. Buy Data Bundle\n2. AFA Registration\n3. Buy Airtime\n4. Results Checker\n0. Exit'
+  }
+  return 'Welcome to Datagod\n1. AFA Registration\n2. Buy Airtime\n3. Results Checker\n0. Exit'
 }
 
 // ── Airtime ───────────────────────────────────────────────────────────────────
