@@ -230,9 +230,8 @@ export const SMSTemplates = {
 }
 
 /**
- * Normalize phone number to Moolre format
+ * Normalize phone number to +233XXXXXXXXX (used by Brevo, mnotify, etc.)
  * Accepts: +233XXXXXXXXX, 0XXXXXXXXX, 233XXXXXXXXX
- * Returns: +233XXXXXXXXX
  */
 function normalizePhoneNumber(phone: string): string {
   phone = phone.replace(/[\s\-\(\)]/g, '')
@@ -246,6 +245,20 @@ function normalizePhoneNumber(phone: string): string {
   }
 
   return phone
+}
+
+/**
+ * Normalize phone number to 0XXXXXXXXX format for Moolre.
+ * Moolre rejects +233/233 prefixes — numbers must start with 0.
+ * Accepts: +233XXXXXXXXX, 233XXXXXXXXX, 0XXXXXXXXX, XXXXXXXXX (9 digits)
+ */
+function normalizePhoneForMoolre(phone: string): string {
+  const cleaned = phone.replace(/[\s\-\(\)]/g, '')
+  if (cleaned.startsWith('+233') && cleaned.length === 13) return '0' + cleaned.slice(4)
+  if (cleaned.startsWith('233') && cleaned.length === 12) return '0' + cleaned.slice(3)
+  if (cleaned.startsWith('0') && cleaned.length === 10) return cleaned
+  if (/^\d{9}$/.test(cleaned)) return '0' + cleaned
+  return cleaned
 }
 
 /**
@@ -378,7 +391,7 @@ async function sendSMSViaMoolre(payload: SMSPayload): Promise<SendSMSResponse> {
   }
 
   try {
-    const normalizedPhone = normalizePhoneNumber(payload.phone)
+    const normalizedPhone = normalizePhoneForMoolre(payload.phone)
 
     // Unique tracking ref. Moolre's send response carries NO message ID
     // (data:null), so this ref is our only handle to later query delivery status
@@ -531,7 +544,7 @@ export async function sendSMSBulkViaMoolre(
   if (items.length === 0) return { ok: true }
   try {
     const messages = items.map((i) => ({
-      recipient: normalizePhoneNumber(i.recipient),
+      recipient: normalizePhoneForMoolre(i.recipient),
       message: i.message,
       ...(i.ref ? { ref: i.ref } : {}),
     }))
