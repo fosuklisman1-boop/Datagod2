@@ -44,7 +44,7 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
     const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString()
     const phoneFilter = `dialing_phone.eq.${msisdn},dialing_phone.eq.${localPhone}`
 
-    const [{ data: pendingData }, { data: pendingAirtime }, { data: pendingRc }, { data: pendingCheck }] = await Promise.all([
+    const [{ data: pendingData }, { data: pendingAirtime }, { data: pendingRc }, { data: pendingCheck }, { data: whitelistSetting }, { data: registeredUser }] = await Promise.all([
       supabase.from("ussd_orders").select("id, created_at")
         .or(phoneFilter).eq("payment_status", "otp_required").gte("created_at", cutoff)
         .order("created_at", { ascending: false }).limit(1).maybeSingle(),
@@ -57,7 +57,11 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
       supabase.from("results_check_requests").select("id, created_at")
         .or(phoneFilter).eq("payment_status", "otp_required").eq("channel", "ussd").gte("created_at", cutoff)
         .order("created_at", { ascending: false }).limit(1).maybeSingle(),
+      supabase.from("admin_settings").select("value").eq("key", "ussd_data_whitelist_enabled").maybeSingle(),
+      supabase.from("users").select("id").eq("phone_number", localPhone).maybeSingle(),
     ])
+
+    const dataBlocked = whitelistSetting?.value?.enabled === true && !registeredUser
 
     const candidates = [
       pendingData ? { id: pendingData.id, created_at: pendingData.created_at, table: undefined } : null,
@@ -75,15 +79,15 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
       )
     }
 
-    await setSession(sessionID, { step: 'MAIN', dialingPhone: msisdn })
-    return cont(mainMenu())
+    await setSession(sessionID, { step: 'MAIN', dialingPhone: msisdn, dataBlocked })
+    return cont(mainMenu(!dataBlocked))
   }
 
   // Continuing request — route by current session step
   const session = await getSession(sessionID)
 
   if (!session) {
-    // Session expired or missing — restart
+    // Session expired or missing — restart (no whitelist re-check; show full menu, user re-dials)
     await setSession(sessionID, { step: 'MAIN', dialingPhone: msisdn })
     return cont('Time limit exceeded.\n\n' + mainMenu())
   }
@@ -92,7 +96,7 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
 
   switch (session.step) {
     case 'MAIN':
-      return handleMain(input, sessionID, session.dialingPhone ?? msisdn)
+      return handleMain(input, sessionID, session)
 
     case 'SELECT_NETWORK':
       return handleSelectNetwork(input, sessionID, session)

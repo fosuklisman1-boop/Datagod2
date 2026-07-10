@@ -95,15 +95,10 @@ export async function handleSelectNetwork(
     : dialingPhone.startsWith('233') ? '0' + dialingPhone.slice(3)
     : dialingPhone
 
-  const [{ data: userRow }, { data: settingsRow }, { data: whitelistRow }] = await Promise.all([
+  const [{ data: userRow }, { data: settingsRow }] = await Promise.all([
     supabase.from("users").select("id, role").eq("phone_number", localPhone).maybeSingle(),
     supabase.from("app_settings").select("ussd_price_tier").single(),
-    supabase.from("admin_settings").select("value").eq("key", "ussd_data_whitelist_enabled").maybeSingle(),
   ])
-
-  if (whitelistRow?.value?.enabled === true && !userRow) {
-    return end("Access restricted.\nYour number is not registered for data bundles.\nVisit our app to sign up.")
-  }
 
   let effectivePriceTier: string = settingsRow?.ussd_price_tier ?? 'regular'
   let subAgentParentShopId: string | undefined
