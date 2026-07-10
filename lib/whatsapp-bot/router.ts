@@ -259,7 +259,7 @@ export async function waRouter(phone: string, text: string): Promise<string> {
 
   switch (session.step) {
     case 'MAIN':
-      result = await handleMain(input, sessionId, session.dialingPhone ?? phone)
+      result = await handleMain(input, sessionId, session)
       break
 
     case 'SELECT_NETWORK':
