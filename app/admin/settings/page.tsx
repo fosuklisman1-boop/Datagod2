@@ -47,6 +47,9 @@ export default function AdminSettingsPage() {
   // USSD data whitelist
   const [ussdDataWhitelistEnabled, setUssdDataWhitelistEnabled] = useState(false)
   const [savingUssdWhitelist, setSavingUssdWhitelist] = useState(false)
+  const [whitelistNumbers, setWhitelistNumbers] = useState<string[]>([])
+  const [whitelistInput, setWhitelistInput] = useState("")
+  const [uploadingWhitelist, setUploadingWhitelist] = useState(false)
 
   // MTN Provider settings
   const [mtnProvider, setMtnProvider] = useState<"sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel">("sykes")
@@ -303,6 +306,17 @@ export default function AdminSettingsPage() {
         if (whitelistResponse.ok) {
           const wlData = await whitelistResponse.json()
           if (typeof wlData.enabled === "boolean") setUssdDataWhitelistEnabled(wlData.enabled)
+        }
+
+        // Load manually whitelisted numbers
+        const wlNumResponse = await fetch("/api/admin/settings/ussd-whitelist/numbers", {
+          headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+        })
+        if (wlNumResponse.ok) {
+          const wlNum = await wlNumResponse.json()
+          if (Array.isArray(wlNum.numbers)) {
+            setWhitelistNumbers(wlNum.numbers.map((r: { phone_number: string }) => r.phone_number))
+          }
         }
 
         // Load count of currently OTP-verified numbers
@@ -657,6 +671,70 @@ export default function AdminSettingsPage() {
       toast.error("Failed to update USSD whitelist setting")
     } finally {
       setSavingUssdWhitelist(false)
+    }
+  }
+
+  const handleWhitelistUpload = async (rawText: string) => {
+    const numbers = rawText
+      .split(/[\n,;]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+    if (numbers.length === 0) { toast.error("No numbers found"); return }
+    setUploadingWhitelist(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) { toast.error("Authentication required"); return }
+      const response = await fetch("/api/admin/settings/ussd-whitelist/numbers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ numbers }),
+      })
+      const data = await response.json()
+      if (!response.ok) { toast.error(data.error ?? "Upload failed"); return }
+      toast.success(`${data.added} number${data.added !== 1 ? "s" : ""} added to whitelist`)
+      setWhitelistInput("")
+      // Refresh list
+      const listRes = await fetch("/api/admin/settings/ussd-whitelist/numbers", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+      if (listRes.ok) {
+        const listData = await listRes.json()
+        if (Array.isArray(listData.numbers)) {
+          setWhitelistNumbers(listData.numbers.map((r: { phone_number: string }) => r.phone_number))
+        }
+      }
+    } catch {
+      toast.error("Failed to upload whitelist numbers")
+    } finally {
+      setUploadingWhitelist(false)
+    }
+  }
+
+  const handleWhitelistFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string ?? ""
+      handleWhitelistUpload(text)
+    }
+    reader.readAsText(file)
+    e.target.value = ""
+  }
+
+  const handleWhitelistRemove = async (phone: string) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) return
+      await fetch("/api/admin/settings/ussd-whitelist/numbers", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ phone_number: phone }),
+      })
+      setWhitelistNumbers((prev) => prev.filter((n) => n !== phone))
+      toast.success("Number removed from whitelist")
+    } catch {
+      toast.error("Failed to remove number")
     }
   }
 
@@ -1096,6 +1174,68 @@ export default function AdminSettingsPage() {
                   />
                 </div>
               </div>
+            </div>
+
+            <div className="border-t border-border pt-4 space-y-3">
+              <div>
+                <p className="font-medium text-foreground text-sm">Manual Whitelist</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Upload phone numbers that should always have access to data bundles, regardless of purchase history.
+                  {whitelistNumbers.length > 0 && (
+                    <span className="ml-1 font-medium text-success">{whitelistNumbers.length} number{whitelistNumbers.length !== 1 ? "s" : ""} on list.</span>
+                  )}
+                </p>
+              </div>
+
+              {/* Paste / type numbers */}
+              <Textarea
+                placeholder="Paste numbers here — one per line, or comma-separated&#10;e.g. 0241234567, 0551234567"
+                value={whitelistInput}
+                onChange={(e) => setWhitelistInput(e.target.value)}
+                rows={4}
+                className="text-xs font-mono"
+              />
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <Button
+                  size="sm"
+                  onClick={() => handleWhitelistUpload(whitelistInput)}
+                  disabled={uploadingWhitelist || !whitelistInput.trim()}
+                >
+                  {uploadingWhitelist ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : null}
+                  Add Numbers
+                </Button>
+
+                <label className="cursor-pointer">
+                  <span className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-md border border-border bg-card hover:bg-muted transition-colors font-medium">
+                    <FileText className="w-3 h-3" />
+                    Upload CSV / TXT
+                  </span>
+                  <input
+                    type="file"
+                    accept=".csv,.txt,text/plain,text/csv"
+                    className="hidden"
+                    onChange={handleWhitelistFileUpload}
+                  />
+                </label>
+              </div>
+
+              {/* Current list */}
+              {whitelistNumbers.length > 0 && (
+                <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
+                  {whitelistNumbers.map((num) => (
+                    <div key={num} className="flex items-center justify-between text-xs bg-muted/50 rounded px-2 py-1">
+                      <span className="font-mono">{num}</span>
+                      <button
+                        onClick={() => handleWhitelistRemove(num)}
+                        className="text-destructive hover:text-destructive/80 transition-colors ml-2 text-xs"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
