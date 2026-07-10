@@ -182,6 +182,16 @@ export async function handleSelectNetwork(
 
   const paystackProvider = paystackProviderFromPhone(session.dialingPhone ?? '')
 
+  // Whitelist gate: if enabled, only registered users may buy data
+  const localDialingPhone = formatLocal(session.dialingPhone ?? '')
+  const [{ data: whitelistRow }, { data: shopUserRow }] = await Promise.all([
+    supabase.from("admin_settings").select("value").eq("key", "ussd_data_whitelist_enabled").maybeSingle(),
+    supabase.from("users").select("id").eq("phone_number", localDialingPhone).maybeSingle(),
+  ])
+  if (whitelistRow?.value?.enabled === true && !shopUserRow) {
+    return end("Access restricted.\nYour number is not registered for data bundles.\nVisit our app to sign up.")
+  }
+
   const allBundles = await fetchShopBundles(session.shopId!, selectedNetwork, session.parentShopId)
 
   if (allBundles.length === 0) {

@@ -44,6 +44,10 @@ export default function AdminSettingsPage() {
   const [ussdPriceTier, setUssdPriceTier] = useState<"regular" | "dealer">("regular")
   const [savingUssdTier, setSavingUssdTier] = useState(false)
 
+  // USSD data whitelist
+  const [ussdDataWhitelistEnabled, setUssdDataWhitelistEnabled] = useState(false)
+  const [savingUssdWhitelist, setSavingUssdWhitelist] = useState(false)
+
   // MTN Provider settings
   const [mtnProvider, setMtnProvider] = useState<"sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel">("sykes")
   const [savingProvider, setSavingProvider] = useState(false)
@@ -290,6 +294,15 @@ export default function AdminSettingsPage() {
           if (typeof wdData.enabled === "boolean") {
             setWalletDirectCharge(wdData.enabled)
           }
+        }
+
+        // Load USSD data whitelist state
+        const whitelistResponse = await fetch("/api/admin/settings/ussd-whitelist", {
+          headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+        })
+        if (whitelistResponse.ok) {
+          const wlData = await whitelistResponse.json()
+          if (typeof wlData.enabled === "boolean") setUssdDataWhitelistEnabled(wlData.enabled)
         }
 
         // Load count of currently OTP-verified numbers
@@ -624,6 +637,26 @@ export default function AdminSettingsPage() {
       toast.error("Failed to update USSD price tier")
     } finally {
       setSavingUssdTier(false)
+    }
+  }
+
+  const handleUssdWhitelistToggle = async (enabled: boolean) => {
+    setSavingUssdWhitelist(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) { toast.error("Authentication required"); return }
+      const response = await fetch("/api/admin/settings/ussd-whitelist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ enabled }),
+      })
+      if (!response.ok) throw new Error("Failed to update")
+      setUssdDataWhitelistEnabled(enabled)
+      toast.success(`USSD data whitelist ${enabled ? "enabled — only registered users can buy data" : "disabled — all callers can buy data"}`)
+    } catch {
+      toast.error("Failed to update USSD whitelist setting")
+    } finally {
+      setSavingUssdWhitelist(false)
     }
   }
 
@@ -1040,6 +1073,29 @@ export default function AdminSettingsPage() {
                   <Loader2 className="w-3 h-3 animate-spin" /> Saving...
                 </p>
               )}
+            </div>
+
+            <div className="border-t border-border pt-4 space-y-2">
+              <p className="font-medium text-foreground text-sm">Data Bundle Access</p>
+              <p className="text-xs text-muted-foreground">
+                When enabled, only phone numbers registered in the system can purchase data bundles via USSD. Unregistered callers see an access-denied message and are prompted to sign up.
+              </p>
+              <div className="flex items-center justify-between mt-3">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Registered users only</p>
+                  <p className="text-xs text-muted-foreground">
+                    {ussdDataWhitelistEnabled ? "Active — unregistered numbers are blocked" : "Off — all callers can buy data"}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {savingUssdWhitelist && <Loader2 className="w-4 h-4 animate-spin text-success" />}
+                  <Switch
+                    checked={ussdDataWhitelistEnabled}
+                    onCheckedChange={handleUssdWhitelistToggle}
+                    disabled={savingUssdWhitelist}
+                  />
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>
