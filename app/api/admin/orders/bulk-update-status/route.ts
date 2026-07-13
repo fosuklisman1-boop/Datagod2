@@ -9,6 +9,43 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
+// A multi-thousand batch needs room to check + update + notify across five order
+// tables; without this the function times out mid-request and the browser reports
+// "Failed to fetch" (mirrors the download route).
+export const maxDuration = 300
+
+/**
+ * PostgREST encodes `.in(...)` values into the request URL, so a few thousand IDs
+ * overflow the allowed URL length and the whole request fails (silently for the
+ * status-check SELECTs below, which is why a 2000+ batch reported success while
+ * updating nothing). It ALSO caps a plain SELECT at 1000 rows. Running the query
+ * builder over the IDs in safe-sized chunks fixes both — it works for SELECT and
+ * for UPDATE(...).select() alike. On the first chunk error it stops and returns
+ * whatever was gathered plus the error. (Same helper as the download route.)
+ */
+async function inChunks<T = any>(
+  ids: string[],
+  build: (chunk: string[]) => PromiseLike<{ data: T[] | null; error: any }>,
+  chunkSize = 200
+): Promise<{ data: T[]; error: any }> {
+  const out: T[] = []
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const { data, error } = await build(ids.slice(i, i + chunkSize))
+    if (error) return { data: out, error }
+    if (data) out.push(...data)
+  }
+  return { data: out, error: null }
+}
+
+/** Insert notification rows in payload-safe batches (a 2000-row insert overflows). */
+async function insertNotificationsChunked(rows: any[]): Promise<{ error: any }> {
+  for (let i = 0; i < rows.length; i += 500) {
+    const { error } = await supabase.from("notifications").insert(rows.slice(i, i + 500))
+    if (error) return { error }
+  }
+  return { error: null }
+}
+
 export async function POST(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse
@@ -90,12 +127,21 @@ export async function POST(request: NextRequest) {
       }
 
       console.log(`[BULK-UPDATE] Executing ID fetch query...`)
-      const { data, error } = await query
-      if (error) {
-        console.error(`[BULK-UPDATE] ID fetch error:`, error)
-        throw error
+      // combined_orders_view SELECT is capped at 1000 rows by PostgREST — page it so a
+      // global filter matching thousands of orders returns them all, not just 1000.
+      const pageSize = 1000
+      const collected: any[] = []
+      for (let from = 0; ; from += pageSize) {
+        const { data, error } = await query.range(from, from + pageSize - 1)
+        if (error) {
+          console.error(`[BULK-UPDATE] ID fetch error:`, error)
+          throw error
+        }
+        if (!data || data.length === 0) break
+        collected.push(...data)
+        if (data.length < pageSize) break
       }
-      orderIds = data?.map(o => o.id) || []
+      orderIds = collected.map(o => o.id)
       console.log(`[BULK-UPDATE] Globally found ${orderIds.length} orders matching filters`)
     }
 
@@ -112,50 +158,39 @@ export async function POST(request: NextRequest) {
     console.log(`[BULK-UPDATE]   - Status: ${status}`)
     console.log(`[BULK-UPDATE]   - Order type hint: ${orderType || 'not specified'}`)
 
-    // Determine actual order types and current statuses
-    const { data: bulkOrders, error: bulkError } = await supabase
-      .from("orders")
-      .select("id, status")
-      .in("id", orderIds)
-
+    // Determine actual order types and current statuses. These SELECTs are chunked:
+    // an un-chunked `.in("id", [2000 ids])` overflows the URL and fails, and its error
+    // used to be swallowed — leaving every target list empty so NOTHING updated while
+    // the route still returned success. A real error here now aborts (a failed check
+    // means we cannot know what to update, so we must not report a phantom success).
+    const { data: bulkOrders, error: bulkError } = await inChunks(orderIds, (chunk) =>
+      supabase.from("orders").select("id, status").in("id", chunk))
     if (bulkError) {
-      console.warn(`[BULK-UPDATE] Error checking bulk orders table:`, bulkError.message)
+      throw new Error(`Failed to check bulk orders: ${bulkError.message}`)
     }
 
-    const { data: shopOrders, error: shopError } = await supabase
-      .from("shop_orders")
-      .select("id, order_status")
-      .in("id", orderIds)
-
+    const { data: shopOrders, error: shopError } = await inChunks(orderIds, (chunk) =>
+      supabase.from("shop_orders").select("id, order_status").in("id", chunk))
     if (shopError) {
-      console.warn(`[BULK-UPDATE] Error checking shop_orders table:`, shopError.message)
+      throw new Error(`Failed to check shop orders: ${shopError.message}`)
     }
 
-    const { data: apiOrders, error: apiError } = await supabase
-      .from("api_orders")
-      .select("id, status")
-      .in("id", orderIds)
-
+    const { data: apiOrders, error: apiError } = await inChunks(orderIds, (chunk) =>
+      supabase.from("api_orders").select("id, status").in("id", chunk))
     if (apiError) {
-      console.warn(`[BULK-UPDATE] Error checking api_orders table:`, apiError.message)
+      throw new Error(`Failed to check api orders: ${apiError.message}`)
     }
 
-    const { data: ussdOrders, error: ussdError } = await supabase
-      .from("ussd_orders")
-      .select("id, order_status")
-      .in("id", orderIds)
-
+    const { data: ussdOrders, error: ussdError } = await inChunks(orderIds, (chunk) =>
+      supabase.from("ussd_orders").select("id, order_status").in("id", chunk))
     if (ussdError) {
-      console.warn(`[BULK-UPDATE] Error checking ussd_orders table:`, ussdError.message)
+      throw new Error(`Failed to check ussd orders: ${ussdError.message}`)
     }
 
-    const { data: ussdShopOrders, error: ussdShopError } = await supabase
-      .from("ussd_shop_orders")
-      .select("id, order_status")
-      .in("id", orderIds)
-
+    const { data: ussdShopOrders, error: ussdShopError } = await inChunks(orderIds, (chunk) =>
+      supabase.from("ussd_shop_orders").select("id, order_status").in("id", chunk))
     if (ussdShopError) {
-      console.warn(`[BULK-UPDATE] Error checking ussd_shop_orders table:`, ussdShopError.message)
+      throw new Error(`Failed to check ussd shop orders: ${ussdShopError.message}`)
     }
 
     // Filter out restricted transitions: pending -> completed
@@ -188,10 +223,11 @@ export async function POST(request: NextRequest) {
 
     // Update bulk orders
     if (finalBulkOrderIds.length > 0) {
-      const { error: updateError } = await supabase
-        .from("orders")
-        .update({ status })
-        .in("id", finalBulkOrderIds)
+      const { error: updateError } = await inChunks(finalBulkOrderIds, (chunk) =>
+        supabase
+          .from("orders")
+          .update({ status })
+          .in("id", chunk))
 
       if (updateError) {
         throw new Error(`Failed to update bulk order status: ${updateError.message}`)
@@ -201,13 +237,14 @@ export async function POST(request: NextRequest) {
 
       // Also update MTN fulfillment tracking records if they exist (by order_id for bulk)
       try {
-        const { error: mtnUpdateError } = await supabase
-          .from("mtn_fulfillment_tracking")
-          .update({
-            status: status,
-            updated_at: new Date().toISOString()
-          })
-          .in("order_id", finalBulkOrderIds)
+        const { error: mtnUpdateError } = await inChunks(finalBulkOrderIds, (chunk) =>
+          supabase
+            .from("mtn_fulfillment_tracking")
+            .update({
+              status: status,
+              updated_at: new Date().toISOString()
+            })
+            .in("order_id", chunk))
 
         if (mtnUpdateError) {
           console.warn("[BULK-UPDATE] Error updating MTN tracking for bulk orders:", mtnUpdateError)
@@ -216,13 +253,14 @@ export async function POST(request: NextRequest) {
         }
 
         // AUTO-FIX: Also update fulfillment_logs for these orders
-        const { error: logsUpdateError } = await supabase
-          .from("fulfillment_logs")
-          .update({
-            status: status === 'completed' ? 'success' : status, // Map 'completed' to 'success' for logs if needed, or keep same
-            updated_at: new Date().toISOString()
-          })
-          .in("order_id", finalBulkOrderIds)
+        const { error: logsUpdateError } = await inChunks(finalBulkOrderIds, (chunk) =>
+          supabase
+            .from("fulfillment_logs")
+            .update({
+              status: status === 'completed' ? 'success' : status, // Map 'completed' to 'success' for logs if needed, or keep same
+              updated_at: new Date().toISOString()
+            })
+            .in("order_id", chunk))
 
         if (logsUpdateError) {
           console.warn("[BULK-UPDATE] Error updating fulfillment_logs:", logsUpdateError)
@@ -238,10 +276,11 @@ export async function POST(request: NextRequest) {
       if (status === "completed" || status === "failed") {
         try {
           // Get order details to send notifications
-          const { data: orders, error: ordersError } = await supabase
-            .from("orders")
-            .select("id, user_id, network, size, phone_number")
-            .in("id", finalBulkOrderIds)
+          const { data: orders, error: ordersError } = await inChunks(finalBulkOrderIds, (chunk) =>
+            supabase
+              .from("orders")
+              .select("id, user_id, network, size, phone_number")
+              .in("id", chunk))
 
           if (!ordersError && orders && orders.length > 0) {
             // Batch insert all notifications at once
@@ -270,9 +309,7 @@ export async function POST(request: NextRequest) {
               }
             })
 
-            const { error: notifError } = await supabase
-              .from("notifications")
-              .insert(notifications)
+            const { error: notifError } = await insertNotificationsChunked(notifications)
 
             if (notifError) {
               console.warn(`[NOTIFICATION] Failed to send ${notifications.length} bulk notifications:`, notifError)
@@ -298,10 +335,11 @@ export async function POST(request: NextRequest) {
 
     // Update api orders
     if (finalApiOrderIds.length > 0) {
-      const { error: updateError } = await supabase
-        .from("api_orders")
-        .update({ status, updated_at: new Date().toISOString() })
-        .in("id", finalApiOrderIds)
+      const { error: updateError } = await inChunks(finalApiOrderIds, (chunk) =>
+        supabase
+          .from("api_orders")
+          .update({ status, updated_at: new Date().toISOString() })
+          .in("id", chunk))
 
       if (updateError) {
         throw new Error(`Failed to update api order status: ${updateError.message}`)
@@ -311,26 +349,28 @@ export async function POST(request: NextRequest) {
 
       // Update fulfillment tracking for api orders
       try {
-        const { error: mtnUpdateError } = await supabase
-          .from("mtn_fulfillment_tracking")
-          .update({
-            status: status,
-            updated_at: new Date().toISOString()
-          })
-          .in("api_order_id", finalApiOrderIds)
+        const { error: mtnUpdateError } = await inChunks(finalApiOrderIds, (chunk) =>
+          supabase
+            .from("mtn_fulfillment_tracking")
+            .update({
+              status: status,
+              updated_at: new Date().toISOString()
+            })
+            .in("api_order_id", chunk))
 
         if (mtnUpdateError) {
           console.warn("[BULK-UPDATE] Error updating MTN tracking for api orders:", mtnUpdateError)
         }
 
         // Fulfllment logs update
-        const { error: logsUpdateError } = await supabase
-          .from("fulfillment_logs")
-          .update({
-            status: status === 'completed' ? 'success' : status,
-            updated_at: new Date().toISOString()
-          })
-          .in("api_order_id", finalApiOrderIds)
+        const { error: logsUpdateError } = await inChunks(finalApiOrderIds, (chunk) =>
+          supabase
+            .from("fulfillment_logs")
+            .update({
+              status: status === 'completed' ? 'success' : status,
+              updated_at: new Date().toISOString()
+            })
+            .in("api_order_id", chunk))
 
         if (logsUpdateError) {
           console.warn("[BULK-UPDATE] Error updating fulfillment_logs for api orders:", logsUpdateError)
@@ -343,10 +383,11 @@ export async function POST(request: NextRequest) {
       // Send notifications for completed or failed api orders
       if (status === "completed" || status === "failed") {
         try {
-          const { data: orders, error: ordersError } = await supabase
-            .from("api_orders")
-            .select("id, user_id, network, volume_gb, recipient_phone")
-            .in("id", finalApiOrderIds)
+          const { data: orders, error: ordersError } = await inChunks(finalApiOrderIds, (chunk) =>
+            supabase
+              .from("api_orders")
+              .select("id, user_id, network, volume_gb, recipient_phone")
+              .in("id", chunk))
 
           if (!ordersError && orders && orders.length > 0) {
             const notifications = orders.map((order) => {
@@ -362,7 +403,7 @@ export async function POST(request: NextRequest) {
               }
             })
 
-            await supabase.from("notifications").insert(notifications)
+            await insertNotificationsChunked(notifications)
           }
         } catch (error) {
           console.warn("[NOTIFICATION] Error sending api notifications:", error)
@@ -385,11 +426,12 @@ export async function POST(request: NextRequest) {
         console.log(`[BULK-UPDATE] Before update - First 3 orders:`, beforeUpdate)
       }
 
-      const { data: updateData, error: updateError } = await supabase
-        .from("shop_orders")
-        .update({ order_status: status, updated_at: new Date().toISOString() })
-        .in("id", finalShopOrderIds)
-        .select("id, order_status, updated_at")
+      const { data: updateData, error: updateError } = await inChunks(finalShopOrderIds, (chunk) =>
+        supabase
+          .from("shop_orders")
+          .update({ order_status: status, updated_at: new Date().toISOString() })
+          .in("id", chunk)
+          .select("id, order_status, updated_at"))
 
       if (updateError) {
         console.error("[BULK-UPDATE] Error updating shop orders:", JSON.stringify(updateError))
@@ -429,13 +471,14 @@ export async function POST(request: NextRequest) {
 
       // Also update MTN fulfillment tracking records for shop orders
       try {
-        const { error: mtnUpdateError } = await supabase
-          .from("mtn_fulfillment_tracking")
-          .update({
-            status: status,
-            updated_at: new Date().toISOString()
-          })
-          .in("shop_order_id", finalShopOrderIds)
+        const { error: mtnUpdateError } = await inChunks(finalShopOrderIds, (chunk) =>
+          supabase
+            .from("mtn_fulfillment_tracking")
+            .update({
+              status: status,
+              updated_at: new Date().toISOString()
+            })
+            .in("shop_order_id", chunk))
 
         if (mtnUpdateError) {
           console.warn("[BULK-UPDATE] Error updating MTN tracking for shop orders:", mtnUpdateError)
@@ -445,10 +488,11 @@ export async function POST(request: NextRequest) {
 
         // Close fulfillment_logs (AT/CodeCraft retry loop polls status='processing'
         // keyed by order_id = the shop order id) so it stops re-checking this order.
-        const { error: logsUpdateError } = await supabase
-          .from("fulfillment_logs")
-          .update({ status: status === "completed" ? "success" : status, updated_at: new Date().toISOString() })
-          .in("order_id", finalShopOrderIds)
+        const { error: logsUpdateError } = await inChunks(finalShopOrderIds, (chunk) =>
+          supabase
+            .from("fulfillment_logs")
+            .update({ status: status === "completed" ? "success" : status, updated_at: new Date().toISOString() })
+            .in("order_id", chunk))
         if (logsUpdateError) {
           console.warn("[BULK-UPDATE] Error updating fulfillment_logs for shop orders:", logsUpdateError)
         }
@@ -460,10 +504,11 @@ export async function POST(request: NextRequest) {
       if (status === "completed" || status === "failed") {
         try {
           // Get shop order details to send notifications
-          const { data: shopOrderDetails, error: ordersError } = await supabase
-            .from("shop_orders")
-            .select("id, user_id, network, volume_gb, phone_number")
-            .in("id", finalShopOrderIds)
+          const { data: shopOrderDetails, error: ordersError } = await inChunks(finalShopOrderIds, (chunk) =>
+            supabase
+              .from("shop_orders")
+              .select("id, user_id, network, volume_gb, phone_number")
+              .in("id", chunk))
 
           if (!ordersError && shopOrderDetails && shopOrderDetails.length > 0) {
             // Batch insert all notifications at once
@@ -492,9 +537,7 @@ export async function POST(request: NextRequest) {
               }
             })
 
-            const { error: notifError } = await supabase
-              .from("notifications")
-              .insert(notifications)
+            const { error: notifError } = await insertNotificationsChunked(notifications)
 
             if (notifError) {
               console.warn(`[NOTIFICATION] Failed to send ${notifications.length} shop notifications:`, notifError)
@@ -522,11 +565,12 @@ export async function POST(request: NextRequest) {
         console.log(`[BULK-UPDATE] Crediting profits for ${finalShopOrderIds.length} completed orders...`)
 
         // Get the profit records for these orders
-        const { data: profitRecords, error: profitFetchError } = await supabase
-          .from("shop_profits")
-          .select("id, shop_id, profit_amount, status")
-          .in("shop_order_id", finalShopOrderIds)
-          .eq("status", "pending")
+        const { data: profitRecords, error: profitFetchError } = await inChunks(finalShopOrderIds, (chunk) =>
+          supabase
+            .from("shop_profits")
+            .select("id, shop_id, profit_amount, status")
+            .in("shop_order_id", chunk)
+            .eq("status", "pending"))
 
         if (profitFetchError) {
           console.error("[BULK-UPDATE] Error fetching profit records:", profitFetchError)
@@ -544,17 +588,19 @@ export async function POST(request: NextRequest) {
           let profitUpdateError = null
 
           try {
-            const result = await supabase
-              .from("shop_profits")
-              .update({ ...updatePayload, updated_at: new Date().toISOString() })
-              .in("id", profitIds)
+            const result = await inChunks(profitIds, (chunk) =>
+              supabase
+                .from("shop_profits")
+                .update({ ...updatePayload, updated_at: new Date().toISOString() })
+                .in("id", chunk))
             profitUpdateError = result.error
           } catch (error) {
             // Try without updated_at if column doesn't exist
-            const result = await supabase
-              .from("shop_profits")
-              .update(updatePayload)
-              .in("id", profitIds)
+            const result = await inChunks(profitIds, (chunk) =>
+              supabase
+                .from("shop_profits")
+                .update(updatePayload)
+                .in("id", chunk))
             profitUpdateError = result.error
           }
 
@@ -569,17 +615,21 @@ export async function POST(request: NextRequest) {
           // Sync available balance for each shop
           const shopIds = [...new Set(profitRecords.map(p => p.shop_id))]
 
-          // Batch fetch all profits and withdrawals for all shops at once
+          // Batch fetch all profits and withdrawals for all shops at once (chunked — a
+          // completed batch can span many shops, and a shop's full profit history can
+          // itself exceed the 1000-row SELECT cap).
           const [profitsResult, withdrawalsResult] = await Promise.all([
-            supabase
-              .from("shop_profits")
-              .select("shop_id, profit_amount, status")
-              .in("shop_id", shopIds),
-            supabase
-              .from("withdrawal_requests")
-              .select("shop_id, amount")
-              .in("shop_id", shopIds)
-              .eq("status", "approved")
+            inChunks(shopIds, (chunk) =>
+              supabase
+                .from("shop_profits")
+                .select("shop_id, profit_amount, status")
+                .in("shop_id", chunk)),
+            inChunks(shopIds, (chunk) =>
+              supabase
+                .from("withdrawal_requests")
+                .select("shop_id, amount")
+                .in("shop_id", chunk)
+                .eq("status", "approved"))
           ])
 
           const { data: allShopProfits, error: allProfitsError } = profitsResult
@@ -662,10 +712,11 @@ export async function POST(request: NextRequest) {
 
     // Update USSD orders
     if (finalUssdOrderIds.length > 0) {
-      const { error: ussdUpdateError } = await supabase
-        .from("ussd_orders")
-        .update({ order_status: status, updated_at: new Date().toISOString() })
-        .in("id", finalUssdOrderIds)
+      const { error: ussdUpdateError } = await inChunks(finalUssdOrderIds, (chunk) =>
+        supabase
+          .from("ussd_orders")
+          .update({ order_status: status, updated_at: new Date().toISOString() })
+          .in("id", chunk))
 
       if (ussdUpdateError) {
         throw new Error(`Failed to update USSD order status: ${ussdUpdateError.message}`)
@@ -674,11 +725,12 @@ export async function POST(request: NextRequest) {
       console.log(`[BULK-UPDATE] ✓ Updated ${finalUssdOrderIds.length} USSD orders to status: ${status}`)
 
       try {
-        const { error: mtnUpdateError } = await supabase
-          .from("mtn_fulfillment_tracking")
-          .update({ status, updated_at: new Date().toISOString() })
-          .in("order_id", finalUssdOrderIds)
-          .eq("order_type", "ussd")
+        const { error: mtnUpdateError } = await inChunks(finalUssdOrderIds, (chunk) =>
+          supabase
+            .from("mtn_fulfillment_tracking")
+            .update({ status, updated_at: new Date().toISOString() })
+            .in("order_id", chunk)
+            .eq("order_type", "ussd"))
 
         if (mtnUpdateError) {
           console.warn("[BULK-UPDATE] Error updating MTN tracking for USSD orders:", mtnUpdateError)
@@ -687,10 +739,11 @@ export async function POST(request: NextRequest) {
         }
 
         // Close fulfillment_logs (keyed by order_id = the USSD order id) to stop retries.
-        const { error: logsUpdateError } = await supabase
-          .from("fulfillment_logs")
-          .update({ status: status === "completed" ? "success" : status, updated_at: new Date().toISOString() })
-          .in("order_id", finalUssdOrderIds)
+        const { error: logsUpdateError } = await inChunks(finalUssdOrderIds, (chunk) =>
+          supabase
+            .from("fulfillment_logs")
+            .update({ status: status === "completed" ? "success" : status, updated_at: new Date().toISOString() })
+            .in("order_id", chunk))
         if (logsUpdateError) {
           console.warn("[BULK-UPDATE] Error updating fulfillment_logs for USSD orders:", logsUpdateError)
         }
@@ -701,10 +754,11 @@ export async function POST(request: NextRequest) {
 
     // Update USSD shop orders
     if (finalUssdShopOrderIds.length > 0) {
-      const { error: ussdShopUpdateError } = await supabase
-        .from("ussd_shop_orders")
-        .update({ order_status: status, updated_at: new Date().toISOString() })
-        .in("id", finalUssdShopOrderIds)
+      const { error: ussdShopUpdateError } = await inChunks(finalUssdShopOrderIds, (chunk) =>
+        supabase
+          .from("ussd_shop_orders")
+          .update({ order_status: status, updated_at: new Date().toISOString() })
+          .in("id", chunk))
 
       if (ussdShopUpdateError) {
         throw new Error(`Failed to update USSD shop order status: ${ussdShopUpdateError.message}`)
@@ -713,11 +767,12 @@ export async function POST(request: NextRequest) {
       console.log(`[BULK-UPDATE] ✓ Updated ${finalUssdShopOrderIds.length} USSD shop orders to status: ${status}`)
 
       try {
-        const { error: mtnUpdateError } = await supabase
-          .from("mtn_fulfillment_tracking")
-          .update({ status, updated_at: new Date().toISOString() })
-          .in("order_id", finalUssdShopOrderIds)
-          .eq("order_type", "ussd_shop")
+        const { error: mtnUpdateError } = await inChunks(finalUssdShopOrderIds, (chunk) =>
+          supabase
+            .from("mtn_fulfillment_tracking")
+            .update({ status, updated_at: new Date().toISOString() })
+            .in("order_id", chunk)
+            .eq("order_type", "ussd_shop"))
 
         if (mtnUpdateError) {
           console.warn("[BULK-UPDATE] Error updating MTN tracking for USSD shop orders:", mtnUpdateError)
@@ -726,30 +781,17 @@ export async function POST(request: NextRequest) {
         }
 
         // Close fulfillment_logs (keyed by order_id = the USSD shop order id) to stop retries.
-        const { error: logsUpdateError } = await supabase
-          .from("fulfillment_logs")
-          .update({ status: status === "completed" ? "success" : status, updated_at: new Date().toISOString() })
-          .in("order_id", finalUssdShopOrderIds)
+        const { error: logsUpdateError } = await inChunks(finalUssdShopOrderIds, (chunk) =>
+          supabase
+            .from("fulfillment_logs")
+            .update({ status: status === "completed" ? "success" : status, updated_at: new Date().toISOString() })
+            .in("order_id", chunk))
         if (logsUpdateError) {
           console.warn("[BULK-UPDATE] Error updating fulfillment_logs for USSD shop orders:", logsUpdateError)
         }
       } catch (e) {
         console.warn("[BULK-UPDATE] Error updating MTN tracking for USSD shop orders:", e)
       }
-    }
-
-    // Update USSD shop orders
-    if (finalUssdShopOrderIds.length > 0) {
-      const { error: ussdShopUpdateError } = await supabase
-        .from("ussd_shop_orders")
-        .update({ order_status: status, updated_at: new Date().toISOString() })
-        .in("id", finalUssdShopOrderIds)
-
-      if (ussdShopUpdateError) {
-        throw new Error(`Failed to update USSD shop order status: ${ussdShopUpdateError.message}`)
-      }
-
-      console.log(`[BULK-UPDATE] ✓ Updated ${finalUssdShopOrderIds.length} USSD shop orders to status: ${status}`)
     }
 
     return NextResponse.json({
