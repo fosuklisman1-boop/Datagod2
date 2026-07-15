@@ -165,6 +165,7 @@ export default function UssdShopPage() {
     if (status === 'completed') return <Badge className="bg-success/15 text-success text-xs">Completed</Badge>
     if (status === 'failed') return <Badge className="bg-destructive/15 text-destructive text-xs">Failed</Badge>
     if (status === 'processing') return <Badge className="bg-primary/10 text-primary text-xs">Processing</Badge>
+    if (status === 'held_registration') return <Badge className="bg-warning/10 text-warning text-xs">Activating number</Badge>
     return <Badge className="bg-muted text-muted-foreground text-xs">Pending</Badge>
   }
 

@@ -279,6 +279,12 @@ export async function processManualFulfillment(
     }
 
     if (!mtnResponse.success || !mtnResponse.order_id) {
+      if (mtnResponse.held) {
+        console.log(`${logPrefix} Registration gate hold — number not yet registered`)
+        const { holdMtnOrder } = await import("@/lib/mtn-hold")
+        await holdMtnOrder({ table: tableName as any, orderId, phone })
+        return { success: false, message: "Held: number pending MTN registration", orderId }
+      }
       console.error(`${logPrefix} MTN API failed: ${mtnResponse.message}`)
 
       await supabase.from(tableName).update({ [statusField]: "pending", updated_at: new Date().toISOString() }).eq("id", orderId)

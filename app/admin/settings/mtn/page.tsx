@@ -34,6 +34,7 @@ interface MTNBalance {
     xpress: ProviderBalance
     eazyghdata: ProviderBalance
     bisdel: ProviderBalance
+    codecraft: ProviderBalance
   }
   threshold: number
   active_provider: string
@@ -49,7 +50,9 @@ export default function MTNSettingsPage() {
   const [loadingSettings, setLoadingSettings] = useState(true)
   const [loadingBalance, setLoadingBalance] = useState(true)
   const [toggling, setToggling] = useState(false)
-  const [mtnProvider, setMtnProvider] = useState<"sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel">("sykes")
+  const [gateSettings, setGateSettings] = useState<{ enabled: boolean; updated_at?: string } | null>(null)
+  const [gateToggling, setGateToggling] = useState(false)
+  const [mtnProvider, setMtnProvider] = useState<"sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft">("sykes")
   const [syncingPackages, setSyncingPackages] = useState(false)
   const [savingProvider, setSavingProvider] = useState(false)
   const [bisdelCategories, setBisdelCategories] = useState<string[]>([])
@@ -63,6 +66,7 @@ export default function MTNSettingsPage() {
     if (!isAdmin) return // useAdminProtected handles redirect
 
     loadSettings()
+    loadGateSettings()
     loadBalance()
     loadProvider()
     loadBisdelCatalog()
@@ -101,6 +105,35 @@ export default function MTNSettingsPage() {
       toast.error("Error loading MTN settings")
     } finally {
       setLoadingSettings(false)
+    }
+  }
+
+  const loadGateSettings = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        router.push("/login")
+        return
+      }
+      const response = await fetch("/api/admin/settings/mtn-registration-gate", {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setGateSettings({
+          enabled: data.enabled,
+          updated_at: data.updated_at,
+        })
+      } else {
+        toast.error("Failed to load registration gate settings")
+      }
+    } catch (error) {
+      console.error("Error loading gate settings:", error)
+      toast.error("Error loading registration gate settings")
     }
   }
 
@@ -163,6 +196,45 @@ export default function MTNSettingsPage() {
       toast.error("Error updating MTN setting")
     } finally {
       setToggling(false)
+    }
+  }
+
+  const handleGateToggle = async () => {
+    if (!gateSettings) return
+
+    try {
+      setGateToggling(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Authentication required")
+        return
+      }
+      const response = await fetch("/api/admin/settings/mtn-registration-gate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          enabled: !gateSettings.enabled,
+        }),
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setGateSettings({
+          enabled: data.enabled,
+          updated_at: new Date().toISOString(),
+        })
+        toast.success(data.message)
+      } else {
+        toast.error("Failed to update setting")
+      }
+    } catch (error) {
+      console.error("Error updating gate setting:", error)
+      toast.error("Error updating registration gate setting")
+    } finally {
+      setGateToggling(false)
     }
   }
 
@@ -281,7 +353,7 @@ export default function MTNSettingsPage() {
     }
   }
 
-  const handleMTNProviderChange = async (provider: "sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel") => {
+  const handleMTNProviderChange = async (provider: "sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft") => {
     setSavingProvider(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
@@ -416,6 +488,60 @@ export default function MTNSettingsPage() {
                   </p>
                 )}
               </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Registration Gate Toggle */}
+        <Card className="border-2">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CheckCircle className="h-5 w-5" />
+              Registration Gate
+            </CardTitle>
+            <CardDescription>
+              Hold MTN orders for numbers not yet registered with MTN. Enable ONLY after the registry
+              back-catalog has been marked registered — otherwise every MTN order will hold.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="flex items-center justify-between p-4 bg-muted/40 rounded-lg">
+              <div className="space-y-1">
+                <p className="font-medium text-foreground">
+                  {gateSettings?.enabled
+                    ? "🟢 ENABLED — unregistered numbers are held"
+                    : "⚪ DISABLED — orders flow as before"}
+                </p>
+              </div>
+              <Button
+                onClick={handleGateToggle}
+                disabled={gateToggling || !gateSettings}
+                variant={gateSettings?.enabled ? "destructive" : "default"}
+                className="min-w-[120px]"
+              >
+                {gateToggling ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Updating...
+                  </>
+                ) : gateSettings?.enabled ? (
+                  <>
+                    <WifiOff className="h-4 w-4 mr-2" />
+                    Turn Off
+                  </>
+                ) : (
+                  <>
+                    <Zap className="h-4 w-4 mr-2" />
+                    Turn On
+                  </>
+                )}
+              </Button>
+            </div>
+
+            {gateSettings?.updated_at && (
+              <p className="text-xs text-muted-foreground">
+                Last updated: {new Date(gateSettings.updated_at).toLocaleString()}
+              </p>
             )}
           </CardContent>
         </Card>
@@ -584,10 +710,38 @@ export default function MTNSettingsPage() {
                       <p className="text-sm text-muted-foreground">Unable to fetch</p>
                     )}
                   </div>
+
+                  {/* CodeCraft Balance */}
+                  <div className={`p-4 rounded-lg border-2 transition-all ${balance.balances.codecraft?.is_active
+                    ? 'bg-violet-50 border-border shadow-md'
+                    : 'bg-muted/40 border-border'
+                    }`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-foreground">CodeCraft</span>
+                      {balance.balances.codecraft?.is_active && (
+                        <Badge className="bg-violet-600">Active</Badge>
+                      )}
+                    </div>
+                    {balance.balances.codecraft?.balance !== null && balance.balances.codecraft?.balance !== undefined ? (
+                      <>
+                        <div className="flex items-baseline gap-2">
+                          <span className={`text-3xl font-bold ${balance.balances.codecraft.is_low ? 'text-orange-600' : 'text-emerald-900'}`}>
+                            ₵{balance.balances.codecraft.balance.toFixed(2)}
+                          </span>
+                          <span className="text-sm text-muted-foreground">GHS</span>
+                        </div>
+                        {balance.balances.codecraft.is_low && (
+                          <p className="text-xs text-orange-600 mt-2">⚠️ Low balance</p>
+                        )}
+                      </>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Unable to fetch</p>
+                    )}
+                  </div>
                 </div>
 
                 {/* Low Balance Alerts */}
-                {(balance.balances.sykes.is_low || balance.balances.datakazina.is_low || balance.balances.xpress?.is_low || balance.balances.eazyghdata?.is_low || balance.balances.bisdel?.is_low) && (
+                {(balance.balances.sykes.is_low || balance.balances.datakazina.is_low || balance.balances.xpress?.is_low || balance.balances.eazyghdata?.is_low || balance.balances.bisdel?.is_low || balance.balances.codecraft?.is_low) && (
                   <Alert className="border-border bg-warning/10">
                     <AlertCircle className="h-4 w-4 text-warning" />
                     <AlertDescription className="text-warning">
@@ -597,6 +751,7 @@ export default function MTNSettingsPage() {
                       {balance.balances.xpress?.alert && <p>• {balance.balances.xpress.alert}</p>}
                       {balance.balances.eazyghdata?.alert && <p>• {balance.balances.eazyghdata.alert}</p>}
                       {balance.balances.bisdel?.alert && <p>• {balance.balances.bisdel.alert}</p>}
+                      {balance.balances.codecraft?.alert && <p>• {balance.balances.codecraft.alert}</p>}
                       <p className="mt-1 font-medium">SMS alert has been sent to admin.</p>
                     </AlertDescription>
                   </Alert>
@@ -643,7 +798,7 @@ export default function MTNSettingsPage() {
                 Choose your preferred MTN data provider. Switching only affects new orders.
               </p>
 
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
                 {/* Sykes Option */}
                 <button
                   onClick={() => handleMTNProviderChange("sykes")}
@@ -732,6 +887,24 @@ export default function MTNSettingsPage() {
                     )}
                   </div>
                   <p className="text-sm text-muted-foreground">Category-based provider</p>
+                </button>
+
+                {/* CodeCraft Option */}
+                <button
+                  onClick={() => handleMTNProviderChange("codecraft")}
+                  disabled={savingProvider || mtnProvider === "codecraft"}
+                  className={`p-4 rounded-lg border-2 transition-all text-left ${mtnProvider === "codecraft"
+                      ? "bg-violet-50 border-violet-500 shadow-md"
+                      : "bg-card border-border hover:border-border"
+                    } ${savingProvider ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-semibold text-foreground">CodeCraft</span>
+                    {mtnProvider === "codecraft" && (
+                      <Badge className="bg-violet-600">Active</Badge>
+                    )}
+                  </div>
+                  <p className="text-sm text-muted-foreground">MTN via CodeCraft API</p>
                 </button>
               </div>
 

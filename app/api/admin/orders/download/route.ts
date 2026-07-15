@@ -9,6 +9,11 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
+// A large pending backlog (thousands of orders) needs room to claim + notify +
+// build the workbook; without this the function times out mid-request and the
+// browser reports "Failed to fetch".
+export const maxDuration = 300
+
 /**
  * Check if auto-fulfillment is enabled in admin settings
  */
@@ -33,12 +38,77 @@ async function isAutoFulfillmentEnabled(): Promise<boolean> {
   }
 }
 
+/**
+ * Combine multiple orders to the SAME number into ONE supplier row with the TOTAL
+ * gigs summed. A bulk-delivery file can't list a number twice, so orders for the
+ * same (phone, network) are merged — e.g. 1GB + 2GB + 2GB → one row "…, 5". Grouped
+ * by NETWORK too so a number that (rarely) has orders on two networks isn't merged
+ * into a nonsensical cross-network total. Every underlying order is still claimed
+ * and tracked individually; only the exported spreadsheet is de-duplicated.
+ */
+function combineOrdersToRows(list: any[]): { Phone: string; Size: number | string }[] {
+  const map = new Map<string, { phone: string; total: number; unparsed: string | null }>()
+  for (const o of list) {
+    const phone = o.phone_number
+    const key = `${phone}|${o.network ?? ""}`
+    const raw = (o.size ?? o.volume_gb)
+    const n = parseFloat(raw?.toString().replace(/[^0-9.]/g, ""))
+    const cur = map.get(key) ?? { phone, total: 0, unparsed: null }
+    if (!isNaN(n)) cur.total += n
+    else if (cur.total === 0) cur.unparsed = (raw ?? "").toString() // keep a fallback only if nothing parseable
+    map.set(key, cur)
+  }
+  return Array.from(map.values()).map(v => ({
+    Phone: v.phone,
+    Size: v.total > 0 ? Math.round(v.total * 100) / 100 : (v.unparsed ?? ""),
+  }))
+}
+
+/**
+ * One spreadsheet row per order (a number with several orders appears several
+ * times). Used when the admin turns OFF "combine duplicates" — e.g. a supplier
+ * that only fulfils fixed pack sizes and can't accept a summed total.
+ */
+function expandOrdersToRows(list: any[]): { Phone: string; Size: number | string }[] {
+  return list.map((o) => {
+    const raw = (o.size ?? o.volume_gb)
+    const n = parseFloat(raw?.toString().replace(/[^0-9.]/g, ""))
+    return { Phone: o.phone_number, Size: !isNaN(n) ? n : (raw ?? "").toString() }
+  })
+}
+
+/** Pick the row builder for this download based on the admin's toggle. */
+function buildExcelRows(list: any[], combineDuplicates: boolean) {
+  return combineDuplicates ? combineOrdersToRows(list) : expandOrdersToRows(list)
+}
+
+/**
+ * PostgREST encodes `.in(...)` values into the request URL, so a few thousand IDs
+ * overflow the allowed URL length and the whole request fails ("Failed to fetch").
+ * Run the query builder over the IDs in safe-sized chunks and concatenate the rows
+ * it returns. Works for SELECT and for UPDATE(...).select() alike. On the first
+ * chunk error it stops and returns whatever was gathered plus the error.
+ */
+async function inChunks<T = any>(
+  ids: string[],
+  build: (chunk: string[]) => PromiseLike<{ data: T[] | null; error: any }>,
+  chunkSize = 200
+): Promise<{ data: T[]; error: any }> {
+  const out: T[] = []
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const { data, error } = await build(ids.slice(i, i + chunkSize))
+    if (error) return { data: out, error }
+    if (data) out.push(...data)
+  }
+  return { data: out, error: null }
+}
+
 export async function POST(request: NextRequest) {
   const { isAdmin, errorResponse, userId: callerUserId, userEmail: callerEmail } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse
 
   try {
-    const { orderIds: providedIds, orderType, isRedownload, filters } = await request.json()
+    const { orderIds: providedIds, orderType, isRedownload, filters, combineDuplicates = false } = await request.json()
     let orderIds = providedIds || []
 
     console.log("[DOWNLOAD] Admin", callerUserId, "downloading. Filters:", !!filters, "OrderIds count:", orderIds.length)
@@ -88,7 +158,7 @@ export async function POST(request: NextRequest) {
 
       // Query A: orders whose latest tracking row is "failed"
       if (failedOrderIds.length > 0) {
-        const { data: queryA } = await buildQuery().in("id", failedOrderIds)
+        const { data: queryA } = await inChunks(failedOrderIds, (chunk) => buildQuery().in("id", chunk))
         for (const o of queryA || []) {
           if (!seenIds.has(o.id)) { seenIds.add(o.id); failedOrders.push(o) }
         }
@@ -106,14 +176,7 @@ export async function POST(request: NextRequest) {
 
       console.log(`[DOWNLOAD] Failed orders export: ${failedOrders.length} orders`)
 
-      const excelData = failedOrders.map((order: any) => {
-        const cleanSizeStr = order.volume_gb?.toString().replace(/[^0-9.]/g, "")
-        const parsedSize = parseFloat(cleanSizeStr)
-        return {
-          Phone: order.phone_number,
-          Size: !isNaN(parsedSize) ? parsedSize : (order.volume_gb || "")
-        }
-      })
+      const excelData = buildExcelRows(failedOrders, combineDuplicates)
 
       const worksheet = XLSX.utils.json_to_sheet(excelData)
       const workbook = XLSX.utils.book_new()
@@ -139,12 +202,24 @@ export async function POST(request: NextRequest) {
     let bulkOrderIds: string[] = []
     let shopOrderIds: string[] = []
 
-    // 1. Fetch data from View if filters or orderIds are provided
-    let query = supabase
-      .from("combined_orders_view")
-      .select("*")
+    // 1. Fetch order rows — by explicit IDs, or by filters when no IDs are given.
+    //    orderType + auto-fulfill exclusions apply to both paths.
+    const applyCommon = (q: any) => {
+      if (orderType && orderType !== "all") q = q.eq("type", orderType)
+      if (autoFulfillEnabled) {
+        q = q
+          .neq("network", "AT - iShare")
+          .neq("network", "Telecel")
+          .neq("network", "AT - BigTime")
+      }
+      return q
+    }
+
+    let fetchResult: any[] = []
+    let fetchError: any = null
 
     if (filters && orderIds.length === 0) {
+      let query = supabase.from("combined_orders_view").select("*")
       if (filters.date) {
         const date = filters.date
         query = query.gte("created_at", `${date}T00:00:00Z`)
@@ -165,25 +240,16 @@ export async function POST(request: NextRequest) {
       if (filters.onlyPending) {
         query = query.eq("status", "pending")
       }
+      const res = await applyCommon(query)
+      fetchResult = res.data || []
+      fetchError = res.error
     } else {
-      // Use provided IDs
-      query = query.in("id", orderIds)
+      // Chunk the ID list — a multi-thousand `.in(...)` overflows PostgREST's URL length.
+      const res = await inChunks(orderIds, (chunk) =>
+        applyCommon(supabase.from("combined_orders_view").select("*").in("id", chunk)))
+      fetchResult = res.data
+      fetchError = res.error
     }
-
-    // Filter by order type if specified
-    if (orderType && orderType !== "all") {
-      query = query.eq("type", orderType)
-    }
-
-    // Exclude auto-fulfilled networks if auto-fulfillment is enabled
-    if (autoFulfillEnabled) {
-      query = query
-        .neq("network", "AT - iShare")
-        .neq("network", "Telecel")
-        .neq("network", "AT - BigTime")
-    }
-
-    const { data: fetchResult, error: fetchError } = await query
 
     if (fetchError) {
       throw new Error(`Failed to fetch orders for download: ${fetchError.message}`)
@@ -222,12 +288,13 @@ export async function POST(request: NextRequest) {
       if (bulkOrderIds.length > 0) {
         // Use update with WHERE clause to only update pending orders
         // This returns only the orders that were actually updated (still pending)
-        const { data: updatedBulk, error: updateError } = await supabase
-          .from("orders")
-          .update({ status: "processing", updated_at: new Date().toISOString() })
-          .in("id", bulkOrderIds)
-          .eq("status", "pending")
-          .select("id")
+        const { data: updatedBulk, error: updateError } = await inChunks(bulkOrderIds, (chunk) =>
+          supabase
+            .from("orders")
+            .update({ status: "processing", updated_at: new Date().toISOString() })
+            .in("id", chunk)
+            .eq("status", "pending")
+            .select("id"))
 
         if (updateError) {
           throw new Error(`Failed to update bulk order status: ${updateError.message}`)
@@ -245,12 +312,13 @@ export async function POST(request: NextRequest) {
 
       if (shopOrderIds.length > 0) {
         // Use update with WHERE clause to only update pending orders
-        const { data: updatedShop, error: updateError } = await supabase
-          .from("shop_orders")
-          .update({ order_status: "processing", updated_at: new Date().toISOString() })
-          .in("id", shopOrderIds)
-          .eq("order_status", "pending")
-          .select("id")
+        const { data: updatedShop, error: updateError } = await inChunks(shopOrderIds, (chunk) =>
+          supabase
+            .from("shop_orders")
+            .update({ order_status: "processing", updated_at: new Date().toISOString() })
+            .in("id", chunk)
+            .eq("order_status", "pending")
+            .select("id"))
 
         if (updateError) {
           throw new Error(`Failed to update shop order status: ${updateError.message}`)
@@ -267,12 +335,13 @@ export async function POST(request: NextRequest) {
 
       let actualUssdOrderIds: string[] = []
       if (ussdOrderIds.length > 0) {
-        const { data: updatedUssd, error: ussdUpdateError } = await supabase
-          .from("ussd_orders")
-          .update({ order_status: "processing", updated_at: new Date().toISOString() })
-          .in("id", ussdOrderIds)
-          .eq("order_status", "pending")
-          .select("id")
+        const { data: updatedUssd, error: ussdUpdateError } = await inChunks(ussdOrderIds, (chunk) =>
+          supabase
+            .from("ussd_orders")
+            .update({ order_status: "processing", updated_at: new Date().toISOString() })
+            .in("id", chunk)
+            .eq("order_status", "pending")
+            .select("id"))
 
         if (ussdUpdateError) {
           throw new Error(`Failed to update USSD order status: ${ussdUpdateError.message}`)
@@ -284,12 +353,13 @@ export async function POST(request: NextRequest) {
 
       let actualUssdShopOrderIds: string[] = []
       if (ussdShopOrderIds.length > 0) {
-        const { data: updatedUssdShop, error: ussdShopUpdateError } = await supabase
-          .from("ussd_shop_orders")
-          .update({ order_status: "processing", updated_at: new Date().toISOString() })
-          .in("id", ussdShopOrderIds)
-          .eq("order_status", "pending")
-          .select("id")
+        const { data: updatedUssdShop, error: ussdShopUpdateError } = await inChunks(ussdShopOrderIds, (chunk) =>
+          supabase
+            .from("ussd_shop_orders")
+            .update({ order_status: "processing", updated_at: new Date().toISOString() })
+            .in("id", chunk)
+            .eq("order_status", "pending")
+            .select("id"))
 
         if (ussdShopUpdateError) {
           throw new Error(`Failed to update USSD shop order status: ${ussdShopUpdateError.message}`)
@@ -301,12 +371,13 @@ export async function POST(request: NextRequest) {
 
       let actualApiOrderIds: string[] = []
       if (apiOrderIds.length > 0) {
-        const { data: updatedApi, error: apiUpdateError } = await supabase
-          .from("api_orders")
-          .update({ status: "processing", updated_at: new Date().toISOString() })
-          .in("id", apiOrderIds)
-          .eq("status", "pending")
-          .select("id")
+        const { data: updatedApi, error: apiUpdateError } = await inChunks(apiOrderIds, (chunk) =>
+          supabase
+            .from("api_orders")
+            .update({ status: "processing", updated_at: new Date().toISOString() })
+            .in("id", chunk)
+            .eq("status", "pending")
+            .select("id"))
 
         if (apiUpdateError) {
           throw new Error(`Failed to update API order status: ${apiUpdateError.message}`)
@@ -349,17 +420,19 @@ export async function POST(request: NextRequest) {
       try {
         // Get user info for all orders to send notifications
         const bulkOrdersWithUsers = bulkOrderIds.length > 0
-          ? await supabase
-            .from("orders")
-            .select("id, user_id, network, size, phone_number")
-            .in("id", bulkOrderIds)
+          ? await inChunks(bulkOrderIds, (chunk) =>
+            supabase
+              .from("orders")
+              .select("id, user_id, network, size, phone_number")
+              .in("id", chunk))
           : { data: [] }
 
         const shopOrdersWithUsers = shopOrderIds.length > 0
-          ? await supabase
-            .from("shop_orders")
-            .select("id, user_id, network, volume_gb, phone_number")
-            .in("id", shopOrderIds)
+          ? await inChunks(shopOrderIds, (chunk) =>
+            supabase
+              .from("shop_orders")
+              .select("id, user_id, network, volume_gb, phone_number")
+              .in("id", chunk))
           : { data: [] }
 
         const allOrdersWithUsers = [
@@ -367,30 +440,25 @@ export async function POST(request: NextRequest) {
           ...(shopOrdersWithUsers.data || []).map(o => ({ ...o, type: "shop", size: o.volume_gb }))
         ]
 
-        for (const order of allOrdersWithUsers) {
-          try {
-            const { error: notifError } = await supabase
-              .from("notifications")
-              .insert([
-                {
-                  user_id: order.user_id,
-                  title: "Order Processing",
-                  message: `Your ${order.network} ${order.size}GB data order is now being processed. Phone: ${order.phone_number}`,
-                  type: "order_update" as NotificationType,
-                  reference_id: order.id,
-                  action_url: order.type === "shop" ? `/dashboard/shop-orders` : `/dashboard/my-orders`,
-                  read: false,
-                },
-              ])
-
-            if (notifError) {
-              console.warn(`[DOWNLOAD] Failed to send processing notification for order ${order.id}:`, notifError)
-            }
-          } catch (notifError) {
-            console.warn(`[DOWNLOAD] Error sending notification for order ${order.id}:`, notifError)
-          }
+        // BATCH the inserts (was one round-trip PER order — the main cause of the
+        // "Failed to fetch" timeout on a large backlog). Chunk to stay under payload
+        // limits, and only notify orders that actually have a user_id.
+        const notifRows = allOrdersWithUsers
+          .filter(o => o.user_id)
+          .map(order => ({
+            user_id: order.user_id,
+            title: "Order Processing",
+            message: `Your ${order.network} ${order.size}GB data order is now being processed. Phone: ${order.phone_number}`,
+            type: "order_update" as NotificationType,
+            reference_id: order.id,
+            action_url: order.type === "shop" ? `/dashboard/shop-orders` : `/dashboard/my-orders`,
+            read: false,
+          }))
+        for (let i = 0; i < notifRows.length; i += 500) {
+          const { error: notifError } = await supabase.from("notifications").insert(notifRows.slice(i, i + 500))
+          if (notifError) console.warn("[DOWNLOAD] Batch notification insert failed:", notifError.message)
         }
-        console.log(`[DOWNLOAD] ✓ Sent processing notifications for ${allOrdersWithUsers.length} orders`)
+        console.log(`[DOWNLOAD] ✓ Sent processing notifications for ${notifRows.length} orders`)
       } catch (notifError) {
         console.warn("[DOWNLOAD] Error sending notifications:", notifError)
       }
@@ -427,15 +495,9 @@ export async function POST(request: NextRequest) {
       // Continue anyway - batch tracking is optional
     }
 
-    // Generate Excel file
-    const excelData = orders.map((order: any) => {
-      const cleanSizeStr = order.size?.toString().replace(/[^0-9.]/g, "");
-      const parsedSize = parseFloat(cleanSizeStr);
-      return {
-        Phone: order.phone_number,
-        Size: !isNaN(parsedSize) ? parsedSize : (order.size || "") // Remove "GB", format as number to drop trailing .00
-      };
-    })
+    // Generate Excel file. When the admin enables "combine duplicates" each number
+    // appears once with its gigs summed; otherwise one row per order.
+    const excelData = buildExcelRows(orders, combineDuplicates)
 
     const worksheet = XLSX.utils.json_to_sheet(excelData)
     const workbook = XLSX.utils.book_new()

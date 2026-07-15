@@ -70,17 +70,21 @@ export const networkColor = (network: string): string => {
 // SMS Templates
 export const SMSTemplates = {
   walletTopUpInitiated: (amount: string, ref: string) =>
-    `DTGOD: Your DTGOD-Wallet top-up of GH¢${amount} has been initiated. Reference: ${ref}. We are processing your request.`,
+    `DTGOD: Your DTGOD-Wallet top-up of GHC${amount} has been initiated. Reference: ${ref}. We are processing your request.`,
 
   walletTopUpSuccess: (amount: string, balance: string) =>
-    `DTGOD: Your DTGOD-Wallet has been credited with GH¢${amount}. Available balance: GH¢${balance}. Thank you for topping up.`,
+    `DTGOD: Your DTGOD-Wallet has been credited with GHC${amount}. Available balance: GHC${balance}. Thank you for topping up.`,
 
   walletTopUpFailed: (amount: string) =>
-    `DTGOD: We were unable to process your DTGOD-Wallet top-up of GH¢${amount}. Please try again or contact our support team for assistance.`,
+    `DTGOD: We were unable to process your DTGOD-Wallet top-up of GHC${amount}. Please try again or contact our support team for assistance.`,
 
   // Wallet/dashboard order confirmation (no shop involved)
   orderPaymentConfirmed: (network: string, volume: string, phone: string) =>
     `You have successfully placed an order of ${networkColor(network)} ${volume}G.B to ${phone}. If delayed over 2 hours, contact support.`,
+
+  // Phase 2 registration gate: order held while the number is activated.
+  mtnRegistrationHold: (phone: string) =>
+    `DTGOD: ${phone} is being activated for ${networkColor("MTN")} data service. Your order will be delivered automatically once activation completes (usually within a day).`,
 
   // Storefront order confirmation (shop name excluded from message)
   shopOrderConfirmed: (shopName: string, network: string, volume: string, phone: string, ownerPhone: string) =>
@@ -90,10 +94,10 @@ export const SMSTemplates = {
     `DTGOD: Order Delivered. Your ${networkColor(network)} ${volume}G.B (Ref: ${orderId}) has been successfully delivered. Thank you for choosing DTGOD.`,
 
   withdrawalApproved: (amount: string, ref: string) =>
-    `DTGOD: Withdrawal Approved. Your withdrawal request of GH¢${amount} has been approved and will be transferred to your account shortly. Reference: ${ref}.`,
+    `DTGOD: Withdrawal Approved. Your withdrawal request of GHC${amount} has been approved and will be transferred to your account shortly. Reference: ${ref}.`,
 
   withdrawalRejected: (amount: string) =>
-    `DTGOD: Withdrawal Update. Your withdrawal request of GH¢${amount} could not be processed at this time. Please contact our support team for further assistance.`,
+    `DTGOD: Withdrawal Update. Your withdrawal request of GHC${amount} could not be processed at this time. Please contact our support team for further assistance.`,
 
   verificationCode: (code: string) =>
     `DTGOD: Your code is ${code}. Valid for 10 minutes. Do not share it with anyone.`,
@@ -107,18 +111,18 @@ export const SMSTemplates = {
 
   // Price manipulation alert
   priceManipulationDetected: (phone: string, clientPrice: string, actualPrice: string, network: string, volume: string) =>
-    `[FRAUD ALERT] Price manipulation detected! Phone: ${phone} | Sent: GH¢${clientPrice} | Actual: GH¢${actualPrice} | ${networkColor(network)} ${volume}G.B`,
+    `[FRAUD ALERT] Price manipulation detected! Phone: ${phone} | Sent: GHC${clientPrice} | Actual: GHC${actualPrice} | ${networkColor(network)} ${volume}G.B`,
 
   // Payment mismatch alert
   paymentMismatchDetected: (reference: string, paidAmount: string, expectedAmount: string) =>
-    `[FRAUD ALERT] Payment mismatch! Ref: ${reference} | Paid: GH¢${paidAmount} | Expected: GH¢${expectedAmount}`,
+    `[FRAUD ALERT] Payment mismatch! Ref: ${reference} | Paid: GHC${paidAmount} | Expected: GHC${expectedAmount}`,
 
   // Admin credit/debit notifications to user
   adminCredited: (amount: string, balance: string) =>
-    `DTGOD: Account Update. Your DTGOD-Wallet has been credited with GH¢${amount} by the administrator. Available balance: GH¢${balance}.`,
+    `DTGOD: Account Update. Your DTGOD-Wallet has been credited with GHC${amount} by the administrator. Available balance: GHC${balance}.`,
 
   adminDebited: (amount: string, balance: string) =>
-    `DTGOD: Account Update. Your DTGOD-Wallet has been debited GH¢${amount} by the administrator. Available balance: GH¢${balance}. Contact support if you have any concerns.`,
+    `DTGOD: Account Update. Your DTGOD-Wallet has been debited GHC${amount} by the administrator. Available balance: GHC${balance}. Contact support if you have any concerns.`,
 
   // Dealer subscription notifications
   subscriptionSuccess: (planName: string, endDate: string) =>
@@ -144,20 +148,20 @@ export const SMSTemplates = {
 
   // Airtime specific notifications (shop name excluded from message)
   airtimeBeneficiaryNotification: (shopName: string, network: string, amount: string, phone: string, ref: string) =>
-    `Your airtime purchase has been processed. GH¢${amount} of ${networkColor(network)} airtime has been sent to ${phone}. Reference: ${ref}. Thank you for your order.`,
+    `Your airtime purchase has been processed. GHC${amount} of ${networkColor(network)} airtime has been sent to ${phone}. Reference: ${ref}. Thank you for your order.`,
 
   adminAirtimeOrderNotification: (source: string, phone: string, amount: string, network: string) =>
-    `[NEW ORDER] Airtime\nSource: ${source}\nRecipient: ${phone}\nAmount: GH¢${amount}\nNetwork: ${networkColor(network)}`,
+    `[NEW ORDER] Airtime\nSource: ${source}\nRecipient: ${phone}\nAmount: GHC${amount}\nNetwork: ${networkColor(network)}`,
 
   adminAirtimeManualRequired: (ref: string, network: string, phone: string, amount: string) =>
-    `[AIRTIME] Manual fulfillment needed\nRef: ${ref}\nNetwork: ${networkColor(network)}\nRecipient: ${phone}\nAmount: GH¢${amount}`,
+    `[AIRTIME] Manual fulfillment needed\nRef: ${ref}\nNetwork: ${networkColor(network)}\nRecipient: ${phone}\nAmount: GHC${amount}`,
 
   adminAirtimeDigiwapyFailed: (ref: string, network: string, phone: string, amount: string, reason: string) =>
-    `[AIRTIME FAILED] Digiwapy error\nRef: ${ref}\nNetwork: ${networkColor(network)}\nRecipient: ${phone}\nAmount: GH¢${amount}\nReason: ${reason}`,
+    `[AIRTIME FAILED] Digiwapy error\nRef: ${ref}\nNetwork: ${networkColor(network)}\nRecipient: ${phone}\nAmount: GHC${amount}\nReason: ${reason}`,
 
   // AFA registration confirmation
   afaRegistration: (fullName: string, orderCode: string, amount: string) =>
-    `DTGOD: Your AFA registration for ${fullName} (Ref: ${orderCode}) has been received. Amount: GH¢${amount}. You will be contacted once the registration is processed.`,
+    `DTGOD: Your AFA registration for ${fullName} (Ref: ${orderCode}) has been received. Amount: GHC${amount}. You will be contacted once the registration is processed.`,
 
   // AFA registration completion
   afaCompleted: (fullName: string, orderCode: string) =>
@@ -206,11 +210,11 @@ export const SMSTemplates = {
   // USSD airtime payment received — airtime is fulfilled manually, so do not
   // claim it has already landed.
   ussdAirtimePaymentReceived: (amount: string, network: string, phone: string) =>
-    `DTGOD: Payment received. GH¢${amount} ${networkColor(network)} airtime for ${phone} is being processed and will reflect shortly. Thank you!`,
+    `DTGOD: Payment received. GHC${amount} ${networkColor(network)} airtime for ${phone} is being processed and will reflect shortly. Thank you!`,
 
   // Wallet topped up (used in webhook and payment-cleanup flows)
   walletToppedUp: (firstName: string, amount: string, balance: string) =>
-    `DTGOD: Hi ${firstName}, your DTGOD-Wallet has been topped up by GH¢${amount}. New balance: GH¢${balance}.`,
+    `DTGOD: Hi ${firstName}, your DTGOD-Wallet has been topped up by GHC${amount}. New balance: GHC${balance}.`,
 
   // Dealer account upgraded
   dealerUpgraded: () =>
@@ -218,17 +222,16 @@ export const SMSTemplates = {
 
   // Airtime order failed — refund issued
   airtimeOrderFailed: (refCode: string, amount: string) =>
-    `DTGOD: Your airtime order ${refCode} failed. GH¢${amount} has been refunded to your DTGOD-Wallet.`,
+    `DTGOD: Your airtime order ${refCode} failed. GHC${amount} has been refunded to your DTGOD-Wallet.`,
 
   // Airtime order delivered
   airtimeOrderDelivered: (amount: string, network: string, phone: string, ref: string) =>
-    `DTGOD: GH¢${amount} ${networkColor(network)} airtime has been sent to ${phone}. Ref: ${ref}.`,
+    `DTGOD: GHC${amount} ${networkColor(network)} airtime has been sent to ${phone}. Ref: ${ref}.`,
 }
 
 /**
- * Normalize phone number to Moolre format
+ * Normalize phone number to +233XXXXXXXXX (used by Brevo, mnotify, etc.)
  * Accepts: +233XXXXXXXXX, 0XXXXXXXXX, 233XXXXXXXXX
- * Returns: +233XXXXXXXXX
  */
 function normalizePhoneNumber(phone: string): string {
   phone = phone.replace(/[\s\-\(\)]/g, '')
@@ -242,6 +245,20 @@ function normalizePhoneNumber(phone: string): string {
   }
 
   return phone
+}
+
+/**
+ * Normalize phone number to 0XXXXXXXXX format for Moolre.
+ * Moolre rejects +233/233 prefixes — numbers must start with 0.
+ * Accepts: +233XXXXXXXXX, 233XXXXXXXXX, 0XXXXXXXXX, XXXXXXXXX (9 digits)
+ */
+function normalizePhoneForMoolre(phone: string): string {
+  const cleaned = phone.replace(/[\s\-\(\)]/g, '')
+  if (cleaned.startsWith('+233') && cleaned.length === 13) return '0' + cleaned.slice(4)
+  if (cleaned.startsWith('233') && cleaned.length === 12) return '0' + cleaned.slice(3)
+  if (cleaned.startsWith('0') && cleaned.length === 10) return cleaned
+  if (/^\d{9}$/.test(cleaned)) return '0' + cleaned
+  return cleaned
 }
 
 /**
@@ -374,7 +391,7 @@ async function sendSMSViaMoolre(payload: SMSPayload): Promise<SendSMSResponse> {
   }
 
   try {
-    const normalizedPhone = normalizePhoneNumber(payload.phone)
+    const normalizedPhone = normalizePhoneForMoolre(payload.phone)
 
     // Unique tracking ref. Moolre's send response carries NO message ID
     // (data:null), so this ref is our only handle to later query delivery status
@@ -527,7 +544,7 @@ export async function sendSMSBulkViaMoolre(
   if (items.length === 0) return { ok: true }
   try {
     const messages = items.map((i) => ({
-      recipient: normalizePhoneNumber(i.recipient),
+      recipient: normalizePhoneForMoolre(i.recipient),
       message: i.message,
       ...(i.ref ? { ref: i.ref } : {}),
     }))

@@ -7,6 +7,7 @@ import { DataKazinaProvider } from "@/lib/mtn-providers/datakazina-provider"
 import { XpressProvider } from "@/lib/mtn-providers/xpress-provider"
 import { EazyGhDataProvider } from "@/lib/mtn-providers/eazyghdata-provider"
 import { BisdelProvider } from "@/lib/mtn-providers/bisdel-provider"
+import { CodeCraftMTNProvider } from "@/lib/mtn-providers/codecraft-provider"
 import { notifyAdmins } from "@/lib/email-service"
 
 /**
@@ -27,13 +28,15 @@ export async function GET(request: NextRequest) {
     const xpressProvider = new XpressProvider()
     const eazyghDataProvider = new EazyGhDataProvider()
     const bisdelProvider = new BisdelProvider()
+    const codeCraftProvider = new CodeCraftMTNProvider()
 
-    const [sykesBalance, datakazinaBalance, xpressBalance, eazyghDataBalance, bisdelBalance] = await Promise.all([
+    const [sykesBalance, datakazinaBalance, xpressBalance, eazyghDataBalance, bisdelBalance, codeCraftBalance] = await Promise.all([
       sykesProvider.checkBalance().catch(() => null),
       datakazinaProvider.checkBalance().catch(() => null),
       xpressProvider.checkBalance().catch(() => null),
       eazyghDataProvider.checkBalance().catch(() => null),
       bisdelProvider.checkBalance().catch(() => null),
+      codeCraftProvider.checkBalance().catch(() => null),
     ])
 
     // Get the currently selected provider
@@ -54,10 +57,11 @@ export async function GET(request: NextRequest) {
     const xpressLow = xpressBalance !== null && xpressBalance < threshold
     const eazyghDataLow = eazyghDataBalance !== null && eazyghDataBalance < threshold
     const bisdelLow = bisdelBalance !== null && bisdelBalance < threshold
+    const codeCraftLow = codeCraftBalance !== null && codeCraftBalance < threshold
 
     // Send SMS alert if any balance is low
-    if (sykesLow || datakazinaLow || xpressLow || eazyghDataLow || bisdelLow) {
-      await sendLowBalanceAlert(sykesBalance, datakazinaBalance, xpressBalance, eazyghDataBalance, bisdelBalance, threshold, sykesLow, datakazinaLow, xpressLow, eazyghDataLow, bisdelLow)
+    if (sykesLow || datakazinaLow || xpressLow || eazyghDataLow || bisdelLow || codeCraftLow) {
+      await sendLowBalanceAlert(sykesBalance, datakazinaBalance, xpressBalance, eazyghDataBalance, bisdelBalance, codeCraftBalance, threshold, sykesLow, datakazinaLow, xpressLow, eazyghDataLow, bisdelLow, codeCraftLow)
     }
 
     return NextResponse.json({
@@ -98,6 +102,13 @@ export async function GET(request: NextRequest) {
           is_active: activeProvider.name === "bisdel",
           alert: bisdelLow && bisdelBalance !== null ? `Bisdel balance is below threshold of ₵${threshold}` : null,
         },
+        codecraft: {
+          balance: codeCraftBalance,
+          currency: "GHS",
+          is_low: codeCraftLow,
+          is_active: activeProvider.name === "codecraft",
+          alert: codeCraftLow && codeCraftBalance !== null ? `CodeCraft balance is below threshold of ₵${threshold}` : null,
+        },
       },
       threshold,
       active_provider: activeProvider.name,
@@ -121,12 +132,14 @@ async function sendLowBalanceAlert(
   xpressBalance: number | null,
   eazyghDataBalance: number | null,
   bisdelBalance: number | null,
+  codeCraftBalance: number | null,
   threshold: number,
   sykesLow: boolean,
   datakazinaLow: boolean,
   xpressLow: boolean,
   eazyghDataLow: boolean,
-  bisdelLow: boolean
+  bisdelLow: boolean,
+  codeCraftLow: boolean
 ) {
   try {
     // Get admin phone number from settings
@@ -174,6 +187,9 @@ async function sendLowBalanceAlert(
     }
     if (bisdelLow && bisdelBalance !== null) {
       message += `Bisdel: ₵${bisdelBalance.toFixed(2)} (LOW)\n`
+    }
+    if (codeCraftLow && codeCraftBalance !== null) {
+      message += `CodeCraft: ₵${codeCraftBalance.toFixed(2)} (LOW)\n`
     }
 
     message += `\nThreshold: ₵${threshold}\nPlease top up your MTN account(s).`
@@ -226,6 +242,9 @@ async function sendLowBalanceAlert(
       }
       if (bisdelLow && bisdelBalance !== null) {
         emailMessage += `<p style="margin: 10px 0;"><strong>Bisdel Provider:</strong> ₵${bisdelBalance.toFixed(2)} <span style="color: #dc2626; font-weight: bold;">(LOW)</span></p>`
+      }
+      if (codeCraftLow && codeCraftBalance !== null) {
+        emailMessage += `<p style="margin: 10px 0;"><strong>CodeCraft Provider:</strong> ₵${codeCraftBalance.toFixed(2)} <span style="color: #dc2626; font-weight: bold;">(LOW)</span></p>`
       }
 
       emailMessage += `<p style="margin: 15px 0 0 0; padding-top: 15px; border-top: 1px solid #fca5a5;">

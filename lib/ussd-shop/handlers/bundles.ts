@@ -7,6 +7,8 @@ import { resolveEmail } from "@/lib/ussd/resolve-email"
 import { chargeMobileMoney, submitOtp } from "@/lib/paystack"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
+import { validateNetworkPrefix } from "@/lib/phone-format"
+import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -180,6 +182,20 @@ export async function handleSelectNetwork(
 
   const paystackProvider = paystackProviderFromPhone(session.dialingPhone ?? '')
 
+  // Whitelist gate: check once before fetching bundles
+  const localDialingPhone = formatLocal(session.dialingPhone ?? '')
+  const msisdn = session.dialingPhone ?? ''
+  const [{ data: whitelistRow }, { data: pastOrder }, { data: pastUssdOrder }, { data: manualWhitelist }] = await Promise.all([
+    supabase.from("admin_settings").select("value").eq("key", "ussd_data_whitelist_enabled").maybeSingle(),
+    supabase.from("orders").select("id").eq("phone_number", localDialingPhone).eq("status", "completed").limit(1).maybeSingle(),
+    supabase.from("ussd_orders").select("id").or(`dialing_phone.eq.${msisdn},dialing_phone.eq.${localDialingPhone}`).eq("payment_status", "completed").limit(1).maybeSingle(),
+    supabase.from("ussd_whitelist").select("id").eq("phone_number", localDialingPhone).limit(1).maybeSingle(),
+  ])
+  const hasPurchasedOrWhitelisted = !!(pastOrder || pastUssdOrder || manualWhitelist)
+  if (whitelistRow?.value?.enabled === true && !hasPurchasedOrWhitelisted) {
+    return cont('Data bundles not available.\nSign up on our app\nto unlock this service.\n\n' + networkMenu(session.shopName!, networks))
+  }
+
   const allBundles = await fetchShopBundles(session.shopId!, selectedNetwork, session.parentShopId)
 
   if (allBundles.length === 0) {
@@ -279,6 +295,15 @@ export async function handleEnterRecipient(
 
   if (!/^0[0-9]{9}$/.test(local)) {
     return cont('Invalid number.\nEnter a valid Ghana\nphone number:\n\n0. Back')
+  }
+
+  // Network↔prefix validation (hard block; admin-toggleable).
+  const { enabled: prefixCheckEnabled, map: prefixMap } = await getPrefixValidationConfig()
+  if (prefixCheckEnabled && session.network) {
+    const check = validateNetworkPrefix(session.network, local, prefixMap)
+    if (!check.ok) {
+      return cont(`${check.message}\n\nEnter recipient number:\n0. Back`)
+    }
   }
 
   await setSession(sessionId, { ...session, step: 'CONFIRM', recipientPhone: local })

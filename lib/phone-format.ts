@@ -48,14 +48,29 @@ export function normalizeGhanaPhone(phone: string): string | null {
  *  to MTN, matching the admin phone-audit). Based on the first two significant
  *  digits of the canonical 0XXXXXXXXX form. */
 export type GhanaNetwork = "MTN" | "TELECEL" | "AT" | "UNKNOWN"
-export function detectGhanaNetwork(phone: string): GhanaNetwork {
+
+/** Significant 2-digit prefixes per carrier. This is the SEED/default —
+ *  the live map is admin-editable (admin_settings.network_prefix_map) and
+ *  read server-side via lib/network-prefix-config.ts. 053 IS MTN. */
+export type NetworkPrefixMap = Record<Exclude<GhanaNetwork, "UNKNOWN">, string[]>
+export const DEFAULT_NETWORK_PREFIXES: NetworkPrefixMap = {
+  MTN: ["24", "25", "53", "54", "55", "59"],
+  TELECEL: ["20", "50"],
+  AT: ["26", "27", "56", "57"],
+}
+
+export function detectNetworkWithMap(phone: string, map: NetworkPrefixMap): GhanaNetwork {
   const sig = ghanaSignificant(phone)
   if (!sig) return "UNKNOWN"
   const p = sig.slice(0, 2)
-  if (["24", "25", "53", "54", "55", "59"].includes(p)) return "MTN"
-  if (["20", "50"].includes(p)) return "TELECEL"
-  if (["26", "27", "56", "57"].includes(p)) return "AT"
+  if (map.MTN.includes(p)) return "MTN"
+  if (map.TELECEL.includes(p)) return "TELECEL"
+  if (map.AT.includes(p)) return "AT"
   return "UNKNOWN"
+}
+
+export function detectGhanaNetwork(phone: string): GhanaNetwork {
+  return detectNetworkWithMap(phone, DEFAULT_NETWORK_PREFIXES)
 }
 
 /**
@@ -79,4 +94,61 @@ export function phoneVariants(phone: string): string[] {
     for (const v of [local, noZero, "233" + noZero, "+233" + noZero]) out.add(v)
   }
   return Array.from(out)
+}
+
+/** Human display names for mismatch messages. */
+const NETWORK_DISPLAY: Record<Exclude<GhanaNetwork, "UNKNOWN">, string> = {
+  MTN: "MTN",
+  TELECEL: "Telecel",
+  AT: "AT",
+}
+
+/** Map an order's network string (any historical spelling) to the carrier it
+ *  requires. Returns null for strings the validator doesn't understand —
+ *  those are never blocked. */
+export function orderNetworkToCarrier(orderNetwork: string): Exclude<GhanaNetwork, "UNKNOWN"> | null {
+  const n = (orderNetwork || "").toLowerCase().trim()
+  if (n === "mtn") return "MTN"
+  if (n === "telecel") return "TELECEL"
+  if (["at", "airteltigo", "at - ishare", "at-ishare", "ishare", "at - bigtime", "at-bigtime", "bigtime"].includes(n)) return "AT"
+  return null
+}
+
+export type OrderNetworkCheck =
+  | { ok: true; detected: GhanaNetwork }
+  | { ok: false; detected: GhanaNetwork; message: string }
+
+/**
+ * Order-time network↔prefix validation (hard block; see spec
+ * 2026-07-07-network-prefix-validation-design.md). Pure and client-safe —
+ * servers pass the live admin-editable map, clients may use the default.
+ */
+export function validateNetworkPrefix(
+  orderNetwork: string,
+  phone: string,
+  map: NetworkPrefixMap = DEFAULT_NETWORK_PREFIXES
+): OrderNetworkCheck {
+  const expected = orderNetworkToCarrier(orderNetwork)
+  if (!expected) return { ok: true, detected: detectNetworkWithMap(phone, map) }
+
+  const norm = normalizeGhanaPhone(phone)
+  if (!norm) {
+    return { ok: false, detected: "UNKNOWN", message: "Please enter a valid Ghana mobile number." }
+  }
+  const detected = detectNetworkWithMap(norm, map)
+  if (detected === "UNKNOWN") {
+    return {
+      ok: false,
+      detected,
+      message: `${norm} doesn't match any Ghana mobile network - please check the number.`,
+    }
+  }
+  if (detected !== expected) {
+    return {
+      ok: false,
+      detected,
+      message: `${norm} looks like a ${NETWORK_DISPLAY[detected]} number - check the number or switch to ${NETWORK_DISPLAY[detected]}.`,
+    }
+  }
+  return { ok: true, detected }
 }

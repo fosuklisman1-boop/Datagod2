@@ -16,6 +16,8 @@ import { SuccessModal } from "@/components/success-modal"
 import { networkLogoService } from "@/lib/shop-service"
 import { supabase } from "@/lib/supabase"
 import { applyPriceAdjustmentsToPackages } from "@/lib/price-adjustment-service"
+import { validatePhoneNumber } from "@/lib/phone-validation"
+import { DEFAULT_NETWORK_PREFIXES, type NetworkPrefixMap } from "@/lib/phone-format"
 import { toast } from "sonner"
 
 interface Package {
@@ -48,6 +50,9 @@ export default function DataPackagesPage() {
     message: string
     details: Array<{ label: string; value: string }>
   }>({ open: false, title: "", message: "", details: [] })
+  // Live network->prefix map (admin-editable) for pre-submit validation;
+  // falls back to the hardcoded default if the fetch fails.
+  const [prefixMap, setPrefixMap] = useState<NetworkPrefixMap>(DEFAULT_NETWORK_PREFIXES)
 
   // Auth protection
   useEffect(() => {
@@ -61,6 +66,10 @@ export default function DataPackagesPage() {
     // logos and settings don't need auth — load immediately
     loadNetworkLogos()
     loadGlobalSettings()
+    fetch("/api/network-prefixes")
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d?.map) setPrefixMap(d.map) })
+      .catch(() => {}) // fall back to defaults silently
   }, [])
 
   useEffect(() => {
@@ -247,6 +256,14 @@ export default function DataPackagesPage() {
   const handlePhoneNumberSubmit = async (phoneNumber: string) => {
     if (!selectedPackageForPurchase || !user) {
       toast.error("Error: Missing package or user information")
+      return
+    }
+
+    // Order-time network↔prefix validation (client-side hint; server enforces
+    // regardless — see /api/orders/purchase).
+    const phoneCheck = validatePhoneNumber(phoneNumber, selectedPackageForPurchase.network, prefixMap)
+    if (!phoneCheck.isValid) {
+      toast.error(phoneCheck.error || "Please enter a valid phone number")
       return
     }
 

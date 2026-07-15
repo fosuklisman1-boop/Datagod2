@@ -41,6 +41,8 @@ export async function handleStatus(
     ? 'Delivered'
     : order.order_status === 'failed'
     ? 'Failed'
+    : order.order_status === 'held_registration'
+    ? 'Number activation pending'
     : order.payment_status === 'pending'
     ? 'Awaiting payment'
     : 'Processing'

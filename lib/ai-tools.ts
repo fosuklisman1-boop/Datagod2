@@ -466,7 +466,7 @@ const setMtnProviderTool: Anthropic.Tool = {
   input_schema: {
     type: "object" as const,
     properties: {
-      provider: { type: "string", enum: ["sykes", "datakazina", "xpress", "eazyghdata", "bisdel"], description: "Provider to switch to. Omit to just read current setting." },
+      provider: { type: "string", enum: ["sykes", "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft"], description: "Provider to switch to. Omit to just read current setting." },
     },
     required: [],
   },
@@ -660,7 +660,7 @@ const syncFulfillmentStatusTool: Anthropic.Tool = {
       tracking_id: { type: "string", description: "Provider tracking ID — get this from get_mtn_logs" },
       mtn_order_id: { type: "string", description: "MTN order ID — get this from get_mtn_logs" },
       sync_all_pending: { type: "boolean", description: "true to sync all pending MTN orders at once (no tracking_id needed)" },
-      provider: { type: "string", enum: ["sykes", "datakazina", "xpress", "eazyghdata", "bisdel"], description: "Provider to sync from" },
+      provider: { type: "string", enum: ["sykes", "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft"], description: "Provider to sync from" },
     },
     required: [],
   },
@@ -1565,6 +1565,17 @@ export async function executeToolCall(
           : null
         if (!canonicalNetwork) {
           return { error: "unknown_network", message: "Ask the customer which network they want: MTN, Telecel, AirtelTigo, or AT-iShare." }
+        }
+
+        // Order-time network↔prefix validation (same guard as the 6 order-creation sites).
+        const { getPrefixValidationConfig } = await import("@/lib/network-prefix-config")
+        const { validateNetworkPrefix } = await import("@/lib/phone-format")
+        const { enabled: prefixCheckEnabled, map: prefixMap } = await getPrefixValidationConfig()
+        if (prefixCheckEnabled) {
+          const prefixCheck = validateNetworkPrefix(canonicalNetwork, localRecipient, prefixMap)
+          if (!prefixCheck.ok) {
+            return { error: "network_mismatch", message: prefixCheck.message }
+          }
         }
 
         // Normalise the requested size to a GB number for matching ('500MB' → 0.5).

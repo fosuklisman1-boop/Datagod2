@@ -83,7 +83,9 @@ export default function OrderConfirmation() {
           </div>
           <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-foreground mb-2">Order Placed Successfully!</h1>
           <p className="text-muted-foreground">
-            Your order has been received and is being processed.
+            {order.order_status === "held_registration"
+              ? "This number is being activated for MTN data. Your bundle will be delivered automatically once it's active — usually within a day."
+              : "Your order has been received and is being processed."}
           </p>
         </div>
 
@@ -112,7 +114,7 @@ export default function OrderConfirmation() {
               <div className="p-3 bg-card/50 rounded-lg">
                 <p className="text-xs text-muted-foreground">Order Status</p>
                 <Badge className="mt-1 bg-warning/15 text-warning">
-                  {order.order_status}
+                  {order.order_status === "held_registration" ? "Activating number" : order.order_status}
                 </Badge>
               </div>
               <div className="p-3 bg-card/50 rounded-lg">

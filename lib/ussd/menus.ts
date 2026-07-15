@@ -15,8 +15,11 @@ function truncate(msg: string): string {
   return msg.length > SCREEN_LIMIT ? msg.slice(0, SCREEN_LIMIT - 3) + '...' : msg
 }
 
-export function mainMenu(): string {
-  return 'Welcome to Datagod\n1. Buy Data Bundle\n2. AFA Registration\n3. Buy Airtime\n4. Results Checker\n0. Exit'
+export function mainMenu(showData = true): string {
+  if (showData) {
+    return 'Welcome to Datagod\n1. Buy Data Bundle\n2. AFA Registration\n3. Buy Airtime\n4. Results Checker\n0. Exit'
+  }
+  return 'Welcome to Datagod\n1. AFA Registration\n2. Buy Airtime\n3. Results Checker\n0. Exit'
 }
 
 // ── Airtime ───────────────────────────────────────────────────────────────────

@@ -61,10 +61,14 @@ export default function AdminOrdersPage() {
   const [loadingPending, setLoadingPending] = useState(true)
   const [loadingDownloaded, setLoadingDownloaded] = useState(false)
   const [downloading, setDownloading] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [updatingBatch, setUpdatingBatch] = useState<string | null>(null)
 
   const [showNetworkSelection, setShowNetworkSelection] = useState(false)
   const [selectedNetworks, setSelectedNetworks] = useState<string[]>([])
+  // When ON, a number with several pending orders is exported as ONE row with the
+  // gigs summed. Turn OFF for suppliers that only accept fixed pack sizes.
+  const [combineDuplicates, setCombineDuplicates] = useState(true)
   const [downloadedBatchFilter, setDownloadedBatchFilter] = useState("all")
   const [downloadedBatchStatusFilter, setDownloadedBatchStatusFilter] = useState("all")
   const [downloadedBatchSearch, setDownloadedBatchSearch] = useState("")
@@ -470,7 +474,8 @@ export default function AdminOrdersPage() {
           Authorization: `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
-          orderIds: filteredOrders.map((o: any) => o.id)
+          orderIds: filteredOrders.map((o: any) => o.id),
+          combineDuplicates,
         })
       })
 
@@ -519,6 +524,40 @@ export default function AdminOrdersPage() {
       toast.error(error instanceof Error ? error.message : "Failed to download orders")
     } finally {
       setDownloading(false)
+    }
+  }
+
+  const handleExportPhoneNumbers = async () => {
+    setExporting(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Session expired. Please sign in again.")
+        return
+      }
+      const response = await fetch("/api/admin/orders/phone-export", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}))
+        throw new Error(err.error || "Failed to export phone numbers")
+      }
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const element = document.createElement("a")
+      element.setAttribute("href", url)
+      element.setAttribute("download", `order-phones-${new Date().toISOString().split("T")[0]}.xlsx`)
+      element.style.display = "none"
+      document.body.appendChild(element)
+      element.click()
+      document.body.removeChild(element)
+      window.URL.revokeObjectURL(url)
+      toast.success("Exported all-time order phone numbers by network.")
+    } catch (error) {
+      console.error("Error exporting phone numbers:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to export phone numbers")
+    } finally {
+      setExporting(false)
     }
   }
 
@@ -823,11 +862,23 @@ export default function AdminOrdersPage() {
     <DashboardLayout>
       <div className="space-y-6">
         {/* Page Header */}
-        <div>
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-600 via-primary to-pink-600 bg-clip-text text-transparent">
-            Order Management
-          </h1>
-          <p className="text-muted-foreground mt-1 font-medium">Download and manage pending orders</p>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-600 via-primary to-pink-600 bg-clip-text text-transparent">
+              Order Management
+            </h1>
+            <p className="text-muted-foreground mt-1 font-medium">Download and manage pending orders</p>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={handleExportPhoneNumbers} disabled={exporting}>
+              {exporting ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4 mr-2" />
+              )}
+              {exporting ? "Exporting…" : "Download phone numbers"}
+            </Button>
+          </div>
         </div>
 
         {/* Tabs */}
@@ -1562,6 +1613,27 @@ export default function AdminOrdersPage() {
                 )
               })}
             </div>
+
+            {/* Combine-duplicates toggle: sum a number's multiple orders into one row */}
+            <button
+              type="button"
+              onClick={() => setCombineDuplicates(v => !v)}
+              className="w-full flex items-start gap-3 p-3 mt-2 rounded border-2 border-border bg-card text-left hover:border-blue-400 transition-all"
+            >
+              {combineDuplicates ? (
+                <ToggleRight className="h-6 w-6 flex-shrink-0 text-blue-600" />
+              ) : (
+                <ToggleLeft className="h-6 w-6 flex-shrink-0 text-muted-foreground" />
+              )}
+              <div className="flex-1">
+                <span className="font-medium text-foreground">Combine duplicate numbers</span>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {combineDuplicates
+                    ? "A number with several orders is exported once, with the gigs added together (e.g. 1 + 2 + 2 → 5GB)."
+                    : "One row per order — a number with several orders is listed multiple times. Use for suppliers that only accept fixed pack sizes."}
+                </p>
+              </div>
+            </button>
 
             <DialogFooter className="flex gap-2">
               <Button

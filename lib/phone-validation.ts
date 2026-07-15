@@ -2,6 +2,7 @@
  * Phone number validation utility
  * Shared validation logic for all ordering pages (bulk, data packages, storefront)
  */
+import { validateNetworkPrefix, type NetworkPrefixMap } from "./phone-format"
 
 export interface PhoneValidationResult {
   isValid: boolean
@@ -59,7 +60,8 @@ export function getGhanaPhoneLookupVariants(phone: string): string[] {
  */
 export function validatePhoneNumber(
   phone: string,
-  network?: string
+  network?: string,
+  map?: NetworkPrefixMap
 ): PhoneValidationResult {
   if (!phone?.trim()) {
     return {
@@ -93,29 +95,14 @@ export function validatePhoneNumber(
     }
   }
 
-  // Network-specific validation
+  // Network-specific validation — strict prefix↔network match via the shared
+  // map-driven validator (see lib/phone-format.ts). Previously only Telecel
+  // was strict; MTN/AT accepted any 02x/05x number, which let mistaken-network
+  // orders through (411 found in prod, 2026-07-07).
   if (network) {
-    const normalizedNetwork = network.toLowerCase()
-
-    if (normalizedNetwork === "telecel") {
-      // Telecel: must start with 020 or 050
-      if (!normalized.startsWith("020") && !normalized.startsWith("050")) {
-        return {
-          isValid: false,
-          normalized: "",
-          error: "Telecel requires phone numbers starting with 020 or 050",
-        }
-      }
-    } else {
-      // Other networks (MTN, AT, etc.): second digit must be 2 or 5
-      const secondDigit = normalized.charAt(1)
-      if (secondDigit !== "2" && secondDigit !== "5") {
-        return {
-          isValid: false,
-          normalized: "",
-          error: "Invalid phone format. After 0, only 2 or 5 are allowed (e.g., 02... or 05...)",
-        }
-      }
+    const check = validateNetworkPrefix(network, normalized, map)
+    if (!check.ok) {
+      return { isValid: false, normalized: "", error: check.message }
     }
   } else {
     // Generic validation: second digit must be 2 or 5

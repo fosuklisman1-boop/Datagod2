@@ -870,7 +870,7 @@ export default function ShopDashboardPage() {
                               ? "bg-success/15 text-success"
                               : "bg-warning/10 text-warning"
                           }>
-                            {order.order_status}
+                            {order.order_status === "held_registration" ? "Activating number" : order.order_status}
                           </Badge>
                         </div>
                       </div>
@@ -1083,9 +1083,10 @@ export default function ShopDashboardPage() {
                                   <Badge className={
                                     order.order_status === "completed" ? "bg-success" :
                                       order.order_status === "pending" ? "bg-warning" :
-                                        "bg-destructive"
+                                        order.order_status === "held_registration" ? "bg-warning" :
+                                          "bg-destructive"
                                   }>
-                                    {order.order_status}
+                                    {order.order_status === "held_registration" ? "Activating number" : order.order_status}
                                   </Badge>
                                 </td>
                                 <td className="py-3 px-4 text-right font-semibold text-primary">

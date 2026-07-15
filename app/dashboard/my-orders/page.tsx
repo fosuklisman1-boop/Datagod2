@@ -159,10 +159,17 @@ export default function MyOrdersPage() {
         return "bg-destructive/15 text-destructive"
       case "placed":
         return "bg-primary/10 text-primary"
+      case "held_registration":
+        return "bg-warning/10 text-warning"
       default:
         return "bg-muted text-foreground"
     }
   }
+
+  const getStatusLabel = (status: string) =>
+    status === "held_registration"
+      ? "Activating number"
+      : status.charAt(0).toUpperCase() + status.slice(1)
 
   // Filter orders based on search criteria
   const filteredOrders = orders.filter((order) => {
@@ -352,7 +359,7 @@ export default function MyOrdersPage() {
                         </td>
                         <td className="px-4 py-3">
                           <Badge className={getStatusBadgeColor(order.order_status)}>
-                            {order.order_status.charAt(0).toUpperCase() + order.order_status.slice(1)}
+                            {getStatusLabel(order.order_status)}
                           </Badge>
                         </td>
                         <td className="px-4 py-3">

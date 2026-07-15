@@ -9,6 +9,8 @@ import { paystackProviderFromPhone } from "../paystack-provider"
 import { fulfillUssdOrder } from "../fulfill"
 import { sendSMS, SMSTemplates } from "../../sms-service"
 import { getJoinCommunityLink } from "../../app-settings"
+import { validateNetworkPrefix } from "../../phone-format"
+import { getPrefixValidationConfig } from "../../network-prefix-config"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -227,6 +229,15 @@ export async function handleEnterRecipient(
 
   if (!/^0[0-9]{9}$/.test(local)) {
     return cont('Invalid number.\nEnter a valid Ghana\nphone number:\n\n0. Back')
+  }
+
+  // Network↔prefix validation (hard block; admin-toggleable).
+  const { enabled: prefixCheckEnabled, map: prefixMap } = await getPrefixValidationConfig()
+  if (prefixCheckEnabled && session.network) {
+    const check = validateNetworkPrefix(session.network, local, prefixMap)
+    if (!check.ok) {
+      return cont(`${check.message}\n\nEnter recipient number:\n0. Back`)
+    }
   }
 
   await setSession(sessionId, { ...session, step: 'CONFIRM', recipientPhone: local })

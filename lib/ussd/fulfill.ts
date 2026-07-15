@@ -37,7 +37,7 @@ export async function fulfillUssdOrder(
   forceManual = false,
   orderTable: "ussd_orders" | "ussd_shop_orders" = "ussd_orders",
   provider?: string
-): Promise<{ success: boolean; message: string }> {
+): Promise<{ success: boolean; message: string; held?: boolean }> {
   console.log("[USSD-FULFILL] Starting fulfillment:", { orderId, network, recipientPhone, packageSize, forceManual, provider })
 
   // Blacklist check
@@ -70,6 +70,11 @@ export async function fulfillUssdOrder(
       const mtnResponse = await createMTNOrder(orderRequest)
 
       if (!mtnResponse.success || !mtnResponse.order_id) {
+        if (mtnResponse.held) {
+          const { holdMtnOrder } = await import("@/lib/mtn-hold")
+          await holdMtnOrder({ table: orderTable, orderId, phone: normalizedPhone })
+          return { success: false, message: "Held: number pending MTN registration", held: true }
+        }
         console.error("[USSD-FULFILL] MTN API failed:", mtnResponse.message)
         // Mark processing (not failed) — payment succeeded, admin must manually deliver
         await markUssdOrderStatus(orderId, 'pending', orderTable)
