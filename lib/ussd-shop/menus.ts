@@ -23,8 +23,11 @@ export function invalidCodeMenu(reason: string): string {
   return `${reason}\n\nEnter shop code:\n\n0. Exit`
 }
 
-export function productMenu(shopName: string): string {
-  return `${gsm7(shopName)}\nWhat to buy?\n1. Data Bundle\n2. Airtime\n3. Results Checker\n0. Exit`
+export function productMenu(shopName: string, showData = true): string {
+  if (showData) {
+    return `${gsm7(shopName)}\nWhat to buy?\n1. Data Bundle\n2. Airtime\n3. Results Checker\n0. Exit`
+  }
+  return `${gsm7(shopName)}\nWhat to buy?\n1. Airtime\n2. Results Checker\n0. Exit`
 }
 
 // ── Shop Airtime ──────────────────────────────────────────────────────────────

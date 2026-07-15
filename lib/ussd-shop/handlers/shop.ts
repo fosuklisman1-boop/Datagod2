@@ -127,6 +127,17 @@ export async function handleEnterShopCode(
   const sortedNetworks = sortNetworks(networks)
   console.log("[USSD-SHOP] networks for shop", shopCode.shop_id, ":", sortedNetworks)
 
+  // Whitelist check: resolve once at session start so the product menu never
+  // shows Data Bundle to callers who can't use it.
+  const localPhone = dialingPhone.startsWith('+233') ? '0' + dialingPhone.slice(4)
+    : dialingPhone.startsWith('233') ? '0' + dialingPhone.slice(3)
+    : dialingPhone
+  const [{ data: whitelistSetting }, { data: hasPurchasedData }] = await Promise.all([
+    supabase.from("admin_settings").select("value").eq("key", "ussd_data_whitelist_enabled").maybeSingle(),
+    supabase.rpc("has_completed_purchase", { local_phone: localPhone, msisdn: dialingPhone }),
+  ])
+  const dataBlocked = whitelistSetting?.value?.enabled === true && hasPurchasedData !== true
+
   await setSession(sessionId, {
     step: 'SELECT_PRODUCT',
     dialingPhone,
@@ -135,9 +146,10 @@ export async function handleEnterShopCode(
     parentShopId: parentShopId ?? undefined,
     shopName,
     networks: sortedNetworks,
+    dataBlocked,
   })
 
-  return cont(productMenu(shopName))
+  return cont(productMenu(shopName, !dataBlocked))
 }
 
 // ── SELECT_PRODUCT ────────────────────────────────────────────────────────────
@@ -147,6 +159,26 @@ export async function handleSelectProduct(
   session: USSDShopSession
 ): Promise<UzoResponse> {
   const shopName = session.shopName ?? 'Shop'
+  const dataBlocked = session.dataBlocked === true
+
+  if (dataBlocked) {
+    // Renumbered menu: 1=Airtime, 2=RC
+    switch (input.trim()) {
+      case '1':
+        await setSession(sessionId, { ...session, step: 'SHOP_AIRTIME_ENTER_RECIPIENT' })
+        return cont(shopAirtimeRecipientPrompt(shopName))
+      case '2': {
+        const boards = await buildRcBoardOptions()
+        if (boards.length === 0) return cont('Results Checker\nunavailable.\n\n' + productMenu(shopName, false))
+        await setSession(sessionId, { ...session, step: 'SHOP_RC_SELECT_BOARD', rcBoardOptions: boards })
+        return cont(shopRcBoardMenu(shopName, boards))
+      }
+      case '0':
+        return end('Goodbye.')
+      default:
+        return cont(productMenu(shopName, false))
+    }
+  }
 
   switch (input.trim()) {
     case '1': {

@@ -59,4 +59,5 @@ export interface USSDShopSession {
   rcTotal?: number
   rcMerchantCommission?: number
   rcBoardOptions?: string[]
+  dataBlocked?: boolean              // true when whitelist is ON and caller has no completed purchase
 }

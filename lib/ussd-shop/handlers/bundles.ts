@@ -185,13 +185,11 @@ export async function handleSelectNetwork(
   // Whitelist gate: check once before fetching bundles
   const localDialingPhone = formatLocal(session.dialingPhone ?? '')
   const msisdn = session.dialingPhone ?? ''
-  const [{ data: whitelistRow }, { data: pastOrder }, { data: pastUssdOrder }, { data: manualWhitelist }] = await Promise.all([
+  const [{ data: whitelistRow }, { data: hasPurchasedData }] = await Promise.all([
     supabase.from("admin_settings").select("value").eq("key", "ussd_data_whitelist_enabled").maybeSingle(),
-    supabase.from("orders").select("id").eq("phone_number", localDialingPhone).eq("status", "completed").limit(1).maybeSingle(),
-    supabase.from("ussd_orders").select("id").or(`dialing_phone.eq.${msisdn},dialing_phone.eq.${localDialingPhone}`).eq("payment_status", "completed").limit(1).maybeSingle(),
-    supabase.from("ussd_whitelist").select("id").eq("phone_number", localDialingPhone).limit(1).maybeSingle(),
+    supabase.rpc("has_completed_purchase", { local_phone: localDialingPhone, msisdn }),
   ])
-  const hasPurchasedOrWhitelisted = !!(pastOrder || pastUssdOrder || manualWhitelist)
+  const hasPurchasedOrWhitelisted = hasPurchasedData === true
   if (whitelistRow?.value?.enabled === true && !hasPurchasedOrWhitelisted) {
     return cont('Data bundles not available.\nSign up on our app\nto unlock this service.\n\n' + networkMenu(session.shopName!, networks))
   }
