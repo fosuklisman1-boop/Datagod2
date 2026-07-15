@@ -81,6 +81,17 @@ describe("sendAirtimeViaDigiwapy host fallback", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  it("sends a fresh idempotency key on a deliberate retry so Digiwapy re-attempts instead of replaying", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ message: "Airtime sent", data: { reference: "DGW-3" } }))
+
+    const result = await sendAirtimeViaDigiwapy({ ...sendParams, freshAttempt: true })
+
+    expect(result.success).toBe(true)
+    const headers = (fetchMock.mock.calls[0][1] as RequestInit).headers as Record<string, string>
+    expect(headers["X-Idempotency-Key"]).toMatch(/^AIRTIME-AT-TST-001-R\d+$/)
+    expect(headers["X-Idempotency-Key"]).not.toBe("AIRTIME-AT-TST-001")
+  })
+
   it("honors DIGIWAPY_BASE_URL override as the primary host", async () => {
     process.env.DIGIWAPY_BASE_URL = "https://override.example.com/v1"
     fetchMock.mockResolvedValueOnce(jsonResponse({ message: "Airtime sent" }))

@@ -50,10 +50,10 @@ function getRequestHeaders(): Record<string, string> {
   }
 }
 
-function getRequestHeadersWithIdempotency(reference: string): Record<string, string> {
+function getRequestHeadersWithIdempotency(idempotencyKey: string): Record<string, string> {
   return {
     ...getRequestHeaders(),
-    "X-Idempotency-Key": `AIRTIME-${reference}`,
+    "X-Idempotency-Key": idempotencyKey,
   }
 }
 
@@ -69,8 +69,18 @@ export async function sendAirtimeViaDigiwapy(params: {
   recipient: string
   amount: number
   reference: string
+  /**
+   * Deliberate re-attempt (admin retry): rotate the idempotency key so
+   * Digiwapy runs a new transaction instead of replaying the cached response
+   * of a previous (failed) one. The automatic payment-path send keeps the
+   * stable key so duplicate webhooks can't double-send.
+   */
+  freshAttempt?: boolean
 }): Promise<DigiWapyAirtimeResult> {
-  const headers = getRequestHeadersWithIdempotency(params.reference) // throws if env vars missing — intentional
+  const idempotencyKey = params.freshAttempt
+    ? `AIRTIME-${params.reference}-R${Date.now()}`
+    : `AIRTIME-${params.reference}`
+  const headers = getRequestHeadersWithIdempotency(idempotencyKey) // throws if env vars missing — intentional
   try {
     const res = await digiwapyFetch("/airtime/send", {
       method: "POST",

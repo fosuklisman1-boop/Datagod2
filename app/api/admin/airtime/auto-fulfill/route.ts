@@ -48,6 +48,7 @@ export async function POST(request: NextRequest) {
           recipient: order.beneficiary_phone,
           amount: order.airtime_amount,
           reference: order.reference_code,
+          freshAttempt: true,
         })
         const successNote = result.digiwapyRef
           ? `Admin retry via Digiwapy [dgwRef:${result.digiwapyRef}]`

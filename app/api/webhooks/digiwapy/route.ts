@@ -40,11 +40,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ received: true })
   }
 
+  const failureDetail = data.message ?? data.description
   const { error } = await supabase
     .from("airtime_orders")
     .update({
       status: newStatus,
-      notes: `Digiwapy: ${event}`,
+      notes: `Digiwapy: ${event}${failureDetail ? ` (${failureDetail})` : ""}`,
       updated_at: new Date().toISOString(),
     })
     .eq("reference_code", data.reference)
