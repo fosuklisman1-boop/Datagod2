@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
 
         const isFailed = txn.status === "failed"
         const newNotes = isFailed
-          ? "Digiwapy reported failed — retryable"
+          ? `Digiwapy reported failed${txn.description ? ` (${txn.description})` : ""} — retryable`
           : "Completed via Digiwapy"
 
         const { data: updatedOrder } = await supabase
