@@ -361,8 +361,10 @@ export default function AdminAirtimePage() {
         body: JSON.stringify({ orderIds: eligibleOrders.map(o => o.id) }),
       })
       const data = await res.json()
-      if (res.ok) {
+      if (res.ok && data.succeeded > 0) {
         toast.success(`${data.succeeded}/${data.total} orders sent via Digiwapy`)
+      } else if (res.ok) {
+        toast.error(`0/${data.total} sent — ${data.results?.[0]?.message || "Digiwapy rejected all orders"}`)
       } else {
         toast.error(data.error || "Auto-fulfill failed")
       }
