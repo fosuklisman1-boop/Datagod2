@@ -50,9 +50,7 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
       { data: pendingRc },
       { data: pendingCheck },
       { data: whitelistSetting },
-      { data: pastOrder },
-      { data: pastUssdOrder },
-      { data: pastWhitelist },
+      { data: hasPurchasedData },
     ] = await Promise.all([
       supabase.from("ussd_orders").select("id, created_at")
         .or(phoneFilter).eq("payment_status", "otp_required").gte("created_at", cutoff)
@@ -67,15 +65,11 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
         .or(phoneFilter).eq("payment_status", "otp_required").eq("channel", "ussd").gte("created_at", cutoff)
         .order("created_at", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("admin_settings").select("value").eq("key", "ussd_data_whitelist_enabled").maybeSingle(),
-      // orders.phone_number = web/dashboard purchase recipient (completed payments only)
-      supabase.from("orders").select("id").eq("phone_number", localPhone).eq("status", "completed").limit(1).maybeSingle(),
-      // ussd_orders.dialing_phone = whoever placed the USSD call (completed payments only)
-      supabase.from("ussd_orders").select("id").or(`dialing_phone.eq.${msisdn},dialing_phone.eq.${localPhone}`).eq("payment_status", "completed").limit(1).maybeSingle(),
-      // admin-uploaded manual whitelist
-      supabase.from("ussd_whitelist").select("id").eq("phone_number", localPhone).limit(1).maybeSingle(),
+      // Single function checks all order tables + manual whitelist in one DB round-trip
+      supabase.rpc("has_completed_purchase", { local_phone: localPhone, msisdn }),
     ])
 
-    const hasPurchased = !!(pastOrder || pastUssdOrder || pastWhitelist)
+    const hasPurchased = hasPurchasedData === true
     const dataBlocked = whitelistSetting?.value?.enabled === true && !hasPurchased
 
     const candidates = [
