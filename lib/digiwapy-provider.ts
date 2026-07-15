@@ -2,7 +2,27 @@
 import crypto from "crypto"
 import { createClient } from "@supabase/supabase-js"
 
-const BASE_URL = "https://api.digiwapy.com/v1"
+const DEFAULT_BASE_URL = "https://api.digiwapy.com/v1"
+// api.digiwapy.com has served a fatal TLS handshake alert since 2026-07-02
+// (its custom-domain cert in front of Digiwapy's Supabase project is gone),
+// which Node surfaces as "fetch failed". The same API stays reachable on the
+// raw Supabase functions host, so network-level failures retry there once.
+const FALLBACK_BASE_URL = "https://uzizihluxnhxnsluokki.supabase.co/functions/v1/api/v1"
+
+function getBaseUrl(): string {
+  return process.env.DIGIWAPY_BASE_URL || DEFAULT_BASE_URL
+}
+
+async function digiwapyFetch(path: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const base = getBaseUrl()
+  try {
+    return await fetch(`${base}${path}`, { ...init, signal: AbortSignal.timeout(timeoutMs) })
+  } catch (err: any) {
+    if (base === FALLBACK_BASE_URL) throw err
+    console.warn(`[DIGIWAPY] ${path} failed on ${base} (${err?.message ?? err}); retrying via fallback host`)
+    return await fetch(`${FALLBACK_BASE_URL}${path}`, { ...init, signal: AbortSignal.timeout(timeoutMs) })
+  }
+}
 
 // Module-level Supabase client (reused across calls)
 const supabase = createClient(
@@ -52,7 +72,7 @@ export async function sendAirtimeViaDigiwapy(params: {
 }): Promise<DigiWapyAirtimeResult> {
   const headers = getRequestHeadersWithIdempotency(params.reference) // throws if env vars missing — intentional
   try {
-    const res = await fetch(`${BASE_URL}/airtime/send`, {
+    const res = await digiwapyFetch("/airtime/send", {
       method: "POST",
       headers,
       body: JSON.stringify({
@@ -61,8 +81,7 @@ export async function sendAirtimeViaDigiwapy(params: {
         amount: params.amount,
         reference: params.reference,
       }),
-      signal: AbortSignal.timeout(30_000),
-    })
+    }, 30_000)
     const data = await res.json()
     console.log(`[DIGIWAPY] sendAirtime response (${res.status}):`, JSON.stringify(data))
     if (!res.ok) {
@@ -118,9 +137,10 @@ export async function fetchDigiWapyTransactionStatus(
 ): Promise<DigiWapyTransactionStatus | null> {
   try {
     const headers = getRequestHeaders() // inside try — returns null on any config error
-    const res = await fetch(
-      `${BASE_URL}/transactions/status?reference=${encodeURIComponent(reference)}`,
-      { headers, signal: AbortSignal.timeout(15_000) }
+    const res = await digiwapyFetch(
+      `/transactions/status?reference=${encodeURIComponent(reference)}`,
+      { headers },
+      15_000
     )
     const data = await res.json()
     console.log(`[DIGIWAPY] txn status for ${reference} (${res.status}):`, JSON.stringify(data))
@@ -141,10 +161,7 @@ export interface DigiWapyBalance {
 export async function fetchDigiWapyBalance(): Promise<DigiWapyBalance | null> {
   try {
     const headers = getRequestHeaders() // inside try — returns null on any config error
-    const res = await fetch(`${BASE_URL}/wallet/balance`, {
-      headers,
-      signal: AbortSignal.timeout(10_000),
-    })
+    const res = await digiwapyFetch("/wallet/balance", { headers }, 10_000)
     if (!res.ok) return null
     const data = await res.json()
     return data.success ? (data.data as DigiWapyBalance) : null
