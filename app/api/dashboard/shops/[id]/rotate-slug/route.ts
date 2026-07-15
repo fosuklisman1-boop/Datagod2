@@ -103,6 +103,26 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json({ error: "Failed to rotate slug" }, { status: 500 })
     }
 
+    // Record the OLD slug so /shop/<old-slug> can redirect to the new storefront
+    // (old customer links keep working — see /api/shop/resolve-alias). Guarded and
+    // non-fatal: rotation must still succeed if the previous_slugs column isn't
+    // present yet (pre-migration) or the read/write errors.
+    try {
+      let prior: string[] = []
+      const { data: cur } = await supabase
+        .from("user_shops")
+        .select("previous_slugs")
+        .eq("id", shopId)
+        .maybeSingle()
+      if (Array.isArray((cur as any)?.previous_slugs)) prior = (cur as any).previous_slugs
+      // Keep the old slug; drop the new one if it was ever a prior slug (avoids a
+      // self-redirect loop where the current slug also maps back to itself).
+      const merged = Array.from(new Set([...prior, shop.shop_slug].filter(Boolean))).filter(s => s !== newSlug)
+      await supabase.from("user_shops").update({ previous_slugs: merged }).eq("id", shopId)
+    } catch (e) {
+      console.warn(`[ROTATE-SLUG] previous_slugs record skipped for shop ${shopId}:`, e)
+    }
+
     console.log(`[ROTATE-SLUG] ✓ Shop ${shopId} slug rotated: ${shop.shop_slug} → ${newSlug} (by user ${user.id}${isAdmin ? ", admin" : ""})`)
 
     return NextResponse.json({

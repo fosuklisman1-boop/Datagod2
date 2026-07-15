@@ -159,6 +159,20 @@ export default function ShopStorefront() {
       const shopData = await shopService.getShopBySlug(shopSlug)
 
       if (!shopData) {
+        // The slug may be a rotated/old handle. Resolve it to the shop's current
+        // slug and redirect so old customer links keep working instead of 404ing.
+        try {
+          const aliasRes = await fetch(`/api/shop/resolve-alias?slug=${encodeURIComponent(shopSlug)}`, { cache: "no-store" })
+          if (aliasRes.ok) {
+            const { currentSlug } = await aliasRes.json()
+            if (currentSlug && currentSlug !== shopSlug) {
+              router.replace(`/shop/${currentSlug}`)
+              return
+            }
+          }
+        } catch {
+          /* fall through to the normal not-found message */
+        }
         toast.error("Shop not found")
         return
       }
