@@ -16,17 +16,19 @@ AS $$
 
     UNION ALL
 
-    -- USSD data bundle orders (caller)
+    -- USSD data bundle orders (caller or recipient)
     SELECT 1 FROM ussd_orders
       WHERE payment_status = 'completed'
-        AND (dialing_phone = local_phone OR (msisdn IS NOT NULL AND dialing_phone = msisdn))
+        AND (dialing_phone = local_phone OR (msisdn IS NOT NULL AND dialing_phone = msisdn)
+          OR recipient_phone = local_phone OR (msisdn IS NOT NULL AND recipient_phone = msisdn))
 
     UNION ALL
 
-    -- USSD shop data bundle orders (caller)
+    -- USSD shop data bundle orders (caller or recipient)
     SELECT 1 FROM ussd_shop_orders
       WHERE payment_status = 'completed'
-        AND (dialing_phone = local_phone OR (msisdn IS NOT NULL AND dialing_phone = msisdn))
+        AND (dialing_phone = local_phone OR (msisdn IS NOT NULL AND dialing_phone = msisdn)
+          OR recipient_phone = local_phone OR (msisdn IS NOT NULL AND recipient_phone = msisdn))
 
     UNION ALL
 
