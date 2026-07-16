@@ -32,6 +32,10 @@ function orderTarget(row: ReversalRow): { table: string; col: "status" | "order_
   if (row.order_type === "ussd" && row.order_id) return { table: "ussd_orders", col: "order_status", id: row.order_id }
   if (row.order_type === "ussd_shop" && row.order_id) return { table: "ussd_shop_orders", col: "order_status", id: row.order_id }
   if (row.shop_order_id) return { table: "shop_orders", col: "order_status", id: row.shop_order_id }
+  // Legacy rows without order_type — mirror the existing fulfillment dispatch fallback
+  // (order_id → assume bulk; api_order_id → api) so the order can't be left stranded.
+  if (row.order_id) return { table: "orders", col: "status", id: row.order_id }
+  if (row.api_order_id) return { table: "api_orders", col: "status", id: row.api_order_id }
   return null
 }
 
