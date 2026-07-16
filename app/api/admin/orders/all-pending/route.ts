@@ -15,33 +15,33 @@ export async function GET(request: NextRequest) {
       supabase
         .from("orders")
         .select("id, created_at, phone_number, price, status, size, network", { count: "exact" })
-        .eq("status", "pending")
+        .in("status", ["pending", "reversed"])
         .order("created_at", { ascending: false })
         .range(0, 9999),
       supabase
         .from("shop_orders")
         .select("id, created_at, customer_phone, total_price, order_status, volume_gb, network", { count: "exact" })
-        .eq("order_status", "pending")
+        .in("order_status", ["pending", "reversed"])
         .eq("payment_status", "completed")
         .order("created_at", { ascending: false })
         .range(0, 9999),
       supabase
         .from("api_orders")
         .select("id, created_at, recipient_phone, price, status, volume_gb, network", { count: "exact" })
-        .eq("status", "pending")
+        .in("status", ["pending", "reversed"])
         .order("created_at", { ascending: false })
         .range(0, 9999),
       supabase
         .from("ussd_orders")
         .select("id, created_at, recipient_phone, amount, order_status, package_size, network", { count: "exact" })
-        .eq("order_status", "pending")
+        .in("order_status", ["pending", "reversed"])
         .eq("payment_status", "completed")
         .order("created_at", { ascending: false })
         .range(0, 9999),
       supabase
         .from("ussd_shop_orders")
         .select("id, created_at, recipient_phone, amount, order_status, package_size, network", { count: "exact" })
-        .eq("order_status", "pending")
+        .in("order_status", ["pending", "reversed"])
         .eq("payment_status", "completed")
         .order("created_at", { ascending: false })
         .range(0, 9999),
