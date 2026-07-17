@@ -190,7 +190,7 @@ export async function processManualFulfillment(
       .from(tableName)
       .update({ [statusField]: "processing", updated_at: new Date().toISOString() })
       .eq("id", orderId)
-      .in(statusField, ["pending", "failed"])
+      .in(statusField, ["pending", "failed", "reversed"])
       .select("id")
 
     if (orderLockError || !orderLock || orderLock.length === 0) {

@@ -238,7 +238,7 @@ export async function POST(request: NextRequest) {
         }
       }
       if (filters.onlyPending) {
-        query = query.eq("status", "pending")
+        query = query.in("status", ["pending", "reversed"])
       }
       const res = await applyCommon(query)
       fetchResult = res.data || []
@@ -293,7 +293,7 @@ export async function POST(request: NextRequest) {
             .from("orders")
             .update({ status: "processing", updated_at: new Date().toISOString() })
             .in("id", chunk)
-            .eq("status", "pending")
+            .in("status", ["pending", "reversed"])
             .select("id"))
 
         if (updateError) {
@@ -317,7 +317,7 @@ export async function POST(request: NextRequest) {
             .from("shop_orders")
             .update({ order_status: "processing", updated_at: new Date().toISOString() })
             .in("id", chunk)
-            .eq("order_status", "pending")
+            .in("order_status", ["pending", "reversed"])
             .select("id"))
 
         if (updateError) {
@@ -340,7 +340,7 @@ export async function POST(request: NextRequest) {
             .from("ussd_orders")
             .update({ order_status: "processing", updated_at: new Date().toISOString() })
             .in("id", chunk)
-            .eq("order_status", "pending")
+            .in("order_status", ["pending", "reversed"])
             .select("id"))
 
         if (ussdUpdateError) {
@@ -358,7 +358,7 @@ export async function POST(request: NextRequest) {
             .from("ussd_shop_orders")
             .update({ order_status: "processing", updated_at: new Date().toISOString() })
             .in("id", chunk)
-            .eq("order_status", "pending")
+            .in("order_status", ["pending", "reversed"])
             .select("id"))
 
         if (ussdShopUpdateError) {
@@ -376,7 +376,7 @@ export async function POST(request: NextRequest) {
             .from("api_orders")
             .update({ status: "processing", updated_at: new Date().toISOString() })
             .in("id", chunk)
-            .eq("status", "pending")
+            .in("status", ["pending", "reversed"])
             .select("id"))
 
         if (apiUpdateError) {

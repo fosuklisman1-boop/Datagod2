@@ -339,6 +339,40 @@ export default function AdminOrdersPage() {
     }
   }
 
+  // Manual-fulfill a single order straight from the pending list — used for `reversed`
+  // orders (a provider flipped a completed order back to failed). Unlike handleManualFulfill,
+  // it takes the order directly (pending-list rows aren't in pendingMTNOrders). Reuses the
+  // MTN-fulfill button state for feedback.
+  const handleReversedFulfill = async (order: ShopOrder) => {
+    try {
+      setFulfillingMTNOrder(order.id)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Session expired. Please refresh the page.")
+        return
+      }
+      const response = await fetch("/api/admin/fulfillment/manual-fulfill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
+        body: JSON.stringify({ shop_order_id: order.id, order_type: (order as any).type || "shop", network: order.network }),
+      })
+      const json = await response.json()
+      if (response.ok && json.success) {
+        setMTNFulfillmentStatus(prev => ({ ...prev, [order.id]: "fulfilled" }))
+        toast.success("Fulfillment queued")
+        await loadPendingOrders()
+      } else {
+        setMTNFulfillmentStatus(prev => ({ ...prev, [order.id]: "error" }))
+        toast.error(json.error || "Fulfillment failed")
+      }
+    } catch (e) {
+      setMTNFulfillmentStatus(prev => ({ ...prev, [order.id]: "error" }))
+      toast.error("Fulfillment failed")
+    } finally {
+      setFulfillingMTNOrder(null)
+    }
+  }
+
   const handleManualFulfill = async (orderId: string) => {
     try {
       setFulfillingMTNOrder(orderId)
@@ -952,6 +986,7 @@ export default function AdminOrdersPage() {
                             <th className="px-2 sm:px-4 py-2 text-left font-semibold text-foreground whitespace-nowrap">Phone</th>
                             <th className="px-2 sm:px-4 py-2 text-right font-semibold text-foreground whitespace-nowrap">Price (GHS)</th>
                             <th className="px-2 sm:px-4 py-2 text-center font-semibold text-foreground whitespace-nowrap">Date</th>
+                            <th className="px-2 sm:px-4 py-2 text-center font-semibold text-foreground whitespace-nowrap">Status</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y">
@@ -976,6 +1011,30 @@ export default function AdminOrdersPage() {
                               <td className="px-2 sm:px-4 py-3 text-center text-xs text-muted-foreground">
                                 <div>{new Date(order.created_at).toLocaleDateString()}</div>
                                 <div className="text-xs text-muted-foreground">{new Date(order.created_at).toLocaleTimeString()}</div>
+                              </td>
+                              <td className="px-2 sm:px-4 py-3 text-center">
+                                {order.status === "reversed" ? (
+                                  <div className="flex flex-col items-center gap-1">
+                                    <Badge className="bg-warning/15 text-warning border border-warning/30 text-xs">Reversed</Badge>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7 text-xs whitespace-nowrap"
+                                      onClick={() => handleReversedFulfill(order)}
+                                      disabled={fulfillingMTNOrder === order.id || mtnFulfillmentStatus[order.id] === "fulfilled"}
+                                    >
+                                      {fulfillingMTNOrder === order.id ? (
+                                        <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Fulfilling…</>
+                                      ) : mtnFulfillmentStatus[order.id] === "fulfilled" ? (
+                                        <><CheckCircle className="h-3 w-3 mr-1" />Fulfilled</>
+                                      ) : (
+                                        <><Send className="h-3 w-3 mr-1" />Manual fulfill</>
+                                      )}
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <Badge variant="outline" className="text-xs bg-muted text-muted-foreground border-border">Pending</Badge>
+                                )}
                               </td>
                             </tr>
                           ))}

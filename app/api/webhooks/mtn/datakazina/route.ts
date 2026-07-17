@@ -12,6 +12,7 @@ import {
 } from "@/lib/mtn-production-config"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { sendEmail, EmailTemplates } from "@/lib/email-service"
+import { isReversal, flagReversal } from "@/lib/mtn-reversal"
 import crypto from "crypto"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -99,6 +100,23 @@ export async function POST(request: NextRequest) {
 
         // Store webhook for audit
         await storeWebhookEvent(traceId, payload, JSON.stringify(payload))
+
+        // Reversal safeguard: a webhook reporting failed for an order we already have
+        // completed (within 72h) is a provider reversal — flag it and stop, so we never
+        // run the normal failed-write (which would hit the completed→pending guard).
+        const incomingStatusRaw = String(payload.status || "").toLowerCase()
+        if (["failed", "error", "cancelled", "rejected"].includes(incomingStatusRaw)) {
+            const { data: existingTracking } = await supabase
+                .from("mtn_fulfillment_tracking")
+                .select("id, order_type, order_id, shop_order_id, api_order_id, provider, status, updated_at")
+                .eq("mtn_order_id", String(mtnOrderId))
+                .maybeSingle()
+            if (existingTracking && isReversal({ trackingStatus: existingTracking.status, completedAt: existingTracking.updated_at, providerStatus: "failed" })) {
+                await flagReversal(supabase, existingTracking, { status: incomingStatusRaw, message: payload.message || incomingStatusRaw })
+                log("warn", "Webhook.DataKazina", "Reversal flagged (completed→failed)", { traceId, mtnOrderId })
+                return NextResponse.json({ success: true, message: "Reversal flagged", traceId })
+            }
+        }
 
         // Update order status in database
         const updated = await updateDataKazinaOrderFromPayload(payload)

@@ -15,6 +15,7 @@ const DATAKAZINA_API_KEY = process.env.DATAKAZINA_API_KEY || ""
 
 import { verifyCronAuth } from "@/lib/cron-auth"
 import { verifyAdminAccess } from "@/lib/admin-auth"
+import { fetchReversalCandidates, isReversal, flagReversal } from "@/lib/mtn-reversal"
 
 /**
  * Fetch ALL orders from Sykes API in a single call
@@ -592,6 +593,21 @@ export async function GET(request: NextRequest) {
 
     console.log(`[CRON] Sync complete: ${synced} updated, ${failed} failed, ${notFound} not found, ${ordersToSync?.length ? ordersToSync.length - synced - failed - notFound : 0} unchanged`)
 
+    // ── Reversal safeguard: provider flipped a completed order back to failed ──
+    // Reuse the already-fetched sykesOrderMap — no extra provider calls.
+    let reversed = 0
+    const reversalCandidates = await fetchReversalCandidates(supabase, "sykes")
+    for (const cand of reversalCandidates) {
+      const providerOrder = sykesOrderMap.get(String((cand as any).mtn_order_id))
+      if (!providerOrder?.status) continue
+      const providerStatus = normalizeStatus(providerOrder.status)
+      if (isReversal({ trackingStatus: "completed", completedAt: (cand as any).updated_at, providerStatus })) {
+        await flagReversal(supabase, cand, { status: providerOrder.status, message: providerOrder.message })
+        reversed++
+        console.log(`[CRON] ⚠️ Reversal flagged for ${(cand as any).mtn_order_id} (sykes)`)
+      }
+    }
+
     return NextResponse.json({
       success: true,
       message: `Synced ${ordersToSync.length} orders`,
@@ -601,6 +617,7 @@ export async function GET(request: NextRequest) {
       failed,
       notFound,
       unchanged: ordersToSync.length - synced - failed - notFound,
+      reversed,
       results,
     })
   } catch (error) {

@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js"
 import { checkMTNOrderStatus } from "@/lib/mtn-fulfillment"
 import { verifyCronAuth } from "@/lib/cron-auth"
 import { sendPushToUser } from "@/lib/push-service"
+import { fetchReversalCandidates, isReversal, flagReversal } from "@/lib/mtn-reversal"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -241,6 +242,19 @@ export async function GET(request: NextRequest) {
             }
         }
 
+        // ── Reversal safeguard (bounded to the existing rate budget) ──
+        let reversed = 0
+        const reversalCandidates = await fetchReversalCandidates(supabase, "bisdel", BATCH_SIZE)
+        for (const cand of reversalCandidates) {
+            const chk = await checkMTNOrderStatus((cand as any).mtn_order_id, "bisdel")
+            if (!chk.success || !chk.status) { await sleep(DELAY_BETWEEN_REQUESTS_MS); continue }
+            if (isReversal({ trackingStatus: "completed", completedAt: (cand as any).updated_at, providerStatus: chk.status })) {
+                await flagReversal(supabase, cand, { status: chk.order?.status ?? "failed", message: chk.message })
+                reversed++
+            }
+            await sleep(DELAY_BETWEEN_REQUESTS_MS)
+        }
+
         return NextResponse.json({
             success: true,
             synced,
@@ -248,6 +262,7 @@ export async function GET(request: NextRequest) {
             rateLimited,
             total: pendingOrders.length,
             results,
+            reversed,
             config: { batchSize: BATCH_SIZE, delayBetweenRequests: DELAY_BETWEEN_REQUESTS_MS },
         })
     } catch (error) {
