@@ -4,7 +4,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyCronAuth } from "@/lib/cron-auth"
-import { checkXpressWhitelist, checkCodecraftWhitelist } from "@/lib/mtn-providers/provider-whitelist"
+import { WHITELIST_REGISTRY } from "@/lib/mtn-providers/provider-whitelist"
 import { releaseWhitelistHeldOrders } from "@/lib/mtn-hold"
 
 export const dynamic = "force-dynamic"
@@ -41,19 +41,16 @@ export async function GET(request: NextRequest) {
   const rows = due ?? []
   let verified = 0, nowAllowed = 0, stillBlocked = 0, errors = 0
 
-  const hasXpress = !!process.env.XPRESS_KEY
-  const hasCodecraft = !!process.env.CODECRAFT_API_KEY
+  // Only use configured whitelist providers
+  const configuredProviders = WHITELIST_REGISTRY.filter(p => p.configured())
 
   for (const row of rows) {
     const phone = row.phone as string
     verified++
 
     try {
-      // Try both providers in parallel; allowed if either says yes.
-      const checks = await Promise.all([
-        hasXpress ? checkXpressWhitelist(phone) : Promise.resolve({ allowed: false, provider: "xpress" }),
-        hasCodecraft ? checkCodecraftWhitelist(phone) : Promise.resolve({ allowed: false, provider: "codecraft" }),
-      ])
+      // Try all configured providers in parallel; allowed if any says yes.
+      const checks = await Promise.all(configuredProviders.map(p => p.check(phone)))
       const allowedBy = checks.find(c => c.allowed)
 
       if (allowedBy) {

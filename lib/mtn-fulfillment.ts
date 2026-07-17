@@ -391,18 +391,18 @@ export async function createMTNOrder(order: MTNOrderRequest): Promise<MTNOrderRe
       ? getProviderByName(order.provider as any)
       : await getMTNProvider()
 
-    // Whitelist pre-check (Xpress / Codecraft only).
-    // If the primary provider blocks the number, try the other as fallback.
-    // Fails open so a provider API outage never blocks orders.
+    // Whitelist pre-check: try all configured whitelist providers in order
+    // (active provider first, then the rest). Runs regardless of which provider
+    // is currently selected — if any provider allows the number, that provider
+    // is used for fulfillment. Fails open so API outages never block orders.
     try {
-      const { isWhitelistProvider, checkWhitelistWithFallback } = await import("@/lib/mtn-providers/provider-whitelist")
-      if (isWhitelistProvider(provider.name)) {
+      const { hasWhitelistProviders, checkWhitelistForOrder } = await import("@/lib/mtn-providers/provider-whitelist")
+      if (hasWhitelistProviders()) {
         const { normalizeGhanaPhone } = await import("@/lib/phone-format")
         const norm = normalizeGhanaPhone(order.recipient_phone) ?? order.recipient_phone
-        const { allowed, provider: allowedBy } = await checkWhitelistWithFallback(norm, provider.name)
+        const { allowed, provider: allowedBy } = await checkWhitelistForOrder(norm, provider.name)
 
         if (!allowed) {
-          // Both providers blocked — hold and schedule retry
           await supabase.from("mtn_number_registry").upsert(
             {
               phone: norm,
@@ -414,7 +414,7 @@ export async function createMTNOrder(order: MTNOrderRequest): Promise<MTNOrderRe
             },
             { onConflict: "phone" }
           )
-          console.log(`[MTN-WHITELIST] HOLD — ${norm} blocked by all providers`)
+          console.log(`[MTN-WHITELIST] HOLD — ${norm} blocked by all whitelist providers`)
           return {
             success: false,
             held: true,
@@ -424,7 +424,7 @@ export async function createMTNOrder(order: MTNOrderRequest): Promise<MTNOrderRe
           }
         }
 
-        // Allowed — update registry and switch provider if fallback was used
+        // Allowed — record which provider approved and switch to it if needed
         await supabase.from("mtn_number_registry").upsert(
           {
             phone: norm,
@@ -437,7 +437,7 @@ export async function createMTNOrder(order: MTNOrderRequest): Promise<MTNOrderRe
         )
         if (allowedBy && allowedBy !== provider.name) {
           provider = getProviderByName(allowedBy as any)
-          console.log(`[MTN-WHITELIST] Switched to fallback provider: ${allowedBy}`)
+          console.log(`[MTN-WHITELIST] Switched fulfillment to ${allowedBy} (approved by that provider)`)
         }
       }
     } catch (wlErr) {

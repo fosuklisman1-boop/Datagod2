@@ -1,10 +1,12 @@
 /**
- * MTN number whitelist verification for Xpress and Codecraft.
- * Both providers check whether a number is enabled for data delivery
- * before placing an order. Blocked numbers are auto-submitted to MTN
- * by the provider and typically become available within 24 hours.
+ * MTN number whitelist verification — registry-based approach.
  *
- * All functions fail-open — a network/API error never blocks an order.
+ * To add a new provider with whitelist support:
+ *   1. Implement check() and checkBatch() for it below
+ *   2. Add an entry to WHITELIST_REGISTRY
+ *   3. Set the provider's API key env var; configured() will auto-enable it
+ *
+ * All checks fail-open — a network/API error never blocks an order.
  */
 
 const XPRESS_BASE = "https://labppmcqsdeuollwcgwu.supabase.co/functions/v1/agent-api"
@@ -16,9 +18,9 @@ export type WhitelistResult = {
   reason?: string
 }
 
-// ── Single-number checks ──────────────────────────────────────────────────────
+// ── Per-provider implementations ──────────────────────────────────────────────
 
-export async function checkXpressWhitelist(msisdn: string): Promise<WhitelistResult> {
+async function checkXpress(msisdn: string): Promise<WhitelistResult> {
   try {
     const res = await fetch(
       `${XPRESS_BASE}/mtn-whitelist/verify?msisdn=${encodeURIComponent(msisdn)}`,
@@ -33,32 +35,10 @@ export async function checkXpressWhitelist(msisdn: string): Promise<WhitelistRes
   }
 }
 
-export async function checkCodecraftWhitelist(msisdn: string): Promise<WhitelistResult> {
-  try {
-    const res = await fetch(`${CODECRAFT_BASE}/verify-phone.php`, {
-      method: "POST",
-      headers: { "x-api-key": process.env.CODECRAFT_API_KEY!, "Content-Type": "application/json" },
-      body: JSON.stringify({ phone_number: msisdn }),
-    })
-    if (!res.ok) return { allowed: true, provider: "codecraft" }
-    const data = await res.json()
-    return {
-      allowed: data.data?.verified === true,
-      provider: "codecraft",
-      reason: data.data?.message,
-    }
-  } catch {
-    return { allowed: true, provider: "codecraft" }
-  }
-}
-
-// ── Batch checks ──────────────────────────────────────────────────────────────
-
-export async function checkXpressWhitelistBatch(
+async function checkXpressBatch(
   msisdns: string[]
 ): Promise<Array<{ msisdn: string; allowed: boolean; reason?: string }>> {
   const results: Array<{ msisdn: string; allowed: boolean; reason?: string }> = []
-  // Xpress: up to 1000 per request
   for (let i = 0; i < msisdns.length; i += 1000) {
     const chunk = msisdns.slice(i, i + 1000)
     try {
@@ -67,10 +47,7 @@ export async function checkXpressWhitelistBatch(
         headers: { "X-API-Key": process.env.XPRESS_KEY!, "Content-Type": "application/json" },
         body: JSON.stringify({ msisdns: chunk }),
       })
-      if (!res.ok) {
-        chunk.forEach(m => results.push({ msisdn: m, allowed: true }))
-        continue
-      }
+      if (!res.ok) { chunk.forEach(m => results.push({ msisdn: m, allowed: true })); continue }
       const data = await res.json()
       results.push(...(data.results ?? chunk.map((m: string) => ({ msisdn: m, allowed: true }))))
     } catch {
@@ -80,11 +57,25 @@ export async function checkXpressWhitelistBatch(
   return results
 }
 
-export async function checkCodecraftWhitelistBatch(
+async function checkCodecraft(msisdn: string): Promise<WhitelistResult> {
+  try {
+    const res = await fetch(`${CODECRAFT_BASE}/verify-phone.php`, {
+      method: "POST",
+      headers: { "x-api-key": process.env.CODECRAFT_API_KEY!, "Content-Type": "application/json" },
+      body: JSON.stringify({ phone_number: msisdn }),
+    })
+    if (!res.ok) return { allowed: true, provider: "codecraft" }
+    const data = await res.json()
+    return { allowed: data.data?.verified === true, provider: "codecraft", reason: data.data?.message }
+  } catch {
+    return { allowed: true, provider: "codecraft" }
+  }
+}
+
+async function checkCodecraftBatch(
   msisdns: string[]
 ): Promise<Array<{ msisdn: string; allowed: boolean; reason?: string }>> {
   const results: Array<{ msisdn: string; allowed: boolean; reason?: string }> = []
-  // Codecraft: up to 100 per request
   for (let i = 0; i < msisdns.length; i += 100) {
     const chunk = msisdns.slice(i, i + 100)
     try {
@@ -93,18 +84,13 @@ export async function checkCodecraftWhitelistBatch(
         headers: { "x-api-key": process.env.CODECRAFT_API_KEY!, "Content-Type": "application/json" },
         body: JSON.stringify({ phone_numbers: chunk }),
       })
-      if (!res.ok) {
-        chunk.forEach(m => results.push({ msisdn: m, allowed: true }))
-        continue
-      }
+      if (!res.ok) { chunk.forEach(m => results.push({ msisdn: m, allowed: true })); continue }
       const data = await res.json()
-      const batchResults: Array<{ msisdn: string; allowed: boolean; reason?: string }> =
-        (data.data?.results ?? []).map((r: { phone_number: string; verified: boolean; message?: string }) => ({
-          msisdn: r.phone_number,
-          allowed: r.verified === true,
-          reason: r.message,
-        }))
-      results.push(...batchResults)
+      results.push(...(data.data?.results ?? []).map((r: { phone_number: string; verified: boolean; message?: string }) => ({
+        msisdn: r.phone_number,
+        allowed: r.verified === true,
+        reason: r.message,
+      })))
     } catch {
       chunk.forEach(m => results.push({ msisdn: m, allowed: true }))
     }
@@ -112,43 +98,107 @@ export async function checkCodecraftWhitelistBatch(
   return results
 }
 
-// ── Fallback logic ────────────────────────────────────────────────────────────
+// ── Registry ──────────────────────────────────────────────────────────────────
+// Add new whitelist-capable providers here. Order matters: providers listed
+// earlier are tried first when the active provider doesn't support whitelist.
 
-const WHITELIST_PROVIDERS = new Set(["xpress", "codecraft"])
+type WhitelistEntry = {
+  name: string
+  configured: () => boolean
+  check: (msisdn: string) => Promise<WhitelistResult>
+  checkBatch: (msisdns: string[]) => Promise<Array<{ msisdn: string; allowed: boolean; reason?: string }>>
+}
+
+export const WHITELIST_REGISTRY: WhitelistEntry[] = [
+  {
+    name: "xpress",
+    configured: () => !!process.env.XPRESS_KEY,
+    check: checkXpress,
+    checkBatch: checkXpressBatch,
+  },
+  {
+    name: "codecraft",
+    configured: () => !!process.env.CODECRAFT_API_KEY,
+    check: checkCodecraft,
+    checkBatch: checkCodecraftBatch,
+  },
+  // Add future whitelist providers here ↓
+]
+
+// ── Order-level check ─────────────────────────────────────────────────────────
 
 /**
- * Check the primary provider's whitelist. If blocked, try the other provider
- * as a fallback (so the order can fulfil via that provider instead).
- * Returns { allowed, provider } — provider is which one allowed it (or null if
- * both blocked), and is used by the caller to switch fulfillment provider.
+ * Check whether a number is allowed by any whitelist-capable provider.
+ *
+ * Always runs if ANY whitelist provider is configured — regardless of which
+ * provider is currently selected for fulfillment. The active provider is
+ * tried first (if it supports whitelist), then the rest in registry order.
+ *
+ * Returns { allowed, provider } where provider is the name of the one that
+ * approved the number (so the caller can switch fulfillment to that provider),
+ * or null if all providers blocked it.
+ *
+ * Fails open: if no whitelist providers are configured, returns allowed=true.
  */
+export async function checkWhitelistForOrder(
+  msisdn: string,
+  activeProvider: string
+): Promise<{ allowed: boolean; provider: string | null }> {
+  const configured = WHITELIST_REGISTRY.filter(p => p.configured())
+  if (configured.length === 0) return { allowed: true, provider: null }
+
+  // Put the active provider first (if it supports whitelist), then the rest
+  const ordered = [
+    ...configured.filter(p => p.name === activeProvider),
+    ...configured.filter(p => p.name !== activeProvider),
+  ]
+
+  for (const entry of ordered) {
+    const result = await entry.check(msisdn)
+    if (result.allowed) return { allowed: true, provider: entry.name }
+  }
+
+  return { allowed: false, provider: null }
+}
+
+/**
+ * True if ANY configured provider in the registry supports whitelist.
+ * Use this to decide whether to run the check at all.
+ */
+export function hasWhitelistProviders(): boolean {
+  return WHITELIST_REGISTRY.some(p => p.configured())
+}
+
+// ── Batch helpers (used by retry cron + admin endpoint) ───────────────────────
+
+export async function checkXpressWhitelist(msisdn: string): Promise<WhitelistResult> {
+  return checkXpress(msisdn)
+}
+
+export async function checkCodecraftWhitelist(msisdn: string): Promise<WhitelistResult> {
+  return checkCodecraft(msisdn)
+}
+
+export async function checkXpressWhitelistBatch(
+  msisdns: string[]
+): Promise<Array<{ msisdn: string; allowed: boolean; reason?: string }>> {
+  return checkXpressBatch(msisdns)
+}
+
+export async function checkCodecraftWhitelistBatch(
+  msisdns: string[]
+): Promise<Array<{ msisdn: string; allowed: boolean; reason?: string }>> {
+  return checkCodecraftBatch(msisdns)
+}
+
+/** @deprecated Use checkWhitelistForOrder instead */
 export async function checkWhitelistWithFallback(
   msisdn: string,
   primaryProvider: string
 ): Promise<{ allowed: boolean; provider: string | null }> {
-  if (!WHITELIST_PROVIDERS.has(primaryProvider)) {
-    return { allowed: true, provider: primaryProvider }
-  }
-
-  const primary = primaryProvider === "xpress"
-    ? await checkXpressWhitelist(msisdn)
-    : await checkCodecraftWhitelist(msisdn)
-
-  if (primary.allowed) return { allowed: true, provider: primaryProvider }
-
-  // Primary blocked — try the other provider as fallback
-  const fallbackName = primaryProvider === "xpress" ? "codecraft" : "xpress"
-  const fallbackKey = fallbackName === "xpress" ? process.env.XPRESS_KEY : process.env.CODECRAFT_API_KEY
-  if (!fallbackKey) return { allowed: false, provider: null }
-
-  const fallback = fallbackName === "xpress"
-    ? await checkXpressWhitelist(msisdn)
-    : await checkCodecraftWhitelist(msisdn)
-
-  if (fallback.allowed) return { allowed: true, provider: fallbackName }
-  return { allowed: false, provider: null }
+  return checkWhitelistForOrder(msisdn, primaryProvider)
 }
 
 export function isWhitelistProvider(providerName: string): boolean {
-  return WHITELIST_PROVIDERS.has(providerName)
+  return WHITELIST_REGISTRY.some(p => p.name === providerName && p.configured())
 }

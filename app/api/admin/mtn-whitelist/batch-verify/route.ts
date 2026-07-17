@@ -5,10 +5,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
-import {
-  checkXpressWhitelistBatch,
-  checkCodecraftWhitelistBatch,
-} from "@/lib/mtn-providers/provider-whitelist"
+import { WHITELIST_REGISTRY } from "@/lib/mtn-providers/provider-whitelist"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
@@ -25,7 +22,17 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}))
   const offset = Number(body.offset ?? 0)
   const limit = Number(body.limit ?? 1000)
-  const provider: "xpress" | "codecraft" | "both" = body.provider ?? "both"
+  // Optional filter: only run specific providers (comma-separated names), default = all configured
+  const providerFilter: string[] = body.providers
+    ? String(body.providers).split(",").map((s: string) => s.trim())
+    : []
+
+  const configuredProviders = WHITELIST_REGISTRY.filter(
+    p => p.configured() && (providerFilter.length === 0 || providerFilter.includes(p.name))
+  )
+  if (configuredProviders.length === 0) {
+    return NextResponse.json({ error: "No whitelist providers configured" }, { status: 400 })
+  }
 
   // Fetch a page of numbers to verify
   const { data: rows, error, count } = await supabase
@@ -40,35 +47,14 @@ export async function POST(request: NextRequest) {
   if (phones.length === 0) return NextResponse.json({ ok: true, done: true, total: count ?? 0 })
 
   const allowed = new Set<string>()
-  const blockedBy: Record<string, string> = {}
 
-  // Run selected provider(s) batch check
-  if (provider === "xpress" || provider === "both") {
-    if (process.env.XPRESS_KEY) {
-      const results = await checkXpressWhitelistBatch(phones)
-      for (const r of results) {
-        if (r.allowed) allowed.add(r.msisdn)
-        else if (!allowed.has(r.msisdn)) blockedBy[r.msisdn] = "xpress"
-      }
-    }
-  }
-  if (provider === "codecraft" || provider === "both") {
-    if (process.env.CODECRAFT_API_KEY) {
-      // Only re-check numbers not yet allowed by xpress
-      const toCheck = provider === "both" ? phones.filter(p => !allowed.has(p)) : phones
-      if (toCheck.length > 0) {
-        const results = await checkCodecraftWhitelistBatch(toCheck)
-        for (const r of results) {
-          if (r.allowed) {
-            allowed.add(r.msisdn)
-            delete blockedBy[r.msisdn]
-          } else if (!allowed.has(r.msisdn)) {
-            blockedBy[r.msisdn] = blockedBy[r.msisdn]
-              ? `${blockedBy[r.msisdn]}+codecraft`
-              : "codecraft"
-          }
-        }
-      }
+  // Run each provider's batch check in sequence; once a number is allowed, skip it for later providers
+  for (const entry of configuredProviders) {
+    const toCheck = phones.filter(p => !allowed.has(p))
+    if (toCheck.length === 0) break
+    const results = await entry.checkBatch(toCheck)
+    for (const r of results) {
+      if (r.allowed) allowed.add(r.msisdn)
     }
   }
 
