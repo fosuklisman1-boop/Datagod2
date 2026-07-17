@@ -104,6 +104,10 @@
     {
       "path": "/api/cron/mtn-whitelist-retry",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/check-mtn-balance",
+      "schedule": "*/30 * * * *"
     }
   ]
 }

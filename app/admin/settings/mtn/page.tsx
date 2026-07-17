@@ -7,8 +7,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Settings, Loader2, AlertCircle, CheckCircle, Zap, WifiOff, Wallet, FileText, ToggleLeft, ToggleRight, ShieldCheck } from "lucide-react"
+import { Settings, Loader2, AlertCircle, CheckCircle, Zap, WifiOff, Wallet, FileText, ToggleLeft, ToggleRight, ShieldCheck, Bell } from "lucide-react"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
@@ -70,6 +72,11 @@ export default function MTNSettingsPage() {
   const [loadingWhitelist, setLoadingWhitelist] = useState(true)
   const [togglingWhitelist, setTogglingWhitelist] = useState(false)
 
+  // Balance alert threshold
+  const [threshold, setThreshold] = useState<number>(500)
+  const [thresholdInput, setThresholdInput] = useState<string>("500")
+  const [savingThreshold, setSavingThreshold] = useState(false)
+
   // Per-network provider selectors (Telecel / AT-iShare / AT-BigTime)
   type NonMTNProvider = "datakazina" | "xpress" | "eazyghdata" | "codecraft"
   const [telecelProvider, setTelecelProvider] = useState<NonMTNProvider>("codecraft")
@@ -92,6 +99,7 @@ export default function MTNSettingsPage() {
     loadNetworkProvider("telecel", setTelecelProvider)
     loadNetworkProvider("at_ishare", setAtIshareProvider)
     loadNetworkProvider("at_bigtime", setAtBigtimeProvider)
+    loadThreshold()
 
     // Refresh balance every 30 seconds
     const balanceInterval = setInterval(loadBalance, 30000)
@@ -408,6 +416,39 @@ export default function MTNSettingsPage() {
     } finally {
       setSavingProvider(false)
     }
+  }
+
+  const loadThreshold = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch("/api/admin/settings/balance-threshold", {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      })
+      if (res.ok) {
+        const d = await res.json()
+        setThreshold(d.threshold)
+        setThresholdInput(String(d.threshold))
+      }
+    } catch (e) { console.error("Error loading threshold:", e) }
+  }
+
+  const handleSaveThreshold = async () => {
+    const value = parseInt(thresholdInput, 10)
+    if (isNaN(value) || value < 0) { toast.error("Enter a valid number"); return }
+    setSavingThreshold(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) { toast.error("Authentication required"); return }
+      const res = await fetch("/api/admin/settings/balance-threshold", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ threshold: value }),
+      })
+      if (!res.ok) throw new Error("Failed to save")
+      setThreshold(value)
+      toast.success(`Alert threshold set to ₵${value}`)
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Failed to update") }
+    finally { setSavingThreshold(false) }
   }
 
   const loadNetworkProvider = async (network: string, setter: (v: any) => void) => {
@@ -866,9 +907,30 @@ export default function MTNSettingsPage() {
                   </Alert>
                 )}
 
-                <div className="flex justify-between text-sm text-muted-foreground p-3 bg-muted/40 rounded">
-                  <span>Alert Threshold:</span>
-                  <span className="font-medium">₵{balance.threshold}</span>
+                <div className="p-3 bg-muted/40 rounded space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Bell className="h-4 w-4 text-muted-foreground" />
+                    <Label className="text-sm font-medium">Alert Threshold</Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">₵</span>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={thresholdInput}
+                      onChange={(e) => setThresholdInput(e.target.value)}
+                      className="w-32 h-8 text-sm"
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleSaveThreshold}
+                      disabled={savingThreshold || thresholdInput === String(threshold)}
+                    >
+                      {savingThreshold ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
+                    </Button>
+                    <span className="text-xs text-muted-foreground">SMS + email alert fires when any balance drops below this value</span>
+                  </div>
                 </div>
 
                 <Button

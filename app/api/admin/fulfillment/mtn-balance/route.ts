@@ -8,7 +8,7 @@ import { XpressProvider } from "@/lib/mtn-providers/xpress-provider"
 import { EazyGhDataProvider } from "@/lib/mtn-providers/eazyghdata-provider"
 import { BisdelProvider } from "@/lib/mtn-providers/bisdel-provider"
 import { CodeCraftMTNProvider } from "@/lib/mtn-providers/codecraft-provider"
-import { notifyAdmins } from "@/lib/email-service"
+import { sendLowBalanceAlert } from "@/lib/mtn-balance-alert"
 
 /**
  * GET /api/admin/fulfillment/mtn-balance
@@ -59,9 +59,11 @@ export async function GET(request: NextRequest) {
     const bisdelLow = bisdelBalance !== null && bisdelBalance < threshold
     const codeCraftLow = codeCraftBalance !== null && codeCraftBalance < threshold
 
-    // Send SMS alert if any balance is low
+    const balanceMap = { sykes: sykesBalance, datakazina: datakazinaBalance, xpress: xpressBalance, eazyghdata: eazyghDataBalance, bisdel: bisdelBalance, codecraft: codeCraftBalance }
+    const lowMap = { sykes: sykesLow, datakazina: datakazinaLow, xpress: xpressLow, eazyghdata: eazyghDataLow, bisdel: bisdelLow, codecraft: codeCraftLow }
+
     if (sykesLow || datakazinaLow || xpressLow || eazyghDataLow || bisdelLow || codeCraftLow) {
-      await sendLowBalanceAlert(sykesBalance, datakazinaBalance, xpressBalance, eazyghDataBalance, bisdelBalance, codeCraftBalance, threshold, sykesLow, datakazinaLow, xpressLow, eazyghDataLow, bisdelLow, codeCraftLow)
+      sendLowBalanceAlert(balanceMap, lowMap, threshold).catch((e) => console.error("[MTN Balance] Alert error:", e))
     }
 
     return NextResponse.json({
@@ -123,157 +125,3 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/**
- * Send SMS alert when balance is low
- */
-async function sendLowBalanceAlert(
-  sykesBalance: number | null,
-  datakazinaBalance: number | null,
-  xpressBalance: number | null,
-  eazyghDataBalance: number | null,
-  bisdelBalance: number | null,
-  codeCraftBalance: number | null,
-  threshold: number,
-  sykesLow: boolean,
-  datakazinaLow: boolean,
-  xpressLow: boolean,
-  eazyghDataLow: boolean,
-  bisdelLow: boolean,
-  codeCraftLow: boolean
-) {
-  try {
-    // Get admin phone number from settings
-    const { data: adminPhone } = await supabase
-      .from("admin_settings")
-      .select("value")
-      .eq("key", "admin_alert_phone")
-      .single()
-
-    if (!adminPhone?.value?.phone) {
-      console.warn("[Balance Alert] No admin phone configured")
-      return
-    }
-
-    // Check if we already sent an alert recently (avoid spam)
-    const { data: recentAlert } = await supabase
-      .from("admin_settings")
-      .select("value")
-      .eq("key", "last_balance_alert")
-      .single()
-
-    const lastAlertTime = recentAlert?.value?.timestamp ? new Date(recentAlert.value.timestamp) : null
-    const now = new Date()
-
-    // Only send alert once per hour
-    if (lastAlertTime && (now.getTime() - lastAlertTime.getTime()) < 3600000) {
-      console.log("[Balance Alert] Alert sent recently, skipping")
-      return
-    }
-
-    // Build alert message
-    let message = "⚠️ MTN WALLET ALERT\n\n"
-
-    if (sykesLow && sykesBalance !== null) {
-      message += `Sykes: ₵${sykesBalance.toFixed(2)} (LOW)\n`
-    }
-    if (datakazinaLow && datakazinaBalance !== null) {
-      message += `DataKazina: ₵${datakazinaBalance.toFixed(2)} (LOW)\n`
-    }
-    if (xpressLow && xpressBalance !== null) {
-      message += `Xpress: ₵${xpressBalance.toFixed(2)} (LOW)\n`
-    }
-    if (eazyghDataLow && eazyghDataBalance !== null) {
-      message += `EazyGhData: ₵${eazyghDataBalance.toFixed(2)} (LOW)\n`
-    }
-    if (bisdelLow && bisdelBalance !== null) {
-      message += `Bisdel: ₵${bisdelBalance.toFixed(2)} (LOW)\n`
-    }
-    if (codeCraftLow && codeCraftBalance !== null) {
-      message += `CodeCraft: ₵${codeCraftBalance.toFixed(2)} (LOW)\n`
-    }
-
-    message += `\nThreshold: ₵${threshold}\nPlease top up your MTN account(s).`
-
-    // Send SMS via Termii (adjust to your SMS provider)
-    const TERMII_API_KEY = process.env.TERMII_API_KEY
-    const TERMII_SENDER_ID = process.env.TERMII_SENDER_ID || "DataGod"
-
-    if (!TERMII_API_KEY) {
-      console.warn("[Balance Alert] No Termii API key configured")
-      return
-    }
-
-    await fetch("https://api.ng.termii.com/api/sms/send", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        to: adminPhone.value.phone,
-        from: TERMII_SENDER_ID,
-        sms: message,
-        type: "plain",
-        channel: "generic",
-        api_key: TERMII_API_KEY,
-      }),
-    })
-
-    // Send Email alert to all admins
-    try {
-      let emailMessage = `<div style="text-align: center;">
-        <h2 style="color: #dc2626;">⚠️ MTN Wallet Balance Alert</h2>
-        <p>One or more MTN provider balances have fallen below the threshold.</p>
-      </div>
-
-      <div style="background-color: #fee2e2; border-radius: 8px; padding: 20px; border: 1px solid #fca5a5; margin: 20px 0;">
-        <h3 style="margin-top: 0; color: #991b1b;">Low Balance Details:</h3>`
-
-      if (sykesLow && sykesBalance !== null) {
-        emailMessage += `<p style="margin: 10px 0;"><strong>Sykes Provider:</strong> ₵${sykesBalance.toFixed(2)} <span style="color: #dc2626; font-weight: bold;">(LOW)</span></p>`
-      }
-      if (datakazinaLow && datakazinaBalance !== null) {
-        emailMessage += `<p style="margin: 10px 0;"><strong>DataKazina Provider:</strong> ₵${datakazinaBalance.toFixed(2)} <span style="color: #dc2626; font-weight: bold;">(LOW)</span></p>`
-      }
-      if (xpressLow && xpressBalance !== null) {
-        emailMessage += `<p style="margin: 10px 0;"><strong>Xpress Provider:</strong> ₵${xpressBalance.toFixed(2)} <span style="color: #dc2626; font-weight: bold;">(LOW)</span></p>`
-      }
-      if (eazyghDataLow && eazyghDataBalance !== null) {
-        emailMessage += `<p style="margin: 10px 0;"><strong>EazyGhData Provider:</strong> ₵${eazyghDataBalance.toFixed(2)} <span style="color: #dc2626; font-weight: bold;">(LOW)</span></p>`
-      }
-      if (bisdelLow && bisdelBalance !== null) {
-        emailMessage += `<p style="margin: 10px 0;"><strong>Bisdel Provider:</strong> ₵${bisdelBalance.toFixed(2)} <span style="color: #dc2626; font-weight: bold;">(LOW)</span></p>`
-      }
-      if (codeCraftLow && codeCraftBalance !== null) {
-        emailMessage += `<p style="margin: 10px 0;"><strong>CodeCraft Provider:</strong> ₵${codeCraftBalance.toFixed(2)} <span style="color: #dc2626; font-weight: bold;">(LOW)</span></p>`
-      }
-
-      emailMessage += `<p style="margin: 15px 0 0 0; padding-top: 15px; border-top: 1px solid #fca5a5;">
-        <strong>Alert Threshold:</strong> ₵${threshold}
-      </p>
-      </div>
-
-      <div style="background-color: #fef3c7; border-radius: 8px; padding: 15px; border: 1px solid #fbbf24;">
-        <p style="margin: 0; color: #92400e;">
-          <strong>⚠️ Action Required:</strong> Please top up your MTN account(s) to avoid service disruption.
-        </p>
-      </div>`
-
-      await notifyAdmins("⚠️ MTN Wallet Balance Alert - Low Balance Detected", emailMessage)
-      console.log("[Balance Alert] Email sent successfully")
-    } catch (emailError) {
-      console.error("[Balance Alert] Failed to send email:", emailError)
-    }
-
-    // Update last alert timestamp
-    await supabase
-      .from("admin_settings")
-      .upsert({
-        key: "last_balance_alert",
-        value: { timestamp: now.toISOString() }
-      })
-
-    console.log("[Balance Alert] SMS sent successfully")
-  } catch (error) {
-    console.error("[Balance Alert] Failed to send SMS:", error)
-  }
-}
