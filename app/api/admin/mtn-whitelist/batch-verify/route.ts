@@ -16,8 +16,8 @@ const supabase = createClient(
 )
 
 export async function POST(request: NextRequest) {
-  const authErr = await verifyAdminAccess(request)
-  if (authErr) return authErr
+  const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+  if (!isAdmin) return errorResponse!
 
   const body = await request.json().catch(() => ({}))
   const offset = Number(body.offset ?? 0)
