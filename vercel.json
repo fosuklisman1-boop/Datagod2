@@ -100,6 +100,10 @@
     {
       "path": "/api/cron/release-held-mtn-orders",
       "schedule": "7 * * * *"
+    },
+    {
+      "path": "/api/cron/mtn-whitelist-retry",
+      "schedule": "0 6 * * *"
     }
   ]
 }

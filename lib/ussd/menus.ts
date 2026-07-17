@@ -251,14 +251,16 @@ export function recipientPrompt(): string {
   return 'Enter recipient number\n(who gets the data):\n\n0. Back'
 }
 
-export function confirmMenu(network: string, size: string, price: number, recipient: string, dialingPhone: string): string {
+export function confirmMenu(network: string, size: string, price: number, recipient: string, dialingPhone: string, holdWarning = false): string {
   const localDialing = formatLocal(dialingPhone)
   const localRecipient = formatLocal(recipient)
+  const warning = holdWarning ? `New numbers: 24-48h\n` : ''
   return (
     `Confirm:\n` +
     `${formatBundleSize(size)} ${network}\n` +
     `To: ${localRecipient}\n` +
     `GHS ${price.toFixed(2)} from\n${localDialing}\n\n` +
+    `${warning}` +
     `1. Pay now\n2. Cancel`
   )
 }

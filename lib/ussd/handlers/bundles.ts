@@ -95,10 +95,15 @@ export async function handleSelectNetwork(
     : dialingPhone.startsWith('233') ? '0' + dialingPhone.slice(3)
     : dialingPhone
 
-  const [{ data: userRow }, { data: settingsRow }] = await Promise.all([
+  const [{ data: userRow }, { data: settingsRow }, { data: mtnProviderRow }] = await Promise.all([
     supabase.from("users").select("id, role").eq("phone_number", localPhone).maybeSingle(),
     supabase.from("app_settings").select("ussd_price_tier").single(),
+    net.dbName === 'MTN'
+      ? supabase.from("admin_settings").select("value").eq("key", "mtn_provider_selection").maybeSingle()
+      : Promise.resolve({ data: null }),
   ])
+  const mtnWhitelistActive = net.dbName === 'MTN' &&
+    ['xpress', 'codecraft'].includes(mtnProviderRow?.value?.provider ?? '')
 
   let effectivePriceTier: string = settingsRow?.ussd_price_tier ?? 'regular'
   let subAgentParentShopId: string | undefined
@@ -149,6 +154,7 @@ export async function handleSelectNetwork(
     bundlePage: 0,
     bundleCache: bundles,
     bundleTotal: total,
+    mtnWhitelistActive,
   })
 
   return cont(bundleMenu(bundles, 0, total))
@@ -247,7 +253,8 @@ export async function handleEnterRecipient(
     session.bundleSize!,
     session.bundlePrice!,
     local,
-    session.dialingPhone!
+    session.dialingPhone!,
+    session.mtnWhitelistActive === true
   ))
 }
 
@@ -269,7 +276,8 @@ export async function handleConfirm(
       session.bundleSize!,
       session.bundlePrice!,
       session.recipientPhone!,
-      session.dialingPhone!
+      session.dialingPhone!,
+      session.mtnWhitelistActive === true
     ))
   }
 

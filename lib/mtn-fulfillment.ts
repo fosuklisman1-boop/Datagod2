@@ -387,9 +387,62 @@ export async function createMTNOrder(order: MTNOrderRequest): Promise<MTNOrderRe
     }
 
     // Get the selected provider (either forced in request or from global settings)
-    const provider = order.provider
+    let provider = order.provider
       ? getProviderByName(order.provider as any)
       : await getMTNProvider()
+
+    // Whitelist pre-check (Xpress / Codecraft only).
+    // If the primary provider blocks the number, try the other as fallback.
+    // Fails open so a provider API outage never blocks orders.
+    try {
+      const { isWhitelistProvider, checkWhitelistWithFallback } = await import("@/lib/mtn-providers/provider-whitelist")
+      if (isWhitelistProvider(provider.name)) {
+        const { normalizeGhanaPhone } = await import("@/lib/phone-format")
+        const norm = normalizeGhanaPhone(order.recipient_phone) ?? order.recipient_phone
+        const { allowed, provider: allowedBy } = await checkWhitelistWithFallback(norm, provider.name)
+
+        if (!allowed) {
+          // Both providers blocked — hold and schedule retry
+          await supabase.from("mtn_number_registry").upsert(
+            {
+              phone: norm,
+              source: "whitelist_check",
+              whitelist_status: "blocked",
+              whitelist_last_checked: new Date().toISOString(),
+              whitelist_retry_count: 0,
+              whitelist_allowed_by: null,
+            },
+            { onConflict: "phone" }
+          )
+          console.log(`[MTN-WHITELIST] HOLD — ${norm} blocked by all providers`)
+          return {
+            success: false,
+            held: true,
+            message: "Number not yet enabled for data delivery — order held, retrying every 24h",
+            traceId: order.traceId,
+            error_type: "WHITELIST_BLOCKED",
+          }
+        }
+
+        // Allowed — update registry and switch provider if fallback was used
+        await supabase.from("mtn_number_registry").upsert(
+          {
+            phone: norm,
+            source: "whitelist_check",
+            whitelist_status: "allowed",
+            whitelist_last_checked: new Date().toISOString(),
+            whitelist_allowed_by: allowedBy,
+          },
+          { onConflict: "phone" }
+        )
+        if (allowedBy && allowedBy !== provider.name) {
+          provider = getProviderByName(allowedBy as any)
+          console.log(`[MTN-WHITELIST] Switched to fallback provider: ${allowedBy}`)
+        }
+      }
+    } catch (wlErr) {
+      console.error("[MTN-WHITELIST] Check failed — failing open:", wlErr)
+    }
 
     console.log(`[MTN] Creating order with provider: ${provider.name}`)
 

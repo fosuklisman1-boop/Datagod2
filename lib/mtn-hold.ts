@@ -193,3 +193,65 @@ export async function releaseHeldMtnOrders(
   if (checked > 0) console.log(`[MTN-RELEASE] checked=${checked} released=${released} dispatched=${dispatched} queuedManual=${queuedManual} failed=${failed}`)
   return { checked, released, dispatched, queuedManual, failed }
 }
+
+/**
+ * Release held_registration orders for numbers now approved by the provider
+ * whitelist. Unlike releaseHeldMtnOrders this does NOT re-check mtn_number_registry
+ * status — approval came from the provider API itself.
+ */
+export async function releaseWhitelistHeldOrders(
+  phones: string[]
+): Promise<{ released: number; dispatched: number; failed: number }> {
+  const supabase = serviceClient()
+  const { normalizeGhanaPhone } = await import("@/lib/phone-format")
+  const phoneSet = new Set(phones.map(p => normalizeGhanaPhone(p) ?? p))
+
+  let released = 0, dispatched = 0, failed = 0
+
+  for (const table of MTN_ORDER_TABLES) {
+    const statusCol = statusColumnFor(table)
+    const phoneCol = phoneColumnFor(table)
+    const isUssd = table === "ussd_orders" || table === "ussd_shop_orders"
+    const extraCols = isUssd ? ", network, package_size" : ""
+
+    const { data: rows } = await supabase
+      .from(table)
+      .select(`id, ${phoneCol}${extraCols}`)
+      .eq(statusCol, HOLD_STATUS)
+      .in(phoneCol, [...phoneSet])
+
+    for (const row of (rows ?? []) as any[]) {
+      const { data: claimed } = await supabase
+        .from(table)
+        .update({ [statusCol]: "pending", updated_at: new Date().toISOString() })
+        .eq("id", row.id)
+        .eq(statusCol, HOLD_STATUS)
+        .select("id")
+
+      if (!claimed || claimed.length === 0) continue
+      released++
+
+      try {
+        if (isUssd) {
+          const { fulfillUssdOrder } = await import("@/lib/ussd/fulfill")
+          const res = await fulfillUssdOrder(
+            row.id, row.network ?? "MTN", row[phoneCol], row.package_size ?? "",
+            false, table
+          )
+          res.success ? dispatched++ : failed++
+        } else {
+          const { processManualFulfillment } = await import("@/lib/fulfillment-service")
+          const orderType = table === "orders" ? "bulk" : table === "api_orders" ? "api" : "shop"
+          const res = await processManualFulfillment(row.id, orderType)
+          res.success ? dispatched++ : failed++
+        }
+      } catch (err) {
+        console.error(`[MTN-WL-RELEASE] dispatch failed for ${table}/${row.id}:`, err)
+        failed++
+      }
+    }
+  }
+
+  console.log(`[MTN-WL-RELEASE] released=${released} dispatched=${dispatched} failed=${failed}`)
+  return { released, dispatched, failed }
+}

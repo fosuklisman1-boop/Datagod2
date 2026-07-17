@@ -69,7 +69,8 @@ export interface BundleOption {
 export interface USSDSession {
   step: USSDStep
   dialingPhone?: string
-  dataBlocked?: boolean       // true when whitelist is ON and caller is not a registered user
+  dataBlocked?: boolean        // true when whitelist is ON and caller is not a registered user
+  mtnWhitelistActive?: boolean // true when active MTN provider requires whitelist (xpress/codecraft)
   network?: string           // 'MTN' | 'Telecel' | 'AirtelTigo' | 'AT-iShare'
   paystackProvider?: string  // 'mtn' | 'vod' | 'tgo'
   bundleId?: string
