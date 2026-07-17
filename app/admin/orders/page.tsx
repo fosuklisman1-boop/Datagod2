@@ -86,6 +86,18 @@ export default function AdminOrdersPage() {
   const [loadingWhitelist, setLoadingWhitelist] = useState(true)
   const [togglingWhitelist, setTogglingWhitelist] = useState(false)
 
+  // Fulfill progress dialog
+  type ProgressStep = { label: string; status: "idle" | "running" | "done" | "error"; detail?: string }
+  const [fulfillProgress, setFulfillProgress] = useState<{
+    open: boolean
+    orderId: string
+    orderType: string
+    phone: string
+    provider: string
+    steps: ProgressStep[]
+    done: boolean
+  }>({ open: false, orderId: "", orderType: "", phone: "", provider: "", steps: [], done: false })
+
   // Bulk delete state
   const [deleteBatchesEndDate, setDeleteBatchesEndDate] = useState("")
   const [deletingBatches, setDeletingBatches] = useState(false)
@@ -486,6 +498,103 @@ export default function AdminOrdersPage() {
       loadPendingMTNOrders()
     } finally {
       setFulfillingMTNOrder(null)
+    }
+  }
+
+  const updateStep = (steps: ProgressStep[], idx: number, patch: Partial<ProgressStep>): ProgressStep[] =>
+    steps.map((s, i) => i === idx ? { ...s, ...patch } : s)
+
+  const startFulfillWithProgress = async (order: any, provider: string) => {
+    const phone = order.customer_phone || order.phone_number || "unknown"
+    const initialSteps: ProgressStep[] = [
+      { label: `Checking ${phone} against ${provider}`, status: "running" },
+      { label: "Dispatching order", status: "idle" },
+    ]
+    setFulfillProgress({ open: true, orderId: order.id, orderType: order.type || "shop", phone, provider, steps: initialSteps, done: false })
+
+    const { data: { session } } = await supabase.auth.getSession()
+    const headers = { "Content-Type": "application/json", ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}) }
+
+    // Step 1 — whitelist verify
+    let allowedBy: string | null = null
+    try {
+      const vRes = await fetch("/api/admin/fulfillment/verify-whitelist", {
+        method: "POST", headers, body: JSON.stringify({ phone, primaryProvider: provider }),
+      })
+      const vData = await vRes.json()
+
+      if (vData.results?.length) {
+        // Expand steps: one per provider that was checked
+        const verifySteps: ProgressStep[] = vData.results.map((r: { provider: string; allowed: boolean; reason?: string }) => ({
+          label: `Verified against ${r.provider}`,
+          status: r.allowed ? "done" : "error",
+          detail: r.allowed ? "✓ Number is enabled" : `✗ Blocked${r.reason ? `: ${r.reason}` : ""}`,
+        }))
+        setFulfillProgress(prev => ({
+          ...prev,
+          steps: [...verifySteps, { label: "Dispatching order", status: vData.allowed ? "running" : "error" }],
+        }))
+        allowedBy = vData.allowedBy ?? null
+        if (!vData.allowed) {
+          setFulfillProgress(prev => ({
+            ...prev,
+            steps: prev.steps.map((s, i) => i === prev.steps.length - 1 ? { ...s, detail: "All providers blocked — order will be held for retry" } : s),
+            done: true,
+          }))
+          await loadPendingMTNOrders()
+          return
+        }
+      } else {
+        // No providers configured — skip to dispatch
+        setFulfillProgress(prev => ({
+          ...prev,
+          steps: [
+            { label: "Whitelist check", status: "done", detail: "No providers configured — skipped" },
+            { label: "Dispatching order", status: "running" },
+          ],
+        }))
+        allowedBy = provider
+      }
+    } catch {
+      setFulfillProgress(prev => ({
+        ...prev,
+        steps: [
+          { label: `Verify against ${provider}`, status: "error", detail: "Check failed — proceeding (fail-open)" },
+          { label: "Dispatching order", status: "running" },
+        ],
+      }))
+      allowedBy = provider
+    }
+
+    // Step 2 — dispatch via the provider that allowed the number
+    const dispatchProvider = allowedBy ?? provider
+    try {
+      const dRes = await fetch("/api/admin/fulfillment/manual-fulfill", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ shop_order_id: order.id, order_type: order.type || "shop", provider: dispatchProvider }),
+      })
+      const dData = await dRes.json()
+      setFulfillProgress(prev => ({
+        ...prev,
+        steps: prev.steps.map((s, i) => i === prev.steps.length - 1
+          ? { ...s, status: dData.success ? "done" : "error", detail: dData.message || dData.error }
+          : s),
+        done: true,
+      }))
+      if (dData.success) {
+        setMTNFulfillmentStatus(prev => ({ ...prev, [order.id]: "fulfilled" }))
+        await loadPendingMTNOrders()
+      } else {
+        setMTNFulfillmentStatus(prev => ({ ...prev, [order.id]: "error" }))
+      }
+    } catch (e) {
+      setFulfillProgress(prev => ({
+        ...prev,
+        steps: prev.steps.map((s, i) => i === prev.steps.length - 1 ? { ...s, status: "error", detail: "Dispatch request failed" } : s),
+        done: true,
+      }))
+      setMTNFulfillmentStatus(prev => ({ ...prev, [order.id]: "error" }))
     }
   }
 
@@ -1706,7 +1815,7 @@ export default function AdminOrdersPage() {
                                 ].map(p => (
                                   <DropdownMenuItem
                                     key={p.value}
-                                    onClick={() => handleManualFulfill(order.id, p.value)}
+                                    onClick={() => startFulfillWithProgress(order, p.value)}
                                     className="cursor-pointer"
                                   >
                                     {p.label}
@@ -1724,6 +1833,49 @@ export default function AdminOrdersPage() {
             </Card>
           </TabsContent>
         </Tabs>
+
+        {/* Fulfill Progress Dialog */}
+        <Dialog open={fulfillProgress.open} onOpenChange={open => !open && setFulfillProgress(prev => ({ ...prev, open: false }))}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5 text-warning" />
+                Fulfilling Order
+              </DialogTitle>
+              <DialogDescription>
+                {fulfillProgress.phone} via <span className="font-semibold capitalize">{fulfillProgress.provider}</span>
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 py-2">
+              {fulfillProgress.steps.map((step, i) => (
+                <div key={i} className="flex items-start gap-3">
+                  <div className="mt-0.5 shrink-0">
+                    {step.status === "running" && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
+                    {step.status === "done"    && <CheckCircle className="h-4 w-4 text-success" />}
+                    {step.status === "error"   && <AlertCircle className="h-4 w-4 text-destructive" />}
+                    {step.status === "idle"    && <Clock className="h-4 w-4 text-muted-foreground" />}
+                  </div>
+                  <div>
+                    <p className={`text-sm font-medium ${
+                      step.status === "done" ? "text-success" :
+                      step.status === "error" ? "text-destructive" :
+                      step.status === "running" ? "text-foreground" :
+                      "text-muted-foreground"
+                    }`}>{step.label}</p>
+                    {step.detail && <p className="text-xs text-muted-foreground mt-0.5">{step.detail}</p>}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {fulfillProgress.done && (
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setFulfillProgress(prev => ({ ...prev, open: false }))}>
+                  Close
+                </Button>
+              </DialogFooter>
+            )}
+          </DialogContent>
+        </Dialog>
 
         {/* Network Selection Dialog */}
         <Dialog open={showNetworkSelection} onOpenChange={setShowNetworkSelection}>
