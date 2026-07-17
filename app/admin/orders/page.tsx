@@ -9,7 +9,8 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
-import { Download, CheckCircle, Clock, AlertCircle, Check, Loader2, Zap, ToggleLeft, ToggleRight, RefreshCw, Search, Send } from "lucide-react"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { Download, CheckCircle, Clock, AlertCircle, Check, Loader2, Zap, ToggleLeft, ToggleRight, RefreshCw, Search, Send, ChevronDown, ShieldCheck } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { toast } from "sonner"
@@ -80,6 +81,11 @@ export default function AdminOrdersPage() {
   const [loadingAutoFulfillment, setLoadingAutoFulfillment] = useState(true)
   const [togglingAutoFulfillment, setTogglingAutoFulfillment] = useState(false)
 
+  // MTN whitelist toggle state
+  const [whitelistEnabled, setWhitelistEnabled] = useState(true)
+  const [loadingWhitelist, setLoadingWhitelist] = useState(true)
+  const [togglingWhitelist, setTogglingWhitelist] = useState(false)
+
   // Bulk delete state
   const [deleteBatchesEndDate, setDeleteBatchesEndDate] = useState("")
   const [deletingBatches, setDeletingBatches] = useState(false)
@@ -98,6 +104,7 @@ export default function AdminOrdersPage() {
       loadPendingOrders()
       loadDownloadedOrders()
       loadAutoFulfillmentSetting()
+      loadWhitelistSetting()
       // Load MTN fulfillment orders when tab is active
       if (activeTab === "fulfillment") {
         loadPendingMTNOrders()
@@ -158,6 +165,45 @@ export default function AdminOrdersPage() {
       toast.error(error instanceof Error ? error.message : "Failed to update setting")
     } finally {
       setTogglingAutoFulfillment(false)
+    }
+  }
+
+  const loadWhitelistSetting = async () => {
+    try {
+      setLoadingWhitelist(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch("/api/admin/settings/mtn-whitelist", {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setWhitelistEnabled(data.setting?.enabled ?? true)
+      }
+    } catch (e) {
+      console.error("Error loading whitelist setting:", e)
+    } finally {
+      setLoadingWhitelist(false)
+    }
+  }
+
+  const toggleWhitelist = async () => {
+    try {
+      setTogglingWhitelist(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) { toast.error("Authentication required"); return }
+      const res = await fetch("/api/admin/settings/mtn-whitelist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ enabled: !whitelistEnabled }),
+      })
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Failed") }
+      const data = await res.json()
+      setWhitelistEnabled(data.setting.enabled)
+      toast.success(data.message)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to update whitelist setting")
+    } finally {
+      setTogglingWhitelist(false)
     }
   }
 
@@ -373,7 +419,7 @@ export default function AdminOrdersPage() {
     }
   }
 
-  const handleManualFulfill = async (orderId: string) => {
+  const handleManualFulfill = async (orderId: string, provider?: string) => {
     try {
       setFulfillingMTNOrder(orderId)
 
@@ -400,8 +446,7 @@ export default function AdminOrdersPage() {
           shop_order_id: orderId,
           order_type: (order as any).type || "shop",
           network: order.network,
-          // No explicit provider — the backend uses the admin-selected provider
-          // (admin_settings.mtn_provider_selection) via getMTNProvider().
+          ...(provider ? { provider } : {}),
         })
       })
 
@@ -1424,6 +1469,59 @@ export default function AdminOrdersPage() {
               </CardContent>
             </Card>
 
+            {/* MTN Whitelist Verification Toggle */}
+            <Card className="border-2 border-dashed">
+              <CardHeader>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <ShieldCheck className={`h-5 w-5 ${whitelistEnabled ? 'text-success' : 'text-muted-foreground'}`} />
+                      MTN Whitelist Verification
+                    </CardTitle>
+                    <CardDescription className="mt-1">
+                      Check Xpress &amp; Codecraft whitelists before fulfilling MTN orders
+                    </CardDescription>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {loadingWhitelist ? (
+                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                    ) : (
+                      <>
+                        {togglingWhitelist && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                        <span className={`text-sm font-medium ${whitelistEnabled ? 'text-success' : 'text-muted-foreground'}`}>
+                          {whitelistEnabled ? 'Enabled' : 'Disabled'}
+                        </span>
+                        <Switch
+                          checked={whitelistEnabled}
+                          onCheckedChange={toggleWhitelist}
+                          disabled={togglingWhitelist}
+                        />
+                      </>
+                    )}
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <Alert className={whitelistEnabled ? 'border-success/30 bg-success/10' : 'border-warning/30 bg-warning/10'}>
+                  <ShieldCheck className={`h-4 w-4 ${whitelistEnabled ? 'text-success' : 'text-warning'}`} />
+                  <AlertDescription className={whitelistEnabled ? 'text-success' : 'text-warning'}>
+                    {whitelistEnabled ? (
+                      <>
+                        <strong>Whitelist check ON:</strong> MTN orders are verified against all configured providers
+                        (Xpress → Codecraft fallback). Numbers not yet enabled are held and retried every 24h for up to 72h.
+                        The per-order Fulfill button lets you pick which provider to use.
+                      </>
+                    ) : (
+                      <>
+                        <strong>Whitelist check OFF:</strong> MTN orders skip whitelist verification and go straight to
+                        the active fulfillment provider. Use this if the provider API is down or all numbers are pre-registered.
+                      </>
+                    )}
+                  </AlertDescription>
+                </Alert>
+              </CardContent>
+            </Card>
+
             {/* Fulfillment Dashboard Card */}
             <Card>
               <CardHeader>
@@ -1574,37 +1672,49 @@ export default function AdminOrdersPage() {
                         </div>
                         <div className="flex items-center gap-2">
                           <div className="flex items-center gap-4">
-                            <div className="min-w-[120px]">
-                              {/* Provider is always the admin-selected default (admin_settings.mtn_provider_selection). */}
-                              <Badge variant="outline" className="w-full h-8 flex items-center justify-center text-xs font-medium text-muted-foreground bg-muted border-border">
-                                Default
-                              </Badge>
-                            </div>
                             <span className="text-right font-semibold whitespace-nowrap">₵ {(order.price || 0).toFixed(2)}</span>
                           </div>
-                          <Button
-                            onClick={() => handleManualFulfill(order.id)}
-                            disabled={fulfillingMTNOrder === order.id || mtnFulfillmentStatus[order.id] === "fulfilled"}
-                            size="sm"
-                            className="bg-warning hover:bg-warning/90 text-primary-foreground"
-                          >
-                            {fulfillingMTNOrder === order.id ? (
-                              <>
-                                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                                Fulfilling...
-                              </>
-                            ) : mtnFulfillmentStatus[order.id] === "fulfilled" ? (
-                              <>
-                                <CheckCircle className="h-3 w-3 mr-1" />
-                                Fulfilled
-                              </>
-                            ) : (
-                              <>
-                                <Send className="h-3 w-3 mr-1" />
-                                Fulfill
-                              </>
-                            )}
-                          </Button>
+                          {mtnFulfillmentStatus[order.id] === "fulfilled" ? (
+                            <Button size="sm" disabled className="bg-success/20 text-success border border-success/30">
+                              <CheckCircle className="h-3 w-3 mr-1" />
+                              Fulfilled
+                            </Button>
+                          ) : fulfillingMTNOrder === order.id ? (
+                            <Button size="sm" disabled className="bg-warning hover:bg-warning/90 text-primary-foreground">
+                              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                              Fulfilling...
+                            </Button>
+                          ) : (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button size="sm" className="bg-warning hover:bg-warning/90 text-primary-foreground">
+                                  <Send className="h-3 w-3 mr-1" />
+                                  Fulfill
+                                  <ChevronDown className="h-3 w-3 ml-1" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-44">
+                                <DropdownMenuLabel className="text-xs text-muted-foreground">Select Provider</DropdownMenuLabel>
+                                <DropdownMenuSeparator />
+                                {[
+                                  { value: "xpress",     label: "Xpress" },
+                                  { value: "codecraft",  label: "Codecraft" },
+                                  { value: "sykes",      label: "Sykes" },
+                                  { value: "datakazina", label: "Datakazina" },
+                                  { value: "eazyghdata", label: "EazyGhData" },
+                                  { value: "bisdel",     label: "Bisdel" },
+                                ].map(p => (
+                                  <DropdownMenuItem
+                                    key={p.value}
+                                    onClick={() => handleManualFulfill(order.id, p.value)}
+                                    className="cursor-pointer"
+                                  >
+                                    {p.label}
+                                  </DropdownMenuItem>
+                                ))}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          )}
                         </div>
                       </div>
                     ))}

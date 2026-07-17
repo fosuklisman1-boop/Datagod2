@@ -392,12 +392,18 @@ export async function createMTNOrder(order: MTNOrderRequest): Promise<MTNOrderRe
       : await getMTNProvider()
 
     // Whitelist pre-check: try all configured whitelist providers in order
-    // (active provider first, then the rest). Runs regardless of which provider
-    // is currently selected — if any provider allows the number, that provider
-    // is used for fulfillment. Fails open so API outages never block orders.
+    // (active provider first, then the rest). Gated by admin toggle
+    // (mtn_whitelist_enabled) so the feature can be turned off without
+    // removing API keys. Fails open so API outages never block orders.
     try {
       const { hasWhitelistProviders, checkWhitelistForOrder } = await import("@/lib/mtn-providers/provider-whitelist")
-      if (hasWhitelistProviders()) {
+      const { data: wlSetting } = await supabase
+        .from("admin_settings")
+        .select("value")
+        .eq("key", "mtn_whitelist_enabled")
+        .maybeSingle()
+      const whitelistEnabled = wlSetting?.value?.enabled !== false // default ON
+      if (whitelistEnabled && hasWhitelistProviders()) {
         const { normalizeGhanaPhone } = await import("@/lib/phone-format")
         const norm = normalizeGhanaPhone(order.recipient_phone) ?? order.recipient_phone
         const { allowed, provider: allowedBy } = await checkWhitelistForOrder(norm, provider.name)
