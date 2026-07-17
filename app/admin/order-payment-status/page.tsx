@@ -7,11 +7,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Input } from "@/components/ui/input"
-import { AlertCircle, Loader2, Search, Edit, Zap, Download } from "lucide-react"
+import { AlertCircle, Loader2, Search, Edit, Zap, Download, CheckCircle, Clock, ChevronDown, ShieldCheck, Send } from "lucide-react"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 
 interface AllOrder {
   id: string
@@ -49,6 +51,12 @@ export default function OrderPaymentStatusPage() {
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null)
   const [fulfillingOrderId, setFulfillingOrderId] = useState<string | null>(null)
   const [autoFulfillmentEnabled, setAutoFulfillmentEnabled] = useState(false)
+
+  type ProgressStep = { label: string; status: "idle" | "running" | "done" | "error"; detail?: string }
+  const [fulfillProgress, setFulfillProgress] = useState<{
+    open: boolean; orderId: string; orderType: string; phone: string; provider: string
+    steps: ProgressStep[]; done: boolean
+  }>({ open: false, orderId: "", orderType: "", phone: "", provider: "", steps: [], done: false })
 
   const [searchQuery, setSearchQuery] = useState("")
   const [searchType, setSearchType] = useState<"all" | "reference" | "phone">("all")
@@ -341,6 +349,77 @@ export default function OrderPaymentStatusPage() {
     } finally {
       setUpdatingOrderId(null)
     }
+  }
+
+  const startFulfillWithProgress = async (order: AllOrder, provider: string) => {
+    const phone = order.phone_number || ""
+    setFulfillProgress({
+      open: true, orderId: order.id, orderType: order.type, phone, provider, done: false,
+      steps: [{ label: `Checking ${phone} against ${provider}`, status: "running" }, { label: "Dispatching order", status: "idle" }],
+    })
+    const { data: { session } } = await supabase.auth.getSession()
+    const headers = { "Content-Type": "application/json", ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}) }
+
+    let allowedBy: string | null = null
+    try {
+      const vRes = await fetch("/api/admin/fulfillment/verify-whitelist", {
+        method: "POST", headers, body: JSON.stringify({ phone, primaryProvider: provider }),
+      })
+      const vData = await vRes.json()
+      if (vData.results?.length) {
+        const verifySteps: ProgressStep[] = vData.results.map((r: { provider: string; allowed: boolean; reason?: string }) => ({
+          label: `Verified against ${r.provider}`,
+          status: r.allowed ? "done" : "error",
+          detail: r.allowed ? "✓ Number is enabled" : `✗ Blocked${r.reason ? `: ${r.reason}` : ""}`,
+        }))
+        setFulfillProgress(prev => ({ ...prev, steps: [...verifySteps, { label: "Dispatching order", status: vData.allowed ? "running" : "error" }] }))
+        allowedBy = vData.allowedBy ?? null
+        if (!vData.allowed) {
+          setFulfillProgress(prev => ({
+            ...prev, done: true,
+            steps: prev.steps.map((s, i) => i === prev.steps.length - 1 ? { ...s, detail: "All providers blocked — order will be held for retry" } : s),
+          }))
+          return
+        }
+      } else {
+        setFulfillProgress(prev => ({
+          ...prev,
+          steps: [{ label: "Whitelist check", status: "done", detail: "No providers configured — skipped" }, { label: "Dispatching order", status: "running" }],
+        }))
+        allowedBy = provider
+      }
+    } catch {
+      setFulfillProgress(prev => ({
+        ...prev,
+        steps: [{ label: `Verify against ${provider}`, status: "error", detail: "Check failed — proceeding (fail-open)" }, { label: "Dispatching order", status: "running" }],
+      }))
+      allowedBy = provider
+    }
+
+    const dispatchProvider = allowedBy ?? provider
+    try {
+      const dRes = await fetch("/api/admin/fulfillment/manual-fulfill", {
+        method: "POST", headers,
+        body: JSON.stringify({ shop_order_id: order.id, order_type: order.type, provider: dispatchProvider }),
+      })
+      const dData = await dRes.json()
+      setFulfillProgress(prev => ({
+        ...prev, done: true,
+        steps: prev.steps.map((s, i) => i === prev.steps.length - 1
+          ? { ...s, status: dData.success ? "done" : "error", detail: dData.message || dData.error }
+          : s),
+      }))
+      if (dData.success) {
+        setAllOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: "processing" } : o))
+        toast.success("Fulfillment triggered successfully")
+      }
+    } catch {
+      setFulfillProgress(prev => ({
+        ...prev, done: true,
+        steps: prev.steps.map((s, i) => i === prev.steps.length - 1 ? { ...s, status: "error", detail: "Dispatch request failed" } : s),
+      }))
+    }
+    setFulfillingOrderId(null)
   }
 
   const handleManualFulfill = async (orderId: string, orderType: string) => {
@@ -971,95 +1050,44 @@ export default function OrderPaymentStatusPage() {
                                 <option value="completed">Completed</option>
                                 <option value="failed">Failed</option>
                               </select>
-                              {autoFulfillmentEnabled && order.status === "pending" && order.payment_status === "completed" && (order.type === "shop" || order.type === "bulk") && order.network === "MTN" && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="text-xs h-7 gap-1"
-                                  onClick={() => handleManualFulfill(order.id, order.type)}
-                                  disabled={fulfillingOrderId === order.id}
-                                  title={`Auto-fulfillment enabled: ${autoFulfillmentEnabled}, Status: ${order.status}, Payment: ${order.payment_status}, Type: ${order.type}, Network: ${order.network}`}
-                                >
-                                  {fulfillingOrderId === order.id ? (
-                                    <>
-                                      <Loader2 className="w-3 h-3 animate-spin" />
-                                      Fulfilling...
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Zap className="w-3 h-3" />
-                                      Fulfill
-                                    </>
-                                  )}
-                                </Button>
+                              {order.status === "pending" && order.payment_status === "completed" && (
+                                fulfillingOrderId === order.id ? (
+                                  <Button size="sm" variant="outline" className="text-xs h-7 gap-1" disabled>
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                    Fulfilling...
+                                  </Button>
+                                ) : (
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <Button size="sm" variant="outline" className="text-xs h-7 gap-1">
+                                        <Send className="w-3 h-3" />
+                                        Fulfill
+                                        <ChevronDown className="w-3 h-3" />
+                                      </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end" className="w-44">
+                                      <DropdownMenuLabel className="text-xs text-muted-foreground">Select Provider</DropdownMenuLabel>
+                                      <DropdownMenuSeparator />
+                                      {[
+                                        { value: "xpress",     label: "Xpress" },
+                                        { value: "codecraft",  label: "Codecraft" },
+                                        { value: "sykes",      label: "Sykes" },
+                                        { value: "datakazina", label: "Datakazina" },
+                                        { value: "eazyghdata", label: "EazyGhData" },
+                                        { value: "bisdel",     label: "Bisdel" },
+                                      ].map(p => (
+                                        <DropdownMenuItem
+                                          key={p.value}
+                                          className="cursor-pointer"
+                                          onClick={() => startFulfillWithProgress(order, p.value)}
+                                        >
+                                          {p.label}
+                                        </DropdownMenuItem>
+                                      ))}
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+                                )
                               )}
-                              {autoFulfillmentEnabled && order.status === "pending" && order.payment_status === "completed" && (order.type === "shop" || order.type === "bulk") && order.network !== "MTN" && (
-                                <div className="text-xs text-muted-foreground">{order.network} (no auto-fulfill)</div>
-                              )}
-                              {autoFulfillmentEnabled && order.status === "pending" && order.payment_status === "completed" && order.type === "ussd" && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="text-xs h-7 gap-1"
-                                  onClick={() => handleManualFulfill(order.id, order.type)}
-                                  disabled={fulfillingOrderId === order.id}
-                                >
-                                  {fulfillingOrderId === order.id ? (
-                                    <>
-                                      <Loader2 className="w-3 h-3 animate-spin" />
-                                      Fulfilling...
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Zap className="w-3 h-3" />
-                                      Fulfill
-                                    </>
-                                  )}
-                                </Button>
-                              )}
-                              {autoFulfillmentEnabled && order.status === "pending" && order.payment_status === "completed" && order.type === "ussd_shop" && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="text-xs h-7 gap-1"
-                                  onClick={() => handleManualFulfill(order.id, order.type)}
-                                  disabled={fulfillingOrderId === order.id}
-                                >
-                                  {fulfillingOrderId === order.id ? (
-                                    <>
-                                      <Loader2 className="w-3 h-3 animate-spin" />
-                                      Fulfilling...
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Zap className="w-3 h-3" />
-                                      Fulfill
-                                    </>
-                                  )}
-                                </Button>
-                              )}
-                              {autoFulfillmentEnabled && order.status === "pending" && order.payment_status === "completed" && order.type === "api" && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="text-xs h-7 gap-1"
-                                  onClick={() => handleManualFulfill(order.id, order.type)}
-                                  disabled={fulfillingOrderId === order.id}
-                                >
-                                  {fulfillingOrderId === order.id ? (
-                                    <>
-                                      <Loader2 className="w-3 h-3 animate-spin" />
-                                      Fulfilling...
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Zap className="w-3 h-3" />
-                                      Fulfill
-                                    </>
-                                  )}
-                                </Button>
-                              )}
-                              {!autoFulfillmentEnabled && <div className="text-xs text-muted-foreground">Auto-fulfill disabled</div>}
                             </div>
                           </td>
                         </tr>
@@ -1102,6 +1130,49 @@ export default function OrderPaymentStatusPage() {
           )
         }
       </div >
+
+      {/* Fulfill progress dialog */}
+      <Dialog open={fulfillProgress.open} onOpenChange={open => !open && setFulfillProgress(prev => ({ ...prev, open: false }))}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-warning" />
+              Fulfilling Order
+            </DialogTitle>
+            <DialogDescription>
+              {fulfillProgress.phone} via <span className="font-semibold capitalize">{fulfillProgress.provider}</span>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            {fulfillProgress.steps.map((step, i) => (
+              <div key={i} className="flex items-start gap-3">
+                <div className="mt-0.5 shrink-0">
+                  {step.status === "running" && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
+                  {step.status === "done"    && <CheckCircle className="h-4 w-4 text-success" />}
+                  {step.status === "error"   && <AlertCircle className="h-4 w-4 text-destructive" />}
+                  {step.status === "idle"    && <Clock className="h-4 w-4 text-muted-foreground" />}
+                </div>
+                <div>
+                  <p className={`text-sm font-medium ${
+                    step.status === "done"    ? "text-success"          :
+                    step.status === "error"   ? "text-destructive"      :
+                    step.status === "running" ? "text-foreground"       :
+                                               "text-muted-foreground"
+                  }`}>{step.label}</p>
+                  {step.detail && <p className="text-xs text-muted-foreground mt-0.5">{step.detail}</p>}
+                </div>
+              </div>
+            ))}
+          </div>
+          {fulfillProgress.done && (
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setFulfillProgress(prev => ({ ...prev, open: false }))}>
+                Close
+              </Button>
+            </DialogFooter>
+          )}
+        </DialogContent>
+      </Dialog>
     </DashboardLayout >
   )
 }
