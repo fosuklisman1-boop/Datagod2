@@ -54,10 +54,19 @@ export class CodeCraftMTNProvider implements MTNProvider {
             }
 
             const phoneNumber = normalizePhoneNumber(order.recipient_phone)
-            // CodeCraft infers network from the phone number — do not send a network field
+            // CodeCraft's /initiate.php REQUIRES a network field (MTN | TELECEL | AT);
+            // omitting it returns 422 "Network is required" (verified against the live
+            // API). Map the order network to CodeCraft's value — this is the MTN provider
+            // so it is normally "MTN", but map the others defensively to match the working
+            // AT/Telecel path in lib/at-ishare-service.ts.
+            const ccNetwork =
+                order.network === "Telecel" ? "TELECEL" :
+                order.network === "AirtelTigo" ? "AT" :
+                "MTN"
             const requestBody = {
                 recipient_number: phoneNumber,
                 gig: String(order.size_gb),
+                network: ccNetwork,
             }
 
             log("debug", "Order", "Calling CodeCraft API", { traceId, requestBody })
@@ -144,8 +153,10 @@ export class CodeCraftMTNProvider implements MTNProvider {
         try {
             log("info", "StatusCheck", `Checking CodeCraft order ${orderId}`, { traceId })
 
+            // Status lives at response_regular.php (status.php does not exist → 404).
+            // This matches the working AT/Telecel path in lib/at-ishare-service.ts.
             const response = await fetch(
-                `${CODECRAFT_API_URL}/status.php?reference_id=${orderId}`,
+                `${CODECRAFT_API_URL}/response_regular.php?reference_id=${encodeURIComponent(String(orderId))}`,
                 {
                     method: "GET",
                     headers: { "x-api-key": CODECRAFT_API_KEY },
