@@ -91,11 +91,11 @@ export async function processManualFulfillment(
     }
 
     const isMTN = orderData.network?.toUpperCase() === "MTN"
-    const fulfillableNetworks = ["AT - ISHARE", "AT-ISHARE", "TELECEL", "AT - BIGTIME", "AT-BIGTIME"]
+    const fulfillableNetworks = ["AT - ISHARE", "AT-ISHARE", "TELECEL", "AT - BIGTIME", "AT-BIGTIME", "AIRTELTIGO"]
     const normalizedNetwork = orderData.network?.toUpperCase().trim() || ""
-    const isCodecraft = fulfillableNetworks.includes(normalizedNetwork)
+    const isNonMTN = fulfillableNetworks.includes(normalizedNetwork)
 
-    if (!isMTN && !isCodecraft) {
+    if (!isMTN && !isNonMTN) {
       return { success: false, message: `Network ${orderData.network} is not supported for manual fulfillment`, orderId }
     }
 
@@ -178,11 +178,16 @@ export async function processManualFulfillment(
       }
     }
 
-    // Provider selection — always honour an explicit override, otherwise use the admin-selected provider
+    // Provider selection — honour an explicit override, otherwise read the admin-selected provider
     let finalProvider = provider
     if (!finalProvider) {
-      const { getMTNProvider } = await import("@/lib/mtn-providers/factory")
-      finalProvider = (await getMTNProvider()).name
+      if (isMTN) {
+        const { getMTNProvider } = await import("@/lib/mtn-providers/factory")
+        finalProvider = (await getMTNProvider()).name
+      } else {
+        const { getProviderNameForNetwork } = await import("@/lib/mtn-providers/factory")
+        finalProvider = await getProviderNameForNetwork(normalizedNetwork)
+      }
     }
 
     // ATOMIC LOCK - Order
@@ -199,58 +204,85 @@ export async function processManualFulfillment(
 
     const volumeGb = parseFloat(orderData.volume_gb?.toString() || "0")
 
-    if (isCodecraft) {
-      console.log(`${logPrefix} Processing Codecraft manual fulfillment: ${normalizedNetwork}`)
-      const { atishareService } = await import("@/lib/at-ishare-service")
-      
+    if (isNonMTN) {
       const networkLower = orderData.network?.toLowerCase() || ""
       const isBigTime = networkLower.includes("bigtime")
-      const apiNetwork = networkLower.includes("telecel") ? "TELECEL" : "AT"
 
-      try {
-        const codecraftResponse = await atishareService.fulfillOrder({
-          phoneNumber: phone,
-          sizeGb: volumeGb,
-          orderId: orderId,
-          network: apiNetwork,
-          orderType: orderType === "bulk" ? "wallet" : orderType === "api" ? "api" : "shop",
-          isBigTime
-        })
+      if (finalProvider === "codecraft") {
+        console.log(`${logPrefix} Processing Codecraft manual fulfillment: ${normalizedNetwork}`)
+        const { atishareService } = await import("@/lib/at-ishare-service")
+        const apiNetwork = networkLower.includes("telecel") ? "TELECEL" : "AT"
 
-        if (!codecraftResponse.success) {
-          console.error(`${logPrefix} Codecraft API failed: ${codecraftResponse.message}`)
-
-          await supabase.from(tableName).update({ [statusField]: "pending", updated_at: new Date().toISOString() }).eq("id", orderId)
-
-          import("@/lib/sms-service").then(({ notifyAdmins, SMSTemplates }) => {
-            notifyAdmins(
-              SMSTemplates.fulfillmentFailed(orderId.substring(0, 8), phone, orderData.network || "Codecraft", volumeGb.toString(), codecraftResponse.message || "Failed"),
-              "fulfillment_failure",
-              orderId,
-              true
-            ).catch(e => console.error(`${logPrefix} Admin SMS Error:`, e))
+        try {
+          const codecraftResponse = await atishareService.fulfillOrder({
+            phoneNumber: phone,
+            sizeGb: volumeGb,
+            orderId: orderId,
+            network: apiNetwork,
+            orderType: orderType === "bulk" ? "wallet" : orderType === "api" ? "api" : "shop",
+            isBigTime
           })
-          import("@/lib/push-service").then(({ notifyAdminsPush }) => {
-            notifyAdminsPush({
-              title: '⚠️ Fulfillment Failed',
-              body: `${orderData.network || "Codecraft"} ${volumeGb}GB to ${phone} — ${codecraftResponse.message || "Failed"} (Order: ${orderId.substring(0, 8)})`,
-              data: { url: '/admin/orders' },
+
+          if (!codecraftResponse.success) {
+            console.error(`${logPrefix} Codecraft API failed: ${codecraftResponse.message}`)
+            await supabase.from(tableName).update({ [statusField]: "pending", updated_at: new Date().toISOString() }).eq("id", orderId)
+            import("@/lib/sms-service").then(({ notifyAdmins, SMSTemplates }) => {
+              notifyAdmins(
+                SMSTemplates.fulfillmentFailed(orderId.substring(0, 8), phone, orderData.network || "Codecraft", volumeGb.toString(), codecraftResponse.message || "Failed"),
+                "fulfillment_failure", orderId, true
+              ).catch(e => console.error(`${logPrefix} Admin SMS Error:`, e))
+            })
+            import("@/lib/push-service").then(({ notifyAdminsPush }) => {
+              notifyAdminsPush({
+                title: '⚠️ Fulfillment Failed',
+                body: `${orderData.network || "Codecraft"} ${volumeGb}GB to ${phone} — ${codecraftResponse.message || "Failed"} (Order: ${orderId.substring(0, 8)})`,
+                data: { url: '/admin/orders' },
+              }).catch(() => {})
             }).catch(() => {})
-          }).catch(() => {})
+            return { success: false, message: codecraftResponse.message || "Codecraft API Error", orderId }
+          }
 
-          return { success: false, message: codecraftResponse.message || "Codecraft API Error", orderId }
+          return { success: true, message: "Codecraft API processing started", orderId, trackingId: codecraftResponse.reference }
+        } catch (err: any) {
+          console.error(`${logPrefix} Codecraft Error:`, err)
+          await supabase.from(tableName).update({ [statusField]: "pending", updated_at: new Date().toISOString() }).eq("id", orderId)
+          return { success: false, message: err.message || "Codecraft Internal error", orderId }
         }
+      } else {
+        // Non-CodeCraft provider (Xpress, Datakazina, EazyGhData) for non-MTN network
+        console.log(`${logPrefix} Processing ${finalProvider} manual fulfillment: ${normalizedNetwork}`)
+        const { getProviderByName, NETWORK_TO_REQUEST_NETWORK } = await import("@/lib/mtn-providers/factory")
+        const p = getProviderByName(finalProvider as any)
+        const reqNetwork = NETWORK_TO_REQUEST_NETWORK[normalizedNetwork] ?? "AirtelTigo"
 
-        return {
-          success: true,
-          message: "Codecraft API processing started",
-          orderId,
-          trackingId: codecraftResponse.reference
+        try {
+          const result = await p.createOrder({ recipient_phone: phone, network: reqNetwork, size_gb: volumeGb, client_ref: orderId })
+
+          if (!result.success) {
+            console.error(`${logPrefix} ${finalProvider} API failed: ${result.message}`)
+            await supabase.from(tableName).update({ [statusField]: "pending", updated_at: new Date().toISOString() }).eq("id", orderId)
+            import("@/lib/sms-service").then(({ notifyAdmins, SMSTemplates }) => {
+              notifyAdmins(
+                SMSTemplates.fulfillmentFailed(orderId.substring(0, 8), phone, orderData.network || finalProvider!, volumeGb.toString(), result.message || "Failed"),
+                "fulfillment_failure", orderId, true
+              ).catch(e => console.error(`${logPrefix} Admin SMS Error:`, e))
+            })
+            import("@/lib/push-service").then(({ notifyAdminsPush }) => {
+              notifyAdminsPush({
+                title: '⚠️ Fulfillment Failed',
+                body: `${orderData.network || finalProvider} ${volumeGb}GB to ${phone} — ${result.message || "Failed"} (Order: ${orderId.substring(0, 8)})`,
+                data: { url: '/admin/orders' },
+              }).catch(() => {})
+            }).catch(() => {})
+            return { success: false, message: result.message || `${finalProvider} API Error`, orderId }
+          }
+
+          return { success: true, message: `${finalProvider} processing started`, orderId, trackingId: result.order_id?.toString() }
+        } catch (err: any) {
+          console.error(`${logPrefix} ${finalProvider} Error:`, err)
+          await supabase.from(tableName).update({ [statusField]: "pending", updated_at: new Date().toISOString() }).eq("id", orderId)
+          return { success: false, message: err.message || `${finalProvider} internal error`, orderId }
         }
-      } catch (err: any) {
-        console.error(`${logPrefix} Codecraft Error:`, err)
-        await supabase.from(tableName).update({ [statusField]: "pending", updated_at: new Date().toISOString() }).eq("id", orderId)
-        return { success: false, message: err.message || "Codecraft Internal error", orderId }
       }
     }
 

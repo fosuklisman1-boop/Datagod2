@@ -72,6 +72,51 @@ export async function getMTNProvider(): Promise<MTNProvider> {
     }
 }
 
+// Networks whose fulfillment provider is configurable separately from MTN
+const NON_MTN_NETWORK_KEYS: Record<string, string> = {
+    "TELECEL": "telecel_provider_selection",
+    "AIRTELTIGO": "telecel_provider_selection",
+    "AT - ISHARE": "at_ishare_provider_selection",
+    "AT-ISHARE": "at_ishare_provider_selection",
+    "AT - BIGTIME": "at_bigtime_provider_selection",
+    "AT-BIGTIME": "at_bigtime_provider_selection",
+}
+
+// Network name normalised to the MTNOrderRequest.network union value
+export const NETWORK_TO_REQUEST_NETWORK: Record<string, "Telecel" | "AirtelTigo"> = {
+    "TELECEL": "Telecel",
+    "AIRTELTIGO": "AirtelTigo",
+    "AT - ISHARE": "AirtelTigo",
+    "AT-ISHARE": "AirtelTigo",
+    "AT - BIGTIME": "AirtelTigo",
+    "AT-BIGTIME": "AirtelTigo",
+}
+
+const NON_MTN_CAPABLE: MTNProviderName[] = ["datakazina", "xpress", "eazyghdata", "codecraft"]
+
+/**
+ * Read the admin-selected provider for a non-MTN network (Telecel / AT-iShare / AT-BigTime).
+ * Falls back to "codecraft" if the setting is absent or invalid.
+ */
+export async function getProviderNameForNetwork(normalizedNetwork: string): Promise<MTNProviderName> {
+    const settingKey = NON_MTN_NETWORK_KEYS[normalizedNetwork]
+    if (!settingKey) return "codecraft"
+
+    try {
+        const { data } = await supabase
+            .from("admin_settings")
+            .select("value")
+            .eq("key", settingKey)
+            .maybeSingle()
+
+        const name = data?.value?.provider as MTNProviderName | undefined
+        if (name && NON_MTN_CAPABLE.includes(name)) return name
+        return "codecraft"
+    } catch {
+        return "codecraft"
+    }
+}
+
 /**
  * Get a specific provider by name (for testing or manual override)
  */

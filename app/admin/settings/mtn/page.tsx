@@ -70,6 +70,13 @@ export default function MTNSettingsPage() {
   const [loadingWhitelist, setLoadingWhitelist] = useState(true)
   const [togglingWhitelist, setTogglingWhitelist] = useState(false)
 
+  // Per-network provider selectors (Telecel / AT-iShare / AT-BigTime)
+  type NonMTNProvider = "datakazina" | "xpress" | "eazyghdata" | "codecraft"
+  const [telecelProvider, setTelecelProvider] = useState<NonMTNProvider>("codecraft")
+  const [atIshareProvider, setAtIshareProvider] = useState<NonMTNProvider>("codecraft")
+  const [atBigtimeProvider, setAtBigtimeProvider] = useState<NonMTNProvider>("codecraft")
+  const [savingNetworkProvider, setSavingNetworkProvider] = useState<string | null>(null)
+
   useEffect(() => {
     if (adminLoading) return
 
@@ -82,6 +89,9 @@ export default function MTNSettingsPage() {
     loadBisdelCatalog()
     loadAtFulfillmentSetting()
     loadWhitelistSetting()
+    loadNetworkProvider("telecel", setTelecelProvider)
+    loadNetworkProvider("at_ishare", setAtIshareProvider)
+    loadNetworkProvider("at_bigtime", setAtBigtimeProvider)
 
     // Refresh balance every 30 seconds
     const balanceInterval = setInterval(loadBalance, 30000)
@@ -398,6 +408,33 @@ export default function MTNSettingsPage() {
     } finally {
       setSavingProvider(false)
     }
+  }
+
+  const loadNetworkProvider = async (network: string, setter: (v: any) => void) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch(`/api/admin/settings/network-provider?network=${network}`, {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      })
+      if (res.ok) { const d = await res.json(); setter(d.provider || "codecraft") }
+    } catch (e) { console.error(`Error loading ${network} provider:`, e) }
+  }
+
+  const handleNetworkProviderChange = async (network: string, provider: string, setter: (v: any) => void) => {
+    setSavingNetworkProvider(network)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) { toast.error("Authentication required"); return }
+      const res = await fetch("/api/admin/settings/network-provider", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ network, provider }),
+      })
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Failed") }
+      setter(provider)
+      toast.success(`Provider updated`)
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Failed to update") }
+    finally { setSavingNetworkProvider(null) }
   }
 
   const loadAtFulfillmentSetting = async () => {
@@ -1069,6 +1106,67 @@ export default function MTNSettingsPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Per-Network Provider Selector — helper to avoid repeating JSX for each network */}
+        {(["telecel", "at_ishare", "at_bigtime"] as const).map((netKey) => {
+          const networkLabel = netKey === "telecel" ? "Telecel" : netKey === "at_ishare" ? "AT - iShare" : "AT - BigTime"
+          const current = netKey === "telecel" ? telecelProvider : netKey === "at_ishare" ? atIshareProvider : atBigtimeProvider
+          const setter = netKey === "telecel" ? setTelecelProvider : netKey === "at_ishare" ? setAtIshareProvider : setAtBigtimeProvider
+          const isSaving = savingNetworkProvider === netKey
+          const providers: { value: NonMTNProvider; label: string; sub: string }[] = [
+            { value: "codecraft", label: "CodeCraft", sub: "Default AT/Telecel API" },
+            { value: "datakazina", label: "DataKazina", sub: "Multi-network provider" },
+            { value: "xpress", label: "Xpress", sub: "Batch-enabled provider" },
+            { value: "eazyghdata", label: "EazyGhData", sub: "Package-based provider" },
+          ]
+          return (
+            <Card key={netKey} className="border-2">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Settings className="h-5 w-5" />
+                  {networkLabel} Fulfillment Provider
+                </CardTitle>
+                <CardDescription>
+                  Select which provider fulfills <strong>{networkLabel}</strong> orders
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {providers.map((p) => (
+                    <button
+                      key={p.value}
+                      onClick={() => handleNetworkProviderChange(netKey, p.value, setter)}
+                      disabled={isSaving || current === p.value}
+                      className={`p-4 rounded-lg border-2 transition-all text-left ${
+                        current === p.value
+                          ? "bg-primary/5 border-primary shadow-md"
+                          : "bg-card border-border hover:border-border"
+                      } ${isSaving ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-semibold text-foreground text-sm">{p.label}</span>
+                        {current === p.value && <Badge className="bg-primary text-xs">Active</Badge>}
+                      </div>
+                      <p className="text-xs text-muted-foreground">{p.sub}</p>
+                    </button>
+                  ))}
+                </div>
+                {isSaving && (
+                  <div className="flex items-center gap-2 mt-3 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Updating...
+                  </div>
+                )}
+                <Alert className="mt-3 border-border bg-warning/10">
+                  <AlertCircle className="h-4 w-4 text-warning" />
+                  <AlertDescription className="text-warning text-xs">
+                    Only affects new orders. In-flight orders continue with their original provider.
+                  </AlertDescription>
+                </Alert>
+              </CardContent>
+            </Card>
+          )
+        })}
 
         {/* AT Networks Auto-Fulfillment (CodeCraft) */}
         <Card className="border-2">
