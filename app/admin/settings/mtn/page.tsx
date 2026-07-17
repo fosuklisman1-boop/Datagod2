@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Settings, Loader2, AlertCircle, CheckCircle, Zap, WifiOff, Wallet, FileText } from "lucide-react"
+import { Settings, Loader2, AlertCircle, CheckCircle, Zap, WifiOff, Wallet, FileText, ToggleLeft, ToggleRight, ShieldCheck } from "lucide-react"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
@@ -60,6 +60,16 @@ export default function MTNSettingsPage() {
   const [syncingBisdel, setSyncingBisdel] = useState(false)
   const [savingBisdelCategory, setSavingBisdelCategory] = useState(false)
 
+  // AT auto-fulfillment toggle (CodeCraft — iShare, Telecel, BigTime)
+  const [atFulfillmentEnabled, setAtFulfillmentEnabled] = useState(true)
+  const [loadingAtFulfillment, setLoadingAtFulfillment] = useState(true)
+  const [togglingAtFulfillment, setTogglingAtFulfillment] = useState(false)
+
+  // MTN whitelist toggle
+  const [whitelistEnabled, setWhitelistEnabled] = useState(true)
+  const [loadingWhitelist, setLoadingWhitelist] = useState(true)
+  const [togglingWhitelist, setTogglingWhitelist] = useState(false)
+
   useEffect(() => {
     if (adminLoading) return
 
@@ -70,6 +80,8 @@ export default function MTNSettingsPage() {
     loadBalance()
     loadProvider()
     loadBisdelCatalog()
+    loadAtFulfillmentSetting()
+    loadWhitelistSetting()
 
     // Refresh balance every 30 seconds
     const balanceInterval = setInterval(loadBalance, 30000)
@@ -386,6 +398,66 @@ export default function MTNSettingsPage() {
     } finally {
       setSavingProvider(false)
     }
+  }
+
+  const loadAtFulfillmentSetting = async () => {
+    try {
+      setLoadingAtFulfillment(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch("/api/admin/settings/auto-fulfillment", {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      })
+      if (res.ok) { const d = await res.json(); setAtFulfillmentEnabled(d.setting?.enabled ?? true) }
+    } catch (e) { console.error("Error loading AT fulfillment setting:", e) }
+    finally { setLoadingAtFulfillment(false) }
+  }
+
+  const toggleAtFulfillment = async () => {
+    try {
+      setTogglingAtFulfillment(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) { toast.error("Authentication required"); return }
+      const res = await fetch("/api/admin/settings/auto-fulfillment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ enabled: !atFulfillmentEnabled }),
+      })
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Failed") }
+      const d = await res.json()
+      setAtFulfillmentEnabled(d.setting.enabled)
+      toast.success(d.message)
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Failed to update") }
+    finally { setTogglingAtFulfillment(false) }
+  }
+
+  const loadWhitelistSetting = async () => {
+    try {
+      setLoadingWhitelist(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch("/api/admin/settings/mtn-whitelist", {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      })
+      if (res.ok) { const d = await res.json(); setWhitelistEnabled(d.setting?.enabled ?? true) }
+    } catch (e) { console.error("Error loading whitelist setting:", e) }
+    finally { setLoadingWhitelist(false) }
+  }
+
+  const toggleWhitelist = async () => {
+    try {
+      setTogglingWhitelist(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) { toast.error("Authentication required"); return }
+      const res = await fetch("/api/admin/settings/mtn-whitelist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ enabled: !whitelistEnabled }),
+      })
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Failed") }
+      const d = await res.json()
+      setWhitelistEnabled(d.setting.enabled)
+      toast.success(d.message)
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Failed to update") }
+    finally { setTogglingWhitelist(false) }
   }
 
   if (!isAdmin || adminLoading) {
@@ -995,6 +1067,94 @@ export default function MTNSettingsPage() {
                 </AlertDescription>
               </Alert>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* AT Networks Auto-Fulfillment (CodeCraft) */}
+        <Card className="border-2">
+          <CardHeader>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  {atFulfillmentEnabled
+                    ? <ToggleRight className="h-5 w-5 text-success" />
+                    : <ToggleLeft className="h-5 w-5 text-muted-foreground" />}
+                  AT Networks Auto-Fulfillment
+                </CardTitle>
+                <CardDescription className="mt-1">
+                  Automatically fulfill AT-iShare, Telecel, and AT-BigTime orders via Code Craft API
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-3">
+                {loadingAtFulfillment ? (
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                ) : (
+                  <>
+                    {togglingAtFulfillment && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                    <span className={`text-sm font-medium ${atFulfillmentEnabled ? 'text-success' : 'text-muted-foreground'}`}>
+                      {atFulfillmentEnabled ? 'Enabled' : 'Disabled'}
+                    </span>
+                    <Switch checked={atFulfillmentEnabled} onCheckedChange={toggleAtFulfillment} disabled={togglingAtFulfillment} />
+                  </>
+                )}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2 mb-3">
+              <span className="text-sm text-muted-foreground">Affected networks:</span>
+              <Badge className="bg-primary/10 text-primary border border-primary">AT - iShare</Badge>
+              <Badge className="bg-red-100 text-red-800 border border-red-200">Telecel</Badge>
+              <Badge className="bg-primary/10 text-primary border border-primary">AT - BigTime</Badge>
+            </div>
+            <Alert className={atFulfillmentEnabled ? 'border-success/30 bg-success/10' : 'border-warning/30 bg-warning/10'}>
+              <AlertCircle className={`h-4 w-4 ${atFulfillmentEnabled ? 'text-success' : 'text-warning'}`} />
+              <AlertDescription className={atFulfillmentEnabled ? 'text-success' : 'text-warning'}>
+                {atFulfillmentEnabled
+                  ? <><strong>ON:</strong> Orders are automatically fulfilled via Code Craft API on payment confirmation.</>
+                  : <><strong>OFF:</strong> Orders are queued in the admin download queue for manual processing.</>}
+              </AlertDescription>
+            </Alert>
+          </CardContent>
+        </Card>
+
+        {/* MTN Whitelist Verification */}
+        <Card className="border-2">
+          <CardHeader>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <ShieldCheck className={`h-5 w-5 ${whitelistEnabled ? 'text-success' : 'text-muted-foreground'}`} />
+                  MTN Whitelist Verification
+                </CardTitle>
+                <CardDescription className="mt-1">
+                  Check Xpress &amp; Codecraft whitelists before fulfilling MTN orders
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-3">
+                {loadingWhitelist ? (
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                ) : (
+                  <>
+                    {togglingWhitelist && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                    <span className={`text-sm font-medium ${whitelistEnabled ? 'text-success' : 'text-muted-foreground'}`}>
+                      {whitelistEnabled ? 'Enabled' : 'Disabled'}
+                    </span>
+                    <Switch checked={whitelistEnabled} onCheckedChange={toggleWhitelist} disabled={togglingWhitelist} />
+                  </>
+                )}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <Alert className={whitelistEnabled ? 'border-success/30 bg-success/10' : 'border-warning/30 bg-warning/10'}>
+              <ShieldCheck className={`h-4 w-4 ${whitelistEnabled ? 'text-success' : 'text-warning'}`} />
+              <AlertDescription className={whitelistEnabled ? 'text-success' : 'text-warning'}>
+                {whitelistEnabled
+                  ? <><strong>ON:</strong> MTN orders are verified against Xpress → Codecraft. Numbers not yet enabled are held and retried every 24h for up to 72h.</>
+                  : <><strong>OFF:</strong> MTN orders skip whitelist verification and go straight to the active fulfillment provider.</>}
+              </AlertDescription>
+            </Alert>
           </CardContent>
         </Card>
 

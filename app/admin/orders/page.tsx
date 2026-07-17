@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
@@ -10,8 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { Download, CheckCircle, Clock, AlertCircle, Check, Loader2, Zap, ToggleLeft, ToggleRight, RefreshCw, Search, Send, ChevronDown, ShieldCheck } from "lucide-react"
-import { Switch } from "@/components/ui/switch"
+import { Input } from "@/components/ui/input"
+import { Download, CheckCircle, Clock, AlertCircle, Check, Loader2, Zap, ToggleLeft, ToggleRight, RefreshCw, Search, Send, ChevronDown, ShieldCheck, XCircle, Trash2 } from "lucide-react"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
@@ -50,6 +50,21 @@ interface DownloadedOrders {
   [key: string]: DownloadBatch
 }
 
+interface FulfillmentLog {
+  id: string
+  order_id: string
+  network: string
+  phone_number: string
+  status: string
+  attempt_number: number
+  max_attempts: number
+  error_message?: string
+  created_at: string
+  fulfilled_at?: string
+}
+interface LogStatusCounts { total: number; success: number; failed: number; processing: number; pending: number }
+interface LogPagination { page: number; limit: number; total: number; totalPages: number }
+
 export default function AdminOrdersPage() {
   const router = useRouter()
   const { isAdmin, loading: adminLoading } = useAdminProtected()
@@ -76,15 +91,18 @@ export default function AdminOrdersPage() {
   const [downloadedNetworkFilter, setDownloadedNetworkFilter] = useState("all")
   const allNetworks = ["MTN", "Telecel", "AT - iShare", "AT - BigTime"]
 
-  // Auto-fulfillment toggle state
-  const [autoFulfillmentEnabled, setAutoFulfillmentEnabled] = useState(true)
-  const [loadingAutoFulfillment, setLoadingAutoFulfillment] = useState(true)
-  const [togglingAutoFulfillment, setTogglingAutoFulfillment] = useState(false)
-
-  // MTN whitelist toggle state
-  const [whitelistEnabled, setWhitelistEnabled] = useState(true)
-  const [loadingWhitelist, setLoadingWhitelist] = useState(true)
-  const [togglingWhitelist, setTogglingWhitelist] = useState(false)
+  // Fulfillment log state (for the Fulfillment tab)
+  const [logFulfillments, setLogFulfillments] = useState<FulfillmentLog[]>([])
+  const [logLoading, setLogLoading] = useState(false)
+  const [logFilter, setLogFilter] = useState<"all" | "success" | "failed" | "pending" | "processing">("all")
+  const [logSearchPhone, setLogSearchPhone] = useState("")
+  const [logCommittedPhone, setLogCommittedPhone] = useState("")
+  const [logPage, setLogPage] = useState(1)
+  const [logPagination, setLogPagination] = useState<LogPagination | null>(null)
+  const [logStatusCounts, setLogStatusCounts] = useState<LogStatusCounts | null>(null)
+  const [logRetrying, setLogRetrying] = useState<string | null>(null)
+  const [logDeleting, setLogDeleting] = useState<string | null>(null)
+  const [logSyncingCodecraft, setLogSyncingCodecraft] = useState(false)
 
   // Fulfill progress dialog
   type ProgressStep = { label: string; status: "idle" | "running" | "done" | "error"; detail?: string }
@@ -102,9 +120,6 @@ export default function AdminOrdersPage() {
   const [deleteBatchesEndDate, setDeleteBatchesEndDate] = useState("")
   const [deletingBatches, setDeletingBatches] = useState(false)
 
-  // Sync with CodeCraft state
-  const [syncingWithCodeCraft, setSyncingWithCodeCraft] = useState(false)
-
   // MTN Fulfillment state
   const [pendingMTNOrders, setPendingMTNOrders] = useState<ShopOrder[]>([])
   const [loadingMTNOrders, setLoadingMTNOrders] = useState(false)
@@ -115,147 +130,122 @@ export default function AdminOrdersPage() {
     if (isAdmin && !adminLoading) {
       loadPendingOrders()
       loadDownloadedOrders()
-      loadAutoFulfillmentSetting()
-      loadWhitelistSetting()
-      // Load MTN fulfillment orders when tab is active
       if (activeTab === "fulfillment") {
-        loadPendingMTNOrders()
+        loadFulfillmentLogs(1)
       }
     }
   }, [isAdmin, adminLoading, activeTab])
 
-  const loadAutoFulfillmentSetting = async () => {
+  const loadFulfillmentLogs = async (targetPage: number) => {
     try {
-      setLoadingAutoFulfillment(true)
+      setLogLoading(true)
       const { data: { session } } = await supabase.auth.getSession()
-      const response = await fetch("/api/admin/settings/auto-fulfillment", {
-        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      if (!session?.access_token) return
+      const params = new URLSearchParams({ page: String(targetPage), limit: "50" })
+      if (logFilter !== "all") params.set("status", logFilter)
+      if (logCommittedPhone) params.set("phone", logCommittedPhone)
+      const response = await fetch(`/api/admin/fulfillment/logs?${params}`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
       })
-      if (response.ok) {
-        const data = await response.json()
-        setAutoFulfillmentEnabled(data.setting?.enabled ?? true)
-      }
-    } catch (error) {
-      console.error("Error loading auto-fulfillment setting:", error)
-    } finally {
-      setLoadingAutoFulfillment(false)
-    }
-  }
-
-  const toggleAutoFulfillment = async () => {
-    try {
-      setTogglingAutoFulfillment(true)
-      const { data: { session } } = await supabase.auth.getSession()
-
-      if (!session?.access_token) {
-        toast.error("Authentication required")
-        return
-      }
-
-      const response = await fetch("/api/admin/settings/auto-fulfillment", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ enabled: !autoFulfillmentEnabled }),
-      })
-
-      if (!response.ok) {
-        const data = await response.json()
-        throw new Error(data.error || "Failed to update setting")
-      }
-
+      if (!response.ok) { toast.error("Failed to load fulfillment logs"); return }
       const data = await response.json()
-      setAutoFulfillmentEnabled(data.setting.enabled)
-      toast.success(data.message)
-
-      // Reload pending orders since the list may have changed
-      loadPendingOrders()
+      setLogFulfillments(data.logs || [])
+      setLogPagination(data.pagination ?? null)
+      setLogStatusCounts(data.statusCounts ?? null)
+      setLogPage(targetPage)
     } catch (error) {
-      console.error("Error toggling auto-fulfillment:", error)
-      toast.error(error instanceof Error ? error.message : "Failed to update setting")
+      console.error("Error loading fulfillment logs:", error)
     } finally {
-      setTogglingAutoFulfillment(false)
+      setLogLoading(false)
     }
   }
 
-  const loadWhitelistSetting = async () => {
+  const handleLogRetry = async (orderId: string) => {
     try {
-      setLoadingWhitelist(true)
+      setLogRetrying(orderId)
       const { data: { session } } = await supabase.auth.getSession()
-      const res = await fetch("/api/admin/settings/mtn-whitelist", {
-        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      const response = await fetch("/api/orders/fulfillment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}) },
+        body: JSON.stringify({ action: "retry", orderId }),
       })
-      if (res.ok) {
-        const data = await res.json()
-        setWhitelistEnabled(data.setting?.enabled ?? true)
-      }
-    } catch (e) {
-      console.error("Error loading whitelist setting:", e)
-    } finally {
-      setLoadingWhitelist(false)
-    }
+      const data = await response.json()
+      if (data.success) { toast.success("Retry triggered"); loadFulfillmentLogs(logPage) }
+      else toast.error(data.message || "Failed to retry")
+    } catch { toast.error("An error occurred") }
+    finally { setLogRetrying(null) }
   }
 
-  const toggleWhitelist = async () => {
+  const handleLogBulkDeleteFailed = async () => {
+    if (!confirm("Delete ALL failed fulfillment logs? This cannot be undone.")) return
     try {
-      setTogglingWhitelist(true)
+      setLogDeleting("bulk")
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch(`/api/admin/fulfillment/logs?bulk=failed`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      })
+      const data = await response.json()
+      if (data.success) { toast.success("Failed logs cleared"); loadFulfillmentLogs(1) }
+      else toast.error(data.error || "Failed to clear logs")
+    } catch { toast.error("An error occurred") }
+    finally { setLogDeleting(null) }
+  }
+
+  const handleLogSyncCodecraft = async () => {
+    try {
+      setLogSyncingCodecraft(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch("/api/admin/fulfillment/sync-codecraft", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      })
+      const data = await response.json()
+      if (data.success) { toast.success(data.message); loadFulfillmentLogs(logPage) }
+      else toast.error(data.error || "Sync failed")
+    } catch { toast.error("Sync error") }
+    finally { setLogSyncingCodecraft(false) }
+  }
+
+  const handleLogDownloadReport = async () => {
+    try {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token) { toast.error("Authentication required"); return }
-      const res = await fetch("/api/admin/settings/mtn-whitelist", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ enabled: !whitelistEnabled }),
+      const params = new URLSearchParams({ page: "1", limit: "500" })
+      if (logFilter !== "all") params.set("status", logFilter)
+      if (logCommittedPhone) params.set("phone", logCommittedPhone)
+      const response = await fetch(`/api/admin/fulfillment/logs?${params}`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
       })
-      if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Failed") }
-      const data = await res.json()
-      setWhitelistEnabled(data.setting.enabled)
-      toast.success(data.message)
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to update whitelist setting")
-    } finally {
-      setTogglingWhitelist(false)
-    }
+      const data = await response.json()
+      const headers = ["Order ID","Network","Phone","Status","Attempts","Error","Created At","Fulfilled At"]
+      const rows = (data.logs || []).map((f: FulfillmentLog) => [
+        f.order_id, f.network, f.phone_number, f.status,
+        `${f.attempt_number}/${f.max_attempts}`, f.error_message || "-",
+        new Date(f.created_at).toLocaleString(),
+        f.fulfilled_at ? new Date(f.fulfilled_at).toLocaleString() : "-",
+      ])
+      const csv = [headers.join(","), ...rows.map((r: string[]) => r.map(c => `"${c}"`).join(","))].join("\n")
+      const blob = new Blob([csv], { type: "text/csv" })
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement("a"); a.href = url
+      a.download = `fulfillment-${new Date().toISOString().split("T")[0]}.csv`; a.click()
+      window.URL.revokeObjectURL(url)
+      toast.success("Report downloaded")
+    } catch { toast.error("Failed to download report") }
   }
 
-  const syncWithCodeCraft = async () => {
-    try {
-      setSyncingWithCodeCraft(true)
-      toast.info("Syncing CodeCraft orders (AT-iShare, Telecel, BigTime)... MTN orders are skipped.")
+  const getLogStatusIcon = (status: string) => {
+    if (status === "success") return <CheckCircle className="w-4 h-4 text-success" />
+    if (status === "failed") return <XCircle className="w-4 h-4 text-destructive" />
+    return <Clock className="w-4 h-4 text-muted-foreground" />
+  }
 
-      const { data: { session } } = await supabase.auth.getSession()
-      const response = await fetch("/api/admin/sync-orders", {
-        method: "POST",
-        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to sync orders")
-      }
-
-      const skippedMsg = data.skipped > 0 ? ` (${data.skipped} MTN/manual orders skipped)` : ""
-
-      if (data.updated > 0) {
-        toast.success(`Synced! ${data.completed} completed, ${data.failed} failed, ${data.stillProcessing} still processing${skippedMsg}`)
-        // Reload orders
-        loadPendingOrders()
-        loadDownloadedOrders()
-      } else if (data.checked === 0) {
-        toast.info(data.skipped > 0
-          ? `No CodeCraft orders to sync. ${data.skipped} MTN/manual orders skipped.`
-          : "No processing orders found to sync")
-      } else {
-        toast.info(`Checked ${data.checked} orders - all still processing at CodeCraft${skippedMsg}`)
-      }
-    } catch (error) {
-      console.error("Error syncing with CodeCraft:", error)
-      toast.error(error instanceof Error ? error.message : "Failed to sync orders")
-    } finally {
-      setSyncingWithCodeCraft(false)
-    }
+  const getLogStatusColor = (status: string) => {
+    if (status === "success") return "bg-success/15 text-success"
+    if (status === "failed") return "bg-destructive/15 text-destructive"
+    if (status === "processing") return "bg-primary/10 text-primary"
+    return "bg-muted text-foreground"
   }
 
   const loadPendingOrders = async () => {
@@ -397,7 +387,7 @@ export default function AdminOrdersPage() {
     }
   }
 
-  // Manual-fulfill a single order straight from the pending list — used for `reversed`
+  // Manual-fulfill a single order straight from the pending list â€” used for `reversed`
   // orders (a provider flipped a completed order back to failed). Unlike handleManualFulfill,
   // it takes the order directly (pending-list rows aren't in pendingMTNOrders). Reuses the
   // MTN-fulfill button state for feedback.
@@ -493,7 +483,7 @@ export default function AdminOrdersPage() {
 
       toast.error(error instanceof Error ? error.message : "Failed to fulfill order")
 
-      // Refresh list — the order may no longer be truly pending (auto-fulfilled, already
+      // Refresh list â€” the order may no longer be truly pending (auto-fulfilled, already
       // completed via webhook, or status was just reconciled). This clears stale entries.
       loadPendingMTNOrders()
     } finally {
@@ -515,7 +505,7 @@ export default function AdminOrdersPage() {
     const { data: { session } } = await supabase.auth.getSession()
     const headers = { "Content-Type": "application/json", ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}) }
 
-    // Step 1 — whitelist verify
+    // Step 1 â€” whitelist verify
     let allowedBy: string | null = null
     try {
       const vRes = await fetch("/api/admin/fulfillment/verify-whitelist", {
@@ -528,7 +518,7 @@ export default function AdminOrdersPage() {
         const verifySteps: ProgressStep[] = vData.results.map((r: { provider: string; allowed: boolean; reason?: string }) => ({
           label: `Verified against ${r.provider}`,
           status: r.allowed ? "done" : "error",
-          detail: r.allowed ? "✓ Number is enabled" : `✗ Blocked${r.reason ? `: ${r.reason}` : ""}`,
+          detail: r.allowed ? "âœ“ Number is enabled" : `âœ— Blocked${r.reason ? `: ${r.reason}` : ""}`,
         }))
         setFulfillProgress(prev => ({
           ...prev,
@@ -538,18 +528,18 @@ export default function AdminOrdersPage() {
         if (!vData.allowed) {
           setFulfillProgress(prev => ({
             ...prev,
-            steps: prev.steps.map((s, i) => i === prev.steps.length - 1 ? { ...s, detail: "All providers blocked — order will be held for retry" } : s),
+            steps: prev.steps.map((s, i) => i === prev.steps.length - 1 ? { ...s, detail: "All providers blocked â€” order will be held for retry" } : s),
             done: true,
           }))
           await loadPendingMTNOrders()
           return
         }
       } else {
-        // No providers configured — skip to dispatch
+        // No providers configured â€” skip to dispatch
         setFulfillProgress(prev => ({
           ...prev,
           steps: [
-            { label: "Whitelist check", status: "done", detail: "No providers configured — skipped" },
+            { label: "Whitelist check", status: "done", detail: "No providers configured â€” skipped" },
             { label: "Dispatching order", status: "running" },
           ],
         }))
@@ -559,14 +549,14 @@ export default function AdminOrdersPage() {
       setFulfillProgress(prev => ({
         ...prev,
         steps: [
-          { label: `Verify against ${provider}`, status: "error", detail: "Check failed — proceeding (fail-open)" },
+          { label: `Verify against ${provider}`, status: "error", detail: "Check failed â€” proceeding (fail-open)" },
           { label: "Dispatching order", status: "running" },
         ],
       }))
       allowedBy = provider
     }
 
-    // Step 2 — dispatch via the provider that allowed the number
+    // Step 2 â€” dispatch via the provider that allowed the number
     const dispatchProvider = allowedBy ?? provider
     try {
       const dRes = await fetch("/api/admin/fulfillment/manual-fulfill", {
@@ -869,7 +859,7 @@ export default function AdminOrdersPage() {
         return
       }
 
-      // No explicit provider — every order uses the admin-selected provider
+      // No explicit provider â€” every order uses the admin-selected provider
       // (admin_settings.mtn_provider_selection) resolved server-side.
       const orders = pendingMTNOrders.map(o => ({
         id: o.id,
@@ -1064,7 +1054,7 @@ export default function AdminOrdersPage() {
               ) : (
                 <Download className="h-4 w-4 mr-2" />
               )}
-              {exporting ? "Exporting…" : "Download phone numbers"}
+              {exporting ? "Exportingâ€¦" : "Download phone numbers"}
             </Button>
           </div>
         </div>
@@ -1161,7 +1151,7 @@ export default function AdminOrdersPage() {
                               </td>
                               <td className="px-2 sm:px-4 py-3">{order.size}GB</td>
                               <td className="px-2 sm:px-4 py-3 font-mono text-xs break-all max-w-[120px]">{order.phone_number}</td>
-                              <td className="px-2 sm:px-4 py-3 text-right font-semibold">₵ {(order.price || 0).toFixed(2)}</td>
+                              <td className="px-2 sm:px-4 py-3 text-right font-semibold">â‚µ {(order.price || 0).toFixed(2)}</td>
                               <td className="px-2 sm:px-4 py-3 text-center text-xs text-muted-foreground">
                                 <div>{new Date(order.created_at).toLocaleDateString()}</div>
                                 <div className="text-xs text-muted-foreground">{new Date(order.created_at).toLocaleTimeString()}</div>
@@ -1178,7 +1168,7 @@ export default function AdminOrdersPage() {
                                       disabled={fulfillingMTNOrder === order.id || mtnFulfillmentStatus[order.id] === "fulfilled"}
                                     >
                                       {fulfillingMTNOrder === order.id ? (
-                                        <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Fulfilling…</>
+                                        <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Fulfillingâ€¦</>
                                       ) : mtnFulfillmentStatus[order.id] === "fulfilled" ? (
                                         <><CheckCircle className="h-3 w-3 mr-1" />Fulfilled</>
                                       ) : (
@@ -1483,7 +1473,7 @@ export default function AdminOrdersPage() {
                                   </td>
                                   <td className="px-2 sm:px-4 py-3 text-xs sm:text-sm">{order.size}GB</td>
                                   <td className="px-2 sm:px-4 py-3 font-mono text-xs">{order.phone_number}</td>
-                                  <td className="px-2 sm:px-4 py-3 text-right font-semibold text-xs sm:text-sm">₵ {(order.price || 0).toFixed(2)}</td>
+                                  <td className="px-2 sm:px-4 py-3 text-right font-semibold text-xs sm:text-sm">â‚µ {(order.price || 0).toFixed(2)}</td>
                                   <td className="px-2 sm:px-4 py-3 text-center">
                                     <Badge className={`border text-xs ${order.status === "completed" ? "bg-success/15 text-success border-success/30" :
                                       order.status === "failed" ? "bg-destructive/15 text-destructive border-destructive/30" :
@@ -1508,329 +1498,134 @@ export default function AdminOrdersPage() {
           </TabsContent>
 
           <TabsContent value="fulfillment" className="space-y-4">
-            {/* Auto-Fulfillment Toggle Card */}
-            <Card className="border-2 border-dashed">
-              <CardHeader>
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                  <div>
-                    <CardTitle className="flex items-center gap-2">
-                      {autoFulfillmentEnabled ? (
-                        <ToggleRight className="h-5 w-5 text-success" />
-                      ) : (
-                        <ToggleLeft className="h-5 w-5 text-muted-foreground" />
-                      )}
-                      Auto-Fulfillment
-                    </CardTitle>
-                    <CardDescription className="mt-1">
-                      Automatically fulfill orders via Code Craft Network API
-                    </CardDescription>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {loadingAutoFulfillment ? (
-                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                    ) : (
-                      <>
-                        {togglingAutoFulfillment && (
-                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                        )}
-                        <span className={`text-sm font-medium ${autoFulfillmentEnabled ? 'text-success' : 'text-muted-foreground'}`}>
-                          {autoFulfillmentEnabled ? 'Enabled' : 'Disabled'}
-                        </span>
-                        <Switch
-                          checked={autoFulfillmentEnabled}
-                          onCheckedChange={toggleAutoFulfillment}
-                          disabled={togglingAutoFulfillment}
-                        />
-                      </>
-                    )}
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {/* Affected Networks */}
-                  <div className="flex flex-wrap gap-2">
-                    <span className="text-sm text-muted-foreground">Affected networks:</span>
-                    <Badge className="bg-primary/10 text-primary border border-primary">AT - iShare</Badge>
-                    <Badge className="bg-red-100 text-red-800 border border-red-200">Telecel</Badge>
-                    <Badge className="bg-primary/10 text-primary border border-primary">AT - BigTime</Badge>
-                  </div>
+            {/* â”€â”€ Fulfillment log stats â”€â”€ */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              {[
+                { label: "Total",      value: logStatusCounts?.total      ?? 0, cls: "" },
+                { label: "Success",    value: logStatusCounts?.success    ?? 0, cls: "bg-success/10" },
+                { label: "Failed",     value: logStatusCounts?.failed     ?? 0, cls: "bg-destructive/10" },
+                { label: "Processing", value: logStatusCounts?.processing ?? 0, cls: "bg-primary/5" },
+                { label: "Pending",    value: logStatusCounts?.pending    ?? 0, cls: "bg-muted/40" },
+              ].map(s => (
+                <Card key={s.label} className={s.cls}>
+                  <CardContent className="pt-6 text-center">
+                    <p className="text-3xl font-bold">{formatCount(s.value)}</p>
+                    <p className="text-sm text-muted-foreground">{s.label}</p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
 
-                  {/* Status Description */}
-                  <Alert className={autoFulfillmentEnabled ? 'border-success/30 bg-success/10' : 'border-warning/30 bg-warning/10'}>
-                    <AlertCircle className={`h-4 w-4 ${autoFulfillmentEnabled ? 'text-success' : 'text-warning'}`} />
-                    <AlertDescription className={autoFulfillmentEnabled ? 'text-success' : 'text-warning'}>
-                      {autoFulfillmentEnabled ? (
-                        <>
-                          <strong>Auto-fulfillment is ON:</strong> AT-iShare, Telecel, and AT-BigTime orders are automatically
-                          fulfilled via Code Craft API when payment is confirmed. These orders will NOT appear
-                          in the admin download queue.
-                        </>
-                      ) : (
-                        <>
-                          <strong>Auto-fulfillment is OFF:</strong> AT-iShare, Telecel, and AT-BigTime orders will be sent to
-                          the admin download queue for manual processing, just like MTN orders.
-                        </>
-                      )}
-                    </AlertDescription>
-                  </Alert>
+            {/* â”€â”€ Filters + actions â”€â”€ */}
+            <Card>
+              <CardHeader><CardTitle>Filters</CardTitle></CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-wrap gap-2">
+                  {(["all", "success", "failed", "processing", "pending"] as const).map(s => (
+                    <Button key={s} variant={logFilter === s ? "default" : "outline"} size="sm"
+                      onClick={() => { setLogFilter(s); setLogPage(1) }} className="capitalize">{s}</Button>
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Input placeholder="Search by phoneâ€¦" value={logSearchPhone}
+                    onChange={e => setLogSearchPhone(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") { setLogCommittedPhone(logSearchPhone); setLogPage(1) } }}
+                    className="flex-1 min-w-[180px]" />
+                  <Button size="sm" onClick={() => { setLogCommittedPhone(logSearchPhone); setLogPage(1) }}>Search</Button>
+                  <Button size="sm" variant="outline" onClick={() => loadFulfillmentLogs(logPage)}>
+                    <RefreshCw className="w-4 h-4 mr-1" />Refresh
+                  </Button>
+                  <Button size="sm" variant="outline" disabled={logSyncingCodecraft} onClick={handleLogSyncCodecraft}
+                    className="border-border text-primary hover:bg-primary/20">
+                    {logSyncingCodecraft ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : <Zap className="w-4 h-4 mr-1" />}
+                    {logSyncingCodecraft ? "Syncingâ€¦" : "Sync Codecraft"}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={handleLogDownloadReport}>
+                    <Download className="w-4 h-4 mr-1" />Export
+                  </Button>
+                  <Button size="sm" variant="destructive" disabled={logDeleting === "bulk"} onClick={handleLogBulkDeleteFailed}>
+                    {logDeleting === "bulk" ? <Clock className="w-4 h-4 mr-1 animate-spin" /> : <Trash2 className="w-4 h-4 mr-1" />}
+                    Clear Failed
+                  </Button>
                 </div>
               </CardContent>
             </Card>
 
-            {/* MTN Whitelist Verification Toggle */}
-            <Card className="border-2 border-dashed">
-              <CardHeader>
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                  <div>
-                    <CardTitle className="flex items-center gap-2">
-                      <ShieldCheck className={`h-5 w-5 ${whitelistEnabled ? 'text-success' : 'text-muted-foreground'}`} />
-                      MTN Whitelist Verification
-                    </CardTitle>
-                    <CardDescription className="mt-1">
-                      Check Xpress &amp; Codecraft whitelists before fulfilling MTN orders
-                    </CardDescription>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {loadingWhitelist ? (
-                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                    ) : (
-                      <>
-                        {togglingWhitelist && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-                        <span className={`text-sm font-medium ${whitelistEnabled ? 'text-success' : 'text-muted-foreground'}`}>
-                          {whitelistEnabled ? 'Enabled' : 'Disabled'}
-                        </span>
-                        <Switch
-                          checked={whitelistEnabled}
-                          onCheckedChange={toggleWhitelist}
-                          disabled={togglingWhitelist}
-                        />
-                      </>
-                    )}
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <Alert className={whitelistEnabled ? 'border-success/30 bg-success/10' : 'border-warning/30 bg-warning/10'}>
-                  <ShieldCheck className={`h-4 w-4 ${whitelistEnabled ? 'text-success' : 'text-warning'}`} />
-                  <AlertDescription className={whitelistEnabled ? 'text-success' : 'text-warning'}>
-                    {whitelistEnabled ? (
-                      <>
-                        <strong>Whitelist check ON:</strong> MTN orders are verified against all configured providers
-                        (Xpress → Codecraft fallback). Numbers not yet enabled are held and retried every 24h for up to 72h.
-                        The per-order Fulfill button lets you pick which provider to use.
-                      </>
-                    ) : (
-                      <>
-                        <strong>Whitelist check OFF:</strong> MTN orders skip whitelist verification and go straight to
-                        the active fulfillment provider. Use this if the provider API is down or all numbers are pre-registered.
-                      </>
-                    )}
-                  </AlertDescription>
-                </Alert>
-              </CardContent>
-            </Card>
-
-            {/* Fulfillment Dashboard Card */}
+            {/* â”€â”€ Log table â”€â”€ */}
             <Card>
               <CardHeader>
-                <CardTitle>Code Craft Fulfillment Dashboard</CardTitle>
+                <CardTitle>Fulfillment Orders</CardTitle>
                 <CardDescription>
-                  Monitor and manage data bundle fulfillment through Code Craft Network API
+                  {logPagination
+                    ? `Showing ${(logPage - 1) * logPagination.limit + 1}â€“${Math.min(logPage * logPagination.limit, logPagination.total)} of ${formatCount(logPagination.total)} orders`
+                    : "Loadingâ€¦"}
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="flex flex-col items-center justify-center py-12 space-y-4">
-                  <Zap className="h-12 w-12 text-warning" />
-                  <div className="text-center">
-                    <h3 className="text-lg font-semibold mb-2">Fulfillment Dashboard</h3>
-                    <p className="text-muted-foreground mb-6">
-                      View real-time fulfillment status for auto-fulfilled orders
-                    </p>
-                    <div className="flex flex-wrap gap-3 justify-center">
-                      <a href="/dashboard/admin/fulfillment" target="_blank" rel="noopener noreferrer">
-                        <Button className="bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-primary-foreground">
-                          <Zap className="h-4 w-4 mr-2" />
-                          Open Fulfillment Dashboard
-                        </Button>
-                      </a>
-                      <Button
-                        variant="outline"
-                        onClick={syncWithCodeCraft}
-                        disabled={syncingWithCodeCraft}
-                        className="border-blue-500 text-blue-600 hover:bg-blue-50"
-                      >
-                        {syncingWithCodeCraft ? (
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        ) : (
-                          <RefreshCw className="h-4 w-4 mr-2" />
-                        )}
-                        {syncingWithCodeCraft ? "Syncing..." : "Sync Processing Orders"}
-                      </Button>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-4">
-                      Use "Sync Processing Orders" to check all orders stuck at "processing" status with CodeCraft
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Pending Orders Section */}
-            <Card className="border-l-4 border-l-warning">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="flex items-center gap-2">
-                      <Badge className="bg-warning/15 text-warning border border-warning/30">
-                        MTN & Codecraft
-                      </Badge>
-                      Pending Manual Fulfillment
-                    </CardTitle>
-                    <CardDescription>
-                      Orders queued for manual fulfillment
-                    </CardDescription>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge className="bg-blue-100 text-blue-800 border border-blue-200 text-lg px-3 py-1">
-                      {formatCount(pendingMTNOrders.length)}
-                    </Badge>
-                    {autoFulfillmentEnabled && pendingMTNOrders.length > 0 && (
-                      <Button
-                        size="sm"
-                        onClick={handleBulkManualFulfill}
-                        disabled={loadingMTNOrders}
-                        className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-primary-foreground font-bold"
-                      >
-                        {loadingMTNOrders ? (
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        ) : (
-                          <Zap className="h-4 w-4 mr-2" />
-                        )}
-                        Fulfill All Pending ({pendingMTNOrders.length})
-                      </Button>
-                    )}
-                    {loadingMTNOrders && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {loadingMTNOrders ? (
-                  <div className="flex items-center justify-center py-12">
-                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                  </div>
-                ) : pendingMTNOrders.length === 0 ? (
-                  <Alert>
-                    <CheckCircle className="h-4 w-4" />
-                    <AlertDescription>
-                      No pending MTN orders. All orders have been fulfilled!
-                    </AlertDescription>
-                  </Alert>
+                {logLoading ? (
+                  <div className="text-center py-8 text-muted-foreground"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></div>
+                ) : logFulfillments.length === 0 ? (
+                  <Alert><AlertCircle className="h-4 w-4" /><AlertDescription>No fulfillments found</AlertDescription></Alert>
                 ) : (
-                  <div className="space-y-3">
-                    {pendingMTNOrders.map((order) => (
-                      <div key={order.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-4 rounded border border-border hover:bg-muted/40 transition">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-2">
-                            <div>
-                              <p className="font-mono text-sm font-semibold text-foreground">{order.id}</p>
-                              <p className="text-sm text-muted-foreground">
-                                {order.phone_number} • {order.size}GB
-                              </p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <Badge variant="outline" className={`text-xs capitalize ${
-                               order.type === 'api' ? 'bg-primary/10 text-primary border-primary' :
-                               order.type === 'bulk' ? 'bg-primary/10 text-primary border-primary' :
-                               'bg-warning/10 text-warning border-warning/30'
-                             }`}>
-                               {order.type || 'Shop'}
-                             </Badge>
-                             <Badge className={`${getNetworkColor(order.network)} border`}>
-                              {order.network}
-                            </Badge>
-                            <Badge
-                              className={`text-xs border ${order.status === "completed"
-                                ? "bg-success/15 text-success border-success/30"
-                                : order.status === "pending"
-                                  ? "bg-warning/15 text-warning border-warning/30"
-                                  : order.status === "processing"
-                                    ? "bg-blue-100 text-blue-800 border-blue-200"
-                                    : order.status === "failed"
-                                      ? "bg-destructive/15 text-destructive border-destructive/30"
-                                      : "bg-muted text-muted-foreground border-border"
-                                }`}
-                            >
-                              {order.status?.charAt(0).toUpperCase() + order.status?.slice(1) || "Unknown"}
-                            </Badge>
-                            <span className="text-xs text-muted-foreground">
-                              Created: {new Date(order.created_at).toLocaleString()}
-                            </span>
-                            {mtnFulfillmentStatus[order.id] === "fulfilled" && (
-                              <Badge className="bg-success/15 text-success border border-success/30">
-                                Fulfilled
-                              </Badge>
-                            )}
-                            {mtnFulfillmentStatus[order.id] === "error" && (
-                              <Badge className="bg-destructive/15 text-destructive border border-destructive/30">
-                                Error
-                              </Badge>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className="flex items-center gap-4">
-                            <span className="text-right font-semibold whitespace-nowrap">₵ {(order.price || 0).toFixed(2)}</span>
-                          </div>
-                          {mtnFulfillmentStatus[order.id] === "fulfilled" ? (
-                            <Button size="sm" disabled className="bg-success/20 text-success border border-success/30">
-                              <CheckCircle className="h-3 w-3 mr-1" />
-                              Fulfilled
-                            </Button>
-                          ) : fulfillingMTNOrder === order.id ? (
-                            <Button size="sm" disabled className="bg-warning hover:bg-warning/90 text-primary-foreground">
-                              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                              Fulfilling...
-                            </Button>
-                          ) : (
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button size="sm" className="bg-warning hover:bg-warning/90 text-primary-foreground">
-                                  <Send className="h-3 w-3 mr-1" />
-                                  Fulfill
-                                  <ChevronDown className="h-3 w-3 ml-1" />
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b">
+                          {["Status","Order ID","Phone","Attempts","Created","Error","Action"].map(h => (
+                            <th key={h} className="text-left py-3 px-4 font-semibold">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {logFulfillments.map(f => (
+                          <tr key={f.id} className="border-b hover:bg-accent">
+                            <td className="py-3 px-4">
+                              <div className="flex items-center gap-2">
+                                {getLogStatusIcon(f.status)}
+                                <Badge className={getLogStatusColor(f.status)}>{f.status}</Badge>
+                              </div>
+                            </td>
+                            <td className="py-3 px-4">
+                              <code className="text-xs bg-muted px-2 py-1 rounded">{f.order_id.substring(0, 8)}â€¦</code>
+                            </td>
+                            <td className="py-3 px-4">{f.phone_number}</td>
+                            <td className="py-3 px-4">{f.attempt_number}/{f.max_attempts}</td>
+                            <td className="py-3 px-4 text-xs">{new Date(f.created_at).toLocaleString()}</td>
+                            <td className="py-3 px-4 text-xs">
+                              {f.error_message
+                                ? <span className="max-w-xs text-destructive truncate block">{f.error_message}</span>
+                                : "-"}
+                            </td>
+                            <td className="py-3 px-4">
+                              {f.status === "failed" && f.attempt_number < f.max_attempts && (
+                                <Button size="sm" disabled={logRetrying === f.order_id || logDeleting === "bulk"}
+                                  onClick={() => handleLogRetry(f.order_id)}>
+                                  {logRetrying === f.order_id ? "Retryingâ€¦" : "Retry"}
                                 </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="w-44">
-                                <DropdownMenuLabel className="text-xs text-muted-foreground">Select Provider</DropdownMenuLabel>
-                                <DropdownMenuSeparator />
-                                {[
-                                  { value: "xpress",     label: "Xpress" },
-                                  { value: "codecraft",  label: "Codecraft" },
-                                  { value: "sykes",      label: "Sykes" },
-                                  { value: "datakazina", label: "Datakazina" },
-                                  { value: "eazyghdata", label: "EazyGhData" },
-                                  { value: "bisdel",     label: "Bisdel" },
-                                ].map(p => (
-                                  <DropdownMenuItem
-                                    key={p.value}
-                                    onClick={() => startFulfillWithProgress(order, p.value)}
-                                    className="cursor-pointer"
-                                  >
-                                    {p.label}
-                                  </DropdownMenuItem>
-                                ))}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          )}
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {logPagination && logPagination.totalPages > 1 && (
+                      <div className="flex items-center justify-between pt-4 border-t mt-2">
+                        <span className="text-xs text-muted-foreground">
+                          Page {logPage} of {logPagination.totalPages} â€” {formatCount(logPagination.total)} total
+                        </span>
+                        <div className="flex gap-2">
+                          <Button variant="outline" size="sm" disabled={logPage <= 1 || logLoading}
+                            onClick={() => loadFulfillmentLogs(logPage - 1)}>Previous</Button>
+                          <Button variant="outline" size="sm" disabled={logPage >= logPagination.totalPages || logLoading}
+                            onClick={() => loadFulfillmentLogs(logPage + 1)}>Next</Button>
                         </div>
                       </div>
-                    ))}
+                    )}
                   </div>
                 )}
               </CardContent>
             </Card>
+
           </TabsContent>
         </Tabs>
 
@@ -1950,8 +1745,8 @@ export default function AdminOrdersPage() {
                 <span className="font-medium text-foreground">Combine duplicate numbers</span>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {combineDuplicates
-                    ? "A number with several orders is exported once, with the gigs added together (e.g. 1 + 2 + 2 → 5GB)."
-                    : "One row per order — a number with several orders is listed multiple times. Use for suppliers that only accept fixed pack sizes."}
+                    ? "A number with several orders is exported once, with the gigs added together (e.g. 1 + 2 + 2 â†’ 5GB)."
+                    : "One row per order â€” a number with several orders is listed multiple times. Use for suppliers that only accept fixed pack sizes."}
                 </p>
               </div>
             </button>
