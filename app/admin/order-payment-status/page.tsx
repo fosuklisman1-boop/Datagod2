@@ -206,7 +206,7 @@ export default function OrderPaymentStatusPage() {
         return
       }
 
-      const orders = pendingMTNOrders.map(o => ({ id: o.id, type: o.type || 'shop' }))
+      const orders = pendingMTNOrders.slice(0, 100).map(o => ({ id: o.id, type: o.type || 'shop' }))
       
       const response = await fetch("/api/admin/fulfillment/bulk-manual-fulfill", {
         method: "POST",
@@ -724,7 +724,7 @@ export default function OrderPaymentStatusPage() {
                 ) : (
                   <Zap className="h-5 w-5 mr-2" />
                 )}
-                Fulfill All Pending MTN ({pendingMTNOrders.length})
+                Fulfill Pending MTN ({Math.min(pendingMTNOrders.length, 100)}{pendingMTNOrders.length > 100 ? ` of ${pendingMTNOrders.length}` : ""})
               </Button>
             )}
           </div>

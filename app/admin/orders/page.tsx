@@ -861,7 +861,7 @@ export default function AdminOrdersPage() {
 
       // No explicit provider â€” every order uses the admin-selected provider
       // (admin_settings.mtn_provider_selection) resolved server-side.
-      const orders = pendingMTNOrders.map(o => ({
+      const orders = pendingMTNOrders.slice(0, 100).map(o => ({
         id: o.id,
         type: (o as any).type || 'shop',
       }))
