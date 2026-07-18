@@ -406,6 +406,44 @@ export async function POST(request: NextRequest) {
         order.status = "processing"
       })
 
+      // Abandon any active MTN tracking rows for the claimed orders so that
+      // provider crons cannot overwrite the order status while the admin is
+      // manually fulfilling. Uses the same "abandoned" status the re-fulfillment
+      // path sets — all crons filter for ["pending","processing",...] and skip it.
+      const nowIso = new Date().toISOString()
+      const abandonPromises: Promise<any>[] = []
+      if (bulkOrderIds.length > 0) {
+        abandonPromises.push(
+          inChunks(bulkOrderIds, (chunk) =>
+            supabase.from("mtn_fulfillment_tracking")
+              .update({ status: "abandoned", updated_at: nowIso })
+              .in("order_id", chunk)
+              .in("status", ["pending", "processing", "retrying"])
+          )
+        )
+      }
+      if (shopOrderIds.length > 0) {
+        abandonPromises.push(
+          inChunks(shopOrderIds, (chunk) =>
+            supabase.from("mtn_fulfillment_tracking")
+              .update({ status: "abandoned", updated_at: nowIso })
+              .in("shop_order_id", chunk)
+              .in("status", ["pending", "processing", "retrying"])
+          )
+        )
+      }
+      if (apiOrderIds.length > 0) {
+        abandonPromises.push(
+          inChunks(apiOrderIds, (chunk) =>
+            supabase.from("mtn_fulfillment_tracking")
+              .update({ status: "abandoned", updated_at: nowIso })
+              .in("api_order_id", chunk)
+              .in("status", ["pending", "processing", "retrying"])
+          )
+        )
+      }
+      await Promise.allSettled(abandonPromises)
+
       // If no orders were claimed (all taken by another admin), return appropriate error
       if (orders.length === 0) {
         return NextResponse.json(
