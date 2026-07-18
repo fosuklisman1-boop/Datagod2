@@ -59,7 +59,7 @@ async function setStatus(rowId: string, row: Parameters<typeof orderTarget>[0], 
  * Matrix:
  *   our=completed  xpress=failed    → reversed  (push alert sent)
  *   our=processing xpress=completed → completed
- *   our=processing xpress=failed    → requeued  (tracking=failed, order=pending)
+ *   our=processing/pending xpress=failed → requeued  (tracking=failed, order=pending)
  *   our=failed     xpress=completed → restored
  *   anything else / Xpress unreachable → skipped (no change)
  */
@@ -137,7 +137,7 @@ export async function POST(request: NextRequest) {
         results.push({ mtn_order_id: String(row.mtn_order_id), was: our, action: "completed", message: "Xpress confirms delivery" })
         completed++
 
-      } else if (our === "processing" && xpress === "failed") {
+      } else if ((our === "processing" || our === "pending") && xpress === "failed") {
         await setStatus(row.id, row, "failed", "pending", "Failed — re-queued by reconciliation scan", nowIso)
         results.push({ mtn_order_id: String(row.mtn_order_id), was: our, action: "requeued", message: "Xpress says failed — order re-queued" })
         requeued++
