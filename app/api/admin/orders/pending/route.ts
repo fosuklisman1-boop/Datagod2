@@ -90,8 +90,8 @@ export async function GET(request: NextRequest) {
     let bulkQuery = supabase
       .from("orders")
       .select("id, created_at, phone_number, price, status, size, network", { count: "exact" })
-      .eq("status", "pending")
-    
+      .in("status", ["pending", "reversed"])
+
     // If auto-fulfillment is enabled, exclude auto-fulfilled networks
     if (autoFulfillEnabled) {
       bulkQuery = bulkQuery
@@ -123,7 +123,7 @@ export async function GET(request: NextRequest) {
     let shopQuery = supabase
       .from("shop_orders")
       .select(`id, shop_id, customer_name, customer_phone, customer_email, network, volume_gb, base_price, profit_amount, total_price, order_status, payment_status, reference_code, created_at`, { count: "exact" })
-      .eq("order_status", "pending")
+      .in("order_status", ["pending", "reversed"])
       .eq("payment_status", "completed")
       .not("payment_status", "is", null)
     
@@ -193,7 +193,7 @@ export async function GET(request: NextRequest) {
     let apiQuery = supabase
       .from("api_orders")
       .select("id, created_at, recipient_phone, price, status, volume_gb, network", { count: "exact" })
-      .eq("status", "pending")
+      .in("status", ["pending", "reversed"])
 
     if (mtnAutoFulfillEnabled) {
       apiQuery = apiQuery.neq("network", "MTN")
@@ -221,7 +221,7 @@ export async function GET(request: NextRequest) {
     let ussdQuery = supabase
       .from("ussd_orders")
       .select("id, created_at, dialing_phone, recipient_phone, network, package_size, amount, order_status, payment_status", { count: "exact" })
-      .eq("order_status", "pending")
+      .in("order_status", ["pending", "reversed"])
       .eq("payment_status", "completed")
 
     // Apply the same auto-fulfillment exclusions as bulk/shop orders
@@ -265,7 +265,7 @@ export async function GET(request: NextRequest) {
     let ussdShopQuery = supabase
       .from("ussd_shop_orders")
       .select("id, created_at, dialing_phone, recipient_phone, network, package_size, amount, order_status, payment_status, shop_name", { count: "exact" })
-      .eq("order_status", "pending")
+      .in("order_status", ["pending", "reversed"])
       .eq("payment_status", "completed")
 
     if (autoFulfillEnabled) {
