@@ -153,8 +153,8 @@ export async function POST(request: NextRequest) {
         const newStatus = normalizeStatus(rawStatus)
         const orderTableStatus = newStatus === "failed" ? "pending" : newStatus
 
-        // Status priority guard — never regress completed/failed back to pending
-        const statusPriority: Record<string, number> = { pending: 1, processing: 2, completed: 3, failed: 3 }
+        // Status priority guard. reversed=4 is terminal — nothing overwrites it.
+        const statusPriority: Record<string, number> = { pending: 1, processing: 2, completed: 3, failed: 3, reversed: 4, abandoned: 4 }
 
         const { data: tracking, error: fetchError } = await supabase
             .from("mtn_fulfillment_tracking")

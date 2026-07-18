@@ -77,8 +77,8 @@ export async function GET(request: NextRequest) {
                     const oldStatus = order.status
                     const newStatus = result.status
 
-                    // Prevent status regression
-                    const statusPriority: Record<string, number> = { pending: 1, processing: 2, completed: 3, failed: 3 }
+                    // Prevent status regression. reversed=4 is terminal — nothing overwrites it.
+                    const statusPriority: Record<string, number> = { pending: 1, processing: 2, completed: 3, failed: 3, reversed: 4, abandoned: 4 }
                     const currentPriority = statusPriority[oldStatus] ?? 0
                     const newPriority = statusPriority[newStatus] ?? 0
 
