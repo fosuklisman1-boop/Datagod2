@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { checkMTNOrderStatus } from "@/lib/mtn-fulfillment"
-import { flagReversal, type ReversalRow } from "@/lib/mtn-reversal"
 
 export const maxDuration = 300
 
@@ -11,22 +10,47 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+/** Map a tracking row to its parent order table + column. */
+function orderTarget(row: {
+  order_type: string | null
+  order_id: string | null
+  shop_order_id: string | null
+  api_order_id: string | null
+}): { table: string; col: "status" | "order_status"; id: string } | null {
+  if (row.order_type === "bulk" && row.order_id)
+    return { table: "orders", col: "status", id: row.order_id }
+  if (row.order_type === "api" && (row.api_order_id || row.order_id))
+    return { table: "api_orders", col: "status", id: (row.api_order_id || row.order_id)! }
+  if (row.order_type === "ussd" && row.order_id)
+    return { table: "ussd_orders", col: "order_status", id: row.order_id }
+  if (row.order_type === "ussd_shop" && row.order_id)
+    return { table: "ussd_shop_orders", col: "order_status", id: row.order_id }
+  if (row.shop_order_id)
+    return { table: "shop_orders", col: "order_status", id: row.shop_order_id }
+  if (row.order_id) return { table: "orders", col: "status", id: row.order_id }
+  if (row.api_order_id) return { table: "api_orders", col: "status", id: row.api_order_id }
+  return null
+}
+
 /**
  * POST /api/admin/orders/recover-xpress-reversals
  *
- * One-time recovery for Xpress orders that the pre-fix webhook handler
- * incorrectly set to "failed" (tracking) / "pending" (order table) when
- * Xpress flipped a completed order. For each failed Xpress tracking row
- * we ask Xpress directly: if they say "completed", it was a reversal and
- * we flag it; if they still say "failed", it was a genuine failure and
- * we leave it alone. Idempotent — safe to run multiple times.
+ * Recovery for Xpress orders the pre-fix webhook incorrectly set to
+ * "failed" (tracking) / "pending" (order table) when Xpress sent a failure
+ * notice for an already-delivered order.
+ *
+ * For each failed Xpress tracking row we ask Xpress directly:
+ *   - "completed" → Xpress confirms delivery; restore both tracking and
+ *     order table to "completed". Data was delivered — no re-fulfillment needed.
+ *   - anything else → genuine failure; leave as pending for manual re-fulfillment.
+ *
+ * Idempotent — safe to run multiple times.
  */
 export async function POST(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse
 
   try {
-    // Fetch all Xpress tracking rows currently in "failed" state
     const { data: candidates, error: fetchErr } = await supabase
       .from("mtn_fulfillment_tracking")
       .select("id, mtn_order_id, order_type, order_id, shop_order_id, api_order_id, provider, status, updated_at")
@@ -40,15 +64,20 @@ export async function POST(request: NextRequest) {
     }
 
     if (!candidates || candidates.length === 0) {
-      return NextResponse.json({ success: true, message: "No failed Xpress tracking rows found", total: 0, reversed: 0, genuine: 0, errors: 0 })
+      return NextResponse.json({
+        success: true,
+        message: "No failed Xpress tracking rows found",
+        total: 0, restored: 0, genuine: 0, errors: 0, results: [],
+      })
     }
 
-    console.log(`[XPRESS-RECOVERY] Found ${candidates.length} failed Xpress tracking rows — checking with Xpress API`)
+    console.log(`[XPRESS-RECOVERY] ${candidates.length} failed Xpress rows — querying Xpress API`)
 
     const results: Array<{ mtn_order_id: string; action: string; message: string }> = []
-    let reversed = 0
+    let restored = 0
     let genuine = 0
     let errors = 0
+    const nowIso = new Date().toISOString()
 
     for (const row of candidates) {
       const orderId = row.mtn_order_id
@@ -68,20 +97,24 @@ export async function POST(request: NextRequest) {
         }
 
         if (statusResult.status === "completed") {
-          // Xpress confirms delivery — this was a false failure report; flag as reversed
-          const reversalRow: ReversalRow = {
-            id: row.id,
-            order_type: row.order_type,
-            order_id: row.order_id,
-            shop_order_id: row.shop_order_id,
-            api_order_id: row.api_order_id,
-            provider: "xpress",
+          // Xpress confirms delivery — restore to completed in both tracking and order table
+          await supabase
+            .from("mtn_fulfillment_tracking")
+            .update({ status: "completed", external_message: "Restored by xpress-recovery run", updated_at: nowIso })
+            .eq("id", row.id)
+
+          const target = orderTarget(row)
+          if (target) {
+            await supabase
+              .from(target.table)
+              .update({ [target.col]: "completed", updated_at: nowIso })
+              .eq("id", target.id)
           }
-          await flagReversal(supabase, reversalRow, { status: "failed", message: "Recovered by xpress-reversal recovery run" })
-          results.push({ mtn_order_id: String(orderId), action: "reversed", message: "Xpress says completed — flagged as reversed" })
-          reversed++
+
+          results.push({ mtn_order_id: String(orderId), action: "restored", message: "Xpress confirms delivery — restored to completed" })
+          restored++
         } else {
-          // Genuinely failed — leave it; the order stays in pending for manual re-fulfillment
+          // Genuinely failed — leave in pending for manual re-fulfillment
           results.push({ mtn_order_id: String(orderId), action: "genuine_failure", message: `Xpress status: ${statusResult.status}` })
           genuine++
         }
@@ -91,12 +124,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log(`[XPRESS-RECOVERY] Done: ${reversed} reversed, ${genuine} genuine failures, ${errors} errors`)
+    console.log(`[XPRESS-RECOVERY] Done: ${restored} restored, ${genuine} genuine failures, ${errors} errors`)
 
     return NextResponse.json({
       success: true,
       total: candidates.length,
-      reversed,
+      restored,
       genuine,
       errors,
       results,
