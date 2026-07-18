@@ -105,12 +105,21 @@ export default function XpressRecoveryPage() {
   async function triggerCron() {
     setCronRunning(true)
     try {
-      const res = await fetch("/api/cron/sync-mtn-status/xpress")
+      const { data: { session: sess } } = await supabase.auth.getSession()
+      const token = sess?.access_token
+
+      const res = await fetch("/api/admin/orders/trigger-xpress-cron", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      })
       const json = await res.json()
       if (res.ok) {
         toast.success(`Cron ran: ${json.synced ?? 0} synced, ${json.reversed ?? 0} reversed`)
       } else {
-        toast.error("Cron failed — check server logs")
+        toast.error(json.error || "Cron failed — check server logs")
       }
     } catch {
       toast.error("Could not reach cron endpoint")
