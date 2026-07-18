@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { checkPhoneVerified } from "@/lib/phone-verify-guard"
-import { sendSMS } from "@/lib/sms-service"
 import { customerTrackingService } from "@/lib/customer-tracking-service"
 import { isPhoneBlacklisted } from "@/lib/blacklist"
 import {
@@ -354,28 +353,8 @@ export async function POST(request: NextRequest) {
       // Don't fail the bulk order if customer tracking fails
     }
 
-    // Send SMS to each phone number in the bulk order
-    try {
-      const uniquePhones = [...new Set(orders.map((o: BulkOrderData) => o.phone_number))]
-
-      for (const phoneNumber of uniquePhones) {
-        // Find volume for this phone number
-        const volumeForPhone = orders.find((o: BulkOrderData) => o.phone_number === phoneNumber)?.volume_gb || 0
-        const smsMessage = `You have successfully placed an order of ${network} ${volumeForPhone}GB to ${phoneNumber}. If delayed over 2 hours, contact support.`
-
-        await sendSMS({
-          phone: phoneNumber,
-          message: smsMessage,
-          type: 'bulk_order_success',
-          reference: `BULK-${Date.now()}`,
-        }).catch(err => console.error("[SMS] SMS error for phone ${phoneNumber}:", err))
-      }
-
-      console.log(`[SMS] ✓ SMS sent to ${uniquePhones.length} unique phone number(s)`)
-    } catch (smsError) {
-      console.warn("[SMS] Failed to send bulk order SMS:", smsError)
-      // Don't fail the bulk order if SMS fails
-    }
+    // Bulk orders skip per-recipient SMS — sending to 100s of numbers at once
+    // is expensive and noisy. Customers are notified when data is delivered.
 
     // Trigger MTN Fulfillment (Automatic)
     const normalizedNetwork = network?.trim() || ""
