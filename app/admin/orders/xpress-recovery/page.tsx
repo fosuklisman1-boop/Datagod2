@@ -51,6 +51,7 @@ const ACTION_META: Record<Action, {
 export default function XpressRecoveryPage() {
   const { loading: authLoading } = useAdminProtected()
   const [running, setRunning] = useState(false)
+  const [cronRunning, setCronRunning] = useState(false)
   const [summary, setSummary] = useState<RecoverySummary | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -92,6 +93,25 @@ export default function XpressRecoveryPage() {
       toast.error("Sync failed")
     } finally {
       setRunning(false)
+    }
+  }
+
+  async function triggerCron() {
+    setCronRunning(true)
+    try {
+      const res = await fetch("/api/cron/sync-mtn-status/xpress", {
+        headers: { "x-cron-secret": process.env.NEXT_PUBLIC_CRON_SECRET || "" },
+      })
+      const json = await res.json()
+      if (res.ok) {
+        toast.success(`Cron ran: ${json.synced ?? 0} synced, ${json.reversed ?? 0} reversed`)
+      } else {
+        toast.error("Cron failed — check server logs")
+      }
+    } catch {
+      toast.error("Could not reach cron endpoint")
+    } finally {
+      setCronRunning(false)
     }
   }
 
@@ -142,22 +162,41 @@ export default function XpressRecoveryPage() {
           </AlertDescription>
         </Alert>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Run Sync</CardTitle>
-            <CardDescription>
-              Scans all Xpress orders in processing or failed state and corrects them.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button onClick={runSync} disabled={running} className="gap-2">
-              {running
-                ? <><Loader2 className="h-4 w-4 animate-spin" /> Querying Xpress…</>
-                : <><RefreshCw className="h-4 w-4" /> Run Sync</>
-              }
-            </Button>
-          </CardContent>
-        </Card>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Full Sync (up to 300)</CardTitle>
+              <CardDescription>
+                Checks all processing + failed Xpress orders against Xpress API and corrects each one.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button onClick={runSync} disabled={running || cronRunning} className="gap-2">
+                {running
+                  ? <><Loader2 className="h-4 w-4 animate-spin" /> Querying Xpress…</>
+                  : <><RefreshCw className="h-4 w-4" /> Run Full Sync</>
+                }
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Trigger Cron (next 50)</CardTitle>
+              <CardDescription>
+                Manually fires the scheduled poller — same as waiting for the next cron tick.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button variant="outline" onClick={triggerCron} disabled={running || cronRunning} className="gap-2">
+                {cronRunning
+                  ? <><Loader2 className="h-4 w-4 animate-spin" /> Running cron…</>
+                  : <><RefreshCw className="h-4 w-4" /> Trigger Cron</>
+                }
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
 
         {error && (
           <Alert variant="destructive">

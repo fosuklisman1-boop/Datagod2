@@ -9,9 +9,9 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
-// Xpress allows 60 req/min; we stay well below that
-const BATCH_SIZE = 15
-const DELAY_BETWEEN_REQUESTS_MS = 1500
+// Xpress allows 60 req/min (~1 req/sec). At 1000ms delay we can safely do 50 per cron tick.
+const BATCH_SIZE = 50
+const DELAY_BETWEEN_REQUESTS_MS = 1000
 const DELAY_ON_429_MS = 10000
 
 function sleep(ms: number): Promise<void> {
