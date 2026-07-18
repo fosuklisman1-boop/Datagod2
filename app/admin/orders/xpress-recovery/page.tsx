@@ -8,31 +8,43 @@ import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { toast } from "sonner"
-import { AlertTriangle, CheckCircle2, XCircle, RefreshCw, Loader2, ShieldAlert, CheckCheck } from "lucide-react"
+import {
+  AlertTriangle, CheckCircle2, XCircle, RefreshCw, Loader2,
+  ShieldAlert, CheckCheck, RotateCcw, Clock, Minus,
+} from "lucide-react"
 import { supabase } from "@/lib/supabase"
+
+type Action = "completed" | "requeued" | "restored" | "genuine_failure" | "no_change" | "skip" | "error"
 
 interface RecoveryResult {
   mtn_order_id: string
-  action: "restored" | "genuine_failure" | "skip" | "error"
+  was: string
+  action: Action
   message: string
 }
 
 interface RecoverySummary {
   total: number
+  completed: number
+  requeued: number
   restored: number
   genuine: number
+  noChange: number
   errors: number
   results: RecoveryResult[]
 }
 
-const ACTION_STYLES: Record<RecoveryResult["action"], {
+const ACTION_META: Record<Action, {
   label: string
   variant: "default" | "secondary" | "destructive" | "outline"
   icon: React.ReactNode
 }> = {
-  restored:        { label: "Restored",         variant: "default",     icon: <CheckCheck className="h-3 w-3" /> },
-  genuine_failure: { label: "Genuine failure",  variant: "secondary",   icon: <XCircle className="h-3 w-3" /> },
-  skip:            { label: "Skipped",           variant: "outline",     icon: <AlertTriangle className="h-3 w-3" /> },
+  completed:       { label: "Completed",        variant: "default",     icon: <CheckCheck className="h-3 w-3" /> },
+  requeued:        { label: "Re-queued",         variant: "secondary",   icon: <RotateCcw className="h-3 w-3" /> },
+  restored:        { label: "Restored",          variant: "default",     icon: <CheckCircle2 className="h-3 w-3" /> },
+  genuine_failure: { label: "Genuine failure",   variant: "outline",     icon: <XCircle className="h-3 w-3" /> },
+  no_change:       { label: "Still in flight",   variant: "outline",     icon: <Clock className="h-3 w-3" /> },
+  skip:            { label: "Skipped",           variant: "outline",     icon: <Minus className="h-3 w-3" /> },
   error:           { label: "Error",             variant: "destructive", icon: <XCircle className="h-3 w-3" /> },
 }
 
@@ -42,7 +54,7 @@ export default function XpressRecoveryPage() {
   const [summary, setSummary] = useState<RecoverySummary | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  async function runRecovery() {
+  async function runSync() {
     setRunning(true)
     setError(null)
     setSummary(null)
@@ -62,21 +74,22 @@ export default function XpressRecoveryPage() {
       const json = await res.json()
 
       if (!res.ok) {
-        setError(json.error || "Recovery failed")
-        toast.error("Recovery failed")
+        setError(json.error || "Sync failed")
+        toast.error("Sync failed")
         return
       }
 
       setSummary(json)
 
-      if (json.restored > 0) {
-        toast.success(`Restored ${json.restored} order${json.restored !== 1 ? "s" : ""} to completed`)
+      const fixed = (json.completed ?? 0) + (json.requeued ?? 0) + (json.restored ?? 0)
+      if (fixed > 0) {
+        toast.success(`Fixed ${fixed} order${fixed !== 1 ? "s" : ""}`)
       } else {
-        toast.success("Recovery complete — no wrongly-failed orders found")
+        toast.success("Sync complete — nothing to fix")
       }
     } catch (err: any) {
       setError(err.message || "Network error")
-      toast.error("Recovery failed")
+      toast.error("Sync failed")
     } finally {
       setRunning(false)
     }
@@ -84,46 +97,64 @@ export default function XpressRecoveryPage() {
 
   if (authLoading) return null
 
+  const fixed = summary ? (summary.completed + summary.requeued + summary.restored) : 0
+
   return (
     <DashboardLayout>
       <div className="max-w-3xl mx-auto space-y-6 p-6">
+
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <ShieldAlert className="h-6 w-6 text-orange-500" />
-            Xpress Reversal Recovery
+            Xpress Order Sync
           </h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Finds all Xpress orders currently marked <strong>failed</strong> in our system and
-            checks the actual status with Xpress directly. Orders Xpress confirms as
-            <strong> completed</strong> (data was delivered) are restored to <strong>completed</strong> —
-            no re-fulfillment needed. Orders Xpress still reports as failed remain in
-            <strong> pending</strong> for manual re-fulfillment.
+            Checks every Xpress order stuck in <strong>processing</strong> or <strong>failed</strong> against
+            the Xpress API and applies the correct status. Covers both stuck orders and
+            wrongly-reported failures.
           </p>
         </div>
+
+        {/* What each outcome means */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">What this fixes</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground space-y-1.5">
+            <div className="grid grid-cols-[120px_1fr] gap-x-3 gap-y-1.5">
+              <span className="font-medium text-foreground">processing + ✓</span>
+              <span>Xpress confirms delivery → marked <strong>completed</strong></span>
+              <span className="font-medium text-foreground">processing + ✗</span>
+              <span>Xpress confirms failure → tracking=failed, order back to <strong>pending</strong> for re-fulfillment</span>
+              <span className="font-medium text-foreground">failed + ✓</span>
+              <span>Xpress false-alarm webhook → restored to <strong>completed</strong> (data was delivered)</span>
+              <span className="font-medium text-foreground">failed + ✗</span>
+              <span>Genuine failure → no change, stays in <strong>pending</strong> for manual re-fulfillment</span>
+            </div>
+          </CardContent>
+        </Card>
 
         <Alert>
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>
-            Safe to run multiple times — already-restored orders are back in <code>completed</code> and
-            won&apos;t appear in this scan again. The run may take a minute if many orders are checked.
+            Safe to run multiple times. Already-corrected orders won&apos;t be in this scan.
+            May take a minute for large queues.
           </AlertDescription>
         </Alert>
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Run Recovery Scan</CardTitle>
+            <CardTitle className="text-base">Run Sync</CardTitle>
             <CardDescription>
-              Queries Xpress for every failed tracking row and restores the ones Xpress confirms
-              were actually delivered.
+              Scans all Xpress orders in processing or failed state and corrects them.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Button onClick={runRecovery} disabled={running} className="gap-2">
-              {running ? (
-                <><Loader2 className="h-4 w-4 animate-spin" /> Scanning Xpress orders…</>
-              ) : (
-                <><RefreshCw className="h-4 w-4" /> Run Recovery</>
-              )}
+            <Button onClick={runSync} disabled={running} className="gap-2">
+              {running
+                ? <><Loader2 className="h-4 w-4 animate-spin" /> Querying Xpress…</>
+                : <><RefreshCw className="h-4 w-4" /> Run Sync</>
+              }
             </Button>
           </CardContent>
         </Card>
@@ -137,41 +168,39 @@ export default function XpressRecoveryPage() {
 
         {summary && (
           <div className="space-y-4">
-            <div className="grid grid-cols-4 gap-3">
-              <Card className="text-center p-4">
-                <div className="text-2xl font-bold">{summary.total}</div>
-                <div className="text-xs text-muted-foreground mt-1">Checked</div>
-              </Card>
-              <Card className="text-center p-4 border-emerald-500/30 bg-emerald-500/5">
-                <div className="text-2xl font-bold text-emerald-600">{summary.restored}</div>
-                <div className="text-xs text-muted-foreground mt-1">Restored</div>
-              </Card>
-              <Card className="text-center p-4">
-                <div className="text-2xl font-bold text-muted-foreground">{summary.genuine}</div>
-                <div className="text-xs text-muted-foreground mt-1">Genuine failures</div>
-              </Card>
-              <Card className="text-center p-4 border-destructive/30 bg-destructive/5">
-                <div className="text-2xl font-bold text-destructive">{summary.errors}</div>
-                <div className="text-xs text-muted-foreground mt-1">Errors</div>
-              </Card>
+            {/* Summary tiles */}
+            <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
+              {[
+                { label: "Checked",  value: summary.total,    cls: "" },
+                { label: "Completed", value: summary.completed, cls: "border-emerald-500/30 bg-emerald-500/5 text-emerald-600" },
+                { label: "Re-queued", value: summary.requeued,  cls: "border-blue-500/30 bg-blue-500/5 text-blue-600" },
+                { label: "Restored",  value: summary.restored,  cls: "border-emerald-500/30 bg-emerald-500/5 text-emerald-600" },
+                { label: "Genuine ✗", value: summary.genuine,   cls: "" },
+                { label: "Errors",    value: summary.errors,    cls: summary.errors > 0 ? "border-destructive/30 bg-destructive/5 text-destructive" : "" },
+              ].map(({ label, value, cls }) => (
+                <Card key={label} className={`text-center p-3 ${cls}`}>
+                  <div className="text-xl font-bold">{value}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">{label}</div>
+                </Card>
+              ))}
             </div>
 
-            {summary.restored === 0 && summary.errors === 0 && (
+            {fixed === 0 && summary.errors === 0 && (
               <Alert>
                 <CheckCircle2 className="h-4 w-4 text-emerald-500" />
                 <AlertDescription>
-                  No wrongly-failed orders found. All {summary.genuine} failed Xpress orders are
-                  genuine failures — they remain in pending for manual re-fulfillment.
+                  Nothing to fix. {summary.genuine} genuine failure{summary.genuine !== 1 ? "s" : ""} stay in pending;
+                  {" "}{summary.noChange} still in flight on Xpress.
                 </AlertDescription>
               </Alert>
             )}
 
-            {summary.restored > 0 && (
+            {fixed > 0 && (
               <Alert>
                 <CheckCircle2 className="h-4 w-4 text-emerald-500" />
                 <AlertDescription>
-                  {summary.restored} order{summary.restored !== 1 ? "s" : ""} restored to{" "}
-                  <strong>completed</strong> — data was already delivered to these customers.
+                  Fixed {fixed} order{fixed !== 1 ? "s" : ""}: {summary.completed} marked completed,{" "}
+                  {summary.requeued} re-queued for fulfillment, {summary.restored} restored from false failure.
                 </AlertDescription>
               </Alert>
             )}
@@ -184,15 +213,18 @@ export default function XpressRecoveryPage() {
                 <CardContent className="p-0">
                   <div className="divide-y max-h-96 overflow-y-auto">
                     {summary.results.map((r, i) => {
-                      const style = ACTION_STYLES[r.action] ?? ACTION_STYLES.error
+                      const meta = ACTION_META[r.action] ?? ACTION_META.error
                       return (
                         <div key={i} className="flex items-center gap-3 px-4 py-2.5 text-sm">
                           <code className="font-mono text-xs text-muted-foreground flex-none w-28 truncate">
                             {r.mtn_order_id}
                           </code>
-                          <Badge variant={style.variant} className="gap-1 flex-none">
-                            {style.icon}
-                            {style.label}
+                          <Badge variant="outline" className="flex-none text-xs">
+                            was: {r.was}
+                          </Badge>
+                          <Badge variant={meta.variant} className="gap-1 flex-none">
+                            {meta.icon}
+                            {meta.label}
                           </Badge>
                           <span className="text-muted-foreground truncate">{r.message}</span>
                         </div>
