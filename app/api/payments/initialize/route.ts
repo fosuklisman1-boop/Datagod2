@@ -401,11 +401,11 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         )
       }
-      const MIN_TOPUP = 1 // GHS 1.00 — Paystack's minimum charge floor
+      const MIN_TOPUP = 5 // GHS 5.00 — must match the frontend minimum
       if (amount < MIN_TOPUP) {
         console.warn(`[PAYMENT-INIT] Top-up amount ${amount} below minimum ${MIN_TOPUP}`)
         return NextResponse.json(
-          { error: "Minimum top-up amount is GHS 1.00" },
+          { error: "Minimum top-up amount is GHS 5.00" },
           { status: 400 }
         )
       }
