@@ -902,6 +902,24 @@ export async function saveMTNTracking(
       insertData.order_id = orderId
     }
 
+    // Abandon any previous pending/processing rows for this order so that
+    // stale provider crons cannot clobber the status once a new attempt starts.
+    // Only do this for real submissions — FAILED_INIT rows are already "failed"
+    // and won't be polled, so there is nothing to race against.
+    if (!isFakeId) {
+      const orderCol =
+        orderType === "shop" ? "shop_order_id" :
+        orderType === "api"  ? "api_order_id"  : "order_id"
+      const { error: abandonErr } = await supabase
+        .from("mtn_fulfillment_tracking")
+        .update({ status: "abandoned", updated_at: new Date().toISOString() })
+        .eq(orderCol, orderId)
+        .in("status", ["pending", "processing", "retrying"])
+      if (abandonErr) {
+        console.warn(`[MTN] Could not abandon stale tracking rows for ${orderId}:`, abandonErr.message)
+      }
+    }
+
     const { data, error } = await supabase
       .from("mtn_fulfillment_tracking")
       .insert(insertData)
