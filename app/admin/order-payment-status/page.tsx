@@ -226,8 +226,15 @@ export default function OrderPaymentStatusPage() {
       }
 
       const result = await response.json()
-      toast.success(result.message)
-      
+      const { success: ok, failed } = result.summary ?? {}
+      if (failed > 0 && ok === 0) {
+        toast.error(`All ${failed} orders failed — they remain in the queue`)
+      } else if (failed > 0) {
+        toast.warning(`${ok} submitted, ${failed} failed — failed orders remain in the queue`)
+      } else {
+        toast.success(result.message)
+      }
+
       // Reload lists
       loadPendingMTNOrders()
       setOffset(0)
