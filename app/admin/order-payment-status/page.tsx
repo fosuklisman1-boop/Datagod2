@@ -70,6 +70,10 @@ export default function OrderPaymentStatusPage() {
   // MTN Fulfillment state
   const [pendingMTNOrders, setPendingMTNOrders] = useState<any[]>([])
   const [loadingMTNOrders, setLoadingMTNOrders] = useState(false)
+  // IDs sent in a previous batch this session — excluded from the next slice so
+  // a persistently-failing batch can't block orders behind it in the queue.
+  // Resets on page reload, giving failed orders a fresh attempt.
+  const [skipIds, setSkipIds] = useState<Set<string>>(new Set())
 
   // Bulk update state
   const [showBulkUpdate, setShowBulkUpdate] = useState(false)
@@ -206,8 +210,17 @@ export default function OrderPaymentStatusPage() {
         return
       }
 
-      const orders = pendingMTNOrders.slice(0, 100).map(o => ({ id: o.id, type: o.type || 'shop' }))
-      
+      const eligible = pendingMTNOrders.filter(o => !skipIds.has(o.id))
+      const orders = eligible.slice(0, 100).map(o => ({ id: o.id, type: o.type || 'shop' }))
+
+      if (orders.length === 0) {
+        toast.info("All pending orders were already tried this session. Reload to retry them.")
+        return
+      }
+
+      // Mark these IDs as tried so the next batch skips them even if they fail and re-queue
+      setSkipIds(prev => new Set([...prev, ...orders.map(o => o.id)]))
+
       const response = await fetch("/api/admin/fulfillment/bulk-manual-fulfill", {
         method: "POST",
         headers: {
@@ -731,7 +744,14 @@ export default function OrderPaymentStatusPage() {
                 ) : (
                   <Zap className="h-5 w-5 mr-2" />
                 )}
-                Fulfill Pending MTN ({Math.min(pendingMTNOrders.length, 100)}{pendingMTNOrders.length > 100 ? ` of ${pendingMTNOrders.length}` : ""})
+                {(() => {
+                  const eligible = pendingMTNOrders.filter(o => !skipIds.has(o.id))
+                  const batch = Math.min(eligible.length, 100)
+                  const total = pendingMTNOrders.length
+                  const skipped = total - eligible.length
+                  if (eligible.length === 0) return `Fulfill Pending MTN (all ${total} tried this session)`
+                  return `Fulfill Pending MTN (${batch}${eligible.length > 100 ? ` of ${eligible.length}` : ""}${skipped > 0 ? `, ${skipped} skipped` : ""})`
+                })()}
               </Button>
             )}
           </div>
