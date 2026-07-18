@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { checkMTNOrderStatus } from "@/lib/mtn-fulfillment"
+import { notifyAdminsPush } from "@/lib/push-service"
 
 export const maxDuration = 300
 
@@ -31,17 +32,17 @@ function orderTarget(row: {
   return null
 }
 
-async function applyStatus(rowId: string, row: Parameters<typeof orderTarget>[0], newTrackingStatus: string, newOrderStatus: string, note: string, nowIso: string) {
+async function setStatus(rowId: string, row: Parameters<typeof orderTarget>[0], trackingStatus: string, orderStatus: string, note: string, nowIso: string) {
   await supabase
     .from("mtn_fulfillment_tracking")
-    .update({ status: newTrackingStatus, external_message: note, updated_at: nowIso })
+    .update({ status: trackingStatus, external_message: note, updated_at: nowIso })
     .eq("id", rowId)
 
   const target = orderTarget(row)
   if (target) {
     await supabase
       .from(target.table)
-      .update({ [target.col]: newOrderStatus, updated_at: nowIso })
+      .update({ [target.col]: orderStatus, updated_at: nowIso })
       .eq("id", target.id)
   }
 }
@@ -49,118 +50,127 @@ async function applyStatus(rowId: string, row: Parameters<typeof orderTarget>[0]
 /**
  * POST /api/admin/orders/recover-xpress-reversals
  *
- * Full Xpress status sync — sweeps tracking rows in both "processing" and
- * "failed" state, checks each against the Xpress API, then applies the
- * correct status. Idempotent and safe to run multiple times.
+ * Time-window reconciliation: fetches ALL Xpress tracking rows updated
+ * within the requested window (default 72 h), checks each against the live
+ * Xpress API, and corrects mismatches.
  *
- * processing + Xpress says completed → mark completed   (delivered, no re-fulfil)
- * processing + Xpress says failed    → tracking=failed, order=pending  (re-queue)
- * processing + Xpress says pending   → no change        (still in flight)
- * failed     + Xpress says completed → restore completed (false webhook)
- * failed     + Xpress says failed    → no change        (genuine failure, stays pending)
+ * Body: { hours?: number }  (default 72, max 720)
+ *
+ * Matrix:
+ *   our=completed  xpress=failed    → reversed  (push alert sent)
+ *   our=processing xpress=completed → completed
+ *   our=processing xpress=failed    → requeued  (tracking=failed, order=pending)
+ *   our=failed     xpress=completed → restored
+ *   anything else / Xpress unreachable → skipped (no change)
  */
 export async function POST(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse
 
   try {
-    const { data: candidates, error: fetchErr } = await supabase
+    const body = await request.json().catch(() => ({}))
+    const hours = Math.min(Math.max(Number(body.hours) || 72, 1), 720)
+    const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString()
+
+    // All Xpress rows in the window — no status filter
+    const { data: rows, error: fetchErr } = await supabase
       .from("mtn_fulfillment_tracking")
-      .select("id, mtn_order_id, order_type, order_id, shop_order_id, api_order_id, provider, status, updated_at")
+      .select("id, mtn_order_id, status, order_type, order_id, shop_order_id, api_order_id, updated_at")
       .eq("provider", "xpress")
-      .in("status", ["processing", "failed"])
+      .gte("updated_at", since)
       .order("updated_at", { ascending: false })
-      .limit(300)
+      .limit(500)
 
     if (fetchErr) return NextResponse.json({ error: fetchErr.message }, { status: 500 })
 
-    if (!candidates || candidates.length === 0) {
+    if (!rows || rows.length === 0) {
       return NextResponse.json({
         success: true,
-        message: "No processing or failed Xpress rows found",
-        total: 0, completed: 0, requeued: 0, restored: 0, genuine: 0, noChange: 0, errors: 0, results: [],
+        message: `No Xpress orders in the past ${hours}h`,
+        hours, total: 0, fixed: 0, reversed: 0, completed: 0, requeued: 0, restored: 0, skipped: 0, results: [],
       })
     }
 
-    console.log(`[XPRESS-SYNC] ${candidates.length} rows (processing+failed) — querying Xpress API`)
+    console.log(`[XPRESS-RECONCILE] ${rows.length} rows in past ${hours}h`)
 
-    type Action = "completed" | "requeued" | "restored" | "genuine_failure" | "no_change" | "skip" | "error"
+    type Action = "reversed" | "completed" | "requeued" | "restored" | "skipped"
     const results: Array<{ mtn_order_id: string; was: string; action: Action; message: string }> = []
 
-    let completed = 0  // processing → completed (delivered)
-    let requeued  = 0  // processing → failed → order back to pending
-    let restored  = 0  // failed     → completed (false failure webhook)
-    let genuine   = 0  // failed     → still failed (real failure)
-    let noChange  = 0  // still in flight
-    let errors    = 0
+    let reversed  = 0
+    let completed = 0
+    let requeued  = 0
+    let restored  = 0
+    let skipped   = 0
 
     const nowIso = new Date().toISOString()
 
-    for (const row of candidates) {
-      const orderId = row.mtn_order_id
-      if (!orderId) {
-        results.push({ mtn_order_id: "(none)", was: row.status, action: "skip", message: "No mtn_order_id" })
-        errors++
+    for (const row of rows) {
+      const our = row.status as string
+
+      if (!row.mtn_order_id) {
+        results.push({ mtn_order_id: "(none)", was: our, action: "skipped", message: "No mtn_order_id" })
+        skipped++
         continue
       }
 
-      try {
-        const { success, status: xpressStatus, message } = await checkMTNOrderStatus(orderId, "xpress")
+      const { success, status: xpress } = await checkMTNOrderStatus(row.mtn_order_id, "xpress")
 
-        if (!success) {
-          results.push({ mtn_order_id: String(orderId), was: row.status, action: "error", message })
-          errors++
-          continue
-        }
+      // Xpress unreachable, 404, or rate-limited — skip without touching the row
+      if (!success || !xpress) {
+        results.push({ mtn_order_id: String(row.mtn_order_id), was: our, action: "skipped", message: "Xpress did not return a status" })
+        skipped++
+        continue
+      }
 
-        if (row.status === "processing") {
-          if (xpressStatus === "completed") {
-            await applyStatus(row.id, row, "completed", "completed", "Marked completed by Xpress sync", nowIso)
-            results.push({ mtn_order_id: String(orderId), was: "processing", action: "completed", message: "Xpress confirms delivery" })
-            completed++
-          } else if (xpressStatus === "failed") {
-            // order table goes back to pending so it can be re-fulfilled
-            await applyStatus(row.id, row, "failed", "pending", "Failed confirmed by Xpress sync — re-queued", nowIso)
-            results.push({ mtn_order_id: String(orderId), was: "processing", action: "requeued", message: "Xpress says failed — order re-queued for fulfillment" })
-            requeued++
-          } else {
-            // pending or still processing on Xpress side — leave it
-            results.push({ mtn_order_id: String(orderId), was: "processing", action: "no_change", message: `Xpress still shows: ${xpressStatus}` })
-            noChange++
-          }
-        } else {
-          // row.status === "failed"
-          if (xpressStatus === "completed") {
-            await applyStatus(row.id, row, "completed", "completed", "Restored by Xpress sync (false failure webhook)", nowIso)
-            results.push({ mtn_order_id: String(orderId), was: "failed", action: "restored", message: "Xpress confirms delivery — restored to completed" })
-            restored++
-          } else {
-            // Xpress also says failed — genuine failure, order already in pending
-            results.push({ mtn_order_id: String(orderId), was: "failed", action: "genuine_failure", message: `Xpress status: ${xpressStatus}` })
-            genuine++
-          }
-        }
-      } catch (err: any) {
-        results.push({ mtn_order_id: String(orderId), was: row.status, action: "error", message: err.message || "Unexpected error" })
-        errors++
+      if (our === "completed" && xpress === "failed") {
+        await setStatus(row.id, row, "reversed", "reversed", "Flagged reversed by reconciliation scan", nowIso)
+        notifyAdminsPush({
+          title: "⚠️ Xpress reversed a completed order",
+          body: `Order ${String(row.mtn_order_id).slice(0, 8)} completed→failed — flagged reversed`,
+          data: { url: "/admin/orders" },
+        }).catch(() => {})
+        results.push({ mtn_order_id: String(row.mtn_order_id), was: our, action: "reversed", message: "Xpress says failed — flagged reversed" })
+        reversed++
+
+      } else if ((our === "processing" || our === "pending") && xpress === "completed") {
+        await setStatus(row.id, row, "completed", "completed", "Marked completed by reconciliation scan", nowIso)
+        results.push({ mtn_order_id: String(row.mtn_order_id), was: our, action: "completed", message: "Xpress confirms delivery" })
+        completed++
+
+      } else if (our === "processing" && xpress === "failed") {
+        await setStatus(row.id, row, "failed", "pending", "Failed — re-queued by reconciliation scan", nowIso)
+        results.push({ mtn_order_id: String(row.mtn_order_id), was: our, action: "requeued", message: "Xpress says failed — order re-queued" })
+        requeued++
+
+      } else if (our === "failed" && xpress === "completed") {
+        await setStatus(row.id, row, "completed", "completed", "Restored by reconciliation scan", nowIso)
+        results.push({ mtn_order_id: String(row.mtn_order_id), was: our, action: "restored", message: "Xpress confirms delivery — restored" })
+        restored++
+
+      } else {
+        // Statuses agree, or xpress is pending/processing — nothing to do
+        results.push({ mtn_order_id: String(row.mtn_order_id), was: our, action: "skipped", message: `our=${our} xpress=${xpress} — no change` })
+        skipped++
       }
     }
 
-    console.log(`[XPRESS-SYNC] completed=${completed} requeued=${requeued} restored=${restored} genuine=${genuine} noChange=${noChange} errors=${errors}`)
+    const fixed = reversed + completed + requeued + restored
+    console.log(`[XPRESS-RECONCILE] fixed=${fixed} reversed=${reversed} completed=${completed} requeued=${requeued} restored=${restored} skipped=${skipped}`)
 
     return NextResponse.json({
       success: true,
-      total: candidates.length,
+      hours,
+      total: rows.length,
+      fixed,
+      reversed,
       completed,
       requeued,
       restored,
-      genuine,
-      noChange,
-      errors,
+      skipped,
       results,
     })
   } catch (err: any) {
-    console.error("[XPRESS-SYNC] Unhandled error:", err)
+    console.error("[XPRESS-RECONCILE] Unhandled error:", err)
     return NextResponse.json({ error: err.message || "Internal server error" }, { status: 500 })
   }
 }
