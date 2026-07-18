@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js"
 import { log, generateTraceId, recordMetrics } from "@/lib/mtn-production-config"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { sendEmail, EmailTemplates } from "@/lib/email-service"
+import { isReversal, flagReversal, type ReversalRow } from "@/lib/mtn-reversal"
 import crypto from "crypto"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -157,7 +158,7 @@ export async function POST(request: NextRequest) {
 
         const { data: tracking, error: fetchError } = await supabase
             .from("mtn_fulfillment_tracking")
-            .select("id, status, shop_order_id, order_id, api_order_id, order_type, recipient_phone, size_gb")
+            .select("id, status, updated_at, shop_order_id, order_id, api_order_id, order_type, recipient_phone, size_gb")
             .eq("mtn_order_id", payload.order_id)
             .eq("provider", "xpress")
             .single()
@@ -174,6 +175,29 @@ export async function POST(request: NextRequest) {
         if (newPriority < currentPriority) {
             log("info", "Webhook.Xpress", `Blocking status regression: ${tracking.status} -> ${newStatus}`, { traceId })
             return NextResponse.json({ success: true, message: "Status regression blocked", traceId })
+        }
+
+        // Reversal safeguard — Xpress sometimes flips completed→failed after payment clears.
+        // Within 72h, flag as "reversed" so admin can manually re-fulfil rather than auto-retry.
+        if (newStatus === "failed" && tracking.status === "completed") {
+            if (isReversal({ trackingStatus: tracking.status, completedAt: tracking.updated_at, providerStatus: "failed" })) {
+                const reversalRow: ReversalRow = {
+                    id: tracking.id,
+                    order_type: tracking.order_type,
+                    order_id: tracking.order_id,
+                    shop_order_id: tracking.shop_order_id,
+                    api_order_id: tracking.api_order_id,
+                    provider: "xpress",
+                }
+                await flagReversal(supabase, reversalRow, { status: rawStatus, message: `Xpress ${payload.event}: ${rawStatus}` })
+                log("warn", "Webhook.Xpress", "Completed→failed within 72h — flagged as reversed", { traceId, orderId: payload.order_id })
+                recordMetrics(true, Date.now() - startTime)
+                return NextResponse.json({ success: true, message: "Reversal flagged", traceId })
+            }
+            // Outside 72h — provider sending a very late failure for an already-completed order.
+            // Don't downgrade; just acknowledge so Xpress stops retrying.
+            log("warn", "Webhook.Xpress", "Completed→failed outside 72h window — ignoring late failure", { traceId, orderId: payload.order_id })
+            return NextResponse.json({ success: true, message: "Late failure ignored — order already completed", traceId })
         }
 
         // Update tracking record
