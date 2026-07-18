@@ -41,10 +41,33 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    // Enrich with owner user details
+    let enriched: any[] = data || []
+    const userIds = [...new Set(enriched.map(s => s.user_id).filter(Boolean))]
+    if (userIds.length > 0) {
+      const { data: usersData } = await supabase
+        .from("users")
+        .select("id, email, phone_number, first_name, last_name")
+        .in("id", userIds)
+
+      if (usersData) {
+        const usersMap = Object.fromEntries(usersData.map(u => [u.id, u]))
+        enriched = enriched.map(shop => {
+          const u = usersMap[shop.user_id]
+          return {
+            ...shop,
+            owner_email: u?.email ?? null,
+            owner_phone: u?.phone_number ?? null,
+            owner_name: u ? [u.first_name, u.last_name].filter(Boolean).join(" ") || null : null,
+          }
+        })
+      }
+    }
+
     return NextResponse.json({
       success: true,
-      data: data || [],
-      count: data?.length || 0
+      data: enriched,
+      count: enriched.length
     })
   } catch (error: any) {
     console.error("Error in GET /api/admin/shops:", error)

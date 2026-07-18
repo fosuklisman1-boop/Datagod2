@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const ALLOWED_STATUSES = ["pending", "processing", "completed", "failed", "cancelled", "blacklisted", "refunded"]
+    const ALLOWED_STATUSES = ["pending", "processing", "completed", "failed", "cancelled", "blacklisted", "refunded", "rejected"]
     if (!ALLOWED_STATUSES.includes(status)) {
       return NextResponse.json(
         { error: `Invalid status. Must be one of: ${ALLOWED_STATUSES.join(", ")}` },
@@ -557,6 +557,56 @@ export async function POST(request: NextRequest) {
           }
         } catch (error) {
           console.warn("[NOTIFICATION] Error sending shop order notifications:", error)
+        }
+      }
+
+      // If status is "rejected", void pending profits and notify shop owner
+      if (status === "rejected") {
+        try {
+          const { data: rejectedProfits } = await inChunks(finalShopOrderIds, (chunk) =>
+            supabase.from("shop_profits").select("id, shop_id").in("shop_order_id", chunk).eq("status", "pending"))
+
+          if (rejectedProfits && rejectedProfits.length > 0) {
+            const profitIds = rejectedProfits.map(p => p.id)
+            await inChunks(profitIds, (chunk) =>
+              supabase.from("shop_profits").update({ status: "voided" }).in("id", chunk))
+            console.log(`[BULK-UPDATE] ✓ Voided ${rejectedProfits.length} pending profit records`)
+
+            // Notify each distinct shop owner
+            const shopIds = [...new Set(rejectedProfits.map(p => p.shop_id))]
+            const { data: shopsData } = await supabase
+              .from("user_shops")
+              .select("id, shop_name, user_id")
+              .in("id", shopIds)
+
+            if (shopsData && shopsData.length > 0) {
+              const shopOrderCounts: Record<string, number> = {}
+              rejectedProfits.forEach(p => { shopOrderCounts[p.shop_id] = (shopOrderCounts[p.shop_id] || 0) + 1 })
+
+              const notifications = shopsData.map(shop => ({
+                user_id: shop.user_id,
+                title: "Order Rejected",
+                message: `${shopOrderCounts[shop.id] || 1} order${(shopOrderCounts[shop.id] || 1) !== 1 ? "s" : ""} from your shop "${shop.shop_name}" have been rejected by admin.`,
+                type: "order_update" as NotificationType,
+                reference_id: shop.id,
+                action_url: `/dashboard/my-shop`,
+                read: false,
+              }))
+
+              const { error: notifErr } = await supabase.from("notifications").insert(notifications)
+              if (notifErr) console.warn("[BULK-UPDATE] Failed to notify shop owners of rejection:", notifErr)
+
+              shopsData.forEach(shop => {
+                sendPushToUser(shop.user_id, {
+                  title: "Order Rejected",
+                  body: `${shopOrderCounts[shop.id] || 1} order(s) from "${shop.shop_name}" were rejected.`,
+                  data: { url: "/dashboard/my-shop" },
+                }).catch(() => {})
+              })
+            }
+          }
+        } catch (e) {
+          console.warn("[BULK-UPDATE] Warning: could not void profits for rejected shop orders:", e)
         }
       }
 

@@ -280,6 +280,50 @@ export async function initiateTransfer(params: {
   }
 }
 
+export interface MoolreWalletBalance {
+  balance: number
+  currency: string
+}
+
+/**
+ * Fetch the current balance of the Moolre transfer wallet (source account).
+ * Returns null on error — callers should surface this to admin before batch ops.
+ */
+export async function getMoolreTransferBalance(): Promise<MoolreWalletBalance | null> {
+  try {
+    const response = await fetch("https://api.moolre.com/open/account/status", {
+      method: "POST",
+      headers: getMoolreHeaders(),
+      body: JSON.stringify({
+        type: 1,
+        accountnumber: getMoolreAccountNumber(),
+      }),
+    })
+
+    const rawText = await response.text()
+    console.log(`[MOOLRE-WALLET] HTTP: ${response.status}, Raw: ${rawText.slice(0, 300)}`)
+
+    let json: any
+    try {
+      json = JSON.parse(rawText)
+    } catch {
+      console.error("[MOOLRE-WALLET] Non-JSON response:", rawText.slice(0, 200))
+      return null
+    }
+
+    const balance = parseFloat(String(json.data?.balance ?? json.balance ?? ""))
+    if (isNaN(balance)) {
+      console.error("[MOOLRE-WALLET] Could not parse balance from response:", json)
+      return null
+    }
+
+    return { balance, currency: json.data?.currency ?? "GHS" }
+  } catch (error) {
+    console.error("[MOOLRE-WALLET] Error:", error)
+    return null
+  }
+}
+
 export interface MoolreStatusResult {
   txstatus: number      // 1=Success, 0=Pending, 2=Failed, 3=Unknown
   transactionId: string

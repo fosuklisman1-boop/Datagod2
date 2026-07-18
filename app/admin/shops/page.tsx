@@ -25,6 +25,9 @@ interface Shop {
   block_reason?: string
   created_at: string
   user_id: string
+  owner_email?: string | null
+  owner_phone?: string | null
+  owner_name?: string | null
 }
 
 export default function AdminShopsPage() {
@@ -251,9 +254,14 @@ export default function AdminShopsPage() {
                             <Badge className="bg-warning">Pending</Badge>
                           </div>
                           <p className="text-sm text-muted-foreground mb-2">{shop.description || "No description"}</p>
-                          <div className="flex gap-4 text-xs text-muted-foreground">
-                            <span>Slug: <code className="font-mono">{shop.shop_slug}</code></span>
-                            <span>Created: {new Date(shop.created_at).toLocaleDateString()}</span>
+                          <div className="space-y-1 text-xs text-muted-foreground">
+                            <div className="flex gap-4 flex-wrap">
+                              <span>Slug: <code className="font-mono">{shop.shop_slug}</code></span>
+                              <span>Requested: {new Date(shop.created_at).toLocaleString()}</span>
+                            </div>
+                            {shop.owner_name && <div>Owner: <span className="font-medium text-foreground">{shop.owner_name}</span></div>}
+                            {shop.owner_email && <div>Email: <span className="font-medium text-foreground">{shop.owner_email}</span></div>}
+                            {shop.owner_phone && <div>Phone: <span className="font-medium text-foreground">{shop.owner_phone}</span></div>}
                           </div>
                         </div>
                         <div className="flex gap-2">
