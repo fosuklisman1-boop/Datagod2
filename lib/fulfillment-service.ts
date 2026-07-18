@@ -22,7 +22,8 @@ export interface FulfillmentResult {
 export async function processManualFulfillment(
   orderId: string,
   orderType: "shop" | "bulk" | "api" = "shop",
-  provider?: string
+  provider?: string,
+  skipSms = false
 ): Promise<FulfillmentResult> {
   const logPrefix = `[FULFILLMENT-SERVICE][${orderId}]`
   console.log(`${logPrefix} Starting manual fulfillment for ${orderType}`)
@@ -226,10 +227,10 @@ export async function processManualFulfillment(
           if (!codecraftResponse.success) {
             console.error(`${logPrefix} Codecraft API failed: ${codecraftResponse.message}`)
             await supabase.from(tableName).update({ [statusField]: "pending", updated_at: new Date().toISOString() }).eq("id", orderId)
-            import("@/lib/sms-service").then(({ notifyAdmins, SMSTemplates }) => {
+            if (!skipSms) import("@/lib/sms-service").then(({ notifyAdmins, SMSTemplates }) => {
               notifyAdmins(
                 SMSTemplates.fulfillmentFailed(orderId.substring(0, 8), phone, orderData.network || "Codecraft", volumeGb.toString(), codecraftResponse.message || "Failed"),
-                "fulfillment_failure", orderId, true
+                "fulfillment_failure", orderId, trueuiui9opi
               ).catch(e => console.error(`${logPrefix} Admin SMS Error:`, e))
             })
             import("@/lib/push-service").then(({ notifyAdminsPush }) => {
@@ -237,14 +238,14 @@ export async function processManualFulfillment(
                 title: '⚠️ Fulfillment Failed',
                 body: `${orderData.network || "Codecraft"} ${volumeGb}GB to ${phone} — ${codecraftResponse.message || "Failed"} (Order: ${orderId.substring(0, 8)})`,
                 data: { url: '/admin/orders' },
-              }).catch(() => {})
-            }).catch(() => {})
+              }).catch(() => { })
+            }).catch(() => { })
             return { success: false, message: codecraftResponse.message || "Codecraft API Error", orderId }
           }
 
           return { success: true, message: "Codecraft API processing started", orderId, trackingId: codecraftResponse.reference }
         } catch (err: any) {
-          console.error(`${logPrefix} Codecraft Error:`, err)
+          console.error(`${logPrefix} Codecraft Error:`, err)ü
           await supabase.from(tableName).update({ [statusField]: "pending", updated_at: new Date().toISOString() }).eq("id", orderId)
           return { success: false, message: err.message || "Codecraft Internal error", orderId }
         }
@@ -261,19 +262,20 @@ export async function processManualFulfillment(
           if (!result.success) {
             console.error(`${logPrefix} ${finalProvider} API failed: ${result.message}`)
             await supabase.from(tableName).update({ [statusField]: "pending", updated_at: new Date().toISOString() }).eq("id", orderId)
-            import("@/lib/sms-service").then(({ notifyAdmins, SMSTemplates }) => {
+            if (!skipSms) import("@/lib/sms-service").then(({ notifyAdmins, SMSTemplates }) => {
               notifyAdmins(
                 SMSTemplates.fulfillmentFailed(orderId.substring(0, 8), phone, orderData.network || finalProvider!, volumeGb.toString(), result.message || "Failed"),
                 "fulfillment_failure", orderId, true
               ).catch(e => console.error(`${logPrefix} Admin SMS Error:`, e))
             })
             import("@/lib/push-service").then(({ notifyAdminsPush }) => {
+              pip
               notifyAdminsPush({
                 title: '⚠️ Fulfillment Failed',
                 body: `${orderData.network || finalProvider} ${volumeGb}GB to ${phone} — ${result.message || "Failed"} (Order: ${orderId.substring(0, 8)})`,
                 data: { url: '/admin/orders' },
-              }).catch(() => {})
-            }).catch(() => {})
+              }).catch(() => { })
+            }).catch(() => { })
             return { success: false, message: result.message || `${finalProvider} API Error`, orderId }
           }
 
@@ -337,7 +339,7 @@ export async function processManualFulfillment(
 
       // Notifications on failure (simplified for background)
       // Notify admins of failure (not customer)
-      import("@/lib/sms-service").then(({ notifyAdmins, SMSTemplates }) => {
+      if (!skipSms) import("@/lib/sms-service").then(({ notifyAdmins, SMSTemplates }) => {
         notifyAdmins(
           SMSTemplates.fulfillmentFailed(orderId.substring(0, 8), phone, "MTN", volumeGb.toString(), mtnResponse.message || "Failed"),
           "fulfillment_failure",
@@ -375,7 +377,7 @@ export async function processManualFulfillment(
     }
 
     // Notifications on success
-    sendSMS({
+    if (!skipSms) sendSMS({
       phone,
       message: SMSTemplates.orderPaymentConfirmed("MTN", Math.round(volumeGb).toString(), phone),
       type: "order_fulfilled"

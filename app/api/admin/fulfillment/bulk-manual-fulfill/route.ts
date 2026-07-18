@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
           results.push({ ...result, orderId: id })
           if (result.success) { successCount++ } else { failureCount++ }
         } else {
-          const result = await processManualFulfillment(id, (type || "shop") as "shop" | "bulk" | "api", provider)
+          const result = await processManualFulfillment(id, (type || "shop") as "shop" | "bulk" | "api", provider, true)
           results.push(result)
           if (result.success) { successCount++ } else { failureCount++ }
         }
