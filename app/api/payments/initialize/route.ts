@@ -401,6 +401,14 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         )
       }
+      const MIN_TOPUP = 1 // GHS 1.00 — Paystack's minimum charge floor
+      if (amount < MIN_TOPUP) {
+        console.warn(`[PAYMENT-INIT] Top-up amount ${amount} below minimum ${MIN_TOPUP}`)
+        return NextResponse.json(
+          { error: "Minimum top-up amount is GHS 1.00" },
+          { status: 400 }
+        )
+      }
       const MAX_TOPUP = isAdmin ? 100_000 : 10_000
       if (amount > MAX_TOPUP) {
         console.warn(`[PAYMENT-INIT] Top-up amount ${amount} exceeds max ${MAX_TOPUP} for user ${userId}`)
