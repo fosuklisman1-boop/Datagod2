@@ -147,7 +147,10 @@ export async function processManualFulfillment(
         // For a real (non-FAILED_INIT) MTN order ID whose tracking status is "failed":
         // verify with MTN before allowing a retry. If MTN still has the original order
         // active, reconcile locally and block — retrying would cause double-fulfillment.
-        if (!isFailedId && lastTracking.status === "failed") {
+        // Skip this check when the admin explicitly selected a different provider — their
+        // dropdown choice already signals "I know the last attempt failed, use this instead."
+        const isExplicitProviderSwitch = provider && provider !== lastTracking.provider
+        if (!isFailedId && lastTracking.status === "failed" && !isExplicitProviderSwitch) {
           console.log(`${logPrefix} Tracking status is "failed" with real MTN ID ${lastTracking.mtn_order_id} — verifying with MTN before retry`)
           try {
             const statusCheck = await checkMTNOrderStatus(lastTracking.mtn_order_id, lastTracking.provider)
