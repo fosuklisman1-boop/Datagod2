@@ -74,6 +74,11 @@ export default function OrderPaymentStatusPage() {
   // a persistently-failing batch can't block orders behind it in the queue.
   // Resets on page reload, giving failed orders a fresh attempt.
   const [skipIds, setSkipIds] = useState<Set<string>>(new Set())
+  // Queue-based fulfillment progress
+  const [activeBatchId, setActiveBatchId] = useState<string | null>(null)
+  const [batchProgress, setBatchProgress] = useState<{
+    total: number; pending: number; processing: number; completed: number; failed: number
+  } | null>(null)
 
   // Bulk update state
   const [showBulkUpdate, setShowBulkUpdate] = useState(false)
@@ -97,6 +102,37 @@ export default function OrderPaymentStatusPage() {
       loadAllOrders(0, false)
     }
   }, [searchQuery, searchType, isAdmin, adminLoading, bulkDate, bulkNetwork, bulkStartTime, bulkEndTime])
+
+  // Poll fulfillment queue progress while a batch is active
+  useEffect(() => {
+    if (!activeBatchId) return
+    const poll = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session?.access_token) return
+        const res = await fetch(`/api/admin/fulfillment/queue-status?batchId=${activeBatchId}`, {
+          headers: { Authorization: `Bearer ${session.access_token}` }
+        })
+        if (!res.ok) return
+        const data = await res.json()
+        setBatchProgress(data)
+        if (data.pending === 0 && data.processing === 0) {
+          setActiveBatchId(null)
+          loadPendingMTNOrders()
+          if (data.failed > 0 && data.completed === 0) {
+            toast.error(`All ${data.failed} orders failed`)
+          } else if (data.failed > 0) {
+            toast.warning(`${data.completed} fulfilled, ${data.failed} failed`)
+          } else {
+            toast.success(`All ${data.completed} orders fulfilled`)
+          }
+        }
+      } catch { /* ignore poll errors */ }
+    }
+    poll()
+    const interval = setInterval(poll, 3000)
+    return () => clearInterval(interval)
+  }, [activeBatchId])
 
   // Fetch global count for bulk operations when filters change
   useEffect(() => {
@@ -201,60 +237,41 @@ export default function OrderPaymentStatusPage() {
       return
     }
 
+    const eligible = pendingMTNOrders.filter(o => !skipIds.has(o.id))
+    const orders = eligible.slice(0, 1000).map(o => ({ id: o.id, type: o.type || "shop" }))
+
+    if (orders.length === 0) {
+      toast.info("All pending orders were already tried this session. Reload to retry them.")
+      return
+    }
+
     try {
       setLoadingMTNOrders(true)
       const { data: { session } } = await supabase.auth.getSession()
-      
       if (!session?.access_token) {
         toast.error("Session expired. Please refresh.")
         return
       }
 
-      const eligible = pendingMTNOrders.filter(o => !skipIds.has(o.id))
-      const orders = eligible.slice(0, 1000).map(o => ({ id: o.id, type: o.type || 'shop' }))
-
-      if (orders.length === 0) {
-        toast.info("All pending orders were already tried this session. Reload to retry them.")
-        return
-      }
-
-      // Mark these IDs as tried so the next batch skips them even if they fail and re-queue
-      setSkipIds(prev => new Set([...prev, ...orders.map(o => o.id)]))
-
-      const response = await fetch("/api/admin/fulfillment/bulk-manual-fulfill", {
+      const response = await fetch("/api/admin/fulfillment/enqueue", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          orders,
-          provider: "sykes"
-        })
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
+        body: JSON.stringify({ orders })
       })
 
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || "Bulk fulfillment failed")
+        const err = await response.json()
+        throw new Error(err.error || "Enqueue failed")
       }
 
-      const result = await response.json()
-      const { success: ok, failed } = result.summary ?? {}
-      if (failed > 0 && ok === 0) {
-        toast.error(`All ${failed} orders failed — they remain in the queue`)
-      } else if (failed > 0) {
-        toast.warning(`${ok} submitted, ${failed} failed — failed orders remain in the queue`)
-      } else {
-        toast.success(result.message)
-      }
-
-      // Reload lists
-      loadPendingMTNOrders()
-      setOffset(0)
-      loadAllOrders(0, false)
+      const { batchId, queued } = await response.json()
+      setSkipIds(prev => new Set([...prev, ...orders.map(o => o.id)]))
+      setActiveBatchId(batchId)
+      setBatchProgress({ total: queued, pending: queued, processing: 0, completed: 0, failed: 0 })
+      toast.success(`${queued} orders queued — processing in the background`)
     } catch (error) {
-      console.error("Bulk fulfillment error:", error)
-      toast.error(error instanceof Error ? error.message : "Bulk fulfillment failed")
+      console.error("Enqueue error:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to queue orders")
     } finally {
       setLoadingMTNOrders(false)
     }
@@ -756,6 +773,28 @@ export default function OrderPaymentStatusPage() {
             )}
           </div>
         </div>
+
+        {/* Fulfillment queue progress */}
+        {batchProgress && (
+          <Card className="border-yellow-500/30 bg-yellow-500/5">
+            <CardContent className="pt-4 pb-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium">
+                  {activeBatchId ? "Processing fulfillment queue…" : "Last batch complete"}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {batchProgress.completed} done · {batchProgress.failed} failed · {batchProgress.pending + batchProgress.processing} remaining
+                </span>
+              </div>
+              <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-primary transition-all duration-500"
+                  style={{ width: `${batchProgress.total > 0 ? ((batchProgress.completed + batchProgress.failed) / batchProgress.total) * 100 : 0}%` }}
+                />
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Search Card */}
         <Card>

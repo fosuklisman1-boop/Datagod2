@@ -108,6 +108,10 @@
     {
       "path": "/api/cron/check-mtn-balance",
       "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/drain-fulfillment-queue",
+      "schedule": "* * * * *"
     }
   ]
 }
