@@ -392,59 +392,23 @@ export default function OrderPaymentStatusPage() {
     const phone = order.phone_number || ""
     setFulfillProgress({
       open: true, orderId: order.id, orderType: order.type, phone, provider, done: false,
-      steps: [{ label: `Checking ${phone} against ${provider}`, status: "running" }, { label: "Dispatching order", status: "idle" }],
+      steps: [{ label: `Dispatching via ${provider}`, status: "running" }],
     })
     const { data: { session } } = await supabase.auth.getSession()
     const headers = { "Content-Type": "application/json", ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}) }
 
-    let allowedBy: string | null = null
-    try {
-      const vRes = await fetch("/api/admin/fulfillment/verify-whitelist", {
-        method: "POST", headers, body: JSON.stringify({ phone, primaryProvider: provider }),
-      })
-      const vData = await vRes.json()
-      if (vData.results?.length) {
-        const verifySteps: ProgressStep[] = vData.results.map((r: { provider: string; allowed: boolean; reason?: string }) => ({
-          label: `Verified against ${r.provider}`,
-          status: r.allowed ? "done" : "error",
-          detail: r.allowed ? "✓ Number is enabled" : `✗ Blocked${r.reason ? `: ${r.reason}` : ""}`,
-        }))
-        setFulfillProgress(prev => ({ ...prev, steps: [...verifySteps, { label: "Dispatching order", status: vData.allowed ? "running" : "error" }] }))
-        allowedBy = vData.allowedBy ?? null
-        if (!vData.allowed) {
-          setFulfillProgress(prev => ({
-            ...prev, done: true,
-            steps: prev.steps.map((s, i) => i === prev.steps.length - 1 ? { ...s, detail: "All providers blocked — order will be held for retry" } : s),
-          }))
-          return
-        }
-      } else {
-        setFulfillProgress(prev => ({
-          ...prev,
-          steps: [{ label: "Whitelist check", status: "done", detail: "No providers configured — skipped" }, { label: "Dispatching order", status: "running" }],
-        }))
-        allowedBy = provider
-      }
-    } catch {
-      setFulfillProgress(prev => ({
-        ...prev,
-        steps: [{ label: `Verify against ${provider}`, status: "error", detail: "Check failed — proceeding (fail-open)" }, { label: "Dispatching order", status: "running" }],
-      }))
-      allowedBy = provider
-    }
-
-    const dispatchProvider = allowedBy ?? provider
+    // Admin explicitly selected a provider — dispatch directly without whitelist
+    // pre-screening. The whitelist check was designed for auto-selection and would
+    // override the admin's choice if the selected provider isn't in the registry.
     try {
       const dRes = await fetch("/api/admin/fulfillment/manual-fulfill", {
         method: "POST", headers,
-        body: JSON.stringify({ shop_order_id: order.id, order_type: order.type, provider: dispatchProvider }),
+        body: JSON.stringify({ shop_order_id: order.id, order_type: order.type, provider }),
       })
       const dData = await dRes.json()
       setFulfillProgress(prev => ({
         ...prev, done: true,
-        steps: prev.steps.map((s, i) => i === prev.steps.length - 1
-          ? { ...s, status: dData.success ? "done" : "error", detail: dData.message || dData.error }
-          : s),
+        steps: [{ label: `Dispatching via ${provider}`, status: dData.success ? "done" : "error", detail: dData.message || dData.error }],
       }))
       if (dData.success) {
         setAllOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: "processing" } : o))
@@ -453,7 +417,7 @@ export default function OrderPaymentStatusPage() {
     } catch {
       setFulfillProgress(prev => ({
         ...prev, done: true,
-        steps: prev.steps.map((s, i) => i === prev.steps.length - 1 ? { ...s, status: "error", detail: "Dispatch request failed" } : s),
+        steps: [{ label: `Dispatching via ${provider}`, status: "error", detail: "Request failed" }],
       }))
     }
     setFulfillingOrderId(null)
