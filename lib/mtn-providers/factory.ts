@@ -117,6 +117,30 @@ export async function getProviderNameForNetwork(normalizedNetwork: string): Prom
     }
 }
 
+const VALID_PROVIDERS: MTNProviderName[] = ["sykes", "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft"]
+
+/**
+ * Get the configured fallback provider name, or null if disabled / not set.
+ * The setting shape is { enabled: true, provider: "eazyghdata" }.
+ * Returns null if the fallback is the same as the primary (would be pointless).
+ */
+export async function getFallbackProviderName(): Promise<MTNProviderName | null> {
+    try {
+        const { data } = await supabase
+            .from("admin_settings")
+            .select("value")
+            .eq("key", "mtn_fallback_provider")
+            .maybeSingle()
+
+        const value = data?.value
+        if (!value?.enabled) return null
+        const provider = value?.provider as MTNProviderName | undefined
+        return provider && VALID_PROVIDERS.includes(provider) ? provider : null
+    } catch {
+        return null
+    }
+}
+
 /**
  * Get a specific provider by name (for testing or manual override)
  */

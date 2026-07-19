@@ -291,7 +291,7 @@ export async function processManualFulfillment(
     }
 
     // Call MTN API
-    const mtnRequest: MTNOrderRequest = {
+    let mtnRequest: MTNOrderRequest = {
       recipient_phone: phone,
       network: "MTN",
       size_gb: volumeGb,
@@ -311,6 +311,31 @@ export async function processManualFulfillment(
       mtnResponse = {
         success: false,
         message: apiErr instanceof Error ? apiErr.message : "MTN API error (exception)",
+      }
+    }
+
+    // Fallback provider: if the primary failed (and wasn't a registration hold),
+    // try the admin-configured fallback before giving up. mtnRequest is updated
+    // so that downstream tracking/logging records the provider that was actually used.
+    if (!mtnResponse.success && !mtnResponse.held) {
+      const { getFallbackProviderName } = await import("@/lib/mtn-providers/factory")
+      const fallbackName = await getFallbackProviderName()
+      if (fallbackName && fallbackName !== finalProvider) {
+        console.log(`${logPrefix} Primary "${finalProvider}" failed (${mtnResponse.message}), trying fallback "${fallbackName}"`)
+        mtnRequest = { ...mtnRequest, provider: fallbackName }
+        try {
+          mtnResponse = await createMTNOrder(mtnRequest)
+        } catch (fbErr) {
+          mtnResponse = {
+            success: false,
+            message: fbErr instanceof Error ? fbErr.message : "Fallback provider error",
+          }
+        }
+        if (mtnResponse.success) {
+          console.log(`${logPrefix} Fallback "${fallbackName}" succeeded`)
+        } else {
+          console.log(`${logPrefix} Fallback "${fallbackName}" also failed: ${mtnResponse.message}`)
+        }
       }
     }
 

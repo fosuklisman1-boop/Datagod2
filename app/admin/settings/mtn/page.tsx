@@ -77,6 +77,12 @@ export default function MTNSettingsPage() {
   const [thresholdInput, setThresholdInput] = useState<string>("500")
   const [savingThreshold, setSavingThreshold] = useState(false)
 
+  // Fallback provider
+  type MTNProviderName = "sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft"
+  const [fallbackEnabled, setFallbackEnabled] = useState(false)
+  const [fallbackProvider, setFallbackProvider] = useState<MTNProviderName>("eazyghdata")
+  const [savingFallback, setSavingFallback] = useState(false)
+
   // Per-network provider selectors (Telecel / AT-iShare / AT-BigTime)
   type NonMTNProvider = "datakazina" | "xpress" | "eazyghdata" | "codecraft"
   const [telecelProvider, setTelecelProvider] = useState<NonMTNProvider>("codecraft")
@@ -100,6 +106,7 @@ export default function MTNSettingsPage() {
     loadNetworkProvider("at_ishare", setAtIshareProvider)
     loadNetworkProvider("at_bigtime", setAtBigtimeProvider)
     loadThreshold()
+    loadFallbackProvider()
 
     // Refresh balance every 30 seconds
     const balanceInterval = setInterval(loadBalance, 30000)
@@ -380,6 +387,46 @@ export default function MTNSettingsPage() {
       toast.error("Error setting Bisdel category")
     } finally {
       setSavingBisdelCategory(false)
+    }
+  }
+
+  const loadFallbackProvider = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) return
+      const res = await fetch("/api/admin/settings/mtn-fallback-provider", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+      if (res.ok) {
+        const d = await res.json()
+        setFallbackEnabled(d.enabled)
+        setFallbackProvider(d.provider || "eazyghdata")
+      }
+    } catch (e) { console.error("Error loading fallback provider:", e) }
+  }
+
+  const handleSaveFallbackProvider = async (enabled: boolean, provider: MTNProviderName) => {
+    setSavingFallback(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) return
+      const res = await fetch("/api/admin/settings/mtn-fallback-provider", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ enabled, provider }),
+      })
+      if (res.ok) {
+        setFallbackEnabled(enabled)
+        setFallbackProvider(provider)
+        toast.success(enabled ? `Fallback set to ${provider}` : "Fallback provider disabled")
+      } else {
+        toast.error("Failed to save fallback setting")
+      }
+    } catch (e) {
+      console.error("Error saving fallback provider:", e)
+      toast.error("Error saving fallback provider")
+    } finally {
+      setSavingFallback(false)
     }
   }
 
@@ -1167,6 +1214,70 @@ export default function MTNSettingsPage() {
               </Alert>
             </div>
           </CardContent>
+        </Card>
+
+        {/* Fallback Provider */}
+        <Card className="border-2">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Zap className="h-5 w-5" />
+                  Fallback Provider
+                </CardTitle>
+                <CardDescription>
+                  Automatically retry with a second provider when the primary fails
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                {savingFallback && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                <Switch
+                  checked={fallbackEnabled}
+                  onCheckedChange={(v) => handleSaveFallbackProvider(v, fallbackProvider)}
+                  disabled={savingFallback}
+                />
+              </div>
+            </div>
+          </CardHeader>
+          {fallbackEnabled && (
+            <CardContent>
+              <p className="text-sm text-muted-foreground mb-4">
+                When the primary provider (<strong>{mtnProvider}</strong>) returns a failure, the system will immediately retry the same order with the selected fallback. The fallback must differ from the primary.
+              </p>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                {(["sykes", "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft"] as MTNProviderName[]).map((p) => {
+                  const isPrimary = p === mtnProvider
+                  const isSelected = p === fallbackProvider
+                  return (
+                    <button
+                      key={p}
+                      onClick={() => !isPrimary && handleSaveFallbackProvider(true, p)}
+                      disabled={savingFallback || isPrimary || isSelected}
+                      className={`p-3 rounded-lg border-2 transition-all text-left ${
+                        isPrimary
+                          ? "opacity-30 cursor-not-allowed bg-muted border-border"
+                          : isSelected
+                          ? "bg-primary/5 border-primary shadow-md"
+                          : "bg-card border-border hover:border-muted-foreground cursor-pointer"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-semibold text-sm capitalize">{p === "eazyghdata" ? "EazyGhData" : p === "codecraft" ? "CodeCraft" : p === "datakazina" ? "DataKazina" : p.charAt(0).toUpperCase() + p.slice(1)}</span>
+                        {isSelected && <Badge className="bg-primary text-[10px] px-1 py-0">Fallback</Badge>}
+                        {isPrimary && <Badge variant="outline" className="text-[10px] px-1 py-0">Primary</Badge>}
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+              <Alert className="mt-4 border-border bg-muted/40">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription className="text-sm">
+                  The fallback only triggers on API-level failures (provider down, rejected). Registration holds and already-completed orders are not retried.
+                </AlertDescription>
+              </Alert>
+            </CardContent>
+          )}
         </Card>
 
         {/* Per-Network Provider Selector — helper to avoid repeating JSX for each network */}
