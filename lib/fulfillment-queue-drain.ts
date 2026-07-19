@@ -20,12 +20,12 @@ type DrainResult = {
 export async function drainFulfillmentQueue(supabase: SupabaseClient): Promise<DrainResult> {
   // 1. Reset orphaned 'processing' rows back to 'pending'.
   const staleThreshold = new Date(Date.now() - STALE_MS).toISOString()
-  const { count: resetCount } = await supabase
+  const { data: resetRows } = await supabase
     .from("fulfillment_queue")
     .update({ status: "pending" })
     .eq("status", "processing")
     .lt("last_attempted_at", staleThreshold)
-    .select("id", { count: "exact", head: true })
+    .select("id")
 
   // 2. Atomically claim the next batch.
   const { data: rows, error: claimErr } = await supabase
@@ -33,7 +33,7 @@ export async function drainFulfillmentQueue(supabase: SupabaseClient): Promise<D
 
   if (claimErr) throw new Error(`claim_fulfillment_queue failed: ${claimErr.message}`)
   if (!rows || rows.length === 0) {
-    return { claimed: 0, completed: 0, failed: 0, reset_stale: resetCount ?? 0 }
+    return { claimed: 0, completed: 0, failed: 0, reset_stale: resetRows?.length ?? 0 }
   }
 
   let completed = 0
@@ -94,5 +94,5 @@ export async function drainFulfillmentQueue(supabase: SupabaseClient): Promise<D
     }
   }
 
-  return { claimed: rows.length, completed, failed, reset_stale: resetCount ?? 0 }
+  return { claimed: rows.length, completed, failed, reset_stale: resetRows?.length ?? 0 }
 }
