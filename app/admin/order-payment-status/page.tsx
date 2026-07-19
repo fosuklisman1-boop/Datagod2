@@ -211,7 +211,7 @@ export default function OrderPaymentStatusPage() {
       }
 
       const eligible = pendingMTNOrders.filter(o => !skipIds.has(o.id))
-      const orders = eligible.slice(0, 100).map(o => ({ id: o.id, type: o.type || 'shop' }))
+      const orders = eligible.slice(0, 1000).map(o => ({ id: o.id, type: o.type || 'shop' }))
 
       if (orders.length === 0) {
         toast.info("All pending orders were already tried this session. Reload to retry them.")
@@ -746,11 +746,11 @@ export default function OrderPaymentStatusPage() {
                 )}
                 {(() => {
                   const eligible = pendingMTNOrders.filter(o => !skipIds.has(o.id))
-                  const batch = Math.min(eligible.length, 100)
+                  const batch = Math.min(eligible.length, 1000)
                   const total = pendingMTNOrders.length
                   const skipped = total - eligible.length
                   if (eligible.length === 0) return `Fulfill Pending MTN (all ${total} tried this session)`
-                  return `Fulfill Pending MTN (${batch}${eligible.length > 100 ? ` of ${eligible.length}` : ""}${skipped > 0 ? `, ${skipped} skipped` : ""})`
+                  return `Fulfill Pending MTN (${batch}${eligible.length > 1000 ? ` of ${eligible.length}` : ""}${skipped > 0 ? `, ${skipped} skipped` : ""})`
                 })()}
               </Button>
             )}

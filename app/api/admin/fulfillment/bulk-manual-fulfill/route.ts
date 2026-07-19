@@ -27,8 +27,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "orders array (with id and type) is required" }, { status: 400 })
     }
 
-    if (orders.length > 100) {
-      return NextResponse.json({ error: "Bulk fulfillment is limited to 100 orders per batch" }, { status: 400 })
+    if (orders.length > 1000) {
+      return NextResponse.json({ error: "Bulk fulfillment is limited to 1000 orders per batch" }, { status: 400 })
     }
 
     console.log(`[BULK-MANUAL-FULFILL] Processing ${orders.length} orders...`)
