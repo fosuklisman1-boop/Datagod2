@@ -317,10 +317,12 @@ export async function processManualFulfillment(
     // Fallback provider: if the primary failed (and wasn't a registration hold),
     // try the admin-configured fallback before giving up. mtnRequest is updated
     // so that downstream tracking/logging records the provider that was actually used.
+    let fallbackAttempted: string | null = null
     if (!mtnResponse.success && !mtnResponse.held) {
       const { getFallbackProviderName } = await import("@/lib/mtn-providers/factory")
       const fallbackName = await getFallbackProviderName()
       if (fallbackName && fallbackName !== finalProvider) {
+        fallbackAttempted = fallbackName
         console.log(`${logPrefix} Primary "${finalProvider}" failed (${mtnResponse.message}), trying fallback "${fallbackName}"`)
         mtnRequest = { ...mtnRequest, provider: fallbackName }
         try {
@@ -339,7 +341,10 @@ export async function processManualFulfillment(
       }
     }
 
-    if (!mtnResponse.success || !mtnResponse.order_id) {
+    // Gate only on success flag — some providers return success:true with no order_id
+    // (async/queued model). Gating on !order_id would wrongly trigger the failure path
+    // and send a failure SMS even when the fallback took the order.
+    if (!mtnResponse.success) {
       if (mtnResponse.held) {
         console.log(`${logPrefix} Registration gate hold — number not yet registered`)
         const { holdMtnOrder } = await import("@/lib/mtn-hold")
