@@ -101,14 +101,9 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url)
-    const page = parseInt(searchParams.get("page") || "1")
-    const limit = Math.min(parseInt(searchParams.get("limit") || "100"), 500)
-    const offset = (page - 1) * limit
-
-    const statuses = ["pending"]
+    const statuses = ["pending", "reversed"]
     const allowedNetworks = [
-      "MTN", 
+      "MTN",
       "AT - iShare", "AT-iShare", "AT - ishare", "at - ishare", "AT - ISHARE", "AT-ISHARE",
       "Telecel", "telecel", "TELECEL",
       "AT - BigTime", "AT-BigTime", "AT - bigtime", "at - bigtime", "AT - BIGTIME", "AT-BIGTIME"
@@ -122,19 +117,20 @@ export async function GET(request: NextRequest) {
       .eq("payment_status", "completed")
       .in("order_status", statuses)
       .order("created_at", { ascending: false })
+      .range(0, 9999)
 
     if (shopError) {
       console.error("[MANUAL-FULFILL] shop_orders fetch error:", shopError)
     }
 
-    // 2. Fetch from orders (bulk orders)
+    // 2. Fetch from orders (bulk orders — no payment_status filter; bulk orders don't go through Paystack)
     const { data: bulkOrders, count: bulkCount, error: bulkError } = await supabase
       .from("orders")
-      .select("id, network, size, phone_number, status, created_at, payment_status", { count: "exact" })
+      .select("id, network, size, phone_number, status, created_at", { count: "exact" })
       .in("network", allowedNetworks)
-      .eq("payment_status", "completed")
       .in("status", statuses)
       .order("created_at", { ascending: false })
+      .range(0, 9999)
 
     if (bulkError) {
       console.error("[MANUAL-FULFILL] orders fetch error:", bulkError)
@@ -146,8 +142,9 @@ export async function GET(request: NextRequest) {
       .select("id, network, package_size, recipient_phone, dialing_phone, order_status, created_at, amount", { count: "exact" })
       .in("network", ["MTN", "Telecel", "AirtelTigo", "AT-iShare"])
       .eq("payment_status", "completed")
-      .eq("order_status", "pending")
+      .in("order_status", statuses)
       .order("created_at", { ascending: false })
+      .range(0, 9999)
 
     if (ussdError) {
       console.error("[MANUAL-FULFILL] ussd_orders fetch error:", ussdError)
@@ -159,8 +156,9 @@ export async function GET(request: NextRequest) {
       .select("id, network, package_size, recipient_phone, dialing_phone, order_status, created_at, amount, shop_name", { count: "exact" })
       .in("network", allowedNetworks)
       .eq("payment_status", "completed")
-      .eq("order_status", "pending")
+      .in("order_status", statuses)
       .order("created_at", { ascending: false })
+      .range(0, 9999)
 
     if (ussdShopError) {
       console.error("[MANUAL-FULFILL] ussd_shop_orders fetch error:", ussdShopError)
@@ -173,6 +171,7 @@ export async function GET(request: NextRequest) {
       .in("network", allowedNetworks)
       .in("status", statuses)
       .order("created_at", { ascending: false })
+      .range(0, 9999)
 
     if (apiError) {
       console.error("[MANUAL-FULFILL] api_orders fetch error:", apiError)
@@ -237,17 +236,11 @@ export async function GET(request: NextRequest) {
     )
 
     const totalCount = (shopCount || 0) + (bulkCount || 0) + (ussdCount || 0) + (ussdShopCount || 0) + (apiCount || 0)
-    const paginatedOrders = allOrders.slice(offset, offset + limit)
 
     return NextResponse.json({
       success: true,
-      orders: paginatedOrders,
-      pagination: {
-        page,
-        limit,
-        total: totalCount,
-        totalPages: Math.ceil(totalCount / limit),
-      },
+      orders: allOrders,
+      total: totalCount,
     })
   } catch (error) {
     console.error("[MANUAL-FULFILL] Error:", error)
