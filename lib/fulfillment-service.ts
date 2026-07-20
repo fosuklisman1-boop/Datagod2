@@ -386,7 +386,7 @@ export async function processManualFulfillment(
     }
 
     // Success - Save Tracking
-    const trackingId = await saveMTNTracking(orderId, mtnResponse.order_id, mtnRequest, mtnResponse, orderType, mtnResponse.provider || "sykes")
+    const trackingId = await saveMTNTracking(orderId, mtnResponse.order_id ?? "", mtnRequest, mtnResponse, orderType, mtnResponse.provider || "sykes")
 
     // Update Status with external ID
     const updateData = orderType === "bulk"
