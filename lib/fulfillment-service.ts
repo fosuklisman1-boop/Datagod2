@@ -328,7 +328,13 @@ export async function processManualFulfillment(
         console.log(`${logPrefix} Primary "${finalProvider}" failed (${mtnResponse.message}), trying fallback "${fallbackName}"`)
         mtnRequest = { ...mtnRequest, provider: fallbackName }
         try {
-          mtnResponse = await createMTNOrder(mtnRequest)
+          // Call the fallback provider directly — bypasses createMTNOrder's whitelist
+          // and registration-gate pre-checks which would re-run against the primary's
+          // configured providers and block EazyGhData (not in the whitelist registry).
+          const { getProviderByName } = await import("@/lib/mtn-providers/factory")
+          const fbProvider = getProviderByName(fallbackName as any)
+          const fbResult = await fbProvider.createOrder(mtnRequest)
+          mtnResponse = { ...fbResult, provider: fallbackName }
         } catch (fbErr) {
           mtnResponse = {
             success: false,
