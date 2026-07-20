@@ -314,11 +314,13 @@ export async function processManualFulfillment(
       }
     }
 
-    // Fallback provider: if the primary failed (and wasn't a registration hold),
-    // try the admin-configured fallback before giving up. mtnRequest is updated
-    // so that downstream tracking/logging records the provider that was actually used.
+    // Fallback provider: if the primary failed, try the admin-configured fallback.
+    // Skip only for NUMBER_NOT_REGISTERED (global MTN gate — no provider can help).
+    // WHITELIST_BLOCKED is CodeCraft-specific; a non-whitelist fallback like EazyGhData
+    // can still serve the number, so we let it through.
     let fallbackAttempted: string | null = null
-    if (!mtnResponse.success && !mtnResponse.held) {
+    const isRegistrationHold = mtnResponse.held && mtnResponse.error_type === "NUMBER_NOT_REGISTERED"
+    if (!mtnResponse.success && !isRegistrationHold) {
       const { getFallbackProviderName } = await import("@/lib/mtn-providers/factory")
       const fallbackName = await getFallbackProviderName()
       if (fallbackName && fallbackName !== finalProvider) {
@@ -345,7 +347,7 @@ export async function processManualFulfillment(
     // (async/queued model). Gating on !order_id would wrongly trigger the failure path
     // and send a failure SMS even when the fallback took the order.
     if (!mtnResponse.success) {
-      if (mtnResponse.held) {
+      if (mtnResponse.held && mtnResponse.error_type === "NUMBER_NOT_REGISTERED") {
         console.log(`${logPrefix} Registration gate hold — number not yet registered`)
         const { holdMtnOrder } = await import("@/lib/mtn-hold")
         await holdMtnOrder({ table: tableName as any, orderId, phone })
