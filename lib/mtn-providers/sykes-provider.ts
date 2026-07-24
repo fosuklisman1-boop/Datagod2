@@ -254,7 +254,7 @@ export class SykesProvider implements MTNProvider {
                 console.log(`[Sykes-STATUS] Using cached bulk data (${bulkCache.data.length} orders)`)
                 data = bulkCache.data
             } else {
-                const response = await fetch(`${MTN_API_BASE_URL}/api/orders?limit=5000`, {
+                const response = await fetch(`${MTN_API_BASE_URL}/api/orders?limit=5000&sort=desc`, {
                     method: "GET",
                     headers: {
                         "X-API-KEY": MTN_API_KEY,

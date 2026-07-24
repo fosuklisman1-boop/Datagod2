@@ -25,7 +25,7 @@ async function fetchAllSykesOrders(): Promise<{ success: boolean; orders: any[];
     console.log("[CRON] Fetching all orders from Sykes API...")
 
     // Use limit=5000 to get all orders (API defaults to only 20)
-    const response = await fetch(`${MTN_API_BASE_URL}/api/orders?limit=5000`, {
+    const response = await fetch(`${MTN_API_BASE_URL}/api/orders?limit=5000&sort=desc`, {
       method: "GET",
       headers: {
         "X-API-KEY": MTN_API_KEY,
@@ -202,6 +202,7 @@ export async function GET(request: NextRequest) {
       .in("status", ["pending", "processing", "failed", "retrying", "error"])
       .not("mtn_order_id", "is", null)
       .not("mtn_order_id", "like", "FAILED_INIT_%")
+      .gte("created_at", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
       .order("updated_at", { ascending: true })
       .limit(500)
 
