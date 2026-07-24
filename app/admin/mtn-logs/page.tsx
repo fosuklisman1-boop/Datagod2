@@ -456,7 +456,7 @@ export default function MTNFulfillmentLogsPage() {
                 <DropdownMenuContent align="end">
                   <DropdownMenuLabel>Sync by provider</DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  {["sykes", "codecraft", "eazyghdata", "xpress", "datakazina", "bisdel"].map(p => (
+                  {["sykes", "codecraft", "eazyghdata", "xpress", "datakazina", "bisdel", "agentportalgh"].map(p => (
                     <DropdownMenuItem key={p} onClick={() => handleSyncAllPending(p)}>
                       {p.charAt(0).toUpperCase() + p.slice(1)}
                     </DropdownMenuItem>

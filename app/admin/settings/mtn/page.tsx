@@ -111,7 +111,7 @@ export default function MTNSettingsPage() {
   const [apgOrderItems, setApgOrderItems] = useState<Record<string | number, any[]>>({})
 
   // Fallback provider
-  type MTNProviderName = "sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft"
+  type MTNProviderName = "sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft" | "agentportalgh"
   const [fallbackEnabled, setFallbackEnabled] = useState(false)
   const [fallbackProvider, setFallbackProvider] = useState<MTNProviderName>("eazyghdata")
   const [savingFallback, setSavingFallback] = useState(false)
@@ -642,10 +642,16 @@ export default function MTNSettingsPage() {
     finally { setTogglingWhitelist(false) }
   }
 
+  async function apgAuthHeaders(): Promise<Record<string, string>> {
+    const { data: { session } } = await supabase.auth.getSession()
+    return session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}
+  }
+
   async function loadApgIdentityAndServices() {
+    const hdrs = await apgAuthHeaders()
     const [identRes, servRes] = await Promise.all([
-      fetch("/api/admin/agentportalgh?action=identity").then(r => r.json()),
-      fetch("/api/admin/agentportalgh?action=services").then(r => r.json()),
+      fetch("/api/admin/agentportalgh?action=identity", { headers: hdrs }).then(r => r.json()),
+      fetch("/api/admin/agentportalgh?action=services", { headers: hdrs }).then(r => r.json()),
     ])
     setApgIdentity(identRes)
     setApgServices(servRes.data ?? servRes.services ?? [])
@@ -653,7 +659,8 @@ export default function MTNSettingsPage() {
 
   async function loadApgBalance() {
     setApgBalanceLoading(true)
-    const res = await fetch("/api/admin/agentportalgh?action=balance").then(r => r.json())
+    const hdrs = await apgAuthHeaders()
+    const res = await fetch("/api/admin/agentportalgh?action=balance", { headers: hdrs }).then(r => r.json())
     setApgBalance(res.balance)
     setApgBalanceLoading(false)
   }
@@ -663,27 +670,31 @@ export default function MTNSettingsPage() {
     const params = new URLSearchParams({ action: "summary" })
     if (apgSummaryFrom) params.set("from", apgSummaryFrom)
     if (apgSummaryTo) params.set("to", apgSummaryTo)
-    const res = await fetch(`/api/admin/agentportalgh?${params}`).then(r => r.json())
+    const hdrs = await apgAuthHeaders()
+    const res = await fetch(`/api/admin/agentportalgh?${params}`, { headers: hdrs }).then(r => r.json())
     setApgSummary(res.data ?? res)
     setApgSummaryLoading(false)
   }
 
   async function loadApgTransactions() {
-    const res = await fetch(`/api/admin/agentportalgh?action=transactions&page=${apgTransactionsPage}&page_size=25`).then(r => r.json())
+    const hdrs = await apgAuthHeaders()
+    const res = await fetch(`/api/admin/agentportalgh?action=transactions&page=${apgTransactionsPage}&page_size=25`, { headers: hdrs }).then(r => r.json())
     setApgTransactions(res.data ?? [])
   }
 
   async function loadApgTopups() {
-    const res = await fetch(`/api/admin/agentportalgh?action=topups&page=${apgTopupsPage}&page_size=25`).then(r => r.json())
+    const hdrs = await apgAuthHeaders()
+    const res = await fetch(`/api/admin/agentportalgh?action=topups&page=${apgTopupsPage}&page_size=25`, { headers: hdrs }).then(r => r.json())
     setApgTopups(res.data ?? [])
   }
 
   async function handleApgTopup() {
     setApgTopupLoading(true)
     setApgTopupResult(null)
+    const hdrs = await apgAuthHeaders()
     const res = await fetch("/api/admin/agentportalgh?action=topup", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...hdrs },
       body: JSON.stringify({ amount: parseFloat(apgTopupAmount), phone: apgTopupPhone, network: apgTopupNetwork }),
     }).then(r => r.json())
     setApgTopupResult(res.message ?? (res.success ? "Top-up initiated" : JSON.stringify(res)))
@@ -691,7 +702,8 @@ export default function MTNSettingsPage() {
   }
 
   async function loadApgWebhookConfig() {
-    const res = await fetch("/api/admin/agentportalgh?action=webhook-config").then(r => r.json())
+    const hdrs = await apgAuthHeaders()
+    const res = await fetch("/api/admin/agentportalgh?action=webhook-config", { headers: hdrs }).then(r => r.json())
     setApgWebhookConfig(res.data ?? res)
     setApgWebhookUrl(res.data?.url ?? res.url ?? "")
     setApgWebhookEnabled(res.data?.enabled ?? res.enabled ?? true)
@@ -699,9 +711,10 @@ export default function MTNSettingsPage() {
 
   async function saveApgWebhookConfig(regenerate = false) {
     setApgWebhookSaving(true)
+    const hdrs = await apgAuthHeaders()
     const res = await fetch("/api/admin/agentportalgh?action=webhook-config", {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...hdrs },
       body: JSON.stringify({ url: apgWebhookUrl, enabled: apgWebhookEnabled, regenerate_secret: regenerate }),
     }).then(r => r.json())
     toast(res.message ?? "Webhook config saved")
@@ -710,14 +723,16 @@ export default function MTNSettingsPage() {
   }
 
   async function loadApgDeliveries() {
-    const res = await fetch(`/api/admin/agentportalgh?action=webhook-deliveries&page=${apgDeliveriesPage}&page_size=50`).then(r => r.json())
+    const hdrs = await apgAuthHeaders()
+    const res = await fetch(`/api/admin/agentportalgh?action=webhook-deliveries&page=${apgDeliveriesPage}&page_size=50`, { headers: hdrs }).then(r => r.json())
     setApgDeliveries(res.data ?? [])
   }
 
   async function resendApgDelivery(id: string | number) {
+    const hdrs = await apgAuthHeaders()
     await fetch("/api/admin/agentportalgh?action=webhook-resend", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...hdrs },
       body: JSON.stringify({ id }),
     })
     toast("Resend queued")
@@ -727,9 +742,10 @@ export default function MTNSettingsPage() {
   async function checkApgWhitelist() {
     setApgWhitelistLoading(true)
     const msisdns = apgWhitelistInput.split("\n").map(s => s.trim()).filter(Boolean)
+    const hdrs = await apgAuthHeaders()
     const res = await fetch("/api/admin/agentportalgh?action=whitelist", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...hdrs },
       body: JSON.stringify({ msisdns }),
     }).then(r => r.json())
     setApgWhitelistResult(res.data ?? res.results ?? [])
@@ -740,7 +756,8 @@ export default function MTNSettingsPage() {
     setApgOrdersLoading(true)
     const params = new URLSearchParams({ action: "orders" })
     if (apgOrdersSearch) params.set("search", apgOrdersSearch)
-    const res = await fetch(`/api/admin/agentportalgh?${params}`).then(r => r.json())
+    const hdrs = await apgAuthHeaders()
+    const res = await fetch(`/api/admin/agentportalgh?${params}`, { headers: hdrs }).then(r => r.json())
     setApgOrders(res.data ?? res.orders ?? [])
     setApgOrdersLoading(false)
   }
@@ -749,7 +766,8 @@ export default function MTNSettingsPage() {
     if (apgExpandedOrder === orderId) { setApgExpandedOrder(null); return }
     setApgExpandedOrder(orderId)
     if (!apgOrderItems[orderId]) {
-      const res = await fetch(`/api/admin/agentportalgh?action=order-items&order_id=${orderId}`).then(r => r.json())
+      const hdrs = await apgAuthHeaders()
+      const res = await fetch(`/api/admin/agentportalgh?action=order-items&order_id=${orderId}`, { headers: hdrs }).then(r => r.json())
       setApgOrderItems(prev => ({ ...prev, [orderId]: res.data ?? res.items ?? [] }))
     }
   }

@@ -24,12 +24,12 @@ export async function POST(request: NextRequest) {
   const sigHeader = request.headers.get("x-webhook-signature")
   const secret = process.env.AGENTPORTALGH_WEBHOOK_SECRET
 
-  if (secret) {
-    if (!verifySig(rawBody, sigHeader, secret)) {
-      return NextResponse.json({ error: "Invalid signature" }, { status: 401 })
-    }
-  } else {
-    console.warn("[WEBHOOK-AGENTPORTALGH] AGENTPORTALGH_WEBHOOK_SECRET not set — accepting without signature verification")
+  if (!secret) {
+    console.error("[WEBHOOK-AGENTPORTALGH] AGENTPORTALGH_WEBHOOK_SECRET not set — rejecting all requests")
+    return NextResponse.json({ error: "Webhook secret not configured" }, { status: 500 })
+  }
+  if (!verifySig(rawBody, sigHeader, secret)) {
+    return NextResponse.json({ error: "Invalid signature" }, { status: 401 })
   }
 
   let payload: any
