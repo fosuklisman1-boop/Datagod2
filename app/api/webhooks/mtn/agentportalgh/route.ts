@@ -53,6 +53,10 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ received: true })
 }
 
+function itemRef(item: any): string | undefined {
+  return item?.reference ?? item?.client_reference ?? item?.ref ?? item?.order_reference ?? item?.external_reference
+}
+
 async function processItems(payload: any) {
   if (payload.event !== "order.completed") {
     console.warn(`[WEBHOOK-AGENTPORTALGH] Ignoring event "${payload.event}" (expected "order.completed"). Payload keys: ${Object.keys(payload).join(", ")}`)
@@ -72,13 +76,19 @@ async function processItems(payload: any) {
     }
   }
 
+  console.log(`[WEBHOOK-AGENTPORTALGH] order.completed with ${items.length} item(s). Sample item keys: ${items[0] ? Object.keys(items[0]).join(", ") : "(none)"}`)
+
   for (const item of items) {
-    if (!item.reference) continue
-    await processItem(item)
+    const ref = itemRef(item)
+    if (!ref) {
+      console.warn("[WEBHOOK-AGENTPORTALGH] Item has no recognizable reference field, skipping:", JSON.stringify(item).slice(0, 300))
+      continue
+    }
+    await processItem(item, ref)
   }
 }
 
-async function processItem(item: any) {
+async function processItem(item: any, ref: string) {
   const newStatus = mapItemStatus(item.status)
   const externalMessage = item.failed_reason ?? item.status ?? null
 
@@ -86,11 +96,11 @@ async function processItem(item: any) {
   const { data: tracking, error: trackingErr } = await supabase
     .from("mtn_fulfillment_tracking")
     .select("id, status, order_type, order_id, api_order_id, shop_order_id")
-    .eq("mtn_order_id", item.reference)
+    .eq("mtn_order_id", ref)
     .maybeSingle()
 
   if (trackingErr || !tracking) {
-    console.warn("[WEBHOOK-AGENTPORTALGH] Tracking row not found for reference:", item.reference)
+    console.warn("[WEBHOOK-AGENTPORTALGH] Tracking row not found for reference:", ref)
     return
   }
 
@@ -121,7 +131,7 @@ async function processItem(item: any) {
     .eq("id", tracking.id)
 
   if (item.refunded_at) {
-    console.log(`[WEBHOOK-AGENTPORTALGH] Order ${item.reference} auto-refunded by provider at ${item.refunded_at}`)
+    console.log(`[WEBHOOK-AGENTPORTALGH] Order ${ref} auto-refunded by provider at ${item.refunded_at}`)
   }
 
   // Mirror to the originating order table
@@ -187,5 +197,5 @@ async function processItem(item: any) {
     await sendPushToUser(userId, { title, body }).catch(() => null)
   }
 
-  console.log(`[WEBHOOK-AGENTPORTALGH] ${item.reference} → ${newStatus}`)
+  console.log(`[WEBHOOK-AGENTPORTALGH] ${ref} → ${newStatus}`)
 }
