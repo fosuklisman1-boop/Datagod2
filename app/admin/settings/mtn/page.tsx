@@ -100,6 +100,7 @@ export default function MTNSettingsPage() {
   const [apgWebhookSaving, setApgWebhookSaving] = useState(false)
   const [apgDeliveries, setApgDeliveries] = useState<any[]>([])
   const [apgDeliveriesPage, setApgDeliveriesPage] = useState(1)
+  const [apgExpandedDelivery, setApgExpandedDelivery] = useState<number | null>(null)
   const [apgWhitelistInput, setApgWhitelistInput] = useState("")
   const [apgWhitelistResult, setApgWhitelistResult] = useState<any[]>([])
   const [apgWhitelistLoading, setApgWhitelistLoading] = useState(false)
@@ -1582,25 +1583,46 @@ export default function MTNSettingsPage() {
                     <CardTitle className="text-sm flex items-center justify-between">
                       <span>Webhook Deliveries</span>
                       <div className="flex gap-1">
-                        <Button size="sm" variant="ghost" onClick={() => setApgDeliveriesPage(p => Math.max(1, p - 1))} disabled={apgDeliveriesPage === 1}>←</Button>
+                        <Button size="sm" variant="ghost" onClick={() => { setApgExpandedDelivery(null); setApgDeliveriesPage(p => Math.max(1, p - 1)) }} disabled={apgDeliveriesPage === 1}>←</Button>
                         <span className="text-xs px-1 self-center">p{apgDeliveriesPage}</span>
-                        <Button size="sm" variant="ghost" onClick={() => setApgDeliveriesPage(p => p + 1)}>→</Button>
+                        <Button size="sm" variant="ghost" onClick={() => { setApgExpandedDelivery(null); setApgDeliveriesPage(p => p + 1) }}>→</Button>
                       </div>
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
+                    <p className="text-xs text-muted-foreground mb-2">
+                      Click a row to inspect its raw fields — AgentPortalGH's delivery response shape is unconfirmed, so "Status" falls back through common aliases and may show "—" until we know the real field name.
+                    </p>
                     <div className="overflow-x-auto">
                       <table className="w-full text-xs">
                         <thead><tr className="border-b"><th className="text-left py-1 pr-3">Order ID</th><th className="text-left py-1 pr-3">Status</th><th className="text-left py-1 pr-3">Date</th><th className="text-left py-1"></th></tr></thead>
                         <tbody>
-                          {apgDeliveries.map((d: any, i: number) => (
-                            <tr key={i} className="border-b border-border/50">
-                              <td className="py-1 pr-3 font-mono">{d.order_id ?? d.id}</td>
-                              <td className="py-1 pr-3"><Badge variant="outline" className="text-[10px]">{d.status}</Badge></td>
-                              <td className="py-1 pr-3 text-muted-foreground">{d.created_at ? new Date(d.created_at).toLocaleDateString() : "—"}</td>
-                              <td className="py-1"><Button size="sm" variant="ghost" className="h-5 px-1 text-[10px]" onClick={() => resendApgDelivery(d.id)}>Resend</Button></td>
-                            </tr>
-                          ))}
+                          {apgDeliveries.map((d: any, i: number) => {
+                            const status = d.status ?? d.delivery_status ?? d.result ?? d.response_status ?? d.http_status ?? d.status_code ?? d.state
+                            return (
+                              <>
+                                <tr key={i} className="border-b border-border/50 cursor-pointer hover:bg-muted/30" onClick={() => setApgExpandedDelivery(p => (p === i ? null : i))}>
+                                  <td className="py-1 pr-3 font-mono">{d.order_id ?? d.id}</td>
+                                  <td className="py-1 pr-3">
+                                    {status !== undefined && status !== null && status !== "" ? (
+                                      <Badge variant="outline" className="text-[10px]">{String(status)}</Badge>
+                                    ) : (
+                                      <span className="text-muted-foreground">—</span>
+                                    )}
+                                  </td>
+                                  <td className="py-1 pr-3 text-muted-foreground">{d.created_at ? new Date(d.created_at).toLocaleDateString() : "—"}</td>
+                                  <td className="py-1"><Button size="sm" variant="ghost" className="h-5 px-1 text-[10px]" onClick={e => { e.stopPropagation(); resendApgDelivery(d.id) }}>Resend</Button></td>
+                                </tr>
+                                {apgExpandedDelivery === i && (
+                                  <tr key={`${i}-raw`} className="bg-muted/20">
+                                    <td colSpan={4} className="py-2 px-3">
+                                      <pre className="text-[10px] whitespace-pre-wrap break-all">{JSON.stringify(d, null, 2)}</pre>
+                                    </td>
+                                  </tr>
+                                )}
+                              </>
+                            )
+                          })}
                         </tbody>
                       </table>
                     </div>
