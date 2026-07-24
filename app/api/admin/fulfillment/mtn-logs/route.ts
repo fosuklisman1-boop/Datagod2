@@ -22,6 +22,7 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get("status") || "all"
     const limit = parseInt(searchParams.get("limit") || "50")
     const offset = parseInt(searchParams.get("offset") || "0")
+    const search = searchParams.get("search")?.trim() || ""
 
     // Build query
     let query = supabase
@@ -53,6 +54,16 @@ export async function GET(request: NextRequest) {
     // Apply status filter
     if (status !== "all") {
       query = query.eq("status", status)
+    }
+
+    // Apply search — phone (ilike) or numeric MTN order ID
+    if (search) {
+      const isNumeric = /^\d+$/.test(search)
+      if (isNumeric) {
+        query = query.or(`recipient_phone.ilike.%${search}%,mtn_order_id.eq.${Number(search)}`)
+      } else {
+        query = query.ilike("recipient_phone", `%${search}%`)
+      }
     }
 
     const { data, error, count } = await query

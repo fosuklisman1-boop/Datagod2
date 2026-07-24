@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -21,7 +22,8 @@ import {
   ExternalLink,
   ChevronLeft,
   ChevronRight,
-  Trash2
+  Trash2,
+  Search,
 } from "lucide-react"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { supabase } from "@/lib/supabase"
@@ -75,18 +77,26 @@ export default function MTNFulfillmentLogsPage() {
   const [deleting, setDeleting] = useState<string | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
+  const [searchQuery, setSearchQuery] = useState("")
+  const [debouncedSearch, setDebouncedSearch] = useState("")
 
-  // Reset to page 1 when tab changes
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchQuery), 400)
+    return () => clearTimeout(timer)
+  }, [searchQuery])
+
+  // Reset to page 1 when tab or search changes
   useEffect(() => {
     setCurrentPage(1)
-  }, [activeTab])
+  }, [activeTab, debouncedSearch])
 
   useEffect(() => {
     if (adminLoading) return
     if (!isAdmin) return
 
     loadLogs()
-  }, [isAdmin, adminLoading, activeTab, currentPage])
+  }, [isAdmin, adminLoading, activeTab, currentPage, debouncedSearch])
 
   const loadLogs = async () => {
     try {
@@ -98,8 +108,9 @@ export default function MTNFulfillmentLogsPage() {
       }
 
       const statusParam = activeTab !== "all" ? `&status=${activeTab}` : ""
+      const searchParam = debouncedSearch ? `&search=${encodeURIComponent(debouncedSearch)}` : ""
       const offset = (currentPage - 1) * ITEMS_PER_PAGE
-      const response = await fetch(`/api/admin/fulfillment/mtn-logs?limit=${ITEMS_PER_PAGE}&offset=${offset}${statusParam}&t=${Date.now()}`, {
+      const response = await fetch(`/api/admin/fulfillment/mtn-logs?limit=${ITEMS_PER_PAGE}&offset=${offset}${statusParam}${searchParam}&t=${Date.now()}`, {
         headers: {
           Authorization: `Bearer ${session.access_token}`,
           "Cache-Control": "no-cache",
@@ -475,10 +486,21 @@ export default function MTNFulfillmentLogsPage() {
           <TabsContent value={activeTab}>
             <Card>
               <CardHeader>
-                <CardTitle>Fulfillment Orders</CardTitle>
-                <CardDescription>
-                  Orders sent to MTN API for automatic fulfillment
-                </CardDescription>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div>
+                    <CardTitle>Fulfillment Orders</CardTitle>
+                    <CardDescription>Orders sent to MTN API for automatic fulfillment</CardDescription>
+                  </div>
+                  <div className="relative w-full sm:w-72">
+                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search phone or MTN order ID…"
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                      className="pl-8"
+                    />
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
                 {loading ? (
@@ -487,7 +509,7 @@ export default function MTNFulfillmentLogsPage() {
                   </div>
                 ) : logs.length === 0 ? (
                   <div className="text-center py-12 text-muted-foreground">
-                    No MTN fulfillment orders found
+                    {debouncedSearch ? `No results for "${debouncedSearch}"` : "No MTN fulfillment orders found"}
                   </div>
                 ) : (
                   <div className="overflow-x-auto rounded-md border border-border">
