@@ -7,6 +7,7 @@ import { XpressProvider } from "@/lib/mtn-providers/xpress-provider"
 import { EazyGhDataProvider } from "@/lib/mtn-providers/eazyghdata-provider"
 import { BisdelProvider } from "@/lib/mtn-providers/bisdel-provider"
 import { CodeCraftMTNProvider } from "@/lib/mtn-providers/codecraft-provider"
+import { AgentPortalGHProvider } from "@/lib/mtn-providers/agentportalgh-provider"
 import { sendLowBalanceAlert } from "@/lib/mtn-balance-alert"
 
 export const dynamic = "force-dynamic"
@@ -16,13 +17,14 @@ export async function GET(request: NextRequest) {
   if (!auth.authorized) return auth.errorResponse!
 
   try {
-    const [sykes, datakazina, xpress, eazyghdata, bisdel, codecraft] = await Promise.all([
+    const [sykes, datakazina, xpress, eazyghdata, bisdel, codecraft, agentportalgh] = await Promise.all([
       new SykesProvider().checkBalance().catch(() => null),
       new DataKazinaProvider().checkBalance().catch(() => null),
       new XpressProvider().checkBalance().catch(() => null),
       new EazyGhDataProvider().checkBalance().catch(() => null),
       new BisdelProvider().checkBalance().catch(() => null),
       new CodeCraftMTNProvider().checkBalance().catch(() => null),
+      new AgentPortalGHProvider().checkBalance().catch(() => null),
     ])
 
     const { data: settingData } = await supabase
@@ -33,7 +35,7 @@ export async function GET(request: NextRequest) {
 
     const threshold = parseInt(settingData?.value || "500", 10)
 
-    const balances = { sykes, datakazina, xpress, eazyghdata, bisdel, codecraft }
+    const balances = { sykes, datakazina, xpress, eazyghdata, bisdel, codecraft, agentportalgh }
     const lows = {
       sykes: sykes !== null && sykes < threshold,
       datakazina: datakazina !== null && datakazina < threshold,
@@ -41,6 +43,7 @@ export async function GET(request: NextRequest) {
       eazyghdata: eazyghdata !== null && eazyghdata < threshold,
       bisdel: bisdel !== null && bisdel < threshold,
       codecraft: codecraft !== null && codecraft < threshold,
+      agentportalgh: agentportalgh !== null && agentportalgh < threshold,
     }
 
     const anyLow = Object.values(lows).some(Boolean)

@@ -1790,7 +1790,7 @@ export default function MTNSettingsPage() {
                 When the primary provider (<strong>{mtnProvider}</strong>) returns a failure, the system will immediately retry the same order with the selected fallback. The fallback must differ from the primary.
               </p>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-                {(["sykes", "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft"] as MTNProviderName[]).map((p) => {
+                {(["sykes", "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft", "agentportalgh"] as MTNProviderName[]).map((p) => {
                   const isPrimary = p === mtnProvider
                   const isSelected = p === fallbackProvider
                   return (
