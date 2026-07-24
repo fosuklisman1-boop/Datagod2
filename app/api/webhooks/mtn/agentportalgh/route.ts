@@ -83,8 +83,17 @@ async function processItem(item: any) {
   }
 
   // Prevent status regression
+  const TERMINAL = new Set(["completed", "failed"])
+  if (TERMINAL.has(tracking.status) && newStatus !== tracking.status) return
+
   const priority: Record<string, number> = { pending: 1, processing: 2, completed: 3, failed: 3 }
   if ((priority[newStatus] ?? 0) < (priority[tracking.status] ?? 0)) return
+
+  // Always record the webhook arrival time
+  await supabase
+    .from("mtn_fulfillment_tracking")
+    .update({ webhook_received_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq("id", tracking.id)
 
   if (newStatus === tracking.status) return
 
