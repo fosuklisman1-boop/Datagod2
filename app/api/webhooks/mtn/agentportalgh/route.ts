@@ -29,6 +29,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Webhook secret not configured" }, { status: 500 })
   }
   if (!verifySig(rawBody, sigHeader, secret)) {
+    // Log every header name received — if AgentPortalGH signs with a different
+    // header or format than we expect, this is the only way to see it, since
+    // no webhook_received_at ever gets stamped for a rejected delivery.
+    console.warn(
+      "[WEBHOOK-AGENTPORTALGH] Signature rejected.",
+      `x-webhook-signature present: ${sigHeader !== null}`,
+      `headers received: ${JSON.stringify([...request.headers.keys()])}`,
+      `body preview: ${rawBody.slice(0, 200)}`
+    )
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 })
   }
 
@@ -45,7 +54,10 @@ export async function POST(request: NextRequest) {
 }
 
 async function processItems(payload: any) {
-  if (payload.event !== "order.completed") return
+  if (payload.event !== "order.completed") {
+    console.warn(`[WEBHOOK-AGENTPORTALGH] Ignoring event "${payload.event}" (expected "order.completed"). Payload keys: ${Object.keys(payload).join(", ")}`)
+    return
+  }
 
   let items: any[] = payload.items ?? []
 
