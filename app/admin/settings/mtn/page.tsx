@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { Settings, Loader2, AlertCircle, CheckCircle, Zap, WifiOff, Wallet, FileText, ToggleLeft, ToggleRight, ShieldCheck, Bell, ArrowUp, ArrowDown, X, Plus } from "lucide-react"
+import { Settings, Loader2, AlertCircle, CheckCircle, Zap, WifiOff, Wallet, FileText, ToggleLeft, ToggleRight, ShieldCheck, Bell, ArrowUp, ArrowDown, X, Plus, Download } from "lucide-react"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
@@ -697,12 +697,36 @@ export default function MTNSettingsPage() {
         toast.error(json.error ?? "Whitelist check failed")
         return
       }
-      setApgWhitelistResult(json.data ?? json.results ?? [])
+      const rawList: any[] = Array.isArray(json.data) ? json.data : Array.isArray(json.results) ? json.results : Array.isArray(json) ? json : []
+      // Field name from AgentPortalGH's response is unconfirmed — fall back through
+      // likely aliases, and finally to the submitted number at the same index (batch
+      // verify endpoints preserve request order), so the column is never blank.
+      const normalized = rawList.map((r: any, i: number) => ({
+        msisdn: r.msisdn ?? r.phone ?? r.phone_number ?? r.number ?? r.msisdn_number ?? msisdns[i] ?? "—",
+        allowed: r.allowed ?? r.is_allowed ?? r.whitelisted ?? r.enabled ?? false,
+        reason: r.reason ?? r.message,
+      }))
+      setApgWhitelistResult(normalized)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Whitelist check failed")
     } finally {
       setApgWhitelistLoading(false)
     }
+  }
+
+  function downloadWhitelistExport(allowed: boolean) {
+    const numbers = apgWhitelistResult.filter(r => r.allowed === allowed).map(r => r.msisdn)
+    if (numbers.length === 0) {
+      toast.error(`No ${allowed ? "allowed" : "blocked"} numbers to export`)
+      return
+    }
+    const blob = new Blob([numbers.join("\n")], { type: "text/plain" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `agentportalgh-whitelist-${allowed ? "allowed" : "blocked"}-${new Date().toISOString().slice(0, 10)}.txt`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   async function loadApgOrders() {
@@ -1599,18 +1623,31 @@ export default function MTNSettingsPage() {
                       {apgWhitelistLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Check"}
                     </Button>
                     {apgWhitelistResult.length > 0 && (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-xs">
-                          <thead><tr className="border-b"><th className="text-left py-1 pr-4">MSISDN</th><th className="text-left py-1">Allowed</th></tr></thead>
-                          <tbody>
-                            {apgWhitelistResult.map((r: any, i: number) => (
-                              <tr key={i} className="border-b border-border/50">
-                                <td className="py-1 pr-4 font-mono">{r.msisdn}</td>
-                                <td className="py-1"><Badge variant={r.allowed ? "default" : "destructive"} className="text-[10px]">{r.allowed ? "Yes" : "No"}</Badge></td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <span className="text-xs text-muted-foreground">
+                            {apgWhitelistResult.filter(r => r.allowed).length} allowed · {apgWhitelistResult.filter(r => !r.allowed).length} blocked
+                          </span>
+                          <Button size="sm" variant="outline" onClick={() => downloadWhitelistExport(true)}>
+                            <Download className="h-3 w-3 mr-1" />Export Allowed
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => downloadWhitelistExport(false)}>
+                            <Download className="h-3 w-3 mr-1" />Export Blocked
+                          </Button>
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs">
+                            <thead><tr className="border-b"><th className="text-left py-1 pr-4">MSISDN</th><th className="text-left py-1">Allowed</th></tr></thead>
+                            <tbody>
+                              {apgWhitelistResult.map((r: any, i: number) => (
+                                <tr key={i} className="border-b border-border/50">
+                                  <td className="py-1 pr-4 font-mono">{r.msisdn}</td>
+                                  <td className="py-1"><Badge variant={r.allowed ? "default" : "destructive"} className="text-[10px]">{r.allowed ? "Yes" : "No"}</Badge></td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
                     )}
                   </CardContent>
