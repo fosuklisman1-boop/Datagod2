@@ -666,15 +666,26 @@ export default function MTNSettingsPage() {
 
   async function checkApgWhitelist() {
     setApgWhitelistLoading(true)
-    const msisdns = apgWhitelistInput.split("\n").map(s => s.trim()).filter(Boolean)
-    const hdrs = await apgAuthHeaders()
-    const res = await fetch("/api/admin/agentportalgh?action=whitelist", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...hdrs },
-      body: JSON.stringify({ msisdns }),
-    }).then(r => r.json())
-    setApgWhitelistResult(res.data ?? res.results ?? [])
-    setApgWhitelistLoading(false)
+    setApgWhitelistResult([])
+    try {
+      const msisdns = apgWhitelistInput.split("\n").map(s => s.trim()).filter(Boolean)
+      const hdrs = await apgAuthHeaders()
+      const res = await fetch("/api/admin/agentportalgh?action=whitelist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...hdrs },
+        body: JSON.stringify({ msisdns }),
+      })
+      const json = await res.json()
+      if (!res.ok || json.error) {
+        toast.error(json.error ?? "Whitelist check failed")
+        return
+      }
+      setApgWhitelistResult(json.data ?? json.results ?? [])
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Whitelist check failed")
+    } finally {
+      setApgWhitelistLoading(false)
+    }
   }
 
   async function loadApgOrders() {
