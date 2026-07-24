@@ -11,14 +11,14 @@ export async function GET(request: NextRequest) {
   const { data, error } = await supabase
     .from("admin_settings")
     .select("value")
-    .eq("key", "mtn_fallback_provider")
+    .eq("key", "mtn_retry_sequence")
     .maybeSingle()
 
   if (error) return NextResponse.json({ error: "Failed to fetch setting" }, { status: 500 })
 
   return NextResponse.json({
     enabled: data?.value?.enabled ?? false,
-    provider: data?.value?.provider ?? "eazyghdata",
+    providers: Array.isArray(data?.value?.providers) ? data.value.providers : [],
   })
 }
 
@@ -27,17 +27,17 @@ export async function POST(request: NextRequest) {
   if (!isAdmin) return errorResponse
 
   const body = await request.json()
-  const { enabled, provider } = body as { enabled: boolean; provider: string }
+  const { enabled, providers } = body as { enabled: boolean; providers: string[] }
 
-  if (!VALID_PROVIDERS.includes(provider)) {
-    return NextResponse.json({ error: "Invalid provider" }, { status: 400 })
+  if (!Array.isArray(providers) || providers.some(p => !VALID_PROVIDERS.includes(p))) {
+    return NextResponse.json({ error: "providers must be an array of valid provider names" }, { status: 400 })
   }
 
   const { error } = await supabase
     .from("admin_settings")
-    .upsert({ key: "mtn_fallback_provider", value: { enabled, provider }, updated_at: new Date().toISOString() }, { onConflict: "key" })
+    .upsert({ key: "mtn_retry_sequence", value: { enabled, providers }, updated_at: new Date().toISOString() }, { onConflict: "key" })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  return NextResponse.json({ success: true, enabled, provider })
+  return NextResponse.json({ success: true, enabled, providers })
 }

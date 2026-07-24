@@ -291,7 +291,7 @@ export async function processManualFulfillment(
     }
 
     // Call MTN API
-    let mtnRequest: MTNOrderRequest = {
+    const mtnRequest: MTNOrderRequest = {
       recipient_phone: phone,
       network: "MTN",
       size_gb: volumeGb,
@@ -314,40 +314,10 @@ export async function processManualFulfillment(
       }
     }
 
-    // Fallback provider: if the primary failed, try the admin-configured fallback.
-    // Skip only for NUMBER_NOT_REGISTERED (global MTN gate — no provider can help).
-    // WHITELIST_BLOCKED is CodeCraft-specific; a non-whitelist fallback like EazyGhData
-    // can still serve the number, so we let it through.
-    let fallbackAttempted: string | null = null
-    const isRegistrationHold = mtnResponse.held && mtnResponse.error_type === "NUMBER_NOT_REGISTERED"
-    if (!mtnResponse.success && !isRegistrationHold) {
-      const { getFallbackProviderName } = await import("@/lib/mtn-providers/factory")
-      const fallbackName = await getFallbackProviderName()
-      if (fallbackName && fallbackName !== finalProvider) {
-        fallbackAttempted = fallbackName
-        console.log(`${logPrefix} Primary "${finalProvider}" failed (${mtnResponse.message}), trying fallback "${fallbackName}"`)
-        mtnRequest = { ...mtnRequest, provider: fallbackName }
-        try {
-          // Call the fallback provider directly — bypasses createMTNOrder's whitelist
-          // and registration-gate pre-checks which would re-run against the primary's
-          // configured providers and block EazyGhData (not in the whitelist registry).
-          const { getProviderByName } = await import("@/lib/mtn-providers/factory")
-          const fbProvider = getProviderByName(fallbackName as any)
-          const fbResult = await fbProvider.createOrder(mtnRequest)
-          mtnResponse = { ...fbResult, provider: fallbackName }
-        } catch (fbErr) {
-          mtnResponse = {
-            success: false,
-            message: fbErr instanceof Error ? fbErr.message : "Fallback provider error",
-          }
-        }
-        if (mtnResponse.success) {
-          console.log(`${logPrefix} Fallback "${fallbackName}" succeeded`)
-        } else {
-          console.log(`${logPrefix} Fallback "${fallbackName}" also failed: ${mtnResponse.message}`)
-        }
-      }
-    }
+    // Retry-sequence handling (admin-configured ordered fallback list) now lives
+    // inside createMTNOrder() itself (lib/mtn-fulfillment.ts) so it applies
+    // uniformly to auto-fulfillment and this manual path — mtnResponse above
+    // already reflects whichever provider in the sequence ultimately succeeded.
 
     // Gate only on success flag — some providers return success:true with no order_id
     // (async/queued model). Gating on !order_id would wrongly trigger the failure path

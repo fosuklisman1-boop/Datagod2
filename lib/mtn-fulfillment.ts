@@ -338,7 +338,7 @@ export function isInsufficientFundsError(message: string): boolean {
  * based on admin settings, while maintaining backward compatibility.
  */
 export async function createMTNOrder(order: MTNOrderRequest): Promise<MTNOrderResponse> {
-  const { getMTNProvider, getProviderByName } = await import("@/lib/mtn-providers/factory")
+  const { getMTNProvider, getProviderByName, getRetrySequence } = await import("@/lib/mtn-providers/factory")
 
   try {
     // Registration gate (Phase 2): MTN only fulfills pre-registered numbers.
@@ -395,6 +395,7 @@ export async function createMTNOrder(order: MTNOrderRequest): Promise<MTNOrderRe
     // (active provider first, then the rest). Gated by admin toggle
     // (mtn_whitelist_enabled) so the feature can be turned off without
     // removing API keys. Fails open so API outages never block orders.
+    let whitelistBlocked = false
     try {
       const { hasWhitelistProviders, checkWhitelistForOrder } = await import("@/lib/mtn-providers/provider-whitelist")
       const { data: wlSetting } = await supabase
@@ -421,45 +422,89 @@ export async function createMTNOrder(order: MTNOrderRequest): Promise<MTNOrderRe
             { onConflict: "phone" }
           )
           console.log(`[MTN-WHITELIST] HOLD — ${norm} blocked by all whitelist providers`)
-          return {
-            success: false,
-            held: true,
-            message: "Number not yet enabled for data delivery — order held, retrying every 24h",
-            traceId: order.traceId,
-            error_type: "WHITELIST_BLOCKED",
+          whitelistBlocked = true
+        } else {
+          // Allowed — record which provider approved and switch to it if needed
+          await supabase.from("mtn_number_registry").upsert(
+            {
+              phone: norm,
+              source: "whitelist_check",
+              whitelist_status: "allowed",
+              whitelist_last_checked: new Date().toISOString(),
+              whitelist_allowed_by: allowedBy,
+            },
+            { onConflict: "phone" }
+          )
+          if (allowedBy && allowedBy !== provider.name) {
+            provider = getProviderByName(allowedBy as any)
+            console.log(`[MTN-WHITELIST] Switched fulfillment to ${allowedBy} (approved by that provider)`)
           }
-        }
-
-        // Allowed — record which provider approved and switch to it if needed
-        await supabase.from("mtn_number_registry").upsert(
-          {
-            phone: norm,
-            source: "whitelist_check",
-            whitelist_status: "allowed",
-            whitelist_last_checked: new Date().toISOString(),
-            whitelist_allowed_by: allowedBy,
-          },
-          { onConflict: "phone" }
-        )
-        if (allowedBy && allowedBy !== provider.name) {
-          provider = getProviderByName(allowedBy as any)
-          console.log(`[MTN-WHITELIST] Switched fulfillment to ${allowedBy} (approved by that provider)`)
         }
       }
     } catch (wlErr) {
       console.error("[MTN-WHITELIST] Check failed — failing open:", wlErr)
     }
 
-    console.log(`[MTN] Creating order with provider: ${provider.name}`)
-
-    // Call the provider's createOrder method
-    const response = await provider.createOrder(order)
-
-    // Return the response with provider name included
-    return {
-      ...response,
-      provider: provider.name
+    // Primary attempt (skipped entirely if the whitelist blocked it — a provider
+    // outside the whitelist registry may still be able to serve the number, so we
+    // fall straight into the retry sequence rather than failing immediately).
+    let response: MTNOrderResponse
+    if (whitelistBlocked) {
+      response = {
+        success: false,
+        held: true,
+        message: "Number not yet enabled for data delivery — order held, retrying every 24h",
+        traceId: order.traceId,
+        error_type: "WHITELIST_BLOCKED",
+      }
+    } else {
+      console.log(`[MTN] Creating order with provider: ${provider.name}`)
+      const primaryResult = await provider.createOrder(order)
+      response = { ...primaryResult, provider: provider.name }
     }
+
+    // Retry sequence: admin-configured ordered list of providers to try after the
+    // primary fails or is skipped (whitelist block). Bypasses the gate/whitelist
+    // checks above for each subsequent provider — those checks are per-provider
+    // (e.g. CodeCraft's whitelist), and a provider outside that registry can still
+    // fulfil the order directly. Registration holds (NUMBER_NOT_REGISTERED) never
+    // reach here — that's a global MTN-network constraint no provider can bypass.
+    if (!response.success) {
+      const sequence = (await getRetrySequence()).filter(name => name !== provider.name)
+      for (const nextName of sequence) {
+        console.log(`[MTN] "${provider.name}" attempt failed (${response.message}), trying retry-sequence provider "${nextName}"`)
+        try {
+          const nextProvider = getProviderByName(nextName as any)
+          const nextResult = await nextProvider.createOrder(order)
+          response = { ...nextResult, provider: nextName }
+        } catch (retryErr) {
+          response = {
+            success: false,
+            message: retryErr instanceof Error ? retryErr.message : `${nextName} error`,
+            traceId: order.traceId,
+          }
+        }
+        if (response.success) {
+          console.log(`[MTN] Retry-sequence provider "${nextName}" succeeded`)
+          break
+        }
+        console.log(`[MTN] Retry-sequence provider "${nextName}" also failed: ${response.message}`)
+      }
+      // All retry-sequence providers failed (or none configured) after a whitelist
+      // block — restore the held/WHITELIST_BLOCKED response so the order re-enters
+      // the 24h whitelist-retry cron instead of being treated as an ordinary failure.
+      if (whitelistBlocked && !response.success) {
+        response = {
+          success: false,
+          held: true,
+          message: "Number not yet enabled for data delivery — order held, retrying every 24h",
+          traceId: order.traceId,
+          error_type: "WHITELIST_BLOCKED",
+        }
+      }
+    }
+
+    return response
   } catch (error) {
     console.error("[MTN] Error in createMTNOrder:", error)
 

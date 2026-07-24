@@ -123,24 +123,28 @@ export async function getProviderNameForNetwork(normalizedNetwork: string): Prom
 const VALID_PROVIDERS: MTNProviderName[] = ["sykes", "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft", "agentportalgh"]
 
 /**
- * Get the configured fallback provider name, or null if disabled / not set.
- * The setting shape is { enabled: true, provider: "eazyghdata" }.
- * Returns null if the fallback is the same as the primary (would be pointless).
+ * Get the configured retry sequence — an ordered list of provider names to try,
+ * in order, when the primary provider fails (or a whitelist block prevents it
+ * from being tried at all). Replaces the old single-fallback-provider setting.
+ * The setting shape is { enabled: true, providers: ["eazyghdata", "bisdel"] }.
+ * Returns [] if disabled, unset, or all entries are invalid provider names.
  */
-export async function getFallbackProviderName(): Promise<MTNProviderName | null> {
+export async function getRetrySequence(): Promise<MTNProviderName[]> {
     try {
         const { data } = await supabase
             .from("admin_settings")
             .select("value")
-            .eq("key", "mtn_fallback_provider")
+            .eq("key", "mtn_retry_sequence")
             .maybeSingle()
 
         const value = data?.value
-        if (!value?.enabled) return null
-        const provider = value?.provider as MTNProviderName | undefined
-        return provider && VALID_PROVIDERS.includes(provider) ? provider : null
+        if (!value?.enabled) return []
+        const providers = Array.isArray(value?.providers) ? value.providers : []
+        return providers.filter((p: unknown): p is MTNProviderName =>
+            VALID_PROVIDERS.includes(p as MTNProviderName)
+        )
     } catch {
-        return null
+        return []
     }
 }
 

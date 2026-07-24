@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { Settings, Loader2, AlertCircle, CheckCircle, Zap, WifiOff, Wallet, FileText, ToggleLeft, ToggleRight, ShieldCheck, Bell } from "lucide-react"
+import { Settings, Loader2, AlertCircle, CheckCircle, Zap, WifiOff, Wallet, FileText, ToggleLeft, ToggleRight, ShieldCheck, Bell, ArrowUp, ArrowDown, X, Plus } from "lucide-react"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
@@ -111,9 +111,9 @@ export default function MTNSettingsPage() {
   const [apgSubTab, setApgSubTab] = useState("overview")
 
   type MTNProviderName = "sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft" | "agentportalgh"
-  const [fallbackEnabled, setFallbackEnabled] = useState(false)
-  const [fallbackProvider, setFallbackProvider] = useState<MTNProviderName>("eazyghdata")
-  const [savingFallback, setSavingFallback] = useState(false)
+  const [retrySequenceEnabled, setRetrySequenceEnabled] = useState(false)
+  const [retrySequence, setRetrySequence] = useState<MTNProviderName[]>([])
+  const [savingRetrySequence, setSavingRetrySequence] = useState(false)
 
   type NonMTNProvider = "datakazina" | "xpress" | "eazyghdata" | "codecraft"
   const [telecelProvider, setTelecelProvider] = useState<NonMTNProvider>("codecraft")
@@ -135,7 +135,7 @@ export default function MTNSettingsPage() {
     loadNetworkProvider("at_ishare", setAtIshareProvider)
     loadNetworkProvider("at_bigtime", setAtBigtimeProvider)
     loadThreshold()
-    loadFallbackProvider()
+    loadRetrySequence()
     const balanceInterval = setInterval(loadBalance, 30000)
     return () => clearInterval(balanceInterval)
   }, [isAdmin, adminLoading])
@@ -381,44 +381,61 @@ export default function MTNSettingsPage() {
     }
   }
 
-  const loadFallbackProvider = async () => {
+  const loadRetrySequence = async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token) return
-      const res = await fetch("/api/admin/settings/mtn-fallback-provider", {
+      const res = await fetch("/api/admin/settings/mtn-retry-sequence", {
         headers: { Authorization: `Bearer ${session.access_token}` },
       })
       if (res.ok) {
         const d = await res.json()
-        setFallbackEnabled(d.enabled)
-        setFallbackProvider(d.provider || "eazyghdata")
+        setRetrySequenceEnabled(d.enabled)
+        setRetrySequence(d.providers || [])
       }
-    } catch (e) { console.error("Error loading fallback provider:", e) }
+    } catch (e) { console.error("Error loading retry sequence:", e) }
   }
 
-  const handleSaveFallbackProvider = async (enabled: boolean, provider: MTNProviderName) => {
-    setSavingFallback(true)
+  const handleSaveRetrySequence = async (enabled: boolean, providers: MTNProviderName[]) => {
+    setSavingRetrySequence(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token) return
-      const res = await fetch("/api/admin/settings/mtn-fallback-provider", {
+      const res = await fetch("/api/admin/settings/mtn-retry-sequence", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ enabled, provider }),
+        body: JSON.stringify({ enabled, providers }),
       })
       if (res.ok) {
-        setFallbackEnabled(enabled)
-        setFallbackProvider(provider)
-        toast.success(enabled ? `Fallback set to ${provider}` : "Fallback provider disabled")
+        setRetrySequenceEnabled(enabled)
+        setRetrySequence(providers)
+        toast.success("Retry sequence updated")
       } else {
-        toast.error("Failed to save fallback setting")
+        toast.error("Failed to save retry sequence")
       }
     } catch (e) {
-      console.error("Error saving fallback provider:", e)
-      toast.error("Error saving fallback provider")
+      console.error("Error saving retry sequence:", e)
+      toast.error("Error saving retry sequence")
     } finally {
-      setSavingFallback(false)
+      setSavingRetrySequence(false)
     }
+  }
+
+  const addToRetrySequence = (p: MTNProviderName) => {
+    if (retrySequence.includes(p)) return
+    handleSaveRetrySequence(true, [...retrySequence, p])
+  }
+
+  const removeFromRetrySequence = (p: MTNProviderName) => {
+    handleSaveRetrySequence(retrySequenceEnabled, retrySequence.filter(x => x !== p))
+  }
+
+  const moveInRetrySequence = (index: number, direction: -1 | 1) => {
+    const target = index + direction
+    if (target < 0 || target >= retrySequence.length) return
+    const next = [...retrySequence]
+    ;[next[index], next[target]] = [next[target], next[index]]
+    handleSaveRetrySequence(retrySequenceEnabled, next)
   }
 
   const handleMTNProviderChange = async (provider: MTNProviderName) => {
@@ -931,52 +948,80 @@ export default function MTNSettingsPage() {
               </CardContent>
             </Card>
 
-            {/* Fallback Provider */}
+            {/* Retry Sequence */}
             <Card className="border-2">
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
-                    <CardTitle className="flex items-center gap-2"><Zap className="h-5 w-5" />Fallback Provider</CardTitle>
-                    <CardDescription>Automatically retry with a second provider when the primary fails</CardDescription>
+                    <CardTitle className="flex items-center gap-2"><Zap className="h-5 w-5" />Retry Sequence</CardTitle>
+                    <CardDescription>Ordered list of providers to try, in order, when the primary provider fails</CardDescription>
                   </div>
                   <div className="flex items-center gap-2">
-                    {savingFallback && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-                    <Switch checked={fallbackEnabled} onCheckedChange={v => handleSaveFallbackProvider(v, fallbackProvider)} disabled={savingFallback} />
+                    {savingRetrySequence && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                    <Switch checked={retrySequenceEnabled} onCheckedChange={v => handleSaveRetrySequence(v, retrySequence)} disabled={savingRetrySequence} />
                   </div>
                 </div>
               </CardHeader>
-              {fallbackEnabled && (
-                <CardContent>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    When the primary provider (<strong>{PROVIDER_LABELS[mtnProvider]}</strong>) returns a failure, the system retries the same order with the selected fallback.
+              {retrySequenceEnabled && (
+                <CardContent className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    When <strong>{PROVIDER_LABELS[mtnProvider]}</strong> (primary) fails, orders are retried through this sequence, in order, until one succeeds.
                   </p>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
-                    {(Object.keys(PROVIDER_LABELS) as MTNProviderName[]).map(p => {
-                      const isPrimary = p === mtnProvider
-                      const isSelected = p === fallbackProvider
-                      return (
-                        <button
-                          key={p}
-                          onClick={() => !isPrimary && handleSaveFallbackProvider(true, p)}
-                          disabled={savingFallback || isPrimary || isSelected}
-                          className={`p-3 rounded-lg border-2 transition-all text-left ${
-                            isPrimary ? "opacity-30 cursor-not-allowed bg-muted border-border"
-                              : isSelected ? "bg-primary/5 border-primary shadow-md"
-                              : "bg-card border-border hover:border-muted-foreground cursor-pointer"
-                          }`}
-                        >
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="font-semibold text-xs">{PROVIDER_LABELS[p]}</span>
+
+                  {retrySequence.length === 0 ? (
+                    <Alert className="border-border bg-muted/40">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription className="text-sm">No retry providers configured — a failed primary attempt will not be retried automatically.</AlertDescription>
+                    </Alert>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 flex-wrap text-sm">
+                        <Badge variant="outline">{PROVIDER_LABELS[mtnProvider]}</Badge>
+                        <span className="text-xs text-muted-foreground">(primary)</span>
+                        {retrySequence.map(p => (
+                          <span key={p} className="inline-flex items-center gap-2">
+                            <span className="text-muted-foreground">→</span>
+                            <Badge className="bg-primary">{PROVIDER_LABELS[p]}</Badge>
+                          </span>
+                        ))}
+                      </div>
+                      <div className="space-y-1.5">
+                        {retrySequence.map((p, i) => (
+                          <div key={p} className="flex items-center gap-2 p-2 rounded-lg border border-border bg-card">
+                            <span className="text-xs text-muted-foreground w-5 text-center shrink-0">{i + 1}</span>
+                            <span className="flex-1 text-sm font-medium">{PROVIDER_LABELS[p]}</span>
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => moveInRetrySequence(i, -1)} disabled={savingRetrySequence || i === 0}>
+                              <ArrowUp className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => moveInRetrySequence(i, 1)} disabled={savingRetrySequence || i === retrySequence.length - 1}>
+                              <ArrowDown className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive" onClick={() => removeFromRetrySequence(p)} disabled={savingRetrySequence}>
+                              <X className="h-3.5 w-3.5" />
+                            </Button>
                           </div>
-                          {isSelected && <Badge className="bg-primary text-[9px] px-1 py-0">Fallback</Badge>}
-                          {isPrimary && <Badge variant="outline" className="text-[9px] px-1 py-0">Primary</Badge>}
-                        </button>
-                      )
-                    })}
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm text-muted-foreground">Add provider:</span>
+                    {(Object.keys(PROVIDER_LABELS) as MTNProviderName[])
+                      .filter(p => p !== mtnProvider && !retrySequence.includes(p))
+                      .map(p => (
+                        <Button key={p} size="sm" variant="outline" onClick={() => addToRetrySequence(p)} disabled={savingRetrySequence}>
+                          <Plus className="h-3 w-3 mr-1" />{PROVIDER_LABELS[p]}
+                        </Button>
+                      ))}
                   </div>
-                  <Alert className="mt-4 border-border bg-muted/40">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertDescription className="text-sm">The fallback only triggers on API-level failures. Registration holds and completed orders are not retried.</AlertDescription>
+
+                  <Alert className="border-border bg-warning/10">
+                    <AlertCircle className="h-4 w-4 text-warning" />
+                    <AlertDescription className="text-warning text-xs">
+                      Retries only trigger on API-level failures. Registration holds are never retried (no provider can bypass MTN's registration requirement).
+                      Whitelist holds try this sequence directly (bypassing the whitelist check) before falling back to the 24h whitelist-retry cron.
+                    </AlertDescription>
                   </Alert>
                 </CardContent>
               )}
