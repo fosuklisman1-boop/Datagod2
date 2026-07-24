@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Settings, Loader2, AlertCircle, CheckCircle, Zap, WifiOff, Wallet, FileText, ToggleLeft, ToggleRight, ShieldCheck, Bell } from "lucide-react"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { supabase } from "@/lib/supabase"
@@ -37,6 +38,7 @@ interface MTNBalance {
     eazyghdata: ProviderBalance
     bisdel: ProviderBalance
     codecraft: ProviderBalance
+    agentportalgh: ProviderBalance
   }
   threshold: number
   active_provider: string
@@ -61,23 +63,20 @@ export default function MTNSettingsPage() {
   const [bisdelCategory, setBisdelCategory] = useState<string>("")
   const [syncingBisdel, setSyncingBisdel] = useState(false)
   const [savingBisdelCategory, setSavingBisdelCategory] = useState(false)
+  const [activeTab, setActiveTab] = useState("overview")
 
-  // AT auto-fulfillment toggle (CodeCraft — iShare, Telecel, BigTime)
   const [atFulfillmentEnabled, setAtFulfillmentEnabled] = useState(true)
   const [loadingAtFulfillment, setLoadingAtFulfillment] = useState(true)
   const [togglingAtFulfillment, setTogglingAtFulfillment] = useState(false)
 
-  // MTN whitelist toggle
   const [whitelistEnabled, setWhitelistEnabled] = useState(true)
   const [loadingWhitelist, setLoadingWhitelist] = useState(true)
   const [togglingWhitelist, setTogglingWhitelist] = useState(false)
 
-  // Balance alert threshold
   const [threshold, setThreshold] = useState<number>(500)
   const [thresholdInput, setThresholdInput] = useState<string>("500")
   const [savingThreshold, setSavingThreshold] = useState(false)
 
-  // AgentPortalGH panel state
   const [apgIdentity, setApgIdentity] = useState<any>(null)
   const [apgBalance, setApgBalance] = useState<number | null>(null)
   const [apgBalanceLoading, setApgBalanceLoading] = useState(false)
@@ -110,13 +109,11 @@ export default function MTNSettingsPage() {
   const [apgExpandedOrder, setApgExpandedOrder] = useState<string | number | null>(null)
   const [apgOrderItems, setApgOrderItems] = useState<Record<string | number, any[]>>({})
 
-  // Fallback provider
   type MTNProviderName = "sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft" | "agentportalgh"
   const [fallbackEnabled, setFallbackEnabled] = useState(false)
   const [fallbackProvider, setFallbackProvider] = useState<MTNProviderName>("eazyghdata")
   const [savingFallback, setSavingFallback] = useState(false)
 
-  // Per-network provider selectors (Telecel / AT-iShare / AT-BigTime)
   type NonMTNProvider = "datakazina" | "xpress" | "eazyghdata" | "codecraft"
   const [telecelProvider, setTelecelProvider] = useState<NonMTNProvider>("codecraft")
   const [atIshareProvider, setAtIshareProvider] = useState<NonMTNProvider>("codecraft")
@@ -125,9 +122,7 @@ export default function MTNSettingsPage() {
 
   useEffect(() => {
     if (adminLoading) return
-
-    if (!isAdmin) return // useAdminProtected handles redirect
-
+    if (!isAdmin) return
     loadSettings()
     loadGateSettings()
     loadBalance()
@@ -140,14 +135,12 @@ export default function MTNSettingsPage() {
     loadNetworkProvider("at_bigtime", setAtBigtimeProvider)
     loadThreshold()
     loadFallbackProvider()
-
-    // Refresh balance every 30 seconds
     const balanceInterval = setInterval(loadBalance, 30000)
     return () => clearInterval(balanceInterval)
   }, [isAdmin, adminLoading])
 
   useEffect(() => {
-    if (mtnProvider === "agentportalgh") {
+    if (activeTab === "agentportalgh") {
       loadApgIdentityAndServices()
       loadApgBalance()
       loadApgWebhookConfig()
@@ -156,41 +149,31 @@ export default function MTNSettingsPage() {
       loadApgTopups()
       loadApgOrders()
     }
-  }, [mtnProvider])
+  }, [activeTab])
 
   useEffect(() => {
-    if (mtnProvider === "agentportalgh") loadApgTransactions()
+    if (activeTab === "agentportalgh") loadApgTransactions()
   }, [apgTransactionsPage])
 
   useEffect(() => {
-    if (mtnProvider === "agentportalgh") loadApgTopups()
+    if (activeTab === "agentportalgh") loadApgTopups()
   }, [apgTopupsPage])
 
   useEffect(() => {
-    if (mtnProvider === "agentportalgh") loadApgDeliveries()
+    if (activeTab === "agentportalgh") loadApgDeliveries()
   }, [apgDeliveriesPage])
 
   const loadSettings = async () => {
     try {
       setLoadingSettings(true)
       const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) {
-        toast.error("Authentication required")
-        router.push("/login")
-        return
-      }
+      if (!session?.access_token) { toast.error("Authentication required"); router.push("/login"); return }
       const response = await fetch("/api/admin/settings/mtn-auto-fulfillment", {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
+        headers: { Authorization: `Bearer ${session.access_token}` },
       })
-
       if (response.ok) {
         const data = await response.json()
-        setSettings({
-          enabled: data.enabled,
-          updated_at: data.updated_at,
-        })
+        setSettings({ enabled: data.enabled, updated_at: data.updated_at })
       } else {
         toast.error("Failed to load MTN settings")
       }
@@ -205,23 +188,13 @@ export default function MTNSettingsPage() {
   const loadGateSettings = async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) {
-        toast.error("Authentication required")
-        router.push("/login")
-        return
-      }
+      if (!session?.access_token) { toast.error("Authentication required"); router.push("/login"); return }
       const response = await fetch("/api/admin/settings/mtn-registration-gate", {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
+        headers: { Authorization: `Bearer ${session.access_token}` },
       })
-
       if (response.ok) {
         const data = await response.json()
-        setGateSettings({
-          enabled: data.enabled,
-          updated_at: data.updated_at,
-        })
+        setGateSettings({ enabled: data.enabled, updated_at: data.updated_at })
       } else {
         toast.error("Failed to load registration gate settings")
       }
@@ -234,15 +207,10 @@ export default function MTNSettingsPage() {
   const loadBalance = async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) {
-        return
-      }
+      if (!session?.access_token) return
       const response = await fetch("/api/admin/fulfillment/mtn-balance", {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
+        headers: { Authorization: `Bearer ${session.access_token}` },
       })
-
       if (response.ok) {
         const data = await response.json()
         setBalance(data)
@@ -256,31 +224,18 @@ export default function MTNSettingsPage() {
 
   const handleToggle = async () => {
     if (!settings) return
-
     try {
       setToggling(true)
       const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) {
-        toast.error("Authentication required")
-        return
-      }
+      if (!session?.access_token) { toast.error("Authentication required"); return }
       const response = await fetch("/api/admin/settings/mtn-auto-fulfillment", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          enabled: !settings.enabled,
-        }),
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ enabled: !settings.enabled }),
       })
-
       if (response.ok) {
         const data = await response.json()
-        setSettings({
-          enabled: data.enabled,
-          updated_at: new Date().toISOString(),
-        })
+        setSettings({ enabled: data.enabled, updated_at: new Date().toISOString() })
         toast.success(data.message)
       } else {
         toast.error("Failed to update setting")
@@ -295,31 +250,18 @@ export default function MTNSettingsPage() {
 
   const handleGateToggle = async () => {
     if (!gateSettings) return
-
     try {
       setGateToggling(true)
       const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) {
-        toast.error("Authentication required")
-        return
-      }
+      if (!session?.access_token) { toast.error("Authentication required"); return }
       const response = await fetch("/api/admin/settings/mtn-registration-gate", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          enabled: !gateSettings.enabled,
-        }),
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ enabled: !gateSettings.enabled }),
       })
-
       if (response.ok) {
         const data = await response.json()
-        setGateSettings({
-          enabled: data.enabled,
-          updated_at: new Date().toISOString(),
-        })
+        setGateSettings({ enabled: data.enabled, updated_at: new Date().toISOString() })
         toast.success(data.message)
       } else {
         toast.error("Failed to update setting")
@@ -336,13 +278,9 @@ export default function MTNSettingsPage() {
     try {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token) return
-
       const response = await fetch("/api/admin/settings/mtn-provider", {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
+        headers: { Authorization: `Bearer ${session.access_token}` },
       })
-
       if (response.ok) {
         const data = await response.json()
         setMtnProvider(data.provider || "sykes")
@@ -373,16 +311,11 @@ export default function MTNSettingsPage() {
     setSyncingPackages(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) {
-        toast.error("Authentication required")
-        return
-      }
-
+      if (!session?.access_token) { toast.error("Authentication required"); return }
       const response = await fetch("/api/admin/fulfillment/eazyghdata-packages", {
         method: "POST",
         headers: { Authorization: `Bearer ${session.access_token}` },
       })
-
       if (response.ok) {
         const data = await response.json()
         toast.success(`Synced ${data.count} EazyGhData packages`)
@@ -487,29 +420,20 @@ export default function MTNSettingsPage() {
     }
   }
 
-  const handleMTNProviderChange = async (provider: "sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft" | "agentportalgh") => {
+  const handleMTNProviderChange = async (provider: MTNProviderName) => {
     setSavingProvider(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) {
-        toast.error("Authentication required")
-        return
-      }
-
+      if (!session?.access_token) { toast.error("Authentication required"); return }
       const response = await fetch("/api/admin/settings/mtn-provider", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
         body: JSON.stringify({ provider }),
       })
-
       if (response.ok) {
         const data = await response.json()
         setMtnProvider(provider)
         toast.success(data.message)
-        // Reload balance to show updated active provider
         loadBalance()
       } else {
         toast.error("Failed to update provider")
@@ -577,7 +501,7 @@ export default function MTNSettingsPage() {
       })
       if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Failed") }
       setter(provider)
-      toast.success(`Provider updated`)
+      toast.success("Provider updated")
     } catch (e) { toast.error(e instanceof Error ? e.message : "Failed to update") }
     finally { setSavingNetworkProvider(null) }
   }
@@ -782,1258 +706,906 @@ export default function MTNSettingsPage() {
     )
   }
 
+  function ProviderBal({ pb }: { pb?: ProviderBalance }) {
+    if (!pb) return <p className="text-sm text-muted-foreground">—</p>
+    return (
+      <div className="space-y-1">
+        {pb.balance !== null ? (
+          <>
+            <p className={`text-3xl font-bold ${pb.is_low ? "text-warning" : "text-success"}`}>
+              ₵{pb.balance.toFixed(2)}<span className="text-sm font-normal text-muted-foreground ml-2">GHS</span>
+            </p>
+            {pb.is_low && <p className="text-xs text-warning">⚠️ Low balance — consider topping up</p>}
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground">Unable to fetch balance</p>
+        )}
+      </div>
+    )
+  }
+
+  function ActivationCard({ providerKey, label }: { providerKey: MTNProviderName; label: string }) {
+    const isActive = mtnProvider === providerKey
+    return (
+      <Card>
+        <CardContent className="pt-5">
+          {isActive ? (
+            <Alert className="border-success/30 bg-success/10">
+              <CheckCircle className="h-4 w-4 text-success" />
+              <AlertDescription className="text-success">
+                <strong>{label}</strong> is the active MTN fulfillment provider. New orders are sent here.
+              </AlertDescription>
+            </Alert>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">Not currently active. Click below to route new MTN orders to this provider.</p>
+              <Button onClick={() => handleMTNProviderChange(providerKey)} disabled={savingProvider} className="w-full">
+                {savingProvider ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Zap className="h-4 w-4 mr-2" />}
+                Set {label} as Primary MTN Provider
+              </Button>
+              <Alert className="border-border bg-warning/10">
+                <AlertCircle className="h-4 w-4 text-warning" />
+                <AlertDescription className="text-warning text-xs">Only affects new orders. In-flight orders continue with their original provider.</AlertDescription>
+              </Alert>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const PROVIDER_LABELS: Record<MTNProviderName, string> = {
+    sykes: "Sykes", datakazina: "DataKazina", xpress: "Xpress",
+    eazyghdata: "EazyGhData", bisdel: "Bisdel", codecraft: "CodeCraft", agentportalgh: "AgentPortalGH",
+  }
+
   return (
     <DashboardLayout>
-      <div className="max-w-4xl mx-auto space-y-6 p-6">
-        <div className="flex items-center gap-2 mb-6">
+      <div className="max-w-5xl mx-auto space-y-6 p-6">
+        <div className="flex items-center gap-2 mb-2">
           <Settings className="h-6 w-6" />
           <h1 className="text-3xl font-bold">MTN Fulfillment Settings</h1>
         </div>
 
-        {/* Auto-Fulfillment Toggle */}
-        <Card className="border-2">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Zap className="h-5 w-5" />
-              Auto-Fulfillment Mode
-            </CardTitle>
-            <CardDescription>
-              Control whether MTN orders are automatically fulfilled or queued for manual download
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {loadingSettings ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-5 w-5 animate-spin" />
-              </div>
-            ) : (
-              <>
-                <div className="flex items-center justify-between p-4 bg-muted/40 rounded-lg">
-                  <div className="space-y-1">
-                    <p className="font-medium text-foreground">
-                      {settings?.enabled ? "🟢 ENABLED" : "⚪ DISABLED"}
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      {settings?.enabled
-                        ? "Orders are automatically fulfilled via MTN API"
-                        : "Orders appear in admin download queue for manual fulfillment"}
-                    </p>
-                  </div>
-                  <Button
-                    onClick={handleToggle}
-                    disabled={toggling}
-                    variant={settings?.enabled ? "destructive" : "default"}
-                    className="min-w-[120px]"
-                  >
-                    {toggling ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Updating...
-                      </>
-                    ) : settings?.enabled ? (
-                      <>
-                        <WifiOff className="h-4 w-4 mr-2" />
-                        Turn Off
-                      </>
-                    ) : (
-                      <>
-                        <Zap className="h-4 w-4 mr-2" />
-                        Turn On
-                      </>
-                    )}
-                  </Button>
-                </div>
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <div className="overflow-x-auto pb-1">
+            <TabsList className="inline-flex w-max h-auto p-1 gap-0.5">
+              <TabsTrigger value="overview">Overview</TabsTrigger>
+              {(Object.keys(PROVIDER_LABELS) as MTNProviderName[]).map(p => (
+                <TabsTrigger key={p} value={p} className="gap-1.5">
+                  {PROVIDER_LABELS[p]}
+                  {mtnProvider === p && <span className="h-2 w-2 rounded-full bg-green-500 shrink-0" />}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </div>
 
-                <div className="grid md:grid-cols-2 gap-4 text-sm">
-                  <div className="p-4 bg-primary/5 rounded-lg border border-primary/20">
-                    <p className="font-medium text-foreground mb-2">🟢 When Enabled</p>
-                    <ul className="space-y-1 text-primary text-xs">
-                      <li>✓ Orders auto-fulfill immediately</li>
-                      <li>✓ Faster customer delivery</li>
-                      <li>✓ MTN API handles all requests</li>
-                      <li>✓ Tracked in MTN Fulfillment tab</li>
-                    </ul>
-                  </div>
+          {/* ─── Overview ─── */}
+          <TabsContent value="overview" className="space-y-6 mt-6">
 
-                  <div className="p-4 bg-warning/10 rounded-lg border border-border">
-                    <p className="font-medium text-warning mb-2">⚪ When Disabled</p>
-                    <ul className="space-y-1 text-warning text-xs">
-                      <li>✓ Orders go to Downloads tab</li>
-                      <li>✓ Admin controls fulfillment</li>
-                      <li>✓ Manual review before execution</li>
-                      <li>✓ Extra layer of safety</li>
-                    </ul>
-                  </div>
-                </div>
-
-                {settings?.updated_at && (
-                  <p className="text-xs text-muted-foreground">
-                    Last updated: {new Date(settings.updated_at).toLocaleString()}
-                  </p>
-                )}
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Registration Gate Toggle */}
-        <Card className="border-2">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <CheckCircle className="h-5 w-5" />
-              Registration Gate
-            </CardTitle>
-            <CardDescription>
-              Hold MTN orders for numbers not yet registered with MTN. Enable ONLY after the registry
-              back-catalog has been marked registered — otherwise every MTN order will hold.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="flex items-center justify-between p-4 bg-muted/40 rounded-lg">
-              <div className="space-y-1">
-                <p className="font-medium text-foreground">
-                  {gateSettings?.enabled
-                    ? "🟢 ENABLED — unregistered numbers are held"
-                    : "⚪ DISABLED — orders flow as before"}
-                </p>
-              </div>
-              <Button
-                onClick={handleGateToggle}
-                disabled={gateToggling || !gateSettings}
-                variant={gateSettings?.enabled ? "destructive" : "default"}
-                className="min-w-[120px]"
-              >
-                {gateToggling ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Updating...
-                  </>
-                ) : gateSettings?.enabled ? (
-                  <>
-                    <WifiOff className="h-4 w-4 mr-2" />
-                    Turn Off
-                  </>
+            {/* MTN Auto-Fulfillment */}
+            <Card className="border-2">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Zap className="h-5 w-5" />Auto-Fulfillment Mode</CardTitle>
+                <CardDescription>Control whether MTN orders are automatically fulfilled or queued for manual download</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {loadingSettings ? (
+                  <div className="flex items-center justify-center py-8"><Loader2 className="h-5 w-5 animate-spin" /></div>
                 ) : (
                   <>
-                    <Zap className="h-4 w-4 mr-2" />
-                    Turn On
+                    <div className="flex items-center justify-between p-4 bg-muted/40 rounded-lg">
+                      <div className="space-y-1">
+                        <p className="font-medium text-foreground">{settings?.enabled ? "🟢 ENABLED" : "⚪ DISABLED"}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {settings?.enabled ? "Orders are automatically fulfilled via MTN API" : "Orders appear in admin download queue for manual fulfillment"}
+                        </p>
+                      </div>
+                      <Button onClick={handleToggle} disabled={toggling} variant={settings?.enabled ? "destructive" : "default"} className="min-w-[120px]">
+                        {toggling ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Updating…</> : settings?.enabled ? <><WifiOff className="h-4 w-4 mr-2" />Turn Off</> : <><Zap className="h-4 w-4 mr-2" />Turn On</>}
+                      </Button>
+                    </div>
+                    <div className="grid md:grid-cols-2 gap-4 text-sm">
+                      <div className="p-4 bg-primary/5 rounded-lg border border-primary/20">
+                        <p className="font-medium text-foreground mb-2">🟢 When Enabled</p>
+                        <ul className="space-y-1 text-primary text-xs">
+                          <li>✓ Orders auto-fulfill immediately</li>
+                          <li>✓ Faster customer delivery</li>
+                          <li>✓ MTN API handles all requests</li>
+                          <li>✓ Tracked in MTN Fulfillment tab</li>
+                        </ul>
+                      </div>
+                      <div className="p-4 bg-warning/10 rounded-lg border border-border">
+                        <p className="font-medium text-warning mb-2">⚪ When Disabled</p>
+                        <ul className="space-y-1 text-warning text-xs">
+                          <li>✓ Orders go to Downloads tab</li>
+                          <li>✓ Admin controls fulfillment</li>
+                          <li>✓ Manual review before execution</li>
+                          <li>✓ Extra layer of safety</li>
+                        </ul>
+                      </div>
+                    </div>
+                    {settings?.updated_at && <p className="text-xs text-muted-foreground">Last updated: {new Date(settings.updated_at).toLocaleString()}</p>}
                   </>
                 )}
-              </Button>
-            </div>
+              </CardContent>
+            </Card>
 
-            {gateSettings?.updated_at && (
-              <p className="text-xs text-muted-foreground">
-                Last updated: {new Date(gateSettings.updated_at).toLocaleString()}
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* MTN Wallet Balances - DUAL PROVIDER */}
-        <Card className="border-2">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Wallet className="h-5 w-5" />
-              MTN Wallet Balances
-            </CardTitle>
-            <CardDescription>
-              Real-time wallet balances for both MTN providers
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {loadingBalance ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-5 w-5 animate-spin" />
-              </div>
-            ) : balance ? (
-              <div className="space-y-4">
-                {/* Quint Balance Display */}
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                  {/* Sykes Balance */}
-                  <div className={`p-4 rounded-lg border-2 transition-all ${balance.balances.sykes.is_active
-                    ? 'bg-primary/5 border-border shadow-md'
-                    : 'bg-muted/40 border-border'
-                    }`}>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium text-foreground">Sykes API</span>
-                      {balance.balances.sykes.is_active && (
-                        <Badge className="bg-primary">Active</Badge>
-                      )}
-                    </div>
-                    {balance.balances.sykes.balance !== null ? (
-                      <>
-                        <div className="flex items-baseline gap-2">
-                          <span className={`text-3xl font-bold ${balance.balances.sykes.is_low ? 'text-warning' : 'text-success'
-                            }`}>
-                            ₵{balance.balances.sykes.balance.toFixed(2)}
-                          </span>
-                          <span className="text-sm text-muted-foreground">GHS</span>
-                        </div>
-                        {balance.balances.sykes.is_low && (
-                          <p className="text-xs text-warning mt-2">⚠️ Low balance</p>
-                        )}
-                      </>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">Unable to fetch</p>
-                    )}
-                  </div>
-
-                  {/* DataKazina Balance */}
-                  <div className={`p-4 rounded-lg border-2 transition-all ${balance.balances.datakazina.is_active
-                    ? 'bg-success/10 border-border shadow-md'
-                    : 'bg-muted/40 border-border'
-                    }`}>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium text-foreground">DataKazina API</span>
-                      {balance.balances.datakazina.is_active && (
-                        <Badge className="bg-success">Active</Badge>
-                      )}
-                    </div>
-                    {balance.balances.datakazina.balance !== null ? (
-                      <>
-                        <div className="flex items-baseline gap-2">
-                          <span className={`text-3xl font-bold ${balance.balances.datakazina.is_low ? 'text-warning' : 'text-success'
-                            }`}>
-                            ₵{balance.balances.datakazina.balance.toFixed(2)}
-                          </span>
-                          <span className="text-sm text-muted-foreground">GHS</span>
-                        </div>
-                        {balance.balances.datakazina.is_low && (
-                          <p className="text-xs text-warning mt-2">⚠️ Low balance</p>
-                        )}
-                      </>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">Unable to fetch</p>
-                    )}
-                  </div>
-
-                  {/* Xpress Balance */}
-                  <div className={`p-4 rounded-lg border-2 transition-all ${balance.balances.xpress?.is_active
-                    ? 'bg-primary/10 border-border shadow-md'
-                    : 'bg-muted/40 border-border'
-                    }`}>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium text-foreground">Xpress API</span>
-                      {balance.balances.xpress?.is_active && (
-                        <Badge className="bg-primary">Active</Badge>
-                      )}
-                    </div>
-                    {balance.balances.xpress?.balance !== null && balance.balances.xpress?.balance !== undefined ? (
-                      <>
-                        <div className="flex items-baseline gap-2">
-                          <span className={`text-3xl font-bold ${balance.balances.xpress.is_low ? 'text-warning' : 'text-success'
-                            }`}>
-                            ₵{balance.balances.xpress.balance.toFixed(2)}
-                          </span>
-                          <span className="text-sm text-muted-foreground">GHS</span>
-                        </div>
-                        {balance.balances.xpress.is_low && (
-                          <p className="text-xs text-warning mt-2">⚠️ Low balance</p>
-                        )}
-                      </>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">Unable to fetch</p>
-                    )}
-                  </div>
-
-                  {/* EazyGhData Balance */}
-                  <div className={`p-4 rounded-lg border-2 transition-all ${balance.balances.eazyghdata?.is_active
-                    ? 'bg-primary/10 border-border shadow-md'
-                    : 'bg-muted/40 border-border'
-                    }`}>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium text-foreground">EazyGhData</span>
-                      {balance.balances.eazyghdata?.is_active && (
-                        <Badge className="bg-primary">Active</Badge>
-                      )}
-                    </div>
-                    {balance.balances.eazyghdata?.balance !== null && balance.balances.eazyghdata?.balance !== undefined ? (
-                      <>
-                        <div className="flex items-baseline gap-2">
-                          <span className={`text-3xl font-bold ${balance.balances.eazyghdata.is_low ? 'text-warning' : 'text-success'
-                            }`}>
-                            ₵{balance.balances.eazyghdata.balance.toFixed(2)}
-                          </span>
-                          <span className="text-sm text-muted-foreground">GHS</span>
-                        </div>
-                        {balance.balances.eazyghdata.is_low && (
-                          <p className="text-xs text-warning mt-2">⚠️ Low balance</p>
-                        )}
-                      </>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">Unable to fetch</p>
-                    )}
-                  </div>
-
-                  {/* Bisdel Balance */}
-                  <div className={`p-4 rounded-lg border-2 transition-all ${balance.balances.bisdel?.is_active
-                    ? 'bg-indigo-50 border-border shadow-md'
-                    : 'bg-muted/40 border-border'
-                    }`}>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium text-foreground">Bisdel</span>
-                      {balance.balances.bisdel?.is_active && (
-                        <Badge className="bg-indigo-600">Active</Badge>
-                      )}
-                    </div>
-                    {balance.balances.bisdel?.balance !== null && balance.balances.bisdel?.balance !== undefined ? (
-                      <>
-                        <div className="flex items-baseline gap-2">
-                          <span className={`text-3xl font-bold ${balance.balances.bisdel.is_low ? 'text-orange-600' : 'text-emerald-900'
-                            }`}>
-                            ₵{balance.balances.bisdel.balance.toFixed(2)}
-                          </span>
-                          <span className="text-sm text-muted-foreground">GHS</span>
-                        </div>
-                        {balance.balances.bisdel.is_low && (
-                          <p className="text-xs text-orange-600 mt-2">⚠️ Low balance</p>
-                        )}
-                      </>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">Unable to fetch</p>
-                    )}
-                  </div>
-
-                  {/* CodeCraft Balance */}
-                  <div className={`p-4 rounded-lg border-2 transition-all ${balance.balances.codecraft?.is_active
-                    ? 'bg-violet-50 border-border shadow-md'
-                    : 'bg-muted/40 border-border'
-                    }`}>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium text-foreground">CodeCraft</span>
-                      {balance.balances.codecraft?.is_active && (
-                        <Badge className="bg-violet-600">Active</Badge>
-                      )}
-                    </div>
-                    {balance.balances.codecraft?.balance !== null && balance.balances.codecraft?.balance !== undefined ? (
-                      <>
-                        <div className="flex items-baseline gap-2">
-                          <span className={`text-3xl font-bold ${balance.balances.codecraft.is_low ? 'text-orange-600' : 'text-emerald-900'}`}>
-                            ₵{balance.balances.codecraft.balance.toFixed(2)}
-                          </span>
-                          <span className="text-sm text-muted-foreground">GHS</span>
-                        </div>
-                        {balance.balances.codecraft.is_low && (
-                          <p className="text-xs text-orange-600 mt-2">⚠️ Low balance</p>
-                        )}
-                      </>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">Unable to fetch</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Low Balance Alerts */}
-                {(balance.balances.sykes.is_low || balance.balances.datakazina.is_low || balance.balances.xpress?.is_low || balance.balances.eazyghdata?.is_low || balance.balances.bisdel?.is_low || balance.balances.codecraft?.is_low) && (
-                  <Alert className="border-border bg-warning/10">
-                    <AlertCircle className="h-4 w-4 text-warning" />
-                    <AlertDescription className="text-warning">
-
-                      {balance.balances.sykes.alert && <p>• {balance.balances.sykes.alert}</p>}
-                      {balance.balances.datakazina.alert && <p>• {balance.balances.datakazina.alert}</p>}
-                      {balance.balances.xpress?.alert && <p>• {balance.balances.xpress.alert}</p>}
-                      {balance.balances.eazyghdata?.alert && <p>• {balance.balances.eazyghdata.alert}</p>}
-                      {balance.balances.bisdel?.alert && <p>• {balance.balances.bisdel.alert}</p>}
-                      {balance.balances.codecraft?.alert && <p>• {balance.balances.codecraft.alert}</p>}
-                      <p className="mt-1 font-medium">SMS alert has been sent to admin.</p>
-                    </AlertDescription>
-                  </Alert>
-                )}
-
-                <div className="p-3 bg-muted/40 rounded space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Bell className="h-4 w-4 text-muted-foreground" />
-                    <Label className="text-sm font-medium">Alert Threshold</Label>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground">₵</span>
-                    <Input
-                      type="number"
-                      min={0}
-                      value={thresholdInput}
-                      onChange={(e) => setThresholdInput(e.target.value)}
-                      className="w-32 h-8 text-sm"
-                    />
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={handleSaveThreshold}
-                      disabled={savingThreshold || thresholdInput === String(threshold)}
-                    >
-                      {savingThreshold ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
-                    </Button>
-                    <span className="text-xs text-muted-foreground">SMS + email alert fires when any balance drops below this value</span>
-                  </div>
-                </div>
-
-                <Button
-                  onClick={loadBalance}
-                  variant="outline"
-                  className="w-full"
-                >
-                  Refresh Balances
-                </Button>
-              </div>
-            ) : (
-              <Alert>
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  Unable to fetch balances. Check MTN API connections.
-                </AlertDescription>
-              </Alert>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* MTN Provider Selection */}
-        <Card className="border-2">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Settings className="h-5 w-5" />
-              MTN Fulfillment Provider
-            </CardTitle>
-            <CardDescription>
-              Select which MTN API provider to use for order fulfillment
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                Choose your preferred MTN data provider. Switching only affects new orders.
-              </p>
-
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                {/* Sykes Option */}
-                <button
-                  onClick={() => handleMTNProviderChange("sykes")}
-                  disabled={savingProvider || mtnProvider === "sykes"}
-                  className={`p-4 rounded-lg border-2 transition-all text-left ${mtnProvider === "sykes"
-                      ? "bg-primary/5 border-primary shadow-md"
-                      : "bg-card border-border hover:border-border"
-                    } ${savingProvider ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-semibold text-foreground">Sykes API</span>
-                    {mtnProvider === "sykes" && (
-                      <Badge className="bg-primary">Active</Badge>
-                    )}
-                  </div>
-                  <p className="text-sm text-muted-foreground">Current/Legacy provider</p>
-                </button>
-
-                {/* DataKazina Option */}
-                <button
-                  onClick={() => handleMTNProviderChange("datakazina")}
-                  disabled={savingProvider || mtnProvider === "datakazina"}
-                  className={`p-4 rounded-lg border-2 transition-all text-left ${mtnProvider === "datakazina"
-                      ? "bg-success/10 border-success shadow-md"
-                      : "bg-card border-border hover:border-border"
-                    } ${savingProvider ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-semibold text-foreground">DataKazina API</span>
-                    {mtnProvider === "datakazina" && (
-                      <Badge className="bg-success">Active</Badge>
-                    )}
-                  </div>
-                  <p className="text-sm text-muted-foreground">Alternative MTN provider</p>
-                </button>
-
-                {/* Xpress Option */}
-                <button
-                  onClick={() => handleMTNProviderChange("xpress")}
-                  disabled={savingProvider || mtnProvider === "xpress"}
-                  className={`p-4 rounded-lg border-2 transition-all text-left ${mtnProvider === "xpress"
-                      ? "bg-primary border-primary shadow-md"
-                      : "bg-card border-border hover:border-border"
-                    } ${savingProvider ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-semibold text-foreground">Xpress API</span>
-                    {mtnProvider === "xpress" && (
-                      <Badge className="bg-primary">Active</Badge>
-                    )}
-                  </div>
-                  <p className="text-sm text-muted-foreground">Batch-enabled provider</p>
-                </button>
-
-                {/* EazyGhData Option */}
-                <button
-                  onClick={() => handleMTNProviderChange("eazyghdata")}
-                  disabled={savingProvider || mtnProvider === "eazyghdata"}
-                  className={`p-4 rounded-lg border-2 transition-all text-left ${mtnProvider === "eazyghdata"
-                      ? "bg-primary border-primary shadow-md"
-                      : "bg-card border-border hover:border-border"
-                    } ${savingProvider ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-semibold text-foreground">EazyGhData</span>
-                    {mtnProvider === "eazyghdata" && (
-                      <Badge className="bg-primary">Active</Badge>
-                    )}
-                  </div>
-                  <p className="text-sm text-muted-foreground">Package-based provider</p>
-                </button>
-
-                {/* Bisdel Option */}
-                <button
-                  onClick={() => handleMTNProviderChange("bisdel")}
-                  disabled={savingProvider || mtnProvider === "bisdel"}
-                  className={`p-4 rounded-lg border-2 transition-all text-left ${mtnProvider === "bisdel"
-                      ? "bg-indigo-50 border-indigo-500 shadow-md"
-                      : "bg-card border-border hover:border-border"
-                    } ${savingProvider ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-semibold text-foreground">Bisdel</span>
-                    {mtnProvider === "bisdel" && (
-                      <Badge className="bg-indigo-600">Active</Badge>
-                    )}
-                  </div>
-                  <p className="text-sm text-muted-foreground">Category-based provider</p>
-                </button>
-
-                {/* CodeCraft Option */}
-                <button
-                  onClick={() => handleMTNProviderChange("codecraft")}
-                  disabled={savingProvider || mtnProvider === "codecraft"}
-                  className={`p-4 rounded-lg border-2 transition-all text-left ${mtnProvider === "codecraft"
-                      ? "bg-violet-50 border-violet-500 shadow-md"
-                      : "bg-card border-border hover:border-border"
-                    } ${savingProvider ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-semibold text-foreground">CodeCraft</span>
-                    {mtnProvider === "codecraft" && (
-                      <Badge className="bg-violet-600">Active</Badge>
-                    )}
-                  </div>
-                  <p className="text-sm text-muted-foreground">MTN via CodeCraft API</p>
-                </button>
-
-                {/* AgentPortalGH Option */}
-                <button
-                  onClick={() => handleMTNProviderChange("agentportalgh")}
-                  className={`p-3 rounded-lg border-2 text-sm font-medium transition-colors ${
-                    mtnProvider === "agentportalgh"
-                      ? "border-emerald-500 bg-emerald-500/10 text-emerald-400"
-                      : "border-border bg-card text-muted-foreground hover:border-emerald-500/50"
-                  }`}
-                >
-                  AgentPortalGH
-                </button>
-              </div>
-
-              {/* EazyGhData Package Sync */}
-              {mtnProvider === "eazyghdata" && (
-                <div className="p-4 bg-primary/10 rounded-lg border border-primary">
-                  <p className="text-sm font-medium text-primary mb-2">EazyGhData Package Mapping</p>
-                  <p className="text-xs text-primary mb-3">
-                    EazyGhData requires a package_id UUID per GB size. Sync packages to keep the mapping up to date.
-                  </p>
-                  <Button
-                    onClick={handleSyncEazyGhDataPackages}
-                    disabled={syncingPackages}
-                    variant="outline"
-                    size="sm"
-                    className="border-primary text-primary hover:bg-primary/20"
-                  >
-                    {syncingPackages ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Syncing...
-                      </>
-                    ) : (
-                      "Sync EazyGhData Packages"
-                    )}
+            {/* Registration Gate */}
+            <Card className="border-2">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><CheckCircle className="h-5 w-5" />Registration Gate</CardTitle>
+                <CardDescription>Hold MTN orders for numbers not yet registered with MTN. Enable ONLY after the registry back-catalog has been marked registered.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between p-4 bg-muted/40 rounded-lg">
+                  <p className="font-medium text-foreground">{gateSettings?.enabled ? "🟢 ENABLED — unregistered numbers are held" : "⚪ DISABLED — orders flow as before"}</p>
+                  <Button onClick={handleGateToggle} disabled={gateToggling || !gateSettings} variant={gateSettings?.enabled ? "destructive" : "default"} className="min-w-[120px]">
+                    {gateToggling ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Updating…</> : gateSettings?.enabled ? <><WifiOff className="h-4 w-4 mr-2" />Turn Off</> : <><Zap className="h-4 w-4 mr-2" />Turn On</>}
                   </Button>
                 </div>
-              )}
+                {gateSettings?.updated_at && <p className="text-xs text-muted-foreground">Last updated: {new Date(gateSettings.updated_at).toLocaleString()}</p>}
+              </CardContent>
+            </Card>
 
-              {/* Bisdel Product Sync + Category */}
-              {mtnProvider === "bisdel" && (
-                <div className="p-4 bg-indigo-50 rounded-lg border border-indigo-200 space-y-3">
-                  <p className="text-sm font-medium text-indigo-900">Bisdel Products &amp; Category</p>
-                  <p className="text-xs text-indigo-700">
-                    Bisdel matches each order by GB within a single category. Sync products, then choose the
-                    category orders are fulfilled from. Orders fail until a category is selected.
+            {/* Wallet Balances */}
+            <Card className="border-2">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Wallet className="h-5 w-5" />MTN Wallet Balances</CardTitle>
+                <CardDescription>Real-time wallet balances across all providers — click a card to open that provider's tab</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {loadingBalance ? (
+                  <div className="flex items-center justify-center py-8"><Loader2 className="h-5 w-5 animate-spin" /></div>
+                ) : balance ? (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+                      {(Object.keys(PROVIDER_LABELS) as MTNProviderName[]).map(key => {
+                        const pb = balance.balances[key as keyof typeof balance.balances]
+                        if (!pb) return null
+                        return (
+                          <div
+                            key={key}
+                            className={`p-3 rounded-lg border-2 cursor-pointer transition-all hover:shadow-sm ${pb.is_active ? "bg-primary/5 border-primary shadow-sm" : "bg-muted/40 border-border"}`}
+                            onClick={() => setActiveTab(key)}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-xs font-medium text-foreground truncate">{PROVIDER_LABELS[key]}</span>
+                              {pb.is_active && <Badge className="bg-primary text-[10px] px-1 py-0 shrink-0">Active</Badge>}
+                            </div>
+                            {pb.balance !== null ? (
+                              <p className={`text-lg font-bold ${pb.is_low ? "text-warning" : "text-success"}`}>₵{pb.balance.toFixed(0)}</p>
+                            ) : (
+                              <p className="text-xs text-muted-foreground">—</p>
+                            )}
+                            {pb.is_low && <p className="text-[10px] text-warning mt-0.5">⚠️ Low</p>}
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    {Object.values(balance.balances).some(pb => pb?.is_low) && (
+                      <Alert className="border-border bg-warning/10">
+                        <AlertCircle className="h-4 w-4 text-warning" />
+                        <AlertDescription className="text-warning">
+                          {Object.entries(balance.balances).filter(([, pb]) => pb?.alert).map(([k, pb]) => (
+                            <p key={k}>• {pb!.alert}</p>
+                          ))}
+                          <p className="mt-1 font-medium">SMS alert has been sent to admin.</p>
+                        </AlertDescription>
+                      </Alert>
+                    )}
+
+                    <div className="p-3 bg-muted/40 rounded space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Bell className="h-4 w-4 text-muted-foreground" />
+                        <Label className="text-sm font-medium">Alert Threshold</Label>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm text-muted-foreground">₵</span>
+                        <Input type="number" min={0} value={thresholdInput} onChange={e => setThresholdInput(e.target.value)} className="w-32 h-8 text-sm" />
+                        <Button size="sm" variant="outline" onClick={handleSaveThreshold} disabled={savingThreshold || thresholdInput === String(threshold)}>
+                          {savingThreshold ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
+                        </Button>
+                        <span className="text-xs text-muted-foreground">SMS + email alert fires when any balance drops below this</span>
+                      </div>
+                    </div>
+
+                    <Button onClick={loadBalance} variant="outline" className="w-full">Refresh Balances</Button>
+                  </div>
+                ) : (
+                  <Alert><AlertCircle className="h-4 w-4" /><AlertDescription>Unable to fetch balances. Check MTN API connections.</AlertDescription></Alert>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Fallback Provider */}
+            <Card className="border-2">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2"><Zap className="h-5 w-5" />Fallback Provider</CardTitle>
+                    <CardDescription>Automatically retry with a second provider when the primary fails</CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {savingFallback && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                    <Switch checked={fallbackEnabled} onCheckedChange={v => handleSaveFallbackProvider(v, fallbackProvider)} disabled={savingFallback} />
+                  </div>
+                </div>
+              </CardHeader>
+              {fallbackEnabled && (
+                <CardContent>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    When the primary provider (<strong>{PROVIDER_LABELS[mtnProvider]}</strong>) returns a failure, the system retries the same order with the selected fallback.
                   </p>
-                  <div className="flex flex-wrap items-center gap-3">
-                    <Button
-                      onClick={handleSyncBisdelProducts}
-                      disabled={syncingBisdel}
-                      variant="outline"
-                      size="sm"
-                      className="border-indigo-400 text-indigo-800 hover:bg-indigo-100"
-                    >
-                      {syncingBisdel ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Syncing...
-                        </>
-                      ) : (
-                        "Sync Bisdel Products"
-                      )}
-                    </Button>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+                    {(Object.keys(PROVIDER_LABELS) as MTNProviderName[]).map(p => {
+                      const isPrimary = p === mtnProvider
+                      const isSelected = p === fallbackProvider
+                      return (
+                        <button
+                          key={p}
+                          onClick={() => !isPrimary && handleSaveFallbackProvider(true, p)}
+                          disabled={savingFallback || isPrimary || isSelected}
+                          className={`p-3 rounded-lg border-2 transition-all text-left ${
+                            isPrimary ? "opacity-30 cursor-not-allowed bg-muted border-border"
+                              : isSelected ? "bg-primary/5 border-primary shadow-md"
+                              : "bg-card border-border hover:border-muted-foreground cursor-pointer"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="font-semibold text-xs">{PROVIDER_LABELS[p]}</span>
+                          </div>
+                          {isSelected && <Badge className="bg-primary text-[9px] px-1 py-0">Fallback</Badge>}
+                          {isPrimary && <Badge variant="outline" className="text-[9px] px-1 py-0">Primary</Badge>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <Alert className="mt-4 border-border bg-muted/40">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription className="text-sm">The fallback only triggers on API-level failures. Registration holds and completed orders are not retried.</AlertDescription>
+                  </Alert>
+                </CardContent>
+              )}
+            </Card>
 
-                    <select
-                      value={bisdelCategory}
-                      onChange={(e) => handleSelectBisdelCategory(e.target.value)}
-                      disabled={savingBisdelCategory || bisdelCategories.length === 0}
-                      className="px-3 py-2 text-sm rounded-md border border-indigo-300 bg-white text-indigo-900 disabled:opacity-50"
-                    >
-                      <option value="" disabled>
-                        {bisdelCategories.length === 0 ? "Sync products first" : "Select a category"}
-                      </option>
-                      {bisdelCategories.map((c) => (
-                        <option key={c} value={c}>{c}</option>
+            {/* Per-Network Provider Selectors */}
+            {(["telecel", "at_ishare", "at_bigtime"] as const).map(netKey => {
+              const networkLabel = netKey === "telecel" ? "Telecel" : netKey === "at_ishare" ? "AT - iShare" : "AT - BigTime"
+              const current = netKey === "telecel" ? telecelProvider : netKey === "at_ishare" ? atIshareProvider : atBigtimeProvider
+              const setter = netKey === "telecel" ? setTelecelProvider : netKey === "at_ishare" ? setAtIshareProvider : setAtBigtimeProvider
+              const isSaving = savingNetworkProvider === netKey
+              const providers: { value: NonMTNProvider; label: string; sub: string }[] = [
+                { value: "codecraft", label: "CodeCraft", sub: "Default AT/Telecel API" },
+                { value: "datakazina", label: "DataKazina", sub: "Multi-network" },
+                { value: "xpress", label: "Xpress", sub: "Batch-enabled" },
+                { value: "eazyghdata", label: "EazyGhData", sub: "Package-based" },
+              ]
+              return (
+                <Card key={netKey} className="border-2">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2"><Settings className="h-5 w-5" />{networkLabel} Fulfillment Provider</CardTitle>
+                    <CardDescription>Select which provider fulfills <strong>{networkLabel}</strong> orders</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      {providers.map(p => (
+                        <button
+                          key={p.value}
+                          onClick={() => handleNetworkProviderChange(netKey, p.value, setter)}
+                          disabled={isSaving || current === p.value}
+                          className={`p-4 rounded-lg border-2 transition-all text-left ${
+                            current === p.value ? "bg-primary/5 border-primary shadow-md" : "bg-card border-border hover:border-border"
+                          } ${isSaving ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="font-semibold text-foreground text-sm">{p.label}</span>
+                            {current === p.value && <Badge className="bg-primary text-xs">Active</Badge>}
+                          </div>
+                          <p className="text-xs text-muted-foreground">{p.sub}</p>
+                        </button>
                       ))}
-                    </select>
-                    {bisdelCategory && (
-                      <span className="text-xs text-indigo-700">Active: <strong>{bisdelCategory}</strong></span>
+                    </div>
+                    {isSaving && <div className="flex items-center gap-2 mt-3 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Updating…</div>}
+                    <Alert className="mt-3 border-border bg-warning/10">
+                      <AlertCircle className="h-4 w-4 text-warning" />
+                      <AlertDescription className="text-warning text-xs">Only affects new orders.</AlertDescription>
+                    </Alert>
+                  </CardContent>
+                </Card>
+              )
+            })}
+
+            {/* AT Networks Auto-Fulfillment */}
+            <Card className="border-2">
+              <CardHeader>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      {atFulfillmentEnabled ? <ToggleRight className="h-5 w-5 text-success" /> : <ToggleLeft className="h-5 w-5 text-muted-foreground" />}
+                      AT Networks Auto-Fulfillment
+                    </CardTitle>
+                    <CardDescription className="mt-1">Automatically fulfill AT-iShare, Telecel, and AT-BigTime orders via Code Craft API</CardDescription>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {loadingAtFulfillment ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : (
+                      <>
+                        {togglingAtFulfillment && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                        <span className={`text-sm font-medium ${atFulfillmentEnabled ? "text-success" : "text-muted-foreground"}`}>{atFulfillmentEnabled ? "Enabled" : "Disabled"}</span>
+                        <Switch checked={atFulfillmentEnabled} onCheckedChange={toggleAtFulfillment} disabled={togglingAtFulfillment} />
+                      </>
                     )}
                   </div>
                 </div>
-              )}
-
-              {/* AgentPortalGH Management Panel */}
-              {mtnProvider === "agentportalgh" && (
-                <div className="space-y-4 mt-4">
-                  {/* Identity card */}
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-sm">Identity</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      {apgIdentity ? (
-                        <div className="space-y-1 text-sm">
-                          <div><span className="text-muted-foreground">Name:</span> {apgIdentity.data?.name ?? apgIdentity.name ?? "—"}</div>
-                          <div><span className="text-muted-foreground">Email:</span> {apgIdentity.data?.email ?? apgIdentity.email ?? "—"}</div>
-                          <div>
-                            <span className="text-muted-foreground">Role:</span>{" "}
-                            <Badge variant="outline">{apgIdentity.data?.role ?? apgIdentity.role ?? "—"}</Badge>
-                          </div>
-                        </div>
-                      ) : (
-                        <p className="text-sm text-muted-foreground">Loading identity…</p>
-                      )}
-                      <Button size="sm" variant="outline" className="mt-3" onClick={loadApgIdentityAndServices}>
-                        Verify Connection
-                      </Button>
-                    </CardContent>
-                  </Card>
-
-                  {/* Wallet balance */}
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-sm flex items-center justify-between">
-                        <span>Wallet Balance</span>
-                        <Button size="sm" variant="ghost" onClick={loadApgBalance} disabled={apgBalanceLoading}>
-                          {apgBalanceLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Refresh"}
-                        </Button>
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-2xl font-bold">
-                        {apgBalance !== null ? `GHS ${apgBalance.toFixed(2)}` : "—"}
-                      </p>
-                    </CardContent>
-                  </Card>
-
-                  {/* Summary */}
-                  <Card>
-                    <CardHeader><CardTitle className="text-sm">Wallet Summary</CardTitle></CardHeader>
-                    <CardContent className="space-y-3">
-                      <div className="flex gap-2">
-                        <Input type="date" value={apgSummaryFrom} onChange={e => setApgSummaryFrom(e.target.value)} className="h-8 text-xs" placeholder="From" />
-                        <Input type="date" value={apgSummaryTo} onChange={e => setApgSummaryTo(e.target.value)} className="h-8 text-xs" placeholder="To" />
-                        <Button size="sm" onClick={loadApgSummary} disabled={apgSummaryLoading}>
-                          {apgSummaryLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Fetch"}
-                        </Button>
-                      </div>
-                      {apgSummary && (
-                        <div className="grid grid-cols-2 gap-2 text-sm">
-                          <div><span className="text-muted-foreground">Orders:</span> {apgSummary.total_orders ?? "—"}</div>
-                          <div><span className="text-muted-foreground">Success:</span> {apgSummary.success_count ?? "—"}</div>
-                          <div><span className="text-muted-foreground">Failed:</span> {apgSummary.failure_count ?? "—"}</div>
-                          <div><span className="text-muted-foreground">Total GB:</span> {apgSummary.total_gb ?? "—"}</div>
-                          <div><span className="text-muted-foreground">Charged (GHS):</span> {apgSummary.total_charged ?? "—"}</div>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  {/* Services */}
-                  {apgServices.length > 0 && (
-                    <Card>
-                      <CardHeader><CardTitle className="text-sm">Supported Services</CardTitle></CardHeader>
-                      <CardContent>
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-xs">
-                            <thead><tr className="border-b"><th className="text-left py-1 pr-4">Network</th><th className="text-left py-1">GB Options</th></tr></thead>
-                            <tbody>
-                              {apgServices.map((svc: any, i: number) => (
-                                <tr key={i} className="border-b border-border/50">
-                                  <td className="py-1 pr-4 font-medium">{svc.network ?? svc.name ?? JSON.stringify(svc)}</td>
-                                  <td className="py-1 text-muted-foreground">{svc.options?.join(", ") ?? svc.gb_options?.join(", ") ?? "—"}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  )}
-
-                  {/* Top-up form */}
-                  <Card>
-                    <CardHeader><CardTitle className="text-sm">Top Up Wallet (MoMo)</CardTitle></CardHeader>
-                    <CardContent className="space-y-2">
-                      <div className="flex gap-2">
-                        <Input placeholder="Amount (GHS)" value={apgTopupAmount} onChange={e => setApgTopupAmount(e.target.value)} className="h-8 text-xs" />
-                        <Input placeholder="Phone" value={apgTopupPhone} onChange={e => setApgTopupPhone(e.target.value)} className="h-8 text-xs" />
-                        <select
-                          value={apgTopupNetwork}
-                          onChange={e => setApgTopupNetwork(e.target.value)}
-                          className="h-8 text-xs border rounded-md px-2 bg-background"
-                        >
-                          <option value="MTN">MTN</option>
-                          <option value="Telecel">Telecel</option>
-                          <option value="AirtelTigo">AirtelTigo</option>
-                        </select>
-                        <Button size="sm" onClick={handleApgTopup} disabled={apgTopupLoading || !apgTopupAmount || !apgTopupPhone}>
-                          {apgTopupLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Top Up"}
-                        </Button>
-                      </div>
-                      {apgTopupResult && <p className="text-xs text-muted-foreground">{apgTopupResult}</p>}
-                    </CardContent>
-                  </Card>
-
-                  {/* Transaction history */}
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-sm flex items-center justify-between">
-                        <span>Transaction History</span>
-                        <div className="flex gap-1">
-                          <Button size="sm" variant="ghost" onClick={() => setApgTransactionsPage(p => Math.max(1, p - 1))} disabled={apgTransactionsPage === 1}>←</Button>
-                          <span className="text-xs px-1 self-center">p{apgTransactionsPage}</span>
-                          <Button size="sm" variant="ghost" onClick={() => setApgTransactionsPage(p => p + 1)}>→</Button>
-                        </div>
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-xs">
-                          <thead><tr className="border-b"><th className="text-left py-1 pr-3">Type</th><th className="text-left py-1 pr-3">Amount</th><th className="text-left py-1 pr-3">Reason</th><th className="text-left py-1">Date</th></tr></thead>
-                          <tbody>
-                            {apgTransactions.map((tx: any, i: number) => (
-                              <tr key={i} className="border-b border-border/50">
-                                <td className="py-1 pr-3"><Badge variant="outline" className="text-[10px]">{tx.type}</Badge></td>
-                                <td className="py-1 pr-3">GHS {tx.amount}</td>
-                                <td className="py-1 pr-3 text-muted-foreground">{tx.reason ?? tx.description ?? "—"}</td>
-                                <td className="py-1 text-muted-foreground">{tx.created_at ? new Date(tx.created_at).toLocaleDateString() : "—"}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  {/* Top-up history */}
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-sm flex items-center justify-between">
-                        <span>Top-up History</span>
-                        <div className="flex gap-1">
-                          <Button size="sm" variant="ghost" onClick={() => setApgTopupsPage(p => Math.max(1, p - 1))} disabled={apgTopupsPage === 1}>←</Button>
-                          <span className="text-xs px-1 self-center">p{apgTopupsPage}</span>
-                          <Button size="sm" variant="ghost" onClick={() => setApgTopupsPage(p => p + 1)}>→</Button>
-                        </div>
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-xs">
-                          <thead><tr className="border-b"><th className="text-left py-1 pr-3">Amount</th><th className="text-left py-1 pr-3">Phone</th><th className="text-left py-1 pr-3">Network</th><th className="text-left py-1 pr-3">Status</th><th className="text-left py-1">Date</th></tr></thead>
-                          <tbody>
-                            {apgTopups.map((tu: any, i: number) => (
-                              <tr key={i} className="border-b border-border/50">
-                                <td className="py-1 pr-3">GHS {tu.amount}</td>
-                                <td className="py-1 pr-3">{tu.phone}</td>
-                                <td className="py-1 pr-3">{tu.network}</td>
-                                <td className="py-1 pr-3"><Badge variant="outline" className="text-[10px]">{tu.status}</Badge></td>
-                                <td className="py-1 text-muted-foreground">{tu.created_at ? new Date(tu.created_at).toLocaleDateString() : "—"}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  {/* Webhook config */}
-                  <Card>
-                    <CardHeader><CardTitle className="text-sm">Webhook Configuration</CardTitle></CardHeader>
-                    <CardContent className="space-y-3">
-                      <div className="flex gap-2">
-                        <Input
-                          placeholder="Webhook URL"
-                          value={apgWebhookUrl}
-                          onChange={e => setApgWebhookUrl(e.target.value)}
-                          className="h-8 text-xs"
-                        />
-                        <div className="flex items-center gap-2 ml-2">
-                          <Switch checked={apgWebhookEnabled} onCheckedChange={setApgWebhookEnabled} />
-                          <Label className="text-xs">Enabled</Label>
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button size="sm" onClick={() => saveApgWebhookConfig(false)} disabled={apgWebhookSaving}>
-                          {apgWebhookSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => saveApgWebhookConfig(true)} disabled={apgWebhookSaving}>
-                          Rotate Secret
-                        </Button>
-                      </div>
-                      {apgWebhookConfig?.secret && (
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <span>Secret: {apgWebhookConfig.secret.slice(0, 8)}…</span>
-                          <Button size="sm" variant="ghost" className="h-5 px-1 text-[10px]" onClick={() => navigator.clipboard.writeText(apgWebhookConfig.secret)}>Copy</Button>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  {/* Webhook delivery log */}
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-sm flex items-center justify-between">
-                        <span>Webhook Deliveries</span>
-                        <div className="flex gap-1">
-                          <Button size="sm" variant="ghost" onClick={() => setApgDeliveriesPage(p => Math.max(1, p - 1))} disabled={apgDeliveriesPage === 1}>←</Button>
-                          <span className="text-xs px-1 self-center">p{apgDeliveriesPage}</span>
-                          <Button size="sm" variant="ghost" onClick={() => setApgDeliveriesPage(p => p + 1)}>→</Button>
-                        </div>
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-xs">
-                          <thead><tr className="border-b"><th className="text-left py-1 pr-3">Order ID</th><th className="text-left py-1 pr-3">Status</th><th className="text-left py-1 pr-3">Date</th><th className="text-left py-1"></th></tr></thead>
-                          <tbody>
-                            {apgDeliveries.map((d: any, i: number) => (
-                              <tr key={i} className="border-b border-border/50">
-                                <td className="py-1 pr-3 font-mono">{d.order_id ?? d.id}</td>
-                                <td className="py-1 pr-3"><Badge variant="outline" className="text-[10px]">{d.status}</Badge></td>
-                                <td className="py-1 pr-3 text-muted-foreground">{d.created_at ? new Date(d.created_at).toLocaleDateString() : "—"}</td>
-                                <td className="py-1">
-                                  <Button size="sm" variant="ghost" className="h-5 px-1 text-[10px]" onClick={() => resendApgDelivery(d.id)}>Resend</Button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  {/* Whitelist checker */}
-                  <Card>
-                    <CardHeader><CardTitle className="text-sm">Whitelist Checker</CardTitle></CardHeader>
-                    <CardContent className="space-y-3">
-                      <textarea
-                        className="w-full h-28 text-xs font-mono border rounded-md p-2 bg-background resize-none"
-                        placeholder="One phone number per line (up to 1,000)"
-                        value={apgWhitelistInput}
-                        onChange={e => setApgWhitelistInput(e.target.value)}
-                      />
-                      <Button size="sm" onClick={checkApgWhitelist} disabled={apgWhitelistLoading || !apgWhitelistInput.trim()}>
-                        {apgWhitelistLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Check"}
-                      </Button>
-                      {apgWhitelistResult.length > 0 && (
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-xs">
-                            <thead><tr className="border-b"><th className="text-left py-1 pr-4">MSISDN</th><th className="text-left py-1">Allowed</th></tr></thead>
-                            <tbody>
-                              {apgWhitelistResult.map((r: any, i: number) => (
-                                <tr key={i} className="border-b border-border/50">
-                                  <td className="py-1 pr-4 font-mono">{r.msisdn}</td>
-                                  <td className="py-1">
-                                    <Badge variant={r.allowed ? "default" : "destructive"} className="text-[10px]">{r.allowed ? "Yes" : "No"}</Badge>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  {/* Order history */}
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-sm flex items-center justify-between">
-                        <span>Order History</span>
-                        <div className="flex gap-2">
-                          <Input
-                            placeholder="Search…"
-                            value={apgOrdersSearch}
-                            onChange={e => setApgOrdersSearch(e.target.value)}
-                            className="h-7 w-36 text-xs"
-                          />
-                          <Button size="sm" onClick={loadApgOrders} disabled={apgOrdersLoading}>
-                            {apgOrdersLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Search"}
-                          </Button>
-                        </div>
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-xs">
-                          <thead><tr className="border-b"><th className="text-left py-1 pr-3">Name</th><th className="text-left py-1 pr-3">Status</th><th className="text-left py-1 pr-3">Success</th><th className="text-left py-1 pr-3">Fail</th><th className="text-left py-1">Date</th></tr></thead>
-                          <tbody>
-                            {apgOrders.map((ord: any, i: number) => (
-                              <>
-                                <tr
-                                  key={i}
-                                  className="border-b border-border/50 cursor-pointer hover:bg-muted/30"
-                                  onClick={() => expandApgOrder(ord.id)}
-                                >
-                                  <td className="py-1 pr-3">{ord.group_name ?? ord.name ?? ord.id}</td>
-                                  <td className="py-1 pr-3"><Badge variant="outline" className="text-[10px]">{ord.status}</Badge></td>
-                                  <td className="py-1 pr-3 text-emerald-500">{ord.success_count ?? "—"}</td>
-                                  <td className="py-1 pr-3 text-red-500">{ord.failure_count ?? "—"}</td>
-                                  <td className="py-1 text-muted-foreground">{ord.created_at ? new Date(ord.created_at).toLocaleDateString() : "—"}</td>
-                                </tr>
-                                {apgExpandedOrder === ord.id && (
-                                  <tr key={`${i}-items`} className="bg-muted/20">
-                                    <td colSpan={5} className="py-2 px-3">
-                                      {apgOrderItems[ord.id] ? (
-                                        <div className="overflow-x-auto">
-                                          <table className="w-full text-[10px]">
-                                            <thead><tr className="border-b"><th className="text-left pr-3 py-0.5">MSISDN</th><th className="text-left pr-3 py-0.5">Ref</th><th className="text-left pr-3 py-0.5">Status</th><th className="text-left py-0.5">Reason</th></tr></thead>
-                                            <tbody>
-                                              {apgOrderItems[ord.id].map((item: any, j: number) => (
-                                                <tr key={j} className="border-b border-border/30">
-                                                  <td className="pr-3 py-0.5 font-mono">{item.msisdn}</td>
-                                                  <td className="pr-3 py-0.5 font-mono text-muted-foreground">{item.reference?.slice(0, 8)}…</td>
-                                                  <td className="pr-3 py-0.5"><Badge variant="outline" className="text-[9px]">{item.status}</Badge></td>
-                                                  <td className="py-0.5 text-muted-foreground">{item.failed_reason ?? "—"}</td>
-                                                </tr>
-                                              ))}
-                                            </tbody>
-                                          </table>
-                                        </div>
-                                      ) : (
-                                        <p className="text-xs text-muted-foreground">Loading items…</p>
-                                      )}
-                                    </td>
-                                  </tr>
-                                )}
-                              </>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-              )}
-
-              {savingProvider && (
-                <div className="flex items-center justify-center p-4 bg-muted/40 rounded-lg">
-                  <Loader2 className="h-5 w-5 animate-spin mr-2" />
-                  <span className="text-sm text-muted-foreground">Updating provider...</span>
-                </div>
-              )}
-
-              <Alert className="border-border bg-warning/10">
-                <AlertCircle className="h-4 w-4 text-warning" />
-                <AlertDescription className="text-warning text-sm">
-                  <strong>Note:</strong> Switching providers only affects NEW orders.
-                  In-flight orders will continue with their original provider.
-                </AlertDescription>
-              </Alert>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Fallback Provider */}
-        <Card className="border-2">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <Zap className="h-5 w-5" />
-                  Fallback Provider
-                </CardTitle>
-                <CardDescription>
-                  Automatically retry with a second provider when the primary fails
-                </CardDescription>
-              </div>
-              <div className="flex items-center gap-2">
-                {savingFallback && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-                <Switch
-                  checked={fallbackEnabled}
-                  onCheckedChange={(v) => handleSaveFallbackProvider(v, fallbackProvider)}
-                  disabled={savingFallback}
-                />
-              </div>
-            </div>
-          </CardHeader>
-          {fallbackEnabled && (
-            <CardContent>
-              <p className="text-sm text-muted-foreground mb-4">
-                When the primary provider (<strong>{mtnProvider}</strong>) returns a failure, the system will immediately retry the same order with the selected fallback. The fallback must differ from the primary.
-              </p>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-                {(["sykes", "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft", "agentportalgh"] as MTNProviderName[]).map((p) => {
-                  const isPrimary = p === mtnProvider
-                  const isSelected = p === fallbackProvider
-                  return (
-                    <button
-                      key={p}
-                      onClick={() => !isPrimary && handleSaveFallbackProvider(true, p)}
-                      disabled={savingFallback || isPrimary || isSelected}
-                      className={`p-3 rounded-lg border-2 transition-all text-left ${
-                        isPrimary
-                          ? "opacity-30 cursor-not-allowed bg-muted border-border"
-                          : isSelected
-                          ? "bg-primary/5 border-primary shadow-md"
-                          : "bg-card border-border hover:border-muted-foreground cursor-pointer"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-semibold text-sm capitalize">{p === "eazyghdata" ? "EazyGhData" : p === "codecraft" ? "CodeCraft" : p === "datakazina" ? "DataKazina" : p.charAt(0).toUpperCase() + p.slice(1)}</span>
-                        {isSelected && <Badge className="bg-primary text-[10px] px-1 py-0">Fallback</Badge>}
-                        {isPrimary && <Badge variant="outline" className="text-[10px] px-1 py-0">Primary</Badge>}
-                      </div>
-                    </button>
-                  )
-                })}
-              </div>
-              <Alert className="mt-4 border-border bg-muted/40">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription className="text-sm">
-                  The fallback only triggers on API-level failures (provider down, rejected). Registration holds and already-completed orders are not retried.
-                </AlertDescription>
-              </Alert>
-            </CardContent>
-          )}
-        </Card>
-
-        {/* Per-Network Provider Selector — helper to avoid repeating JSX for each network */}
-        {(["telecel", "at_ishare", "at_bigtime"] as const).map((netKey) => {
-          const networkLabel = netKey === "telecel" ? "Telecel" : netKey === "at_ishare" ? "AT - iShare" : "AT - BigTime"
-          const current = netKey === "telecel" ? telecelProvider : netKey === "at_ishare" ? atIshareProvider : atBigtimeProvider
-          const setter = netKey === "telecel" ? setTelecelProvider : netKey === "at_ishare" ? setAtIshareProvider : setAtBigtimeProvider
-          const isSaving = savingNetworkProvider === netKey
-          const providers: { value: NonMTNProvider; label: string; sub: string }[] = [
-            { value: "codecraft", label: "CodeCraft", sub: "Default AT/Telecel API" },
-            { value: "datakazina", label: "DataKazina", sub: "Multi-network provider" },
-            { value: "xpress", label: "Xpress", sub: "Batch-enabled provider" },
-            { value: "eazyghdata", label: "EazyGhData", sub: "Package-based provider" },
-          ]
-          return (
-            <Card key={netKey} className="border-2">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Settings className="h-5 w-5" />
-                  {networkLabel} Fulfillment Provider
-                </CardTitle>
-                <CardDescription>
-                  Select which provider fulfills <strong>{networkLabel}</strong> orders
-                </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {providers.map((p) => (
-                    <button
-                      key={p.value}
-                      onClick={() => handleNetworkProviderChange(netKey, p.value, setter)}
-                      disabled={isSaving || current === p.value}
-                      className={`p-4 rounded-lg border-2 transition-all text-left ${
-                        current === p.value
-                          ? "bg-primary/5 border-primary shadow-md"
-                          : "bg-card border-border hover:border-border"
-                      } ${isSaving ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-semibold text-foreground text-sm">{p.label}</span>
-                        {current === p.value && <Badge className="bg-primary text-xs">Active</Badge>}
-                      </div>
-                      <p className="text-xs text-muted-foreground">{p.sub}</p>
-                    </button>
-                  ))}
+                <div className="flex flex-wrap gap-2 mb-3">
+                  <span className="text-sm text-muted-foreground">Affected networks:</span>
+                  <Badge className="bg-primary/10 text-primary border border-primary">AT - iShare</Badge>
+                  <Badge className="bg-red-100 text-red-800 border border-red-200">Telecel</Badge>
+                  <Badge className="bg-primary/10 text-primary border border-primary">AT - BigTime</Badge>
                 </div>
-                {isSaving && (
-                  <div className="flex items-center gap-2 mt-3 text-sm text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Updating...
-                  </div>
-                )}
-                <Alert className="mt-3 border-border bg-warning/10">
-                  <AlertCircle className="h-4 w-4 text-warning" />
-                  <AlertDescription className="text-warning text-xs">
-                    Only affects new orders. In-flight orders continue with their original provider.
+                <Alert className={atFulfillmentEnabled ? "border-success/30 bg-success/10" : "border-warning/30 bg-warning/10"}>
+                  <AlertCircle className={`h-4 w-4 ${atFulfillmentEnabled ? "text-success" : "text-warning"}`} />
+                  <AlertDescription className={atFulfillmentEnabled ? "text-success" : "text-warning"}>
+                    {atFulfillmentEnabled
+                      ? <><strong>ON:</strong> Orders are automatically fulfilled via Code Craft API on payment confirmation.</>
+                      : <><strong>OFF:</strong> Orders are queued in the admin download queue for manual processing.</>}
                   </AlertDescription>
                 </Alert>
               </CardContent>
             </Card>
-          )
-        })}
 
-        {/* AT Networks Auto-Fulfillment (CodeCraft) */}
-        <Card className="border-2">
-          <CardHeader>
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  {atFulfillmentEnabled
-                    ? <ToggleRight className="h-5 w-5 text-success" />
-                    : <ToggleLeft className="h-5 w-5 text-muted-foreground" />}
-                  AT Networks Auto-Fulfillment
-                </CardTitle>
-                <CardDescription className="mt-1">
-                  Automatically fulfill AT-iShare, Telecel, and AT-BigTime orders via Code Craft API
-                </CardDescription>
-              </div>
-              <div className="flex items-center gap-3">
-                {loadingAtFulfillment ? (
-                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                ) : (
-                  <>
-                    {togglingAtFulfillment && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-                    <span className={`text-sm font-medium ${atFulfillmentEnabled ? 'text-success' : 'text-muted-foreground'}`}>
-                      {atFulfillmentEnabled ? 'Enabled' : 'Disabled'}
-                    </span>
-                    <Switch checked={atFulfillmentEnabled} onCheckedChange={toggleAtFulfillment} disabled={togglingAtFulfillment} />
-                  </>
+            {/* MTN Whitelist Verification */}
+            <Card className="border-2">
+              <CardHeader>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <ShieldCheck className={`h-5 w-5 ${whitelistEnabled ? "text-success" : "text-muted-foreground"}`} />
+                      MTN Whitelist Verification
+                    </CardTitle>
+                    <CardDescription className="mt-1">Check Xpress &amp; Codecraft whitelists before fulfilling MTN orders</CardDescription>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {loadingWhitelist ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : (
+                      <>
+                        {togglingWhitelist && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                        <span className={`text-sm font-medium ${whitelistEnabled ? "text-success" : "text-muted-foreground"}`}>{whitelistEnabled ? "Enabled" : "Disabled"}</span>
+                        <Switch checked={whitelistEnabled} onCheckedChange={toggleWhitelist} disabled={togglingWhitelist} />
+                      </>
+                    )}
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <Alert className={whitelistEnabled ? "border-success/30 bg-success/10" : "border-warning/30 bg-warning/10"}>
+                  <ShieldCheck className={`h-4 w-4 ${whitelistEnabled ? "text-success" : "text-warning"}`} />
+                  <AlertDescription className={whitelistEnabled ? "text-success" : "text-warning"}>
+                    {whitelistEnabled
+                      ? <><strong>ON:</strong> MTN orders are verified against Xpress → Codecraft. Numbers not enabled are held and retried every 24h for up to 72h.</>
+                      : <><strong>OFF:</strong> MTN orders skip whitelist verification and go straight to the active fulfillment provider.</>}
+                  </AlertDescription>
+                </Alert>
+              </CardContent>
+            </Card>
+
+            {/* Info cards */}
+            <div className="grid md:grid-cols-2 gap-4">
+              <Card className="bg-primary/10 border-border">
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2"><FileText className="h-5 w-5 text-primary" />Fulfillment Logs</CardTitle>
+                </CardHeader>
+                <CardContent className="text-sm space-y-3 text-primary">
+                  <p>View all MTN orders sent to the API, their status, and retry failed orders.</p>
+                  <Link href="/admin/mtn-logs">
+                    <Button className="w-full bg-primary hover:bg-primary"><FileText className="h-4 w-4 mr-2" />View MTN Fulfillment Logs</Button>
+                  </Link>
+                </CardContent>
+              </Card>
+              <Card className="bg-primary/5 border-primary/20">
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2"><CheckCircle className="h-5 w-5 text-primary" />How It Works</CardTitle>
+                </CardHeader>
+                <CardContent className="text-sm space-y-2 text-foreground">
+                  <p><strong>Enabled:</strong> Orders bypass the download queue and are sent directly to MTN API for instant fulfillment.</p>
+                  <p><strong>Disabled:</strong> Orders appear in your Download queue for review and manual fulfillment through the admin panel.</p>
+                </CardContent>
+              </Card>
+            </div>
+            <Card className="bg-warning/10 border-border">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2"><AlertCircle className="h-5 w-5 text-warning" />Pro Tip</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm space-y-2 text-warning">
+                <p>Start with <strong>Disabled</strong> to test your setup. Once confident, enable auto-fulfillment for faster order processing.</p>
+                <p>Monitor balance to avoid failed orders due to insufficient funds.</p>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* ─── Sykes ─── */}
+          <TabsContent value="sykes" className="space-y-4 mt-6">
+            <Card className="border-2">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div><CardTitle>Sykes API</CardTitle><CardDescription>Current/legacy MTN data provider</CardDescription></div>
+                  {mtnProvider === "sykes" && <Badge className="bg-primary">Active Provider</Badge>}
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {balance?.balances.sykes && (
+                  <div className="p-4 bg-muted/40 rounded-lg">
+                    <p className="text-xs text-muted-foreground mb-1 uppercase tracking-wide">Wallet Balance</p>
+                    <ProviderBal pb={balance.balances.sykes} />
+                  </div>
                 )}
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-2 mb-3">
-              <span className="text-sm text-muted-foreground">Affected networks:</span>
-              <Badge className="bg-primary/10 text-primary border border-primary">AT - iShare</Badge>
-              <Badge className="bg-red-100 text-red-800 border border-red-200">Telecel</Badge>
-              <Badge className="bg-primary/10 text-primary border border-primary">AT - BigTime</Badge>
-            </div>
-            <Alert className={atFulfillmentEnabled ? 'border-success/30 bg-success/10' : 'border-warning/30 bg-warning/10'}>
-              <AlertCircle className={`h-4 w-4 ${atFulfillmentEnabled ? 'text-success' : 'text-warning'}`} />
-              <AlertDescription className={atFulfillmentEnabled ? 'text-success' : 'text-warning'}>
-                {atFulfillmentEnabled
-                  ? <><strong>ON:</strong> Orders are automatically fulfilled via Code Craft API on payment confirmation.</>
-                  : <><strong>OFF:</strong> Orders are queued in the admin download queue for manual processing.</>}
-              </AlertDescription>
-            </Alert>
-          </CardContent>
-        </Card>
+              </CardContent>
+            </Card>
+            <ActivationCard providerKey="sykes" label="Sykes API" />
+          </TabsContent>
 
-        {/* MTN Whitelist Verification */}
-        <Card className="border-2">
-          <CardHeader>
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <ShieldCheck className={`h-5 w-5 ${whitelistEnabled ? 'text-success' : 'text-muted-foreground'}`} />
-                  MTN Whitelist Verification
-                </CardTitle>
-                <CardDescription className="mt-1">
-                  Check Xpress &amp; Codecraft whitelists before fulfilling MTN orders
-                </CardDescription>
-              </div>
-              <div className="flex items-center gap-3">
-                {loadingWhitelist ? (
-                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                ) : (
-                  <>
-                    {togglingWhitelist && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-                    <span className={`text-sm font-medium ${whitelistEnabled ? 'text-success' : 'text-muted-foreground'}`}>
-                      {whitelistEnabled ? 'Enabled' : 'Disabled'}
-                    </span>
-                    <Switch checked={whitelistEnabled} onCheckedChange={toggleWhitelist} disabled={togglingWhitelist} />
-                  </>
+          {/* ─── DataKazina ─── */}
+          <TabsContent value="datakazina" className="space-y-4 mt-6">
+            <Card className="border-2">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div><CardTitle>DataKazina API</CardTitle><CardDescription>Alternative MTN data provider</CardDescription></div>
+                  {mtnProvider === "datakazina" && <Badge className="bg-primary">Active Provider</Badge>}
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {balance?.balances.datakazina && (
+                  <div className="p-4 bg-muted/40 rounded-lg">
+                    <p className="text-xs text-muted-foreground mb-1 uppercase tracking-wide">Wallet Balance</p>
+                    <ProviderBal pb={balance.balances.datakazina} />
+                  </div>
                 )}
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <Alert className={whitelistEnabled ? 'border-success/30 bg-success/10' : 'border-warning/30 bg-warning/10'}>
-              <ShieldCheck className={`h-4 w-4 ${whitelistEnabled ? 'text-success' : 'text-warning'}`} />
-              <AlertDescription className={whitelistEnabled ? 'text-success' : 'text-warning'}>
-                {whitelistEnabled
-                  ? <><strong>ON:</strong> MTN orders are verified against Xpress → Codecraft. Numbers not yet enabled are held and retried every 24h for up to 72h.</>
-                  : <><strong>OFF:</strong> MTN orders skip whitelist verification and go straight to the active fulfillment provider.</>}
-              </AlertDescription>
-            </Alert>
-          </CardContent>
-        </Card>
+              </CardContent>
+            </Card>
+            <ActivationCard providerKey="datakazina" label="DataKazina API" />
+          </TabsContent>
 
-        {/* Info Cards */}
-        <div className="grid md:grid-cols-2 gap-4">
-          {/* View Fulfillment Logs Card */}
-          <Card className="bg-primary/10 border-border">
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <FileText className="h-5 w-5 text-primary" />
-                Fulfillment Logs
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="text-sm space-y-3 text-primary">
-              <p>
-                View all MTN orders sent to the API, their status, and retry failed orders.
-              </p>
-              <Link href="/admin/mtn-logs">
-                <Button className="w-full bg-primary hover:bg-primary">
-                  <FileText className="h-4 w-4 mr-2" />
-                  View MTN Fulfillment Logs
+          {/* ─── Xpress ─── */}
+          <TabsContent value="xpress" className="space-y-4 mt-6">
+            <Card className="border-2">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div><CardTitle>Xpress API</CardTitle><CardDescription>Batch-enabled MTN data provider</CardDescription></div>
+                  {mtnProvider === "xpress" && <Badge className="bg-primary">Active Provider</Badge>}
+                </div>
+              </CardHeader>
+              <CardContent>
+                {balance?.balances.xpress && (
+                  <div className="p-4 bg-muted/40 rounded-lg">
+                    <p className="text-xs text-muted-foreground mb-1 uppercase tracking-wide">Wallet Balance</p>
+                    <ProviderBal pb={balance.balances.xpress} />
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+            <ActivationCard providerKey="xpress" label="Xpress API" />
+          </TabsContent>
+
+          {/* ─── EazyGhData ─── */}
+          <TabsContent value="eazyghdata" className="space-y-4 mt-6">
+            <Card className="border-2">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div><CardTitle>EazyGhData</CardTitle><CardDescription>Package-based MTN data provider</CardDescription></div>
+                  {mtnProvider === "eazyghdata" && <Badge className="bg-primary">Active Provider</Badge>}
+                </div>
+              </CardHeader>
+              <CardContent>
+                {balance?.balances.eazyghdata && (
+                  <div className="p-4 bg-muted/40 rounded-lg">
+                    <p className="text-xs text-muted-foreground mb-1 uppercase tracking-wide">Wallet Balance</p>
+                    <ProviderBal pb={balance.balances.eazyghdata} />
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+            <ActivationCard providerKey="eazyghdata" label="EazyGhData" />
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Package Sync</CardTitle>
+                <CardDescription>Keep local EazyGhData package catalog in sync with the live API</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button onClick={handleSyncEazyGhDataPackages} disabled={syncingPackages} variant="outline">
+                  {syncingPackages ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Syncing…</> : "Sync EazyGhData Packages"}
                 </Button>
-              </Link>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
-          <Card className="bg-primary/5 border-primary/20">
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <CheckCircle className="h-5 w-5 text-primary" />
-                How It Works
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="text-sm space-y-2 text-foreground">
-              <p>
-                <strong>Enabled:</strong> Orders bypass the download queue and are sent directly to
-                MTN API for instant fulfillment.
-              </p>
-              <p>
-                <strong>Disabled:</strong> Orders appear in your Download queue for review and
-                manual fulfillment through the admin panel.
-              </p>
-            </CardContent>
-          </Card>
-        </div>
+          {/* ─── Bisdel ─── */}
+          <TabsContent value="bisdel" className="space-y-4 mt-6">
+            <Card className="border-2">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div><CardTitle>Bisdel</CardTitle><CardDescription>Category-based MTN data provider</CardDescription></div>
+                  {mtnProvider === "bisdel" && <Badge className="bg-indigo-600">Active Provider</Badge>}
+                </div>
+              </CardHeader>
+              <CardContent>
+                {balance?.balances.bisdel && (
+                  <div className="p-4 bg-muted/40 rounded-lg">
+                    <p className="text-xs text-muted-foreground mb-1 uppercase tracking-wide">Wallet Balance</p>
+                    <ProviderBal pb={balance.balances.bisdel} />
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+            <ActivationCard providerKey="bisdel" label="Bisdel" />
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Products &amp; Category</CardTitle>
+                <CardDescription>Bisdel matches each order by GB within a single category. Sync first, then choose the category orders fulfill from.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button onClick={handleSyncBisdelProducts} disabled={syncingBisdel} variant="outline" size="sm">
+                    {syncingBisdel ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Syncing…</> : "Sync Bisdel Products"}
+                  </Button>
+                  <select
+                    value={bisdelCategory}
+                    onChange={e => handleSelectBisdelCategory(e.target.value)}
+                    disabled={savingBisdelCategory || bisdelCategories.length === 0}
+                    className="px-3 py-2 text-sm rounded-md border border-border bg-background text-foreground disabled:opacity-50"
+                  >
+                    <option value="" disabled>{bisdelCategories.length === 0 ? "Sync products first" : "Select a category"}</option>
+                    {bisdelCategories.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  {bisdelCategory && <span className="text-xs text-muted-foreground">Active: <strong>{bisdelCategory}</strong></span>}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
-        <div className="grid md:grid-cols-1 gap-4">
-          <Card className="bg-warning/10 border-border">
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <AlertCircle className="h-5 w-5 text-warning" />
-                Pro Tip
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="text-sm space-y-2 text-warning">
-              <p>
-                Start with <strong>Disabled</strong> to test your setup. Once confident, enable
-                auto-fulfillment for faster order processing.
-              </p>
-              <p>Monitor balance to avoid failed orders due to insufficient funds.</p>
-            </CardContent>
-          </Card>
-        </div>
+          {/* ─── CodeCraft ─── */}
+          <TabsContent value="codecraft" className="space-y-4 mt-6">
+            <Card className="border-2">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div><CardTitle>CodeCraft</CardTitle><CardDescription>AT/Telecel/MTN multi-network provider</CardDescription></div>
+                  {mtnProvider === "codecraft" && <Badge className="bg-violet-600">Active Provider</Badge>}
+                </div>
+              </CardHeader>
+              <CardContent>
+                {balance?.balances.codecraft && (
+                  <div className="p-4 bg-muted/40 rounded-lg">
+                    <p className="text-xs text-muted-foreground mb-1 uppercase tracking-wide">Wallet Balance</p>
+                    <ProviderBal pb={balance.balances.codecraft} />
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+            <ActivationCard providerKey="codecraft" label="CodeCraft" />
+          </TabsContent>
+
+          {/* ─── AgentPortalGH ─── */}
+          <TabsContent value="agentportalgh" className="space-y-4 mt-6">
+            <Card className="border-2">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div><CardTitle>AgentPortalGH</CardTitle><CardDescription>Webhook-first MTN provider — orders confirmed asynchronously</CardDescription></div>
+                  {mtnProvider === "agentportalgh" && <Badge className="bg-primary">Active Provider</Badge>}
+                </div>
+              </CardHeader>
+              <CardContent>
+                {balance?.balances.agentportalgh && (
+                  <div className="p-4 bg-muted/40 rounded-lg">
+                    <p className="text-xs text-muted-foreground mb-1 uppercase tracking-wide">Wallet Balance (from balance cron)</p>
+                    <ProviderBal pb={balance.balances.agentportalgh} />
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+            <ActivationCard providerKey="agentportalgh" label="AgentPortalGH" />
+
+            {/* Identity */}
+            <Card>
+              <CardHeader><CardTitle className="text-sm">Identity</CardTitle></CardHeader>
+              <CardContent>
+                {apgIdentity ? (
+                  <div className="space-y-1 text-sm">
+                    <div><span className="text-muted-foreground">Name:</span> {apgIdentity.data?.name ?? apgIdentity.name ?? "—"}</div>
+                    <div><span className="text-muted-foreground">Email:</span> {apgIdentity.data?.email ?? apgIdentity.email ?? "—"}</div>
+                    <div><span className="text-muted-foreground">Role:</span> <Badge variant="outline">{apgIdentity.data?.role ?? apgIdentity.role ?? "—"}</Badge></div>
+                  </div>
+                ) : <p className="text-sm text-muted-foreground">Loading identity…</p>}
+                <Button size="sm" variant="outline" className="mt-3" onClick={loadApgIdentityAndServices}>Verify Connection</Button>
+              </CardContent>
+            </Card>
+
+            {/* Live Wallet Balance */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center justify-between">
+                  <span>Wallet Balance (live)</span>
+                  <Button size="sm" variant="ghost" onClick={loadApgBalance} disabled={apgBalanceLoading}>
+                    {apgBalanceLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Refresh"}
+                  </Button>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-bold">{apgBalance !== null ? `GHS ${apgBalance.toFixed(2)}` : "—"}</p>
+              </CardContent>
+            </Card>
+
+            {/* Summary */}
+            <Card>
+              <CardHeader><CardTitle className="text-sm">Wallet Summary</CardTitle></CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex gap-2 flex-wrap">
+                  <Input type="date" value={apgSummaryFrom} onChange={e => setApgSummaryFrom(e.target.value)} className="h-8 text-xs" placeholder="From" />
+                  <Input type="date" value={apgSummaryTo} onChange={e => setApgSummaryTo(e.target.value)} className="h-8 text-xs" placeholder="To" />
+                  <Button size="sm" onClick={loadApgSummary} disabled={apgSummaryLoading}>{apgSummaryLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Fetch"}</Button>
+                </div>
+                {apgSummary && (
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div><span className="text-muted-foreground">Orders:</span> {apgSummary.total_orders ?? "—"}</div>
+                    <div><span className="text-muted-foreground">Success:</span> {apgSummary.success_count ?? "—"}</div>
+                    <div><span className="text-muted-foreground">Failed:</span> {apgSummary.failure_count ?? "—"}</div>
+                    <div><span className="text-muted-foreground">Total GB:</span> {apgSummary.total_gb ?? "—"}</div>
+                    <div><span className="text-muted-foreground">Charged (GHS):</span> {apgSummary.total_charged ?? "—"}</div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Services */}
+            {apgServices.length > 0 && (
+              <Card>
+                <CardHeader><CardTitle className="text-sm">Supported Services</CardTitle></CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead><tr className="border-b"><th className="text-left py-1 pr-4">Network</th><th className="text-left py-1">GB Options</th></tr></thead>
+                      <tbody>
+                        {apgServices.map((svc: any, i: number) => (
+                          <tr key={i} className="border-b border-border/50">
+                            <td className="py-1 pr-4 font-medium">{svc.network ?? svc.name ?? JSON.stringify(svc)}</td>
+                            <td className="py-1 text-muted-foreground">{svc.options?.join(", ") ?? svc.gb_options?.join(", ") ?? "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Top-up */}
+            <Card>
+              <CardHeader><CardTitle className="text-sm">Top Up Wallet (MoMo)</CardTitle></CardHeader>
+              <CardContent className="space-y-2">
+                <div className="flex gap-2 flex-wrap">
+                  <Input placeholder="Amount (GHS)" value={apgTopupAmount} onChange={e => setApgTopupAmount(e.target.value)} className="h-8 text-xs w-32" />
+                  <Input placeholder="Phone" value={apgTopupPhone} onChange={e => setApgTopupPhone(e.target.value)} className="h-8 text-xs w-36" />
+                  <select value={apgTopupNetwork} onChange={e => setApgTopupNetwork(e.target.value)} className="h-8 text-xs border rounded-md px-2 bg-background">
+                    <option value="MTN">MTN</option>
+                    <option value="Telecel">Telecel</option>
+                    <option value="AirtelTigo">AirtelTigo</option>
+                  </select>
+                  <Button size="sm" onClick={handleApgTopup} disabled={apgTopupLoading || !apgTopupAmount || !apgTopupPhone}>
+                    {apgTopupLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Top Up"}
+                  </Button>
+                </div>
+                {apgTopupResult && <p className="text-xs text-muted-foreground">{apgTopupResult}</p>}
+              </CardContent>
+            </Card>
+
+            {/* Transactions */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center justify-between">
+                  <span>Transaction History</span>
+                  <div className="flex gap-1">
+                    <Button size="sm" variant="ghost" onClick={() => setApgTransactionsPage(p => Math.max(1, p - 1))} disabled={apgTransactionsPage === 1}>←</Button>
+                    <span className="text-xs px-1 self-center">p{apgTransactionsPage}</span>
+                    <Button size="sm" variant="ghost" onClick={() => setApgTransactionsPage(p => p + 1)}>→</Button>
+                  </div>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead><tr className="border-b"><th className="text-left py-1 pr-3">Type</th><th className="text-left py-1 pr-3">Amount</th><th className="text-left py-1 pr-3">Reason</th><th className="text-left py-1">Date</th></tr></thead>
+                    <tbody>
+                      {apgTransactions.map((tx: any, i: number) => (
+                        <tr key={i} className="border-b border-border/50">
+                          <td className="py-1 pr-3"><Badge variant="outline" className="text-[10px]">{tx.type}</Badge></td>
+                          <td className="py-1 pr-3">GHS {tx.amount}</td>
+                          <td className="py-1 pr-3 text-muted-foreground">{tx.reason ?? tx.description ?? "—"}</td>
+                          <td className="py-1 text-muted-foreground">{tx.created_at ? new Date(tx.created_at).toLocaleDateString() : "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Top-up History */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center justify-between">
+                  <span>Top-up History</span>
+                  <div className="flex gap-1">
+                    <Button size="sm" variant="ghost" onClick={() => setApgTopupsPage(p => Math.max(1, p - 1))} disabled={apgTopupsPage === 1}>←</Button>
+                    <span className="text-xs px-1 self-center">p{apgTopupsPage}</span>
+                    <Button size="sm" variant="ghost" onClick={() => setApgTopupsPage(p => p + 1)}>→</Button>
+                  </div>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead><tr className="border-b"><th className="text-left py-1 pr-3">Amount</th><th className="text-left py-1 pr-3">Phone</th><th className="text-left py-1 pr-3">Network</th><th className="text-left py-1 pr-3">Status</th><th className="text-left py-1">Date</th></tr></thead>
+                    <tbody>
+                      {apgTopups.map((tu: any, i: number) => (
+                        <tr key={i} className="border-b border-border/50">
+                          <td className="py-1 pr-3">GHS {tu.amount}</td>
+                          <td className="py-1 pr-3">{tu.phone}</td>
+                          <td className="py-1 pr-3">{tu.network}</td>
+                          <td className="py-1 pr-3"><Badge variant="outline" className="text-[10px]">{tu.status}</Badge></td>
+                          <td className="py-1 text-muted-foreground">{tu.created_at ? new Date(tu.created_at).toLocaleDateString() : "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Webhook Config */}
+            <Card>
+              <CardHeader><CardTitle className="text-sm">Webhook Configuration</CardTitle></CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex gap-2 flex-wrap">
+                  <Input placeholder="Webhook URL" value={apgWebhookUrl} onChange={e => setApgWebhookUrl(e.target.value)} className="h-8 text-xs flex-1 min-w-48" />
+                  <div className="flex items-center gap-2">
+                    <Switch checked={apgWebhookEnabled} onCheckedChange={setApgWebhookEnabled} />
+                    <Label className="text-xs">Enabled</Label>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={() => saveApgWebhookConfig(false)} disabled={apgWebhookSaving}>{apgWebhookSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}</Button>
+                  <Button size="sm" variant="outline" onClick={() => saveApgWebhookConfig(true)} disabled={apgWebhookSaving}>Rotate Secret</Button>
+                </div>
+                {apgWebhookConfig?.secret && (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>Secret: {apgWebhookConfig.secret.slice(0, 8)}…</span>
+                    <Button size="sm" variant="ghost" className="h-5 px-1 text-[10px]" onClick={() => navigator.clipboard.writeText(apgWebhookConfig.secret)}>Copy</Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Webhook Deliveries */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center justify-between">
+                  <span>Webhook Deliveries</span>
+                  <div className="flex gap-1">
+                    <Button size="sm" variant="ghost" onClick={() => setApgDeliveriesPage(p => Math.max(1, p - 1))} disabled={apgDeliveriesPage === 1}>←</Button>
+                    <span className="text-xs px-1 self-center">p{apgDeliveriesPage}</span>
+                    <Button size="sm" variant="ghost" onClick={() => setApgDeliveriesPage(p => p + 1)}>→</Button>
+                  </div>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead><tr className="border-b"><th className="text-left py-1 pr-3">Order ID</th><th className="text-left py-1 pr-3">Status</th><th className="text-left py-1 pr-3">Date</th><th className="text-left py-1"></th></tr></thead>
+                    <tbody>
+                      {apgDeliveries.map((d: any, i: number) => (
+                        <tr key={i} className="border-b border-border/50">
+                          <td className="py-1 pr-3 font-mono">{d.order_id ?? d.id}</td>
+                          <td className="py-1 pr-3"><Badge variant="outline" className="text-[10px]">{d.status}</Badge></td>
+                          <td className="py-1 pr-3 text-muted-foreground">{d.created_at ? new Date(d.created_at).toLocaleDateString() : "—"}</td>
+                          <td className="py-1"><Button size="sm" variant="ghost" className="h-5 px-1 text-[10px]" onClick={() => resendApgDelivery(d.id)}>Resend</Button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Whitelist Checker */}
+            <Card>
+              <CardHeader><CardTitle className="text-sm">Whitelist Checker</CardTitle></CardHeader>
+              <CardContent className="space-y-3">
+                <textarea
+                  className="w-full h-28 text-xs font-mono border rounded-md p-2 bg-background resize-none"
+                  placeholder="One phone number per line (up to 1,000)"
+                  value={apgWhitelistInput}
+                  onChange={e => setApgWhitelistInput(e.target.value)}
+                />
+                <Button size="sm" onClick={checkApgWhitelist} disabled={apgWhitelistLoading || !apgWhitelistInput.trim()}>
+                  {apgWhitelistLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Check"}
+                </Button>
+                {apgWhitelistResult.length > 0 && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead><tr className="border-b"><th className="text-left py-1 pr-4">MSISDN</th><th className="text-left py-1">Allowed</th></tr></thead>
+                      <tbody>
+                        {apgWhitelistResult.map((r: any, i: number) => (
+                          <tr key={i} className="border-b border-border/50">
+                            <td className="py-1 pr-4 font-mono">{r.msisdn}</td>
+                            <td className="py-1"><Badge variant={r.allowed ? "default" : "destructive"} className="text-[10px]">{r.allowed ? "Yes" : "No"}</Badge></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Order History */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center justify-between">
+                  <span>Order History</span>
+                  <div className="flex gap-2">
+                    <Input placeholder="Search…" value={apgOrdersSearch} onChange={e => setApgOrdersSearch(e.target.value)} className="h-7 w-36 text-xs" />
+                    <Button size="sm" onClick={loadApgOrders} disabled={apgOrdersLoading}>{apgOrdersLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Search"}</Button>
+                  </div>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead><tr className="border-b"><th className="text-left py-1 pr-3">Name</th><th className="text-left py-1 pr-3">Status</th><th className="text-left py-1 pr-3">Success</th><th className="text-left py-1 pr-3">Fail</th><th className="text-left py-1">Date</th></tr></thead>
+                    <tbody>
+                      {apgOrders.map((ord: any, i: number) => (
+                        <>
+                          <tr key={i} className="border-b border-border/50 cursor-pointer hover:bg-muted/30" onClick={() => expandApgOrder(ord.id)}>
+                            <td className="py-1 pr-3">{ord.group_name ?? ord.name ?? ord.id}</td>
+                            <td className="py-1 pr-3"><Badge variant="outline" className="text-[10px]">{ord.status}</Badge></td>
+                            <td className="py-1 pr-3 text-emerald-500">{ord.success_count ?? "—"}</td>
+                            <td className="py-1 pr-3 text-red-500">{ord.failure_count ?? "—"}</td>
+                            <td className="py-1 text-muted-foreground">{ord.created_at ? new Date(ord.created_at).toLocaleDateString() : "—"}</td>
+                          </tr>
+                          {apgExpandedOrder === ord.id && (
+                            <tr key={`${i}-items`} className="bg-muted/20">
+                              <td colSpan={5} className="py-2 px-3">
+                                {apgOrderItems[ord.id] ? (
+                                  <div className="overflow-x-auto">
+                                    <table className="w-full text-[10px]">
+                                      <thead><tr className="border-b"><th className="text-left pr-3 py-0.5">MSISDN</th><th className="text-left pr-3 py-0.5">Ref</th><th className="text-left pr-3 py-0.5">Status</th><th className="text-left py-0.5">Reason</th></tr></thead>
+                                      <tbody>
+                                        {apgOrderItems[ord.id].map((item: any, j: number) => (
+                                          <tr key={j} className="border-b border-border/30">
+                                            <td className="pr-3 py-0.5 font-mono">{item.msisdn}</td>
+                                            <td className="pr-3 py-0.5 font-mono text-muted-foreground">{item.reference?.slice(0, 8)}…</td>
+                                            <td className="pr-3 py-0.5"><Badge variant="outline" className="text-[9px]">{item.status}</Badge></td>
+                                            <td className="py-0.5 text-muted-foreground">{item.failed_reason ?? "—"}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                ) : (
+                                  <p className="text-xs text-muted-foreground">Loading items…</p>
+                                )}
+                              </td>
+                            </tr>
+                          )}
+                        </>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
     </DashboardLayout>
   )
