@@ -53,10 +53,6 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ received: true })
 }
 
-function itemRef(item: any): string | undefined {
-  return item?.reference ?? item?.client_reference ?? item?.ref ?? item?.order_reference ?? item?.external_reference
-}
-
 async function processItems(payload: any) {
   if (payload.event !== "order.completed") {
     console.warn(`[WEBHOOK-AGENTPORTALGH] Ignoring event "${payload.event}" (expected "order.completed"). Payload keys: ${Object.keys(payload).join(", ")}`)
@@ -76,12 +72,29 @@ async function processItems(payload: any) {
     }
   }
 
-  console.log(`[WEBHOOK-AGENTPORTALGH] order.completed with ${items.length} item(s). Sample item keys: ${items[0] ? Object.keys(items[0]).join(", ") : "(none)"}`)
+  console.log(`[WEBHOOK-AGENTPORTALGH] order.completed ${payload.order_id}: ${items.length} item(s), success=${payload.success_count}, failure=${payload.failure_count}`)
+
+  if (items.length === 0) {
+    console.warn(`[WEBHOOK-AGENTPORTALGH] No items in payload for order ${payload.order_id}, nothing to process`)
+    return
+  }
+
+  // Per AgentPortalGH's docs, item.reference should equal what we sent at
+  // /queue/add — but confirmed live 2026-07-24 it comes back null for our
+  // (always single-item) submissions, while payload.order_id reliably equals
+  // it instead. Prefer item.reference when present (per docs, forward-compatible
+  // with multi-item batches); fall back to the order's own id otherwise. If more
+  // than one item ever needs the fallback simultaneously, log it — the fallback
+  // can't disambiguate between multiple items sharing one order_id.
+  const needsFallback = items.filter(i => !i.reference).length
+  if (needsFallback > 1) {
+    console.warn(`[WEBHOOK-AGENTPORTALGH] ${needsFallback}/${items.length} items missing reference in one payload — order_id fallback can't disambiguate multiple items`)
+  }
 
   for (const item of items) {
-    const ref = itemRef(item)
+    const ref: string | undefined = item.reference ?? payload.order_id
     if (!ref) {
-      console.warn("[WEBHOOK-AGENTPORTALGH] Item has no recognizable reference field, skipping:", JSON.stringify(item).slice(0, 300))
+      console.warn("[WEBHOOK-AGENTPORTALGH] Item has neither reference nor a fallback order_id, skipping:", JSON.stringify(item).slice(0, 300))
       continue
     }
     await processItem(item, ref)

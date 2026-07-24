@@ -1590,33 +1590,41 @@ export default function MTNSettingsPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <p className="text-xs text-muted-foreground mb-2">
-                      Click a row to inspect its raw fields — AgentPortalGH's delivery response shape is unconfirmed, so "Status" falls back through common aliases and may show "—" until we know the real field name.
-                    </p>
+                    <p className="text-xs text-muted-foreground mb-2">Click a row to inspect the delivered payload.</p>
                     <div className="overflow-x-auto">
                       <table className="w-full text-xs">
-                        <thead><tr className="border-b"><th className="text-left py-1 pr-3">Order ID</th><th className="text-left py-1 pr-3">Status</th><th className="text-left py-1 pr-3">Date</th><th className="text-left py-1"></th></tr></thead>
+                        <thead><tr className="border-b"><th className="text-left py-1 pr-3">Order ID</th><th className="text-left py-1 pr-3">Status</th><th className="text-left py-1 pr-3">Attempts</th><th className="text-left py-1 pr-3">Date</th><th className="text-left py-1"></th></tr></thead>
                         <tbody>
                           {apgDeliveries.map((d: any, i: number) => {
-                            const status = d.status ?? d.delivery_status ?? d.result ?? d.response_status ?? d.http_status ?? d.status_code ?? d.state
+                            let decodedPayload: any = null
+                            try { decodedPayload = d.payload ? JSON.parse(atob(d.payload)) : null } catch { decodedPayload = null }
                             return (
                               <>
                                 <tr key={i} className="border-b border-border/50 cursor-pointer hover:bg-muted/30" onClick={() => setApgExpandedDelivery(p => (p === i ? null : i))}>
-                                  <td className="py-1 pr-3 font-mono">{d.order_id ?? d.id}</td>
+                                  <td className="py-1 pr-3 font-mono">{d.order_id}</td>
                                   <td className="py-1 pr-3">
-                                    {status !== undefined && status !== null && status !== "" ? (
-                                      <Badge variant="outline" className="text-[10px]">{String(status)}</Badge>
-                                    ) : (
-                                      <span className="text-muted-foreground">—</span>
-                                    )}
+                                    <Badge variant={d.success ? "default" : "destructive"} className="text-[10px]">
+                                      {d.success ? "Delivered" : "Failed"} {d.last_status_code ? `(${d.last_status_code})` : ""}
+                                    </Badge>
                                   </td>
+                                  <td className="py-1 pr-3 text-muted-foreground">{d.attempts ?? "—"}</td>
                                   <td className="py-1 pr-3 text-muted-foreground">{d.created_at ? new Date(d.created_at).toLocaleDateString() : "—"}</td>
                                   <td className="py-1"><Button size="sm" variant="ghost" className="h-5 px-1 text-[10px]" onClick={e => { e.stopPropagation(); resendApgDelivery(d.id) }}>Resend</Button></td>
                                 </tr>
                                 {apgExpandedDelivery === i && (
                                   <tr key={`${i}-raw`} className="bg-muted/20">
-                                    <td colSpan={4} className="py-2 px-3">
-                                      <pre className="text-[10px] whitespace-pre-wrap break-all">{JSON.stringify(d, null, 2)}</pre>
+                                    <td colSpan={5} className="py-2 px-3 space-y-2">
+                                      {d.last_error && <p className="text-xs text-destructive">Last error: {d.last_error}</p>}
+                                      {decodedPayload && (
+                                        <div>
+                                          <p className="text-[10px] font-medium text-muted-foreground mb-1">Decoded payload:</p>
+                                          <pre className="text-[10px] whitespace-pre-wrap break-all">{JSON.stringify(decodedPayload, null, 2)}</pre>
+                                        </div>
+                                      )}
+                                      <div>
+                                        <p className="text-[10px] font-medium text-muted-foreground mb-1">Raw delivery record:</p>
+                                        <pre className="text-[10px] whitespace-pre-wrap break-all">{JSON.stringify(d, null, 2)}</pre>
+                                      </div>
                                     </td>
                                   </tr>
                                 )}
@@ -1693,27 +1701,33 @@ export default function MTNSettingsPage() {
                       <table className="w-full text-xs">
                         <thead><tr className="border-b"><th className="text-left py-1 pr-3">Name</th><th className="text-left py-1 pr-3">Status</th><th className="text-left py-1 pr-3">Success</th><th className="text-left py-1 pr-3">Fail</th><th className="text-left py-1">Date</th></tr></thead>
                         <tbody>
-                          {apgOrders.map((ord: any, i: number) => (
+                          {apgOrders.map((ord: any, i: number) => {
+                            // order_id is the reliable identifier (confirmed live
+                            // 2026-07-24 against a real webhook payload) — `id` is
+                            // kept only as a fallback in case a given endpoint
+                            // response uses that name instead.
+                            const ordId = ord.order_id ?? ord.id
+                            return (
                             <>
-                              <tr key={i} className="border-b border-border/50 cursor-pointer hover:bg-muted/30" onClick={() => expandApgOrder(ord.id)}>
-                                <td className="py-1 pr-3">{ord.group_name ?? ord.name ?? ord.id}</td>
+                              <tr key={i} className="border-b border-border/50 cursor-pointer hover:bg-muted/30" onClick={() => expandApgOrder(ordId)}>
+                                <td className="py-1 pr-3">{ord.group_name ?? ord.name ?? ordId}</td>
                                 <td className="py-1 pr-3"><Badge variant="outline" className="text-[10px]">{ord.status}</Badge></td>
                                 <td className="py-1 pr-3 text-emerald-500">{ord.success_count ?? "—"}</td>
                                 <td className="py-1 pr-3 text-red-500">{ord.failure_count ?? "—"}</td>
                                 <td className="py-1 text-muted-foreground">{ord.created_at ? new Date(ord.created_at).toLocaleDateString() : "—"}</td>
                               </tr>
-                              {apgExpandedOrder === ord.id && (
+                              {apgExpandedOrder === ordId && (
                                 <tr key={`${i}-items`} className="bg-muted/20">
                                   <td colSpan={5} className="py-2 px-3">
-                                    {apgOrderItems[ord.id] ? (
+                                    {apgOrderItems[ordId] ? (
                                       <div className="overflow-x-auto">
                                         <table className="w-full text-[10px]">
-                                          <thead><tr className="border-b"><th className="text-left pr-3 py-0.5">MSISDN</th><th className="text-left pr-3 py-0.5">Ref</th><th className="text-left pr-3 py-0.5">Status</th><th className="text-left py-0.5">Reason</th></tr></thead>
+                                          <thead><tr className="border-b"><th className="text-left pr-3 py-0.5">MSISDN</th><th className="text-left pr-3 py-0.5">Item ID</th><th className="text-left pr-3 py-0.5">Status</th><th className="text-left py-0.5">Reason</th></tr></thead>
                                           <tbody>
-                                            {apgOrderItems[ord.id].map((item: any, j: number) => (
+                                            {apgOrderItems[ordId].map((item: any, j: number) => (
                                               <tr key={j} className="border-b border-border/30">
                                                 <td className="pr-3 py-0.5 font-mono">{item.msisdn}</td>
-                                                <td className="pr-3 py-0.5 font-mono text-muted-foreground">{item.reference?.slice(0, 8)}…</td>
+                                                <td className="pr-3 py-0.5 font-mono text-muted-foreground">{(item.order_item_id ?? item.reference)?.slice(0, 8) ?? "—"}…</td>
                                                 <td className="pr-3 py-0.5"><Badge variant="outline" className="text-[9px]">{item.status}</Badge></td>
                                                 <td className="py-0.5 text-muted-foreground">{item.failed_reason ?? "—"}</td>
                                               </tr>
@@ -1728,7 +1742,8 @@ export default function MTNSettingsPage() {
                                 </tr>
                               )}
                             </>
-                          ))}
+                            )
+                          })}
                         </tbody>
                       </table>
                     </div>
