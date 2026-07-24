@@ -1,7 +1,7 @@
 // Admin endpoint: batch-verify MTN numbers from mtn_number_registry against
-// Xpress and/or Codecraft whitelist APIs.
+// all configured whitelist providers (Xpress, Codecraft, AgentPortalGH).
 // Paginated — call repeatedly with increasing ?offset until done=true.
-// POST body: { offset?: number, limit?: number, provider?: "xpress"|"codecraft"|"both" }
+// POST body: { offset?: number, limit?: number, providers?: "xpress,codecraft,agentportalgh" (comma-separated, default = all configured) }
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"

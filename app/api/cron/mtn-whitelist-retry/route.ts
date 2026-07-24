@@ -1,4 +1,4 @@
-// Re-checks MTN numbers that were blocked at order creation by Xpress/Codecraft.
+// Re-checks MTN numbers that were blocked at order creation by any configured whitelist provider.
 // Runs every 24h; each number gets at most 3 retries (72h window total).
 // If any provider now allows the number, releases the held orders immediately.
 import { NextRequest, NextResponse } from "next/server"

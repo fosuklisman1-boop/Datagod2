@@ -1078,7 +1078,7 @@ export default function MTNSettingsPage() {
                       <ShieldCheck className={`h-5 w-5 ${whitelistEnabled ? "text-success" : "text-muted-foreground"}`} />
                       MTN Whitelist Verification
                     </CardTitle>
-                    <CardDescription className="mt-1">Check Xpress &amp; Codecraft whitelists before fulfilling MTN orders</CardDescription>
+                    <CardDescription className="mt-1">Check Xpress, Codecraft &amp; AgentPortalGH whitelists before fulfilling MTN orders</CardDescription>
                   </div>
                   <div className="flex items-center gap-3">
                     {loadingWhitelist ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : (
@@ -1096,7 +1096,7 @@ export default function MTNSettingsPage() {
                   <ShieldCheck className={`h-4 w-4 ${whitelistEnabled ? "text-success" : "text-warning"}`} />
                   <AlertDescription className={whitelistEnabled ? "text-success" : "text-warning"}>
                     {whitelistEnabled
-                      ? <><strong>ON:</strong> MTN orders are verified against Xpress → Codecraft. Numbers not enabled are held and retried every 24h for up to 72h.</>
+                      ? <><strong>ON:</strong> MTN orders are verified against Xpress → Codecraft → AgentPortalGH. Numbers not enabled are held and retried every 24h for up to 72h.</>
                       : <><strong>OFF:</strong> MTN orders skip whitelist verification and go straight to the active fulfillment provider.</>}
                   </AlertDescription>
                 </Alert>

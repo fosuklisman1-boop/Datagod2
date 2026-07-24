@@ -98,6 +98,35 @@ async function checkCodecraftBatch(
   return results
 }
 
+async function checkAgentPortalGH(msisdn: string): Promise<WhitelistResult> {
+  try {
+    const { AgentPortalGHProvider } = await import("./agentportalgh-provider")
+    const data = await new AgentPortalGHProvider().verifyWhitelist([msisdn])
+    const r = (data.data ?? data.results ?? [])[0]
+    return { allowed: r?.allowed !== false, provider: "agentportalgh", reason: r?.reason }
+  } catch {
+    return { allowed: true, provider: "agentportalgh" }
+  }
+}
+
+async function checkAgentPortalGHBatch(
+  msisdns: string[]
+): Promise<Array<{ msisdn: string; allowed: boolean; reason?: string }>> {
+  const results: Array<{ msisdn: string; allowed: boolean; reason?: string }> = []
+  const { AgentPortalGHProvider } = await import("./agentportalgh-provider")
+  const provider = new AgentPortalGHProvider()
+  for (let i = 0; i < msisdns.length; i += 1000) {
+    const chunk = msisdns.slice(i, i + 1000)
+    try {
+      const data = await provider.verifyWhitelist(chunk)
+      results.push(...(data.data ?? data.results ?? chunk.map((m: string) => ({ msisdn: m, allowed: true }))))
+    } catch {
+      chunk.forEach(m => results.push({ msisdn: m, allowed: true }))
+    }
+  }
+  return results
+}
+
 // ── Registry ──────────────────────────────────────────────────────────────────
 // Add new whitelist-capable providers here. Order matters: providers listed
 // earlier are tried first when the active provider doesn't support whitelist.
@@ -121,6 +150,12 @@ export const WHITELIST_REGISTRY: WhitelistEntry[] = [
     configured: () => !!process.env.CODECRAFT_API_KEY,
     check: checkCodecraft,
     checkBatch: checkCodecraftBatch,
+  },
+  {
+    name: "agentportalgh",
+    configured: () => !!process.env.AGENTPORTALGH_API_KEY,
+    check: checkAgentPortalGH,
+    checkBatch: checkAgentPortalGHBatch,
   },
   // Add future whitelist providers here ↓
 ]
