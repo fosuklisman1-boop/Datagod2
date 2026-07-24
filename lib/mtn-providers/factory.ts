@@ -12,6 +12,7 @@ import { XpressProvider } from "./xpress-provider"
 import { EazyGhDataProvider } from "./eazyghdata-provider"
 import { BisdelProvider } from "./bisdel-provider"
 import { CodeCraftMTNProvider } from "./codecraft-provider"
+import { AgentPortalGHProvider } from "./agentportalgh-provider"
 
 /**
  * Get the currently selected provider from database settings
@@ -32,7 +33,7 @@ async function getSelectedProvider(): Promise<MTNProviderName> {
         const provider = data?.value?.provider as MTNProviderName | undefined
 
         // Validate provider name
-        if (provider === "sykes" || provider === "datakazina" || provider === "xpress" || provider === "eazyghdata" || provider === "bisdel" || provider === "codecraft") {
+        if (provider === "sykes" || provider === "datakazina" || provider === "xpress" || provider === "eazyghdata" || provider === "bisdel" || provider === "codecraft" || provider === "agentportalgh") {
             return provider
         }
 
@@ -56,6 +57,8 @@ export async function getMTNProvider(): Promise<MTNProvider> {
     console.log(`[MTN-Factory] Using provider: ${providerName}`)
 
     switch (providerName) {
+        case "agentportalgh":
+            return new AgentPortalGHProvider()
         case "bisdel":
             return new BisdelProvider()
         case "codecraft":
@@ -117,7 +120,7 @@ export async function getProviderNameForNetwork(normalizedNetwork: string): Prom
     }
 }
 
-const VALID_PROVIDERS: MTNProviderName[] = ["sykes", "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft"]
+const VALID_PROVIDERS: MTNProviderName[] = ["sykes", "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft", "agentportalgh"]
 
 /**
  * Get the configured fallback provider name, or null if disabled / not set.
@@ -146,6 +149,8 @@ export async function getFallbackProviderName(): Promise<MTNProviderName | null>
  */
 export function getProviderByName(name: MTNProviderName): MTNProvider {
     switch (name) {
+        case "agentportalgh":
+            return new AgentPortalGHProvider()
         case "bisdel":
             return new BisdelProvider()
         case "codecraft":
