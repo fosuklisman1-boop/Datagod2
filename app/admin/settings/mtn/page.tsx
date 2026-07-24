@@ -158,6 +158,18 @@ export default function MTNSettingsPage() {
     }
   }, [mtnProvider])
 
+  useEffect(() => {
+    if (mtnProvider === "agentportalgh") loadApgTransactions()
+  }, [apgTransactionsPage])
+
+  useEffect(() => {
+    if (mtnProvider === "agentportalgh") loadApgTopups()
+  }, [apgTopupsPage])
+
+  useEffect(() => {
+    if (mtnProvider === "agentportalgh") loadApgDeliveries()
+  }, [apgDeliveriesPage])
+
   const loadSettings = async () => {
     try {
       setLoadingSettings(true)
@@ -475,7 +487,7 @@ export default function MTNSettingsPage() {
     }
   }
 
-  const handleMTNProviderChange = async (provider: "sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft") => {
+  const handleMTNProviderChange = async (provider: "sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft" | "agentportalgh") => {
     setSavingProvider(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
@@ -1284,7 +1296,7 @@ export default function MTNSettingsPage() {
 
                 {/* AgentPortalGH Option */}
                 <button
-                  onClick={() => setMtnProvider("agentportalgh")}
+                  onClick={() => handleMTNProviderChange("agentportalgh")}
                   className={`p-3 rounded-lg border-2 text-sm font-medium transition-colors ${
                     mtnProvider === "agentportalgh"
                       ? "border-emerald-500 bg-emerald-500/10 text-emerald-400"
@@ -1486,9 +1498,9 @@ export default function MTNSettingsPage() {
                       <CardTitle className="text-sm flex items-center justify-between">
                         <span>Transaction History</span>
                         <div className="flex gap-1">
-                          <Button size="sm" variant="ghost" onClick={() => { setApgTransactionsPage(p => Math.max(1, p - 1)); loadApgTransactions() }} disabled={apgTransactionsPage === 1}>←</Button>
+                          <Button size="sm" variant="ghost" onClick={() => setApgTransactionsPage(p => Math.max(1, p - 1))} disabled={apgTransactionsPage === 1}>←</Button>
                           <span className="text-xs px-1 self-center">p{apgTransactionsPage}</span>
-                          <Button size="sm" variant="ghost" onClick={() => { setApgTransactionsPage(p => p + 1); loadApgTransactions() }}>→</Button>
+                          <Button size="sm" variant="ghost" onClick={() => setApgTransactionsPage(p => p + 1)}>→</Button>
                         </div>
                       </CardTitle>
                     </CardHeader>
@@ -1517,9 +1529,9 @@ export default function MTNSettingsPage() {
                       <CardTitle className="text-sm flex items-center justify-between">
                         <span>Top-up History</span>
                         <div className="flex gap-1">
-                          <Button size="sm" variant="ghost" onClick={() => { setApgTopupsPage(p => Math.max(1, p - 1)); loadApgTopups() }} disabled={apgTopupsPage === 1}>←</Button>
+                          <Button size="sm" variant="ghost" onClick={() => setApgTopupsPage(p => Math.max(1, p - 1))} disabled={apgTopupsPage === 1}>←</Button>
                           <span className="text-xs px-1 self-center">p{apgTopupsPage}</span>
-                          <Button size="sm" variant="ghost" onClick={() => { setApgTopupsPage(p => p + 1); loadApgTopups() }}>→</Button>
+                          <Button size="sm" variant="ghost" onClick={() => setApgTopupsPage(p => p + 1)}>→</Button>
                         </div>
                       </CardTitle>
                     </CardHeader>
@@ -1582,9 +1594,9 @@ export default function MTNSettingsPage() {
                       <CardTitle className="text-sm flex items-center justify-between">
                         <span>Webhook Deliveries</span>
                         <div className="flex gap-1">
-                          <Button size="sm" variant="ghost" onClick={() => { setApgDeliveriesPage(p => Math.max(1, p - 1)); loadApgDeliveries() }} disabled={apgDeliveriesPage === 1}>←</Button>
+                          <Button size="sm" variant="ghost" onClick={() => setApgDeliveriesPage(p => Math.max(1, p - 1))} disabled={apgDeliveriesPage === 1}>←</Button>
                           <span className="text-xs px-1 self-center">p{apgDeliveriesPage}</span>
-                          <Button size="sm" variant="ghost" onClick={() => { setApgDeliveriesPage(p => p + 1); loadApgDeliveries() }}>→</Button>
+                          <Button size="sm" variant="ghost" onClick={() => setApgDeliveriesPage(p => p + 1)}>→</Button>
                         </div>
                       </CardTitle>
                     </CardHeader>
