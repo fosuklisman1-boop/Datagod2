@@ -53,16 +53,23 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Option 3: Sync all pending orders
+    // Option 3: Sync all pending orders (optionally filtered by provider)
     if (sync_all_pending) {
-      console.log(`[SYNC-STATUS] Syncing all pending MTN orders`)
+      const syncProvider = body.sync_provider as string | undefined
+      console.log(`[SYNC-STATUS] Syncing pending MTN orders${syncProvider ? ` (provider: ${syncProvider})` : ""}`)
 
-      const { data: pendingOrders, error } = await supabase
+      let dbQuery = supabase
         .from("mtn_fulfillment_tracking")
         .select("id, mtn_order_id")
         .in("status", ["pending", "processing"])
         .order("created_at", { ascending: false })
         .limit(200)
+
+      if (syncProvider) {
+        dbQuery = dbQuery.eq("provider", syncProvider)
+      }
+
+      const { data: pendingOrders, error } = await dbQuery
 
       if (error) {
         return NextResponse.json(

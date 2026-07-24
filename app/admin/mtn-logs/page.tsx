@@ -7,6 +7,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
@@ -24,6 +32,7 @@ import {
   ChevronRight,
   Trash2,
   Search,
+  ChevronDown,
 } from "lucide-react"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { supabase } from "@/lib/supabase"
@@ -278,8 +287,8 @@ export default function MTNFulfillmentLogsPage() {
     }
   }
 
-  // Sync all pending orders from Sykes API
-  const handleSyncAllPending = async () => {
+  // Sync all pending orders (optionally for a specific provider)
+  const handleSyncAllPending = async (syncProvider?: string) => {
     try {
       setSyncing(true)
       const { data: { session } } = await supabase.auth.getSession()
@@ -288,13 +297,16 @@ export default function MTNFulfillmentLogsPage() {
         return
       }
 
+      const body: Record<string, unknown> = { sync_all_pending: true }
+      if (syncProvider) body.sync_provider = syncProvider
+
       const response = await fetch("/api/admin/fulfillment/sync-status", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ sync_all_pending: true }),
+        body: JSON.stringify(body),
       })
 
       const data = await response.json()
@@ -416,19 +428,42 @@ export default function MTNFulfillmentLogsPage() {
               )}
               Sync All Statuses
             </Button>
-            <Button
-              variant="outline"
-              onClick={handleSyncAllPending}
-              disabled={syncing || (summary.pending + summary.processing) === 0}
-              className="w-full sm:w-auto"
-            >
-              {syncing ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <RefreshCw className="w-4 h-4 mr-2" />
-              )}
-              Sync Pending ({summary.pending + summary.processing})
-            </Button>
+            <div className="flex w-full sm:w-auto">
+              <Button
+                variant="outline"
+                onClick={() => handleSyncAllPending()}
+                disabled={syncing || (summary.pending + summary.processing) === 0}
+                className="w-full sm:w-auto rounded-r-none border-r-0"
+              >
+                {syncing ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                )}
+                Sync Pending ({summary.pending + summary.processing})
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    disabled={syncing || (summary.pending + summary.processing) === 0}
+                    className="rounded-l-none px-2"
+                  >
+                    <ChevronDown className="w-4 h-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuLabel>Sync by provider</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {["sykes", "codecraft", "eazyghdata", "xpress", "datakazina", "bisdel"].map(p => (
+                    <DropdownMenuItem key={p} onClick={() => handleSyncAllPending(p)}>
+                      {p.charAt(0).toUpperCase() + p.slice(1)}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
             <Button
               variant="destructive"
               onClick={handleBulkDeleteFailed}
