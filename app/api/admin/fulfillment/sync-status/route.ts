@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
         .select("id, mtn_order_id")
         .in("status", ["pending", "processing"])
         .order("created_at", { ascending: false })
-        .limit(50)
+        .limit(200)
 
       if (error) {
         return NextResponse.json(

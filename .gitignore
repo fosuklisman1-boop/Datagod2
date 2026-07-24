@@ -83,3 +83,10 @@ desktop.ini
 
 # MCP server config (contains Supabase access token)
 .mcp.json
+
+# Visual companion (brainstorming) mockups
+.superpowers/
+
+# Playwright QA artifacts
+.playwright-mcp/
+*-dark-real.jpeg
