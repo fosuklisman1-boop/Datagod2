@@ -189,7 +189,7 @@ export class AgentPortalGHProvider implements MTNProvider {
   async topUp(amount: number, phone: string, network: string): Promise<any> {
     const res = await apiFetch("/api/wallet/topup", {
       method: "POST",
-      body: JSON.stringify({ amount, payment_number: phone, network }),
+      body: JSON.stringify({ amount, phone_number: phone, network }),
     })
     return res.json()
   }

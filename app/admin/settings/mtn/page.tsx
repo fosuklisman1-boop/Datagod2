@@ -108,6 +108,7 @@ export default function MTNSettingsPage() {
   const [apgOrdersLoading, setApgOrdersLoading] = useState(false)
   const [apgExpandedOrder, setApgExpandedOrder] = useState<string | number | null>(null)
   const [apgOrderItems, setApgOrderItems] = useState<Record<string | number, any[]>>({})
+  const [apgSubTab, setApgSubTab] = useState("overview")
 
   type MTNProviderName = "sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft" | "agentportalgh"
   const [fallbackEnabled, setFallbackEnabled] = useState(false)
@@ -1305,305 +1306,321 @@ export default function MTNSettingsPage() {
             </Card>
             <ActivationCard providerKey="agentportalgh" label="AgentPortalGH" />
 
-            {/* Identity */}
-            <Card>
-              <CardHeader><CardTitle className="text-sm">Identity</CardTitle></CardHeader>
-              <CardContent>
-                {apgIdentity ? (
-                  <div className="space-y-1 text-sm">
-                    <div><span className="text-muted-foreground">Name:</span> {apgIdentity.data?.name ?? apgIdentity.name ?? "—"}</div>
-                    <div><span className="text-muted-foreground">Email:</span> {apgIdentity.data?.email ?? apgIdentity.email ?? "—"}</div>
-                    <div><span className="text-muted-foreground">Role:</span> <Badge variant="outline">{apgIdentity.data?.role ?? apgIdentity.role ?? "—"}</Badge></div>
-                  </div>
-                ) : <p className="text-sm text-muted-foreground">Loading identity…</p>}
-                <Button size="sm" variant="outline" className="mt-3" onClick={loadApgIdentityAndServices}>Verify Connection</Button>
-              </CardContent>
-            </Card>
+            <Tabs value={apgSubTab} onValueChange={setApgSubTab}>
+              <div className="overflow-x-auto pb-1">
+                <TabsList className="inline-flex w-max h-auto p-1 gap-0.5">
+                  <TabsTrigger value="overview">Overview</TabsTrigger>
+                  <TabsTrigger value="wallet">Wallet</TabsTrigger>
+                  <TabsTrigger value="webhooks">Webhooks</TabsTrigger>
+                  <TabsTrigger value="whitelist">Whitelist</TabsTrigger>
+                  <TabsTrigger value="orders">Orders</TabsTrigger>
+                </TabsList>
+              </div>
 
-            {/* Live Wallet Balance */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm flex items-center justify-between">
-                  <span>Wallet Balance (live)</span>
-                  <Button size="sm" variant="ghost" onClick={loadApgBalance} disabled={apgBalanceLoading}>
-                    {apgBalanceLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Refresh"}
-                  </Button>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold">{apgBalance !== null ? `GHS ${apgBalance.toFixed(2)}` : "—"}</p>
-              </CardContent>
-            </Card>
+              {/* ─── APG: Overview ─── */}
+              <TabsContent value="overview" className="space-y-4 mt-4">
+                <Card>
+                  <CardHeader><CardTitle className="text-sm">Identity</CardTitle></CardHeader>
+                  <CardContent>
+                    {apgIdentity ? (
+                      <div className="space-y-1 text-sm">
+                        <div><span className="text-muted-foreground">Name:</span> {apgIdentity.data?.name ?? apgIdentity.name ?? "—"}</div>
+                        <div><span className="text-muted-foreground">Email:</span> {apgIdentity.data?.email ?? apgIdentity.email ?? "—"}</div>
+                        <div><span className="text-muted-foreground">Role:</span> <Badge variant="outline">{apgIdentity.data?.role ?? apgIdentity.role ?? "—"}</Badge></div>
+                      </div>
+                    ) : <p className="text-sm text-muted-foreground">Loading identity…</p>}
+                    <Button size="sm" variant="outline" className="mt-3" onClick={loadApgIdentityAndServices}>Verify Connection</Button>
+                  </CardContent>
+                </Card>
 
-            {/* Summary */}
-            <Card>
-              <CardHeader><CardTitle className="text-sm">Wallet Summary</CardTitle></CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex gap-2 flex-wrap">
-                  <Input type="date" value={apgSummaryFrom} onChange={e => setApgSummaryFrom(e.target.value)} className="h-8 text-xs" placeholder="From" />
-                  <Input type="date" value={apgSummaryTo} onChange={e => setApgSummaryTo(e.target.value)} className="h-8 text-xs" placeholder="To" />
-                  <Button size="sm" onClick={loadApgSummary} disabled={apgSummaryLoading}>{apgSummaryLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Fetch"}</Button>
-                </div>
-                {apgSummary && (
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div><span className="text-muted-foreground">Orders:</span> {apgSummary.total_orders ?? "—"}</div>
-                    <div><span className="text-muted-foreground">Success:</span> {apgSummary.success_count ?? "—"}</div>
-                    <div><span className="text-muted-foreground">Failed:</span> {apgSummary.failure_count ?? "—"}</div>
-                    <div><span className="text-muted-foreground">Total GB:</span> {apgSummary.total_gb ?? "—"}</div>
-                    <div><span className="text-muted-foreground">Charged (GHS):</span> {apgSummary.total_charged ?? "—"}</div>
-                  </div>
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm flex items-center justify-between">
+                      <span>Wallet Balance (live)</span>
+                      <Button size="sm" variant="ghost" onClick={loadApgBalance} disabled={apgBalanceLoading}>
+                        {apgBalanceLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Refresh"}
+                      </Button>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-2xl font-bold">{apgBalance !== null ? `GHS ${apgBalance.toFixed(2)}` : "—"}</p>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader><CardTitle className="text-sm">Wallet Summary</CardTitle></CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="flex gap-2 flex-wrap">
+                      <Input type="date" value={apgSummaryFrom} onChange={e => setApgSummaryFrom(e.target.value)} className="h-8 text-xs" placeholder="From" />
+                      <Input type="date" value={apgSummaryTo} onChange={e => setApgSummaryTo(e.target.value)} className="h-8 text-xs" placeholder="To" />
+                      <Button size="sm" onClick={loadApgSummary} disabled={apgSummaryLoading}>{apgSummaryLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Fetch"}</Button>
+                    </div>
+                    {apgSummary && (
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div><span className="text-muted-foreground">Orders:</span> {apgSummary.total_orders ?? "—"}</div>
+                        <div><span className="text-muted-foreground">Success:</span> {apgSummary.success_count ?? "—"}</div>
+                        <div><span className="text-muted-foreground">Failed:</span> {apgSummary.failure_count ?? "—"}</div>
+                        <div><span className="text-muted-foreground">Total GB:</span> {apgSummary.total_gb ?? "—"}</div>
+                        <div><span className="text-muted-foreground">Charged (GHS):</span> {apgSummary.total_charged ?? "—"}</div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {apgServices.length > 0 && (
+                  <Card>
+                    <CardHeader><CardTitle className="text-sm">Supported Services</CardTitle></CardHeader>
+                    <CardContent>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead><tr className="border-b"><th className="text-left py-1 pr-4">Network</th><th className="text-left py-1">GB Options</th></tr></thead>
+                          <tbody>
+                            {apgServices.map((svc: any, i: number) => (
+                              <tr key={i} className="border-b border-border/50">
+                                <td className="py-1 pr-4 font-medium">{svc.network ?? svc.name ?? JSON.stringify(svc)}</td>
+                                <td className="py-1 text-muted-foreground">{svc.options?.join(", ") ?? svc.gb_options?.join(", ") ?? "—"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </CardContent>
+                  </Card>
                 )}
-              </CardContent>
-            </Card>
+              </TabsContent>
 
-            {/* Services */}
-            {apgServices.length > 0 && (
-              <Card>
-                <CardHeader><CardTitle className="text-sm">Supported Services</CardTitle></CardHeader>
-                <CardContent>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead><tr className="border-b"><th className="text-left py-1 pr-4">Network</th><th className="text-left py-1">GB Options</th></tr></thead>
-                      <tbody>
-                        {apgServices.map((svc: any, i: number) => (
-                          <tr key={i} className="border-b border-border/50">
-                            <td className="py-1 pr-4 font-medium">{svc.network ?? svc.name ?? JSON.stringify(svc)}</td>
-                            <td className="py-1 text-muted-foreground">{svc.options?.join(", ") ?? svc.gb_options?.join(", ") ?? "—"}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+              {/* ─── APG: Wallet ─── */}
+              <TabsContent value="wallet" className="space-y-4 mt-4">
+                <Card>
+                  <CardHeader><CardTitle className="text-sm">Top Up Wallet (MoMo)</CardTitle></CardHeader>
+                  <CardContent className="space-y-2">
+                    <div className="flex gap-2 flex-wrap">
+                      <Input placeholder="Amount (GHS)" value={apgTopupAmount} onChange={e => setApgTopupAmount(e.target.value)} className="h-8 text-xs w-32" />
+                      <Input placeholder="Phone" value={apgTopupPhone} onChange={e => setApgTopupPhone(e.target.value)} className="h-8 text-xs w-36" />
+                      <select value={apgTopupNetwork} onChange={e => setApgTopupNetwork(e.target.value)} className="h-8 text-xs border rounded-md px-2 bg-background">
+                        <option value="MTN">MTN</option>
+                        <option value="Telecel">Telecel</option>
+                        <option value="AirtelTigo">AirtelTigo</option>
+                      </select>
+                      <Button size="sm" onClick={handleApgTopup} disabled={apgTopupLoading || !apgTopupAmount || !apgTopupPhone}>
+                        {apgTopupLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Top Up"}
+                      </Button>
+                    </div>
+                    {apgTopupResult && <p className="text-xs text-muted-foreground">{apgTopupResult}</p>}
+                  </CardContent>
+                </Card>
 
-            {/* Top-up */}
-            <Card>
-              <CardHeader><CardTitle className="text-sm">Top Up Wallet (MoMo)</CardTitle></CardHeader>
-              <CardContent className="space-y-2">
-                <div className="flex gap-2 flex-wrap">
-                  <Input placeholder="Amount (GHS)" value={apgTopupAmount} onChange={e => setApgTopupAmount(e.target.value)} className="h-8 text-xs w-32" />
-                  <Input placeholder="Phone" value={apgTopupPhone} onChange={e => setApgTopupPhone(e.target.value)} className="h-8 text-xs w-36" />
-                  <select value={apgTopupNetwork} onChange={e => setApgTopupNetwork(e.target.value)} className="h-8 text-xs border rounded-md px-2 bg-background">
-                    <option value="MTN">MTN</option>
-                    <option value="Telecel">Telecel</option>
-                    <option value="AirtelTigo">AirtelTigo</option>
-                  </select>
-                  <Button size="sm" onClick={handleApgTopup} disabled={apgTopupLoading || !apgTopupAmount || !apgTopupPhone}>
-                    {apgTopupLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Top Up"}
-                  </Button>
-                </div>
-                {apgTopupResult && <p className="text-xs text-muted-foreground">{apgTopupResult}</p>}
-              </CardContent>
-            </Card>
-
-            {/* Transactions */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm flex items-center justify-between">
-                  <span>Transaction History</span>
-                  <div className="flex gap-1">
-                    <Button size="sm" variant="ghost" onClick={() => setApgTransactionsPage(p => Math.max(1, p - 1))} disabled={apgTransactionsPage === 1}>←</Button>
-                    <span className="text-xs px-1 self-center">p{apgTransactionsPage}</span>
-                    <Button size="sm" variant="ghost" onClick={() => setApgTransactionsPage(p => p + 1)}>→</Button>
-                  </div>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead><tr className="border-b"><th className="text-left py-1 pr-3">Type</th><th className="text-left py-1 pr-3">Amount</th><th className="text-left py-1 pr-3">Reason</th><th className="text-left py-1">Date</th></tr></thead>
-                    <tbody>
-                      {apgTransactions.map((tx: any, i: number) => (
-                        <tr key={i} className="border-b border-border/50">
-                          <td className="py-1 pr-3"><Badge variant="outline" className="text-[10px]">{tx.type}</Badge></td>
-                          <td className="py-1 pr-3">GHS {tx.amount}</td>
-                          <td className="py-1 pr-3 text-muted-foreground">{tx.reason ?? tx.description ?? "—"}</td>
-                          <td className="py-1 text-muted-foreground">{tx.created_at ? new Date(tx.created_at).toLocaleDateString() : "—"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Top-up History */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm flex items-center justify-between">
-                  <span>Top-up History</span>
-                  <div className="flex gap-1">
-                    <Button size="sm" variant="ghost" onClick={() => setApgTopupsPage(p => Math.max(1, p - 1))} disabled={apgTopupsPage === 1}>←</Button>
-                    <span className="text-xs px-1 self-center">p{apgTopupsPage}</span>
-                    <Button size="sm" variant="ghost" onClick={() => setApgTopupsPage(p => p + 1)}>→</Button>
-                  </div>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead><tr className="border-b"><th className="text-left py-1 pr-3">Amount</th><th className="text-left py-1 pr-3">Phone</th><th className="text-left py-1 pr-3">Network</th><th className="text-left py-1 pr-3">Status</th><th className="text-left py-1">Date</th></tr></thead>
-                    <tbody>
-                      {apgTopups.map((tu: any, i: number) => (
-                        <tr key={i} className="border-b border-border/50">
-                          <td className="py-1 pr-3">GHS {tu.amount}</td>
-                          <td className="py-1 pr-3">{tu.phone}</td>
-                          <td className="py-1 pr-3">{tu.network}</td>
-                          <td className="py-1 pr-3"><Badge variant="outline" className="text-[10px]">{tu.status}</Badge></td>
-                          <td className="py-1 text-muted-foreground">{tu.created_at ? new Date(tu.created_at).toLocaleDateString() : "—"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Webhook Config */}
-            <Card>
-              <CardHeader><CardTitle className="text-sm">Webhook Configuration</CardTitle></CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex gap-2 flex-wrap">
-                  <Input placeholder="Webhook URL" value={apgWebhookUrl} onChange={e => setApgWebhookUrl(e.target.value)} className="h-8 text-xs flex-1 min-w-48" />
-                  <div className="flex items-center gap-2">
-                    <Switch checked={apgWebhookEnabled} onCheckedChange={setApgWebhookEnabled} />
-                    <Label className="text-xs">Enabled</Label>
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <Button size="sm" onClick={() => saveApgWebhookConfig(false)} disabled={apgWebhookSaving}>{apgWebhookSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}</Button>
-                  <Button size="sm" variant="outline" onClick={() => saveApgWebhookConfig(true)} disabled={apgWebhookSaving}>Rotate Secret</Button>
-                </div>
-                {apgWebhookConfig?.secret && (
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span>Secret: {apgWebhookConfig.secret.slice(0, 8)}…</span>
-                    <Button size="sm" variant="ghost" className="h-5 px-1 text-[10px]" onClick={() => navigator.clipboard.writeText(apgWebhookConfig.secret)}>Copy</Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Webhook Deliveries */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm flex items-center justify-between">
-                  <span>Webhook Deliveries</span>
-                  <div className="flex gap-1">
-                    <Button size="sm" variant="ghost" onClick={() => setApgDeliveriesPage(p => Math.max(1, p - 1))} disabled={apgDeliveriesPage === 1}>←</Button>
-                    <span className="text-xs px-1 self-center">p{apgDeliveriesPage}</span>
-                    <Button size="sm" variant="ghost" onClick={() => setApgDeliveriesPage(p => p + 1)}>→</Button>
-                  </div>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead><tr className="border-b"><th className="text-left py-1 pr-3">Order ID</th><th className="text-left py-1 pr-3">Status</th><th className="text-left py-1 pr-3">Date</th><th className="text-left py-1"></th></tr></thead>
-                    <tbody>
-                      {apgDeliveries.map((d: any, i: number) => (
-                        <tr key={i} className="border-b border-border/50">
-                          <td className="py-1 pr-3 font-mono">{d.order_id ?? d.id}</td>
-                          <td className="py-1 pr-3"><Badge variant="outline" className="text-[10px]">{d.status}</Badge></td>
-                          <td className="py-1 pr-3 text-muted-foreground">{d.created_at ? new Date(d.created_at).toLocaleDateString() : "—"}</td>
-                          <td className="py-1"><Button size="sm" variant="ghost" className="h-5 px-1 text-[10px]" onClick={() => resendApgDelivery(d.id)}>Resend</Button></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Whitelist Checker */}
-            <Card>
-              <CardHeader><CardTitle className="text-sm">Whitelist Checker</CardTitle></CardHeader>
-              <CardContent className="space-y-3">
-                <textarea
-                  className="w-full h-28 text-xs font-mono border rounded-md p-2 bg-background resize-none"
-                  placeholder="One phone number per line (up to 1,000)"
-                  value={apgWhitelistInput}
-                  onChange={e => setApgWhitelistInput(e.target.value)}
-                />
-                <Button size="sm" onClick={checkApgWhitelist} disabled={apgWhitelistLoading || !apgWhitelistInput.trim()}>
-                  {apgWhitelistLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Check"}
-                </Button>
-                {apgWhitelistResult.length > 0 && (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead><tr className="border-b"><th className="text-left py-1 pr-4">MSISDN</th><th className="text-left py-1">Allowed</th></tr></thead>
-                      <tbody>
-                        {apgWhitelistResult.map((r: any, i: number) => (
-                          <tr key={i} className="border-b border-border/50">
-                            <td className="py-1 pr-4 font-mono">{r.msisdn}</td>
-                            <td className="py-1"><Badge variant={r.allowed ? "default" : "destructive"} className="text-[10px]">{r.allowed ? "Yes" : "No"}</Badge></td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Order History */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm flex items-center justify-between">
-                  <span>Order History</span>
-                  <div className="flex gap-2">
-                    <Input placeholder="Search…" value={apgOrdersSearch} onChange={e => setApgOrdersSearch(e.target.value)} className="h-7 w-36 text-xs" />
-                    <Button size="sm" onClick={loadApgOrders} disabled={apgOrdersLoading}>{apgOrdersLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Search"}</Button>
-                  </div>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead><tr className="border-b"><th className="text-left py-1 pr-3">Name</th><th className="text-left py-1 pr-3">Status</th><th className="text-left py-1 pr-3">Success</th><th className="text-left py-1 pr-3">Fail</th><th className="text-left py-1">Date</th></tr></thead>
-                    <tbody>
-                      {apgOrders.map((ord: any, i: number) => (
-                        <>
-                          <tr key={i} className="border-b border-border/50 cursor-pointer hover:bg-muted/30" onClick={() => expandApgOrder(ord.id)}>
-                            <td className="py-1 pr-3">{ord.group_name ?? ord.name ?? ord.id}</td>
-                            <td className="py-1 pr-3"><Badge variant="outline" className="text-[10px]">{ord.status}</Badge></td>
-                            <td className="py-1 pr-3 text-emerald-500">{ord.success_count ?? "—"}</td>
-                            <td className="py-1 pr-3 text-red-500">{ord.failure_count ?? "—"}</td>
-                            <td className="py-1 text-muted-foreground">{ord.created_at ? new Date(ord.created_at).toLocaleDateString() : "—"}</td>
-                          </tr>
-                          {apgExpandedOrder === ord.id && (
-                            <tr key={`${i}-items`} className="bg-muted/20">
-                              <td colSpan={5} className="py-2 px-3">
-                                {apgOrderItems[ord.id] ? (
-                                  <div className="overflow-x-auto">
-                                    <table className="w-full text-[10px]">
-                                      <thead><tr className="border-b"><th className="text-left pr-3 py-0.5">MSISDN</th><th className="text-left pr-3 py-0.5">Ref</th><th className="text-left pr-3 py-0.5">Status</th><th className="text-left py-0.5">Reason</th></tr></thead>
-                                      <tbody>
-                                        {apgOrderItems[ord.id].map((item: any, j: number) => (
-                                          <tr key={j} className="border-b border-border/30">
-                                            <td className="pr-3 py-0.5 font-mono">{item.msisdn}</td>
-                                            <td className="pr-3 py-0.5 font-mono text-muted-foreground">{item.reference?.slice(0, 8)}…</td>
-                                            <td className="pr-3 py-0.5"><Badge variant="outline" className="text-[9px]">{item.status}</Badge></td>
-                                            <td className="py-0.5 text-muted-foreground">{item.failed_reason ?? "—"}</td>
-                                          </tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                  </div>
-                                ) : (
-                                  <p className="text-xs text-muted-foreground">Loading items…</p>
-                                )}
-                              </td>
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm flex items-center justify-between">
+                      <span>Transaction History</span>
+                      <div className="flex gap-1">
+                        <Button size="sm" variant="ghost" onClick={() => setApgTransactionsPage(p => Math.max(1, p - 1))} disabled={apgTransactionsPage === 1}>←</Button>
+                        <span className="text-xs px-1 self-center">p{apgTransactionsPage}</span>
+                        <Button size="sm" variant="ghost" onClick={() => setApgTransactionsPage(p => p + 1)}>→</Button>
+                      </div>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead><tr className="border-b"><th className="text-left py-1 pr-3">Type</th><th className="text-left py-1 pr-3">Amount</th><th className="text-left py-1 pr-3">Reason</th><th className="text-left py-1">Date</th></tr></thead>
+                        <tbody>
+                          {apgTransactions.map((tx: any, i: number) => (
+                            <tr key={i} className="border-b border-border/50">
+                              <td className="py-1 pr-3"><Badge variant="outline" className="text-[10px]">{tx.type}</Badge></td>
+                              <td className="py-1 pr-3">GHS {tx.amount}</td>
+                              <td className="py-1 pr-3 text-muted-foreground">{tx.reason ?? tx.description ?? "—"}</td>
+                              <td className="py-1 text-muted-foreground">{tx.created_at ? new Date(tx.created_at).toLocaleDateString() : "—"}</td>
                             </tr>
-                          )}
-                        </>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm flex items-center justify-between">
+                      <span>Top-up History</span>
+                      <div className="flex gap-1">
+                        <Button size="sm" variant="ghost" onClick={() => setApgTopupsPage(p => Math.max(1, p - 1))} disabled={apgTopupsPage === 1}>←</Button>
+                        <span className="text-xs px-1 self-center">p{apgTopupsPage}</span>
+                        <Button size="sm" variant="ghost" onClick={() => setApgTopupsPage(p => p + 1)}>→</Button>
+                      </div>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead><tr className="border-b"><th className="text-left py-1 pr-3">Amount</th><th className="text-left py-1 pr-3">Phone</th><th className="text-left py-1 pr-3">Network</th><th className="text-left py-1 pr-3">Status</th><th className="text-left py-1">Date</th></tr></thead>
+                        <tbody>
+                          {apgTopups.map((tu: any, i: number) => (
+                            <tr key={i} className="border-b border-border/50">
+                              <td className="py-1 pr-3">GHS {tu.amount}</td>
+                              <td className="py-1 pr-3">{tu.phone}</td>
+                              <td className="py-1 pr-3">{tu.network}</td>
+                              <td className="py-1 pr-3"><Badge variant="outline" className="text-[10px]">{tu.status}</Badge></td>
+                              <td className="py-1 text-muted-foreground">{tu.created_at ? new Date(tu.created_at).toLocaleDateString() : "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* ─── APG: Webhooks ─── */}
+              <TabsContent value="webhooks" className="space-y-4 mt-4">
+                <Card>
+                  <CardHeader><CardTitle className="text-sm">Webhook Configuration</CardTitle></CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="flex gap-2 flex-wrap">
+                      <Input placeholder="Webhook URL" value={apgWebhookUrl} onChange={e => setApgWebhookUrl(e.target.value)} className="h-8 text-xs flex-1 min-w-48" />
+                      <div className="flex items-center gap-2">
+                        <Switch checked={apgWebhookEnabled} onCheckedChange={setApgWebhookEnabled} />
+                        <Label className="text-xs">Enabled</Label>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button size="sm" onClick={() => saveApgWebhookConfig(false)} disabled={apgWebhookSaving}>{apgWebhookSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}</Button>
+                      <Button size="sm" variant="outline" onClick={() => saveApgWebhookConfig(true)} disabled={apgWebhookSaving}>Rotate Secret</Button>
+                    </div>
+                    {apgWebhookConfig?.secret && (
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span>Secret: {apgWebhookConfig.secret.slice(0, 8)}…</span>
+                        <Button size="sm" variant="ghost" className="h-5 px-1 text-[10px]" onClick={() => navigator.clipboard.writeText(apgWebhookConfig.secret)}>Copy</Button>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm flex items-center justify-between">
+                      <span>Webhook Deliveries</span>
+                      <div className="flex gap-1">
+                        <Button size="sm" variant="ghost" onClick={() => setApgDeliveriesPage(p => Math.max(1, p - 1))} disabled={apgDeliveriesPage === 1}>←</Button>
+                        <span className="text-xs px-1 self-center">p{apgDeliveriesPage}</span>
+                        <Button size="sm" variant="ghost" onClick={() => setApgDeliveriesPage(p => p + 1)}>→</Button>
+                      </div>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead><tr className="border-b"><th className="text-left py-1 pr-3">Order ID</th><th className="text-left py-1 pr-3">Status</th><th className="text-left py-1 pr-3">Date</th><th className="text-left py-1"></th></tr></thead>
+                        <tbody>
+                          {apgDeliveries.map((d: any, i: number) => (
+                            <tr key={i} className="border-b border-border/50">
+                              <td className="py-1 pr-3 font-mono">{d.order_id ?? d.id}</td>
+                              <td className="py-1 pr-3"><Badge variant="outline" className="text-[10px]">{d.status}</Badge></td>
+                              <td className="py-1 pr-3 text-muted-foreground">{d.created_at ? new Date(d.created_at).toLocaleDateString() : "—"}</td>
+                              <td className="py-1"><Button size="sm" variant="ghost" className="h-5 px-1 text-[10px]" onClick={() => resendApgDelivery(d.id)}>Resend</Button></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* ─── APG: Whitelist ─── */}
+              <TabsContent value="whitelist" className="space-y-4 mt-4">
+                <Card>
+                  <CardHeader><CardTitle className="text-sm">Whitelist Checker</CardTitle></CardHeader>
+                  <CardContent className="space-y-3">
+                    <textarea
+                      className="w-full h-28 text-xs font-mono border rounded-md p-2 bg-background resize-none"
+                      placeholder="One phone number per line (up to 1,000)"
+                      value={apgWhitelistInput}
+                      onChange={e => setApgWhitelistInput(e.target.value)}
+                    />
+                    <Button size="sm" onClick={checkApgWhitelist} disabled={apgWhitelistLoading || !apgWhitelistInput.trim()}>
+                      {apgWhitelistLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Check"}
+                    </Button>
+                    {apgWhitelistResult.length > 0 && (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead><tr className="border-b"><th className="text-left py-1 pr-4">MSISDN</th><th className="text-left py-1">Allowed</th></tr></thead>
+                          <tbody>
+                            {apgWhitelistResult.map((r: any, i: number) => (
+                              <tr key={i} className="border-b border-border/50">
+                                <td className="py-1 pr-4 font-mono">{r.msisdn}</td>
+                                <td className="py-1"><Badge variant={r.allowed ? "default" : "destructive"} className="text-[10px]">{r.allowed ? "Yes" : "No"}</Badge></td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* ─── APG: Orders ─── */}
+              <TabsContent value="orders" className="space-y-4 mt-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm flex items-center justify-between">
+                      <span>Order History</span>
+                      <div className="flex gap-2">
+                        <Input placeholder="Search…" value={apgOrdersSearch} onChange={e => setApgOrdersSearch(e.target.value)} className="h-7 w-36 text-xs" />
+                        <Button size="sm" onClick={loadApgOrders} disabled={apgOrdersLoading}>{apgOrdersLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Search"}</Button>
+                      </div>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead><tr className="border-b"><th className="text-left py-1 pr-3">Name</th><th className="text-left py-1 pr-3">Status</th><th className="text-left py-1 pr-3">Success</th><th className="text-left py-1 pr-3">Fail</th><th className="text-left py-1">Date</th></tr></thead>
+                        <tbody>
+                          {apgOrders.map((ord: any, i: number) => (
+                            <>
+                              <tr key={i} className="border-b border-border/50 cursor-pointer hover:bg-muted/30" onClick={() => expandApgOrder(ord.id)}>
+                                <td className="py-1 pr-3">{ord.group_name ?? ord.name ?? ord.id}</td>
+                                <td className="py-1 pr-3"><Badge variant="outline" className="text-[10px]">{ord.status}</Badge></td>
+                                <td className="py-1 pr-3 text-emerald-500">{ord.success_count ?? "—"}</td>
+                                <td className="py-1 pr-3 text-red-500">{ord.failure_count ?? "—"}</td>
+                                <td className="py-1 text-muted-foreground">{ord.created_at ? new Date(ord.created_at).toLocaleDateString() : "—"}</td>
+                              </tr>
+                              {apgExpandedOrder === ord.id && (
+                                <tr key={`${i}-items`} className="bg-muted/20">
+                                  <td colSpan={5} className="py-2 px-3">
+                                    {apgOrderItems[ord.id] ? (
+                                      <div className="overflow-x-auto">
+                                        <table className="w-full text-[10px]">
+                                          <thead><tr className="border-b"><th className="text-left pr-3 py-0.5">MSISDN</th><th className="text-left pr-3 py-0.5">Ref</th><th className="text-left pr-3 py-0.5">Status</th><th className="text-left py-0.5">Reason</th></tr></thead>
+                                          <tbody>
+                                            {apgOrderItems[ord.id].map((item: any, j: number) => (
+                                              <tr key={j} className="border-b border-border/30">
+                                                <td className="pr-3 py-0.5 font-mono">{item.msisdn}</td>
+                                                <td className="pr-3 py-0.5 font-mono text-muted-foreground">{item.reference?.slice(0, 8)}…</td>
+                                                <td className="pr-3 py-0.5"><Badge variant="outline" className="text-[9px]">{item.status}</Badge></td>
+                                                <td className="py-0.5 text-muted-foreground">{item.failed_reason ?? "—"}</td>
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                    ) : (
+                                      <p className="text-xs text-muted-foreground">Loading items…</p>
+                                    )}
+                                  </td>
+                                </tr>
+                              )}
+                            </>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
           </TabsContent>
         </Tabs>
       </div>
