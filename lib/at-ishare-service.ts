@@ -868,6 +868,14 @@ class ATiShareService {
         error_message: errorMessage,
         fulfilled_at: status === "success" ? new Date().toISOString() : null,
         updated_at: new Date().toISOString(),
+        // Safety-net default: fulfillOrder() is triggered fire-and-forget from most
+        // call sites (no await before the HTTP response returns), and only sets a
+        // proper retry_after after up to 30s of synchronous polling. If the
+        // serverless function gets torn down before reaching that point, a row with
+        // retry_after left NULL is invisible to checkScheduledOrders() forever —
+        // Postgres's `<=` comparison against NULL is never true. Setting a default
+        // here guarantees this row is re-evaluated even if that never happens.
+        retry_after: status === "processing" ? new Date(Date.now() + 5 * 60 * 1000).toISOString() : null,
       }
 
       // Link to the correct order ID column
