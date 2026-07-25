@@ -33,15 +33,6 @@ export function mapItemStatus(raw: string): "pending" | "processing" | "complete
   return "processing"
 }
 
-/** Map GET /api/queue's status enum (pending|processing|done|failed) — "done" here means completed. */
-export function mapQueueStatus(raw: string): "pending" | "processing" | "completed" | "failed" {
-  const s = (raw ?? "").toLowerCase().trim()
-  if (s === "done") return "completed"
-  if (s === "failed") return "failed"
-  if (s === "pending") return "pending"
-  return "processing"
-}
-
 /** Construct the POST /api/queue/add request body. */
 export function buildQueuePayload(
   msisdn: string,
@@ -127,46 +118,15 @@ export class AgentPortalGHProvider implements MTNProvider {
     const id = String(orderId)
     const orderIdOf = (o: any): string | undefined => o?.order_id ?? o?.id
 
-    // Step 1: check the live queue. Per docs §5 ("reference... echoed back on
-    // every read — the preview response, /api/queue, and
-    // /api/beneficiaries/orders/{id}/items") and §6 (GET /api/queue?status=&page=
-    // &page_size=, status one of pending|processing|done|failed), reference IS
-    // reliably present here — unlike the webhook's per-item reference, which the
-    // docs themselves describe as "order-summary only" and which is empirically
-    // null in real deliveries. An item can sit in the queue for a while before
-    // being promoted into an "order" (see §5's two-stage flow), so it may not
-    // show up in the orders-listing search below yet even though it's genuinely
-    // in flight — only check the two non-terminal states here; terminal outcomes
-    // are handled more richly by the orders-listing step.
-    for (const qStatus of ["pending", "processing"] as const) {
-      try {
-        const res = await apiFetch(`/api/queue?status=${qStatus}&page=1&page_size=200`)
-        const body = await res.text()
-        if (!res.ok) {
-          console.warn(`[AgentPortalGH] Queue check (status=${qStatus}) HTTP ${res.status}: ${body.slice(0, 300)}`)
-          continue
-        }
-        const data = JSON.parse(body)
-        const entries: any[] = data.data ?? data.items ?? (Array.isArray(data) ? data : [])
-        let match: any = entries.find((entry: any) => entry?.reference === id)
-        if (!match) {
-          for (const entry of entries) {
-            match = (entry?.items as any[] ?? []).find((it: any) => it?.reference === id)
-            if (match) break
-          }
-        }
-        if (match) {
-          return { success: true, status: mapQueueStatus(match.status ?? qStatus), message: `Order is ${match.status ?? qStatus} in the queue` }
-        }
-      } catch (err) {
-        console.warn(`[AgentPortalGH] Queue check (status=${qStatus}) threw:`, err)
-      }
-    }
-
-    // Step 2: not (yet) in the queue — it may have been promoted to an order and
-    // finished. Look up our own tracking row for the recipient phone + creation
-    // date, so we can search AgentPortalGH's order listing precisely instead of
-    // guessing at pagination/sort order on an unscoped query. Per their docs (§7):
+    // The queue's own status (pending/processing/done/failed, §6) is AgentPortalGH's
+    // internal processing pipeline — not the real delivery outcome. Retriable
+    // failures are auto-retried up to 3 times (§8), so even a "failed" queue item
+    // isn't necessarily final. The order listing's success_count/failure_count is
+    // the authoritative, post-completion delivery status — that's the only thing
+    // allowed to set a terminal status here. Look up our own tracking row for the
+    // recipient phone + creation date, so we can search AgentPortalGH's order
+    // listing precisely instead of guessing at pagination/sort order on an
+    // unscoped query. Per their docs (§7):
     // GET /api/beneficiaries/orders?filter=&search=&date= — search is a numeric
     // MSISDN substring match or a group-name match; date scopes to a single day.
     let phone: string | undefined
