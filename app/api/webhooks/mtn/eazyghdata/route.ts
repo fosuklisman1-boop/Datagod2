@@ -13,6 +13,11 @@ const supabase = createClient(
  * v1 = HMAC-SHA256("<t>.<rawBody>", secret). Confirmed 2026-07-25 from their
  * webhook docs (they disabled order-status polling entirely — webhooks are now
  * the ONLY way to learn an order's outcome).
+ *
+ * Their issued secret carries a "whsec_" prefix, and their dashboard verifier
+ * uses the key WITHOUT that prefix while their example code passes the secret
+ * opaquely — so which variant their live sender uses is ambiguous. We accept a
+ * signature computed with either key form.
  */
 function verifySig(rawBody: string, header: string | null, secret: string): boolean {
   if (!header) return false
@@ -21,10 +26,12 @@ function verifySig(rawBody: string, header: string | null, secret: string): bool
     const t = parts["t"]
     const v1 = parts["v1"]
     if (!t || !v1) return false
-    const expected = crypto.createHmac("sha256", secret).update(`${t}.${rawBody}`).digest("hex")
-    const a = Buffer.from(expected)
     const b = Buffer.from(v1)
-    return a.length === b.length && crypto.timingSafeEqual(a, b)
+    const keys = secret.startsWith("whsec_") ? [secret, secret.slice(6)] : [secret]
+    return keys.some(key => {
+      const a = Buffer.from(crypto.createHmac("sha256", key).update(`${t}.${rawBody}`).digest("hex"))
+      return a.length === b.length && crypto.timingSafeEqual(a, b)
+    })
   } catch {
     return false
   }
