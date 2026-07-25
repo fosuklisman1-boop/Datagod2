@@ -119,7 +119,18 @@ async function checkAgentPortalGHBatch(
     const chunk = msisdns.slice(i, i + 1000)
     try {
       const data = await provider.verifyWhitelist(chunk)
-      results.push(...(data.data ?? data.results ?? chunk.map((m: string) => ({ msisdn: m, allowed: true }))))
+      // Confirmed response shape (AgentPortalGH docs §5):
+      // { network, results: [{ input, normalized, allowed }], allowed_count, total }
+      const raw: any[] = data.results ?? data.data ?? []
+      if (raw.length > 0) {
+        results.push(...raw.map((r: any) => ({
+          msisdn: r.normalized ?? r.input ?? r.msisdn,
+          allowed: r.allowed === true,
+          reason: r.reason,
+        })))
+      } else {
+        chunk.forEach(m => results.push({ msisdn: m, allowed: true }))
+      }
     } catch {
       chunk.forEach(m => results.push({ msisdn: m, allowed: true }))
     }

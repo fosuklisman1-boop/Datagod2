@@ -640,7 +640,9 @@ export default function MTNSettingsPage() {
       headers: { "Content-Type": "application/json", ...hdrs },
       body: JSON.stringify({ amount: parseFloat(apgTopupAmount), phone: apgTopupPhone, network: apgTopupNetwork }),
     }).then(r => r.json())
-    setApgTopupResult(res.message ?? (res.success ? "Top-up initiated" : JSON.stringify(res)))
+    // Confirmed error shape is { error: "..." } — success has no confirmed shape
+    // beyond "the wallet is not credited immediately" (MoMo prompt, async confirm).
+    setApgTopupResult(res.error ?? res.message ?? "MoMo prompt sent — check Top-up History for confirmation")
     setApgTopupLoading(false)
   }
 
@@ -698,14 +700,13 @@ export default function MTNSettingsPage() {
         toast.error(json.error ?? "Whitelist check failed")
         return
       }
-      const rawList: any[] = Array.isArray(json.data) ? json.data : Array.isArray(json.results) ? json.results : Array.isArray(json) ? json : []
-      // Field name from AgentPortalGH's response is unconfirmed — fall back through
-      // likely aliases, and finally to the submitted number at the same index (batch
-      // verify endpoints preserve request order), so the column is never blank.
+      // Confirmed response shape (AgentPortalGH docs §5):
+      // { network, results: [{ input, normalized, allowed }], allowed_count, total }
+      const rawList: any[] = Array.isArray(json.results) ? json.results : Array.isArray(json.data) ? json.data : Array.isArray(json) ? json : []
       const normalized = rawList.map((r: any, i: number) => ({
-        msisdn: r.msisdn ?? r.phone ?? r.phone_number ?? r.number ?? r.msisdn_number ?? msisdns[i] ?? "—",
-        allowed: r.allowed ?? r.is_allowed ?? r.whitelisted ?? r.enabled ?? false,
-        reason: r.reason ?? r.message,
+        msisdn: r.normalized ?? r.input ?? r.msisdn ?? msisdns[i] ?? "—",
+        allowed: r.allowed === true,
+        reason: r.reason,
       }))
       setApgWhitelistResult(normalized)
     } catch (e) {
@@ -1438,11 +1439,12 @@ export default function MTNSettingsPage() {
                     </div>
                     {apgSummary && (
                       <div className="grid grid-cols-2 gap-2 text-sm">
-                        <div><span className="text-muted-foreground">Orders:</span> {apgSummary.total_orders ?? "—"}</div>
+                        <div><span className="text-muted-foreground">Orders:</span> {apgSummary.orders ?? "—"}</div>
                         <div><span className="text-muted-foreground">Success:</span> {apgSummary.success_count ?? "—"}</div>
                         <div><span className="text-muted-foreground">Failed:</span> {apgSummary.failure_count ?? "—"}</div>
-                        <div><span className="text-muted-foreground">Total GB:</span> {apgSummary.total_gb ?? "—"}</div>
-                        <div><span className="text-muted-foreground">Charged (GHS):</span> {apgSummary.total_charged ?? "—"}</div>
+                        <div><span className="text-muted-foreground">Total GB:</span> {apgSummary.data_gb ?? "—"}</div>
+                        <div><span className="text-muted-foreground">Charged (GHS):</span> {apgSummary.charged ?? "—"}</div>
+                        <div><span className="text-muted-foreground">Pending Top-ups:</span> {apgSummary.pending_topups ?? "—"}</div>
                       </div>
                     )}
                   </CardContent>
@@ -1480,8 +1482,8 @@ export default function MTNSettingsPage() {
                       <Input placeholder="Phone" value={apgTopupPhone} onChange={e => setApgTopupPhone(e.target.value)} className="h-8 text-xs w-36" />
                       <select value={apgTopupNetwork} onChange={e => setApgTopupNetwork(e.target.value)} className="h-8 text-xs border rounded-md px-2 bg-background">
                         <option value="MTN">MTN</option>
-                        <option value="Telecel">Telecel</option>
-                        <option value="AirtelTigo">AirtelTigo</option>
+                        <option value="TELECEL">Telecel</option>
+                        <option value="AIRTELTIGO">AirtelTigo</option>
                       </select>
                       <Button size="sm" onClick={handleApgTopup} disabled={apgTopupLoading || !apgTopupAmount || !apgTopupPhone}>
                         {apgTopupLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Top Up"}
