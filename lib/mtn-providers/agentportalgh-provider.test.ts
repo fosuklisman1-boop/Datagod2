@@ -1,6 +1,7 @@
 import {
   mapItemStatus,
   buildQueuePayload,
+  deriveOrderStatus,
 } from "@/lib/mtn-providers/agentportalgh-provider"
 
 describe("mapItemStatus", () => {
@@ -32,5 +33,27 @@ describe("buildQueuePayload", () => {
   it("passes the msisdn through unchanged", () => {
     const body = buildQueuePayload("0241234567", 5, "r")
     expect(body.items[0].msisdn).toBe("0241234567")
+  })
+})
+
+describe("deriveOrderStatus", () => {
+  it("returns null when no count fields are present (caller should try another source)", () => {
+    expect(deriveOrderStatus({ processing_status: "DONE" })).toBeNull()
+  })
+  it("returns completed when success_count > 0 and failure_count is 0", () => {
+    expect(deriveOrderStatus({ success_count: 1, failure_count: 0 })).toBe("completed")
+  })
+  it("returns failed when failure_count > 0 and success_count is 0", () => {
+    expect(deriveOrderStatus({ success_count: 0, failure_count: 1 })).toBe("failed")
+  })
+  it("uses processing_status DONE + failure_count to break a mixed/zero count tie", () => {
+    expect(deriveOrderStatus({ success_count: 0, failure_count: 0, processing_status: "DONE" })).toBe("completed")
+    expect(deriveOrderStatus({ success_count: 0, failure_count: 2, processing_status: "DONE" })).toBe("failed")
+  })
+  it("returns processing when neither terminal condition nor DONE applies", () => {
+    expect(deriveOrderStatus({ success_count: 0, failure_count: 0, processing_status: "IN_PROGRESS" })).toBe("processing")
+  })
+  it("falls back to legacy 'status' field if processing_status is absent", () => {
+    expect(deriveOrderStatus({ success_count: 0, failure_count: 0, status: "DONE" })).toBe("completed")
   })
 })

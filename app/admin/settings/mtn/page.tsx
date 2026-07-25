@@ -1711,7 +1711,7 @@ export default function MTNSettingsPage() {
                             <>
                               <tr key={i} className="border-b border-border/50 cursor-pointer hover:bg-muted/30" onClick={() => expandApgOrder(ordId)}>
                                 <td className="py-1 pr-3">{ord.group_name ?? ord.name ?? ordId}</td>
-                                <td className="py-1 pr-3"><Badge variant="outline" className="text-[10px]">{ord.status}</Badge></td>
+                                <td className="py-1 pr-3"><Badge variant="outline" className="text-[10px]">{ord.processing_status ?? ord.status}</Badge></td>
                                 <td className="py-1 pr-3 text-emerald-500">{ord.success_count ?? "—"}</td>
                                 <td className="py-1 pr-3 text-red-500">{ord.failure_count ?? "—"}</td>
                                 <td className="py-1 text-muted-foreground">{ord.created_at ? new Date(ord.created_at).toLocaleDateString() : "—"}</td>
