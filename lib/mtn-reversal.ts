@@ -39,13 +39,48 @@ function orderTarget(row: ReversalRow): { table: string; col: "status" | "order_
   return null
 }
 
-/** Flag a provider reversal: tracking + order -> 'reversed', notify admins. */
+/** Which mtn_fulfillment_tracking column links sibling rows for the same order. Mirrors orderTarget()'s branching, but returns the TRACKING table's own linking column (not the destination order table's). */
+function trackingLinkColumn(row: ReversalRow): { col: "order_id" | "shop_order_id" | "api_order_id"; id: string } | null {
+  if (row.order_type === "api" && row.api_order_id) return { col: "api_order_id", id: row.api_order_id }
+  if ((row.order_type === "bulk" || row.order_type === "ussd" || row.order_type === "ussd_shop") && row.order_id) return { col: "order_id", id: row.order_id }
+  if (row.shop_order_id) return { col: "shop_order_id", id: row.shop_order_id }
+  if (row.order_id) return { col: "order_id", id: row.order_id }
+  if (row.api_order_id) return { col: "api_order_id", id: row.api_order_id }
+  return null
+}
+
+/**
+ * Flag a provider reversal: tracking + order -> 'reversed', notify admins.
+ *
+ * Guards against a stale-row false reversal: saveMTNTracking() always INSERTs a
+ * new mtn_fulfillment_tracking row per fulfillment attempt rather than updating
+ * an existing one, so multiple rows can exist for the same order (e.g. an admin
+ * manually re-fulfilled via a different provider after the original attempt
+ * stalled). If another tracking row for the same order already shows
+ * status="completed", this row is stale/superseded — the order already has a
+ * genuinely successful, more recent delivery, so reversing it here would
+ * incorrectly undo that. In that case only this row is marked reversed (for its
+ * own audit accuracy); the shared order is left untouched.
+ */
 export async function flagReversal(
   supabase: SupabaseClient,
   row: ReversalRow,
   provider: { status?: string; message?: string },
-): Promise<{ flagged: boolean }> {
+): Promise<{ flagged: boolean; superseded: boolean }> {
   const nowIso = new Date().toISOString()
+
+  let superseded = false
+  const link = trackingLinkColumn(row)
+  if (link) {
+    const { data: newer } = await supabase
+      .from("mtn_fulfillment_tracking")
+      .select("id")
+      .eq(link.col, link.id)
+      .neq("id", row.id)
+      .eq("status", "completed")
+      .limit(1)
+    superseded = !!(newer && newer.length > 0)
+  }
 
   await supabase
     .from("mtn_fulfillment_tracking")
@@ -53,18 +88,26 @@ export async function flagReversal(
     .eq("id", row.id)
 
   const target = orderTarget(row)
-  if (target) {
+  if (target && !superseded) {
     await supabase.from(target.table).update({ [target.col]: "reversed", updated_at: nowIso }).eq("id", target.id)
   }
 
   const ref = row.shop_order_id || row.order_id || row.api_order_id || row.id
-  notifyAdminsPush({
-    title: "⚠️ Provider reversed a completed order",
-    body: `${row.provider ?? "provider"} flipped order #${String(ref).slice(0, 8)} completed→failed — flagged for review`,
-    data: { url: "/admin/orders" },
-  }).catch(() => {})
+  if (superseded) {
+    notifyAdminsPush({
+      title: "ℹ️ Stale provider tracking auto-resolved",
+      body: `${row.provider ?? "provider"}'s attempt for order #${String(ref).slice(0, 8)} now reports failed, but a newer tracking row already shows it delivered — order left untouched.`,
+      data: { url: "/admin/orders" },
+    }).catch(() => {})
+  } else {
+    notifyAdminsPush({
+      title: "⚠️ Provider reversed a completed order",
+      body: `${row.provider ?? "provider"} flipped order #${String(ref).slice(0, 8)} completed→failed — flagged for review`,
+      data: { url: "/admin/orders" },
+    }).catch(() => {})
+  }
 
-  return { flagged: true }
+  return { flagged: true, superseded }
 }
 
 /** Load completed tracking rows for a provider still inside the 72h reversal window. */
