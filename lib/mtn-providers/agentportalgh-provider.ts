@@ -52,16 +52,34 @@ export function buildQueuePayload(
  * failure_count, missing_count, created_at, updated_at } — note the order-level
  * status field is "processing_status", NOT "status"). Returns null if the entry
  * doesn't carry enough info to decide (caller should try another source).
+ *
+ * success_count/failure_count are ONLY authoritative once processing_status is
+ * "DONE" — per docs §8, retriable failures are automatically retried up to 3
+ * times before becoming terminal, so a non-zero failure_count could reflect an
+ * item mid-retry rather than a final outcome. Reading the counts before the
+ * order is DONE risks reporting "failed" on something that's about to succeed.
  */
 export function deriveOrderStatus(order: any): "completed" | "failed" | "processing" | null {
+  const processingStatus = order?.processing_status ?? order?.status
   const success = typeof order?.success_count === "number" ? order.success_count : undefined
   const failure = typeof order?.failure_count === "number" ? order.failure_count : undefined
+
+  // No counts at all — nothing to derive from; let the caller fall back to
+  // fetching items directly.
   if (success === undefined && failure === undefined) return null
+
+  if (processingStatus !== "DONE") {
+    // Counts are only authoritative once the order itself is DONE — before that,
+    // a non-zero failure_count could reflect an item mid-retry (§8: retriable
+    // failures are retried up to 3x before becoming terminal), not a final result.
+    return "processing"
+  }
+
   if ((failure ?? 0) > 0 && (success ?? 0) === 0) return "failed"
-  if ((success ?? 0) > 0 && (failure ?? 0) === 0) return "completed"
-  const processingStatus = order?.processing_status ?? order?.status
-  if (processingStatus === "DONE") return (failure ?? 0) > 0 ? "failed" : "completed"
-  return "processing"
+  if ((success ?? 0) > 0) return "completed"
+  // DONE with zero success and zero failure (e.g. every item came back "missing")
+  // — nothing was delivered, so treat it as failed rather than looping forever.
+  return "failed"
 }
 
 // ── Provider class ───────────────────────────────────────────────────────────

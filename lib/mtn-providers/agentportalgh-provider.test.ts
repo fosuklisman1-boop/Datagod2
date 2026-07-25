@@ -40,20 +40,29 @@ describe("deriveOrderStatus", () => {
   it("returns null when no count fields are present (caller should try another source)", () => {
     expect(deriveOrderStatus({ processing_status: "DONE" })).toBeNull()
   })
-  it("returns completed when success_count > 0 and failure_count is 0", () => {
-    expect(deriveOrderStatus({ success_count: 1, failure_count: 0 })).toBe("completed")
+
+  it("does NOT trust counts while processing_status isn't DONE — retriable failures (§8) can flip to success", () => {
+    expect(deriveOrderStatus({ success_count: 0, failure_count: 1, processing_status: "IN_PROGRESS" })).toBe("processing")
+    expect(deriveOrderStatus({ success_count: 1, failure_count: 0, processing_status: "IN_PROGRESS" })).toBe("processing")
   })
-  it("returns failed when failure_count > 0 and success_count is 0", () => {
-    expect(deriveOrderStatus({ success_count: 0, failure_count: 1 })).toBe("failed")
+
+  it("returns processing when processing_status is entirely absent, even with counts present", () => {
+    expect(deriveOrderStatus({ success_count: 1, failure_count: 0 })).toBe("processing")
   })
-  it("uses processing_status DONE + failure_count to break a mixed/zero count tie", () => {
-    expect(deriveOrderStatus({ success_count: 0, failure_count: 0, processing_status: "DONE" })).toBe("completed")
-    expect(deriveOrderStatus({ success_count: 0, failure_count: 2, processing_status: "DONE" })).toBe("failed")
+
+  it("returns completed when DONE with success_count > 0 and failure_count is 0", () => {
+    expect(deriveOrderStatus({ success_count: 1, failure_count: 0, processing_status: "DONE" })).toBe("completed")
   })
-  it("returns processing when neither terminal condition nor DONE applies", () => {
-    expect(deriveOrderStatus({ success_count: 0, failure_count: 0, processing_status: "IN_PROGRESS" })).toBe("processing")
+
+  it("returns failed when DONE with failure_count > 0 and success_count is 0", () => {
+    expect(deriveOrderStatus({ success_count: 0, failure_count: 1, processing_status: "DONE" })).toBe("failed")
   })
+
+  it("treats DONE with zero success and zero failure as failed (e.g. all items came back missing)", () => {
+    expect(deriveOrderStatus({ success_count: 0, failure_count: 0, processing_status: "DONE" })).toBe("failed")
+  })
+
   it("falls back to legacy 'status' field if processing_status is absent", () => {
-    expect(deriveOrderStatus({ success_count: 0, failure_count: 0, status: "DONE" })).toBe("completed")
+    expect(deriveOrderStatus({ success_count: 1, failure_count: 0, status: "DONE" })).toBe("completed")
   })
 })
