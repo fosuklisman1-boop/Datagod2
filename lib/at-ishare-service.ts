@@ -379,9 +379,12 @@ class ATiShareService {
       console.log(`[CODECRAFT] Network: ${network}, isBigTime: ${isBigTime}`)
       console.log(`[CODECRAFT] External reference: ${externalReference || "none (using orderId)"}`)
 
-      // Determine correct endpoint
-      const endpoint = isBigTime ? "response_big_time.php" : "response_regular.php"
-      
+      // Determine correct endpoint. Confirmed per CodeCraft's current API docs
+      // (2026-07-25) — response_regular.php/response_big_time.php never existed;
+      // the real endpoints are status_regular.php and status_bigtime.php (no
+      // underscore in "bigtime").
+      const endpoint = isBigTime ? "status_bigtime.php" : "status_regular.php"
+
       // Use external reference if available, otherwise use our orderId
       const lookupRef = externalReference || orderId
 
@@ -684,10 +687,11 @@ class ATiShareService {
     try {
       console.log(`[CODECRAFT] Verifying fulfillment for order ${orderId} on ${network}`)
 
-      // Determine correct endpoint based on network
-      let endpoint = "response_regular.php"
+      // Determine correct endpoint based on network. Confirmed per CodeCraft's
+      // current API docs (2026-07-25) — see verifyAndUpdateStatus() above.
+      let endpoint = "status_regular.php"
       if (network === "BIG_TIME" || network === "BIGTIME") {
-        endpoint = "response_big_time.php"
+        endpoint = "status_bigtime.php"
       }
 
       // API docs say GET with reference_id - using query parameter

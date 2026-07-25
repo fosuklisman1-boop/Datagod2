@@ -20,7 +20,7 @@ function sleep(ms: number): Promise<void> {
 /**
  * GET /api/cron/sync-mtn-status/codecraft
  *
- * Polls CodeCraft /response_regular.php for each pending/processing MTN order
+ * Polls CodeCraft /status_regular.php for each pending/processing MTN order
  * and updates mtn_fulfillment_tracking + the originating order table.
  * Sends in-app + push notifications on completed/failed.
  */

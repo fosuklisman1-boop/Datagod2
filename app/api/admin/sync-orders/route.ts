@@ -128,8 +128,9 @@ export async function POST(request: NextRequest) {
                              fulfillmentLog?.api_response?.reference_id ||
                              order.id
         
-        // Determine correct endpoint
-        const endpoint = isBigTime ? "response_big_time.php" : "response_regular.php"
+        // Determine correct endpoint. Confirmed per CodeCraft's current API docs
+        // (2026-07-25) — real endpoints are status_regular.php/status_bigtime.php.
+        const endpoint = isBigTime ? "status_bigtime.php" : "status_regular.php"
         const url = `${codecraftApiUrl}/${endpoint}?reference_id=${encodeURIComponent(codecraftRef)}`
 
         console.log(`[SYNC-ORDERS] Checking order ${order.id} (CodeCraft ref: ${codecraftRef}, type: ${order.orderType})...`)

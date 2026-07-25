@@ -153,10 +153,12 @@ export class CodeCraftMTNProvider implements MTNProvider {
         try {
             log("info", "StatusCheck", `Checking CodeCraft order ${orderId}`, { traceId })
 
-            // Status lives at response_regular.php (status.php does not exist → 404).
-            // This matches the working AT/Telecel path in lib/at-ishare-service.ts.
+            // Confirmed per CodeCraft's current API docs (2026-07-25): the real
+            // endpoint is status_regular.php. Earlier code used response_regular.php
+            // (and before that, status.php) — both 404 (verified live: a raw hosting
+            // 404 HTML page, meaning nothing is listening at that path at all).
             const response = await fetch(
-                `${CODECRAFT_API_URL}/response_regular.php?reference_id=${encodeURIComponent(String(orderId))}`,
+                `${CODECRAFT_API_URL}/status_regular.php?reference_id=${encodeURIComponent(String(orderId))}`,
                 {
                     method: "GET",
                     headers: { "x-api-key": CODECRAFT_API_KEY },
