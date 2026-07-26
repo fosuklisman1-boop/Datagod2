@@ -105,38 +105,64 @@ async function processItems(payload: any) {
   // Per AgentPortalGH's docs, item.reference should equal what we sent at
   // /queue/add — but confirmed live 2026-07-24 it comes back null for our
   // (always single-item) submissions, while payload.order_id reliably equals
-  // it instead. Prefer item.reference when present (per docs, forward-compatible
-  // with multi-item batches); fall back to the order's own id otherwise. If more
-  // than one item ever needs the fallback simultaneously, log it — the fallback
-  // can't disambiguate between multiple items sharing one order_id.
-  const needsFallback = items.filter(i => !i.reference).length
-  if (needsFallback > 1) {
-    console.warn(`[WEBHOOK-AGENTPORTALGH] ${needsFallback}/${items.length} items missing reference in one payload — order_id fallback can't disambiguate multiple items`)
-  }
-
+  // it instead. CORRECTED 2026-07-26: live payload capture shows this
+  // assumption was wrong — payload.order_id is AgentPortalGH's own internal
+  // batch id (distinct from group_name), and it never matches what we submitted
+  // as `reference` at /queue/add time. item.reference itself is reliably null.
+  // The reference we send is never echoed back anywhere in this payload. The
+  // only usable link left is msisdn + data_mb — processItem() falls back to
+  // matching the oldest unresolved tracking row for that phone+size when a
+  // direct mtn_order_id lookup fails, same approach the polling path already
+  // uses successfully via the order-listing search.
   for (const item of items) {
     const ref: string | undefined = item.reference ?? payload.order_id
-    if (!ref) {
-      console.warn("[WEBHOOK-AGENTPORTALGH] Item has neither reference nor a fallback order_id, skipping:", JSON.stringify(item).slice(0, 300))
-      continue
-    }
     await processItem(item, ref)
   }
 }
 
-async function processItem(item: any, ref: string) {
+async function processItem(item: any, ref: string | undefined) {
   const newStatus = mapItemStatus(item.status)
   const externalMessage = item.failed_reason ?? item.status ?? null
 
-  // Find tracking row by our UUID (stored as mtn_order_id)
-  const { data: tracking, error: trackingErr } = await supabase
-    .from("mtn_fulfillment_tracking")
-    .select("id, status, order_type, order_id, api_order_id, shop_order_id")
-    .eq("mtn_order_id", ref)
-    .maybeSingle()
+  let tracking:
+    | { id: string; status: string; order_type: string; order_id: string | null; api_order_id: string | null; shop_order_id: string | null }
+    | null = null
 
-  if (trackingErr || !tracking) {
-    console.warn("[WEBHOOK-AGENTPORTALGH] Tracking row not found for reference:", ref)
+  if (ref) {
+    const { data } = await supabase
+      .from("mtn_fulfillment_tracking")
+      .select("id, status, order_type, order_id, api_order_id, shop_order_id")
+      .eq("mtn_order_id", ref)
+      .maybeSingle()
+    tracking = data
+  }
+
+  // Fall back to phone + size match against the oldest unresolved tracking row
+  // for this provider — see the note in processItems() for why this is needed.
+  if (!tracking && item.msisdn) {
+    const { normalizeGhanaPhone } = await import("@/lib/phone-format")
+    const normPhone = normalizeGhanaPhone(item.msisdn) ?? item.msisdn
+    const sizeGb = typeof item.data_mb === "number" ? item.data_mb / 1024 : undefined
+
+    const { data: candidates } = await supabase
+      .from("mtn_fulfillment_tracking")
+      .select("id, status, order_type, order_id, api_order_id, shop_order_id, size_gb")
+      .eq("provider", "agentportalgh")
+      .eq("recipient_phone", normPhone)
+      .in("status", ["pending", "processing"])
+      .order("created_at", { ascending: true })
+      .limit(10)
+
+    const rows = candidates ?? []
+    tracking = (sizeGb !== undefined ? rows.find(r => Number(r.size_gb) === sizeGb) : undefined) ?? rows[0] ?? null
+
+    if (tracking) {
+      console.log(`[WEBHOOK-AGENTPORTALGH] Matched by phone+size fallback (ref=${ref ?? "none"}, msisdn=${item.msisdn}): tracking ${tracking.id}`)
+    }
+  }
+
+  if (!tracking) {
+    console.warn("[WEBHOOK-AGENTPORTALGH] No tracking row found by reference or phone+size fallback:", ref, item.msisdn)
     return
   }
 
