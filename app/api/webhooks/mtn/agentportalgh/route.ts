@@ -137,20 +137,28 @@ async function processItem(item: any, ref: string | undefined) {
     tracking = data
   }
 
-  // Fall back to phone + size match against the oldest unresolved tracking row
-  // for this provider — see the note in processItems() for why this is needed.
+  // Fall back to phone + size match against the most recent tracking row for
+  // this provider — NOT restricted to pending/processing. The 1-minute polling
+  // cron routinely resolves an order to completed/failed before AgentPortalGH's
+  // webhook arrives (confirmed live 2026-07-26: webhook landed 7 minutes after
+  // polling had already completed the same order), so a status-restricted
+  // search finds nothing in the increasingly common case where polling won the
+  // race. Matching regardless of status still lets us stamp webhook_received_at
+  // for confirmation; the existing regression guard below prevents this from
+  // ever re-opening an already-resolved order.
   if (!tracking && item.msisdn) {
     const { normalizeGhanaPhone } = await import("@/lib/phone-format")
     const normPhone = normalizeGhanaPhone(item.msisdn) ?? item.msisdn
     const sizeGb = typeof item.data_mb === "number" ? item.data_mb / 1024 : undefined
+    const sinceIso = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
 
     const { data: candidates } = await supabase
       .from("mtn_fulfillment_tracking")
       .select("id, status, order_type, order_id, api_order_id, shop_order_id, size_gb")
       .eq("provider", "agentportalgh")
       .eq("recipient_phone", normPhone)
-      .in("status", ["pending", "processing"])
-      .order("created_at", { ascending: true })
+      .gte("created_at", sinceIso)
+      .order("created_at", { ascending: false })
       .limit(10)
 
     const rows = candidates ?? []
