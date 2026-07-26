@@ -25,22 +25,6 @@ export async function POST(request: NextRequest) {
   const sigHeader = request.headers.get("x-webhook-signature")
   const secret = process.env.AGENTPORTALGH_WEBHOOK_SECRET
 
-  // TEMP DIAGNOSTIC (remove once the payload shape is confirmed): capture every
-  // delivery raw, before any signature/parsing logic, so we can see exactly what
-  // AgentPortalGH sends even if our assumed shape/header is wrong. Never let this
-  // affect the actual response.
-  after(async () => {
-    try {
-      await supabase.from("mtn_webhook_debug_log").insert({
-        provider: "agentportalgh",
-        headers: Object.fromEntries(request.headers.entries()),
-        raw_body: rawBody,
-      })
-    } catch (err) {
-      console.error("[WEBHOOK-AGENTPORTALGH] Debug log insert failed:", err)
-    }
-  })
-
   if (!secret) {
     console.error("[WEBHOOK-AGENTPORTALGH] AGENTPORTALGH_WEBHOOK_SECRET not set — rejecting all requests")
     return NextResponse.json({ error: "Webhook secret not configured" }, { status: 500 })
@@ -102,18 +86,11 @@ async function processItems(payload: any) {
     return
   }
 
-  // Per AgentPortalGH's docs, item.reference should equal what we sent at
-  // /queue/add — but confirmed live 2026-07-24 it comes back null for our
-  // (always single-item) submissions, while payload.order_id reliably equals
-  // it instead. CORRECTED 2026-07-26: live payload capture shows this
-  // assumption was wrong — payload.order_id is AgentPortalGH's own internal
-  // batch id (distinct from group_name), and it never matches what we submitted
-  // as `reference` at /queue/add time. item.reference itself is reliably null.
-  // The reference we send is never echoed back anywhere in this payload. The
-  // only usable link left is msisdn + data_mb — processItem() falls back to
-  // matching the oldest unresolved tracking row for that phone+size when a
-  // direct mtn_order_id lookup fails, same approach the polling path already
-  // uses successfully via the order-listing search.
+  // Neither item.reference nor payload.order_id ever matches what we submit as
+  // `reference` at /queue/add (confirmed via live payload capture 2026-07-26:
+  // item.reference is always null, payload.order_id is AgentPortalGH's own
+  // internal batch id). The reference we send is never echoed back anywhere in
+  // this payload — processItem() falls back to matching by msisdn + data_mb.
   for (const item of items) {
     const ref: string | undefined = item.reference ?? payload.order_id
     await processItem(item, ref)
