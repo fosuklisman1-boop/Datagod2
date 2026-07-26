@@ -135,11 +135,13 @@ const NON_MTN_CAPABLE: MTNProviderName[] = ["datakazina", "xpress", "eazyghdata"
 
 /**
  * Read the admin-selected provider for a non-MTN network (Telecel / AT-iShare / AT-BigTime).
- * Falls back to "codecraft" if the setting is absent or invalid.
+ * Falls back to "codecraft" if the setting is absent or invalid. If the selected
+ * (or default) provider is deactivated, falls through NON_MTN_CAPABLE in order to
+ * the first active one — same fail-open pattern as getMTNProvider().
  */
 export async function getProviderNameForNetwork(normalizedNetwork: string): Promise<MTNProviderName> {
     const settingKey = NON_MTN_NETWORK_KEYS[normalizedNetwork]
-    if (!settingKey) return "codecraft"
+    if (!settingKey) return withNonMtnFallback("codecraft")
 
     try {
         const { data } = await supabase
@@ -149,11 +151,22 @@ export async function getProviderNameForNetwork(normalizedNetwork: string): Prom
             .maybeSingle()
 
         const name = data?.value?.provider as MTNProviderName | undefined
-        if (name && NON_MTN_CAPABLE.includes(name)) return name
-        return "codecraft"
+        return withNonMtnFallback(name && NON_MTN_CAPABLE.includes(name) ? name : "codecraft")
     } catch {
-        return "codecraft"
+        return withNonMtnFallback("codecraft")
     }
+}
+
+async function withNonMtnFallback(name: MTNProviderName): Promise<MTNProviderName> {
+    const disabled = await getDisabledProviders()
+    if (!disabled.has(name)) return name
+    const fallback = NON_MTN_CAPABLE.find(p => !disabled.has(p))
+    if (fallback) {
+        console.warn(`[MTN-Factory] Non-MTN provider "${name}" is deactivated — falling back to "${fallback}"`)
+        return fallback
+    }
+    console.error(`[MTN-Factory] All non-MTN-capable providers are deactivated — using "${name}" anyway (fail open)`)
+    return name
 }
 
 /**

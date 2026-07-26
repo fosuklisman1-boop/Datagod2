@@ -1147,24 +1147,38 @@ export default function MTNSettingsPage() {
                   </CardHeader>
                   <CardContent>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                      {providers.map(p => (
-                        <button
-                          key={p.value}
-                          onClick={() => handleNetworkProviderChange(netKey, p.value, setter)}
-                          disabled={isSaving || current === p.value}
-                          className={`p-4 rounded-lg border-2 transition-all text-left ${
-                            current === p.value ? "bg-primary/5 border-primary shadow-md" : "bg-card border-border hover:border-border"
-                          } ${isSaving ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-                        >
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="font-semibold text-foreground text-sm">{p.label}</span>
-                            {current === p.value && <Badge className="bg-primary text-xs">Active</Badge>}
-                          </div>
-                          <p className="text-xs text-muted-foreground">{p.sub}</p>
-                        </button>
-                      ))}
+                      {providers.map(p => {
+                        const isProviderDisabled = disabledProviders.includes(p.value)
+                        return (
+                          <button
+                            key={p.value}
+                            onClick={() => handleNetworkProviderChange(netKey, p.value, setter)}
+                            disabled={isSaving || current === p.value}
+                            className={`p-4 rounded-lg border-2 transition-all text-left ${
+                              current === p.value ? "bg-primary/5 border-primary shadow-md" : "bg-card border-border hover:border-border"
+                            } ${isSaving ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="font-semibold text-foreground text-sm">{p.label}</span>
+                              {current === p.value && <Badge className="bg-primary text-xs">Active</Badge>}
+                            </div>
+                            <p className="text-xs text-muted-foreground">{p.sub}</p>
+                            {isProviderDisabled && (
+                              <p className="text-xs text-warning mt-1">Deactivated in Provider Selection</p>
+                            )}
+                          </button>
+                        )
+                      })}
                     </div>
                     {isSaving && <div className="flex items-center gap-2 mt-3 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Updating…</div>}
+                    {disabledProviders.includes(current) && (
+                      <Alert className="mt-3 border-warning/30 bg-warning/10">
+                        <AlertCircle className="h-4 w-4 text-warning" />
+                        <AlertDescription className="text-warning text-xs">
+                          <strong>{PROVIDER_LABELS[current]}</strong> is selected here but deactivated — new {networkLabel} orders automatically fall back to the next active non-MTN-capable provider instead.
+                        </AlertDescription>
+                      </Alert>
+                    )}
                     <Alert className="mt-3 border-border bg-warning/10">
                       <AlertCircle className="h-4 w-4 text-warning" />
                       <AlertDescription className="text-warning text-xs">Only affects new orders.</AlertDescription>
