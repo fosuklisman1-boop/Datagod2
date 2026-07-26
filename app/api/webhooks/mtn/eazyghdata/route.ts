@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { after } from "next/server"
 import crypto from "crypto"
 import { createClient } from "@supabase/supabase-js"
 import { sendPushToUser } from "@/lib/push-service"
@@ -62,8 +63,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
   }
 
-  // Respond immediately; process in background
-  void processEvent(payload)
+  // Respond immediately, but keep the function alive until processing finishes —
+  // a bare fire-and-forget call is not guaranteed to complete (Vercel can freeze
+  // the function right after the response is sent). Same bug found and fixed in
+  // the AgentPortalGH webhook 2026-07-26 — applying the same fix here preemptively.
+  after(() => processEvent(payload))
   return NextResponse.json({ received: true })
 }
 

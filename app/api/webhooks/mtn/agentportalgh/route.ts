@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { after } from "next/server"
 import crypto from "crypto"
 import { createClient } from "@supabase/supabase-js"
 import { AgentPortalGHProvider, mapItemStatus } from "@/lib/mtn-providers/agentportalgh-provider"
@@ -48,8 +49,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
   }
 
-  // Respond immediately; process items in background
-  void processItems(payload)
+  // Respond immediately, but keep the function alive until processing finishes —
+  // a bare fire-and-forget call here is not guaranteed to complete: Vercel can
+  // freeze/terminate the function right after the response is sent, silently
+  // dropping the update. Confirmed live 2026-07-26: AgentPortalGH's delivery log
+  // showed 100% "Delivered (200)" while webhook_received_at never got set on a
+  // single tracking row — the response was sent, but processItems() never ran
+  // to completion.
+  after(() => processItems(payload))
   return NextResponse.json({ received: true })
 }
 
