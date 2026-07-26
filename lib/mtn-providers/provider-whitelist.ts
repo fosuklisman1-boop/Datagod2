@@ -190,7 +190,12 @@ export async function checkWhitelistForOrder(
   msisdn: string,
   activeProvider: string
 ): Promise<{ allowed: boolean; provider: string | null }> {
-  const configured = WHITELIST_REGISTRY.filter(p => p.configured())
+  const { getDisabledProviders } = await import("./factory")
+  const disabled = await getDisabledProviders()
+  // Exclude providers deactivated for fulfillment — this check exists to pick a
+  // provider to fulfill the order via, so a provider that would never be used
+  // for fulfillment must never be proposed here.
+  const configured = WHITELIST_REGISTRY.filter(p => p.configured() && !disabled.has(p.name as any))
   if (configured.length === 0) return { allowed: true, provider: null }
 
   // Put the active provider first (if it supports whitelist), then the rest

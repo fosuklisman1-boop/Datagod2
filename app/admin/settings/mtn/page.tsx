@@ -116,6 +116,9 @@ export default function MTNSettingsPage() {
   const [retrySequence, setRetrySequence] = useState<MTNProviderName[]>([])
   const [savingRetrySequence, setSavingRetrySequence] = useState(false)
 
+  const [disabledProviders, setDisabledProviders] = useState<MTNProviderName[]>([])
+  const [togglingDisabled, setTogglingDisabled] = useState<MTNProviderName | null>(null)
+
   type NonMTNProvider = "datakazina" | "xpress" | "eazyghdata" | "codecraft"
   const [telecelProvider, setTelecelProvider] = useState<NonMTNProvider>("codecraft")
   const [atIshareProvider, setAtIshareProvider] = useState<NonMTNProvider>("codecraft")
@@ -137,6 +140,7 @@ export default function MTNSettingsPage() {
     loadNetworkProvider("at_bigtime", setAtBigtimeProvider)
     loadThreshold()
     loadRetrySequence()
+    loadDisabledProviders()
     const balanceInterval = setInterval(loadBalance, 30000)
     return () => clearInterval(balanceInterval)
   }, [isAdmin, adminLoading])
@@ -437,6 +441,44 @@ export default function MTNSettingsPage() {
     const next = [...retrySequence]
     ;[next[index], next[target]] = [next[target], next[index]]
     handleSaveRetrySequence(retrySequenceEnabled, next)
+  }
+
+  const loadDisabledProviders = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) return
+      const res = await fetch("/api/admin/settings/mtn-disabled-providers", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+      if (res.ok) {
+        const d = await res.json()
+        setDisabledProviders(d.disabled || [])
+      }
+    } catch (e) { console.error("Error loading disabled providers:", e) }
+  }
+
+  const toggleProviderDisabled = async (p: MTNProviderName) => {
+    setTogglingDisabled(p)
+    const next = disabledProviders.includes(p)
+      ? disabledProviders.filter(x => x !== p)
+      : [...disabledProviders, p]
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) { toast.error("Authentication required"); return }
+      const res = await fetch("/api/admin/settings/mtn-disabled-providers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ disabled: next }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || "Failed to update")
+      setDisabledProviders(next)
+      toast.success(`${PROVIDER_LABELS[p]} ${next.includes(p) ? "deactivated" : "activated"}`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update provider status")
+    } finally {
+      setTogglingDisabled(null)
+    }
   }
 
   const handleMTNProviderChange = async (provider: MTNProviderName) => {
@@ -781,9 +823,31 @@ export default function MTNSettingsPage() {
 
   function ActivationCard({ providerKey, label }: { providerKey: MTNProviderName; label: string }) {
     const isActive = mtnProvider === providerKey
+    const isDisabled = disabledProviders.includes(providerKey)
+    const isToggling = togglingDisabled === providerKey
     return (
       <Card>
-        <CardContent className="pt-5">
+        <CardContent className="pt-5 space-y-3">
+          <div className="flex items-center justify-between rounded-lg border border-border p-3">
+            <div>
+              <p className="text-sm font-medium">{isDisabled ? "Deactivated" : "Active"}</p>
+              <p className="text-xs text-muted-foreground">Deactivated providers are skipped in primary selection and the retry sequence.</p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {isToggling && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+              <Switch checked={!isDisabled} onCheckedChange={() => toggleProviderDisabled(providerKey)} disabled={isToggling} />
+            </div>
+          </div>
+
+          {isActive && isDisabled && (
+            <Alert className="border-warning/30 bg-warning/10">
+              <AlertCircle className="h-4 w-4 text-warning" />
+              <AlertDescription className="text-warning text-xs">
+                <strong>{label}</strong> is set as primary but deactivated — new orders automatically fall back to the next active provider instead.
+              </AlertDescription>
+            </Alert>
+          )}
+
           {isActive ? (
             <Alert className="border-success/30 bg-success/10">
               <CheckCircle className="h-4 w-4 text-success" />
@@ -794,14 +858,21 @@ export default function MTNSettingsPage() {
           ) : (
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">Not currently active. Click below to route new MTN orders to this provider.</p>
-              <Button onClick={() => handleMTNProviderChange(providerKey)} disabled={savingProvider} className="w-full">
+              <Button onClick={() => handleMTNProviderChange(providerKey)} disabled={savingProvider || isDisabled} className="w-full">
                 {savingProvider ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Zap className="h-4 w-4 mr-2" />}
                 Set {label} as Primary MTN Provider
               </Button>
-              <Alert className="border-border bg-warning/10">
-                <AlertCircle className="h-4 w-4 text-warning" />
-                <AlertDescription className="text-warning text-xs">Only affects new orders. In-flight orders continue with their original provider.</AlertDescription>
-              </Alert>
+              {isDisabled ? (
+                <Alert className="border-border bg-muted/40">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription className="text-xs">Deactivated — reactivate it above before setting it as primary.</AlertDescription>
+                </Alert>
+              ) : (
+                <Alert className="border-border bg-warning/10">
+                  <AlertCircle className="h-4 w-4 text-warning" />
+                  <AlertDescription className="text-warning text-xs">Only affects new orders. In-flight orders continue with their original provider.</AlertDescription>
+                </Alert>
+              )}
             </div>
           )}
         </CardContent>
@@ -1016,6 +1087,9 @@ export default function MTNSettingsPage() {
                           <div key={p} className="flex items-center gap-2 p-2 rounded-lg border border-border bg-card">
                             <span className="text-xs text-muted-foreground w-5 text-center shrink-0">{i + 1}</span>
                             <span className="flex-1 text-sm font-medium">{PROVIDER_LABELS[p]}</span>
+                            {disabledProviders.includes(p) && (
+                              <Badge variant="outline" className="text-xs text-muted-foreground">deactivated — skipped</Badge>
+                            )}
                             <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => moveInRetrySequence(i, -1)} disabled={savingRetrySequence || i === 0}>
                               <ArrowUp className="h-3.5 w-3.5" />
                             </Button>
@@ -1034,7 +1108,7 @@ export default function MTNSettingsPage() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm text-muted-foreground">Add provider:</span>
                     {(Object.keys(PROVIDER_LABELS) as MTNProviderName[])
-                      .filter(p => p !== mtnProvider && !retrySequence.includes(p))
+                      .filter(p => p !== mtnProvider && !retrySequence.includes(p) && !disabledProviders.includes(p))
                       .map(p => (
                         <Button key={p} size="sm" variant="outline" onClick={() => addToRetrySequence(p)} disabled={savingRetrySequence}>
                           <Plus className="h-3 w-3 mr-1" />{PROVIDER_LABELS[p]}

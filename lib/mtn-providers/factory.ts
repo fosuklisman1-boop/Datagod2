@@ -45,14 +45,50 @@ async function getSelectedProvider(): Promise<MTNProviderName> {
     }
 }
 
+const VALID_PROVIDERS: MTNProviderName[] = ["sykes", "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft", "agentportalgh"]
+
+/**
+ * Providers an admin has deactivated — excluded from automatic selection
+ * (primary + retry sequence) everywhere. Does not affect explicit overrides
+ * via getProviderByName() (manual admin retries, per-provider status checks).
+ * Fails open (empty set) so a settings-read error never blocks fulfillment.
+ */
+export async function getDisabledProviders(): Promise<Set<MTNProviderName>> {
+    try {
+        const { data } = await supabase
+            .from("admin_settings")
+            .select("value")
+            .eq("key", "mtn_disabled_providers")
+            .maybeSingle()
+
+        const list = Array.isArray(data?.value?.providers) ? data.value.providers : []
+        return new Set(list.filter((p: unknown): p is MTNProviderName => VALID_PROVIDERS.includes(p as MTNProviderName)))
+    } catch {
+        return new Set()
+    }
+}
+
 /**
  * Get the MTN provider instance based on current settings
- * 
+ *
  * This is the main entry point for getting a provider.
  * It queries the admin_settings table to determine which provider to use.
+ * If the selected provider is deactivated, falls back to the first active
+ * provider in VALID_PROVIDERS order.
  */
 export async function getMTNProvider(): Promise<MTNProvider> {
-    const providerName = await getSelectedProvider()
+    let providerName = await getSelectedProvider()
+
+    const disabled = await getDisabledProviders()
+    if (disabled.has(providerName)) {
+        const fallback = VALID_PROVIDERS.find(p => !disabled.has(p))
+        if (fallback) {
+            console.warn(`[MTN-Factory] Selected provider "${providerName}" is deactivated — falling back to "${fallback}"`)
+            providerName = fallback
+        } else {
+            console.error(`[MTN-Factory] All MTN providers are deactivated — using "${providerName}" anyway (fail open)`)
+        }
+    }
 
     console.log(`[MTN-Factory] Using provider: ${providerName}`)
 
@@ -120,14 +156,12 @@ export async function getProviderNameForNetwork(normalizedNetwork: string): Prom
     }
 }
 
-const VALID_PROVIDERS: MTNProviderName[] = ["sykes", "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft", "agentportalgh"]
-
 /**
  * Get the configured retry sequence — an ordered list of provider names to try,
  * in order, when the primary provider fails (or a whitelist block prevents it
  * from being tried at all). Replaces the old single-fallback-provider setting.
  * The setting shape is { enabled: true, providers: ["eazyghdata", "bisdel"] }.
- * Returns [] if disabled, unset, or all entries are invalid provider names.
+ * Returns [] if disabled, unset, or all entries are invalid/deactivated provider names.
  */
 export async function getRetrySequence(): Promise<MTNProviderName[]> {
     try {
@@ -140,8 +174,9 @@ export async function getRetrySequence(): Promise<MTNProviderName[]> {
         const value = data?.value
         if (!value?.enabled) return []
         const providers = Array.isArray(value?.providers) ? value.providers : []
+        const disabled = await getDisabledProviders()
         return providers.filter((p: unknown): p is MTNProviderName =>
-            VALID_PROVIDERS.includes(p as MTNProviderName)
+            VALID_PROVIDERS.includes(p as MTNProviderName) && !disabled.has(p as MTNProviderName)
         )
     } catch {
         return []
