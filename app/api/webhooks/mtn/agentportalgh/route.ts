@@ -25,6 +25,22 @@ export async function POST(request: NextRequest) {
   const sigHeader = request.headers.get("x-webhook-signature")
   const secret = process.env.AGENTPORTALGH_WEBHOOK_SECRET
 
+  // TEMP DIAGNOSTIC (remove once the payload shape is confirmed): capture every
+  // delivery raw, before any signature/parsing logic, so we can see exactly what
+  // AgentPortalGH sends even if our assumed shape/header is wrong. Never let this
+  // affect the actual response.
+  after(async () => {
+    try {
+      await supabase.from("mtn_webhook_debug_log").insert({
+        provider: "agentportalgh",
+        headers: Object.fromEntries(request.headers.entries()),
+        raw_body: rawBody,
+      })
+    } catch (err) {
+      console.error("[WEBHOOK-AGENTPORTALGH] Debug log insert failed:", err)
+    }
+  })
+
   if (!secret) {
     console.error("[WEBHOOK-AGENTPORTALGH] AGENTPORTALGH_WEBHOOK_SECRET not set — rejecting all requests")
     return NextResponse.json({ error: "Webhook secret not configured" }, { status: 500 })
