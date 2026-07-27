@@ -58,10 +58,18 @@ export async function POST(request: NextRequest) {
       const syncProvider = body.sync_provider as string | undefined
       console.log(`[SYNC-STATUS] Syncing pending MTN orders${syncProvider ? ` (provider: ${syncProvider})` : ""}`)
 
+      // AgentPortalGH's queue auto-retries a failed item internally up to 3x
+      // (§8), often as a separate webhook delivery per attempt — a "failed" row
+      // there isn't necessarily final, unlike other providers. Include recent
+      // failed AgentPortalGH rows so this manual sync can actually recover them.
+      const statuses = syncProvider === "agentportalgh" ? ["pending", "processing", "failed"] : ["pending", "processing"]
+      const RECHECK_FAILED_WINDOW_H = 24
+      const failedCutoffIso = new Date(Date.now() - RECHECK_FAILED_WINDOW_H * 60 * 60 * 1000).toISOString()
+
       let dbQuery = supabase
         .from("mtn_fulfillment_tracking")
-        .select("id, mtn_order_id")
-        .in("status", ["pending", "processing"])
+        .select("id, mtn_order_id, status, created_at")
+        .in("status", statuses)
         .order("created_at", { ascending: false })
         .limit(200)
 
@@ -69,7 +77,7 @@ export async function POST(request: NextRequest) {
         dbQuery = dbQuery.eq("provider", syncProvider)
       }
 
-      const { data: pendingOrders, error } = await dbQuery
+      const { data: rawOrders, error } = await dbQuery
 
       if (error) {
         return NextResponse.json(
@@ -77,6 +85,12 @@ export async function POST(request: NextRequest) {
           { status: 500 }
         )
       }
+
+      // A "failed" row only qualifies if it's recent enough to plausibly still
+      // be mid-retry on AgentPortalGH's side.
+      const pendingOrders = (rawOrders ?? []).filter(
+        o => o.status !== "failed" || o.created_at >= failedCutoffIso
+      )
 
       const results = []
       for (const order of pendingOrders || []) {
