@@ -82,6 +82,42 @@ export function deriveOrderStatus(order: any): "completed" | "failed" | "process
   return "failed"
 }
 
+/**
+ * Fetch every item on an order, following pagination (confirmed live 2026-07-27:
+ * a 23-item order returns 46 item records — one "uploaded" + one final
+ * success/failed per item — paginated 20/page). Capped at 5 pages (~100 records)
+ * as a sanity bound; no real order has approached that.
+ */
+async function fetchAllOrderItems(orderId: string): Promise<any[]> {
+  const all: any[] = []
+  for (let page = 1; page <= 5; page++) {
+    const res = await apiFetch(`/api/beneficiaries/orders/${orderId}/items?page=${page}`)
+    if (!res.ok) break
+    const body = await res.json()
+    const items: any[] = body.data ?? body.items ?? (Array.isArray(body) ? body : [])
+    all.push(...items)
+    if (items.length === 0 || all.length >= (body.total ?? all.length)) break
+  }
+  return all
+}
+
+/**
+ * Find the most recent final (success/failed) item record for a phone within a
+ * batch's item list, optionally narrowed by size (data_mb). A batch's item list
+ * mixes an initial "uploaded" record with a later terminal one per item, so this
+ * ignores non-terminal statuses and picks the newest terminal record if more
+ * than one exists.
+ */
+function findFinalItemForPhone(items: any[], phone: string, sizeGb?: number): any | undefined {
+  const candidates = items.filter(i =>
+    i.msisdn === phone &&
+    (i.status === "success" || i.status === "failed") &&
+    (sizeGb === undefined || typeof i.data_mb !== "number" || i.data_mb === Math.round(sizeGb * 1024))
+  )
+  if (candidates.length === 0) return undefined
+  return candidates.sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime())[0]
+}
+
 // ── Provider class ───────────────────────────────────────────────────────────
 
 export class AgentPortalGHProvider implements MTNProvider {
@@ -138,25 +174,30 @@ export class AgentPortalGHProvider implements MTNProvider {
 
     // The queue's own status (pending/processing/done/failed, §6) is AgentPortalGH's
     // internal processing pipeline — not the real delivery outcome. Retriable
-    // failures are auto-retried up to 3 times (§8), so even a "failed" queue item
-    // isn't necessarily final. The order listing's success_count/failure_count is
-    // the authoritative, post-completion delivery status — that's the only thing
-    // allowed to set a terminal status here. Look up our own tracking row for the
-    // recipient phone + creation date, so we can search AgentPortalGH's order
-    // listing precisely instead of guessing at pagination/sort order on an
-    // unscoped query. Per their docs (§7):
-    // GET /api/beneficiaries/orders?filter=&search=&date= — search is a numeric
-    // MSISDN substring match or a group-name match; date scopes to a single day.
+    // failures are auto-retried up to 3 times (§8) — but confirmed live 2026-07-27,
+    // each retry round is a BRAND NEW order/batch (group_name suffixed -R1-/-R2-/
+    // -R3-), not an update to the original. There is no field linking a retry
+    // batch back to the original (recovery_of_order_id is always null in
+    // practice). So a phone+date search routinely returns several batches for
+    // the same recipient once a retry has happened — the old "only trust exactly
+    // one match" heuristic then finds nothing and reports "processing" forever,
+    // even when a later batch's items show the real, final outcome. Look up our
+    // own tracking row for phone + size + creation date so we can search
+    // precisely, then inspect every matching batch's items (newest batch first —
+    // later retries are the more authoritative outcome) instead of requiring a
+    // single unambiguous order-level match.
     let phone: string | undefined
     let createdDate: string | undefined
+    let sizeGb: number | undefined
     try {
       const { data: tracking } = await supabase
         .from("mtn_fulfillment_tracking")
-        .select("recipient_phone, created_at")
+        .select("recipient_phone, created_at, size_gb")
         .eq("mtn_order_id", id)
         .maybeSingle()
       phone = tracking?.recipient_phone ?? undefined
       createdDate = tracking?.created_at ? String(tracking.created_at).slice(0, 10) : undefined
+      sizeGb = tracking?.size_gb !== undefined && tracking?.size_gb !== null ? Number(tracking.size_gb) : undefined
     } catch (err) {
       console.warn("[AgentPortalGH] Could not look up tracking row for status check:", err)
     }
@@ -181,32 +222,34 @@ export class AgentPortalGHProvider implements MTNProvider {
 
         const ordersData = JSON.parse(ordersBody)
         const orders: any[] = ordersData.data ?? ordersData.orders ?? (Array.isArray(ordersData) ? ordersData : [])
-        // Prefer an explicit order_id/id match; if the field isn't present on this
-        // endpoint's response (unconfirmed in the docs' abbreviated example) but
-        // search+date narrowed the result to exactly one order, take it.
-        const order = orders.find(o => orderIdOf(o) === id) ?? (orders.length === 1 ? orders[0] : undefined)
-        if (!order) {
-          console.warn(`[AgentPortalGH] Order ${id} not found among ${orders.length} result(s) for date=${date ?? "none"}, search=${phone ?? "none"}`)
+        if (orders.length === 0) {
+          console.warn(`[AgentPortalGH] Order ${id} not found for date=${date ?? "none"}, search=${phone ?? "none"}`)
           continue
         }
 
-        const derived = deriveOrderStatus(order)
-        if (derived) {
-          return { success: true, status: derived, message: order.processing_status ?? order.status ?? "Status retrieved", order }
+        // An explicit order_id/id match is the fastest, most precise path.
+        const exact = orders.find(o => orderIdOf(o) === id)
+        if (exact) {
+          const derived = deriveOrderStatus(exact)
+          if (derived) {
+            return { success: true, status: derived, message: exact.processing_status ?? exact.status ?? "Status retrieved", order: exact }
+          }
         }
 
-        // Listing didn't carry counts — fall back to inspecting items directly.
-        const itemsRes = await apiFetch(`/api/beneficiaries/orders/${orderIdOf(order)}/items`)
-        if (itemsRes.ok) {
-          const itemsData = await itemsRes.json()
-          const items: any[] = itemsData.data ?? itemsData.items ?? (Array.isArray(itemsData) ? itemsData : [])
-          const item = items[0]
-          if (item) {
+        // Otherwise, scan every matching batch's items, newest first — a later
+        // retry round is the more authoritative outcome for this phone.
+        const sorted = [...orders].sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime())
+        for (const o of sorted) {
+          const oid = orderIdOf(o)
+          if (!oid || !phone) continue
+          const items = await fetchAllOrderItems(oid)
+          const match = findFinalItemForPhone(items, phone, sizeGb)
+          if (match) {
             return {
               success: true,
-              status: mapItemStatus(item.status),
-              message: item.failed_reason ?? item.status ?? "Status retrieved",
-              order: item,
+              status: mapItemStatus(match.status),
+              message: match.failed_reason ?? match.status ?? "Status retrieved",
+              order: match,
             }
           }
         }
