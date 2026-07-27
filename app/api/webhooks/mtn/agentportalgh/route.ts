@@ -151,9 +151,18 @@ async function processItem(item: any, ref: string | undefined) {
     return
   }
 
-  // Prevent status regression
-  const TERMINAL = new Set(["completed", "failed"])
-  if (TERMINAL.has(tracking.status) && newStatus !== tracking.status) return
+  // "completed" is genuinely terminal — never let anything override it.
+  if (tracking.status === "completed" && newStatus !== "completed") return
+
+  // "failed" is NOT necessarily final for AgentPortalGH: their queue
+  // auto-retries failed items internally up to 3x (§8), and each retry can
+  // arrive as its own separate webhook delivery — so one "failed" webhook only
+  // reflects a single attempt. Confirmed live 2026-07-27: a batch of orders
+  // we'd locked in as failed were later actually delivered by AgentPortalGH,
+  // but this guard was silently dropping the correcting webhook because it
+  // treated failed as equally terminal to completed. Let an eventual
+  // "completed" through; still block a regression back to pending/processing.
+  if (tracking.status === "failed" && newStatus !== "completed" && newStatus !== "failed") return
 
   const priority: Record<string, number> = { pending: 1, processing: 2, completed: 3, failed: 3 }
   if ((priority[newStatus] ?? 0) < (priority[tracking.status] ?? 0)) return

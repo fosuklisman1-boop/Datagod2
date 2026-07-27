@@ -11,6 +11,11 @@ const supabase = createClient(
 
 const BATCH_SIZE = 50
 const DELAY_BETWEEN_REQUESTS_MS = 1000
+// AgentPortalGH's queue auto-retries a failed item internally up to 3x (§8),
+// often as a separate webhook delivery per attempt — a "failed" row here isn't
+// necessarily final. Keep re-checking recent ones so a later real success gets
+// caught even if the correcting webhook never arrives.
+const RECHECK_FAILED_WINDOW_H = 24
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
@@ -30,18 +35,34 @@ export async function GET(request: NextRequest) {
 
   console.log("[CRON-AGENTPORTALGH] Starting status sync...")
 
-  const { data: pendingOrders, error: fetchError } = await supabase
-    .from("mtn_fulfillment_tracking")
-    .select("id, mtn_order_id, status, shop_order_id, order_id, api_order_id, order_type")
-    .eq("provider", "agentportalgh")
-    .in("status", ["pending", "processing"])
-    .order("created_at", { ascending: true })
-    .limit(BATCH_SIZE)
+  const failedCutoffIso = new Date(Date.now() - RECHECK_FAILED_WINDOW_H * 60 * 60 * 1000).toISOString()
 
-  if (fetchError) {
-    console.error("[CRON-AGENTPORTALGH] Error fetching orders:", fetchError)
+  const [{ data: active, error: activeErr }, { data: recentFailed, error: failedErr }] = await Promise.all([
+    supabase
+      .from("mtn_fulfillment_tracking")
+      .select("id, mtn_order_id, status, shop_order_id, order_id, api_order_id, order_type, created_at")
+      .eq("provider", "agentportalgh")
+      .in("status", ["pending", "processing"])
+      .order("created_at", { ascending: true })
+      .limit(BATCH_SIZE),
+    supabase
+      .from("mtn_fulfillment_tracking")
+      .select("id, mtn_order_id, status, shop_order_id, order_id, api_order_id, order_type, created_at")
+      .eq("provider", "agentportalgh")
+      .eq("status", "failed")
+      .gte("created_at", failedCutoffIso)
+      .order("created_at", { ascending: true })
+      .limit(BATCH_SIZE),
+  ])
+
+  if (activeErr || failedErr) {
+    console.error("[CRON-AGENTPORTALGH] Error fetching orders:", activeErr || failedErr)
     return NextResponse.json({ error: "Failed to fetch orders" }, { status: 500 })
   }
+
+  const pendingOrders = [...(active ?? []), ...(recentFailed ?? [])]
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+    .slice(0, BATCH_SIZE)
 
   if (!pendingOrders || pendingOrders.length === 0) {
     return NextResponse.json({ success: true, message: "No AgentPortalGH orders to sync" })
