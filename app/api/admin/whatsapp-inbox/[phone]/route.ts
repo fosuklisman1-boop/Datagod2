@@ -11,7 +11,10 @@ const supabase = createClient(
 
 const TAKEOVER_WINDOW_MS = 30 * 60 * 1000
 const STALE_WINDOW_MS = 24 * 60 * 60 * 1000
-const THREAD_LIMIT = 100
+// Newest messages returned on an initial thread load. Generous cap so a full
+// support conversation shows in one request rather than depending on the forward
+// poll to backfill (which drops messages if the poll/realtime is interrupted).
+const THREAD_LIMIT = 1000
 
 // GET /api/admin/whatsapp-inbox/<phone>?after=<ISO>
 // Returns the live conversation row + the message thread (or just new messages
@@ -66,18 +69,31 @@ export async function GET(
   // Fall back to the captured WhatsApp display name for guests.
   if (!customerName) customerName = convo?.wa_profile_name ?? null
 
-  let msgQuery = supabase
-    .from("whatsapp_messages")
-    .select("id, direction, message, status, created_at, meta_message_id, tool_context")
-    .eq("phone_number", phone)
-    .in("direction", ["inbound", "outbound"])
-    .order("created_at", { ascending: true })
+  const baseMsgQuery = () =>
+    supabase
+      .from("whatsapp_messages")
+      .select("id, direction, message, status, created_at, meta_message_id, tool_context")
+      .eq("phone_number", phone)
+      .in("direction", ["inbound", "outbound"])
 
-  if (after) msgQuery = msgQuery.gt("created_at", after)
-  else msgQuery = msgQuery.limit(THREAD_LIMIT)
-
-  const { data: messages, error } = await msgQuery
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+  let messages: any[]
+  if (after) {
+    // Incremental poll: everything newer than the cursor, chronological.
+    const { data, error } = await baseMsgQuery()
+      .gt("created_at", after)
+      .order("created_at", { ascending: true })
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+    messages = data ?? []
+  } else {
+    // Initial load: the LATEST THREAD_LIMIT messages. Order DESC + limit to grab
+    // the most recent ones (ASC + limit returned the OLDEST 100 and hid recent
+    // messages), then reverse to chronological for display.
+    const { data, error } = await baseMsgQuery()
+      .order("created_at", { ascending: false })
+      .limit(THREAD_LIMIT)
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+    messages = (data ?? []).reverse()
+  }
 
   const now = Date.now()
   const takeoverActive =
