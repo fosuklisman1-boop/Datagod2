@@ -51,6 +51,36 @@ async function fetchPaystackFeePercent(): Promise<number> {
   return (data?.paystack_fee_percentage ?? 3.0) / 100
 }
 
+// Shared order-status writers for ussd_shop_orders, used by every CONFIRM/
+// SUBMIT_OTP outcome that isn't the normal happy path. Without these, an order
+// row can be left stuck at pending/pending indefinitely: there's no cron that
+// reconciles ussd_shop_orders (only shop_orders is covered by
+// verify-pending-payments), and several of these outcomes (chargeMobileMoney
+// throwing, an OTP Paystack rejects) will never produce a charge.failed
+// webhook to reconcile it either. Mirrors lib/ussd-shop/handlers/bundles.ts's
+// handleConfirm/handleSubmitOtp writes exactly.
+async function markOrderFailed(orderId: string): Promise<void> {
+  try {
+    await supabase
+      .from("ussd_shop_orders")
+      .update({ order_status: 'failed', payment_status: 'failed', updated_at: new Date().toISOString() })
+      .eq("id", orderId)
+  } catch (err) {
+    console.error("[WA-SHOP] failed to mark order failed:", orderId, err)
+  }
+}
+
+async function markOrderOtpRequired(orderId: string): Promise<void> {
+  try {
+    await supabase
+      .from("ussd_shop_orders")
+      .update({ payment_status: 'otp_required', updated_at: new Date().toISOString() })
+      .eq("id", orderId)
+  } catch (err) {
+    console.error("[WA-SHOP] failed to mark order otp_required:", orderId, err)
+  }
+}
+
 // CONFIRM-time anti-race token check. A shop's ussd_shop_codes.token_balance is a
 // SHARED pool across USSD + WhatsApp (design doc: "sessions stay shared with
 // USSD"), and a WhatsApp session can sit for up to 30 minutes (shop-session.ts's
@@ -440,6 +470,7 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
           })
 
           if (status === 'send_otp') {
+            await markOrderOtpRequired(orderId)
             session.step = 'SUBMIT_OTP'
             session.pendingOrderId = orderId
             reply = shopOtpMenu()
@@ -449,6 +480,11 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
           }
         } catch (err) {
           console.error("[WA-SHOP-CONFIRM] Charge failed:", err)
+          // chargeMobileMoney throws whenever Paystack's HTTP response isn't ok —
+          // meaning Paystack never registered the charge, so no charge.failed
+          // webhook will ever arrive to reconcile this order. Without this write
+          // it would sit at pending/pending forever (no cron covers this table).
+          await markOrderFailed(orderId)
           deleteAfter = true
           reply = 'Sorry, we could not start the payment. Please try again.'
         }
@@ -463,23 +499,23 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
           // reconciliation (verify-pending-payments cron) never queries
           // ussd_shop_orders, and an abandoned OTP isn't guaranteed to produce
           // a Paystack charge.failed webhook event either.
-          try {
-            await supabase
-              .from("ussd_shop_orders")
-              .update({ order_status: 'failed', payment_status: 'failed', updated_at: new Date().toISOString() })
-              .eq("id", session.pendingOrderId)
-          } catch (err) {
-            console.error("[WA-SHOP-OTP] failed to mark order failed on cancel:", err)
-          }
+          await markOrderFailed(session.pendingOrderId!)
           deleteAfter = true
           reply = 'Order cancelled.'
           break
         }
 
         try {
-          await submitOtp(session.pendingOrderId!, input)
+          const { status } = await submitOtp(session.pendingOrderId!, input)
+          // Paystack rejected the OTP (wrong/expired code) — mirror USSD's
+          // handleSubmitOtp, which marks the order failed here too, not just
+          // on a thrown error.
+          if (status === 'failed') {
+            await markOrderFailed(session.pendingOrderId!)
+          }
         } catch (err) {
           console.error("[WA-SHOP-OTP] submitOtp error:", err)
+          await markOrderFailed(session.pendingOrderId!)
         }
         // One-shot, like USSD's handleSubmitOtp — no retry within the same
         // session. Actual success/failure surfaces later via SMS/webhook.

@@ -7,6 +7,7 @@ import { createShopBundleOrder } from "@/lib/shop-commerce/orders"
 import { chargeMobileMoney, submitOtp } from "@/lib/paystack"
 import { resolveEmail } from "@/lib/ussd/resolve-email"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
+import { DEFAULT_NETWORK_PREFIXES } from "@/lib/phone-format"
 
 // shopWaRouter — the full Data-bundle purchase state machine (Task 3.3). Every
 // side-effecting collaborator is mocked at the module boundary; the REAL
@@ -319,6 +320,66 @@ describe("shopWaRouter", () => {
     expect(resolveShopCode).toHaveBeenCalledWith("x")
   })
 
+  // ── Order-status writes on every non-happy-path outcome (no cron covers
+  //    ussd_shop_orders, so a row left at pending/pending never recovers) ────
+  it("CONFIRM: a send_otp charge result writes payment_status: 'otp_required' on the order", async () => {
+    const phone = "233241000070"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc50", shopId: "s50", shopName: "OTP Write Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(fetchShopBundles).mockResolvedValue([{ id: "p14", size: "1GB", price: 5 }])
+    vi.mocked(verifyBundlePrice).mockResolvedValue({ verifiedPrice: 5, profitAmount: 1, parentProfitAmount: 0 })
+    vi.mocked(createShopBundleOrder).mockResolvedValue({ orderId: "order20" })
+    vi.mocked(chargeMobileMoney).mockResolvedValue({ status: "send_otp", reference: "order20" })
+
+    await shopWaRouter(phone, "CODE1", "m1")
+    await shopWaRouter(phone, "1", "m2")
+    await shopWaRouter(phone, "1", "m3")
+    await shopWaRouter(phone, "1", "m4")
+    await shopWaRouter(phone, "0244111222", "m5")
+    await shopWaRouter(phone, "0244333444", "m6")
+
+    await shopWaRouter(phone, "1", "m7") // CONFIRM -> pay -> send_otp
+
+    expect(fakeDb.orderUpdates).toContainEqual({
+      table: "ussd_shop_orders",
+      payload: expect.objectContaining({ payment_status: "otp_required" }),
+      id: "order20",
+    })
+    expect(fakeDb.orderUpdates.some(u => u.payload.order_status === "failed")).toBe(false)
+  })
+
+  it("CONFIRM: chargeMobileMoney throwing marks the order failed (no charge.failed webhook will ever arrive to reconcile it)", async () => {
+    const phone = "233241000071"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc51", shopId: "s51", shopName: "Throw Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(fetchShopBundles).mockResolvedValue([{ id: "p15", size: "1GB", price: 5 }])
+    vi.mocked(verifyBundlePrice).mockResolvedValue({ verifiedPrice: 5, profitAmount: 1, parentProfitAmount: 0 })
+    vi.mocked(createShopBundleOrder).mockResolvedValue({ orderId: "order21" })
+    vi.mocked(chargeMobileMoney).mockRejectedValue(new Error("Paystack charge failed (HTTP 400)"))
+
+    await shopWaRouter(phone, "CODE1", "n1")
+    await shopWaRouter(phone, "1", "n2")
+    await shopWaRouter(phone, "1", "n3")
+    await shopWaRouter(phone, "1", "n4")
+    await shopWaRouter(phone, "0244111222", "n5")
+    await shopWaRouter(phone, "0244333444", "n6")
+
+    await shopWaRouter(phone, "1", "n7") // CONFIRM -> pay -> chargeMobileMoney throws
+
+    expect(lastReplyTo(phone)).toContain("could not start the payment")
+    expect(fakeDb.orderUpdates).toContainEqual({
+      table: "ussd_shop_orders",
+      payload: expect.objectContaining({ order_status: "failed", payment_status: "failed" }),
+      id: "order21",
+    })
+  })
+
   it("CONFIRM: replying '2' cancels without creating an order or charging", async () => {
     const phone = "233241000022"
     vi.mocked(resolveShopCode).mockResolvedValue({
@@ -586,7 +647,73 @@ describe("shopWaRouter", () => {
     await shopWaRouter(phone, "123456", "l8")
 
     expect(submitOtp).toHaveBeenCalledWith("order11", "123456")
-    expect(fakeDb.orderUpdates).toEqual([])
+    // Only the send_otp -> otp_required write from CONFIRM happened — a
+    // "pending" submitOtp result must never also write order_status: 'failed'.
+    expect(fakeDb.orderUpdates).toEqual([
+      { table: "ussd_shop_orders", payload: expect.objectContaining({ payment_status: "otp_required" }), id: "order11" },
+    ])
+    expect(fakeDb.orderUpdates.some(u => u.payload.order_status === "failed")).toBe(false)
+  })
+
+  it("SUBMIT_OTP: a 'failed' status from submitOtp (Paystack rejected the OTP) marks the order failed", async () => {
+    const phone = "233241000067"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc47", shopId: "s47", shopName: "OTP Rejected Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(fetchShopBundles).mockResolvedValue([{ id: "p16", size: "1GB", price: 5 }])
+    vi.mocked(verifyBundlePrice).mockResolvedValue({ verifiedPrice: 5, profitAmount: 1, parentProfitAmount: 0 })
+    vi.mocked(createShopBundleOrder).mockResolvedValue({ orderId: "order12" })
+    vi.mocked(chargeMobileMoney).mockResolvedValue({ status: "send_otp", reference: "order12" })
+    vi.mocked(submitOtp).mockResolvedValue({ status: "failed", reference: "order12" })
+
+    await shopWaRouter(phone, "CODE1", "o1")
+    await shopWaRouter(phone, "1", "o2")
+    await shopWaRouter(phone, "1", "o3")
+    await shopWaRouter(phone, "1", "o4")
+    await shopWaRouter(phone, "0244111222", "o5")
+    await shopWaRouter(phone, "0244333444", "o6")
+    await shopWaRouter(phone, "1", "o7")
+
+    await shopWaRouter(phone, "000000", "o8") // wrong/expired OTP
+
+    expect(submitOtp).toHaveBeenCalledWith("order12", "000000")
+    expect(fakeDb.orderUpdates).toContainEqual({
+      table: "ussd_shop_orders",
+      payload: expect.objectContaining({ order_status: "failed", payment_status: "failed" }),
+      id: "order12",
+    })
+  })
+
+  it("SUBMIT_OTP: submitOtp throwing marks the order failed", async () => {
+    const phone = "233241000068"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc48", shopId: "s48", shopName: "OTP Throw Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(fetchShopBundles).mockResolvedValue([{ id: "p17", size: "1GB", price: 5 }])
+    vi.mocked(verifyBundlePrice).mockResolvedValue({ verifiedPrice: 5, profitAmount: 1, parentProfitAmount: 0 })
+    vi.mocked(createShopBundleOrder).mockResolvedValue({ orderId: "order13" })
+    vi.mocked(chargeMobileMoney).mockResolvedValue({ status: "send_otp", reference: "order13" })
+    vi.mocked(submitOtp).mockRejectedValue(new Error("OTP submission failed (HTTP 400)"))
+
+    await shopWaRouter(phone, "CODE1", "p1")
+    await shopWaRouter(phone, "1", "p2")
+    await shopWaRouter(phone, "1", "p3")
+    await shopWaRouter(phone, "1", "p4")
+    await shopWaRouter(phone, "0244111222", "p5")
+    await shopWaRouter(phone, "0244333444", "p6")
+    await shopWaRouter(phone, "1", "p7")
+
+    await shopWaRouter(phone, "123456", "p8")
+
+    expect(fakeDb.orderUpdates).toContainEqual({
+      table: "ussd_shop_orders",
+      payload: expect.objectContaining({ order_status: "failed", payment_status: "failed" }),
+      id: "order13",
+    })
   })
 
   // ── Money-safety: payment phone is always asked, never assumed ─────────────
@@ -617,6 +744,99 @@ describe("shopWaRouter", () => {
     expect(createShopBundleOrder).toHaveBeenCalledWith(expect.objectContaining({
       dialingPhone: phone, // the WA sender is recorded as who dialed in...
     }))
+  })
+
+  // ── Coverage gaps: previously-untested branches in this money-path file ────
+  it("ENTER_RECIPIENT: rejects a recipient number whose prefix doesn't match the selected network when prefix validation is enabled", async () => {
+    const phone = "233241000072"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc60", shopId: "s60", shopName: "Prefix Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(fetchShopBundles).mockResolvedValue([{ id: "p18", size: "1GB", price: 5 }])
+    vi.mocked(getPrefixValidationConfig).mockResolvedValue({ enabled: true, map: DEFAULT_NETWORK_PREFIXES })
+
+    await shopWaRouter(phone, "CODE1", "q1")
+    await shopWaRouter(phone, "1", "q2") // SELECT_PRODUCT -> data
+    await shopWaRouter(phone, "1", "q3") // SELECT_NETWORK -> MTN
+    await shopWaRouter(phone, "1", "q4") // SELECT_BUNDLE -> 1GB -> ENTER_RECIPIENT
+
+    // 020 is a Telecel prefix, not MTN — must be rejected for an MTN order.
+    await shopWaRouter(phone, "0209999999", "q5")
+
+    expect(lastReplyTo(phone)).toContain("looks like a Telecel number")
+    expect(lastReplyTo(phone)).toContain("Enter recipient number")
+
+    // Still stuck on ENTER_RECIPIENT — a correctly-prefixed MTN number now proceeds.
+    await shopWaRouter(phone, "0244111222", "q6")
+    expect(lastReplyTo(phone)).toContain("MoMo number")
+  })
+
+  it("ENTER_PAYMENT_PHONE: rejects a validly-formatted number with no known Paystack provider", async () => {
+    const phone = "233241000073"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc61", shopId: "s61", shopName: "No Provider Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(fetchShopBundles).mockResolvedValue([{ id: "p19", size: "1GB", price: 5 }])
+
+    await shopWaRouter(phone, "CODE1", "r1")
+    await shopWaRouter(phone, "1", "r2")
+    await shopWaRouter(phone, "1", "r3")
+    await shopWaRouter(phone, "1", "r4")
+    await shopWaRouter(phone, "0244111222", "r5") // ENTER_RECIPIENT -> ENTER_PAYMENT_PHONE
+
+    // Valid Ghana-number shape (0 + 9 digits), but "023" isn't a recognised
+    // MTN/Telecel/AirtelTigo MoMo prefix -> paystackProviderFromPhone -> null.
+    await shopWaRouter(phone, "0230000000", "r6")
+
+    expect(lastReplyTo(phone)).toContain("Payment isn't available for that number")
+    expect(createShopBundleOrder).not.toHaveBeenCalled()
+
+    // Still on ENTER_PAYMENT_PHONE — a number with a known provider now proceeds.
+    await shopWaRouter(phone, "0244333444", "r7")
+    expect(lastReplyTo(phone)).toContain("Pay now")
+  })
+
+  it("SELECT_BUNDLE: pages via 'More...' to the next page and selects a bundle shown only there", async () => {
+    const phone = "233241000074"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc62", shopId: "s62", shopName: "Paged Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(fetchShopBundles).mockResolvedValue([
+      { id: "b1", size: "500MB", price: 2 },
+      { id: "b2", size: "1GB", price: 4 },
+      { id: "b3", size: "2GB", price: 7 },
+      { id: "b4", size: "3GB", price: 10 },
+      { id: "b5", size: "4GB", price: 13 },
+      { id: "b6", size: "5GB", price: 16 },   // page 2 (PAGE_SIZE=5)
+      { id: "b7", size: "10GB", price: 30 },  // page 2
+    ])
+
+    await shopWaRouter(phone, "CODE1", "s1")
+    await shopWaRouter(phone, "1", "s2") // SELECT_PRODUCT -> data
+    await shopWaRouter(phone, "1", "s3") // SELECT_NETWORK -> MTN -> SELECT_BUNDLE page 1
+
+    const page1 = lastReplyTo(phone)
+    expect(page1).toContain("500MB")
+    expect(page1).not.toContain("10GB")
+    expect(page1).toContain("6. More...")
+
+    await shopWaRouter(phone, "6", "s4") // -> page 2
+
+    const page2 = lastReplyTo(phone)
+    expect(page2).toContain("5GB")
+    expect(page2).toContain("10GB")
+    expect(page2).not.toContain("500MB")
+    expect(page2).not.toContain("More...") // all 7 bundles are now shown
+
+    await shopWaRouter(phone, "7", "s5") // select "10GB" (2nd item on page 2)
+
+    expect(lastReplyTo(phone)).toContain("recipient")
   })
 
   // ── Inbox visibility ─────────────────────────────────────────────────────────
