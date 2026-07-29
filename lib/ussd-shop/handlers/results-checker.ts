@@ -16,6 +16,7 @@ import {
   getRCBulkHint, type ExamBoard,
 } from "@/lib/results-checker-service"
 import { buildRcBoardOptions } from "@/lib/ussd/handlers/results-checker"
+import { createShopRcOrder } from "@/lib/shop-commerce/orders"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -125,32 +126,24 @@ export async function handleShopRcConfirm(
   const localDialing = toLocal(dialingPhone)
   const referenceCode = secureReference("RC", 2, 3)
 
-  const { data: order, error: orderErr } = await supabase
-    .from("results_checker_orders")
-    .insert([{
-      reference_code: referenceCode,
-      exam_board: board,
-      quantity: qty,
-      customer_name: "USSD Customer",
-      customer_email: null,
-      customer_phone: localDialing,
-      unit_price: pricing.unitPrice,
-      fee_amount: 0,
-      total_paid: pricing.totalPaid,
-      shop_id: session.shopId!,
-      merchant_commission: pricing.merchantCommission,
-      status: "pending_payment",
-      payment_status: "pending_payment",
-      dialing_phone: dialingPhone,
-      channel: "ussd_shop",
-    }])
-    .select("id")
-    .single()
+  const orderResult = await createShopRcOrder({
+    referenceCode,
+    examBoard: board,
+    quantity: qty,
+    customerPhone: localDialing,
+    unitPrice: pricing.unitPrice,
+    totalPaid: pricing.totalPaid,
+    shopId: session.shopId!,
+    merchantCommission: pricing.merchantCommission,
+    dialingPhone,
+    channel: "ussd_shop",
+  })
 
-  if (orderErr || !order) {
-    console.error("[USSD-SHOP-RC] Failed to create order:", orderErr)
+  if ("error" in orderResult) {
+    console.error("[USSD-SHOP-RC] Failed to create order:", orderResult.error)
     return end("Error creating order.\nPlease try again.")
   }
+  const orderId = orderResult.orderId
 
   const email = await resolveEmail(dialingPhone)
 
@@ -162,10 +155,10 @@ export async function handleShopRcConfirm(
         amount: pricing.totalPaid,
         phone: dialingPhone,
         provider,
-        reference: order.id,
+        reference: orderId,
         metadata: {
           source: "ussd_shop_results_checker",
-          results_checker_order_id: order.id,
+          results_checker_order_id: orderId,
           exam_board: board,
           quantity: qty,
           shop_id: session.shopId,
@@ -173,30 +166,30 @@ export async function handleShopRcConfirm(
       })
       try {
         await supabase.from("payment_attempts").insert({
-          reference: order.id, amount: pricing.totalPaid, email,
-          status: "pending", payment_type: "ussd_shop_results_checker", order_id: order.id,
+          reference: orderId, amount: pricing.totalPaid, email,
+          status: "pending", payment_type: "ussd_shop_results_checker", order_id: orderId,
         })
       } catch (paErr) {
         console.warn("[USSD-SHOP-RC] payment_attempts insert failed (non-fatal):", paErr)
       }
-      console.log("[USSD-SHOP-RC] ✓ Charge initiated:", order.id, "status:", status)
+      console.log("[USSD-SHOP-RC] ✓ Charge initiated:", orderId, "status:", status)
       if (status === "send_otp") {
         await supabase.from("results_checker_orders")
           .update({ payment_status: "otp_required", updated_at: new Date().toISOString() })
-          .eq("id", order.id)
-        sendSMS({ phone: dialingPhone, message: SMSTemplates.ussdOtpRequired(), type: "otp_required", reference: order.id }).catch(() => {})
+          .eq("id", orderId)
+        sendSMS({ phone: dialingPhone, message: SMSTemplates.ussdOtpRequired(), type: "otp_required", reference: orderId }).catch(() => {})
       }
     } catch (err) {
       console.error("[USSD-SHOP-RC] Charge failed:", err)
       await supabase.from("results_checker_orders")
         .update({ payment_status: "failed", status: "failed", updated_at: new Date().toISOString() })
-        .eq("id", order.id)
+        .eq("id", orderId)
     }
   })
 
   await setSession(sessionId, {
     ...session,
-    pendingOrderId: order.id,
+    pendingOrderId: orderId,
     pendingOrderTable: "results_checker_orders",
     step: "ENTER_SHOP_CODE",
   })

@@ -4,6 +4,7 @@ import { cont, end, enterShopCodeMenu, invalidCodeMenu, networkMenu, sortNetwork
 import { setSession } from "../session"
 import { sendPushToUser } from "../../push-service"
 import { buildRcBoardOptions } from "../../ussd/handlers/results-checker"
+import { resolveShopCode } from "@/lib/shop-commerce/shop-code"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -20,18 +21,14 @@ export async function handleEnterShopCode(
 
   const code = input.trim()
 
-  const { data: shopCode } = await supabase
-    .from("ussd_shop_codes")
-    .select("id, shop_id, status, token_balance")
-    .eq("code", code)
-    .maybeSingle()
+  const resolved = await resolveShopCode(code)
 
-  if (!shopCode || shopCode.status !== 'active') {
+  if (!resolved || resolved.status !== 'active') {
     await setSession(sessionId, { step: 'ENTER_SHOP_CODE', dialingPhone })
     return cont(invalidCodeMenu('Invalid code. Try again.'))
   }
 
-  if (shopCode.token_balance <= 0) {
+  if (resolved.tokenBalance <= 0) {
     await setSession(sessionId, { step: 'ENTER_SHOP_CODE', dialingPhone })
     return cont(invalidCodeMenu('Shop has no sessions left.'))
   }
@@ -39,7 +36,7 @@ export async function handleEnterShopCode(
   // Atomically deduct one token
   const { data: deducted, error: deductError } = await supabase.rpc(
     'deduct_ussd_shop_token',
-    { p_shop_code_id: shopCode.id }
+    { p_shop_code_id: resolved.shopCodeId }
   )
 
   if (deductError || !deducted) {
@@ -48,19 +45,21 @@ export async function handleEnterShopCode(
     return cont(invalidCodeMenu('Shop unavailable. Try again.'))
   }
 
-  // Fetch shop name and whether it is a sub-agent (has parent_shop_id)
-  const { data: shopRow } = await supabase
-    .from("user_shops")
-    .select("shop_name, parent_shop_id, user_id")
-    .eq("id", shopCode.shop_id)
-    .single()
+  const shopName = resolved.shopName
+  const parentShopId: string | null = resolved.parentShopId
 
-  const shopName = shopRow?.shop_name ?? 'Shop'
-  const parentShopId: string | null = (shopRow as any)?.parent_shop_id ?? null
-  const shopOwnerId: string | null = (shopRow as any)?.user_id ?? null
+  // resolveShopCode() doesn't fetch user_shops.user_id (it only resolves
+  // shop_name/parent_shop_id) — fetch it separately so the low-session push
+  // alert below keeps working exactly as before.
+  const { data: shopOwnerRow } = await supabase
+    .from("user_shops")
+    .select("user_id")
+    .eq("id", resolved.shopId)
+    .single()
+  const shopOwnerId: string | null = (shopOwnerRow as any)?.user_id ?? null
 
   // Alert shop owner when sessions drop to 10
-  const remainingTokens = shopCode.token_balance - 1
+  const remainingTokens = resolved.tokenBalance - 1
   if (remainingTokens === 10 && shopOwnerId) {
     sendPushToUser(shopOwnerId, {
       title: "Low Sessions Warning",
@@ -77,7 +76,7 @@ export async function handleEnterShopCode(
     const { data: sapRows } = await supabase
       .from("sub_agent_shop_packages")
       .select("package_id")
-      .eq("shop_id", shopCode.shop_id)
+      .eq("shop_id", resolved.shopId)
       .eq("is_active", true)
 
     const packageIds = sapRows?.length
@@ -105,7 +104,7 @@ export async function handleEnterShopCode(
     const { data: spRows } = await supabase
       .from("shop_packages")
       .select("package_id")
-      .eq("shop_id", shopCode.shop_id)
+      .eq("shop_id", resolved.shopId)
       .eq("is_available", true)
 
     if (spRows?.length) {
@@ -125,7 +124,7 @@ export async function handleEnterShopCode(
   // Empty network list no longer blocks entry — a shop may sell only airtime or
   // results-checker vouchers (the Data option simply reports no bundles).
   const sortedNetworks = sortNetworks(networks)
-  console.log("[USSD-SHOP] networks for shop", shopCode.shop_id, ":", sortedNetworks)
+  console.log("[USSD-SHOP] networks for shop", resolved.shopId, ":", sortedNetworks)
 
   // Whitelist check: resolve once at session start so the product menu never
   // shows Data Bundle to callers who can't use it.
@@ -141,8 +140,8 @@ export async function handleEnterShopCode(
   await setSession(sessionId, {
     step: 'SELECT_PRODUCT',
     dialingPhone,
-    shopCodeId: shopCode.id,
-    shopId: shopCode.shop_id,
+    shopCodeId: resolved.shopCodeId,
+    shopId: resolved.shopId,
     parentShopId: parentShopId ?? undefined,
     shopName,
     networks: sortedNetworks,

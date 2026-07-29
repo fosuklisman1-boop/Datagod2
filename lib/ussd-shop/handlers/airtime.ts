@@ -15,6 +15,7 @@ import {
   detectAirtimeNetwork, isAirtimeEnabled, getAirtimeLimits,
   airtimeBaseFeeRate, splitInclusive, airtimeNetworkKey,
 } from "@/lib/airtime-pricing"
+import { createShopAirtimeOrder } from "@/lib/shop-commerce/orders"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -187,33 +188,24 @@ export async function handleShopAirtimeConfirm(
   const commission = parseFloat((toDeliver * merchantCommissionRate / 100).toFixed(2))
 
   const referenceCode = secureReference("AT", 2, 3)
-  const { data: order, error: orderErr } = await supabase
-    .from("airtime_orders")
-    .insert([{
-      reference_code: referenceCode,
-      network,
-      beneficiary_phone: session.airtimeRecipient!,
-      airtime_amount: toDeliver,
-      fee_amount: fee,
-      total_paid: amount,
-      pay_separately: false,
-      status: "pending_payment",
-      payment_status: "pending_payment",
-      user_id: null,
-      shop_id: session.shopId!,
-      merchant_commission: commission,
-      customer_name: "USSD Customer",
-      customer_email: null,
-      dialing_phone: dialingPhone,
-      channel: "ussd_shop",
-    }])
-    .select("id")
-    .single()
+  const orderResult = await createShopAirtimeOrder({
+    referenceCode,
+    network,
+    beneficiaryPhone: session.airtimeRecipient!,
+    airtimeAmount: toDeliver,
+    feeAmount: fee,
+    totalPaid: amount,
+    shopId: session.shopId!,
+    merchantCommission: commission,
+    dialingPhone,
+    channel: "ussd_shop",
+  })
 
-  if (orderErr || !order) {
-    console.error("[USSD-SHOP-AIRTIME] Failed to create order:", orderErr)
+  if ("error" in orderResult) {
+    console.error("[USSD-SHOP-AIRTIME] Failed to create order:", orderResult.error)
     return end("Error creating order.\nPlease try again.")
   }
+  const orderId = orderResult.orderId
 
   const email = await resolveEmail(dialingPhone)
   const localDialing = toLocal(dialingPhone)
@@ -226,10 +218,10 @@ export async function handleShopAirtimeConfirm(
         amount,
         phone: dialingPhone,
         provider,
-        reference: order.id,
+        reference: orderId,
         metadata: {
           source: "ussd_shop_airtime",
-          airtime_order_id: order.id,
+          airtime_order_id: orderId,
           recipient_phone: session.airtimeRecipient,
           network,
           shop_id: session.shopId,
@@ -237,30 +229,30 @@ export async function handleShopAirtimeConfirm(
       })
       try {
         await supabase.from("payment_attempts").insert({
-          reference: order.id, amount, email,
-          status: "pending", payment_type: "ussd_shop_airtime", order_id: order.id,
+          reference: orderId, amount, email,
+          status: "pending", payment_type: "ussd_shop_airtime", order_id: orderId,
         })
       } catch (paErr) {
         console.warn("[USSD-SHOP-AIRTIME] payment_attempts insert failed (non-fatal):", paErr)
       }
-      console.log("[USSD-SHOP-AIRTIME] ✓ Charge initiated:", order.id, "status:", status)
+      console.log("[USSD-SHOP-AIRTIME] ✓ Charge initiated:", orderId, "status:", status)
       if (status === "send_otp") {
         await supabase.from("airtime_orders")
           .update({ payment_status: "otp_required", updated_at: new Date().toISOString() })
-          .eq("id", order.id)
-        sendSMS({ phone: dialingPhone, message: SMSTemplates.ussdOtpRequired(), type: "otp_required", reference: order.id }).catch(() => {})
+          .eq("id", orderId)
+        sendSMS({ phone: dialingPhone, message: SMSTemplates.ussdOtpRequired(), type: "otp_required", reference: orderId }).catch(() => {})
       }
     } catch (err) {
       console.error("[USSD-SHOP-AIRTIME] Charge failed:", err)
       await supabase.from("airtime_orders")
         .update({ payment_status: "failed", status: "failed", updated_at: new Date().toISOString() })
-        .eq("id", order.id)
+        .eq("id", orderId)
     }
   })
 
   await setSession(sessionId, {
     ...session,
-    pendingOrderId: order.id,
+    pendingOrderId: orderId,
     pendingOrderTable: "airtime_orders",
     step: "ENTER_SHOP_CODE",
   })
