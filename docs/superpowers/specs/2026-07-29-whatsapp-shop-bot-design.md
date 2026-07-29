@@ -128,14 +128,19 @@ Mirrors the existing USSD activation (`ussd_shop_codes.activation_fee_paid` +
   marker, `tokens_purchased = 0` since it grants **no** sessions). On `charge.success`
   the webhook sets `whatsapp_activated = true, whatsapp_activated_at = now()` — it does
   **not** touch `token_balance` (sessions stay shared with USSD).
-- **Gated dashboard UX** (`/dashboard/ussd-shop`), the key requirement:
-  - **Before payment:** show the WhatsApp activation fee + an "Activate WhatsApp Shop"
-    button. The `wa.me` link and instructions are **hidden**.
-  - **After payment** (`whatsapp_activated = true`): reveal the shop's
-    **`wa.me/<NEW_NUMBER>?text=<code>` deep link** (with copy button) plus
-    **instructions** — how to share the link, that customers can also just send the
-    shop code, and the Data/Airtime/Results-Checker flow — presented like the existing
-    USSD instructions block on that page.
+- **Gated dashboard UX** — `/dashboard/ussd-shop` is reorganized into **two tabs**:
+  - **"USSD" tab:** the existing page content (code, sessions, USSD instructions), unchanged.
+  - **"WhatsApp Bot" tab:** the new channel.
+    - **Before payment:** show the WhatsApp activation fee + an "Activate WhatsApp Shop"
+      button. The `wa.me` link and instructions are **hidden**.
+    - **After payment** (`whatsapp_activated = true`): reveal the shop's
+      **`wa.me/<NEW_NUMBER>?text=<code>` deep link** (with copy button) plus
+      **instructions** — how to share the link, that customers can also just send the
+      shop code, and the Data/Airtime/Results-Checker flow — presented like the existing
+      USSD instructions block.
+- **Sidebar:** rename the shop-owner nav link `components/layout/sidebar.tsx:82`
+  from **"USSD Shop"** to **"USSD/WhatsApp Bot"** (the admin `/admin/ussd-shops`
+  "USSD Shops" link is separate — leave it).
 - **Bot gate:** `resolveShopCode` returns `whatsappActivated`; the shop-router
   `ENTER_CODE` step requires `whatsapp_activated = true` (in addition to `status='active'`
   and `token_balance > 0`). If a valid code isn't WhatsApp-activated →
