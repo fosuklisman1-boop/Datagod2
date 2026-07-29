@@ -34,7 +34,7 @@ export async function resolveShopCode(
 ): Promise<ResolvedShopCode | null> {
   const { data: shopCode } = await client
     .from("ussd_shop_codes")
-    .select("id, shop_id, status, token_balance")
+    .select("id, shop_id, status, token_balance, whatsapp_activated")
     .eq("code", code.trim())
     .maybeSingle()
 
@@ -53,11 +53,6 @@ export async function resolveShopCode(
     parentShopId: (shopRow as any)?.parent_shop_id ?? null,
     status: shopCode.status,
     tokenBalance: shopCode.token_balance,
-    // TODO(Phase 2, Task 2.1): `whatsapp_activated` doesn't exist on
-    // ussd_shop_codes yet — it's added by a later migration. Once that lands,
-    // select it above and return the real column value here instead of this
-    // hardcoded false. The shape/interface is kept stable now so callers
-    // written against it don't need to change later.
-    whatsappActivated: false,
+    whatsappActivated: shopCode.whatsapp_activated === true,
   }
 }

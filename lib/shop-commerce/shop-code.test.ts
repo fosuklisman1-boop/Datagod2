@@ -31,10 +31,10 @@ describe("resolveShopCode", () => {
     expect(result).toBeNull()
   })
 
-  it("resolves a known active code with tokens to the full shape, with whatsappActivated hardcoded false", async () => {
+  it("resolves a known active code with tokens to the full shape, with whatsappActivated false when the column is false", async () => {
     const client = fakeClient({
       ussd_shop_codes: {
-        data: { id: "sc1", shop_id: "s1", status: "active", token_balance: 5 },
+        data: { id: "sc1", shop_id: "s1", status: "active", token_balance: 5, whatsapp_activated: false },
       },
       user_shops: {
         data: { shop_name: "Test Shop", parent_shop_id: null },
@@ -54,10 +54,33 @@ describe("resolveShopCode", () => {
     })
   })
 
+  it("resolves whatsappActivated: true when the ussd_shop_codes row has whatsapp_activated: true", async () => {
+    const client = fakeClient({
+      ussd_shop_codes: {
+        data: { id: "sc4", shop_id: "s4", status: "active", token_balance: 2, whatsapp_activated: true },
+      },
+      user_shops: {
+        data: { shop_name: "Activated Shop", parent_shop_id: null },
+      },
+    })
+
+    const result = await resolveShopCode("ACT123", client)
+
+    expect(result).toEqual({
+      shopCodeId: "sc4",
+      shopId: "s4",
+      shopName: "Activated Shop",
+      parentShopId: null,
+      status: "active",
+      tokenBalance: 2,
+      whatsappActivated: true,
+    })
+  })
+
   it("resolves a sub-agent shop's parentShopId from user_shops", async () => {
     const client = fakeClient({
       ussd_shop_codes: {
-        data: { id: "sc2", shop_id: "s2", status: "active", token_balance: 3 },
+        data: { id: "sc2", shop_id: "s2", status: "active", token_balance: 3, whatsapp_activated: false },
       },
       user_shops: {
         data: { shop_name: "Sub Shop", parent_shop_id: "parent1" },
@@ -71,7 +94,7 @@ describe("resolveShopCode", () => {
   it("still resolves an inactive code — status gating is the caller's job, not this function's", async () => {
     const client = fakeClient({
       ussd_shop_codes: {
-        data: { id: "sc3", shop_id: "s3", status: "suspended", token_balance: 0 },
+        data: { id: "sc3", shop_id: "s3", status: "suspended", token_balance: 0, whatsapp_activated: false },
       },
       user_shops: {
         data: { shop_name: "Suspended Shop", parent_shop_id: null },
