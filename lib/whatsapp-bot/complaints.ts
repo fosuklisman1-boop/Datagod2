@@ -118,6 +118,28 @@ export async function resolveOpenComplaintsForPhone(
   return data?.length ?? 0
 }
 
+// Bulk-resolve ALL open (unclaimed) complaints across every customer — the
+// inbox "Resolve all complaints" button. Same rule as the per-phone version:
+// only "open" complaints are touched; "claimed" ones are being actively worked
+// via the WhatsApp admin flow and are left alone. Returns how many were resolved.
+export async function resolveAllOpenComplaints(
+  resolvedBy: string,
+  resolution: string
+): Promise<number> {
+  const { data } = await supabase
+    .from("whatsapp_complaints")
+    .update({
+      status: "resolved",
+      resolved_by: resolvedBy,
+      resolved_at: new Date().toISOString(),
+      resolution: resolution.slice(0, 2000),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("status", "open")
+    .select("id")
+  return data?.length ?? 0
+}
+
 // The customer's most recent open/claimed complaint, for attaching a screenshot
 // they send shortly after filing. Null if none within the window.
 export async function findRecentOpenComplaint(phone: string): Promise<{ id: string } | null> {

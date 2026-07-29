@@ -121,6 +121,7 @@ export default function WhatsAppInboxPage() {
   const [sending, setSending] = useState(false)
   const [toggling, setToggling] = useState(false)
   const [resolving, setResolving] = useState(false)
+  const [bulkBusy, setBulkBusy] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const fileRef = useRef<HTMLInputElement | null>(null)
 
@@ -393,6 +394,37 @@ export default function WhatsAppInboxPage() {
     }
   }
 
+  // Global inbox maintenance — bulk siblings of the per-conversation actions.
+  async function runBulk(action: "resolve_complaints" | "clear_wants_human" | "mark_all_read") {
+    const confirmMsg =
+      action === "resolve_complaints" ? "Resolve ALL open complaints across every conversation?" :
+      action === "clear_wants_human"  ? "Clear the 'wants human' tag on ALL conversations?" :
+                                        "Mark ALL conversations as read?"
+    if (!confirm(confirmMsg)) return
+    setBulkBusy(action)
+    try {
+      const headers = await getAuthHeader()
+      const res = await fetch("/api/admin/whatsapp-inbox/bulk", {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      })
+      const json = await res.json()
+      if (!res.ok) { toast.error(json.error || "Bulk action failed"); return }
+      const msg =
+        action === "resolve_complaints" ? (json.resolved > 0 ? `Resolved ${json.resolved} complaint${json.resolved === 1 ? "" : "s"}` : "No open complaints") :
+        action === "clear_wants_human"  ? (json.cleared > 0 ? `Cleared ${json.cleared} tag${json.cleared === 1 ? "" : "s"}` : "No tags to clear") :
+                                          (json.read > 0 ? `Marked ${json.read} read` : "Nothing unread")
+      toast.success(msg)
+      loadConversations()
+      if (selected) fetchThread(selected, false)
+    } catch {
+      toast.error("Bulk action failed")
+    } finally {
+      setBulkBusy(null)
+    }
+  }
+
   if (loading) {
     return (
       <DashboardLayout>
@@ -414,10 +446,40 @@ export default function WhatsAppInboxPage() {
 
         {/* Conversation list (full width) */}
         <Card className="flex flex-col overflow-hidden max-w-3xl">
-          <div className="p-3 border-b">
+          <div className="p-3 border-b space-y-2">
             <div className="relative">
               <Search className="w-4 h-4 absolute left-2.5 top-2.5 text-muted-foreground" />
               <Input className="pl-8" placeholder="Search by phone…" value={search} onChange={e => setSearch(e.target.value)} />
+            </div>
+            {/* Bulk inbox maintenance */}
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs"
+                disabled={bulkBusy !== null}
+                onClick={() => runBulk("resolve_complaints")}
+              >
+                {bulkBusy === "resolve_complaints" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><AlertTriangle className="w-3.5 h-3.5 mr-1" />Resolve all complaints</>}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs"
+                disabled={bulkBusy !== null}
+                onClick={() => runBulk("clear_wants_human")}
+              >
+                {bulkBusy === "clear_wants_human" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Hand className="w-3.5 h-3.5 mr-1" />Clear "wants human"</>}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs"
+                disabled={bulkBusy !== null}
+                onClick={() => runBulk("mark_all_read")}
+              >
+                {bulkBusy === "mark_all_read" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><CheckCheck className="w-3.5 h-3.5 mr-1" />Mark all read</>}
+              </Button>
             </div>
           </div>
           <div className="max-h-[calc(100vh-260px)] min-h-[320px] overflow-y-auto">
