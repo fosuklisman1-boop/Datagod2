@@ -6,8 +6,9 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { supabase } from "@/lib/supabase"
-import { Smartphone, Hash, Coins, Copy, CheckCircle, RefreshCw, AlertCircle, Wallet, Loader2 } from "lucide-react"
+import { Smartphone, Hash, Coins, Copy, CheckCircle, RefreshCw, AlertCircle, Wallet, Loader2, MessageCircle } from "lucide-react"
 import { toast } from "sonner"
 
 interface UssdShopCode {
@@ -17,6 +18,8 @@ interface UssdShopCode {
   token_balance: number
   activation_fee_paid: boolean
   created_at: string
+  whatsapp_activated: boolean
+  whatsapp_activated_at: string | null
 }
 
 interface ShopOrder {
@@ -46,6 +49,9 @@ export default function UssdShopPage() {
   const [activating, setActivating] = useState(false)
   const [sessionQty, setSessionQty] = useState("")
   const [buyingSessions, setBuyingSessions] = useState(false)
+  const [whatsappFee, setWhatsappFee] = useState(0)
+  const [whatsappActivating, setWhatsappActivating] = useState(false)
+  const [waLinkCopied, setWaLinkCopied] = useState(false)
 
   useEffect(() => {
     if (!user) return
@@ -67,7 +73,7 @@ export default function UssdShopPage() {
       const [codeRes, cfgRes, ordersRes, walletRes] = await Promise.all([
         supabase
           .from("ussd_shop_codes")
-          .select("id, code, status, token_balance, activation_fee_paid, created_at")
+          .select("id, code, status, token_balance, activation_fee_paid, created_at, whatsapp_activated, whatsapp_activated_at")
           .eq("shop_id", shopRow.id)
           .maybeSingle(),
         fetch("/api/public/config").then(r => r.ok ? r.json() : { app_settings: {} }).catch(() => ({ app_settings: {} })),
@@ -91,6 +97,7 @@ export default function UssdShopPage() {
       setSessionPrice(Number(ussdCfg.ussd_shop_session_price ?? 0))
       setMinSessions(Number(ussdCfg.ussd_shop_min_sessions ?? 1))
       setMaxSessions(Number(ussdCfg.ussd_shop_max_sessions ?? 100))
+      setWhatsappFee(Number(ussdCfg.whatsapp_shop_activation_fee ?? 0))
       setOrders(ordersRes.data ?? [])
       setWalletBalance(walletRes.data ? Number(walletRes.data.balance) : null)
     } catch {
@@ -117,6 +124,26 @@ export default function UssdShopPage() {
       toast.error(err.message ?? "Activation failed")
     } finally {
       setActivating(false)
+    }
+  }
+
+  const handleActivateWhatsapp = async () => {
+    setWhatsappActivating(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch("/api/dashboard/ussd-shop/whatsapp-activate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({}),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? "Activation failed")
+      toast.success("WhatsApp shop activated!")
+      await loadData()
+    } catch (err: any) {
+      toast.error(err.message ?? "Activation failed")
+    } finally {
+      setWhatsappActivating(false)
     }
   }
 
@@ -152,6 +179,19 @@ export default function UssdShopPage() {
     setCopied(true)
     toast.success("Shop code copied!")
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  const whatsappShopNumber = process.env.NEXT_PUBLIC_WHATSAPP_SHOP_NUMBER
+  const waLink = whatsappShopNumber && shopCode
+    ? `https://wa.me/${whatsappShopNumber}?text=${encodeURIComponent(shopCode.code)}`
+    : null
+
+  const copyWaLink = () => {
+    if (!waLink) return
+    navigator.clipboard.writeText(waLink)
+    setWaLinkCopied(true)
+    toast.success("WhatsApp shop link copied!")
+    setTimeout(() => setWaLinkCopied(false), 2000)
   }
 
   const statusBadge = (status: string, tokenBalance: number) => {
@@ -203,7 +243,13 @@ export default function UssdShopPage() {
             </CardContent>
           </Card>
         ) : (
-          <>
+          <Tabs defaultValue="ussd">
+            <TabsList className="mb-2">
+              <TabsTrigger value="ussd">USSD</TabsTrigger>
+              <TabsTrigger value="whatsapp">WhatsApp Bot</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="ussd" className="space-y-6">
             {/* Shop Code Card */}
             <Card className="border-primary/20 bg-card">
               <CardHeader className="pb-2">
@@ -417,7 +463,135 @@ export default function UssdShopPage() {
                 )}
               </CardContent>
             </Card>
-          </>
+            </TabsContent>
+
+            <TabsContent value="whatsapp" className="space-y-6">
+              {/* WhatsApp Activation / Shop Link Card */}
+              <Card className="border-primary/20 bg-card">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base text-primary flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <MessageCircle className="w-4 h-4" />
+                      WhatsApp Shop Bot
+                    </span>
+                    {shopCode.whatsapp_activated ? (
+                      <Badge className="bg-success/15 text-success border-border">Active</Badge>
+                    ) : (
+                      <Badge className="bg-muted text-muted-foreground border-border">Not Activated</Badge>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {!shopCode.whatsapp_activated ? (
+                    <div className="p-4 bg-warning/10 border border-border rounded-lg space-y-3">
+                      <div className="flex items-start gap-2 text-sm text-warning">
+                        <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-medium">Activation required</p>
+                          <p className="text-warning mt-0.5">
+                            One-time fee: <strong>GHS {whatsappFee.toFixed(2)}</strong>
+                            {walletBalance !== null && (
+                              <span className="ml-2 text-muted-foreground">· Wallet: GHS {walletBalance.toFixed(2)}</span>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        disabled={whatsappActivating || whatsappFee <= 0 || (walletBalance !== null && walletBalance < whatsappFee)}
+                        onClick={handleActivateWhatsapp}
+                        className="w-full bg-warning hover:bg-warning/90 text-white"
+                      >
+                        {whatsappActivating ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Wallet className="w-3 h-3 mr-1" />}
+                        Activate WhatsApp Shop
+                      </Button>
+                      {whatsappFee <= 0 && (
+                        <p className="text-xs text-muted-foreground">WhatsApp shop activation isn't available yet — check back soon.</p>
+                      )}
+                      {whatsappFee > 0 && walletBalance !== null && walletBalance < whatsappFee && (
+                        <p className="text-xs text-destructive">Insufficient wallet balance. Top up your wallet first.</p>
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Your WhatsApp shop link</p>
+                      {waLink ? (
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 bg-muted/40 border border-border rounded-lg px-3 py-2 text-sm font-mono text-foreground truncate">
+                            {waLink}
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={copyWaLink}
+                            className="shrink-0 border-primary/20 text-primary hover:bg-primary/10"
+                          >
+                            {waLinkCopied ? <CheckCircle className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex items-start gap-2 p-3 bg-muted/40 border border-border rounded-lg text-sm text-muted-foreground">
+                          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                          <span>WhatsApp number not yet configured. Check back soon — your shop's WhatsApp link will appear here once it's live.</span>
+                        </div>
+                      )}
+                      {shopCode.whatsapp_activated_at && (
+                        <p className="text-xs text-muted-foreground mt-2">
+                          Activated {new Date(shopCode.whatsapp_activated_at).toLocaleDateString()}
+                        </p>
+                      )}
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* How It Works — only meaningful once activated */}
+              {shopCode.whatsapp_activated && (
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">How Your Customers Use It</CardTitle>
+                    <CardDescription>Share these instructions with your customers</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="bg-muted/40 rounded-xl p-4 space-y-3 font-mono text-sm">
+                      <p className="text-muted-foreground text-xs font-sans uppercase tracking-wide mb-4">Step-by-step</p>
+                      <div className="flex items-start gap-3">
+                        <span className="bg-primary text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0 mt-0.5 font-sans">1</span>
+                        <div>
+                          <p className="text-foreground font-sans">Tap your shop link{waLink ? "" : " (once your number is set up)"}, or open WhatsApp and message</p>
+                          <p className="text-primary font-bold text-lg mt-0.5">{whatsappShopNumber || "—"}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <span className="bg-primary text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0 mt-0.5 font-sans">2</span>
+                        <div>
+                          <p className="text-foreground font-sans">Send your shop code to start (pre-filled automatically if they tapped the link)</p>
+                          <p className="text-primary font-bold text-lg mt-0.5">{shopCode.code}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <span className="bg-primary text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0 mt-0.5 font-sans">3</span>
+                        <p className="text-foreground font-sans">Pick Data, Airtime, or Results Checker, then follow the prompts to choose a bundle and recipient</p>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <span className="bg-primary text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0 mt-0.5 font-sans">4</span>
+                        <p className="text-foreground font-sans">Approve the MoMo prompt on their phone to complete payment</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 p-3 bg-primary/5 border border-primary/20 rounded-lg">
+                      <p className="text-sm font-medium text-primary mb-1">Share with your customers:</p>
+                      <p className="text-sm text-primary">
+                        {waLink
+                          ? <>"Tap this link to order on WhatsApp: <strong>{waLink}</strong>"</>
+                          : <>"Message us on WhatsApp and send shop code <strong>{shopCode.code}</strong> to buy your data bundle instantly!"</>}
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+          </Tabs>
         )}
       </div>
     </DashboardLayout>
