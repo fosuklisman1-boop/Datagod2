@@ -51,6 +51,36 @@ async function fetchPaystackFeePercent(): Promise<number> {
   return (data?.paystack_fee_percentage ?? 3.0) / 100
 }
 
+// CONFIRM-time anti-race token check. A shop's ussd_shop_codes.token_balance is a
+// SHARED pool across USSD + WhatsApp (design doc: "sessions stay shared with
+// USSD"), and a WhatsApp session can sit for up to 30 minutes (shop-session.ts's
+// TTL) between the initial ENTER_CODE gate and CONFIRM — long enough for the
+// shop's last token to be consumed elsewhere in that window. Re-reading it here,
+// right before creating the order, closes that gap (USSD doesn't need this: it
+// deducts synchronously at dial-in, not at confirm).
+async function fetchShopCodeTokenBalance(shopCodeId: string): Promise<number | null> {
+  const { data } = await supabase
+    .from("ussd_shop_codes")
+    .select("token_balance")
+    .eq("id", shopCodeId)
+    .maybeSingle()
+  return data?.token_balance ?? null
+}
+
+// Data-bundle whitelist gate — mirrors lib/ussd-shop/handlers/shop.ts's
+// handleEnterShopCode (builds session.dataBlocked, gating the product menu) and
+// lib/ussd-shop/handlers/bundles.ts's handleSelectNetwork (a second check right
+// before fetching bundles). When ON, only customers with a prior completed
+// purchase may buy data through the shop bot.
+async function isDataWhitelistBlocked(msisdn: string): Promise<boolean> {
+  const localPhone = normalizeGhanaLocal(msisdn)
+  const [{ data: whitelistSetting }, { data: hasPurchasedData }] = await Promise.all([
+    supabase.from("admin_settings").select("value").eq("key", "ussd_data_whitelist_enabled").maybeSingle(),
+    supabase.rpc("has_completed_purchase", { local_phone: localPhone, msisdn }),
+  ])
+  return (whitelistSetting as any)?.value?.enabled === true && hasPurchasedData !== true
+}
+
 // Ghana phone normalisation shared by ENTER_RECIPIENT and ENTER_PAYMENT_PHONE —
 // same accepted formats/regex as the main WA bot's WA_ENTER_PAYMENT_PHONE step
 // (lib/whatsapp-bot/router.ts's handleWaEnterPaymentPhone) and the USSD shop's
@@ -92,7 +122,10 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
       reply = shopInvalidCodeMenu("This shop isn't set up for WhatsApp yet.")
       skipPersist = true
     } else {
-      const networks = await fetchShopNetworks(resolved.shopId, resolved.parentShopId)
+      const [networks, dataBlocked] = await Promise.all([
+        fetchShopNetworks(resolved.shopId, resolved.parentShopId),
+        isDataWhitelistBlocked(from),
+      ])
       session = {
         step: 'SELECT_PRODUCT',
         shopCodeId: resolved.shopCodeId,
@@ -100,8 +133,9 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         parentShopId: resolved.parentShopId ?? undefined,
         shopName: resolved.shopName,
         networks,
+        dataBlocked,
       }
-      reply = shopProductMenu(resolved.shopName)
+      reply = shopProductMenu(resolved.shopName, !dataBlocked)
     }
   } else {
     const shopName = session.shopName ?? 'Shop'
@@ -109,6 +143,21 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
     switch (session.step) {
       // ── SELECT_PRODUCT ──────────────────────────────────────────────────────
       case 'SELECT_PRODUCT': {
+        const dataBlocked = session.dataBlocked === true
+
+        if (dataBlocked) {
+          // Renumbered menu (no Data option at all): 1=Airtime, 2=Results Checker.
+          if (input === '1' || input === '2') {
+            reply = `Coming soon.\n\n${shopProductMenu(shopName, false)}`
+          } else if (input === '0') {
+            deleteAfter = true
+            reply = 'Goodbye.'
+          } else {
+            reply = shopProductMenu(shopName, false)
+          }
+          break
+        }
+
         if (input === '1') {
           const networks = session.networks ?? []
           if (networks.length === 0) {
@@ -134,13 +183,23 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         const networks = sortNetworks(session.networks ?? [])
         if (input === '0') {
           session.step = 'SELECT_PRODUCT'
-          reply = shopProductMenu(shopName)
+          reply = shopProductMenu(shopName, !(session.dataBlocked === true))
           break
         }
         const idx = parseInt(input, 10) - 1
         const selectedNetwork = Number.isNaN(idx) ? undefined : networks[idx]
         if (!selectedNetwork) {
           reply = shopNetworkMenu(shopName, networks)
+          break
+        }
+
+        // Second whitelist check, right before fetching bundles — defense in
+        // depth against the whitelist/purchase status changing between the
+        // product-menu gate above and this selection (mirrors USSD's
+        // handleSelectNetwork, which re-checks here too rather than trusting
+        // only the flag set at code entry).
+        if (await isDataWhitelistBlocked(from)) {
+          reply = 'Data bundles not available.\nSign up on our app\nto unlock this service.\n\n' + shopNetworkMenu(shopName, networks)
           break
         }
 
@@ -297,6 +356,18 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
           break
         }
 
+        // Re-check the shop's token balance right before charging — the ENTER_CODE
+        // gate only proved >0 tokens existed up to 30 minutes ago (shop-session.ts's
+        // TTL), and the balance is a pool shared with USSD, so it can be spent to 0
+        // elsewhere while this session sits idle. Without this, a 0-token shop would
+        // still get charged AND fulfilled for free (shop-revenue loss).
+        const tokenBalance = await fetchShopCodeTokenBalance(session.shopCodeId!)
+        if (tokenBalance === null || tokenBalance <= 0) {
+          deleteAfter = true
+          reply = 'This shop has no sessions left. Please contact the seller.'
+          break
+        }
+
         // Re-fetch retail price from DB to prevent stale-session price tampering.
         const verified = await verifyBundlePrice(session.shopId!, session.bundleId!, session.parentShopId)
         if (!verified) {
@@ -387,6 +458,19 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
       // ── SUBMIT_OTP ───────────────────────────────────────────────────────────
       case 'SUBMIT_OTP': {
         if (input === '0') {
+          // Mirrors USSD's handleSubmitOtp: mark the order failed rather than
+          // leaving it stuck at pending/pending — the only automated
+          // reconciliation (verify-pending-payments cron) never queries
+          // ussd_shop_orders, and an abandoned OTP isn't guaranteed to produce
+          // a Paystack charge.failed webhook event either.
+          try {
+            await supabase
+              .from("ussd_shop_orders")
+              .update({ order_status: 'failed', payment_status: 'failed', updated_at: new Date().toISOString() })
+              .eq("id", session.pendingOrderId)
+          } catch (err) {
+            console.error("[WA-SHOP-OTP] failed to mark order failed on cancel:", err)
+          }
           deleteAfter = true
           reply = 'Order cancelled.'
           break

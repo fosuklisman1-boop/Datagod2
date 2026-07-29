@@ -32,26 +32,75 @@ vi.mock("@/lib/paystack", () => ({
 vi.mock("@/lib/ussd/resolve-email", () => ({ resolveEmail: vi.fn() }))
 vi.mock("@/lib/network-prefix-config", () => ({ getPrefixValidationConfig: vi.fn() }))
 
-// Backs the two ad-hoc reads shop-router.ts makes with its own Supabase client
-// (shop owner email + Paystack fee %, see shop-router.ts's fetchShopOwnerEmail /
-// fetchPaystackFeePercent) — no shop-commerce module owns these, so this is the
-// only way to control them from a test.
+// Backs every ad-hoc read/write shop-router.ts makes with its own Supabase client
+// (shop owner email, Paystack fee %, the CONFIRM-time token-balance recheck, the
+// data-whitelist setting/RPC, and the SUBMIT_OTP-cancel order-failure update) — no
+// shop-commerce module owns these, so this is the only way to control them from a
+// test. Declared via vi.hoisted so the mutable state is initialised before the
+// hoisted vi.mock factory below (which runs at import time) can reference it.
+const fakeDb = vi.hoisted(() => ({
+  feePercent: 3,
+  ownerEmail: "owner@example.com" as string | null,
+  tokenBalance: 5 as number | null,
+  whitelistEnabled: false,
+  hasCompletedPurchase: true,
+  orderUpdates: [] as Array<{ table: string; payload: Record<string, unknown>; id: unknown }>,
+}))
+
 vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
     from: (table: string) => {
       if (table === "app_settings") {
-        return { select: () => ({ single: () => Promise.resolve({ data: { paystack_fee_percentage: 3 } }) }) }
+        return { select: () => ({ single: () => Promise.resolve({ data: { paystack_fee_percentage: fakeDb.feePercent } }) }) }
       }
       if (table === "user_shops") {
         return {
           select: () => ({
             eq: () => ({
-              single: () => Promise.resolve({ data: { user_id: "owner1", users: { email: "owner@example.com" } } }),
+              single: () => Promise.resolve({
+                data: fakeDb.ownerEmail ? { user_id: "owner1", users: { email: fakeDb.ownerEmail } } : null,
+              }),
             }),
           }),
         }
       }
+      if (table === "ussd_shop_codes") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: () => Promise.resolve({
+                data: fakeDb.tokenBalance === null ? null : { token_balance: fakeDb.tokenBalance },
+              }),
+            }),
+          }),
+        }
+      }
+      if (table === "admin_settings") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: () => Promise.resolve({ data: { value: { enabled: fakeDb.whitelistEnabled } } }),
+            }),
+          }),
+        }
+      }
+      if (table === "ussd_shop_orders") {
+        return {
+          update: (payload: Record<string, unknown>) => ({
+            eq: (_col: string, id: unknown) => {
+              fakeDb.orderUpdates.push({ table, payload, id })
+              return Promise.resolve({ data: null, error: null })
+            },
+          }),
+        }
+      }
       throw new Error(`shop-router.test.ts fake supabase client: unexpected table "${table}"`)
+    },
+    rpc: (fnName: string) => {
+      if (fnName === "has_completed_purchase") {
+        return Promise.resolve({ data: fakeDb.hasCompletedPurchase, error: null })
+      }
+      throw new Error(`shop-router.test.ts fake supabase client: unexpected rpc "${fnName}"`)
     },
   }),
 }))
@@ -81,6 +130,15 @@ describe("shopWaRouter", () => {
       map: { MTN: [], TELECEL: [], AT: [] },
     })
     vi.mocked(resolveEmail).mockResolvedValue("cust@example.com")
+
+    // Reset the fake Supabase backing store (not a vi.fn(), so resetAllMocks
+    // doesn't touch it) — token balance defaults to a healthy 5, whitelist off.
+    fakeDb.feePercent = 3
+    fakeDb.ownerEmail = "owner@example.com"
+    fakeDb.tokenBalance = 5
+    fakeDb.whitelistEnabled = false
+    fakeDb.hasCompletedPurchase = true
+    fakeDb.orderUpdates = []
   })
 
   afterEach(() => {
@@ -339,6 +397,196 @@ describe("shopWaRouter", () => {
 
     expect(createShopBundleOrder).not.toHaveBeenCalled()
     expect(lastReplyTo(phone)).toContain("no longer available")
+  })
+
+  // ── CONFIRM-time token recheck (anti-race, shop-revenue safety) ────────────
+  it("CONFIRM: a token balance that hit zero since ENTER_CODE rejects and doesn't charge or create an order", async () => {
+    const phone = "233241000060"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc40", shopId: "s40", shopName: "Race Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(fetchShopBundles).mockResolvedValue([{ id: "p10", size: "1GB", price: 5 }])
+    vi.mocked(verifyBundlePrice).mockResolvedValue({ verifiedPrice: 5, profitAmount: 1, parentProfitAmount: 0 })
+
+    await shopWaRouter(phone, "CODE1", "f1")
+    await shopWaRouter(phone, "1", "f2")
+    await shopWaRouter(phone, "1", "f3")
+    await shopWaRouter(phone, "1", "f4")
+    await shopWaRouter(phone, "0244111222", "f5")
+    await shopWaRouter(phone, "0244333444", "f6")
+
+    // The shop's shared token pool got spent to 0 elsewhere while this
+    // WhatsApp session sat idle (its 30-min TTL leaves room for that).
+    fakeDb.tokenBalance = 0
+
+    await shopWaRouter(phone, "1", "f7")
+
+    expect(verifyBundlePrice).not.toHaveBeenCalled()
+    expect(createShopBundleOrder).not.toHaveBeenCalled()
+    expect(chargeMobileMoney).not.toHaveBeenCalled()
+    expect(lastReplyTo(phone)).toContain("no sessions left")
+
+    // Session torn down — the next message is a fresh code attempt.
+    vi.mocked(resolveShopCode).mockClear()
+    vi.mocked(resolveShopCode).mockResolvedValue(null)
+    await shopWaRouter(phone, "anything", "f8")
+    expect(resolveShopCode).toHaveBeenCalledWith("anything")
+  })
+
+  it("CONFIRM: a healthy token balance (>0) does not block the charge", async () => {
+    const phone = "233241000064"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc44", shopId: "s44", shopName: "Healthy Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(fetchShopBundles).mockResolvedValue([{ id: "p12", size: "1GB", price: 5 }])
+    vi.mocked(verifyBundlePrice).mockResolvedValue({ verifiedPrice: 5, profitAmount: 1, parentProfitAmount: 0 })
+    vi.mocked(createShopBundleOrder).mockResolvedValue({ orderId: "order10" })
+    vi.mocked(chargeMobileMoney).mockResolvedValue({ status: "send_otp", reference: "order10" })
+    fakeDb.tokenBalance = 1 // still >0
+
+    await shopWaRouter(phone, "CODE1", "j1")
+    await shopWaRouter(phone, "1", "j2")
+    await shopWaRouter(phone, "1", "j3")
+    await shopWaRouter(phone, "1", "j4")
+    await shopWaRouter(phone, "0244111222", "j5")
+    await shopWaRouter(phone, "0244333444", "j6")
+    await shopWaRouter(phone, "1", "j7")
+
+    expect(createShopBundleOrder).toHaveBeenCalled()
+    expect(chargeMobileMoney).toHaveBeenCalled()
+  })
+
+  // ── Data-whitelist gate ──────────────────────────────────────────────────────
+  it("SELECT_PRODUCT: the whitelist gate hides Data Bundle and blocks buying data when the customer hasn't purchased before", async () => {
+    const phone = "233241000061"
+    fakeDb.whitelistEnabled = true
+    fakeDb.hasCompletedPurchase = false
+
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc41", shopId: "s41", shopName: "Whitelist Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+
+    await shopWaRouter(phone, "CODE1", "g1")
+    expect(lastReplyTo(phone)).not.toContain("Data Bundle")
+    expect(lastReplyTo(phone)).toContain("1. Airtime")
+
+    // Menu is renumbered (no Data option) — "1" now means Airtime, never Data.
+    await shopWaRouter(phone, "1", "g2")
+    expect(fetchShopBundles).not.toHaveBeenCalled()
+    expect(lastReplyTo(phone)).toContain("Coming soon")
+  })
+
+  it("SELECT_PRODUCT: shows Data Bundle normally when the whitelist is enabled but the customer HAS purchased before", async () => {
+    const phone = "233241000065"
+    fakeDb.whitelistEnabled = true
+    fakeDb.hasCompletedPurchase = true
+
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc45", shopId: "s45", shopName: "Returning Customer Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+
+    await shopWaRouter(phone, "CODE1", "k1")
+    expect(lastReplyTo(phone)).toContain("Data Bundle")
+  })
+
+  it("SELECT_NETWORK: re-checks the whitelist right before fetching bundles, even if it passed at code entry", async () => {
+    const phone = "233241000062"
+    fakeDb.whitelistEnabled = false // not blocked at code entry
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc42", shopId: "s42", shopName: "Flip Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+
+    await shopWaRouter(phone, "CODE1", "h1") // SELECT_PRODUCT — Data option shown
+    expect(lastReplyTo(phone)).toContain("Data Bundle")
+
+    await shopWaRouter(phone, "1", "h2") // -> data -> SELECT_NETWORK
+
+    // ...but blocked by the time they actually pick a network (e.g. an admin
+    // flipped the setting, or their purchase-history check now fails).
+    fakeDb.whitelistEnabled = true
+    fakeDb.hasCompletedPurchase = false
+
+    await shopWaRouter(phone, "1", "h3") // SELECT_NETWORK -> MTN
+
+    expect(fetchShopBundles).not.toHaveBeenCalled()
+    expect(lastReplyTo(phone)).toContain("Data bundles not available")
+  })
+
+  // ── SUBMIT_OTP cancel must not leave the order stuck pending ────────────────
+  it("SUBMIT_OTP: cancelling ('0') marks the order failed instead of leaving it stuck pending/pending", async () => {
+    const phone = "233241000063"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc43", shopId: "s43", shopName: "OTP Cancel Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(fetchShopBundles).mockResolvedValue([{ id: "p11", size: "1GB", price: 5 }])
+    vi.mocked(verifyBundlePrice).mockResolvedValue({ verifiedPrice: 5, profitAmount: 1, parentProfitAmount: 0 })
+    vi.mocked(createShopBundleOrder).mockResolvedValue({ orderId: "order9" })
+    vi.mocked(chargeMobileMoney).mockResolvedValue({ status: "send_otp", reference: "order9" })
+
+    await shopWaRouter(phone, "CODE1", "i1")
+    await shopWaRouter(phone, "1", "i2")
+    await shopWaRouter(phone, "1", "i3")
+    await shopWaRouter(phone, "1", "i4")
+    await shopWaRouter(phone, "0244111222", "i5")
+    await shopWaRouter(phone, "0244333444", "i6")
+    await shopWaRouter(phone, "1", "i7") // CONFIRM -> pay -> send_otp
+
+    expect(lastReplyTo(phone)).toContain("OTP")
+
+    await shopWaRouter(phone, "0", "i8") // SUBMIT_OTP -> cancel
+
+    expect(submitOtp).not.toHaveBeenCalled()
+    expect(lastReplyTo(phone)).toContain("cancelled")
+    expect(fakeDb.orderUpdates).toContainEqual({
+      table: "ussd_shop_orders",
+      payload: expect.objectContaining({ order_status: "failed", payment_status: "failed" }),
+      id: "order9",
+    })
+
+    // Session ended — next message is a fresh code attempt.
+    vi.mocked(resolveShopCode).mockClear()
+    vi.mocked(resolveShopCode).mockResolvedValue(null)
+    await shopWaRouter(phone, "anything", "i9")
+    expect(resolveShopCode).toHaveBeenCalledWith("anything")
+  })
+
+  it("SUBMIT_OTP: submitting an actual OTP code does not touch the order-failure path", async () => {
+    const phone = "233241000066"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc46", shopId: "s46", shopName: "OTP Success Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(fetchShopBundles).mockResolvedValue([{ id: "p13", size: "1GB", price: 5 }])
+    vi.mocked(verifyBundlePrice).mockResolvedValue({ verifiedPrice: 5, profitAmount: 1, parentProfitAmount: 0 })
+    vi.mocked(createShopBundleOrder).mockResolvedValue({ orderId: "order11" })
+    vi.mocked(chargeMobileMoney).mockResolvedValue({ status: "send_otp", reference: "order11" })
+    vi.mocked(submitOtp).mockResolvedValue({ status: "pending", reference: "order11" })
+
+    await shopWaRouter(phone, "CODE1", "l1")
+    await shopWaRouter(phone, "1", "l2")
+    await shopWaRouter(phone, "1", "l3")
+    await shopWaRouter(phone, "1", "l4")
+    await shopWaRouter(phone, "0244111222", "l5")
+    await shopWaRouter(phone, "0244333444", "l6")
+    await shopWaRouter(phone, "1", "l7")
+
+    await shopWaRouter(phone, "123456", "l8")
+
+    expect(submitOtp).toHaveBeenCalledWith("order11", "123456")
+    expect(fakeDb.orderUpdates).toEqual([])
   })
 
   // ── Money-safety: payment phone is always asked, never assumed ─────────────
