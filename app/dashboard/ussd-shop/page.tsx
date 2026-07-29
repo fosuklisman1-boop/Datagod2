@@ -137,6 +137,15 @@ export default function UssdShopPage() {
         body: JSON.stringify({}),
       })
       const json = await res.json()
+      if (res.status === 409) {
+        // The atomic-claim endpoint lost the race to another request (e.g. a
+        // double-click) — the shop IS already WhatsApp-activated, it's not a real
+        // failure. Refresh so the card flips to the activated view instead of
+        // leaving the fee/button stuck showing alongside a scary red error.
+        toast.info("This shop is already WhatsApp-activated")
+        await loadData()
+        return
+      }
       if (!res.ok) throw new Error(json.error ?? "Activation failed")
       toast.success("WhatsApp shop activated!")
       await loadData()
@@ -225,9 +234,9 @@ export default function UssdShopPage() {
           <div>
             <h1 className="text-xl font-bold text-foreground flex items-center gap-2">
               <Smartphone className="w-5 h-5 text-primary" />
-              USSD Storefront
+              USSD & WhatsApp Storefront
             </h1>
-            <p className="text-sm text-muted-foreground mt-1">Let your customers buy data bundles by dialing a USSD code</p>
+            <p className="text-sm text-muted-foreground mt-1">Let your customers buy data bundles by USSD or WhatsApp</p>
           </div>
           <Button variant="outline" size="sm" onClick={loadData}>
             <RefreshCw className="w-4 h-4" />
