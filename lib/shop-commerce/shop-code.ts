@@ -57,3 +57,70 @@ export async function resolveShopCode(
     whatsappActivated: shopCode.whatsapp_activated === true,
   }
 }
+
+// Distinct, deduped list of networks a shop's Data Bundle catalog currently offers.
+// Extracted from the network-listing block inside lib/ussd-shop/handlers/shop.ts's
+// handleEnterShopCode (the USSD entry handler) so the WhatsApp shop bot can build the
+// same list without duplicating the sub-agent/regular-shop branching. Deliberately
+// returns an UNSORTED, deduped list — display ordering (sortNetworks) stays a
+// presentation concern for the caller (see lib/ussd-shop/menus.ts /
+// lib/whatsapp-bot/shop-menus.ts), matching how resolveShopCode above also just
+// resolves facts without deciding how they're shown.
+export async function fetchShopNetworks(
+  shopId: string,
+  parentShopId?: string | null,
+  client: SupabaseClientLike = supabase
+): Promise<string[]> {
+  const networks: string[] = []
+  const seen = new Set<string>()
+
+  if (parentShopId) {
+    // New model: sub-agent's own package list
+    const { data: sapRows } = await client
+      .from("sub_agent_shop_packages")
+      .select("package_id")
+      .eq("shop_id", shopId)
+      .eq("is_active", true)
+
+    const packageIds: string[] = sapRows?.length
+      ? sapRows.map((r: any) => r.package_id)
+      : await client
+          .from("sub_agent_catalog")
+          .select("package_id")
+          .eq("shop_id", parentShopId)
+          .eq("is_active", true)
+          .then((r: any) => r.data?.map((row: any) => row.package_id) ?? [])
+
+    if (packageIds.length) {
+      const { data: pkgRows } = await client
+        .from("packages")
+        .select("network")
+        .in("id", packageIds)
+        .eq("active", true)
+
+      for (const pkg of pkgRows ?? []) {
+        if (pkg.network && !seen.has(pkg.network)) { seen.add(pkg.network); networks.push(pkg.network) }
+      }
+    }
+    return networks
+  }
+
+  const { data: spRows } = await client
+    .from("shop_packages")
+    .select("package_id")
+    .eq("shop_id", shopId)
+    .eq("is_available", true)
+
+  if (spRows?.length) {
+    const { data: pkgRows } = await client
+      .from("packages")
+      .select("network")
+      .in("id", spRows.map((r: any) => r.package_id))
+      .eq("active", true)
+
+    for (const pkg of pkgRows ?? []) {
+      if (pkg.network && !seen.has(pkg.network)) { seen.add(pkg.network); networks.push(pkg.network) }
+    }
+  }
+  return networks
+}
