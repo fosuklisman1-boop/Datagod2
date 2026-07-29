@@ -788,16 +788,28 @@ export async function refundRCOrder(orderId: string, userId: string, amount: num
  */
 export async function fulfillPaidResultsCheckerOrder(
   orderId: string
-): Promise<{ success: boolean; status: "completed" | "pending" | "failed" | "not_found"; message: string }> {
+): Promise<{
+  success: boolean
+  status: "completed" | "pending" | "failed" | "not_found"
+  message: string
+  // True only when THIS call is the one that just transitioned the order from
+  // unpaid to paid (i.e. it passed the status==='completed'/'failed' guards
+  // above). False on a retry against an already-settled order, and false when
+  // the order didn't exist at all. Callers that bill something exactly once
+  // per payment (e.g. the Paystack webhook's WhatsApp-shop token deduction)
+  // must gate on this rather than on `success`/`status` alone — `success` is
+  // also true on a retry of an already-completed order.
+  newlyPaid: boolean
+}> {
   const { data: rcOrder } = await supabase
     .from("results_checker_orders")
     .select("*")
     .eq("id", orderId)
     .single()
 
-  if (!rcOrder) return { success: false, status: "not_found", message: "RC order not found" }
-  if (rcOrder.status === "completed") return { success: true, status: "completed", message: "Already completed" }
-  if (rcOrder.status === "failed") return { success: false, status: "failed", message: "Order already failed" }
+  if (!rcOrder) return { success: false, status: "not_found", message: "RC order not found", newlyPaid: false }
+  if (rcOrder.status === "completed") return { success: true, status: "completed", message: "Already completed", newlyPaid: false }
+  if (rcOrder.status === "failed") return { success: false, status: "failed", message: "Order already failed", newlyPaid: false }
 
   // Atomically reserve vouchers (all-or-nothing under concurrency)
   const { data: vouchers, error: assignError } = await supabase.rpc(
@@ -811,7 +823,7 @@ export async function fulfillPaidResultsCheckerOrder(
       .from("results_checker_orders")
       .update({ status: "pending", payment_status: "completed", updated_at: new Date().toISOString() })
       .eq("id", rcOrder.id)
-    return { success: false, status: "pending", message: "Stock exhausted — paid, awaiting manual delivery" }
+    return { success: false, status: "pending", message: "Stock exhausted — paid, awaiting manual delivery", newlyPaid: true }
   }
 
   await supabase.rpc("finalize_results_checker_sale", { p_order_id: rcOrder.id, p_user_id: rcOrder.user_id ?? null })
@@ -858,7 +870,7 @@ export async function fulfillPaidResultsCheckerOrder(
   await deliverVouchers(rcOrder, vouchers).catch(e => console.warn("[RC-SERVICE] RC delivery error:", e))
 
   console.log(`[RC-SERVICE] ✓ RC order ${rcOrder.reference_code} completed: ${rcOrder.quantity}x ${rcOrder.exam_board}`)
-  return { success: true, status: "completed", message: "Vouchers delivered" }
+  return { success: true, status: "completed", message: "Vouchers delivered", newlyPaid: true }
 }
 
 /**

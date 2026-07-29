@@ -495,6 +495,22 @@ export async function POST(request: NextRequest) {
           })
           .eq("id", ussdShopOrder.id)
 
+        // WhatsApp shop bot bills 1 session token per completed order — USSD
+        // already deducted its token at session entry (lib/ussd-shop/handlers/shop.ts),
+        // so this only fires for channel === 'whatsapp_shop'. Placed after the
+        // "already processed" guard above (payment_status !== pending/otp_required
+        // returns early), so a webhook retry for an already-paid order never
+        // reaches here — fires exactly once per order.
+        if (ussdShopOrder.channel === 'whatsapp_shop') {
+          const { deductTokenIfWhatsappShopOrder } = await import("@/lib/shop-commerce/token-deduction")
+          const deductResult = await deductTokenIfWhatsappShopOrder(ussdShopOrder)
+          if (deductResult.deducted) {
+            console.log("[WEBHOOK] ✓ WhatsApp shop token deducted for data order:", ussdShopOrder.id)
+          } else if (deductResult.reason !== "not_whatsapp_shop") {
+            console.error("[WEBHOOK] Failed to deduct WhatsApp shop token:", deductResult)
+          }
+        }
+
         // Credit sub-agent shop profit (DB trigger auto-syncs shop_available_balance)
         if (Number(ussdShopOrder.profit_amount) > 0) {
           const { error: profitErr } = await supabase.from("shop_profits").insert([{
@@ -591,7 +607,7 @@ export async function POST(request: NextRequest) {
       // wallet_payments below, so this id-lookup only ever matches USSD orders.
       const { data: ussdAirtimeOrder } = await supabase
         .from("airtime_orders")
-        .select("id, total_paid, payment_status, dialing_phone, beneficiary_phone, network, airtime_amount, reference_code, channel")
+        .select("id, total_paid, payment_status, dialing_phone, beneficiary_phone, network, airtime_amount, reference_code, channel, shop_id")
         .eq("id", reference)
         .maybeSingle()
 
@@ -611,7 +627,23 @@ export async function POST(request: NextRequest) {
         }
 
         const { markAirtimeOrderPaid } = await import("@/lib/airtime-service")
-        await markAirtimeOrderPaid(ussdAirtimeOrder.id, event.data.id)
+        const airtimeMarkResult = await markAirtimeOrderPaid(ussdAirtimeOrder.id, event.data.id)
+
+        // WhatsApp shop bot bills 1 session token per completed order — USSD
+        // already deducted its token at session entry. markAirtimeOrderPaid has
+        // its OWN idempotency guard (returns alreadyProcessed: true on a retry
+        // against an already-paid order) — that's the authoritative "did this
+        // call genuinely just mark it paid" signal, so gate on it rather than
+        // this block's own pre-fetch payment_status check above.
+        if (airtimeMarkResult.success && !airtimeMarkResult.alreadyProcessed && ussdAirtimeOrder.channel === 'whatsapp_shop') {
+          const { deductTokenIfWhatsappShopOrder } = await import("@/lib/shop-commerce/token-deduction")
+          const deductResult = await deductTokenIfWhatsappShopOrder(ussdAirtimeOrder)
+          if (deductResult.deducted) {
+            console.log("[WEBHOOK] ✓ WhatsApp shop token deducted for airtime order:", ussdAirtimeOrder.id)
+          } else if (deductResult.reason !== "not_whatsapp_shop") {
+            console.error("[WEBHOOK] Failed to deduct WhatsApp shop token:", deductResult)
+          }
+        }
 
         await supabase
           .from("payment_attempts")
@@ -646,7 +678,7 @@ export async function POST(request: NextRequest) {
       // results_checker_orders UUID). Storefront RC uses a WALLET-… reference.
       const { data: ussdRcOrder } = await supabase
         .from("results_checker_orders")
-        .select("id, total_paid, payment_status, status")
+        .select("id, total_paid, payment_status, status, channel, shop_id")
         .eq("id", reference)
         .maybeSingle()
 
@@ -676,6 +708,24 @@ export async function POST(request: NextRequest) {
         const rcResult = await fulfillPaidResultsCheckerOrder(ussdRcOrder.id)
         if (!rcResult.success) {
           console.warn("[WEBHOOK] USSD RC fulfillment incomplete:", rcResult.status, rcResult.message)
+        }
+
+        // WhatsApp shop bot bills 1 session token per completed order — USSD
+        // already deducted its token at session entry. fulfillPaidResultsCheckerOrder
+        // has its OWN idempotency guard (status==='completed'/'failed' early-returns,
+        // reported back as newlyPaid: false) — that's the authoritative "did this
+        // call genuinely just mark it paid" signal, so gate on it rather than this
+        // block's own pre-fetch status check above. newlyPaid stays true even when
+        // stock ran out (order is paid but awaiting manual delivery) — the token is
+        // owed for the completed PAYMENT, not final delivery.
+        if (rcResult.newlyPaid && ussdRcOrder.channel === 'whatsapp_shop') {
+          const { deductTokenIfWhatsappShopOrder } = await import("@/lib/shop-commerce/token-deduction")
+          const deductResult = await deductTokenIfWhatsappShopOrder(ussdRcOrder)
+          if (deductResult.deducted) {
+            console.log("[WEBHOOK] ✓ WhatsApp shop token deducted for RC order:", ussdRcOrder.id)
+          } else if (deductResult.reason !== "not_whatsapp_shop") {
+            console.error("[WEBHOOK] Failed to deduct WhatsApp shop token:", deductResult)
+          }
         }
 
         return NextResponse.json({ received: true })
