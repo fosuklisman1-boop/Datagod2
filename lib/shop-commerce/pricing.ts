@@ -163,17 +163,18 @@ export async function fetchShopBundles(
 export async function verifyBundlePrice(
   shopId: string,
   bundleId: string,
-  parentShopId?: string
+  parentShopId?: string,
+  client: SupabaseClientLike = supabase
 ): Promise<{ verifiedPrice: number; profitAmount: number; parentProfitAmount: number } | null> {
   let verifiedPrice: number
   let profitAmount: number
   let parentProfitAmount = 0
 
   if (parentShopId) {
-    const parentIsDealer = await shopOwnerIsDealer(parentShopId)
+    const parentIsDealer = await shopOwnerIsDealer(parentShopId, client)
 
     // New model: sub_agent_shop_packages
-    const { data: sapRow } = await supabase
+    const { data: sapRow } = await client
       .from("sub_agent_shop_packages")
       .select("parent_price, sub_agent_profit_margin, packages!inner(price, dealer_price, active)")
       .eq("shop_id", shopId)
@@ -188,7 +189,7 @@ export async function verifyBundlePrice(
       verifiedPrice = Number(sapRow.parent_price) + profitAmount
     } else {
       // Old model fallback: sub_agent_catalog
-      const { data: catalogRow } = await supabase
+      const { data: catalogRow } = await client
         .from("sub_agent_catalog")
         .select("wholesale_margin, sub_agent_profit_margin, packages!inner(price, dealer_price, active)")
         .eq("shop_id", parentShopId)
@@ -206,7 +207,7 @@ export async function verifyBundlePrice(
     }
   } else {
     const [shopPkg, shopIsDealer] = await Promise.all([
-      supabase
+      client
         .from("shop_packages")
         .select("profit_margin, packages!inner(price, dealer_price, active)")
         .eq("shop_id", shopId)
@@ -214,7 +215,7 @@ export async function verifyBundlePrice(
         .eq("is_available", true)
         .maybeSingle()
         .then(r => r.data),
-      shopOwnerIsDealer(shopId),
+      shopOwnerIsDealer(shopId, client),
     ])
 
     if (!shopPkg || !(shopPkg as any).packages?.active) {
