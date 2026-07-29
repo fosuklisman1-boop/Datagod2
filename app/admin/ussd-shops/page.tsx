@@ -365,9 +365,9 @@ export default function AdminUssdShopsPage() {
             {/* Session Settings */}
             <div className="space-y-3">
               <p className="text-xs font-semibold text-primary uppercase tracking-wide">Session Purchase Settings</p>
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                 <div className="space-y-1">
-                  <Label className="text-xs text-primary">Activation Fee (GHS)</Label>
+                  <Label className="text-xs text-primary">USSD Activation Fee (GHS)</Label>
                   <Input
                     type="number"
                     min="0"
