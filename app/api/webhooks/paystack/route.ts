@@ -486,29 +486,25 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: "Underpayment" }, { status: 400 })
         }
 
-        await supabase
-          .from("ussd_shop_orders")
-          .update({
-            payment_status: 'completed',
-            paystack_reference: reference,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", ussdShopOrder.id)
+        // Conditional claim: the UPDATE itself only matches a row still in a
+        // pre-paid state (mirrors the read-side guard above). Two near-simultaneous
+        // duplicate webhook deliveries for the same order can both pass the
+        // line-477 READ before either commits — Postgres only lets one of two
+        // concurrent UPDATEs also matching this payment_status filter through,
+        // so only one delivery ever gets `claimed: true` back. This (not the
+        // read above) is what actually makes deduction/profit-crediting/
+        // fulfillment below fire exactly once per order. See
+        // lib/shop-commerce/claim-order-paid.ts.
+        const { claimUssdShopOrderPaid } = await import("@/lib/shop-commerce/claim-order-paid")
+        const claimResult = await claimUssdShopOrderPaid(ussdShopOrder.id, reference, supabase)
 
-        // WhatsApp shop bot bills 1 session token per completed order — USSD
-        // already deducted its token at session entry (lib/ussd-shop/handlers/shop.ts),
-        // so this only fires for channel === 'whatsapp_shop'. Placed after the
-        // "already processed" guard above (payment_status !== pending/otp_required
-        // returns early), so a webhook retry for an already-paid order never
-        // reaches here — fires exactly once per order.
-        if (ussdShopOrder.channel === 'whatsapp_shop') {
-          const { deductTokenIfWhatsappShopOrder } = await import("@/lib/shop-commerce/token-deduction")
-          const deductResult = await deductTokenIfWhatsappShopOrder(ussdShopOrder)
-          if (deductResult.deducted) {
-            console.log("[WEBHOOK] ✓ WhatsApp shop token deducted for data order:", ussdShopOrder.id)
-          } else if (deductResult.reason !== "not_whatsapp_shop") {
-            console.error("[WEBHOOK] Failed to deduct WhatsApp shop token:", deductResult)
+        if (!claimResult.claimed) {
+          if (claimResult.error) {
+            console.error("[WEBHOOK] Failed to mark USSD shop order paid:", claimResult.error)
+            return NextResponse.json({ error: "DB update failed" }, { status: 500 })
           }
+          console.log("[WEBHOOK] USSD shop order payment_status already transitioned by a concurrent delivery:", ussdShopOrder.id)
+          return NextResponse.json({ received: true })
         }
 
         // Credit sub-agent shop profit (DB trigger auto-syncs shop_available_balance)
@@ -582,6 +578,29 @@ export async function POST(request: NextRequest) {
             .from("ussd_shop_orders")
             .update({ order_status: 'failed', updated_at: new Date().toISOString() })
             .eq("id", ussdShopOrder.id)
+        }
+
+        // WhatsApp shop bot bills 1 session token per completed order — USSD
+        // already deducted its token at session entry (lib/ussd-shop/handlers/shop.ts),
+        // so this only fires for channel === 'whatsapp_shop'. Placed AFTER
+        // fulfillment (mirroring the airtime/RC ordering below) and wrapped in
+        // its own try/catch so a thrown error here can never skip the SMS send
+        // below or (had it run earlier) profit-crediting/fulfillment above —
+        // deductTokenIfWhatsappShopOrder already never throws internally, so
+        // this is defense-in-depth, not the primary safety net. The claim
+        // above (not this placement) is what guarantees exactly-once billing.
+        if (ussdShopOrder.channel === 'whatsapp_shop') {
+          try {
+            const { deductTokenIfWhatsappShopOrder } = await import("@/lib/shop-commerce/token-deduction")
+            const deductResult = await deductTokenIfWhatsappShopOrder(ussdShopOrder)
+            if (deductResult.deducted) {
+              console.log("[WEBHOOK] ✓ WhatsApp shop token deducted for data order:", ussdShopOrder.id)
+            } else if (deductResult.reason !== "not_whatsapp_shop") {
+              console.error("[WEBHOOK] Failed to deduct WhatsApp shop token:", deductResult)
+            }
+          } catch (deductErr) {
+            console.error("[WEBHOOK] Unexpected error deducting WhatsApp shop token:", deductErr)
+          }
         }
 
         // SMS to recipient (USSD shop orders intentionally omit the channel link)

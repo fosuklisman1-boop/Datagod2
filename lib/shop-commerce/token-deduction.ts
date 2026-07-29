@@ -54,7 +54,13 @@ export type DeductionResult =
   | { deducted: true }
   | {
       deducted: false
-      reason: "not_whatsapp_shop" | "missing_shop_reference" | "shop_code_lookup_failed" | "rpc_error"
+      reason:
+        | "not_whatsapp_shop"
+        | "missing_shop_reference"
+        | "shop_code_lookup_failed"
+        | "insufficient_balance"
+        | "rpc_error"
+        | "unexpected_error"
       error?: string
     }
 
@@ -66,28 +72,47 @@ export async function deductTokenIfWhatsappShopOrder(
     return { deducted: false, reason: "not_whatsapp_shop" }
   }
 
-  let shopCodeId = order.shop_code_id ?? null
+  // Every DB call below is wrapped so a thrown error (network failure, a bad
+  // dynamic import at the call site, etc.) can never propagate into the
+  // caller's webhook flow — callers invoke this from the middle of a
+  // multi-step webhook branch (profit crediting, fulfillment, SMS) that must
+  // keep running regardless of whether the token deduction itself succeeds.
+  try {
+    let shopCodeId = order.shop_code_id ?? null
 
-  if (!shopCodeId) {
-    if (!order.shop_id) {
-      return { deducted: false, reason: "missing_shop_reference" }
+    if (!shopCodeId) {
+      if (!order.shop_id) {
+        return { deducted: false, reason: "missing_shop_reference" }
+      }
+      const { data, error } = await client
+        .from("ussd_shop_codes")
+        .select("id")
+        .eq("shop_id", order.shop_id)
+        .maybeSingle()
+      if (error || !data) {
+        return { deducted: false, reason: "shop_code_lookup_failed", error: error?.message }
+      }
+      shopCodeId = data.id
     }
-    const { data, error } = await client
-      .from("ussd_shop_codes")
-      .select("id")
-      .eq("shop_id", order.shop_id)
-      .maybeSingle()
-    if (error || !data) {
-      return { deducted: false, reason: "shop_code_lookup_failed", error: error?.message }
-    }
-    shopCodeId = data.id
-  }
 
-  const { error: deductErr } = await client.rpc("deduct_ussd_shop_token", {
-    p_shop_code_id: shopCodeId,
-  })
-  if (deductErr) {
-    return { deducted: false, reason: "rpc_error", error: deductErr.message }
+    // deduct_ussd_shop_token (migrations/deduct_ussd_shop_token.sql) returns a
+    // BOOLEAN in `data`, with `error: null` on both TRUE and FALSE — FALSE means
+    // it legitimately no-op'd (0 balance left, or the code isn't 'active'), not
+    // a query failure. Must inspect `data`, not just `error`, or a depleted
+    // balance silently reports as a false-positive `{ deducted: true }` (the
+    // design doc's own "Edge (rare)" case: the paid order still fulfills as a
+    // free sale — but the webhook must log that truthfully, not as a success).
+    const { data: wasDeducted, error: deductErr } = await client.rpc("deduct_ussd_shop_token", {
+      p_shop_code_id: shopCodeId,
+    })
+    if (deductErr) {
+      return { deducted: false, reason: "rpc_error", error: deductErr.message }
+    }
+    if (!wasDeducted) {
+      return { deducted: false, reason: "insufficient_balance" }
+    }
+    return { deducted: true }
+  } catch (err: any) {
+    return { deducted: false, reason: "unexpected_error", error: err?.message ?? String(err) }
   }
-  return { deducted: true }
 }

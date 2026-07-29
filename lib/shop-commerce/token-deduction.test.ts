@@ -8,6 +8,9 @@ function makeClient(opts: {
   shopCodeByShopId?: Record<string, string | null>
   shopCodeLookupError?: string
   rpcError?: string
+  // The RPC's actual success/failure signal — deduct_ussd_shop_token returns
+  // this BOOLEAN with error: null either way. Defaults to true (deducted).
+  rpcData?: boolean
 } = {}) {
   const calls: { op: string; table?: string; args?: any }[] = []
 
@@ -33,7 +36,7 @@ function makeClient(opts: {
     rpc: (fn: string, args: any) => {
       calls.push({ op: "rpc", args: { fn, ...args } })
       if (opts.rpcError) return Promise.resolve({ data: null, error: { message: opts.rpcError } })
-      return Promise.resolve({ data: true, error: null })
+      return Promise.resolve({ data: opts.rpcData ?? true, error: null })
     },
   } as any
 
@@ -122,5 +125,32 @@ describe("deductTokenIfWhatsappShopOrder", () => {
     const result = await deductTokenIfWhatsappShopOrder({ channel: "whatsapp_shop", shop_code_id: "sc1" }, client)
 
     expect(result).toEqual({ deducted: false, reason: "rpc_error", error: "db down" })
+  })
+
+  it("reports insufficient_balance (not deducted:true) when the RPC returns data:false with no error — a depleted shop code is a legitimate no-op, not a failure", async () => {
+    const { client, calls } = makeClient({ rpcData: false })
+
+    const result = await deductTokenIfWhatsappShopOrder({ channel: "whatsapp_shop", shop_code_id: "sc1" }, client)
+
+    expect(result).toEqual({ deducted: false, reason: "insufficient_balance" })
+    // The RPC was still called exactly once — this isn't a short-circuit, it's
+    // reading the boolean the RPC actually returned.
+    expect(calls).toEqual([{ op: "rpc", args: { fn: "deduct_ussd_shop_token", p_shop_code_id: "sc1" } }])
+  })
+
+  it("returns unexpected_error instead of throwing when a call inside the function throws", async () => {
+    const throwingClient = {
+      from: () => {
+        throw new Error("boom")
+      },
+      rpc: () => Promise.resolve({ data: true, error: null }),
+    } as any
+
+    const result = await deductTokenIfWhatsappShopOrder(
+      { channel: "whatsapp_shop", shop_id: "s1" }, // no shop_code_id -> forces the ussd_shop_codes lookup
+      throwingClient
+    )
+
+    expect(result).toEqual({ deducted: false, reason: "unexpected_error", error: "boom" })
   })
 })
