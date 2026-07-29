@@ -6,7 +6,7 @@
 //   - No cont()/end() wrapper — WhatsApp has no ussdServiceOp, just send the string.
 //   - No truncate()/SCREEN_LIMIT(160) — that's a USSD carrier-screen constraint only.
 //   - No gsm7() ASCII-stripping — WhatsApp is UTF-8, not GSM7-encoded over a carrier link.
-//   - bundleMenu() keeps pagination (WaShopSession retains bundlePage/bundleCache/etc,
+//   - shopBundleMenu() keeps pagination (WaShopSession retains bundlePage/bundleCache/etc,
 //     same shape as USSDShopSession) but pages by a fixed count instead of the USSD
 //     version's byte-budget-fitting loop, since there's no 160-char screen to fit into.
 //   - Params named `paymentPhone` instead of the USSD version's `dialingPhone` — WhatsApp
@@ -90,14 +90,14 @@ export function shopRecipientPrompt(): string {
 // WhatsApp has no live dialing session to infer a payment number from (unlike USSD,
 // where the caller's own line is charged) — so the bot must explicitly ask.
 // KEEP IN SYNC: this wording is duplicated (not shared) with lib/whatsapp-bot/router.ts's
-// 11 inline WA_ENTER_PAYMENT_PHONE-related sends (see e.g. router.ts:300). If that
+// 11 inline WA_ENTER_PAYMENT_PHONE-related sends (see e.g. router.ts:303). If that
 // wording changes, update here too.
 export function shopPaymentPhonePrompt(): string {
   return 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel'
 }
 
 // KEEP IN SYNC: mirrors the invalid-number wording inlined in
-// lib/whatsapp-bot/router.ts's handleWaEnterPaymentPhone (see router.ts:597). If that
+// lib/whatsapp-bot/router.ts's handleWaEnterPaymentPhone (see router.ts:600). If that
 // wording changes, update here too.
 export function shopInvalidPaymentPhoneMenu(): string {
   return 'Invalid number.\nEnter a valid Ghana\nMoMo number:\n(e.g. 0244123456)\n\n0. Cancel'
