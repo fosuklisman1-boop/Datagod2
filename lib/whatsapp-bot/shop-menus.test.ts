@@ -1,7 +1,7 @@
 import {
-  enterShopCodeMenu, invalidCodeMenu, productMenu, networkMenu, bundleMenu,
-  recipientPrompt, paymentPhonePrompt, invalidPaymentPhoneMenu, confirmMenu,
-  paymentSentMenu, otpMenu, shopAirtimeRecipientPrompt, shopAirtimeNetworkMenu,
+  shopEnterCodeMenu, shopInvalidCodeMenu, shopProductMenu, shopNetworkMenu, shopBundleMenu,
+  shopRecipientPrompt, shopPaymentPhonePrompt, shopInvalidPaymentPhoneMenu, shopConfirmMenu,
+  shopPaymentSentMenu, shopOtpMenu, shopAirtimeRecipientPrompt, shopAirtimeNetworkMenu,
   shopAirtimeAmountPrompt, shopAirtimeConfirmMenu, shopRcBoardMenu, shopRcQtyPrompt,
   shopRcConfirmMenu, sortNetworks, PAGE_SIZE,
 } from "./shop-menus"
@@ -9,37 +9,37 @@ import { WaShopBundleOption } from "./shop-types"
 
 describe("whatsapp-bot shop-menus", () => {
   describe("entry / product menus", () => {
-    it("enterShopCodeMenu prompts for a code and offers exit", () => {
-      const text = enterShopCodeMenu()
+    it("shopEnterCodeMenu prompts for a code and offers exit", () => {
+      const text = shopEnterCodeMenu()
       expect(text).toContain("Enter shop code")
       expect(text).toContain("0. Exit")
     })
 
-    it("invalidCodeMenu surfaces the reason before re-prompting", () => {
-      const text = invalidCodeMenu("Shop code not found.")
+    it("shopInvalidCodeMenu surfaces the reason before re-prompting", () => {
+      const text = shopInvalidCodeMenu("Shop code not found.")
       expect(text).toContain("Shop code not found.")
       expect(text).toContain("Enter shop code")
     })
 
-    it("productMenu shows the shop name and all three products by default", () => {
-      const text = productMenu("Kofi's Data Shop")
+    it("shopProductMenu shows the shop name and all three products by default", () => {
+      const text = shopProductMenu("Kofi's Data Shop")
       expect(text).toContain("Kofi's Data Shop")
       expect(text).toContain("1. Data Bundle")
       expect(text).toContain("2. Airtime")
       expect(text).toContain("3. Results Checker")
     })
 
-    it("productMenu omits Data Bundle when showData is false", () => {
-      const text = productMenu("Kofi's Data Shop", false)
+    it("shopProductMenu omits Data Bundle when showData is false", () => {
+      const text = shopProductMenu("Kofi's Data Shop", false)
       expect(text).not.toContain("Data Bundle")
       expect(text).toContain("1. Airtime")
       expect(text).toContain("2. Results Checker")
     })
   })
 
-  describe("networkMenu", () => {
+  describe("shopNetworkMenu", () => {
     it("lists the shop name and networks in priority order (mtn first)", () => {
-      const text = networkMenu("Ama Shop", ["AirtelTigo", "MTN", "Telecel"])
+      const text = shopNetworkMenu("Ama Shop", ["AirtelTigo", "MTN", "Telecel"])
       expect(text).toContain("Ama Shop")
       const mtnIdx = text.indexOf("MTN")
       const telecelIdx = text.indexOf("Telecel")
@@ -55,14 +55,14 @@ describe("whatsapp-bot shop-menus", () => {
     })
   })
 
-  describe("bundleMenu", () => {
+  describe("shopBundleMenu", () => {
     const bundles: WaShopBundleOption[] = [
       { id: "p1", size: "1GB", price: 5.5 },
       { id: "p2", size: "2GB", price: 10 },
     ]
 
     it("lists each bundle with its correct 1-based number, size, and price", () => {
-      const { text, shown } = bundleMenu("Shop A", bundles, 0, 2)
+      const { text, shown } = shopBundleMenu("Shop A", bundles, 0, 2)
       expect(text).toContain("Shop A")
       expect(text).toContain("1. 1GB - GHS 5.50")
       expect(text).toContain("2. 2GB - GHS 10.00")
@@ -70,7 +70,7 @@ describe("whatsapp-bot shop-menus", () => {
     })
 
     it("offsets numbering by page and omits More... when nothing remains", () => {
-      const { text } = bundleMenu("Shop A", bundles, 1, 7) // page 1, PAGE_SIZE=5 -> offset 5
+      const { text } = shopBundleMenu("Shop A", bundles, 1, 7) // page 1, PAGE_SIZE=5 -> offset 5
       expect(text).toContain(`${1 * PAGE_SIZE + 1}. 1GB - GHS 5.50`)
       expect(text).toContain(`${1 * PAGE_SIZE + 2}. 2GB - GHS 10.00`)
       expect(text).not.toContain("More...")
@@ -78,30 +78,30 @@ describe("whatsapp-bot shop-menus", () => {
     })
 
     it("appends a numbered More... option when the page doesn't reach the total", () => {
-      const { text } = bundleMenu("Shop A", bundles, 0, 5) // 2 shown, 5 total -> more remain
+      const { text } = shopBundleMenu("Shop A", bundles, 0, 5) // 2 shown, 5 total -> more remain
       expect(text).toContain("3. More...")
     })
   })
 
   describe("recipient / payment-phone prompts", () => {
-    it("recipientPrompt asks who receives the data", () => {
-      expect(recipientPrompt()).toContain("recipient number")
+    it("shopRecipientPrompt asks who receives the data", () => {
+      expect(shopRecipientPrompt()).toContain("recipient number")
     })
 
-    it("paymentPhonePrompt matches the main WhatsApp bot's WA_ENTER_PAYMENT_PHONE wording", () => {
-      expect(paymentPhonePrompt()).toBe("Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel")
+    it("shopPaymentPhonePrompt matches the main WhatsApp bot's WA_ENTER_PAYMENT_PHONE wording", () => {
+      expect(shopPaymentPhonePrompt()).toBe("Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel")
     })
 
-    it("invalidPaymentPhoneMenu flags an invalid number and re-prompts", () => {
-      const text = invalidPaymentPhoneMenu()
+    it("shopInvalidPaymentPhoneMenu flags an invalid number and re-prompts", () => {
+      const text = shopInvalidPaymentPhoneMenu()
       expect(text).toContain("Invalid number")
       expect(text).toContain("0244123456")
     })
   })
 
-  describe("confirmMenu", () => {
+  describe("shopConfirmMenu", () => {
     it("shows the bundle, formatted local recipient and payment numbers, and the price", () => {
-      const text = confirmMenu("Shop A", "MTN", "2GB", 10.5, "233241111111", "233245555555")
+      const text = shopConfirmMenu("Shop A", "MTN", "2GB", 10.5, "233241111111", "233245555555")
       expect(text).toContain("Shop A")
       expect(text).toContain("2GB MTN")
       expect(text).toContain("To: 0241111111")
@@ -113,15 +113,15 @@ describe("whatsapp-bot shop-menus", () => {
   })
 
   describe("payment-sent / otp", () => {
-    it("paymentSentMenu tells the customer to reply here with an OTP, not 'Redial'", () => {
-      const text = paymentSentMenu("0241111111")
+    it("shopPaymentSentMenu tells the customer to reply here with an OTP, not 'Redial'", () => {
+      const text = shopPaymentSentMenu("0241111111")
       expect(text).toContain("0241111111")
       expect(text).toContain("reply here with it")
       expect(text).not.toContain("Redial")
     })
 
-    it("otpMenu prompts for the OTP", () => {
-      expect(otpMenu()).toContain("OTP")
+    it("shopOtpMenu prompts for the OTP", () => {
+      expect(shopOtpMenu()).toContain("OTP")
     })
   })
 

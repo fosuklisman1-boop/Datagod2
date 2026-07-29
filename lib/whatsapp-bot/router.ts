@@ -296,6 +296,9 @@ export async function waRouter(phone: string, text: string): Promise<string> {
     case 'CONFIRM': {
       if (input === '2') {
         // MoMo payment
+        // NOTE: this "Enter MoMo number..." wording is duplicated (not shared) in
+        // lib/whatsapp-bot/shop-menus.ts's shopPaymentPhonePrompt() for the shop bot.
+        // Keep the two in sync if this text changes.
         await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_BUNDLE' })
         result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
       } else if (input === '1') {

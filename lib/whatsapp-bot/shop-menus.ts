@@ -13,6 +13,16 @@
 //     has no live dialing session; the MoMo number is explicitly asked for and stored in
 //     WaShopSession.paymentPhone (see shop-types.ts).
 //
+// Naming: every export here is `shop`-prefixed (shopProductMenu, shopNetworkMenu, ...).
+// lib/ussd-shop/menus.ts exports several functions with the SAME base names (networkMenu,
+// confirmMenu, bundleMenu, recipientPrompt, otpMenu, productMenu) — without the prefix,
+// a future file that imports from both modules (e.g. shop-router.ts, which will need
+// business logic from lib/ussd-shop/handlers/* AND renderers from here) risks a silent
+// copy-paste mix-up that still compiles cleanly but ships USSD-truncated/"Redial"-worded
+// content in a WhatsApp reply. The `shop` prefix was already used for the Airtime/RC
+// group below (shopAirtimeNetworkMenu, shopRcBoardMenu, ...); this extends it to the
+// Data-bundle group for full self-consistency.
+//
 // Style precedent: lib/whatsapp-bot/router.ts reuses lib/ussd/menus.ts's own menu
 // functions (mainMenu, networkMenu, waConfirmMenu, ...) completely verbatim for
 // WhatsApp — same numbered "1./2./0. Back" options, no emoji, no reflowed prose. This
@@ -30,15 +40,15 @@ export { sortNetworks }
 export const PAGE_SIZE = 5
 
 // ── Shop entry ─────────────────────────────────────────────────────────────────
-export function enterShopCodeMenu(): string {
+export function shopEnterCodeMenu(): string {
   return 'Welcome to DataGod\nEnter shop code:\n\n0. Exit'
 }
 
-export function invalidCodeMenu(reason: string): string {
+export function shopInvalidCodeMenu(reason: string): string {
   return `${reason}\n\nEnter shop code:\n\n0. Exit`
 }
 
-export function productMenu(shopName: string, showData = true): string {
+export function shopProductMenu(shopName: string, showData = true): string {
   if (showData) {
     return `${shopName}\nWhat to buy?\n1. Data Bundle\n2. Airtime\n3. Results Checker\n0. Exit`
   }
@@ -46,7 +56,7 @@ export function productMenu(shopName: string, showData = true): string {
 }
 
 // ── Shop Data Bundle ──────────────────────────────────────────────────────────
-export function networkMenu(shopName: string, networks: string[]): string {
+export function shopNetworkMenu(shopName: string, networks: string[]): string {
   const sorted = sortNetworks(networks)
   const lines = sorted.map((n, i) => `${i + 1}. ${n}`)
   lines.push('0. Back')
@@ -57,7 +67,7 @@ export function networkMenu(shopName: string, networks: string[]): string {
 // PAGE_SIZE before calling, same contract as lib/ussd-shop/menus.ts's bundleMenu — see
 // lib/ussd-shop/handlers/bundles.ts's handleSelectNetwork/handleSelectBundle for the
 // paging math this mirrors). Returns `shown` so the caller can persist bundlePageShown.
-export function bundleMenu(
+export function shopBundleMenu(
   shopName: string,
   bundles: WaShopBundleOption[],
   page: number,
@@ -73,23 +83,27 @@ export function bundleMenu(
   return { text: header + lines.join('\n'), shown }
 }
 
-export function recipientPrompt(): string {
+export function shopRecipientPrompt(): string {
   return 'Enter recipient number\n(who gets the data):\n\n0. Back'
 }
 
 // WhatsApp has no live dialing session to infer a payment number from (unlike USSD,
-// where the caller's own line is charged) — so the bot must explicitly ask. Wording
-// matches the main WhatsApp bot's existing WA_ENTER_PAYMENT_PHONE prompt verbatim
-// (lib/whatsapp-bot/router.ts:300 etc.) rather than inventing new phrasing.
-export function paymentPhonePrompt(): string {
+// where the caller's own line is charged) — so the bot must explicitly ask.
+// KEEP IN SYNC: this wording is duplicated (not shared) with lib/whatsapp-bot/router.ts's
+// 11 inline WA_ENTER_PAYMENT_PHONE-related sends (see e.g. router.ts:300). If that
+// wording changes, update here too.
+export function shopPaymentPhonePrompt(): string {
   return 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel'
 }
 
-export function invalidPaymentPhoneMenu(): string {
+// KEEP IN SYNC: mirrors the invalid-number wording inlined in
+// lib/whatsapp-bot/router.ts's handleWaEnterPaymentPhone (see router.ts:597). If that
+// wording changes, update here too.
+export function shopInvalidPaymentPhoneMenu(): string {
   return 'Invalid number.\nEnter a valid Ghana\nMoMo number:\n(e.g. 0244123456)\n\n0. Cancel'
 }
 
-export function confirmMenu(
+export function shopConfirmMenu(
   shopName: string,
   network: string,
   size: string,
@@ -109,13 +123,16 @@ export function confirmMenu(
 }
 
 // Adapts the USSD shop's paymentSentMenu — swaps the USSD-only "Redial and enter the
-// code" instruction for WhatsApp-appropriate wording, mirroring the exact substitution
-// the main WhatsApp bot already makes via fixWaMomoMsg() in lib/whatsapp-bot/router.ts.
-export function paymentSentMenu(localPhone: string): string {
+// code" instruction for WhatsApp-appropriate wording.
+// KEEP IN SYNC: this mirrors the same substitution lib/whatsapp-bot/router.ts's
+// fixWaMomoMsg() makes at runtime to the main bot's USSD-derived messages (router.ts:44-48).
+// The two are duplicated, not shared — if fixWaMomoMsg()'s replacement text changes,
+// update here too.
+export function shopPaymentSentMenu(localPhone: string): string {
   return `MoMo prompt sent to ${localPhone}. Approve to complete.\n\nIf you receive an OTP code, reply here with it.`
 }
 
-export function otpMenu(): string {
+export function shopOtpMenu(): string {
   return `Pending payment.\nEnter the OTP sent\nto your number to\ncomplete payment:\n\n0. Cancel`
 }
 
