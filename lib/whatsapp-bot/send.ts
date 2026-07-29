@@ -265,16 +265,20 @@ export async function sendWhatsAppTemplate(
 // non-null return is still truthy, so callers doing `if (ok)` / `if (!ok)` keep
 // working unchanged. On a 200 with no id (not expected from Meta) it returns a
 // truthy "sent" sentinel so success isn't misread as failure.
-export async function sendWhatsAppText(to: string, body: string, phoneNumberId?: string): Promise<string | null> {
-  const pnid = phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID
+// Optional 3rd param lets a caller (e.g. a future shop WhatsApp number) send from a
+// non-default phone_number_id; omit it to keep using WHATSAPP_PHONE_NUMBER_ID as before.
+export async function sendWhatsAppText(to: string, body: string, fromPhoneNumberId?: string): Promise<string | null> {
+  // `||` (not `??`) is deliberate: an explicitly-passed "" is treated as unset and
+  // falls back to the main number, rather than building a malformed URL with it.
+  const phoneNumberId = fromPhoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID
   const token = process.env.WHATSAPP_ACCESS_TOKEN
 
-  if (!pnid || !token) {
+  if (!phoneNumberId || !token) {
     console.error("[WA-SEND] WHATSAPP_PHONE_NUMBER_ID or WHATSAPP_ACCESS_TOKEN not set")
     return null
   }
 
-  const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${pnid}/messages`
+  const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`
 
   try {
     const res = await fetch(url, {

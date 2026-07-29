@@ -24,12 +24,13 @@ describe("formatForWhatsApp", () => {
   })
 })
 
-// sendWhatsAppText's optional 3rd param (phoneNumberId) lets a future "shop"
+// sendWhatsAppText's optional 3rd param (fromPhoneNumberId) lets a future "shop"
 // WhatsApp number reuse this same sender without disturbing any of the many
 // existing 2-arg call sites, which must keep sending from the main number
 // (WHATSAPP_PHONE_NUMBER_ID) exactly as today.
 describe("sendWhatsAppText", () => {
   const MAIN_PNID = "MAIN_PNID_111"
+  const SHOP_PNID = "SHOP_PNID_123"
   const fetchMock = vi.fn()
 
   function jsonResponse(body: unknown, status = 200) {
@@ -44,12 +45,13 @@ describe("sendWhatsAppText", () => {
   beforeEach(() => {
     fetchMock.mockReset()
     vi.stubGlobal("fetch", fetchMock)
-    process.env.WHATSAPP_PHONE_NUMBER_ID = MAIN_PNID
-    process.env.WHATSAPP_ACCESS_TOKEN = "test-token"
+    vi.stubEnv("WHATSAPP_PHONE_NUMBER_ID", MAIN_PNID)
+    vi.stubEnv("WHATSAPP_ACCESS_TOKEN", "test-token")
   })
 
   afterEach(() => {
     vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
   })
 
   it("with only 2 args, sends from the main WHATSAPP_PHONE_NUMBER_ID", async () => {
@@ -60,7 +62,7 @@ describe("sendWhatsAppText", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const [url, init] = fetchMock.mock.calls[0]
     expect(String(url)).toContain(`/${MAIN_PNID}/messages`)
-    expect(String(url)).not.toContain("SHOP_PNID_123")
+    expect(String(url)).not.toContain(SHOP_PNID)
     expect(JSON.parse((init as RequestInit).body as string)).toEqual({
       messaging_product: "whatsapp",
       to: "233241234567",
@@ -73,11 +75,11 @@ describe("sendWhatsAppText", () => {
   it("with a 3rd arg, sends from that phone_number_id instead of the main one", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ messages: [{ id: "wamid.SHOP1" }] }))
 
-    const wamid = await sendWhatsAppText("233241234567", "hi", "SHOP_PNID_123")
+    const wamid = await sendWhatsAppText("233241234567", "hi", SHOP_PNID)
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const [url, init] = fetchMock.mock.calls[0]
-    expect(String(url)).toContain("/SHOP_PNID_123/messages")
+    expect(String(url)).toContain(`/${SHOP_PNID}/messages`)
     expect(String(url)).not.toContain(MAIN_PNID)
     expect(JSON.parse((init as RequestInit).body as string)).toEqual({
       messaging_product: "whatsapp",
@@ -88,8 +90,8 @@ describe("sendWhatsAppText", () => {
     expect(wamid).toBe("wamid.SHOP1")
   })
 
-  it("returns null and does not call fetch when neither phoneNumberId nor env is set", async () => {
-    delete process.env.WHATSAPP_PHONE_NUMBER_ID
+  it("returns null and does not call fetch when neither fromPhoneNumberId nor env is set", async () => {
+    vi.stubEnv("WHATSAPP_PHONE_NUMBER_ID", undefined)
 
     const wamid = await sendWhatsAppText("233241234567", "hi")
 
