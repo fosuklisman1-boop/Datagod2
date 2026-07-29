@@ -265,16 +265,16 @@ export async function sendWhatsAppTemplate(
 // non-null return is still truthy, so callers doing `if (ok)` / `if (!ok)` keep
 // working unchanged. On a 200 with no id (not expected from Meta) it returns a
 // truthy "sent" sentinel so success isn't misread as failure.
-export async function sendWhatsAppText(to: string, body: string): Promise<string | null> {
-  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID
+export async function sendWhatsAppText(to: string, body: string, phoneNumberId?: string): Promise<string | null> {
+  const pnid = phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID
   const token = process.env.WHATSAPP_ACCESS_TOKEN
 
-  if (!phoneNumberId || !token) {
+  if (!pnid || !token) {
     console.error("[WA-SEND] WHATSAPP_PHONE_NUMBER_ID or WHATSAPP_ACCESS_TOKEN not set")
     return null
   }
 
-  const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`
+  const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${pnid}/messages`
 
   try {
     const res = await fetch(url, {
