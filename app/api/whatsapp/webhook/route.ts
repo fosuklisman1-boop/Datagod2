@@ -7,6 +7,7 @@ import { getWaSession, setWaSession } from "@/lib/whatsapp-bot/session"
 import { waRouter } from "@/lib/whatsapp-bot/router"
 import { isResultsCheckAdmin, adminRcRouter, adminComplaintRouter } from "@/lib/whatsapp-bot/admin-router"
 import { sendWhatsAppText, markWaMessageRead, sendWaTyping, downloadWaMedia, formatForWhatsApp } from "@/lib/whatsapp-bot/send"
+import { shopWaRouter, isShopWhatsAppNumber } from "@/lib/whatsapp-bot/shop-router"
 import { logMessage } from "@/lib/whatsapp-bot/log-message"
 import { maybeNotifyAdmins, isHumanRequest } from "@/lib/whatsapp-bot/notify-admins"
 import { runAgenticLoop } from "@/lib/ai-agentic-loop"
@@ -296,6 +297,17 @@ async function processInbound(body: unknown): Promise<void> {
 
   // Log inbound message (also returns this conversation's takeover state)
   const { humanTakeover, takenOverAt, takenOverBy, conversationCreatedAt } = await logMessage(from, "inbound", text, msg.id, null, profileName)
+
+  // Dedicated shop WhatsApp number: a second Meta phone_number_id reserved for
+  // the shop bot (Phase 3 fills in the real state machine). When the receiving
+  // number matches WHATSAPP_SHOP_PHONE_NUMBER_ID, route there instead of the
+  // main bot/AI below and stop — this is a no-op today since that env var isn't
+  // set yet, so all existing traffic on the main number is unaffected.
+  const receivingPhoneNumberId: string | undefined = change?.metadata?.phone_number_id
+  if (isShopWhatsAppNumber(receivingPhoneNumberId)) {
+    await shopWaRouter(from, text, msg.id ?? null)
+    return
+  }
 
   // Per-sender inbound cap: a spammer flooding the bot would otherwise burn AI
   // tokens on every message. Inbound is already logged (visible in the inbox);
