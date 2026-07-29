@@ -5,7 +5,8 @@
 --   • dialing_phone — the USSD payer's number (distinct from beneficiary/customer
 --     phone). Used to find a caller's pending OTP order on redial, and to SMS the
 --     payer on completion.
---   • channel — 'ussd' (main) | 'ussd_shop' (white-label). Web orders leave it NULL.
+--   • channel — 'ussd' (main) | 'ussd_shop' (white-label) | 'whatsapp_shop' (WhatsApp
+--     shop bot, added by lib/shop-commerce/orders.ts). Web orders leave it NULL.
 -- Also allows payment_status = 'otp_required' on results_checker_orders so the
 -- OTP-redial flow can park an order between dial sessions (mirrors ussd_orders).
 -- airtime_orders.payment_status has no CHECK constraint, so it already accepts it.

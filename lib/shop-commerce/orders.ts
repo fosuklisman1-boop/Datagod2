@@ -94,6 +94,13 @@ export interface AirtimeOrderInput {
   merchantCommission: number
   dialingPhone: string
   channel: ShopOrderChannel
+  // Optional — default to today's USSD-only literal so the existing USSD caller
+  // (lib/ussd-shop/handlers/airtime.ts, not yet migrated to this function) stays
+  // byte-identical. admin/airtime surfaces read customer_email || customer_name
+  // as the identity fallback, so once a WhatsApp caller exists it should pass its
+  // real name/email through here rather than getting the wrong literal.
+  customerName?: string
+  customerEmail?: string | null
 }
 
 export async function createShopAirtimeOrder(
@@ -115,8 +122,8 @@ export async function createShopAirtimeOrder(
       user_id: null,
       shop_id: input.shopId,
       merchant_commission: input.merchantCommission,
-      customer_name: "USSD Customer",
-      customer_email: null,
+      customer_name: input.customerName ?? "USSD Customer",
+      customer_email: input.customerEmail ?? null,
       dialing_phone: input.dialingPhone,
       channel: input.channel,
     }])
@@ -142,6 +149,9 @@ export interface RcOrderInput {
   merchantCommission: number
   dialingPhone: string
   channel: ShopOrderChannel
+  // Optional — see the same fields on AirtimeOrderInput above for rationale.
+  customerName?: string
+  customerEmail?: string | null
 }
 
 export async function createShopRcOrder(
@@ -154,8 +164,8 @@ export async function createShopRcOrder(
       reference_code: input.referenceCode,
       exam_board: input.examBoard,
       quantity: input.quantity,
-      customer_name: "USSD Customer",
-      customer_email: null,
+      customer_name: input.customerName ?? "USSD Customer",
+      customer_email: input.customerEmail ?? null,
       customer_phone: input.customerPhone,
       unit_price: input.unitPrice,
       fee_amount: 0,

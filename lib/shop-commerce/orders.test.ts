@@ -152,6 +152,27 @@ describe("createShopAirtimeOrder", () => {
 
     expect(result).toEqual({ error: "insert failed" })
   })
+
+  it("defaults customer_name/customer_email to the USSD literals when omitted", async () => {
+    const { client, captured } = fakeInsertClient("airtime_orders", { data: { id: "at3" }, error: null })
+
+    await createShopAirtimeOrder({ ...baseInput, channel: "ussd_shop" }, client)
+
+    expect(captured.payload.customer_name).toBe("USSD Customer")
+    expect(captured.payload.customer_email).toBeNull()
+  })
+
+  it("threads a caller-supplied customerName/customerEmail through instead of the USSD literal", async () => {
+    const { client, captured } = fakeInsertClient("airtime_orders", { data: { id: "at4" }, error: null })
+
+    await createShopAirtimeOrder(
+      { ...baseInput, channel: "whatsapp_shop", customerName: "Kwame Mensah", customerEmail: "kwame@example.com" },
+      client
+    )
+
+    expect(captured.payload.customer_name).toBe("Kwame Mensah")
+    expect(captured.payload.customer_email).toBe("kwame@example.com")
+  })
 })
 
 describe("createShopRcOrder", () => {
@@ -207,5 +228,17 @@ describe("createShopRcOrder", () => {
     const result = await createShopRcOrder({ ...baseInput, channel: "whatsapp_shop" }, client)
 
     expect(result).toEqual({ error: "insert failed" })
+  })
+
+  it("threads a caller-supplied customerName/customerEmail through instead of the USSD literal", async () => {
+    const { client, captured } = fakeInsertClient("results_checker_orders", { data: { id: "rc3" }, error: null })
+
+    await createShopRcOrder(
+      { ...baseInput, channel: "whatsapp_shop", customerName: "Ama Serwaa", customerEmail: "ama@example.com" },
+      client
+    )
+
+    expect(captured.payload.customer_name).toBe("Ama Serwaa")
+    expect(captured.payload.customer_email).toBe("ama@example.com")
   })
 })
