@@ -77,6 +77,7 @@ export default function AdminUssdShopsPage() {
   const [dialCode, setDialCode] = useState("")
   const [savingDialCode, setSavingDialCode] = useState(false)
   const [activationFee, setActivationFee] = useState("")
+  const [whatsappActivationFee, setWhatsappActivationFee] = useState("")
   const [sessionPrice, setSessionPrice] = useState("")
   const [minSessions, setMinSessions] = useState("")
   const [maxSessions, setMaxSessions] = useState("")
@@ -145,6 +146,7 @@ export default function AdminUssdShopsPage() {
         const settingsJson = await settingsRes.json()
         setDialCode(settingsJson.ussd_shop_dial_code ?? "")
         setActivationFee(String(settingsJson.ussd_shop_activation_fee ?? ""))
+        setWhatsappActivationFee(String(settingsJson.whatsapp_shop_activation_fee ?? ""))
         setSessionPrice(String(settingsJson.ussd_shop_session_price ?? ""))
         setMinSessions(String(settingsJson.ussd_shop_min_sessions ?? "1"))
         setMaxSessions(String(settingsJson.ussd_shop_max_sessions ?? "100"))
@@ -183,6 +185,7 @@ export default function AdminUssdShopsPage() {
         headers: { "Content-Type": "application/json", ...await authHeader() },
         body: JSON.stringify({
           ussd_shop_activation_fee: parseFloat(activationFee) || 0,
+          whatsapp_shop_activation_fee: parseFloat(whatsappActivationFee) || 0,
           ussd_shop_session_price: parseFloat(sessionPrice) || 0,
           ussd_shop_min_sessions: parseInt(minSessions) || 1,
           ussd_shop_max_sessions: parseInt(maxSessions) || 100,
@@ -362,7 +365,7 @@ export default function AdminUssdShopsPage() {
             {/* Session Settings */}
             <div className="space-y-3">
               <p className="text-xs font-semibold text-primary uppercase tracking-wide">Session Purchase Settings</p>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                 <div className="space-y-1">
                   <Label className="text-xs text-primary">Activation Fee (GHS)</Label>
                   <Input
@@ -372,6 +375,18 @@ export default function AdminUssdShopsPage() {
                     placeholder="e.g. 20.00"
                     value={activationFee}
                     onChange={e => setActivationFee(e.target.value)}
+                    className="bg-card border-primary/20"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-primary">WhatsApp Shop Activation Fee (GHS)</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="e.g. 20.00"
+                    value={whatsappActivationFee}
+                    onChange={e => setWhatsappActivationFee(e.target.value)}
                     className="bg-card border-primary/20"
                   />
                 </div>
