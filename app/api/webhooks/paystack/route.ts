@@ -196,7 +196,7 @@ export async function POST(request: NextRequest) {
       // Handle USSD shop token purchases (MoMo) — reference is USSD-SHOP-... prefixed
       const { data: shopTokenPurchase, error: stpErr } = await supabase
         .from("ussd_shop_token_purchases")
-        .select("id, shop_code_id, shop_id, tokens_purchased, amount_paid, payment_status, is_activation")
+        .select("id, shop_code_id, shop_id, tokens_purchased, amount_paid, payment_status, is_activation, is_whatsapp_activation")
         .eq("paystack_reference", reference)
         .maybeSingle()
 
@@ -224,7 +224,16 @@ export async function POST(request: NextRequest) {
         }
         console.log("[WEBHOOK] ✓ purchase payment_status set to completed")
 
-        if (shopTokenPurchase.is_activation) {
+        if (shopTokenPurchase.is_whatsapp_activation) {
+          // Unlock the WhatsApp shop bot for this code. NO tokens/sessions granted —
+          // whatsapp_activated only gates access; session balance stays shared with USSD.
+          const { error: waActivateErr } = await supabase
+            .from("ussd_shop_codes")
+            .update({ whatsapp_activated: true, whatsapp_activated_at: new Date().toISOString() })
+            .eq("id", shopTokenPurchase.shop_code_id)
+          if (waActivateErr) console.error("[WEBHOOK] Failed to activate WhatsApp shop:", waActivateErr)
+          else console.log("[WEBHOOK] ✓ WhatsApp shop activated:", shopTokenPurchase.shop_code_id)
+        } else if (shopTokenPurchase.is_activation) {
           const { error: activateErr } = await supabase
             .from("ussd_shop_codes")
             .update({
@@ -254,7 +263,13 @@ export async function POST(request: NextRequest) {
             const { data: shopRow } = await supabase
               .from("user_shops").select("user_id").eq("id", shopTokenPurchase.shop_id).single()
             if (!shopRow?.user_id) return
-            if (shopTokenPurchase.is_activation) {
+            if (shopTokenPurchase.is_whatsapp_activation) {
+              await sendPushToUser(shopRow.user_id, {
+                title: "WhatsApp Shop Activated",
+                body: `Your shop's WhatsApp bot is now unlocked.`,
+                data: { url: `/dashboard/ussd-shop` },
+              })
+            } else if (shopTokenPurchase.is_activation) {
               await sendPushToUser(shopRow.user_id, {
                 title: "Shop Code Activated",
                 body: `Your USSD shop code is now active with ${shopTokenPurchase.tokens_purchased} session${shopTokenPurchase.tokens_purchased !== 1 ? 's' : ''}.`,
@@ -867,7 +882,7 @@ export async function POST(request: NextRequest) {
       if (isUssdShopActivation || isUssdShopToken) {
         const { data: purchase } = await supabase
           .from("ussd_shop_token_purchases")
-          .select("id, shop_code_id, shop_id, tokens_purchased, payment_status")
+          .select("id, shop_code_id, shop_id, tokens_purchased, payment_status, is_whatsapp_activation")
           .eq("id", paymentData.order_id)
           .single()
 
@@ -892,7 +907,16 @@ export async function POST(request: NextRequest) {
           console.log("[WEBHOOK] ✓ purchase payment_status set to completed")
         }
 
-        if (isUssdShopActivation) {
+        if (purchase.is_whatsapp_activation) {
+          // Unlock the WhatsApp shop bot for this code. NO tokens/sessions granted —
+          // whatsapp_activated only gates access; session balance stays shared with USSD.
+          const { error: waActivateErr } = await supabase
+            .from("ussd_shop_codes")
+            .update({ whatsapp_activated: true, whatsapp_activated_at: new Date().toISOString() })
+            .eq("id", purchase.shop_code_id)
+          if (waActivateErr) console.error("[WEBHOOK] Failed to activate WhatsApp shop:", waActivateErr)
+          else console.log("[WEBHOOK] ✓ WhatsApp shop activated:", purchase.shop_code_id)
+        } else if (isUssdShopActivation) {
           const { error: activateErr } = await supabase
             .from("ussd_shop_codes")
             .update({
@@ -922,7 +946,13 @@ export async function POST(request: NextRequest) {
             const { data: shopRow } = await supabase
               .from("user_shops").select("user_id").eq("id", purchase.shop_id).single()
             if (!shopRow?.user_id) return
-            if (isUssdShopActivation) {
+            if (purchase.is_whatsapp_activation) {
+              await sendPushToUser(shopRow.user_id, {
+                title: "WhatsApp Shop Activated",
+                body: `Your shop's WhatsApp bot is now unlocked.`,
+                data: { url: `/dashboard/ussd-shop` },
+              })
+            } else if (isUssdShopActivation) {
               await sendPushToUser(shopRow.user_id, {
                 title: "Shop Code Activated",
                 body: `Your USSD shop code is now active with ${purchase.tokens_purchased} session${purchase.tokens_purchased !== 1 ? 's' : ''}.`,
