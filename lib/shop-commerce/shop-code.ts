@@ -32,12 +32,13 @@ export async function resolveShopCode(
   code: string,
   client: SupabaseClientLike = supabase
 ): Promise<ResolvedShopCode | null> {
-  const { data: shopCode } = await client
+  const { data: shopCode, error } = await client
     .from("ussd_shop_codes")
     .select("id, shop_id, status, token_balance, whatsapp_activated")
     .eq("code", code.trim())
     .maybeSingle()
 
+  if (error) console.error("resolveShopCode: ussd_shop_codes query failed", error)
   if (!shopCode) return null
 
   const { data: shopRow } = await client

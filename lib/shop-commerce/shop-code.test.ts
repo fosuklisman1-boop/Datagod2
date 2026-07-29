@@ -54,7 +54,7 @@ describe("resolveShopCode", () => {
     })
   })
 
-  it("resolves whatsappActivated: true when the ussd_shop_codes row has whatsapp_activated: true", async () => {
+  it("resolves a known active code with tokens to the full shape, with whatsappActivated true when the column is true", async () => {
     const client = fakeClient({
       ussd_shop_codes: {
         data: { id: "sc4", shop_id: "s4", status: "active", token_balance: 2, whatsapp_activated: true },
