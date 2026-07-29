@@ -50,7 +50,11 @@ export interface WaShopSession {
   // never assumes the chatting number, matching the main WA bot's money-safety rule).
   paymentPhone?: string
   pendingOrderId?: string
-  pendingOrderTable?: 'airtime_orders' | 'results_checker_orders'
+  // Which table SUBMIT_OTP's order-status writes target — set explicitly by every
+  // product's CONFIRM step (mirrors lib/ussd-shop/types.ts's USSDShopSession, which
+  // leaves this undefined only for data-bundle orders; here it's always set so
+  // SUBMIT_OTP never has to guess/default).
+  pendingOrderTable?: 'ussd_shop_orders' | 'airtime_orders' | 'results_checker_orders'
   // Airtime flow
   airtimeRecipient?: string
   airtimeNetwork?: string

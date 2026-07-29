@@ -6,24 +6,35 @@ import {
   shopProductMenu, shopNetworkMenu, shopBundleMenu, shopRecipientPrompt,
   shopPaymentPhonePrompt, shopInvalidPaymentPhoneMenu, shopConfirmMenu,
   shopPaymentSentMenu, shopOtpMenu, shopInvalidCodeMenu, sortNetworks, PAGE_SIZE,
+  shopAirtimeRecipientPrompt, shopAirtimeNetworkMenu, shopAirtimeAmountPrompt, shopAirtimeConfirmMenu,
+  shopRcBoardMenu, shopRcQtyPrompt, shopRcConfirmMenu,
 } from "./shop-menus"
 import { resolveShopCode, fetchShopNetworks } from "@/lib/shop-commerce/shop-code"
-import { fetchShopBundles, verifyBundlePrice } from "@/lib/shop-commerce/pricing"
-import { createShopBundleOrder } from "@/lib/shop-commerce/orders"
+import { fetchShopBundles, verifyBundlePrice, shopOwnerIsDealer } from "@/lib/shop-commerce/pricing"
+import { createShopBundleOrder, createShopAirtimeOrder, createShopRcOrder } from "@/lib/shop-commerce/orders"
 import { chargeMobileMoney, submitOtp } from "@/lib/paystack"
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
 import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import { resolveEmail } from "@/lib/ussd/resolve-email"
+import {
+  detectAirtimeNetwork, isAirtimeEnabled, getAirtimeLimits,
+  airtimeBaseFeeRate, splitInclusive, airtimeNetworkKey,
+} from "@/lib/airtime-pricing"
+import {
+  isExamBoardEnabled, getAvailableCount, getMaxQuantity, calculateRCPrice, getRCBulkHint,
+  type ExamBoard,
+} from "@/lib/results-checker-service"
+import { buildRcBoardOptions } from "@/lib/ussd/handlers/results-checker"
+import { secureReference } from "@/lib/secure-random"
 
 // Handles inbound messages that arrived on the dedicated shop WhatsApp number
 // (identified by phone_number_id in the webhook payload, wired in
-// app/api/whatsapp/webhook/route.ts). Full Data-bundle purchase state machine —
-// mirrors lib/ussd-shop/router.ts + handlers/bundles.ts's control flow, but
-// rendered as WhatsApp text (lib/whatsapp-bot/shop-menus.ts) and persisted via
-// lib/whatsapp-bot/shop-session.ts instead of the USSD dial-session. Airtime and
-// Results Checker product choices are Task 3.4's job — they reply "Coming soon"
-// here and stay on the product menu.
+// app/api/whatsapp/webhook/route.ts). Full purchase state machine for all three
+// shop products (Data, Airtime, Results Checker) — mirrors lib/ussd-shop/router.ts
+// + handlers/{bundles,airtime,results-checker}.ts's control flow, but rendered as
+// WhatsApp text (lib/whatsapp-bot/shop-menus.ts) and persisted via
+// lib/whatsapp-bot/shop-session.ts instead of the USSD dial-session.
 //
 // Two ad-hoc reads (the shop owner's account email, and the current Paystack
 // direct-charge fee %) don't have a shared lib/shop-commerce home — they're
@@ -51,34 +62,78 @@ async function fetchPaystackFeePercent(): Promise<number> {
   return (data?.paystack_fee_percentage ?? 3.0) / 100
 }
 
-// Shared order-status writers for ussd_shop_orders, used by every CONFIRM/
-// SUBMIT_OTP outcome that isn't the normal happy path. Without these, an order
-// row can be left stuck at pending/pending indefinitely: there's no cron that
-// reconciles ussd_shop_orders (only shop_orders is covered by
-// verify-pending-payments), and several of these outcomes (chargeMobileMoney
-// throwing, an OTP Paystack rejects) will never produce a charge.failed
-// webhook to reconcile it either. Mirrors lib/ussd-shop/handlers/bundles.ts's
-// handleConfirm/handleSubmitOtp writes exactly.
-async function markOrderFailed(orderId: string): Promise<void> {
+// Shared order-status writers for all three shop order tables, used by every
+// CONFIRM/SUBMIT_OTP outcome that isn't the normal happy path. Without these, an
+// order row can be left stuck at pending/pending indefinitely: there's no cron
+// that reconciles ussd_shop_orders/airtime_orders/results_checker_orders (only
+// shop_orders is covered by verify-pending-payments), and several of these
+// outcomes (chargeMobileMoney throwing, an OTP Paystack rejects) will never
+// produce a charge.failed webhook to reconcile it either.
+//
+// Generalized (table param) so Data/Airtime/RC share one implementation — was
+// hardcoded to ussd_shop_orders only when Data was the sole product built.
+// ussd_shop_orders' broad-status column is `order_status`; airtime_orders and
+// results_checker_orders use `status` instead (mirrors lib/ussd/handlers/otp.ts's
+// SECONDARY_STATUS_COL note and lib/ussd-shop/handlers/{airtime,results-checker}.ts's
+// CONFIRM catch blocks, which this exactly replicates for the WhatsApp channel).
+export type ShopOrderTable = 'ussd_shop_orders' | 'airtime_orders' | 'results_checker_orders'
+
+const BROAD_STATUS_COL: Record<ShopOrderTable, 'order_status' | 'status'> = {
+  ussd_shop_orders: 'order_status',
+  airtime_orders: 'status',
+  results_checker_orders: 'status',
+}
+
+async function markOrderFailed(table: ShopOrderTable, orderId: string): Promise<void> {
   try {
     await supabase
-      .from("ussd_shop_orders")
-      .update({ order_status: 'failed', payment_status: 'failed', updated_at: new Date().toISOString() })
+      .from(table)
+      .update({ [BROAD_STATUS_COL[table]]: 'failed', payment_status: 'failed', updated_at: new Date().toISOString() })
       .eq("id", orderId)
   } catch (err) {
-    console.error("[WA-SHOP] failed to mark order failed:", orderId, err)
+    console.error("[WA-SHOP] failed to mark order failed:", table, orderId, err)
   }
 }
 
-async function markOrderOtpRequired(orderId: string): Promise<void> {
+async function markOrderOtpRequired(table: ShopOrderTable, orderId: string): Promise<void> {
   try {
     await supabase
-      .from("ussd_shop_orders")
+      .from(table)
       .update({ payment_status: 'otp_required', updated_at: new Date().toISOString() })
       .eq("id", orderId)
   } catch (err) {
-    console.error("[WA-SHOP] failed to mark order otp_required:", orderId, err)
+    console.error("[WA-SHOP] failed to mark order otp_required:", table, orderId, err)
   }
+}
+
+// Mirrors lib/ussd-shop/handlers/airtime.ts's private (unexported)
+// shopAirtimeFeeRate — the platform's per-tier base fee (lib/airtime-pricing.ts's
+// airtimeBaseFeeRate) plus this shop's own airtime_markup_{network} column,
+// capped so base+markup never exceeds 10% (mirrors the storefront rule). Reuses
+// the shared shopOwnerIsDealer (lib/shop-commerce/pricing.ts) for the dealer-tier
+// check instead of duplicating its public.users-vs-auth.users lookup pitfall.
+async function shopAirtimeFeeRate(
+  shopId: string,
+  network: string
+): Promise<{ totalFeeRate: number; merchantCommissionRate: number }> {
+  const isDealer = await shopOwnerIsDealer(shopId)
+  const baseRate = await airtimeBaseFeeRate(network, isDealer)
+
+  const { data: shop } = await supabase
+    .from("user_shops")
+    .select(`airtime_markup_${airtimeNetworkKey(network)}`)
+    .eq("id", shopId)
+    .single()
+
+  const rawMarkup = parseFloat((shop as any)?.[`airtime_markup_${airtimeNetworkKey(network)}`] ?? 0) || 0
+  const cappedMarkup = Math.max(0, Math.min(rawMarkup, 10 - baseRate))
+  return { totalFeeRate: baseRate + cappedMarkup, merchantCommissionRate: cappedMarkup }
+}
+
+// Shared "we don't recognise this MoMo number's provider" reply — same wording
+// used by the payment-phone step of all three products.
+function shopNoProviderMessage(): string {
+  return "Payment isn't available for that number.\nEnter a different MoMo number:\n(e.g. 0244123456)\n\n0. Cancel"
 }
 
 // CONFIRM-time anti-race token check. A shop's ussd_shop_codes.token_balance is a
@@ -177,8 +232,18 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
 
         if (dataBlocked) {
           // Renumbered menu (no Data option at all): 1=Airtime, 2=Results Checker.
-          if (input === '1' || input === '2') {
-            reply = `Coming soon.\n\n${shopProductMenu(shopName, false)}`
+          if (input === '1') {
+            session.step = 'AIRTIME_ENTER_RECIPIENT'
+            reply = shopAirtimeRecipientPrompt(shopName)
+          } else if (input === '2') {
+            const boards = await buildRcBoardOptions()
+            if (boards.length === 0) {
+              reply = `Results Checker unavailable.\n\n${shopProductMenu(shopName, false)}`
+            } else {
+              session.step = 'RC_SELECT_BOARD'
+              session.rcBoardOptions = boards
+              reply = shopRcBoardMenu(shopName, boards)
+            }
           } else if (input === '0') {
             deleteAfter = true
             reply = 'Goodbye.'
@@ -196,9 +261,18 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
             session.step = 'SELECT_NETWORK'
             reply = shopNetworkMenu(shopName, networks)
           }
-        } else if (input === '2' || input === '3') {
-          // Airtime / Results Checker — Task 3.4's job. Stay put.
-          reply = `Coming soon.\n\n${shopProductMenu(shopName)}`
+        } else if (input === '2') {
+          session.step = 'AIRTIME_ENTER_RECIPIENT'
+          reply = shopAirtimeRecipientPrompt(shopName)
+        } else if (input === '3') {
+          const boards = await buildRcBoardOptions()
+          if (boards.length === 0) {
+            reply = `Results Checker unavailable.\n\n${shopProductMenu(shopName)}`
+          } else {
+            session.step = 'RC_SELECT_BOARD'
+            session.rcBoardOptions = boards
+            reply = shopRcBoardMenu(shopName, boards)
+          }
         } else if (input === '0') {
           deleteAfter = true
           reply = 'Goodbye.'
@@ -349,7 +423,7 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
 
         const paystackProvider = paystackProviderFromPhone(local)
         if (!paystackProvider) {
-          reply = "Payment isn't available for that number.\nEnter a different MoMo number:\n(e.g. 0244123456)\n\n0. Cancel"
+          reply = shopNoProviderMessage()
           break
         }
 
@@ -470,9 +544,10 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
           })
 
           if (status === 'send_otp') {
-            await markOrderOtpRequired(orderId)
+            await markOrderOtpRequired('ussd_shop_orders', orderId)
             session.step = 'SUBMIT_OTP'
             session.pendingOrderId = orderId
+            session.pendingOrderTable = 'ussd_shop_orders'
             reply = shopOtpMenu()
           } else {
             deleteAfter = true
@@ -484,7 +559,443 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
           // meaning Paystack never registered the charge, so no charge.failed
           // webhook will ever arrive to reconcile this order. Without this write
           // it would sit at pending/pending forever (no cron covers this table).
-          await markOrderFailed(orderId)
+          await markOrderFailed('ussd_shop_orders', orderId)
+          deleteAfter = true
+          reply = 'Sorry, we could not start the payment. Please try again.'
+        }
+        break
+      }
+
+      // ── AIRTIME_ENTER_RECIPIENT ─────────────────────────────────────────────
+      case 'AIRTIME_ENTER_RECIPIENT': {
+        if (input === '0') {
+          session.step = 'SELECT_PRODUCT'
+          reply = shopProductMenu(shopName, !(session.dataBlocked === true))
+          break
+        }
+
+        const local = normalizeGhanaLocal(input)
+        if (!isValidLocalGhana(local)) {
+          reply = `Invalid number.\n${shopAirtimeRecipientPrompt(shopName)}`
+          break
+        }
+
+        const network = detectAirtimeNetwork(local)
+        if (!network) {
+          session.step = 'AIRTIME_SELECT_NETWORK'
+          session.airtimeRecipient = local
+          reply = shopAirtimeNetworkMenu()
+          break
+        }
+
+        if (!(await isAirtimeEnabled(network))) {
+          reply = `${network} airtime unavailable.\n${shopAirtimeRecipientPrompt(shopName)}`
+          break
+        }
+
+        const { min, max } = await getAirtimeLimits()
+        session.step = 'AIRTIME_ENTER_AMOUNT'
+        session.airtimeRecipient = local
+        session.airtimeNetwork = network
+        reply = shopAirtimeAmountPrompt(network, min, max)
+        break
+      }
+
+      // ── AIRTIME_SELECT_NETWORK (fallback — recipient prefix wasn't recognised) ─
+      case 'AIRTIME_SELECT_NETWORK': {
+        if (input === '0') {
+          session.step = 'AIRTIME_ENTER_RECIPIENT'
+          reply = shopAirtimeRecipientPrompt(shopName)
+          break
+        }
+
+        const map: Record<string, string> = { '1': 'MTN', '2': 'Telecel', '3': 'AT' }
+        const network = map[input]
+        if (!network) {
+          reply = shopAirtimeNetworkMenu()
+          break
+        }
+
+        if (!(await isAirtimeEnabled(network))) {
+          reply = `${network} airtime unavailable.\n${shopAirtimeNetworkMenu()}`
+          break
+        }
+
+        const { min, max } = await getAirtimeLimits()
+        session.step = 'AIRTIME_ENTER_AMOUNT'
+        session.airtimeNetwork = network
+        reply = shopAirtimeAmountPrompt(network, min, max)
+        break
+      }
+
+      // ── AIRTIME_ENTER_AMOUNT ────────────────────────────────────────────────
+      case 'AIRTIME_ENTER_AMOUNT': {
+        if (input === '0') {
+          session.step = 'AIRTIME_ENTER_RECIPIENT'
+          reply = shopAirtimeRecipientPrompt(shopName)
+          break
+        }
+
+        const network = session.airtimeNetwork!
+        const amount = parseFloat(input)
+        const { min, max } = await getAirtimeLimits()
+        if (isNaN(amount) || amount < min || amount > max) {
+          reply = `Enter a valid amount.\n${shopAirtimeAmountPrompt(network, min, max)}`
+          break
+        }
+
+        const { totalFeeRate, merchantCommissionRate } = await shopAirtimeFeeRate(session.shopId!, network)
+        const { fee, toDeliver } = splitInclusive(amount, totalFeeRate)
+        const commission = parseFloat((toDeliver * merchantCommissionRate / 100).toFixed(2))
+
+        session.step = 'AIRTIME_ENTER_PAYMENT_PHONE'
+        session.airtimeAmount = amount
+        session.airtimeFee = fee
+        session.airtimeToDeliver = toDeliver
+        session.airtimeMerchantCommission = commission
+        reply = shopPaymentPhonePrompt()
+        break
+      }
+
+      // ── AIRTIME_ENTER_PAYMENT_PHONE (new — no USSD equivalent) ─────────────
+      case 'AIRTIME_ENTER_PAYMENT_PHONE': {
+        if (input === '0') {
+          deleteAfter = true
+          reply = 'Order cancelled.'
+          break
+        }
+
+        const local = normalizeGhanaLocal(input)
+        if (!isValidLocalGhana(local)) {
+          reply = shopInvalidPaymentPhoneMenu()
+          break
+        }
+
+        const paystackProvider = paystackProviderFromPhone(local)
+        if (!paystackProvider) {
+          reply = shopNoProviderMessage()
+          break
+        }
+
+        session.step = 'AIRTIME_CONFIRM'
+        session.paymentPhone = local
+        session.paystackProvider = paystackProvider
+        reply = shopAirtimeConfirmMenu(
+          shopName,
+          session.airtimeNetwork!,
+          session.airtimeRecipient!,
+          session.airtimeAmount!,
+          session.airtimeToDeliver!,
+          local
+        )
+        break
+      }
+
+      // ── AIRTIME_CONFIRM ─────────────────────────────────────────────────────
+      case 'AIRTIME_CONFIRM': {
+        if (input === '2' || input === '0') {
+          deleteAfter = true
+          reply = 'Order cancelled.'
+          break
+        }
+        if (input !== '1') {
+          reply = shopAirtimeConfirmMenu(
+            shopName,
+            session.airtimeNetwork!,
+            session.airtimeRecipient!,
+            session.airtimeAmount!,
+            session.airtimeToDeliver!,
+            session.paymentPhone!
+          )
+          break
+        }
+
+        // Same anti-race token recheck as Data's CONFIRM — see the comment on
+        // fetchShopCodeTokenBalance above.
+        const tokenBalance = await fetchShopCodeTokenBalance(session.shopCodeId!)
+        if (tokenBalance === null || tokenBalance <= 0) {
+          deleteAfter = true
+          reply = 'This shop has no sessions left. Please contact the seller.'
+          break
+        }
+
+        const network = session.airtimeNetwork!
+        const amount = session.airtimeAmount!
+
+        // Re-verify settings server-side (mirrors USSD's handleShopAirtimeConfirm) —
+        // do NOT trust the session's cached airtimeFee/airtimeToDeliver/
+        // airtimeMerchantCommission for the actual charge; recompute fresh below.
+        if (!(await isAirtimeEnabled(network))) {
+          deleteAfter = true
+          reply = `${network} airtime is no longer available. Please send your shop code to start again.`
+          break
+        }
+        const { min, max } = await getAirtimeLimits()
+        if (amount < min || amount > max) {
+          deleteAfter = true
+          reply = `Amount must be GHS ${min}-${max}. Please send your shop code to start again.`
+          break
+        }
+
+        const { totalFeeRate, merchantCommissionRate } = await shopAirtimeFeeRate(session.shopId!, network)
+        const { fee, toDeliver } = splitInclusive(amount, totalFeeRate)
+        const commission = parseFloat((toDeliver * merchantCommissionRate / 100).toFixed(2))
+
+        const referenceCode = secureReference("AT", 2, 3)
+        const customerEmail = await resolveEmail(from).catch(() => null)
+
+        const orderResult = await createShopAirtimeOrder({
+          referenceCode,
+          network,
+          beneficiaryPhone: session.airtimeRecipient!,
+          airtimeAmount: toDeliver,
+          feeAmount: fee,
+          totalPaid: amount,
+          shopId: session.shopId!,
+          merchantCommission: commission,
+          dialingPhone: from,
+          channel: 'whatsapp_shop',
+          customerName: 'WhatsApp Customer',
+          customerEmail: customerEmail ?? null,
+        })
+
+        if ('error' in orderResult) {
+          console.error("[WA-SHOP-AIRTIME-CONFIRM] Failed to create order:", orderResult.error)
+          deleteAfter = true
+          reply = 'Sorry, there was an error creating your order. Please try again.'
+          break
+        }
+
+        const orderId = orderResult.orderId
+        const email = customerEmail ?? await resolveEmail(from).catch(() => `${from.replace(/\D/g, '')}@ussd.datagod.com`)
+
+        try {
+          const { status } = await chargeMobileMoney({
+            email,
+            amount,
+            phone: session.paymentPhone!,
+            provider: session.paystackProvider as 'mtn' | 'vod' | 'tgo',
+            reference: orderId,
+            metadata: {
+              source: 'whatsapp_shop_airtime',
+              airtime_order_id: orderId,
+              recipient_phone: session.airtimeRecipient,
+              network,
+              shop_id: session.shopId,
+            },
+          })
+
+          if (status === 'send_otp') {
+            await markOrderOtpRequired('airtime_orders', orderId)
+            session.step = 'SUBMIT_OTP'
+            session.pendingOrderId = orderId
+            session.pendingOrderTable = 'airtime_orders'
+            reply = shopOtpMenu()
+          } else {
+            deleteAfter = true
+            reply = shopPaymentSentMenu(session.paymentPhone!)
+          }
+        } catch (err) {
+          console.error("[WA-SHOP-AIRTIME-CONFIRM] Charge failed:", err)
+          await markOrderFailed('airtime_orders', orderId)
+          deleteAfter = true
+          reply = 'Sorry, we could not start the payment. Please try again.'
+        }
+        break
+      }
+
+      // ── RC_SELECT_BOARD ─────────────────────────────────────────────────────
+      case 'RC_SELECT_BOARD': {
+        const options = session.rcBoardOptions ?? []
+        if (input === '0') {
+          session.step = 'SELECT_PRODUCT'
+          reply = shopProductMenu(shopName, !(session.dataBlocked === true))
+          break
+        }
+
+        const idx = parseInt(input, 10) - 1
+        const board = Number.isNaN(idx) ? undefined : options[idx]
+        if (!board) {
+          reply = shopRcBoardMenu(shopName, options)
+          break
+        }
+
+        const [avail, max, bulkHint] = await Promise.all([
+          getAvailableCount(board as ExamBoard),
+          getMaxQuantity(),
+          getRCBulkHint(board as ExamBoard),
+        ])
+        let bulkForMenu: { minQty: number; unitPrice: number } | null = null
+        if (bulkHint) {
+          const bulkPricing = await calculateRCPrice({ examBoard: board as ExamBoard, quantity: bulkHint.minQty, shopId: session.shopId, applyBulk: true })
+          if (bulkPricing.bulkApplied) bulkForMenu = { minQty: bulkHint.minQty, unitPrice: bulkPricing.unitPrice }
+        }
+
+        session.step = 'RC_ENTER_QTY'
+        session.rcBoard = board
+        reply = shopRcQtyPrompt(board, avail, max, bulkForMenu)
+        break
+      }
+
+      // ── RC_ENTER_QTY ─────────────────────────────────────────────────────────
+      case 'RC_ENTER_QTY': {
+        if (input === '0') {
+          const boards = await buildRcBoardOptions()
+          session.step = 'RC_SELECT_BOARD'
+          session.rcBoardOptions = boards
+          reply = shopRcBoardMenu(shopName, boards)
+          break
+        }
+
+        const board = session.rcBoard! as ExamBoard
+        const [avail, max, bulkHint] = await Promise.all([
+          getAvailableCount(board),
+          getMaxQuantity(),
+          getRCBulkHint(board),
+        ])
+        let bulkForMenu: { minQty: number; unitPrice: number } | null = null
+        if (bulkHint) {
+          const bulkPricing = await calculateRCPrice({ examBoard: board, quantity: bulkHint.minQty, shopId: session.shopId, applyBulk: true })
+          if (bulkPricing.bulkApplied) bulkForMenu = { minQty: bulkHint.minQty, unitPrice: bulkPricing.unitPrice }
+        }
+        const cap = Math.min(avail, max)
+        const qty = parseInt(input, 10)
+        if (Number.isNaN(qty) || qty < 1 || qty > cap) {
+          reply = `Enter a valid quantity.\n${shopRcQtyPrompt(board, avail, max, bulkForMenu)}`
+          break
+        }
+
+        const pricing = await calculateRCPrice({ examBoard: board, quantity: qty, shopId: session.shopId, applyBulk: true })
+
+        session.step = 'RC_ENTER_PAYMENT_PHONE'
+        session.rcQty = qty
+        session.rcUnitPrice = pricing.unitPrice
+        session.rcTotal = pricing.totalPaid
+        session.rcMerchantCommission = pricing.merchantCommission
+        reply = shopPaymentPhonePrompt()
+        break
+      }
+
+      // ── RC_ENTER_PAYMENT_PHONE (new — no USSD equivalent) ───────────────────
+      case 'RC_ENTER_PAYMENT_PHONE': {
+        if (input === '0') {
+          deleteAfter = true
+          reply = 'Order cancelled.'
+          break
+        }
+
+        const local = normalizeGhanaLocal(input)
+        if (!isValidLocalGhana(local)) {
+          reply = shopInvalidPaymentPhoneMenu()
+          break
+        }
+
+        const paystackProvider = paystackProviderFromPhone(local)
+        if (!paystackProvider) {
+          reply = shopNoProviderMessage()
+          break
+        }
+
+        session.step = 'RC_CONFIRM'
+        session.paymentPhone = local
+        session.paystackProvider = paystackProvider
+        reply = shopRcConfirmMenu(shopName, session.rcBoard!, session.rcQty!, session.rcTotal!, local)
+        break
+      }
+
+      // ── RC_CONFIRM ───────────────────────────────────────────────────────────
+      case 'RC_CONFIRM': {
+        if (input === '2' || input === '0') {
+          deleteAfter = true
+          reply = 'Order cancelled.'
+          break
+        }
+        if (input !== '1') {
+          reply = shopRcConfirmMenu(shopName, session.rcBoard!, session.rcQty!, session.rcTotal!, session.paymentPhone!)
+          break
+        }
+
+        // Same anti-race token recheck as Data's CONFIRM — see the comment on
+        // fetchShopCodeTokenBalance above.
+        const tokenBalance = await fetchShopCodeTokenBalance(session.shopCodeId!)
+        if (tokenBalance === null || tokenBalance <= 0) {
+          deleteAfter = true
+          reply = 'This shop has no sessions left. Please contact the seller.'
+          break
+        }
+
+        const board = session.rcBoard! as ExamBoard
+        const qty = session.rcQty!
+
+        // Re-verify availability + price server-side (stale-session guard) —
+        // mirrors USSD's handleShopRcConfirm; do NOT trust the session's cached
+        // rcUnitPrice/rcTotal/rcMerchantCommission for the actual charge.
+        const [enabled, avail] = await Promise.all([isExamBoardEnabled(board), getAvailableCount(board)])
+        if (!enabled || avail < qty) {
+          deleteAfter = true
+          reply = `${board} vouchers are no longer available in that quantity. Please send your shop code to start again.`
+          break
+        }
+        const pricing = await calculateRCPrice({ examBoard: board, quantity: qty, shopId: session.shopId, applyBulk: true })
+
+        const referenceCode = secureReference("RC", 2, 3)
+        const localCustomerPhone = normalizeGhanaLocal(from)
+        const customerEmail = await resolveEmail(from).catch(() => null)
+
+        const orderResult = await createShopRcOrder({
+          referenceCode,
+          examBoard: board,
+          quantity: qty,
+          customerPhone: localCustomerPhone,
+          unitPrice: pricing.unitPrice,
+          totalPaid: pricing.totalPaid,
+          shopId: session.shopId!,
+          merchantCommission: pricing.merchantCommission,
+          dialingPhone: from,
+          channel: 'whatsapp_shop',
+          customerName: 'WhatsApp Customer',
+          customerEmail: customerEmail ?? null,
+        })
+
+        if ('error' in orderResult) {
+          console.error("[WA-SHOP-RC-CONFIRM] Failed to create order:", orderResult.error)
+          deleteAfter = true
+          reply = 'Sorry, there was an error creating your order. Please try again.'
+          break
+        }
+
+        const orderId = orderResult.orderId
+        const email = customerEmail ?? await resolveEmail(from).catch(() => `${from.replace(/\D/g, '')}@ussd.datagod.com`)
+
+        try {
+          const { status } = await chargeMobileMoney({
+            email,
+            amount: pricing.totalPaid,
+            phone: session.paymentPhone!,
+            provider: session.paystackProvider as 'mtn' | 'vod' | 'tgo',
+            reference: orderId,
+            metadata: {
+              source: 'whatsapp_shop_results_checker',
+              results_checker_order_id: orderId,
+              exam_board: board,
+              quantity: qty,
+              shop_id: session.shopId,
+            },
+          })
+
+          if (status === 'send_otp') {
+            await markOrderOtpRequired('results_checker_orders', orderId)
+            session.step = 'SUBMIT_OTP'
+            session.pendingOrderId = orderId
+            session.pendingOrderTable = 'results_checker_orders'
+            reply = shopOtpMenu()
+          } else {
+            deleteAfter = true
+            reply = shopPaymentSentMenu(session.paymentPhone!)
+          }
+        } catch (err) {
+          console.error("[WA-SHOP-RC-CONFIRM] Charge failed:", err)
+          await markOrderFailed('results_checker_orders', orderId)
           deleteAfter = true
           reply = 'Sorry, we could not start the payment. Please try again.'
         }
@@ -493,13 +1004,18 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
 
       // ── SUBMIT_OTP ───────────────────────────────────────────────────────────
       case 'SUBMIT_OTP': {
+        // Every CONFIRM branch (Data/Airtime/RC) sets pendingOrderTable alongside
+        // pendingOrderId before transitioning here — the fallback only guards
+        // against a theoretically corrupted/older session.
+        const table: ShopOrderTable = session.pendingOrderTable ?? 'ussd_shop_orders'
+
         if (input === '0') {
-          // Mirrors USSD's handleSubmitOtp: mark the order failed rather than
-          // leaving it stuck at pending/pending — the only automated
-          // reconciliation (verify-pending-payments cron) never queries
-          // ussd_shop_orders, and an abandoned OTP isn't guaranteed to produce
-          // a Paystack charge.failed webhook event either.
-          await markOrderFailed(session.pendingOrderId!)
+          // Mirrors USSD's handleSubmitOtp/handleOtpSubmit: mark the order failed
+          // rather than leaving it stuck at pending/pending — the only automated
+          // reconciliation (verify-pending-payments cron) never queries these
+          // tables, and an abandoned OTP isn't guaranteed to produce a Paystack
+          // charge.failed webhook event either.
+          await markOrderFailed(table, session.pendingOrderId!)
           deleteAfter = true
           reply = 'Order cancelled.'
           break
@@ -508,14 +1024,14 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         try {
           const { status } = await submitOtp(session.pendingOrderId!, input)
           // Paystack rejected the OTP (wrong/expired code) — mirror USSD's
-          // handleSubmitOtp, which marks the order failed here too, not just
-          // on a thrown error.
+          // handleSubmitOtp/handleOtpSubmit, which marks the order failed here
+          // too, not just on a thrown error.
           if (status === 'failed') {
-            await markOrderFailed(session.pendingOrderId!)
+            await markOrderFailed(table, session.pendingOrderId!)
           }
         } catch (err) {
           console.error("[WA-SHOP-OTP] submitOtp error:", err)
-          await markOrderFailed(session.pendingOrderId!)
+          await markOrderFailed(table, session.pendingOrderId!)
         }
         // One-shot, like USSD's handleSubmitOtp — no retry within the same
         // session. Actual success/failure surfaces later via SMS/webhook.
@@ -525,8 +1041,8 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
       }
 
       default: {
-        // Unknown/unreached step (e.g. an Airtime/RC step from a future build,
-        // or a corrupted session) — reset rather than get stuck.
+        // Unknown/unreached step (e.g. a corrupted session) — reset rather than
+        // get stuck.
         deleteAfter = true
         reply = 'Session error. Please send your shop code to start again.'
       }

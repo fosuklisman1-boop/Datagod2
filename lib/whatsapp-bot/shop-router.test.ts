@@ -2,15 +2,19 @@ import { shopWaRouter, isShopWhatsAppNumber } from "@/lib/whatsapp-bot/shop-rout
 import { sendWhatsAppText } from "@/lib/whatsapp-bot/send"
 import { logMessage } from "@/lib/whatsapp-bot/log-message"
 import { resolveShopCode, fetchShopNetworks } from "@/lib/shop-commerce/shop-code"
-import { fetchShopBundles, verifyBundlePrice } from "@/lib/shop-commerce/pricing"
-import { createShopBundleOrder } from "@/lib/shop-commerce/orders"
+import { fetchShopBundles, verifyBundlePrice, shopOwnerIsDealer } from "@/lib/shop-commerce/pricing"
+import { createShopBundleOrder, createShopAirtimeOrder, createShopRcOrder } from "@/lib/shop-commerce/orders"
 import { chargeMobileMoney, submitOtp } from "@/lib/paystack"
 import { resolveEmail } from "@/lib/ussd/resolve-email"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import { DEFAULT_NETWORK_PREFIXES } from "@/lib/phone-format"
+import { isAirtimeEnabled, getAirtimeLimits, airtimeBaseFeeRate } from "@/lib/airtime-pricing"
+import { isExamBoardEnabled, getAvailableCount, getMaxQuantity, calculateRCPrice, getRCBulkHint } from "@/lib/results-checker-service"
+import { buildRcBoardOptions } from "@/lib/ussd/handlers/results-checker"
 
-// shopWaRouter — the full Data-bundle purchase state machine (Task 3.3). Every
-// side-effecting collaborator is mocked at the module boundary; the REAL
+// shopWaRouter — the full purchase state machine for all three shop products
+// (Data — Task 3.3, Airtime + Results Checker — Task 3.4). Every side-effecting
+// collaborator is mocked at the module boundary; the REAL
 // lib/whatsapp-bot/shop-session.ts is used (its in-memory fallback, since
 // Upstash isn't configured in the test env) so the tests exercise genuine
 // session persistence/deletion across successive shopWaRouter calls — not a
@@ -24,14 +28,40 @@ vi.mock("@/lib/shop-commerce/shop-code", () => ({
 vi.mock("@/lib/shop-commerce/pricing", () => ({
   fetchShopBundles: vi.fn(),
   verifyBundlePrice: vi.fn(),
+  shopOwnerIsDealer: vi.fn(),
 }))
-vi.mock("@/lib/shop-commerce/orders", () => ({ createShopBundleOrder: vi.fn() }))
+vi.mock("@/lib/shop-commerce/orders", () => ({
+  createShopBundleOrder: vi.fn(),
+  createShopAirtimeOrder: vi.fn(),
+  createShopRcOrder: vi.fn(),
+}))
 vi.mock("@/lib/paystack", () => ({
   chargeMobileMoney: vi.fn(),
   submitOtp: vi.fn(),
 }))
 vi.mock("@/lib/ussd/resolve-email", () => ({ resolveEmail: vi.fn() }))
 vi.mock("@/lib/network-prefix-config", () => ({ getPrefixValidationConfig: vi.fn() }))
+// Airtime: keep the pure helpers (detectAirtimeNetwork, airtimeNetworkKey,
+// splitInclusive) real — they have no DB dependency and are deterministic — but
+// mock the async admin-settings-backed ones so tests control enablement/limits/
+// fee-rate without needing to model admin_settings in the fake Supabase client.
+vi.mock("@/lib/airtime-pricing", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/airtime-pricing")>("@/lib/airtime-pricing")
+  return {
+    ...actual,
+    isAirtimeEnabled: vi.fn(),
+    getAirtimeLimits: vi.fn(),
+    airtimeBaseFeeRate: vi.fn(),
+  }
+})
+vi.mock("@/lib/results-checker-service", () => ({
+  isExamBoardEnabled: vi.fn(),
+  getAvailableCount: vi.fn(),
+  getMaxQuantity: vi.fn(),
+  calculateRCPrice: vi.fn(),
+  getRCBulkHint: vi.fn(),
+}))
+vi.mock("@/lib/ussd/handlers/results-checker", () => ({ buildRcBoardOptions: vi.fn() }))
 
 // Backs every ad-hoc read/write shop-router.ts makes with its own Supabase client
 // (shop owner email, Paystack fee %, the CONFIRM-time token-balance recheck, the
@@ -85,7 +115,7 @@ vi.mock("@supabase/supabase-js", () => ({
           }),
         }
       }
-      if (table === "ussd_shop_orders") {
+      if (table === "ussd_shop_orders" || table === "airtime_orders" || table === "results_checker_orders") {
         return {
           update: (payload: Record<string, unknown>) => ({
             eq: (_col: string, id: unknown) => {
@@ -131,6 +161,19 @@ describe("shopWaRouter", () => {
       map: { MTN: [], TELECEL: [], AT: [] },
     })
     vi.mocked(resolveEmail).mockResolvedValue("cust@example.com")
+    vi.mocked(shopOwnerIsDealer).mockResolvedValue(false)
+    // Airtime defaults — a healthy, enabled network with a 5% base fee and (via
+    // the fake user_shops row below, which has no airtime_markup_* field) a 0%
+    // shop markup, so totalFeeRate=5%/merchantCommissionRate=0% unless a test
+    // overrides airtimeBaseFeeRate.
+    vi.mocked(isAirtimeEnabled).mockResolvedValue(true)
+    vi.mocked(getAirtimeLimits).mockResolvedValue({ min: 1, max: 500 })
+    vi.mocked(airtimeBaseFeeRate).mockResolvedValue(5)
+    // Results Checker defaults — board enabled, plenty of stock, no bulk hint.
+    vi.mocked(isExamBoardEnabled).mockResolvedValue(true)
+    vi.mocked(getAvailableCount).mockResolvedValue(30)
+    vi.mocked(getMaxQuantity).mockResolvedValue(50)
+    vi.mocked(getRCBulkHint).mockResolvedValue(null)
 
     // Reset the fake Supabase backing store (not a vi.fn(), so resetAllMocks
     // doesn't touch it) — token balance defaults to a healthy 5, whitelist off.
@@ -204,9 +247,10 @@ describe("shopWaRouter", () => {
     await shopWaRouter(phone, "CODE123", "w1")
     expect(lastReplyTo(phone)).toContain("What to buy?")
 
-    // SELECT_PRODUCT: "2"/"3" (Airtime/RC) are Task 3.4 — stay put
+    // SELECT_PRODUCT: "2" (Airtime) starts the airtime flow; "0" backs out again.
     await shopWaRouter(phone, "2", "w1b")
-    expect(lastReplyTo(phone)).toContain("Coming soon")
+    expect(lastReplyTo(phone)).toContain("Buy Airtime")
+    await shopWaRouter(phone, "0", "w1c")
     expect(lastReplyTo(phone)).toContain("What to buy?")
 
     // SELECT_PRODUCT -> "1" (Data) -> SELECT_NETWORK
@@ -540,7 +584,7 @@ describe("shopWaRouter", () => {
     // Menu is renumbered (no Data option) — "1" now means Airtime, never Data.
     await shopWaRouter(phone, "1", "g2")
     expect(fetchShopBundles).not.toHaveBeenCalled()
-    expect(lastReplyTo(phone)).toContain("Coming soon")
+    expect(lastReplyTo(phone)).toContain("Buy Airtime")
   })
 
   it("SELECT_PRODUCT: shows Data Bundle normally when the whitelist is enabled but the customer HAS purchased before", async () => {
@@ -837,6 +881,257 @@ describe("shopWaRouter", () => {
     await shopWaRouter(phone, "7", "s5") // select "10GB" (2nd item on page 2)
 
     expect(lastReplyTo(phone)).toContain("recipient")
+  })
+
+  // ── Airtime (Task 3.4) ───────────────────────────────────────────────────────
+  it("walks code -> product -> airtime recipient (network auto-detected) -> amount -> payment phone -> confirm -> OTP", async () => {
+    const phone = "233241000080"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc70", shopId: "s70", shopName: "Airtime Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+
+    await shopWaRouter(phone, "CODE1", "at1") // ENTER_CODE -> SELECT_PRODUCT
+    await shopWaRouter(phone, "2", "at2") // SELECT_PRODUCT -> AIRTIME_ENTER_RECIPIENT
+    expect(lastReplyTo(phone)).toContain("Buy Airtime")
+
+    // ENTER_RECIPIENT: "024" prefix -> MTN auto-detected -> ENTER_AMOUNT
+    await shopWaRouter(phone, "0244111222", "at3")
+    expect(lastReplyTo(phone)).toContain("MTN Airtime")
+
+    // ENTER_AMOUNT: GHS 20, 5% base fee, 0% shop markup (fake user_shops row has
+    // no airtime_markup_mtn field) -> fee 0.95, toDeliver 19.05
+    await shopWaRouter(phone, "20", "at4")
+    expect(lastReplyTo(phone)).toContain("MoMo number")
+
+    // ENTER_PAYMENT_PHONE -> CONFIRM
+    await shopWaRouter(phone, "0244000222", "at5")
+    expect(lastReplyTo(phone)).toContain("Pay now")
+    expect(lastReplyTo(phone)).toContain("19.05")
+
+    // CONFIRM -> "1": re-verify, create order, charge -> send_otp
+    vi.mocked(createShopAirtimeOrder).mockResolvedValue({ orderId: "airtimeOrder1" })
+    vi.mocked(chargeMobileMoney).mockResolvedValue({ status: "send_otp", reference: "airtimeOrder1" })
+
+    await shopWaRouter(phone, "1", "at6")
+
+    expect(createShopAirtimeOrder).toHaveBeenCalledWith(expect.objectContaining({
+      network: "MTN",
+      beneficiaryPhone: "0244111222",
+      airtimeAmount: 19.05,
+      feeAmount: 0.95,
+      totalPaid: 20,
+      shopId: "s70",
+      merchantCommission: 0,
+      dialingPhone: phone,
+      channel: "whatsapp_shop",
+      customerEmail: "cust@example.com",
+    }))
+    expect(chargeMobileMoney).toHaveBeenCalledWith(expect.objectContaining({
+      email: "cust@example.com",
+      amount: 20,
+      phone: "0244000222",
+      provider: "mtn",
+      reference: "airtimeOrder1",
+    }))
+    expect(lastReplyTo(phone)).toContain("OTP")
+
+    // SUBMIT_OTP -> one-shot, session ends
+    vi.mocked(submitOtp).mockResolvedValue({ status: "pending", reference: "airtimeOrder1" })
+    await shopWaRouter(phone, "123456", "at7")
+    expect(submitOtp).toHaveBeenCalledWith("airtimeOrder1", "123456")
+
+    vi.mocked(resolveShopCode).mockClear()
+    vi.mocked(resolveShopCode).mockResolvedValue(null)
+    await shopWaRouter(phone, "whatever", "at8")
+    expect(resolveShopCode).toHaveBeenCalledWith("whatever")
+  })
+
+  it("AIRTIME_ENTER_RECIPIENT: an unrecognised prefix falls back to manual network selection", async () => {
+    const phone = "233241000081"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc71", shopId: "s71", shopName: "Fallback Airtime Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+
+    await shopWaRouter(phone, "CODE1", "af1")
+    await shopWaRouter(phone, "2", "af2") // -> AIRTIME_ENTER_RECIPIENT
+
+    // "023" isn't in the airtime prefix table -> manual network menu.
+    await shopWaRouter(phone, "0230000000", "af3")
+    expect(lastReplyTo(phone)).toContain("Select Network")
+
+    await shopWaRouter(phone, "1", "af4") // -> MTN -> ENTER_AMOUNT
+    expect(lastReplyTo(phone)).toContain("MTN Airtime")
+  })
+
+  it("AIRTIME_CONFIRM: a token balance that hit zero rejects and does not create an order or charge", async () => {
+    const phone = "233241000082"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc72", shopId: "s72", shopName: "Broke Airtime Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+
+    await shopWaRouter(phone, "CODE1", "ag1")
+    await shopWaRouter(phone, "2", "ag2")
+    await shopWaRouter(phone, "0244111222", "ag3")
+    await shopWaRouter(phone, "20", "ag4")
+    await shopWaRouter(phone, "0244000222", "ag5")
+
+    fakeDb.tokenBalance = 0
+    await shopWaRouter(phone, "1", "ag6")
+
+    expect(createShopAirtimeOrder).not.toHaveBeenCalled()
+    expect(chargeMobileMoney).not.toHaveBeenCalled()
+    expect(lastReplyTo(phone)).toContain("no sessions left")
+  })
+
+  it("AIRTIME_CONFIRM: chargeMobileMoney throwing marks the airtime order failed", async () => {
+    const phone = "233241000083"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc73", shopId: "s73", shopName: "Throw Airtime Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(createShopAirtimeOrder).mockResolvedValue({ orderId: "airtimeOrder2" })
+    vi.mocked(chargeMobileMoney).mockRejectedValue(new Error("Paystack charge failed (HTTP 400)"))
+
+    await shopWaRouter(phone, "CODE1", "ah1")
+    await shopWaRouter(phone, "2", "ah2")
+    await shopWaRouter(phone, "0244111222", "ah3")
+    await shopWaRouter(phone, "20", "ah4")
+    await shopWaRouter(phone, "0244000222", "ah5")
+
+    await shopWaRouter(phone, "1", "ah6")
+
+    expect(lastReplyTo(phone)).toContain("could not start the payment")
+    expect(fakeDb.orderUpdates).toContainEqual({
+      table: "airtime_orders",
+      payload: expect.objectContaining({ status: "failed", payment_status: "failed" }),
+      id: "airtimeOrder2",
+    })
+  })
+
+  // ── Results Checker (Task 3.4) ──────────────────────────────────────────────
+  it("walks code -> product -> RC board -> qty -> payment phone -> confirm -> OTP", async () => {
+    const phone = "233241000090"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc80", shopId: "s80", shopName: "RC Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(buildRcBoardOptions).mockResolvedValue(["WASSCE", "BECE"])
+    vi.mocked(calculateRCPrice).mockResolvedValue({
+      basePrice: 5, markupPerVoucher: 0, unitPrice: 5, totalPaid: 10, merchantCommission: 1, bulkApplied: false,
+    })
+
+    await shopWaRouter(phone, "CODE1", "rc1") // ENTER_CODE -> SELECT_PRODUCT
+    await shopWaRouter(phone, "3", "rc2") // SELECT_PRODUCT -> RC_SELECT_BOARD
+    expect(lastReplyTo(phone)).toContain("Select exam")
+
+    await shopWaRouter(phone, "1", "rc3") // -> WASSCE -> RC_ENTER_QTY
+    expect(lastReplyTo(phone)).toContain("How many vouchers?")
+
+    await shopWaRouter(phone, "2", "rc4") // qty 2 -> RC_ENTER_PAYMENT_PHONE
+    expect(lastReplyTo(phone)).toContain("MoMo number")
+
+    await shopWaRouter(phone, "0244000222", "rc5") // -> RC_CONFIRM
+    expect(lastReplyTo(phone)).toContain("Pay now")
+    expect(lastReplyTo(phone)).toContain("WASSCE x 2")
+
+    vi.mocked(createShopRcOrder).mockResolvedValue({ orderId: "rcOrder1" })
+    vi.mocked(chargeMobileMoney).mockResolvedValue({ status: "send_otp", reference: "rcOrder1" })
+
+    await shopWaRouter(phone, "1", "rc6") // CONFIRM -> pay -> send_otp
+
+    expect(createShopRcOrder).toHaveBeenCalledWith(expect.objectContaining({
+      examBoard: "WASSCE",
+      quantity: 2,
+      customerPhone: "0241000090",
+      unitPrice: 5,
+      totalPaid: 10,
+      shopId: "s80",
+      merchantCommission: 1,
+      dialingPhone: phone,
+      channel: "whatsapp_shop",
+      customerEmail: "cust@example.com",
+    }))
+    expect(chargeMobileMoney).toHaveBeenCalledWith(expect.objectContaining({
+      email: "cust@example.com",
+      amount: 10,
+      phone: "0244000222",
+      provider: "mtn",
+      reference: "rcOrder1",
+    }))
+    expect(lastReplyTo(phone)).toContain("OTP")
+
+    vi.mocked(submitOtp).mockResolvedValue({ status: "pending", reference: "rcOrder1" })
+    await shopWaRouter(phone, "123456", "rc7")
+    expect(submitOtp).toHaveBeenCalledWith("rcOrder1", "123456")
+
+    vi.mocked(resolveShopCode).mockClear()
+    vi.mocked(resolveShopCode).mockResolvedValue(null)
+    await shopWaRouter(phone, "whatever", "rc8")
+    expect(resolveShopCode).toHaveBeenCalledWith("whatever")
+  })
+
+  it("RC_CONFIRM: a token balance that hit zero rejects and does not create an order or charge", async () => {
+    const phone = "233241000091"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc81", shopId: "s81", shopName: "Broke RC Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(buildRcBoardOptions).mockResolvedValue(["WASSCE"])
+    vi.mocked(calculateRCPrice).mockResolvedValue({
+      basePrice: 5, markupPerVoucher: 0, unitPrice: 5, totalPaid: 5, merchantCommission: 0, bulkApplied: false,
+    })
+
+    await shopWaRouter(phone, "CODE1", "rd1")
+    await shopWaRouter(phone, "3", "rd2")
+    await shopWaRouter(phone, "1", "rd3")
+    await shopWaRouter(phone, "1", "rd4")
+    await shopWaRouter(phone, "0244000222", "rd5")
+
+    fakeDb.tokenBalance = 0
+    await shopWaRouter(phone, "1", "rd6")
+
+    expect(createShopRcOrder).not.toHaveBeenCalled()
+    expect(chargeMobileMoney).not.toHaveBeenCalled()
+    expect(lastReplyTo(phone)).toContain("no sessions left")
+  })
+
+  it("RC_CONFIRM: chargeMobileMoney throwing marks the results-checker order failed", async () => {
+    const phone = "233241000092"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc82", shopId: "s82", shopName: "Throw RC Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(buildRcBoardOptions).mockResolvedValue(["WASSCE"])
+    vi.mocked(calculateRCPrice).mockResolvedValue({
+      basePrice: 5, markupPerVoucher: 0, unitPrice: 5, totalPaid: 5, merchantCommission: 0, bulkApplied: false,
+    })
+    vi.mocked(createShopRcOrder).mockResolvedValue({ orderId: "rcOrder2" })
+    vi.mocked(chargeMobileMoney).mockRejectedValue(new Error("Paystack charge failed (HTTP 400)"))
+
+    await shopWaRouter(phone, "CODE1", "re1")
+    await shopWaRouter(phone, "3", "re2")
+    await shopWaRouter(phone, "1", "re3")
+    await shopWaRouter(phone, "1", "re4")
+    await shopWaRouter(phone, "0244000222", "re5")
+
+    await shopWaRouter(phone, "1", "re6")
+
+    expect(lastReplyTo(phone)).toContain("could not start the payment")
+    expect(fakeDb.orderUpdates).toContainEqual({
+      table: "results_checker_orders",
+      payload: expect.objectContaining({ status: "failed", payment_status: "failed" }),
+      id: "rcOrder2",
+    })
   })
 
   // ── Inbox visibility ─────────────────────────────────────────────────────────
