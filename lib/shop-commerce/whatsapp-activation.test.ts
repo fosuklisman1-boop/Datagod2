@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { activateWhatsappShop } from "./whatsapp-activation"
+import { activateWhatsappShop, adminGrantWhatsappShop, adminRevokeWhatsappShop } from "./whatsapp-activation"
 
 // Fake Supabase client for ussd_shop_codes/transactions/ussd_shop_token_purchases +
 // the deduct_wallet RPC. Mirrors the makeChain/fakeClient idiom used elsewhere in
@@ -16,14 +16,24 @@ function makeClient(state: { whatsappActivated: boolean; walletBalance: number }
       eq: (col: string, val: unknown) => { eqs.push([col, val]); return chain },
       select: () => chain,
       maybeSingle: () => {
-        const isConditionalClaim = eqs.some(([c, v]) => c === "whatsapp_activated" && v === false)
-        if (isConditionalClaim) {
+        const isConditionalClaimFalse = eqs.some(([c, v]) => c === "whatsapp_activated" && v === false)
+        const isConditionalClaimTrue = eqs.some(([c, v]) => c === "whatsapp_activated" && v === true)
+        if (isConditionalClaimFalse) {
           if (state.whatsappActivated) {
             // Row already activated (by an earlier winner, or already active) —
             // the conditional UPDATE matches zero rows.
             return Promise.resolve({ data: null, error: null })
           }
           state.whatsappActivated = true
+          const idFilter = eqs.find(([c]) => c === "id")
+          return Promise.resolve({ data: { id: idFilter?.[1] ?? "sc1" }, error: null })
+        }
+        if (isConditionalClaimTrue) {
+          if (!state.whatsappActivated) {
+            // Row is not currently activated — the conditional UPDATE matches zero rows.
+            return Promise.resolve({ data: null, error: null })
+          }
+          state.whatsappActivated = false
           const idFilter = eqs.find(([c]) => c === "id")
           return Promise.resolve({ data: { id: idFilter?.[1] ?? "sc1" }, error: null })
         }
@@ -162,5 +172,92 @@ describe("activateWhatsappShop", () => {
     // really went back to false, not just that the payload looked right).
     const retry = await activateWhatsappShop({ ...baseInput, fee: 5 }, client)
     expect(retry).toEqual({ ok: true })
+  })
+})
+
+describe("adminGrantWhatsappShop", () => {
+  it("claims and records a manual (zero-fee) purchase row on a clean call", async () => {
+    const { client, calls } = makeClient({ whatsappActivated: false, walletBalance: 0 })
+
+    const result = await adminGrantWhatsappShop({ shopCodeId: "sc1", shopId: "s1" }, client)
+
+    expect(result).toEqual({ ok: true })
+    // No wallet deduction — this is an admin-granted activation, not a paid one.
+    expect(calls.some(c => c.op === "rpc" && c.args?.fn === "deduct_wallet")).toBe(false)
+    const purchaseInsert = calls.find(c => c.table === "ussd_shop_token_purchases")
+    expect(purchaseInsert?.payload[0]).toMatchObject({
+      shop_code_id: "sc1",
+      shop_id: "s1",
+      tokens_purchased: 0,
+      amount_paid: 0,
+      payment_method: "manual",
+      payment_status: "completed",
+      is_whatsapp_activation: true,
+    })
+  })
+
+  it("rejects with 409 when already activated, and logs no purchase row", async () => {
+    const { client, calls } = makeClient({ whatsappActivated: true, walletBalance: 0 })
+
+    const result = await adminGrantWhatsappShop({ shopCodeId: "sc1", shopId: "s1" }, client)
+
+    expect(result).toEqual({ ok: false, status: 409, error: "Already activated" })
+    expect(calls.some(c => c.table === "ussd_shop_token_purchases")).toBe(false)
+  })
+
+  it("two concurrent grants: only one wins the claim and logs exactly one purchase row", async () => {
+    const state = { whatsappActivated: false, walletBalance: 0 }
+    const { client, calls } = makeClient(state)
+
+    const [first, second] = await Promise.all([
+      adminGrantWhatsappShop({ shopCodeId: "sc1", shopId: "s1" }, client),
+      adminGrantWhatsappShop({ shopCodeId: "sc1", shopId: "s1" }, client),
+    ])
+
+    const winners = [first, second].filter(r => r.ok)
+    const losers = [first, second].filter(r => !r.ok)
+    expect(winners).toHaveLength(1)
+    expect(losers).toHaveLength(1)
+    expect(losers[0]).toMatchObject({ ok: false, status: 409 })
+    expect(calls.filter(c => c.table === "ussd_shop_token_purchases")).toHaveLength(1)
+  })
+})
+
+describe("adminRevokeWhatsappShop", () => {
+  it("clears whatsapp_activated and whatsapp_activated_at on a clean call", async () => {
+    const { client, calls } = makeClient({ whatsappActivated: true, walletBalance: 0 })
+
+    const result = await adminRevokeWhatsappShop({ shopCodeId: "sc1" }, client)
+
+    expect(result).toEqual({ ok: true })
+    const update = calls.find(c => c.table === "ussd_shop_codes" && c.op === "update")
+    expect(update?.payload).toMatchObject({ whatsapp_activated: false, whatsapp_activated_at: null })
+    // No purchase/transaction rows touched by a revoke.
+    expect(calls.some(c => c.table === "ussd_shop_token_purchases")).toBe(false)
+    expect(calls.some(c => c.table === "transactions")).toBe(false)
+  })
+
+  it("rejects with 409 when not currently activated", async () => {
+    const { client } = makeClient({ whatsappActivated: false, walletBalance: 0 })
+
+    const result = await adminRevokeWhatsappShop({ shopCodeId: "sc1" }, client)
+
+    expect(result).toEqual({ ok: false, status: 409, error: "Not currently activated" })
+  })
+
+  it("two concurrent revokes: only one wins the claim", async () => {
+    const state = { whatsappActivated: true, walletBalance: 0 }
+    const { client } = makeClient(state)
+
+    const [first, second] = await Promise.all([
+      adminRevokeWhatsappShop({ shopCodeId: "sc1" }, client),
+      adminRevokeWhatsappShop({ shopCodeId: "sc1" }, client),
+    ])
+
+    const winners = [first, second].filter(r => r.ok)
+    const losers = [first, second].filter(r => !r.ok)
+    expect(winners).toHaveLength(1)
+    expect(losers).toHaveLength(1)
+    expect(losers[0]).toMatchObject({ ok: false, status: 409 })
   })
 })
