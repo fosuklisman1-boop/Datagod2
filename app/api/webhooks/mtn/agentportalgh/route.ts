@@ -97,7 +97,9 @@ async function processItems(payload: any) {
   }
 }
 
-async function processItem(item: any, ref: string | undefined) {
+// Exported for direct unit testing of the fallback-matching logic — see
+// route.test.ts. Not part of the webhook's public contract.
+export async function processItem(item: any, ref: string | undefined) {
   const newStatus = mapItemStatus(item.status)
   const externalMessage = item.failed_reason ?? item.status ?? null
 
@@ -139,7 +141,38 @@ async function processItem(item: any, ref: string | undefined) {
       .limit(10)
 
     const rows = candidates ?? []
-    tracking = (sizeGb !== undefined ? rows.find(r => Number(r.size_gb) === sizeGb) : undefined) ?? rows[0] ?? null
+
+    // Same ambiguous-sibling guard as AgentPortalGHProvider.checkOrderStatus's
+    // hasAmbiguousSibling check (lib/mtn-providers/agentportalgh-provider.ts,
+    // added 2026-07-30 for the cron/on-demand status-check path after it was
+    // confirmed live to attribute one order's outcome to a completely
+    // unrelated order that happened to share the same phone+size within the
+    // window — e.g. a customer's brand-new order created moments after an
+    // older one to the same number/size, flipping the WRONG order to
+    // "completed" before it was ever actually fulfilled. This webhook path
+    // has its own, separate fallback that never got the same protection —
+    // the previous `?? rows[0]` here blindly picked the most recent row for
+    // the phone whenever no exact size match existed, which is even less
+    // safe than the size-matching branch it was guarding. Refuse to guess
+    // whenever the match is ambiguous; the order is left as-is (an exact
+    // reference match or the cron poll can still resolve it later) rather
+    // than risking a false "completed".
+    if (sizeGb !== undefined) {
+      const sizeMatches = rows.filter(r => Number(r.size_gb) === sizeGb)
+      if (sizeMatches.length === 1) {
+        tracking = sizeMatches[0]
+      } else if (sizeMatches.length > 1) {
+        console.warn(`[WEBHOOK-AGENTPORTALGH] Ambiguous phone+size fallback for msisdn=${item.msisdn}, size=${sizeGb}GB — ${sizeMatches.length} candidate tracking rows, refusing to guess`)
+      }
+      // sizeMatches.length === 0: no candidate matches this item's actual
+      // size — never fall back to an unrelated size.
+    } else if (rows.length === 1) {
+      // No size on this item to disambiguate, but only one candidate for this
+      // phone in the window anyway — safe to use it.
+      tracking = rows[0]
+    } else if (rows.length > 1) {
+      console.warn(`[WEBHOOK-AGENTPORTALGH] Ambiguous phone-only fallback for msisdn=${item.msisdn} (no size on item) — ${rows.length} candidate tracking rows, refusing to guess`)
+    }
 
     if (tracking) {
       console.log(`[WEBHOOK-AGENTPORTALGH] Matched by phone+size fallback (ref=${ref ?? "none"}, msisdn=${item.msisdn}): tracking ${tracking.id}`)
