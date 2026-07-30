@@ -357,11 +357,13 @@ describe("shopWaRouter", () => {
     expect(submitOtp).toHaveBeenCalledWith("order1", "123456")
     expect(lastReplyTo(phone)).toContain("authorization")
 
-    // Session is gone — the next message is treated as a fresh code attempt.
+    // Session now routes to AI (AI_CONVERSATION) instead of a fresh code
+    // attempt — the customer's next message might be "thanks" or a follow-up
+    // question, not necessarily a new shop code.
     vi.mocked(resolveShopCode).mockClear()
-    vi.mocked(resolveShopCode).mockResolvedValue(null)
-    await shopWaRouter(phone, "whatever", "w9")
-    expect(resolveShopCode).toHaveBeenCalledWith("whatever")
+    const followUp = await shopWaRouter(phone, "whatever", "w9")
+    expect(followUp).toBe("")
+    expect(resolveShopCode).not.toHaveBeenCalled()
   })
 
   it("CONFIRM: a charge that doesn't need an OTP sends the payment-sent message and ends the session", async () => {
@@ -387,11 +389,13 @@ describe("shopWaRouter", () => {
     expect(lastReplyTo(phone)).toContain("MoMo prompt sent")
     expect(submitOtp).not.toHaveBeenCalled()
 
-    // Session ended — next message re-resolves as a code attempt.
+    // Session now routes to AI (AI_CONVERSATION) instead of a fresh code
+    // attempt — the customer's next message might be "thanks" or a follow-up
+    // question, not necessarily a new shop code.
     vi.mocked(resolveShopCode).mockClear()
-    vi.mocked(resolveShopCode).mockResolvedValue(null)
-    await shopWaRouter(phone, "x", "a8")
-    expect(resolveShopCode).toHaveBeenCalledWith("x")
+    const followUp = await shopWaRouter(phone, "x", "a8")
+    expect(followUp).toBe("")
+    expect(resolveShopCode).not.toHaveBeenCalled()
   })
 
   // ── Order-status writes on every non-happy-path outcome (no cron covers
@@ -504,11 +508,13 @@ describe("shopWaRouter", () => {
     expect(lastReplyTo(phone)).toContain("price has changed")
     expect(lastReplyTo(phone)).toContain("GHS 15.00")
 
-    // Session was torn down (restart) — the next message is a fresh code attempt.
+    // Session now routes to AI (AI_CONVERSATION) instead of a fresh code
+    // attempt — the customer's next message might be "thanks" or a follow-up
+    // question, not necessarily a new shop code.
     vi.mocked(resolveShopCode).mockClear()
-    vi.mocked(resolveShopCode).mockResolvedValue(null)
-    await shopWaRouter(phone, "anything", "c8")
-    expect(resolveShopCode).toHaveBeenCalledWith("anything")
+    const followUp = await shopWaRouter(phone, "anything", "c8")
+    expect(followUp).toBe("")
+    expect(resolveShopCode).not.toHaveBeenCalled()
   })
 
   it("CONFIRM: a package that's gone (verifyBundlePrice -> null) cancels and restarts", async () => {
@@ -563,11 +569,13 @@ describe("shopWaRouter", () => {
     expect(chargeMobileMoney).not.toHaveBeenCalled()
     expect(lastReplyTo(phone)).toContain("no sessions left")
 
-    // Session torn down — the next message is a fresh code attempt.
+    // Session now routes to AI (AI_CONVERSATION) instead of a fresh code
+    // attempt — the customer's next message might be "thanks" or a follow-up
+    // question, not necessarily a new shop code.
     vi.mocked(resolveShopCode).mockClear()
-    vi.mocked(resolveShopCode).mockResolvedValue(null)
-    await shopWaRouter(phone, "anything", "f8")
-    expect(resolveShopCode).toHaveBeenCalledWith("anything")
+    const followUp = await shopWaRouter(phone, "anything", "f8")
+    expect(followUp).toBe("")
+    expect(resolveShopCode).not.toHaveBeenCalled()
   })
 
   it("CONFIRM: a healthy token balance (>0) does not block the charge", async () => {
@@ -690,11 +698,13 @@ describe("shopWaRouter", () => {
       id: "order9",
     })
 
-    // Session ended — next message is a fresh code attempt.
+    // Session now routes to AI (AI_CONVERSATION) instead of a fresh code
+    // attempt — the customer's next message might be "thanks" or a follow-up
+    // question, not necessarily a new shop code.
     vi.mocked(resolveShopCode).mockClear()
-    vi.mocked(resolveShopCode).mockResolvedValue(null)
-    await shopWaRouter(phone, "anything", "i9")
-    expect(resolveShopCode).toHaveBeenCalledWith("anything")
+    const followUp = await shopWaRouter(phone, "anything", "i9")
+    expect(followUp).toBe("")
+    expect(resolveShopCode).not.toHaveBeenCalled()
   })
 
   it("SUBMIT_OTP: submitting an actual OTP code does not touch the order-failure path", async () => {
@@ -972,10 +982,13 @@ describe("shopWaRouter", () => {
     await shopWaRouter(phone, "123456", "at7")
     expect(submitOtp).toHaveBeenCalledWith("airtimeOrder1", "123456")
 
+    // Session now routes to AI (AI_CONVERSATION) instead of a fresh code
+    // attempt — the customer's next message might be "thanks" or a follow-up
+    // question, not necessarily a new shop code.
     vi.mocked(resolveShopCode).mockClear()
-    vi.mocked(resolveShopCode).mockResolvedValue(null)
-    await shopWaRouter(phone, "whatever", "at8")
-    expect(resolveShopCode).toHaveBeenCalledWith("whatever")
+    const followUp = await shopWaRouter(phone, "whatever", "at8")
+    expect(followUp).toBe("")
+    expect(resolveShopCode).not.toHaveBeenCalled()
   })
 
   it("AIRTIME_ENTER_RECIPIENT: an unrecognised prefix falls back to manual network selection", async () => {
@@ -1102,10 +1115,13 @@ describe("shopWaRouter", () => {
     await shopWaRouter(phone, "123456", "rc7")
     expect(submitOtp).toHaveBeenCalledWith("rcOrder1", "123456")
 
+    // Session now routes to AI (AI_CONVERSATION) instead of a fresh code
+    // attempt — the customer's next message might be "thanks" or a follow-up
+    // question, not necessarily a new shop code.
     vi.mocked(resolveShopCode).mockClear()
-    vi.mocked(resolveShopCode).mockResolvedValue(null)
-    await shopWaRouter(phone, "whatever", "rc8")
-    expect(resolveShopCode).toHaveBeenCalledWith("whatever")
+    const followUp = await shopWaRouter(phone, "whatever", "rc8")
+    expect(followUp).toBe("")
+    expect(resolveShopCode).not.toHaveBeenCalled()
   })
 
   it("RC_CONFIRM: a token balance that hit zero rejects and does not create an order or charge", async () => {
@@ -1426,6 +1442,41 @@ describe("shopWaRouter — AI escape", () => {
     // for unrecognised input), not the sticky AI-escape short-circuit.
     expect(reply).not.toBe("")
     expect(reply).toContain("1. Pay now")
+  })
+
+  // Regression: confirmed in production — a customer said "Done" right after
+  // their payment prompt was sent (a genuinely successful, unrelated-to-any-bug
+  // transaction), and got "Invalid shop code" back. Every terminal exit in this
+  // file (deleteAfter=true — cancellations, a completed payment handoff, a
+  // one-shot OTP submission, stale-session failures, ...) used to fully delete
+  // the session, so any conversational reply afterward fell into the
+  // !session branch's shop-code heuristic. Covers the general deleteAfter path
+  // via a plain cancellation, since deleteAfter is handled in exactly one
+  // shared place at the bottom of shopWaRouter regardless of which case set it.
+  it("a conversational reply after a terminal action (order cancelled) escapes to AI instead of showing 'Invalid shop code'", async () => {
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "code-1", shopId: "shop-1", shopName: "Kofi's Data Hub",
+      parentShopId: null, status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(fetchShopBundles).mockResolvedValue([{ id: "pkg-1", size: "5GB", price: 25 }])
+    vi.mocked(getPrefixValidationConfig).mockResolvedValue({ enabled: false, map: DEFAULT_NETWORK_PREFIXES })
+
+    await shopWaRouter("233559919129", "AB12CD", "wamid.1")    // ENTER_CODE -> SELECT_PRODUCT
+    await shopWaRouter("233559919129", "1", "wamid.2")          // -> SELECT_NETWORK
+    await shopWaRouter("233559919129", "1", "wamid.3")          // -> SELECT_BUNDLE
+    await shopWaRouter("233559919129", "1", "wamid.4")          // -> ENTER_RECIPIENT
+    await shopWaRouter("233559919129", "0244123456", "wamid.5") // -> ENTER_PAYMENT_PHONE
+    await shopWaRouter("233559919129", "0244123456", "wamid.6") // -> CONFIRM
+    const cancelReply = await shopWaRouter("233559919129", "2", "wamid.7") // CONFIRM -> cancel (deleteAfter)
+    expect(cancelReply).toContain("cancelled")
+
+    vi.mocked(resolveShopCode).mockClear()
+    const doneReply = await shopWaRouter("233559919129", "Done", "wamid.8")
+
+    expect(doneReply).toBe("")
+    expect(resolveShopCode).not.toHaveBeenCalled()
+    expect(await getSession("233559919129")).toEqual({ step: "AI_CONVERSATION" })
   })
 
   // ── Regression: free-text entry steps must never hit the AI-escape gate ────

@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { sendWhatsAppText } from "./send"
 import { logMessage } from "./log-message"
-import { getSession, setSession, deleteSession } from "./shop-session"
+import { getSession, setSession } from "./shop-session"
 import {
   shopProductMenu, shopNetworkMenu, shopBundleMenu, shopRecipientPrompt,
   shopPaymentPhonePrompt, shopInvalidPaymentPhoneMenu, shopConfirmMenu,
@@ -1225,7 +1225,18 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
 
   if (skipPersist) return reply
   if (deleteAfter) {
-    await deleteSession(from)
+    // Every terminal exit in this file (cancellation, a completed payment
+    // handoff, a one-shot OTP submission, a stale-session failure, ...) used
+    // to fully delete the session here — meaning any conversational reply
+    // afterward ("Done", "Thanks") fell into the !session branch's shop-code
+    // heuristic and got wrongly bounced with "Invalid shop code" (confirmed
+    // in production: a customer said "Done" right after their payment prompt
+    // was sent). Route to AI_CONVERSATION instead, same as the two AI-escape
+    // sites above — it can acknowledge them warmly, answer a follow-up
+    // question, or call resolve_shop_code if they want to start a new
+    // purchase, rather than the transaction's completion being followed by a
+    // dead end.
+    await setSession(from, { step: 'AI_CONVERSATION' })
   } else if (session) {
     await setSession(from, session)
   }
