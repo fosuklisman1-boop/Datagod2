@@ -66,6 +66,15 @@ export async function GET(request: NextRequest) {
         .single()
 
       if (insertError) {
+        if (insertError.code === "23505") {
+          // A concurrent request already created the singleton row — fetch it instead of erroring.
+          const { data: existing } = await supabase
+            .from("app_settings")
+            .select("*")
+            .is("key", null)
+            .single()
+          if (existing) return NextResponse.json(existing)
+        }
         console.error("[ADMIN-SETTINGS-GET] Error creating app_settings:", insertError)
         // Return default if creation fails
         return NextResponse.json({
@@ -290,6 +299,26 @@ export async function PUT(request: NextRequest) {
         .single()
 
       if (error) {
+        if (error.code === "23505") {
+          // A concurrent request already created the singleton row — update it instead.
+          const { data: existing } = await supabase
+            .from("app_settings")
+            .select("id")
+            .is("key", null)
+            .single()
+          if (existing) {
+            const { data: updated, error: updateError } = await supabase
+              .from("app_settings")
+              .update(updates)
+              .eq("id", existing.id)
+              .select()
+              .single()
+            if (!updateError) {
+              result = updated
+              return NextResponse.json({ success: true, settings: result })
+            }
+          }
+        }
         console.error("[SETTINGS-API] Insert error:", error)
         return NextResponse.json({ error: error.message }, { status: 400 })
       }
