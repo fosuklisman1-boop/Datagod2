@@ -1294,6 +1294,23 @@ describe("shopWaRouter — AI escape", () => {
     expect(reply).toBe("")
   })
 
+  // Regression: confirmed in production — a customer's very first message is
+  // overwhelmingly a bare greeting word ("Hi"/"Hello"), which passes
+  // looksLikeShopCodeAttempt (one token, no whitespace) and, without the
+  // !looksLikeGreeting exclusion, was wrongly shown "Invalid shop code"
+  // instead of ever reaching the AI. Distinct from the pref-bearing "returning
+  // customer" test above (line ~1234), which mocks a non-null getShopPref —
+  // this test has NO remembered shop, so it must go through the !matchedReturning
+  // chain and hit the exact `!resolved` branch the bug lived in.
+  it("brand-new customer sending a bare greeting word ('Hi') escapes to AI instead of showing 'Invalid shop code'", async () => {
+    vi.mocked(getShopPref).mockResolvedValue(null)
+    vi.mocked(resolveShopCode).mockResolvedValue(null)
+
+    const reply = await shopWaRouter("233559919122", "Hi", "wamid.1")
+
+    expect(reply).toBe("")
+  })
+
   it("brand-new customer sending a single garbled code-shaped token still gets the existing 'Invalid shop code' menu (non-regression)", async () => {
     vi.mocked(getShopPref).mockResolvedValue(null)
     vi.mocked(resolveShopCode).mockResolvedValue(null)

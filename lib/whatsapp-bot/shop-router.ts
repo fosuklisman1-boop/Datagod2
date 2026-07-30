@@ -285,17 +285,22 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
       const resolved = await resolveShopCode(input)
 
       if (!resolved) {
-        if (looksLikeShopCodeAttempt(input)) {
+        // A bare greeting word ("Hi"/"Hello"/...) passes looksLikeShopCodeAttempt
+        // (it's one token, no whitespace) but is never actually a code attempt —
+        // confirmed in production: real customers' first message is overwhelmingly
+        // "Hi"/"Hello", and without this exclusion every one of them hit the
+        // robotic "Invalid shop code" reply instead of ever reaching the AI.
+        if (looksLikeShopCodeAttempt(input) && !looksLikeGreeting) {
           reply = shopInvalidCodeMenu('Invalid shop code. Please check and try again.')
           skipPersist = true
         } else {
-          // Not code-shaped at all — most likely a brand-new customer's genuine
-          // question/greeting (e.g. "hi, do you sell mtn data?"), not a typo'd
-          // code. No session was ever created in this path (session stays null
-          // all the way through when resolved is falsy), so there's nothing to
-          // persist or delete — just escape straight to the AI, which has its
-          // own "no shop known" branch that greets and asks for the shop code
-          // naturally (lib/whatsapp-bot/shop-ai.ts's handleShopWithAI).
+          // Not code-shaped at all, or a bare greeting — most likely a brand-new
+          // customer's genuine question/greeting (e.g. "hi, do you sell mtn data?"
+          // or just "Hi"), not a typo'd code. No session was ever created in this
+          // path (session stays null all the way through when resolved is falsy),
+          // so there's nothing to persist or delete — just escape straight to the
+          // AI, which has its own "no shop known" branch that greets and asks for
+          // the shop code naturally (lib/whatsapp-bot/shop-ai.ts's handleShopWithAI).
           return ''
         }
       } else if (resolved.status !== 'active') {
