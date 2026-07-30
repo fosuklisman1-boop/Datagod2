@@ -119,7 +119,7 @@ export async function POST(req: NextRequest) {
   }
   const { messages: rawMessages, context, shopSlug, shopId: clientShopId } = body
 
-  if (context === "whatsapp") {
+  if (context === "whatsapp" || context === "whatsapp_shop") {
     return new Response(
       JSON.stringify({ error: "WhatsApp AI context is only available through the WhatsApp webhook." }),
       { status: 400, headers: { "Content-Type": "application/json" } }

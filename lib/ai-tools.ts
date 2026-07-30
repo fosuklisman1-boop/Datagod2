@@ -1,13 +1,14 @@
 import Anthropic from "@anthropic-ai/sdk"
 import { createClient } from "@supabase/supabase-js"
 import { shopHandleOrFilter } from "@/lib/shop-handle"
+import type { WaShopSession } from "@/lib/whatsapp-bot/shop-types"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-export type AIChatContext = "storefront" | "dashboard" | "admin" | "home" | "whatsapp"
+export type AIChatContext = "storefront" | "dashboard" | "admin" | "home" | "whatsapp" | "whatsapp_shop"
 
 // ─── Tool schemas ────────────────────────────────────────────────────────────
 
@@ -888,6 +889,49 @@ const placeWhatsappOrderTool: Anthropic.Tool = {
   },
 }
 
+const resolveShopCodeTool: Anthropic.Tool = {
+  name: "resolve_shop_code",
+  description: "Look up a shop code the customer sent (e.g. 'AB12CD') to identify which storefront they're shopping at. Call this whenever the customer provides something that looks like a shop code, OR when you don't yet know which shop this conversation belongs to and the customer's message might contain one. On success you can then greet them by shop name and use get_shop_packages/place_shop_order. On failure, relay the reason and ask them to double-check the code.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      code: { type: "string", description: "The shop code as the customer typed it." },
+    },
+    required: ["code"],
+  },
+}
+
+const getShopPackagesTool: Anthropic.Tool = {
+  name: "get_shop_packages",
+  description: "Get this shop's REAL data bundle prices (optionally filtered by network), and its airtime/results-checker availability. Always call this before quoting a data bundle price or listing what a shop sells — never quote from memory or from an earlier message. Requires a shop to already be known (resolve_shop_code succeeded, or the customer is a returning customer).",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      network: { type: "string", description: "Optional: 'MTN', 'Telecel', 'AirtelTigo', or 'AT-iShare' to filter data bundles to one network." },
+    },
+    required: [],
+  },
+}
+
+const placeShopOrderTool: Anthropic.Tool = {
+  name: "place_shop_order",
+  description: "Place an order at the customer's current shop — DATA bundles, AIRTIME top-ups, or RESULTS-CHECKER voucher PINs. Call this ONLY after you've quoted the real price (via get_shop_packages) and the customer has clearly confirmed what they want, including the MoMo number to charge. It stages a final confirmation screen where THEY pick 'Pay now' or 'Cancel' — no money moves until they approve there. Never invent a price. Set `service`: 'data' needs network + size + recipient_phone + payment_phone; 'airtime' needs recipient_phone + amount + payment_phone (network auto-detected from recipient if omitted); 'rc' needs board + quantity + payment_phone. After calling, do NOT say the order is paid — only that it's ready for them to confirm.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      service: { type: "string", enum: ["data", "airtime", "rc"], description: "What to buy." },
+      network: { type: "string", description: "DATA: exact network name from get_shop_packages. AIRTIME: 'MTN', 'Telecel', or 'AT' (optional, auto-detected). Not used for 'rc'." },
+      size: { type: "string", description: "DATA only: bundle size exactly as get_shop_packages listed it." },
+      recipient_phone: { type: "string", description: "DATA & AIRTIME: the Ghana number that receives the data/airtime, e.g. '0244123456'." },
+      amount: { type: "string", description: "AIRTIME only: how much the customer pays in GHS." },
+      board: { type: "string", description: "RC only: 'WASSCE', 'BECE', or 'NOVDEC'." },
+      quantity: { type: "string", description: "RC only: how many voucher PINs." },
+      payment_phone: { type: "string", description: "The Ghana MoMo number to charge, e.g. '0244123456'." },
+    },
+    required: ["service", "payment_phone"],
+  },
+}
+
 const requestHumanHandoffTool: Anthropic.Tool = {
   name: "request_human_handoff",
   description: "Flag this WhatsApp chat for a human agent and alert the team. Call this when the customer asks to talk to a human/agent/person, is frustrated or upset, or has an issue you can't resolve. After calling it, reassure the customer that a team member has been notified and will reply right here on WhatsApp shortly. Do NOT call it for normal questions you can answer yourself.",
@@ -1029,6 +1073,13 @@ export function aiTools(context: AIChatContext): Anthropic.Tool[] {
     verifyAccountCodeTool,
   ]
 
+  // WhatsApp shop bot: sub-agent storefront number — narrow tool set, no wallet/complaint tools.
+  if (context === "whatsapp_shop") return [
+    resolveShopCodeTool,
+    getShopPackagesTool,
+    placeShopOrderTool,
+  ]
+
   // Admin: platform management — full suite
   return [
     // Orders
@@ -1135,6 +1186,25 @@ const ADMIN_ONLY_TOOLS = new Set<string>([
   "manage_rate_limits", "get_platform_stats", "get_admin_stats", "manage_subscription_plans",
   "get_fulfillment_logs", "get_mtn_logs", "manage_scheduled_task", "send_notification",
 ])
+
+// Re-derives which shop a WhatsApp-shop-bot conversation belongs to, purely from
+// ctx.phone — the shop AI tools never trust a shop identity passed through ctx,
+// since ToolContext/AgenticToolCtx are shared across every AI context and widening
+// them with shop-only fields isn't worth it for three tools. Returns null if the
+// phone has no remembered shop (customer hasn't given a code yet this session).
+async function currentShopForPhone(phone: string) {
+  const { getShopPref } = await import("@/lib/whatsapp-bot/shop-prefs")
+  const { resolveShopCode } = await import("@/lib/shop-commerce/shop-code")
+  const pref = await getShopPref(phone)
+  if (!pref) return null
+  // Re-resolve by code id isn't available (resolveShopCode takes a code, not an
+  // id) — instead read the code string off ussd_shop_codes directly.
+  const { createClient } = await import("@supabase/supabase-js")
+  const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
+  const { data: codeRow } = await supabase.from("ussd_shop_codes").select("code").eq("id", pref.shopCodeId).maybeSingle()
+  if (!codeRow?.code) return null
+  return resolveShopCode(codeRow.code)
+}
 
 // ─── executeToolCall ─────────────────────────────────────────────────────────
 
@@ -1420,6 +1490,224 @@ export async function executeToolCall(
         const mapped = serviceSteps[svc]
         await setWaSession(phone, { step: (mapped?.step ?? "MAIN") as any, dialingPhone: localPhone })
         return { message: mapped ? mapped.menu() : mainMenu() }
+      }
+
+      case "resolve_shop_code": {
+        const phone = String(ctx.phone || "").trim()
+        if (!phone) return { error: "phone is required" }
+        const code = String(input.code ?? "").trim()
+        if (!code) return { resolved: false, message: "Ask the customer for their shop code." }
+
+        const { resolveShopCode, fetchShopNetworks } = await import("@/lib/shop-commerce/shop-code")
+        const resolved = await resolveShopCode(code)
+        if (!resolved) {
+          return { resolved: false, message: "That shop code wasn't found — ask the customer to double-check it." }
+        }
+        if (resolved.status !== "active") {
+          return { resolved: false, message: "That shop is currently unavailable — let the customer know and ask if they have another code." }
+        }
+        if (resolved.tokenBalance <= 0) {
+          return { resolved: false, message: "That shop has no sessions left — tell the customer to contact the seller." }
+        }
+        if (!resolved.whatsappActivated) {
+          return { resolved: false, message: "That shop isn't set up for WhatsApp ordering yet — let the customer know." }
+        }
+
+        const { setShopPref } = await import("@/lib/whatsapp-bot/shop-prefs")
+        await setShopPref(phone, resolved.shopCodeId)
+
+        const networks = await fetchShopNetworks(resolved.shopId, resolved.parentShopId ?? undefined)
+        return {
+          resolved: true,
+          shopName: resolved.shopName,
+          networks,
+          message: `Shop resolved: ${resolved.shopName}. Greet the customer by shop name and ask what they'd like — data, airtime, or a results checker.`,
+        }
+      }
+
+      case "get_shop_packages": {
+        const phone = String(ctx.phone || "").trim()
+        if (!phone) return { error: "phone is required" }
+        const shop = await currentShopForPhone(phone)
+        if (!shop) return { error: "no_shop", message: "No shop is known yet for this customer — ask for their shop code and call resolve_shop_code first." }
+
+        const { fetchShopBundles } = await import("@/lib/shop-commerce/pricing")
+        const { isAirtimeEnabled, getAirtimeLimits } = await import("@/lib/airtime-pricing")
+        const { isExamBoardEnabled, getAvailableCount, getMaxQuantity, calculateRCPrice } = await import("@/lib/results-checker-service")
+        const { fetchShopNetworks } = await import("@/lib/shop-commerce/shop-code")
+
+        const requestedNetwork = input.network ? String(input.network) : undefined
+        const allNetworks = await fetchShopNetworks(shop.shopId, shop.parentShopId ?? undefined)
+        const networksToQuote = requestedNetwork
+          ? allNetworks.filter(n => n.toLowerCase() === requestedNetwork.toLowerCase())
+          : allNetworks
+
+        const bundlesByNetwork: Record<string, Array<{ size: string; price: number }>> = {}
+        for (const network of networksToQuote) {
+          const bundles = await fetchShopBundles(shop.shopId, network, shop.parentShopId ?? undefined)
+          bundlesByNetwork[network] = bundles.map(b => ({ size: b.size, price: b.price }))
+        }
+
+        const { min: airtimeMin, max: airtimeMax } = await getAirtimeLimits()
+        const airtimeAvailable: Record<string, boolean> = {}
+        for (const network of ["MTN", "Telecel", "AT"]) {
+          airtimeAvailable[network] = await isAirtimeEnabled(network)
+        }
+
+        const boards: Record<string, { available: number; maxPerOrder: number; unitPrice: number }> = {}
+        for (const board of ["WASSCE", "BECE", "NOVDEC"] as const) {
+          if (!(await isExamBoardEnabled(board))) continue
+          const [avail, max, pricing] = await Promise.all([
+            getAvailableCount(board),
+            getMaxQuantity(),
+            calculateRCPrice({ examBoard: board, quantity: 1, shopId: shop.shopId, applyBulk: false }),
+          ])
+          boards[board] = { available: avail, maxPerOrder: max, unitPrice: pricing.unitPrice }
+        }
+
+        return {
+          shopName: shop.shopName,
+          dataBundles: bundlesByNetwork,
+          airtime: { available: airtimeAvailable, minGHS: airtimeMin, maxGHS: airtimeMax },
+          resultsChecker: boards,
+        }
+      }
+
+      case "place_shop_order": {
+        // SAFETY MODEL (mirrors place_whatsapp_order): this tool writes no charge
+        // code. It re-validates inputs against the DB, then stages the exact
+        // WaShopSession fields the corresponding *_ENTER_PAYMENT_PHONE step would
+        // have set, landing on the existing, untested-by-this-tool CONFIRM step —
+        // which independently re-verifies price/availability before charging.
+        const phone = String(ctx.phone || "").trim()
+        if (!phone) return { error: "phone is required" }
+        const shop = await currentShopForPhone(phone)
+        if (!shop) return { error: "no_shop", message: "No shop is known yet — ask for their shop code and call resolve_shop_code first." }
+
+        const { getSession: getShopSession, setSession: setShopSession } = await import("@/lib/whatsapp-bot/shop-session")
+        const existing = await getShopSession(phone)
+        if (existing && ["CONFIRM", "AIRTIME_CONFIRM", "RC_CONFIRM", "SUBMIT_OTP"].includes(existing.step)) {
+          return { duplicate: true, message: "The customer already has an order awaiting confirmation (reply 1 to pay or 2 to cancel). Ask them to finish or cancel that one first." }
+        }
+
+        const toLocal = (raw: string): string => {
+          const r = String(raw || "").replace(/\s+/g, "")
+          return r.startsWith("+233") ? "0" + r.slice(4) : r.startsWith("233") ? "0" + r.slice(3) : r
+        }
+        const { paystackProviderFromPhone } = await import("@/lib/ussd/paystack-provider")
+        const paymentPhone = toLocal(String(input.payment_phone ?? ""))
+        if (!/^0[0-9]{9}$/.test(paymentPhone)) {
+          return { error: "invalid_payment_phone", message: "Ask for a valid Ghana MoMo number to charge, e.g. 0244123456." }
+        }
+        const paystackProvider = paystackProviderFromPhone(paymentPhone)
+        if (!paystackProvider) {
+          return { error: "invalid_payment_phone", message: "That MoMo number's provider isn't supported. Ask for a different Ghana MoMo number." }
+        }
+
+        const service = String(input.service ?? "data").toLowerCase()
+        const baseSession: Partial<WaShopSession> = {
+          shopCodeId: shop.shopCodeId, shopId: shop.shopId,
+          parentShopId: shop.parentShopId ?? undefined, shopName: shop.shopName,
+          paymentPhone, paystackProvider,
+        }
+
+        if (service === "data") {
+          const network = String(input.network ?? "")
+          const size = String(input.size ?? "")
+          const recipient = toLocal(String(input.recipient_phone ?? ""))
+          if (!/^0[0-9]{9}$/.test(recipient)) {
+            return { error: "invalid_recipient", message: "Ask for a valid Ghana number to receive the data, e.g. 0244123456." }
+          }
+          const { getPrefixValidationConfig } = await import("@/lib/network-prefix-config")
+          const { validateNetworkPrefix } = await import("@/lib/phone-format")
+          const { enabled: prefixCheckEnabled, map: prefixMap } = await getPrefixValidationConfig()
+          if (prefixCheckEnabled) {
+            const check = validateNetworkPrefix(network, recipient, prefixMap)
+            if (!check.ok) return { error: "prefix_mismatch", message: check.message }
+          }
+          const { fetchShopBundles } = await import("@/lib/shop-commerce/pricing")
+          const bundles = await fetchShopBundles(shop.shopId, network, shop.parentShopId ?? undefined)
+          const match = bundles.find(b => b.size.toLowerCase() === size.toLowerCase())
+          if (!match) {
+            return { error: "unknown_bundle", message: `That bundle size isn't available for ${network} at this shop — call get_shop_packages to see current options.` }
+          }
+
+          const { setSession: setShop } = await import("@/lib/whatsapp-bot/shop-session")
+          await setShop(phone, {
+            ...baseSession,
+            step: "CONFIRM",
+            network, bundleId: match.id, bundleSize: match.size, bundlePrice: match.price,
+            recipientPhone: recipient,
+          } as WaShopSession)
+          return { staged: true, service: "data", network, size: match.size, price: match.price, recipient, message: "Order staged — the customer has been shown a confirm screen to pay or cancel. Do NOT say it is paid yet." }
+        }
+
+        if (service === "airtime") {
+          const recipient = toLocal(String(input.recipient_phone ?? ""))
+          if (!/^0[0-9]{9}$/.test(recipient)) {
+            return { error: "invalid_recipient", message: "Ask for a valid Ghana number to top up, e.g. 0244123456." }
+          }
+          const amount = parseFloat(String(input.amount ?? "").replace(/[^\d.]/g, ""))
+          if (isNaN(amount) || amount <= 0) {
+            return { error: "invalid_amount", message: "Ask how much airtime (in GHS) the customer wants." }
+          }
+          const { detectAirtimeNetwork, isAirtimeEnabled, getAirtimeLimits, airtimeBaseFeeRate, splitInclusive, airtimeNetworkKey } = await import("@/lib/airtime-pricing")
+          const netIn = String(input.network ?? "").toLowerCase().replace(/[\s_-]/g, "")
+          let network: string | null =
+            netIn.startsWith("mtn") ? "MTN"
+            : /telecel|vodafone/.test(netIn) ? "Telecel"
+            : /airteltigo|airtel|tigo|^at$/.test(netIn) ? "AT"
+            : null
+          if (!network) network = detectAirtimeNetwork(recipient)
+          if (!network) return { error: "unknown_network", message: "Ask which network the airtime is for: MTN, Telecel, or AT (AirtelTigo)." }
+          if (!(await isAirtimeEnabled(network))) return { error: "unavailable", message: `${network} airtime is currently unavailable.` }
+          const { min, max } = await getAirtimeLimits()
+          if (amount < min || amount > max) return { error: "out_of_range", message: `Airtime must be between GHS ${min} and GHS ${max}.` }
+
+          const { shopOwnerIsDealer } = await import("@/lib/shop-commerce/pricing")
+          const { createClient } = await import("@supabase/supabase-js")
+          const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
+          const isDealer = await shopOwnerIsDealer(shop.shopId)
+          const baseRate = await airtimeBaseFeeRate(network, isDealer)
+          const { data: shopRow } = await supabase.from("user_shops").select(`airtime_markup_${airtimeNetworkKey(network)}`).eq("id", shop.shopId).single()
+          const rawMarkup = parseFloat((shopRow as Record<string, unknown> | null)?.[`airtime_markup_${airtimeNetworkKey(network)}`] as string ?? "0") || 0
+          const cappedMarkup = Math.max(0, Math.min(rawMarkup, 10 - baseRate))
+          const { fee, toDeliver } = splitInclusive(amount, baseRate + cappedMarkup)
+
+          const { setSession: setShop } = await import("@/lib/whatsapp-bot/shop-session")
+          await setShop(phone, {
+            ...baseSession,
+            step: "AIRTIME_CONFIRM",
+            airtimeNetwork: network, airtimeRecipient: recipient, airtimeAmount: amount,
+            airtimeFee: fee, airtimeToDeliver: toDeliver,
+          } as WaShopSession)
+          return { staged: true, service: "airtime", network, recipient, amount, recipient_gets: toDeliver, message: "Order staged — the customer has been shown a confirm screen to pay or cancel. Do NOT say it is paid yet." }
+        }
+
+        if (service === "rc") {
+          const { isExamBoardEnabled, getAvailableCount, getMaxQuantity, calculateRCPrice } = await import("@/lib/results-checker-service")
+          const boardIn = String(input.board ?? "").toUpperCase()
+          const board = /WASSCE|WAEC|WASCE/.test(boardIn) ? "WASSCE" : /BECE/.test(boardIn) ? "BECE" : /NOVDEC|NOV/.test(boardIn) ? "NOVDEC" : null
+          if (!board) return { error: "unknown_board", message: "Ask which exam: WASSCE, BECE, or NOVDEC." }
+          if (!(await isExamBoardEnabled(board))) return { error: "unavailable", message: `${board} vouchers are currently unavailable.` }
+          const qty = parseInt(String(input.quantity ?? "").replace(/[^\d]/g, ""), 10)
+          if (isNaN(qty) || qty < 1) return { error: "invalid_quantity", message: "Ask how many voucher PINs the customer wants." }
+          const [avail, max] = await Promise.all([getAvailableCount(board), getMaxQuantity()])
+          const cap = Math.min(avail, max)
+          if (qty > cap) return { error: "too_many", message: `Only ${cap} ${board} voucher(s) available right now.` }
+          const pricing = await calculateRCPrice({ examBoard: board, quantity: qty, shopId: shop.shopId, applyBulk: true })
+
+          const { setSession: setShop } = await import("@/lib/whatsapp-bot/shop-session")
+          await setShop(phone, {
+            ...baseSession,
+            step: "RC_CONFIRM",
+            rcBoard: board, rcQty: qty, rcUnitPrice: pricing.unitPrice,
+            rcTotal: pricing.totalPaid, rcMerchantCommission: pricing.merchantCommission,
+          } as WaShopSession)
+          return { staged: true, service: "rc", board, qty, total: pricing.totalPaid, message: "Order staged — the customer has been shown a confirm screen to pay or cancel. Do NOT say it is paid yet." }
+        }
+
+        return { error: "unknown_service", message: "service must be data, airtime, or rc." }
       }
 
       case "place_whatsapp_order": {
