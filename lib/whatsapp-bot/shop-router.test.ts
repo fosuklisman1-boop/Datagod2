@@ -227,11 +227,15 @@ describe("shopWaRouter", () => {
     expect(fetchShopNetworks).not.toHaveBeenCalled()
 
     // No session was persisted — the next message re-resolves as a fresh code
-    // attempt rather than being treated as a SELECT_PRODUCT menu choice.
+    // attempt rather than being treated as a SELECT_PRODUCT menu choice. Uses
+    // a 4-digit probe (not "1") so this stays a clean, unambiguous "attempted
+    // code" per looksLikeShopCodeAttempt's real-code-length floor — a single
+    // digit is covered separately by the dedicated AI-escape regression test
+    // below ("a short reply continuing an AI conversation...").
     vi.mocked(resolveShopCode).mockClear()
     vi.mocked(resolveShopCode).mockResolvedValue(null)
-    await shopWaRouter(phone, "1", "wamid.IN2")
-    expect(resolveShopCode).toHaveBeenCalledWith("1")
+    await shopWaRouter(phone, "9999", "wamid.IN2")
+    expect(resolveShopCode).toHaveBeenCalledWith("9999")
     expect(lastReplyTo(phone)).toContain("Invalid shop code")
   })
 
@@ -1307,6 +1311,24 @@ describe("shopWaRouter — AI escape", () => {
     vi.mocked(resolveShopCode).mockResolvedValue(null)
 
     const reply = await shopWaRouter("233559919122", "Hi", "wamid.1")
+
+    expect(reply).toBe("")
+  })
+
+  // Regression: confirmed in production — after the router already escaped to
+  // AI once (session deleted) and the AI answered a mid-flow question ("which
+  // is the best option") ending with its own follow-up ("How many would you
+  // like?"), the customer's short reply ("9") had no session to land in, so
+  // it went through this same !resolved code-shape check — and a bare digit
+  // or two, under the old length-1 minimum, looked exactly as "code-shaped"
+  // as a real code and was wrongly bounced with "Invalid shop code" instead
+  // of continuing the AI conversation. Real shop codes are never under 4
+  // characters, so this must escape to AI, not show the code-entry menu.
+  it("a short reply continuing an AI conversation (e.g. '9') escapes to AI instead of showing 'Invalid shop code'", async () => {
+    vi.mocked(getShopPref).mockResolvedValue(null)
+    vi.mocked(resolveShopCode).mockResolvedValue(null)
+
+    const reply = await shopWaRouter("233559919123", "9", "wamid.1")
 
     expect(reply).toBe("")
   })

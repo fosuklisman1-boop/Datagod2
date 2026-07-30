@@ -199,9 +199,17 @@ function isValidLocalGhana(local: string): boolean {
 // single token: auto-generated ones are 4/6-digit numeric strings
 // (secureNumericCode in app/api/admin/ussd-shops/route.ts), but an admin can
 // also set an arbitrary custom code manually, so this deliberately doesn't
-// assume numeric-only — just "one short token, no whitespace".
+// assume numeric-only — just "one short-ish token, no whitespace". Minimum
+// length 4 (not 1) matters in production: a customer answering a mid-flow AI
+// question the router had already escaped to (e.g. AI asks "how many?" and
+// the customer replies "9") looks exactly like a one-token, no-whitespace
+// "code attempt" too, and a bare digit or two was wrongly bounced with
+// "Invalid shop code" instead of continuing the AI conversation — confirmed
+// in production. No real shop code is ever shorter than 4 characters, so
+// anything under that length is far more likely to be a stray reply than an
+// attempted code.
 function looksLikeShopCodeAttempt(input: string): boolean {
-  return /^\S{1,20}$/.test(input)
+  return /^\S{4,20}$/.test(input)
 }
 
 // Converts obvious natural-language phrases to a menu digit, at zero AI cost —
