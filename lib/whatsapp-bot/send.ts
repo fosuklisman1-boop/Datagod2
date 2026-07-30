@@ -38,12 +38,18 @@ export async function markWaMessageRead(messageId: string): Promise<void> {
 // keyed to the INBOUND message_id. It auto-dismisses when we send our reply or
 // after ~25s, so only call this right before the bot actually responds. (This
 // also marks the message read, so it doubles as a read receipt.)
-export async function sendWaTyping(messageId: string): Promise<void> {
-  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID
+// Optional 2nd param mirrors sendWhatsAppText's fromPhoneNumberId override — a
+// message received on a non-default number (e.g. the shop WhatsApp number) must
+// have its typing indicator posted to THAT number's Graph API endpoint, not the
+// main bot's; omit it to keep using WHATSAPP_PHONE_NUMBER_ID as before.
+export async function sendWaTyping(messageId: string, phoneNumberId?: string): Promise<void> {
+  // `||` (not `??`) is deliberate: an explicitly-passed "" is treated as unset and
+  // falls back to the main number, rather than building a malformed URL with it.
+  const resolvedPhoneNumberId = phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID
   const token = process.env.WHATSAPP_ACCESS_TOKEN
-  if (!phoneNumberId || !token || !messageId) return
+  if (!resolvedPhoneNumberId || !token || !messageId) return
   try {
-    await fetch(`https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`, {
+    await fetch(`https://graph.facebook.com/${GRAPH_API_VERSION}/${resolvedPhoneNumberId}/messages`, {
       method: "POST",
       headers: baseHeaders(token),
       body: JSON.stringify({

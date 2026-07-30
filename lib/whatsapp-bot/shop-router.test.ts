@@ -11,6 +11,12 @@ import { DEFAULT_NETWORK_PREFIXES } from "@/lib/phone-format"
 import { isAirtimeEnabled, getAirtimeLimits, airtimeBaseFeeRate } from "@/lib/airtime-pricing"
 import { isExamBoardEnabled, getAvailableCount, getMaxQuantity, calculateRCPrice, getRCBulkHint } from "@/lib/results-checker-service"
 import { buildRcBoardOptions } from "@/lib/ussd/handlers/results-checker"
+import { getShopPref, clearShopPref } from "@/lib/whatsapp-bot/shop-prefs"
+// Real (unmocked) module — same instance shop-router.ts itself uses, so calling
+// deleteSession directly here manipulates the exact in-memory session cache the
+// router reads/writes. Used only to reset state between the AI-escape describe's
+// tests below, which deliberately share one phone number.
+import { deleteSession } from "@/lib/whatsapp-bot/shop-session"
 
 // shopWaRouter — the full purchase state machine for all three shop products
 // (Data — Task 3.3, Airtime + Results Checker — Task 3.4). Every side-effecting
@@ -41,6 +47,11 @@ vi.mock("@/lib/paystack", () => ({
 }))
 vi.mock("@/lib/ussd/resolve-email", () => ({ resolveEmail: vi.fn() }))
 vi.mock("@/lib/network-prefix-config", () => ({ getPrefixValidationConfig: vi.fn() }))
+vi.mock("@/lib/whatsapp-bot/shop-prefs", () => ({
+  getShopPref: vi.fn().mockResolvedValue(null),
+  setShopPref: vi.fn(),
+  clearShopPref: vi.fn(),
+}))
 // Airtime: keep the pure helpers (detectAirtimeNetwork, airtimeNetworkKey,
 // splitInclusive) real — they have no DB dependency and are deterministic — but
 // mock the async admin-settings-backed ones so tests control enablement/limits/
@@ -76,6 +87,10 @@ const fakeDb = vi.hoisted(() => ({
   whitelistEnabled: false,
   hasCompletedPurchase: true,
   orderUpdates: [] as Array<{ table: string; payload: Record<string, unknown>; id: unknown }>,
+  // Backs resolveShopCodeById's lookup for the returning-customer path — the
+  // shop code string that "belongs to" whatever shopCodeId a test's mocked
+  // getShopPref returns. null means "no such shop code row found".
+  rememberedShopCode: null as string | null,
 }))
 
 vi.mock("@supabase/supabase-js", () => ({
@@ -98,11 +113,18 @@ vi.mock("@supabase/supabase-js", () => ({
       }
       if (table === "ussd_shop_codes") {
         return {
-          select: () => ({
+          select: (cols: string) => ({
             eq: () => ({
-              maybeSingle: () => Promise.resolve({
-                data: fakeDb.tokenBalance === null ? null : { token_balance: fakeDb.tokenBalance },
-              }),
+              maybeSingle: () => {
+                if (cols === "code") {
+                  return Promise.resolve({
+                    data: fakeDb.rememberedShopCode ? { code: fakeDb.rememberedShopCode } : null,
+                  })
+                }
+                return Promise.resolve({
+                  data: fakeDb.tokenBalance === null ? null : { token_balance: fakeDb.tokenBalance },
+                })
+              },
             }),
           }),
         }
@@ -184,6 +206,7 @@ describe("shopWaRouter", () => {
     fakeDb.whitelistEnabled = false
     fakeDb.hasCompletedPurchase = true
     fakeDb.orderUpdates = []
+    fakeDb.rememberedShopCode = null
   })
 
   afterEach(() => {
@@ -1153,6 +1176,202 @@ describe("shopWaRouter", () => {
     await shopWaRouter(phone, "SOME_CODE", "wamid.IN")
 
     expect(sendWhatsAppText).toHaveBeenCalledWith(phone, expect.any(String), SHOP_PNID)
+  })
+})
+
+describe("shopWaRouter — AI escape", () => {
+  // These three tests deliberately share one phone number to exercise the real
+  // session flow end-to-end. The middle test intentionally leaves its session
+  // parked at CONFIRM (that's what it's testing — money steps are never torn
+  // down on off-script input), which would otherwise leak into the next test
+  // via the in-memory session cache (a module-level Map, untouched by
+  // vi.resetAllMocks() and not covered by the "shopWaRouter" describe's own
+  // beforeEach, since this is a sibling describe block). Clear it before each
+  // test so every test starts from a clean, session-less state as intended.
+  beforeEach(async () => {
+    await deleteSession("233559919037")
+  })
+
+  it("returns '' and clears the session when the customer sends off-script freetext mid-flow", async () => {
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "code-1", shopId: "shop-1", shopName: "Kofi's Data Hub",
+      parentShopId: null, status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+
+    // First message resolves the shop code and lands on SELECT_PRODUCT.
+    const first = await shopWaRouter("233559919037", "AB12CD", "wamid.1")
+    expect(first).not.toBe("")
+
+    // Second message is off-script freetext at SELECT_PRODUCT (not "1"/"2"/"3"/"0",
+    // and not an ordering keyword shopNaturalToDigit recognises).
+    const second = await shopWaRouter("233559919037", "do you sell mtn data here?", "wamid.2")
+    expect(second).toBe("")
+  })
+
+  it("does NOT escape to AI from a money step — CONFIRM re-prompts instead", async () => {
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "code-1", shopId: "shop-1", shopName: "Kofi's Data Hub",
+      parentShopId: null, status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(fetchShopBundles).mockResolvedValue([{ id: "pkg-1", size: "5GB", price: 25 }])
+    vi.mocked(getPrefixValidationConfig).mockResolvedValue({ enabled: false, map: DEFAULT_NETWORK_PREFIXES })
+
+    await shopWaRouter("233559919037", "AB12CD", "wamid.1")   // ENTER_CODE -> SELECT_PRODUCT
+    await shopWaRouter("233559919037", "1", "wamid.2")         // -> SELECT_NETWORK
+    await shopWaRouter("233559919037", "1", "wamid.3")         // -> SELECT_BUNDLE
+    await shopWaRouter("233559919037", "1", "wamid.4")         // -> ENTER_RECIPIENT
+    await shopWaRouter("233559919037", "0244123456", "wamid.5") // -> ENTER_PAYMENT_PHONE
+    await shopWaRouter("233559919037", "0244123456", "wamid.6") // -> CONFIRM
+
+    const reply = await shopWaRouter("233559919037", "what does confirm mean", "wamid.7")
+
+    expect(reply).not.toBe("")
+    expect(reply).toContain("1. Pay now")
+  })
+
+  it("greets a returning customer by shop name and skips the code prompt", async () => {
+    fakeDb.rememberedShopCode = "AB12CD"
+    vi.mocked(getShopPref).mockResolvedValue({ shopCodeId: "code-1" })
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "code-1", shopId: "shop-1", shopName: "Kofi's Data Hub",
+      parentShopId: null, status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+
+    const reply = await shopWaRouter("233559919037", "hi", "wamid.1")
+
+    expect(reply).toContain("Welcome back")
+    expect(reply).toContain("Kofi's Data Hub")
+    // resolveShopCodeById resolves the remembered code string ("AB12CD") via
+    // resolveShopCode internally — so resolveShopCode IS called, but with the
+    // remembered code, never with the literal "hi" the customer typed. That's
+    // what distinguishes the returning-customer path from treating "hi" as an
+    // attempted (and invalid) shop code entry.
+    expect(resolveShopCode).toHaveBeenCalledWith("AB12CD")
+    expect(resolveShopCode).not.toHaveBeenCalledWith("hi")
+  })
+
+  // ── Finding 2: returning-customer path must also honor a drained token
+  //    balance, same as every other shop-resolution path in this file ─────────
+  it("returning customer whose remembered shop has run out of sessions falls through to the normal code-entry flow, not a stale welcome-back", async () => {
+    fakeDb.rememberedShopCode = "CODE1"
+    vi.mocked(getShopPref).mockResolvedValue({ shopCodeId: "code-drained" })
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "code-drained", shopId: "shop-drained", shopName: "Drained Shop",
+      parentShopId: null, status: "active", tokenBalance: 0, whatsappActivated: true,
+    })
+    // This describe block doesn't reset mocks between tests (only sessions —
+    // see the block's own beforeEach), so fetchShopNetworks' call log can carry
+    // over from an earlier sibling test; clear it so the assertion below
+    // reflects only this test's behavior.
+    vi.mocked(fetchShopNetworks).mockClear()
+
+    const reply = await shopWaRouter("233559919038", "hi", "wamid.1")
+
+    // No stale "Welcome back" / product menu from cached shop memory...
+    expect(reply).not.toContain("Welcome back")
+    expect(fetchShopNetworks).not.toHaveBeenCalled()
+    // ...the remembered pref was cleared (same as the inactive/deactivated case)...
+    expect(clearShopPref).toHaveBeenCalledWith("233559919038")
+    // ...and it fell through into the normal code-entry chain, which re-resolves
+    // "hi" as an attempted code and (since that shop's tokenBalance is still 0)
+    // correctly rejects with the same "no sessions left" message CONFIRM's
+    // anti-race recheck would otherwise only catch much later.
+    expect(resolveShopCode).toHaveBeenCalledWith("hi")
+    expect(reply).toContain("no sessions left")
+  })
+
+  // ── Finding 1: a brand-new customer's genuine freetext must reach the AI,
+  //    not the robotic "Invalid shop code" menu ──────────────────────────────
+  it("brand-new customer (no session, no remembered shop) sending a genuine question escapes to AI instead of showing 'Invalid shop code'", async () => {
+    vi.mocked(getShopPref).mockResolvedValue(null)
+    vi.mocked(resolveShopCode).mockResolvedValue(null)
+
+    const reply = await shopWaRouter("233559919120", "hi, do you sell mtn data?", "wamid.1")
+
+    expect(reply).toBe("")
+  })
+
+  it("brand-new customer sending a single garbled code-shaped token still gets the existing 'Invalid shop code' menu (non-regression)", async () => {
+    vi.mocked(getShopPref).mockResolvedValue(null)
+    vi.mocked(resolveShopCode).mockResolvedValue(null)
+
+    const reply = await shopWaRouter("233559919121", "XYZQQQ", "wamid.1")
+
+    expect(reply).toContain("Invalid shop code")
+    expect(resolveShopCode).toHaveBeenCalledWith("XYZQQQ")
+  })
+
+  // ── Regression: free-text entry steps must never hit the AI-escape gate ────
+  // ENTER_RECIPIENT/AIRTIME_ENTER_RECIPIENT (phone numbers) and
+  // AIRTIME_ENTER_AMOUNT (a currency amount) are genuine free-text data-entry
+  // steps, not "type a menu digit" steps — their own case bodies already
+  // validate and re-prompt on bad input. A "+233..." prefix, internal spaces,
+  // or a decimal point all fail the router's plain-digit check, so without an
+  // explicit exemption the AI-escape gate would wrongly delete the session and
+  // escape to AI instead of letting the step's own handler process the input.
+  it("ENTER_RECIPIENT: a '+233...'-prefixed number still normalizes and advances instead of escaping to AI", async () => {
+    const phone = "233559919100"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "code-3", shopId: "shop-3", shopName: "Ama's Data Spot",
+      parentShopId: null, status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(fetchShopBundles).mockResolvedValue([{ id: "pkg-3", size: "5GB", price: 25 }])
+    vi.mocked(getPrefixValidationConfig).mockResolvedValue({ enabled: false, map: DEFAULT_NETWORK_PREFIXES })
+
+    await shopWaRouter(phone, "AB12CD", "wamid.1") // ENTER_CODE -> SELECT_PRODUCT
+    await shopWaRouter(phone, "1", "wamid.2")       // -> SELECT_NETWORK
+    await shopWaRouter(phone, "1", "wamid.3")       // -> SELECT_BUNDLE
+    await shopWaRouter(phone, "1", "wamid.4")       // -> ENTER_RECIPIENT
+
+    const reply = await shopWaRouter(phone, "+233244123456", "wamid.5")
+
+    expect(reply).not.toBe("")
+    expect(reply).toContain("MoMo number") // advanced to ENTER_PAYMENT_PHONE, not escaped
+  })
+
+  it("AIRTIME_ENTER_RECIPIENT: a number with internal spaces still normalizes and advances instead of escaping to AI", async () => {
+    const phone = "233559919101"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "code-4", shopId: "shop-4", shopName: "Ama's Airtime Spot",
+      parentShopId: null, status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(isAirtimeEnabled).mockResolvedValue(true)
+    vi.mocked(getAirtimeLimits).mockResolvedValue({ min: 1, max: 500 })
+
+    await shopWaRouter(phone, "AB12CD", "wamid.1") // ENTER_CODE -> SELECT_PRODUCT
+    await shopWaRouter(phone, "2", "wamid.2")       // -> AIRTIME_ENTER_RECIPIENT
+
+    const reply = await shopWaRouter(phone, "024 412 3456", "wamid.3")
+
+    expect(reply).not.toBe("")
+    expect(reply).toContain("MTN Airtime") // network auto-detected, advanced to AIRTIME_ENTER_AMOUNT
+  })
+
+  it("AIRTIME_ENTER_AMOUNT: a decimal amount still advances instead of escaping to AI", async () => {
+    const phone = "233559919102"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "code-5", shopId: "shop-5", shopName: "Ama's Airtime Spot 2",
+      parentShopId: null, status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(isAirtimeEnabled).mockResolvedValue(true)
+    vi.mocked(getAirtimeLimits).mockResolvedValue({ min: 1, max: 500 })
+    vi.mocked(airtimeBaseFeeRate).mockResolvedValue(5)
+    vi.mocked(shopOwnerIsDealer).mockResolvedValue(false)
+
+    await shopWaRouter(phone, "AB12CD", "wamid.1")     // ENTER_CODE -> SELECT_PRODUCT
+    await shopWaRouter(phone, "2", "wamid.2")           // -> AIRTIME_ENTER_RECIPIENT
+    await shopWaRouter(phone, "0244111222", "wamid.3")  // MTN auto-detected -> AIRTIME_ENTER_AMOUNT
+
+    const reply = await shopWaRouter(phone, "50.50", "wamid.4")
+
+    expect(reply).not.toBe("")
+    expect(reply).toContain("MoMo number") // advanced to AIRTIME_ENTER_PAYMENT_PHONE, not escaped
   })
 })
 

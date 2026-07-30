@@ -10,6 +10,8 @@ import {
   shopRcBoardMenu, shopRcQtyPrompt, shopRcConfirmMenu,
 } from "./shop-menus"
 import { resolveShopCode, fetchShopNetworks } from "@/lib/shop-commerce/shop-code"
+import { getShopPref, setShopPref, clearShopPref } from "@/lib/whatsapp-bot/shop-prefs"
+import type { WaShopSession } from "./shop-types"
 import { fetchShopBundles, verifyBundlePrice, shopOwnerIsDealer } from "@/lib/shop-commerce/pricing"
 import { createShopBundleOrder, createShopAirtimeOrder, createShopRcOrder } from "@/lib/shop-commerce/orders"
 import { chargeMobileMoney, submitOtp } from "@/lib/paystack"
@@ -153,6 +155,14 @@ async function fetchShopCodeTokenBalance(shopCodeId: string): Promise<number | n
   return data?.token_balance ?? null
 }
 
+// resolveShopCode takes a code string, not an id — the returning-customer path
+// only has the remembered shopCodeId, so look up the code string first.
+async function resolveShopCodeById(shopCodeId: string) {
+  const { data } = await supabase.from("ussd_shop_codes").select("code").eq("id", shopCodeId).maybeSingle()
+  if (!data?.code) return null
+  return resolveShopCode(data.code)
+}
+
 // Data-bundle whitelist gate — mirrors lib/ussd-shop/handlers/shop.ts's
 // handleEnterShopCode (builds session.dataBlocked, gating the product menu) and
 // lib/ussd-shop/handlers/bundles.ts's handleSelectNetwork (a second check right
@@ -181,50 +191,175 @@ function isValidLocalGhana(local: string): boolean {
   return /^0[0-9]{9}$/.test(local)
 }
 
-export async function shopWaRouter(from: string, text: string, inboundMsgId: string | null): Promise<void> {
+// Distinguishes an attempted (but wrong/typo'd) shop code from freetext that
+// isn't a code attempt at all — gates whether a failed resolveShopCode lookup
+// (no session, no remembered shop) shows the robotic "Invalid shop code" menu
+// or escapes to the AI's "no shop known" conversational branch (see
+// lib/whatsapp-bot/shop-ai.ts's handleShopWithAI). Shop codes are always a
+// single token: auto-generated ones are 4/6-digit numeric strings
+// (secureNumericCode in app/api/admin/ussd-shops/route.ts), but an admin can
+// also set an arbitrary custom code manually, so this deliberately doesn't
+// assume numeric-only — just "one short token, no whitespace".
+function looksLikeShopCodeAttempt(input: string): boolean {
+  return /^\S{1,20}$/.test(input)
+}
+
+// Converts obvious natural-language phrases to a menu digit, at zero AI cost —
+// mirrors lib/whatsapp-bot/router.ts's naturalToDigit for the main bot. Returns
+// null when the input doesn't map to anything recognisable, signalling the
+// caller should escape to AI instead. Deliberately narrow: only steps where a
+// customer might reasonably type a network/size/yes-no word instead of a digit.
+function shopNaturalToDigit(step: WaShopSession['step'], input: string): string | null {
+  const lc = input.trim().toLowerCase()
+
+  if (step === 'SELECT_NETWORK' || step === 'AIRTIME_SELECT_NETWORK') {
+    if (/^mtn$/.test(lc)) return '1'
+    if (/telecel|vodafone/.test(lc)) return '2'
+    if (/airteltigo|airtel|tigo|^at$/.test(lc)) return '3'
+  }
+
+  if (step === 'CONFIRM' || step === 'AIRTIME_CONFIRM' || step === 'RC_CONFIRM') {
+    if (/^(yes|pay|confirm|ok|okay)$/.test(lc)) return '1'
+    if (/^(no|cancel|stop)$/.test(lc)) return '2'
+  }
+
+  return null
+}
+
+export async function shopWaRouter(from: string, text: string, inboundMsgId: string | null): Promise<string> {
   await logMessage(from, "inbound", text, inboundMsgId)
 
-  const input = text.trim()
+  let input = text.trim()
   let session = await getSession(from)
-  let reply: string
+  // Definite-assignment assertion: every reachable path below assigns reply
+  // before it's used (each branch of the !session chain, and every switch
+  // case/default in the else branch), but TS's DA analysis can't correlate
+  // that guarantee across the matchedReturning flag introduced by the
+  // returning-customer path, so it can't prove it unaided.
+  let reply!: string
   let deleteAfter = false
   // Set only for the "no session, code didn't resolve" branch — nothing was ever
   // created, so there's nothing to persist or delete; the next message retries.
   let skipPersist = false
 
   if (!session) {
-    const resolved = await resolveShopCode(input)
-
-    if (!resolved) {
-      reply = shopInvalidCodeMenu('Invalid shop code. Please check and try again.')
-      skipPersist = true
-    } else if (resolved.status !== 'active') {
-      reply = shopInvalidCodeMenu('This shop is currently unavailable.')
-      skipPersist = true
-    } else if (resolved.tokenBalance <= 0) {
-      reply = shopInvalidCodeMenu('This shop has no sessions left. Please contact the seller.')
-      skipPersist = true
-    } else if (!resolved.whatsappActivated) {
-      reply = shopInvalidCodeMenu("This shop isn't set up for WhatsApp yet.")
-      skipPersist = true
-    } else {
-      const [networks, dataBlocked] = await Promise.all([
-        fetchShopNetworks(resolved.shopId, resolved.parentShopId),
-        isDataWhitelistBlocked(from),
-      ])
-      session = {
-        step: 'SELECT_PRODUCT',
-        shopCodeId: resolved.shopCodeId,
-        shopId: resolved.shopId,
-        parentShopId: resolved.parentShopId ?? undefined,
-        shopName: resolved.shopName,
-        networks,
-        dataBlocked,
+    // Returning-customer memory: a bare greeting/empty-ish first message with a
+    // remembered shop skips straight to the product menu instead of re-asking
+    // for the code. Any OTHER input (e.g. actually typing a new code) still goes
+    // through resolveShopCode below, so typing a different valid code always
+    // switches shops. matchedReturning gates the resolveShopCode chain below so
+    // a successful match doesn't also run it.
+    let matchedReturning = false
+    const pref = await getShopPref(from)
+    const looksLikeGreeting = /^(hi|hello|hey|start|menu)?$/i.test(input)
+    if (pref && looksLikeGreeting) {
+      const remembered = await resolveShopCodeById(pref.shopCodeId)
+      // Same three checks every other shop-resolution path in this file makes
+      // (the !matchedReturning chain below, and resolve_shop_code in
+      // lib/ai-tools.ts) — a shop that's since gone inactive, deactivated
+      // WhatsApp, or run out of sessions must fall through to the normal
+      // code-entry flow instead of showing a stale "Welcome back" + product
+      // menu that would only fail later at CONFIRM.
+      if (remembered && remembered.status === 'active' && remembered.whatsappActivated && remembered.tokenBalance > 0) {
+        const [networks, dataBlocked] = await Promise.all([
+          fetchShopNetworks(remembered.shopId, remembered.parentShopId),
+          isDataWhitelistBlocked(from),
+        ])
+        session = {
+          step: 'SELECT_PRODUCT',
+          shopCodeId: remembered.shopCodeId,
+          shopId: remembered.shopId,
+          parentShopId: remembered.parentShopId ?? undefined,
+          shopName: remembered.shopName,
+          networks,
+          dataBlocked,
+        }
+        reply = `Welcome back to *${remembered.shopName}* 👋\n\n${shopProductMenu(remembered.shopName, !dataBlocked)}`
+        matchedReturning = true
+      } else {
+        await clearShopPref(from)
       }
-      reply = shopProductMenu(resolved.shopName, !dataBlocked)
+    }
+
+    if (!matchedReturning) {
+      const resolved = await resolveShopCode(input)
+
+      if (!resolved) {
+        if (looksLikeShopCodeAttempt(input)) {
+          reply = shopInvalidCodeMenu('Invalid shop code. Please check and try again.')
+          skipPersist = true
+        } else {
+          // Not code-shaped at all — most likely a brand-new customer's genuine
+          // question/greeting (e.g. "hi, do you sell mtn data?"), not a typo'd
+          // code. No session was ever created in this path (session stays null
+          // all the way through when resolved is falsy), so there's nothing to
+          // persist or delete — just escape straight to the AI, which has its
+          // own "no shop known" branch that greets and asks for the shop code
+          // naturally (lib/whatsapp-bot/shop-ai.ts's handleShopWithAI).
+          return ''
+        }
+      } else if (resolved.status !== 'active') {
+        reply = shopInvalidCodeMenu('This shop is currently unavailable.')
+        skipPersist = true
+      } else if (resolved.tokenBalance <= 0) {
+        reply = shopInvalidCodeMenu('This shop has no sessions left. Please contact the seller.')
+        skipPersist = true
+      } else if (!resolved.whatsappActivated) {
+        reply = shopInvalidCodeMenu("This shop isn't set up for WhatsApp yet.")
+        skipPersist = true
+      } else {
+        const [networks, dataBlocked] = await Promise.all([
+          fetchShopNetworks(resolved.shopId, resolved.parentShopId),
+          isDataWhitelistBlocked(from),
+        ])
+        session = {
+          step: 'SELECT_PRODUCT',
+          shopCodeId: resolved.shopCodeId,
+          shopId: resolved.shopId,
+          parentShopId: resolved.parentShopId ?? undefined,
+          shopName: resolved.shopName,
+          networks,
+          dataBlocked,
+        }
+        reply = shopProductMenu(resolved.shopName, !dataBlocked)
+        await setShopPref(from, resolved.shopCodeId)
+      }
     }
   } else {
     const shopName = session.shopName ?? 'Shop'
+
+    // AI escape: money-moving steps never leave the deterministic flow (a
+    // gentle re-prompt happens inside their own case below via the existing
+    // "else fall through to menu" pattern — we only escape from steps that
+    // don't move money). FREE_TEXT_ENTRY_STEPS are exempt for a different
+    // reason: they were never "type a menu digit" steps in the first place —
+    // ENTER_RECIPIENT/AIRTIME_ENTER_RECIPIENT take a phone number
+    // (normalizeGhanaLocal accepts "+233..." prefixes and internal spaces,
+    // neither of which is all-digits) and AIRTIME_ENTER_AMOUNT takes a
+    // currency amount via parseFloat (a decimal point isn't all-digits
+    // either). Each of those steps already validates and re-prompts on bad
+    // input in its own case body below, so gating them through the AI escape
+    // would destroy an in-progress purchase over a phone number format or a
+    // decimal point. Everywhere else, digits pass straight through; obvious
+    // phrases resolve via shopNaturalToDigit; anything else escapes to AI.
+    const MONEY_STEPS: WaShopSession['step'][] = [
+      'CONFIRM', 'AIRTIME_CONFIRM', 'RC_CONFIRM',
+      'ENTER_PAYMENT_PHONE', 'AIRTIME_ENTER_PAYMENT_PHONE', 'RC_ENTER_PAYMENT_PHONE',
+      'SUBMIT_OTP',
+    ]
+    const FREE_TEXT_ENTRY_STEPS: WaShopSession['step'][] = [
+      'ENTER_RECIPIENT', 'AIRTIME_ENTER_RECIPIENT', 'AIRTIME_ENTER_AMOUNT',
+    ]
+    const isDigitOrZero = /^[0-9]+$/.test(input)
+    if (!isDigitOrZero && !MONEY_STEPS.includes(session.step) && !FREE_TEXT_ENTRY_STEPS.includes(session.step)) {
+      const mapped = shopNaturalToDigit(session.step, input)
+      if (mapped !== null) {
+        input = mapped
+      } else {
+        await deleteSession(from)
+        return ''
+      }
+    }
 
     switch (session.step) {
       // ── SELECT_PRODUCT ──────────────────────────────────────────────────────
@@ -1053,12 +1188,13 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
   const wamid = await sendWhatsAppText(from, reply, process.env.WHATSAPP_SHOP_PHONE_NUMBER_ID)
   await logMessage(from, "outbound", reply, wamid)
 
-  if (skipPersist) return
+  if (skipPersist) return reply
   if (deleteAfter) {
     await deleteSession(from)
   } else if (session) {
     await setSession(from, session)
   }
+  return reply
 }
 
 // Pure predicate for the webhook route's phone_number_id branch, pulled out
