@@ -1,4 +1,4 @@
-import { formatForWhatsApp, sendWhatsAppText } from "@/lib/whatsapp-bot/send"
+import { formatForWhatsApp, sendWhatsAppText, sendWaTyping } from "@/lib/whatsapp-bot/send"
 
 describe("formatForWhatsApp", () => {
   it("converts **bold** and __bold__ to WhatsApp single-asterisk bold", () => {
@@ -96,6 +96,65 @@ describe("sendWhatsAppText", () => {
     const wamid = await sendWhatsAppText("233241234567", "hi")
 
     expect(wamid).toBeNull()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+// sendWaTyping's optional 2nd param (phoneNumberId) mirrors sendWhatsAppText's
+// fromPhoneNumberId override — a message received on the shop WhatsApp number
+// must have its typing indicator posted to THAT number's endpoint, not the
+// main bot's default. Omitting it must keep sending to WHATSAPP_PHONE_NUMBER_ID
+// exactly as before (existing main-bot call sites pass only 1 arg).
+describe("sendWaTyping", () => {
+  const MAIN_PNID = "MAIN_PNID_111"
+  const SHOP_PNID = "SHOP_PNID_123"
+  const fetchMock = vi.fn()
+
+  function jsonResponse(body: unknown, status = 200) {
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      text: async () => JSON.stringify(body),
+      json: async () => body,
+    } as Response
+  }
+
+  beforeEach(() => {
+    fetchMock.mockReset()
+    fetchMock.mockResolvedValue(jsonResponse({}))
+    vi.stubGlobal("fetch", fetchMock)
+    vi.stubEnv("WHATSAPP_PHONE_NUMBER_ID", MAIN_PNID)
+    vi.stubEnv("WHATSAPP_ACCESS_TOKEN", "test-token")
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
+  })
+
+  it("with only messageId, posts to the main WHATSAPP_PHONE_NUMBER_ID endpoint", async () => {
+    await sendWaTyping("wamid.INBOUND1")
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url] = fetchMock.mock.calls[0]
+    expect(String(url)).toContain(`/${MAIN_PNID}/messages`)
+    expect(String(url)).not.toContain(SHOP_PNID)
+  })
+
+  it("with a phoneNumberId override, posts to that number's endpoint instead", async () => {
+    await sendWaTyping("wamid.INBOUND1", SHOP_PNID)
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url] = fetchMock.mock.calls[0]
+    expect(String(url)).toContain(`/${SHOP_PNID}/messages`)
+    expect(String(url)).not.toContain(MAIN_PNID)
+  })
+
+  it("does not call fetch when neither the override nor env is set", async () => {
+    vi.stubEnv("WHATSAPP_PHONE_NUMBER_ID", undefined)
+
+    await sendWaTyping("wamid.INBOUND1")
+
     expect(fetchMock).not.toHaveBeenCalled()
   })
 })

@@ -316,7 +316,7 @@ async function processInbound(body: unknown): Promise<void> {
 
   const receivingPhoneNumberId: string | undefined = change?.metadata?.phone_number_id
   if (isShopWhatsAppNumber(receivingPhoneNumberId)) {
-    if (msg.id) void sendWaTyping(msg.id)
+    if (msg.id) void sendWaTyping(msg.id, process.env.WHATSAPP_SHOP_PHONE_NUMBER_ID)
     const reply = await shopWaRouter(from, text, msg.id ?? null)
     if (reply === '') {
       const { handleShopWithAI } = await import("@/lib/whatsapp-bot/shop-ai")
