@@ -303,6 +303,7 @@ export async function GET(request: NextRequest) {
     const { data: settingsResult, error: settingsError } = await supabase
       .from("app_settings")
       .select("*")
+      .is("key", null)
 
     console.log("[PUBLIC-API] Global Settings query result:", {
       data: settingsResult,

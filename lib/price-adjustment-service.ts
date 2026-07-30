@@ -39,6 +39,7 @@ export async function getPriceAdjustments(): Promise<PriceAdjustments> {
     const { data, error } = await supabase
       .from("app_settings")
       .select("price_adjustment_mtn, price_adjustment_telecel, price_adjustment_at_ishare, price_adjustment_at_bigtime")
+      .is("key", null)
       .single()
 
     if (error || !data) {

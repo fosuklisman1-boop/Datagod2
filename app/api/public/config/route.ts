@@ -40,7 +40,7 @@ export async function GET() {
       supabaseAdmin
         .from("app_settings")
         .select(SAFE_APP_COLUMNS.join(", "))
-        .limit(1)
+        .is("key", null)
         .maybeSingle(),
     ])
 

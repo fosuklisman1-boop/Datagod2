@@ -118,6 +118,7 @@ export async function handleAfaConfirm(
   const { data: feeSettings } = await supabase
     .from("app_settings")
     .select("paystack_fee_percentage")
+    .is("key", null)
     .single()
   const feePercent = (feeSettings?.paystack_fee_percentage ?? 3.0) / 100
   const chargeAmount = afaPrice! + Math.round(afaPrice! * feePercent * 100) / 100

@@ -622,7 +622,7 @@ async function handleWithAI(phone: string, text: string): Promise<string> {
   const siteUrl = process.env.NEXT_PUBLIC_APP_URL || ""
   let channelLink = ""
   try {
-    const { data: appSettings } = await supabase.from("app_settings").select("join_community_link").limit(1).maybeSingle()
+    const { data: appSettings } = await supabase.from("app_settings").select("join_community_link").is("key", null).maybeSingle()
     channelLink = (appSettings?.join_community_link as string) || ""
   } catch {}
   const linksSection = [

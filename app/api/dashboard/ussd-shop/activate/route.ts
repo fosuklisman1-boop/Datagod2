@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
   if (shopCode.activation_fee_paid) return NextResponse.json({ error: "Already activated" }, { status: 409 })
 
   const { data: settings } = await supabase
-    .from("app_settings").select("ussd_shop_activation_fee").limit(1).single()
+    .from("app_settings").select("ussd_shop_activation_fee").is("key", null).single()
   const fee = Number(settings?.ussd_shop_activation_fee ?? 0)
 
   if (fee > 0) {

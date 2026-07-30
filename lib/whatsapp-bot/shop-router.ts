@@ -58,6 +58,7 @@ async function fetchPaystackFeePercent(): Promise<number> {
   const { data } = await supabase
     .from("app_settings")
     .select("paystack_fee_percentage")
+    .is("key", null)
     .single()
   return (data?.paystack_fee_percentage ?? 3.0) / 100
 }

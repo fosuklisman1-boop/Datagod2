@@ -42,7 +42,7 @@ async function loadUssdDialCode(): Promise<string> {
     const { data } = await supabaseAdmin
       .from("app_settings")
       .select("ussd_shop_dial_code")
-      .limit(1)
+      .is("key", null)
       .maybeSingle()
     const code = data?.ussd_shop_dial_code ?? DEFAULT_USSD_DIAL_CODE
     ussdDialCodeCache = { code, ts: Date.now() }
@@ -80,7 +80,7 @@ async function loadCommunityLink(): Promise<string> {
     const { data } = await supabaseAdmin
       .from("app_settings")
       .select("join_community_link")
-      .limit(1)
+      .is("key", null)
       .maybeSingle()
     const url = data?.join_community_link || ""
     communityLinkCache = { url, ts: Date.now() }

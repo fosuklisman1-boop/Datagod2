@@ -97,7 +97,7 @@ export async function handleSelectNetwork(
 
   const [{ data: userRow }, { data: settingsRow }, { data: mtnProviderRow }] = await Promise.all([
     supabase.from("users").select("id, role").eq("phone_number", localPhone).maybeSingle(),
-    supabase.from("app_settings").select("ussd_price_tier").single(),
+    supabase.from("app_settings").select("ussd_price_tier").is("key", null).single(),
     net.dbName === 'MTN'
       ? supabase.from("admin_settings").select("value").eq("key", "mtn_provider_selection").maybeSingle()
       : Promise.resolve({ data: null }),
@@ -299,6 +299,7 @@ export async function handleConfirm(
   const { data: feeSettings } = await supabase
     .from("app_settings")
     .select("paystack_fee_percentage")
+    .is("key", null)
     .single()
   const feePercent = (feeSettings?.paystack_fee_percentage ?? 3.0) / 100
   const priceTier = session.effectivePriceTier ?? 'regular'
@@ -419,7 +420,7 @@ export async function handlePaymentMethod(
 
   if (input.trim() === '2') {
     const { data: feeSettings } = await supabase
-      .from("app_settings").select("paystack_fee_percentage").single()
+      .from("app_settings").select("paystack_fee_percentage").is("key", null).single()
     const feePercent = (feeSettings?.paystack_fee_percentage ?? 3.0) / 100
     const fee = Math.round(verifiedPrice * feePercent * 100) / 100
     const chargeAmount = verifiedPrice + fee

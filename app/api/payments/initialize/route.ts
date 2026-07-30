@@ -190,6 +190,7 @@ export async function POST(request: NextRequest) {
     const { data: settings } = await supabase
       .from("app_settings")
       .select("paystack_fee_percentage, wallet_topups_enabled, upgrades_enabled")
+      .is("key", null)
       .single()
 
     // Fetch user role for admin bypass - check users table (source of truth)

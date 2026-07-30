@@ -1603,7 +1603,7 @@ export async function executeToolCall(
         // device still gets their account + wallet). Fall back to a phone lookup only if the
         // loop didn't resolve one. Tier/wallet are always read from the DB account (never from
         // model input), so a regular user/guest can never be assigned a cheaper tier.
-        const { data: orderSettings } = await supabaseAdmin.from("app_settings").select("ussd_price_tier").single()
+        const { data: orderSettings } = await supabaseAdmin.from("app_settings").select("ussd_price_tier").is("key", null).single()
         let resolvedUserId: string | undefined = ctx.userId
         let role: string | null = null
         if (resolvedUserId) {

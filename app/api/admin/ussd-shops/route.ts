@@ -124,7 +124,7 @@ export async function POST(request: NextRequest) {
     // Use the live dial code (app_settings) so the message never goes stale.
     // Customers dial that code, then ENTER the shop code at the prompt — it is
     // not appended to the dial string.
-    const { data: settings } = await supabase.from('app_settings').select('ussd_shop_dial_code').limit(1).maybeSingle()
+    const { data: settings } = await supabase.from('app_settings').select('ussd_shop_dial_code').is('key', null).maybeSingle()
     const dialCode = settings?.ussd_shop_dial_code || '*426*203#'
     sendPushToUser(shop.user_id, {
       title: '📱 USSD Code Created',

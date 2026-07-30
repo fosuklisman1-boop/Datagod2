@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
   const { data: settings } = await supabase
     .from("app_settings")
     .select("ussd_shop_session_price, ussd_shop_min_sessions, ussd_shop_max_sessions")
-    .limit(1).single()
+    .is("key", null).single()
 
   const sessionPrice = Number(settings?.ussd_shop_session_price ?? 0)
   const minSessions = Number(settings?.ussd_shop_min_sessions ?? 1)

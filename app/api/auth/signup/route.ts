@@ -57,6 +57,7 @@ export async function POST(request: NextRequest) {
     const { data: settings } = await supabaseServiceRole
       .from("app_settings")
       .select("signups_enabled, signup_default_role")
+      .is("key", null)
       .single()
 
     if (settings && settings.signups_enabled === false) {

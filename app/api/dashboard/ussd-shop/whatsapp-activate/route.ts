@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
   if (!shopCode) return NextResponse.json({ error: "No USSD code assigned to your shop" }, { status: 404 })
 
   const { data: settings } = await supabase
-    .from("app_settings").select("whatsapp_shop_activation_fee").limit(1).single()
+    .from("app_settings").select("whatsapp_shop_activation_fee").is("key", null).single()
   const fee = Number(settings?.whatsapp_shop_activation_fee ?? 0)
 
   // Unlike USSD activation (which allows a free activation when the admin fee is

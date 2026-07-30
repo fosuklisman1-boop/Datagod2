@@ -694,7 +694,7 @@ export const withdrawalService = {
     const { data: settings, error: settingsError } = await db
       .from("app_settings")
       .select("withdrawal_fee_percentage")
-      .limit(1)
+      .is("key", null)
       .maybeSingle()
     if (settingsError) {
       console.error(`[WITHDRAWAL-CREATE] Fee settings read failed (${settingsError.code}): ${settingsError.message}`)

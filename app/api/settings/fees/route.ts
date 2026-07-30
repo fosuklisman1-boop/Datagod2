@@ -11,6 +11,7 @@ export async function GET() {
     const { data: settings, error } = await supabase
       .from("app_settings")
       .select("paystack_fee_percentage, wallet_topup_fee_percentage, withdrawal_fee_percentage")
+      .is("key", null)
       .single()
 
     if (error && error.code !== "PGRST116") {

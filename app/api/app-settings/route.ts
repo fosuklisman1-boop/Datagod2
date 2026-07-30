@@ -11,7 +11,7 @@ export async function GET() {
     const { data, error } = await supabase
       .from("app_settings")
       .select("join_community_link")
-      .limit(1)
+      .is("key", null)
       .single()
 
     if (error && error.code !== "PGRST116") {

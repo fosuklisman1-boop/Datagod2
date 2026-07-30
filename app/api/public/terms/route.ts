@@ -13,6 +13,7 @@ export async function GET() {
     const { data } = await supabase
       .from("app_settings")
       .select("terms_content, terms_last_updated")
+      .is("key", null)
       .single()
 
     return NextResponse.json({

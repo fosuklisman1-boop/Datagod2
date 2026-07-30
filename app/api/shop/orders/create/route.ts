@@ -48,6 +48,7 @@ export async function POST(request: NextRequest) {
     const { data: settingsResult, error: settingsError } = await supabase
       .from("app_settings")
       .select("*")
+      .is("key", null)
 
     if (settingsError) {
       console.error("[SHOP-ORDER] Error checking global settings:", settingsError)

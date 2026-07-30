@@ -13,6 +13,7 @@ export async function GET() {
     const { data: settings, error } = await supabase
       .from("app_settings")
       .select("christmas_theme_enabled")
+      .is("key", null)
       .single()
 
     if (error && error.code !== "PGRST116") {
@@ -43,7 +44,7 @@ export async function PUT(request: NextRequest) {
     const { error: updateError } = await supabase
       .from("app_settings")
       .update({ christmas_theme_enabled })
-      .not("id", "is", null)
+      .is("key", null)
 
     if (updateError) {
       console.error("Error updating app_settings:", updateError)

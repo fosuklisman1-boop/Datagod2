@@ -82,7 +82,8 @@ vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
     from: (table: string) => {
       if (table === "app_settings") {
-        return { select: () => ({ single: () => Promise.resolve({ data: { paystack_fee_percentage: fakeDb.feePercent } }) }) }
+        const single = () => Promise.resolve({ data: { paystack_fee_percentage: fakeDb.feePercent } })
+        return { select: () => ({ single, is: () => ({ single }) }) }
       }
       if (table === "user_shops") {
         return {
