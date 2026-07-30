@@ -11,7 +11,7 @@ import { DEFAULT_NETWORK_PREFIXES } from "@/lib/phone-format"
 import { isAirtimeEnabled, getAirtimeLimits, airtimeBaseFeeRate } from "@/lib/airtime-pricing"
 import { isExamBoardEnabled, getAvailableCount, getMaxQuantity, calculateRCPrice, getRCBulkHint } from "@/lib/results-checker-service"
 import { buildRcBoardOptions } from "@/lib/ussd/handlers/results-checker"
-import { getShopPref } from "@/lib/whatsapp-bot/shop-prefs"
+import { getShopPref, clearShopPref } from "@/lib/whatsapp-bot/shop-prefs"
 // Real (unmocked) module — same instance shop-router.ts itself uses, so calling
 // deleteSession directly here manipulates the exact in-memory session cache the
 // router reads/writes. Used only to reset state between the AI-escape describe's
@@ -1251,6 +1251,57 @@ describe("shopWaRouter — AI escape", () => {
     // attempted (and invalid) shop code entry.
     expect(resolveShopCode).toHaveBeenCalledWith("AB12CD")
     expect(resolveShopCode).not.toHaveBeenCalledWith("hi")
+  })
+
+  // ── Finding 2: returning-customer path must also honor a drained token
+  //    balance, same as every other shop-resolution path in this file ─────────
+  it("returning customer whose remembered shop has run out of sessions falls through to the normal code-entry flow, not a stale welcome-back", async () => {
+    fakeDb.rememberedShopCode = "CODE1"
+    vi.mocked(getShopPref).mockResolvedValue({ shopCodeId: "code-drained" })
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "code-drained", shopId: "shop-drained", shopName: "Drained Shop",
+      parentShopId: null, status: "active", tokenBalance: 0, whatsappActivated: true,
+    })
+    // This describe block doesn't reset mocks between tests (only sessions —
+    // see the block's own beforeEach), so fetchShopNetworks' call log can carry
+    // over from an earlier sibling test; clear it so the assertion below
+    // reflects only this test's behavior.
+    vi.mocked(fetchShopNetworks).mockClear()
+
+    const reply = await shopWaRouter("233559919038", "hi", "wamid.1")
+
+    // No stale "Welcome back" / product menu from cached shop memory...
+    expect(reply).not.toContain("Welcome back")
+    expect(fetchShopNetworks).not.toHaveBeenCalled()
+    // ...the remembered pref was cleared (same as the inactive/deactivated case)...
+    expect(clearShopPref).toHaveBeenCalledWith("233559919038")
+    // ...and it fell through into the normal code-entry chain, which re-resolves
+    // "hi" as an attempted code and (since that shop's tokenBalance is still 0)
+    // correctly rejects with the same "no sessions left" message CONFIRM's
+    // anti-race recheck would otherwise only catch much later.
+    expect(resolveShopCode).toHaveBeenCalledWith("hi")
+    expect(reply).toContain("no sessions left")
+  })
+
+  // ── Finding 1: a brand-new customer's genuine freetext must reach the AI,
+  //    not the robotic "Invalid shop code" menu ──────────────────────────────
+  it("brand-new customer (no session, no remembered shop) sending a genuine question escapes to AI instead of showing 'Invalid shop code'", async () => {
+    vi.mocked(getShopPref).mockResolvedValue(null)
+    vi.mocked(resolveShopCode).mockResolvedValue(null)
+
+    const reply = await shopWaRouter("233559919120", "hi, do you sell mtn data?", "wamid.1")
+
+    expect(reply).toBe("")
+  })
+
+  it("brand-new customer sending a single garbled code-shaped token still gets the existing 'Invalid shop code' menu (non-regression)", async () => {
+    vi.mocked(getShopPref).mockResolvedValue(null)
+    vi.mocked(resolveShopCode).mockResolvedValue(null)
+
+    const reply = await shopWaRouter("233559919121", "XYZQQQ", "wamid.1")
+
+    expect(reply).toContain("Invalid shop code")
+    expect(resolveShopCode).toHaveBeenCalledWith("XYZQQQ")
   })
 
   // ── Regression: free-text entry steps must never hit the AI-escape gate ────

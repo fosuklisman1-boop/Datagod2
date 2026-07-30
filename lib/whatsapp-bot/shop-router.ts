@@ -191,6 +191,19 @@ function isValidLocalGhana(local: string): boolean {
   return /^0[0-9]{9}$/.test(local)
 }
 
+// Distinguishes an attempted (but wrong/typo'd) shop code from freetext that
+// isn't a code attempt at all — gates whether a failed resolveShopCode lookup
+// (no session, no remembered shop) shows the robotic "Invalid shop code" menu
+// or escapes to the AI's "no shop known" conversational branch (see
+// lib/whatsapp-bot/shop-ai.ts's handleShopWithAI). Shop codes are always a
+// single token: auto-generated ones are 4/6-digit numeric strings
+// (secureNumericCode in app/api/admin/ussd-shops/route.ts), but an admin can
+// also set an arbitrary custom code manually, so this deliberately doesn't
+// assume numeric-only — just "one short token, no whitespace".
+function looksLikeShopCodeAttempt(input: string): boolean {
+  return /^\S{1,20}$/.test(input)
+}
+
 // Converts obvious natural-language phrases to a menu digit, at zero AI cost —
 // mirrors lib/whatsapp-bot/router.ts's naturalToDigit for the main bot. Returns
 // null when the input doesn't map to anything recognisable, signalling the
@@ -241,7 +254,13 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
     const looksLikeGreeting = /^(hi|hello|hey|start|menu)?$/i.test(input)
     if (pref && looksLikeGreeting) {
       const remembered = await resolveShopCodeById(pref.shopCodeId)
-      if (remembered && remembered.status === 'active' && remembered.whatsappActivated) {
+      // Same three checks every other shop-resolution path in this file makes
+      // (the !matchedReturning chain below, and resolve_shop_code in
+      // lib/ai-tools.ts) — a shop that's since gone inactive, deactivated
+      // WhatsApp, or run out of sessions must fall through to the normal
+      // code-entry flow instead of showing a stale "Welcome back" + product
+      // menu that would only fail later at CONFIRM.
+      if (remembered && remembered.status === 'active' && remembered.whatsappActivated && remembered.tokenBalance > 0) {
         const [networks, dataBlocked] = await Promise.all([
           fetchShopNetworks(remembered.shopId, remembered.parentShopId),
           isDataWhitelistBlocked(from),
@@ -266,8 +285,19 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
       const resolved = await resolveShopCode(input)
 
       if (!resolved) {
-        reply = shopInvalidCodeMenu('Invalid shop code. Please check and try again.')
-        skipPersist = true
+        if (looksLikeShopCodeAttempt(input)) {
+          reply = shopInvalidCodeMenu('Invalid shop code. Please check and try again.')
+          skipPersist = true
+        } else {
+          // Not code-shaped at all — most likely a brand-new customer's genuine
+          // question/greeting (e.g. "hi, do you sell mtn data?"), not a typo'd
+          // code. No session was ever created in this path (session stays null
+          // all the way through when resolved is falsy), so there's nothing to
+          // persist or delete — just escape straight to the AI, which has its
+          // own "no shop known" branch that greets and asks for the shop code
+          // naturally (lib/whatsapp-bot/shop-ai.ts's handleShopWithAI).
+          return ''
+        }
       } else if (resolved.status !== 'active') {
         reply = shopInvalidCodeMenu('This shop is currently unavailable.')
         skipPersist = true
