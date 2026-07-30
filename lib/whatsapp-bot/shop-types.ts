@@ -18,6 +18,15 @@ export type WaShopStep =
   | 'RC_ENTER_QTY'
   | 'RC_ENTER_PAYMENT_PHONE'
   | 'RC_CONFIRM'
+  // Sticky "handed off to AI" marker (lib/whatsapp-bot/shop-router.ts). Once the
+  // router escapes to the AI conversation handler, the session is set to this
+  // step instead of being deleted — every subsequent reply (including a direct
+  // answer to something the AI just asked, e.g. a MoMo number) goes straight
+  // back to AI instead of being re-evaluated as "is this a shop code?", since no
+  // shape-based heuristic can reliably tell the two apart. place_shop_order
+  // (lib/ai-tools.ts) overwrites this with a real CONFIRM/AIRTIME_CONFIRM/
+  // RC_CONFIRM step once the AI is ready to charge, which exits this mode.
+  | 'AI_CONVERSATION'
 
 export interface WaShopBundleOption {
   id: string

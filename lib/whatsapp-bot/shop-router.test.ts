@@ -13,10 +13,12 @@ import { isExamBoardEnabled, getAvailableCount, getMaxQuantity, calculateRCPrice
 import { buildRcBoardOptions } from "@/lib/ussd/handlers/results-checker"
 import { getShopPref, clearShopPref } from "@/lib/whatsapp-bot/shop-prefs"
 // Real (unmocked) module — same instance shop-router.ts itself uses, so calling
-// deleteSession directly here manipulates the exact in-memory session cache the
-// router reads/writes. Used only to reset state between the AI-escape describe's
-// tests below, which deliberately share one phone number.
-import { deleteSession } from "@/lib/whatsapp-bot/shop-session"
+// these directly here manipulates the exact in-memory session cache the router
+// reads/writes. deleteSession resets state between the AI-escape describe's
+// tests below (which deliberately share one phone number); getSession/setSession
+// verify/simulate the sticky AI_CONVERSATION handoff and place_shop_order's
+// hand-back to a real CONFIRM-type session.
+import { deleteSession, getSession, setSession } from "@/lib/whatsapp-bot/shop-session"
 
 // shopWaRouter — the full purchase state machine for all three shop products
 // (Data — Task 3.3, Airtime + Results Checker — Task 3.4). Every side-effecting
@@ -1341,6 +1343,89 @@ describe("shopWaRouter — AI escape", () => {
 
     expect(reply).toContain("Invalid shop code")
     expect(resolveShopCode).toHaveBeenCalledWith("XYZQQQ")
+  })
+
+  // ── Sticky AI handoff (architectural fix) ───────────────────────────────────
+  // Confirmed in production: after escaping to AI once, EVERY kind of
+  // follow-up reply — a bare greeting, a short digit, and (this is the one
+  // that proved shape-based heuristics can never fully solve this) a real
+  // 10-digit MoMo number the AI itself had just asked for — kept getting
+  // re-evaluated as "is this a shop code?" because the session was deleted on
+  // escape. A phone number is exactly as "code-shaped" as a real shop code —
+  // no regex can tell them apart. The fix: mark the session AI_CONVERSATION
+  // instead of deleting it, and short-circuit to AI for the entire lifetime of
+  // that step, until place_shop_order stages a real CONFIRM-type session.
+  it("marks the session AI_CONVERSATION on escape from the !session branch (not left absent)", async () => {
+    vi.mocked(getShopPref).mockResolvedValue(null)
+    vi.mocked(resolveShopCode).mockResolvedValue(null)
+
+    await shopWaRouter("233559919124", "hi, do you sell mtn data?", "wamid.1")
+
+    expect(await getSession("233559919124")).toEqual({ step: "AI_CONVERSATION" })
+  })
+
+  it("marks the session AI_CONVERSATION on escape from an existing session's off-script freetext (not deleted)", async () => {
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "code-1", shopId: "shop-1", shopName: "Kofi's Data Hub",
+      parentShopId: null, status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+
+    await shopWaRouter("233559919125", "AB12CD", "wamid.1")   // ENTER_CODE -> SELECT_PRODUCT
+    await shopWaRouter("233559919125", "do you sell mtn data here?", "wamid.2")
+
+    expect(await getSession("233559919125")).toEqual({ step: "AI_CONVERSATION" })
+  })
+
+  it("a real 10-digit MoMo number the AI just asked for escapes to AI instead of 'Invalid shop code' — the case a length/shape heuristic alone can never solve", async () => {
+    await setSession("233559919126", { step: "AI_CONVERSATION" })
+    // This describe block doesn't reset all mocks between tests (only
+    // sessions — see its own beforeEach), so resolveShopCode's call log
+    // carries over from earlier tests; clear it so the assertion below
+    // reflects only this test's behavior.
+    vi.mocked(resolveShopCode).mockClear()
+
+    const reply = await shopWaRouter("233559919126", "0555773910", "wamid.1")
+
+    expect(reply).toBe("")
+    // resolveShopCode must never even be consulted — the sticky check short-
+    // circuits before any code-resolution logic runs.
+    expect(resolveShopCode).not.toHaveBeenCalled()
+  })
+
+  it("stays in AI_CONVERSATION across multiple consecutive replies (sticky, not one-shot)", async () => {
+    await setSession("233559919127", { step: "AI_CONVERSATION" })
+
+    const first = await shopWaRouter("233559919127", "what boards do you have", "wamid.1")
+    const second = await shopWaRouter("233559919127", "9", "wamid.2")
+    const third = await shopWaRouter("233559919127", "0555773910", "wamid.3")
+
+    expect(first).toBe("")
+    expect(second).toBe("")
+    expect(third).toBe("")
+    expect(await getSession("233559919127")).toEqual({ step: "AI_CONVERSATION" })
+  })
+
+  it("exits AI_CONVERSATION once a real order is staged (place_shop_order's CONFIRM hand-back) — the next reply hits the deterministic, money-fenced flow", async () => {
+    // Simulates exactly what place_shop_order (lib/ai-tools.ts) does once the
+    // AI has gathered enough info and the customer confirmed: it overwrites
+    // the AI_CONVERSATION session with a real CONFIRM-type one.
+    await setSession("233559919128", {
+      step: "CONFIRM",
+      shopCodeId: "code-1", shopId: "shop-1", shopName: "Kofi's Data Hub",
+      network: "MTN", bundleId: "pkg-1", bundleSize: "5GB", bundlePrice: 25,
+      recipientPhone: "0244123456", paymentPhone: "0244123456", paystackProvider: "mtn",
+    })
+
+    // Unrecognised input at CONFIRM (not "1"/"2"/"0") just re-prompts the
+    // confirm screen — no token-balance/price re-verification happens unless
+    // the customer actually replies "1" to pay, so no extra mocks are needed.
+    const reply = await shopWaRouter("233559919128", "0244123456", "wamid.1")
+
+    // Reached the real CONFIRM case body (re-prompts with the confirm screen
+    // for unrecognised input), not the sticky AI-escape short-circuit.
+    expect(reply).not.toBe("")
+    expect(reply).toContain("1. Pay now")
   })
 
   // ── Regression: free-text entry steps must never hit the AI-escape gate ────

@@ -239,6 +239,20 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
 
   let input = text.trim()
   let session = await getSession(from)
+
+  // Sticky AI handoff: once escaped, stay there. Any reply — including a
+  // direct answer to something the AI just asked (e.g. a MoMo number, "9"
+  // meaning "9 vouchers") — goes straight back to AI rather than being
+  // re-evaluated as "is this a shop code?" No shape-based heuristic can tell
+  // those apart reliably (confirmed in production: a bare greeting, a short
+  // digit, and a real phone number all satisfied earlier "looks code-shaped"
+  // checks). place_shop_order (lib/ai-tools.ts) overwrites this session with a
+  // real CONFIRM/AIRTIME_CONFIRM/RC_CONFIRM step once the AI is ready to
+  // charge, which naturally exits this mode into the money-fenced flow below.
+  if (session?.step === 'AI_CONVERSATION') {
+    return ''
+  }
+
   // Definite-assignment assertion: every reachable path below assigns reply
   // before it's used (each branch of the !session chain, and every switch
   // case/default in the else branch), but TS's DA analysis can't correlate
@@ -304,11 +318,13 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         } else {
           // Not code-shaped at all, or a bare greeting — most likely a brand-new
           // customer's genuine question/greeting (e.g. "hi, do you sell mtn data?"
-          // or just "Hi"), not a typo'd code. No session was ever created in this
-          // path (session stays null all the way through when resolved is falsy),
-          // so there's nothing to persist or delete — just escape straight to the
-          // AI, which has its own "no shop known" branch that greets and asks for
-          // the shop code naturally (lib/whatsapp-bot/shop-ai.ts's handleShopWithAI).
+          // or just "Hi"), not a typo'd code. Mark the session AI_CONVERSATION
+          // (see the sticky-handoff check above) rather than leaving it absent, so
+          // the customer's NEXT reply also goes straight to AI instead of being
+          // re-evaluated as a fresh code attempt. The AI has its own "no shop
+          // known" branch that greets and asks for the shop code naturally
+          // (lib/whatsapp-bot/shop-ai.ts's handleShopWithAI).
+          await setSession(from, { step: 'AI_CONVERSATION' })
           return ''
         }
       } else if (resolved.status !== 'active') {
@@ -369,7 +385,13 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
       if (mapped !== null) {
         input = mapped
       } else {
-        await deleteSession(from)
+        // Mark AI_CONVERSATION rather than deleting — see the sticky-handoff
+        // check near the top of this function. The customer's in-progress
+        // browsing context (network/bundle picks etc.) is intentionally
+        // dropped here, same as before: once off-script, the AI takes the
+        // conversation forward on its own (get_shop_packages/place_shop_order),
+        // rather than trying to resume the old menu mid-flow.
+        await setSession(from, { step: 'AI_CONVERSATION' })
         return ''
       }
     }
