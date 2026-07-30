@@ -303,18 +303,30 @@ async function processInbound(body: unknown): Promise<void> {
   // number matches WHATSAPP_SHOP_PHONE_NUMBER_ID, route there instead of the
   // main bot/AI below and stop — this is a no-op today since that env var isn't
   // set yet, so all existing traffic on the main number is unaffected.
-  const receivingPhoneNumberId: string | undefined = change?.metadata?.phone_number_id
-  if (isShopWhatsAppNumber(receivingPhoneNumberId)) {
-    await shopWaRouter(from, text, msg.id ?? null)
-    return
-  }
-
   // Per-sender inbound cap: a spammer flooding the bot would otherwise burn AI
   // tokens on every message. Inbound is already logged (visible in the inbox);
   // we just stop the expensive bot/AI processing for over-the-limit senders.
+  // Applies to BOTH the shop number and the main number now that the shop bot
+  // also has an AI escape hatch (Task 3/4) that can burn tokens per message.
   const { allowInbound } = await import("@/lib/whatsapp-bot/rate-limit")
   if (!(await allowInbound(from))) {
     console.warn("[WA-WEBHOOK] Inbound rate limit hit, dropping:", from)
+    return
+  }
+
+  const receivingPhoneNumberId: string | undefined = change?.metadata?.phone_number_id
+  if (isShopWhatsAppNumber(receivingPhoneNumberId)) {
+    if (msg.id) void sendWaTyping(msg.id)
+    const reply = await shopWaRouter(from, text, msg.id ?? null)
+    if (reply === '') {
+      const { handleShopWithAI } = await import("@/lib/whatsapp-bot/shop-ai")
+      const aiReply = await handleShopWithAI(from, text, msg.id ?? null)
+      if (aiReply) {
+        const out = formatForWhatsApp(aiReply)
+        const wamid = await sendWhatsAppText(from, out, process.env.WHATSAPP_SHOP_PHONE_NUMBER_ID)
+        await logMessage(from, "outbound", out, wamid)
+      }
+    }
     return
   }
 
