@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
-import { Plus, Coins, CheckCircle, PauseCircle, Trash2, RefreshCw, Hash, Settings2, Save, ShieldCheck, Activity, Banknote, Database } from "lucide-react"
+import { Plus, Coins, CheckCircle, PauseCircle, Trash2, RefreshCw, Hash, Settings2, Save, ShieldCheck, Activity, Banknote, Database, MessageCircle } from "lucide-react"
 
 interface ShopCode {
   id: string
@@ -22,6 +22,8 @@ interface ShopCode {
   token_balance: number
   activation_fee_paid: boolean
   activation_paid_at: string | null
+  whatsapp_activated: boolean
+  whatsapp_activated_at: string | null
   created_at: string
   shop_id: string
   shop_name: string
@@ -92,6 +94,10 @@ export default function AdminUssdShopsPage() {
   const [activateTarget, setActivateTarget] = useState<ShopCode | null>(null)
   const [activateTokens, setActivateTokens] = useState("0")
   const [activating, setActivating] = useState(false)
+
+  // WhatsApp grant/revoke — tracks which single row is mid-request so only
+  // that row's button shows a disabled/loading state, not every row's.
+  const [whatsappActionId, setWhatsappActionId] = useState<string | null>(null)
 
   const loadOrders = async (page: number) => {
     const from = page * ORDERS_PER_PAGE
@@ -281,6 +287,39 @@ export default function AdminUssdShopsPage() {
       setShowActivate(false)
       await loadAll()
     } finally { setActivating(false) }
+  }
+
+  const handleGrantWhatsapp = async (code: ShopCode) => {
+    setWhatsappActionId(code.id)
+    try {
+      const res = await fetch(`/api/admin/ussd-shops/${code.id}/whatsapp-activate`, {
+        method: "POST",
+        headers: await authHeader(),
+      })
+      const json = await res.json()
+      if (!res.ok) { toast.error(json.error ?? "Failed to grant WhatsApp access"); return }
+      toast.success(`WhatsApp activated for ${code.shop_name}`)
+      await loadAll()
+    } finally {
+      setWhatsappActionId(null)
+    }
+  }
+
+  const handleRevokeWhatsapp = async (code: ShopCode) => {
+    if (!confirm(`Revoke WhatsApp access for ${code.shop_name} (${code.code})?`)) return
+    setWhatsappActionId(code.id)
+    try {
+      const res = await fetch(`/api/admin/ussd-shops/${code.id}/whatsapp-deactivate`, {
+        method: "POST",
+        headers: await authHeader(),
+      })
+      const json = await res.json()
+      if (!res.ok) { toast.error(json.error ?? "Failed to revoke WhatsApp access"); return }
+      toast.success(`WhatsApp revoked for ${code.shop_name}`)
+      await loadAll()
+    } finally {
+      setWhatsappActionId(null)
+    }
   }
 
   const statusBadge = (status: string) => {
@@ -511,12 +550,26 @@ export default function AdminUssdShopsPage() {
               </div>
             </CardContent>
           </Card>
+          <Card>
+            <CardContent className="pt-5 pb-4">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">WhatsApp Activated</p>
+                  <p className="text-3xl font-bold text-foreground mt-1">
+                    {codes.filter(c => c.whatsapp_activated).length}
+                  </p>
+                </div>
+                <MessageCircle className="w-8 h-8 text-success opacity-80 shrink-0" />
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         <Tabs defaultValue="codes">
           <TabsList className="mb-4">
             <TabsTrigger value="codes">Shop Codes ({codes.length})</TabsTrigger>
             <TabsTrigger value="active">Active Codes ({codes.filter(c => c.status === 'active').length})</TabsTrigger>
+            <TabsTrigger value="whatsapp">WhatsApp Active ({codes.filter(c => c.whatsapp_activated).length})</TabsTrigger>
             <TabsTrigger value="orders">Orders ({ordersTotalCount})</TabsTrigger>
           </TabsList>
 
@@ -561,7 +614,12 @@ export default function AdminUssdShopsPage() {
                               </code>
                             </td>
                             <td className="py-3 pr-4">
-                              <span className="font-medium text-foreground">{code.shop_name}</span>
+                              <span className="font-medium text-foreground inline-flex items-center gap-1.5">
+                                {code.shop_name}
+                                {code.whatsapp_activated && (
+                                  <MessageCircle className="w-3.5 h-3.5 text-success shrink-0" aria-label="WhatsApp activated" />
+                                )}
+                              </span>
                             </td>
                             <td className="py-3 pr-4">{statusBadge(code.status)}</td>
                             <td className="py-3 pr-4">
@@ -599,6 +657,16 @@ export default function AdminUssdShopsPage() {
                                   >
                                     <PauseCircle className="w-3 h-3 mr-1" />
                                     {code.status === 'active' ? 'Suspend' : 'Activate'}
+                                  </Button>
+                                )}
+                                {!code.whatsapp_activated && (
+                                  <Button
+                                    size="sm" variant="outline"
+                                    className="h-7 text-xs border-border text-success hover:bg-success/10"
+                                    disabled={whatsappActionId === code.id}
+                                    onClick={() => handleGrantWhatsapp(code)}
+                                  >
+                                    <MessageCircle className="w-3 h-3 mr-1" /> Grant WhatsApp
                                   </Button>
                                 )}
                                 <Button
@@ -652,7 +720,12 @@ export default function AdminUssdShopsPage() {
                               </code>
                             </td>
                             <td className="py-3 pr-4">
-                              <span className="font-medium text-foreground">{code.shop_name}</span>
+                              <span className="font-medium text-foreground inline-flex items-center gap-1.5">
+                                {code.shop_name}
+                                {code.whatsapp_activated && (
+                                  <MessageCircle className="w-3.5 h-3.5 text-success shrink-0" aria-label="WhatsApp activated" />
+                                )}
+                              </span>
                             </td>
                             <td className="py-3 pr-4">
                               <span className={`font-bold ${code.token_balance <= 5 ? 'text-destructive' : 'text-foreground'}`}>
@@ -675,6 +748,16 @@ export default function AdminUssdShopsPage() {
                                 >
                                   <Coins className="w-3 h-3 mr-1" /> Tokens
                                 </Button>
+                                {!code.whatsapp_activated && (
+                                  <Button
+                                    size="sm" variant="outline"
+                                    className="h-7 text-xs border-border text-success hover:bg-success/10"
+                                    disabled={whatsappActionId === code.id}
+                                    onClick={() => handleGrantWhatsapp(code)}
+                                  >
+                                    <MessageCircle className="w-3 h-3 mr-1" /> Grant WhatsApp
+                                  </Button>
+                                )}
                                 <Button
                                   size="sm" variant="outline"
                                   className="h-7 text-xs border-border text-warning hover:bg-warning/10"
@@ -683,6 +766,76 @@ export default function AdminUssdShopsPage() {
                                   <PauseCircle className="w-3 h-3 mr-1" /> Suspend
                                 </Button>
                               </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="whatsapp">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base font-medium">WhatsApp-Activated Shops</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {codes.filter(c => c.whatsapp_activated).length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <MessageCircle className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                    <p>No shops have WhatsApp activated yet.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b text-left text-muted-foreground text-xs uppercase tracking-wide">
+                          <th className="pb-3 pr-4">Code</th>
+                          <th className="pb-3 pr-4">Shop</th>
+                          <th className="pb-3 pr-4">Activated</th>
+                          <th className="pb-3 pr-4">Tokens</th>
+                          <th className="pb-3 pr-4">Orders</th>
+                          <th className="pb-3">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {codes.filter(c => c.whatsapp_activated).map(code => (
+                          <tr key={code.id} className="border-b last:border-0 hover:bg-accent">
+                            <td className="py-3 pr-4">
+                              <code className="bg-success/10 text-success font-mono font-bold text-base px-2 py-1 rounded border border-border">
+                                {code.code}
+                              </code>
+                            </td>
+                            <td className="py-3 pr-4">
+                              <span className="font-medium text-foreground">{code.shop_name}</span>
+                            </td>
+                            <td className="py-3 pr-4 text-muted-foreground text-xs">
+                              {code.whatsapp_activated_at ? new Date(code.whatsapp_activated_at).toLocaleDateString() : "—"}
+                            </td>
+                            <td className="py-3 pr-4">
+                              <span className={`font-bold ${code.token_balance <= 5 ? 'text-destructive' : 'text-foreground'}`}>
+                                {code.token_balance}
+                              </span>
+                              {code.token_balance <= 5 && code.token_balance > 0 && (
+                                <span className="text-xs text-destructive ml-1">low</span>
+                              )}
+                              {code.token_balance === 0 && (
+                                <span className="text-xs text-destructive ml-1">empty</span>
+                              )}
+                            </td>
+                            <td className="py-3 pr-4 text-muted-foreground">{code.order_count}</td>
+                            <td className="py-3">
+                              <Button
+                                size="sm" variant="outline"
+                                className="h-7 text-xs border-border text-destructive hover:bg-destructive/10"
+                                disabled={whatsappActionId === code.id}
+                                onClick={() => handleRevokeWhatsapp(code)}
+                              >
+                                <PauseCircle className="w-3 h-3 mr-1" /> Revoke
+                              </Button>
                             </td>
                           </tr>
                         ))}
