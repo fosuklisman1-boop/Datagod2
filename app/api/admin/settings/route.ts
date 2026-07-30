@@ -21,6 +21,7 @@ export async function GET(request: NextRequest) {
     const { data: settings, error } = await supabase
       .from("app_settings")
       .select("*")
+      .is("key", null)
       .single()
 
     if (error && error.code !== "PGRST116") {
@@ -218,11 +219,13 @@ export async function PUT(request: NextRequest) {
       }
     }
 
-    // Get existing settings
+    // Get existing settings (key IS NULL identifies the singleton config row,
+    // distinct from key-value rows like mtn_balance_alert_threshold sharing this table)
     const { data: existingSettings } = await supabase
       .from("app_settings")
       .select("id")
-      .single()
+      .is("key", null)
+      .maybeSingle()
 
     let result
 
