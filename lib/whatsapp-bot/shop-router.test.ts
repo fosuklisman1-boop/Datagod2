@@ -1252,6 +1252,76 @@ describe("shopWaRouter — AI escape", () => {
     expect(resolveShopCode).toHaveBeenCalledWith("AB12CD")
     expect(resolveShopCode).not.toHaveBeenCalledWith("hi")
   })
+
+  // ── Regression: free-text entry steps must never hit the AI-escape gate ────
+  // ENTER_RECIPIENT/AIRTIME_ENTER_RECIPIENT (phone numbers) and
+  // AIRTIME_ENTER_AMOUNT (a currency amount) are genuine free-text data-entry
+  // steps, not "type a menu digit" steps — their own case bodies already
+  // validate and re-prompt on bad input. A "+233..." prefix, internal spaces,
+  // or a decimal point all fail the router's plain-digit check, so without an
+  // explicit exemption the AI-escape gate would wrongly delete the session and
+  // escape to AI instead of letting the step's own handler process the input.
+  it("ENTER_RECIPIENT: a '+233...'-prefixed number still normalizes and advances instead of escaping to AI", async () => {
+    const phone = "233559919100"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "code-3", shopId: "shop-3", shopName: "Ama's Data Spot",
+      parentShopId: null, status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(fetchShopBundles).mockResolvedValue([{ id: "pkg-3", size: "5GB", price: 25 }])
+    vi.mocked(getPrefixValidationConfig).mockResolvedValue({ enabled: false, map: DEFAULT_NETWORK_PREFIXES })
+
+    await shopWaRouter(phone, "AB12CD", "wamid.1") // ENTER_CODE -> SELECT_PRODUCT
+    await shopWaRouter(phone, "1", "wamid.2")       // -> SELECT_NETWORK
+    await shopWaRouter(phone, "1", "wamid.3")       // -> SELECT_BUNDLE
+    await shopWaRouter(phone, "1", "wamid.4")       // -> ENTER_RECIPIENT
+
+    const reply = await shopWaRouter(phone, "+233244123456", "wamid.5")
+
+    expect(reply).not.toBe("")
+    expect(reply).toContain("MoMo number") // advanced to ENTER_PAYMENT_PHONE, not escaped
+  })
+
+  it("AIRTIME_ENTER_RECIPIENT: a number with internal spaces still normalizes and advances instead of escaping to AI", async () => {
+    const phone = "233559919101"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "code-4", shopId: "shop-4", shopName: "Ama's Airtime Spot",
+      parentShopId: null, status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(isAirtimeEnabled).mockResolvedValue(true)
+    vi.mocked(getAirtimeLimits).mockResolvedValue({ min: 1, max: 500 })
+
+    await shopWaRouter(phone, "AB12CD", "wamid.1") // ENTER_CODE -> SELECT_PRODUCT
+    await shopWaRouter(phone, "2", "wamid.2")       // -> AIRTIME_ENTER_RECIPIENT
+
+    const reply = await shopWaRouter(phone, "024 412 3456", "wamid.3")
+
+    expect(reply).not.toBe("")
+    expect(reply).toContain("MTN Airtime") // network auto-detected, advanced to AIRTIME_ENTER_AMOUNT
+  })
+
+  it("AIRTIME_ENTER_AMOUNT: a decimal amount still advances instead of escaping to AI", async () => {
+    const phone = "233559919102"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "code-5", shopId: "shop-5", shopName: "Ama's Airtime Spot 2",
+      parentShopId: null, status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(isAirtimeEnabled).mockResolvedValue(true)
+    vi.mocked(getAirtimeLimits).mockResolvedValue({ min: 1, max: 500 })
+    vi.mocked(airtimeBaseFeeRate).mockResolvedValue(5)
+    vi.mocked(shopOwnerIsDealer).mockResolvedValue(false)
+
+    await shopWaRouter(phone, "AB12CD", "wamid.1")     // ENTER_CODE -> SELECT_PRODUCT
+    await shopWaRouter(phone, "2", "wamid.2")           // -> AIRTIME_ENTER_RECIPIENT
+    await shopWaRouter(phone, "0244111222", "wamid.3")  // MTN auto-detected -> AIRTIME_ENTER_AMOUNT
+
+    const reply = await shopWaRouter(phone, "50.50", "wamid.4")
+
+    expect(reply).not.toBe("")
+    expect(reply).toContain("MoMo number") // advanced to AIRTIME_ENTER_PAYMENT_PHONE, not escaped
+  })
 })
 
 // isShopWhatsAppNumber — the pure predicate behind the webhook route's

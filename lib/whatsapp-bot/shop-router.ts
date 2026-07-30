@@ -301,15 +301,27 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
     // AI escape: money-moving steps never leave the deterministic flow (a
     // gentle re-prompt happens inside their own case below via the existing
     // "else fall through to menu" pattern — we only escape from steps that
-    // don't move money). Everywhere else, digits pass straight through; obvious
+    // don't move money). FREE_TEXT_ENTRY_STEPS are exempt for a different
+    // reason: they were never "type a menu digit" steps in the first place —
+    // ENTER_RECIPIENT/AIRTIME_ENTER_RECIPIENT take a phone number
+    // (normalizeGhanaLocal accepts "+233..." prefixes and internal spaces,
+    // neither of which is all-digits) and AIRTIME_ENTER_AMOUNT takes a
+    // currency amount via parseFloat (a decimal point isn't all-digits
+    // either). Each of those steps already validates and re-prompts on bad
+    // input in its own case body below, so gating them through the AI escape
+    // would destroy an in-progress purchase over a phone number format or a
+    // decimal point. Everywhere else, digits pass straight through; obvious
     // phrases resolve via shopNaturalToDigit; anything else escapes to AI.
     const MONEY_STEPS: WaShopSession['step'][] = [
       'CONFIRM', 'AIRTIME_CONFIRM', 'RC_CONFIRM',
       'ENTER_PAYMENT_PHONE', 'AIRTIME_ENTER_PAYMENT_PHONE', 'RC_ENTER_PAYMENT_PHONE',
       'SUBMIT_OTP',
     ]
+    const FREE_TEXT_ENTRY_STEPS: WaShopSession['step'][] = [
+      'ENTER_RECIPIENT', 'AIRTIME_ENTER_RECIPIENT', 'AIRTIME_ENTER_AMOUNT',
+    ]
     const isDigitOrZero = /^[0-9]+$/.test(input)
-    if (!isDigitOrZero && !MONEY_STEPS.includes(session.step)) {
+    if (!isDigitOrZero && !MONEY_STEPS.includes(session.step) && !FREE_TEXT_ENTRY_STEPS.includes(session.step)) {
       const mapped = shopNaturalToDigit(session.step, input)
       if (mapped !== null) {
         input = mapped
