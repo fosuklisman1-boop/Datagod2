@@ -26,6 +26,7 @@ export async function GET(request: NextRequest) {
     .from("ussd_shop_codes")
     .select(`
       id, code, status, token_balance, activation_fee_paid, activation_paid_at, created_at,
+      whatsapp_activated, whatsapp_activated_at,
       user_shops!inner(id, shop_name, user_id)
     `)
     .order("created_at", { ascending: false })
@@ -52,6 +53,8 @@ export async function GET(request: NextRequest) {
     token_balance: c.token_balance,
     activation_fee_paid: c.activation_fee_paid,
     activation_paid_at: c.activation_paid_at,
+    whatsapp_activated: c.whatsapp_activated,
+    whatsapp_activated_at: c.whatsapp_activated_at,
     created_at: c.created_at,
     shop_id: c.user_shops?.id,
     shop_name: c.user_shops?.shop_name,
