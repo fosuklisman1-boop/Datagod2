@@ -172,6 +172,16 @@ export class AgentPortalGHProvider implements MTNProvider {
     const id = String(orderId)
     const orderIdOf = (o: any): string | undefined => o?.order_id ?? o?.id
 
+    // This placeholder means order creation itself failed — the order was NEVER
+    // submitted to AgentPortalGH. There is no batch it could ever correspond to,
+    // so the phone+size fallback below must never run for it: confirmed live
+    // 2026-07-27/30, it was matching a FAILED_INIT row to an unrelated real
+    // order that happened to share the same phone+size the same day, flipping
+    // it to "completed" despite AgentPortalGH never having seen it.
+    if (id.startsWith("FAILED_INIT_")) {
+      return { success: true, status: "failed", message: "Order was never submitted to AgentPortalGH (local failure)" }
+    }
+
     // The queue's own status (pending/processing/done/failed, §6) is AgentPortalGH's
     // internal processing pipeline — not the real delivery outcome. Retriable
     // failures are auto-retried up to 3 times (§8) — but confirmed live 2026-07-27,
@@ -189,15 +199,37 @@ export class AgentPortalGHProvider implements MTNProvider {
     let phone: string | undefined
     let createdDate: string | undefined
     let sizeGb: number | undefined
+    let hasAmbiguousSibling = false
     try {
       const { data: tracking } = await supabase
         .from("mtn_fulfillment_tracking")
-        .select("recipient_phone, created_at, size_gb")
+        .select("id, recipient_phone, created_at, size_gb")
         .eq("mtn_order_id", id)
         .maybeSingle()
       phone = tracking?.recipient_phone ?? undefined
       createdDate = tracking?.created_at ? String(tracking.created_at).slice(0, 10) : undefined
       sizeGb = tracking?.size_gb !== undefined && tracking?.size_gb !== null ? Number(tracking.size_gb) : undefined
+
+      // The phone+size fallback below can't distinguish between two of OUR OWN
+      // orders that share the same phone+size+day — confirmed live 2026-07-27/30,
+      // it attributed one real order's success to an unrelated sibling order for
+      // the same phone+size, flipping the wrong one to "completed". If another
+      // tracking row shares this exact (phone, size, day), refuse to guess via
+      // the fallback rather than risk a false positive.
+      if (tracking && phone && createdDate && sizeGb !== undefined) {
+        const dayStart = `${createdDate}T00:00:00.000Z`
+        const dayEnd = `${createdDate}T23:59:59.999Z`
+        const { count } = await supabase
+          .from("mtn_fulfillment_tracking")
+          .select("id", { count: "exact", head: true })
+          .eq("provider", "agentportalgh")
+          .eq("recipient_phone", phone)
+          .eq("size_gb", sizeGb)
+          .neq("id", tracking.id)
+          .gte("created_at", dayStart)
+          .lte("created_at", dayEnd)
+        hasAmbiguousSibling = (count ?? 0) > 0
+      }
     } catch (err) {
       console.warn("[AgentPortalGH] Could not look up tracking row for status check:", err)
     }
@@ -237,7 +269,13 @@ export class AgentPortalGHProvider implements MTNProvider {
         }
 
         // Otherwise, scan every matching batch's items, newest first — a later
-        // retry round is the more authoritative outcome for this phone.
+        // retry round is the more authoritative outcome for this phone. Skipped
+        // entirely when a sibling tracking row makes the match ambiguous (see
+        // above) — stays "processing" rather than risk guessing wrong.
+        if (hasAmbiguousSibling) {
+          console.warn(`[AgentPortalGH] Skipping phone+size fallback for ${id} — ambiguous sibling tracking row(s) for ${phone}/${sizeGb}GB on ${date ?? "unscoped"}`)
+          continue
+        }
         const sorted = [...orders].sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime())
         for (const o of sorted) {
           const oid = orderIdOf(o)
