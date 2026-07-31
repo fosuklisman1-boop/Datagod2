@@ -16,9 +16,7 @@ Rejected alternative: delegating to the shared `RC_CHECK_*` USSD handlers direct
 
 ### 1. Menu: new top-level option
 
-`shopProductMenu()` (`lib/whatsapp-bot/shop-menus.ts`) gains a 4th line, `4. Check My Results` (renumbered to `3.` when Data is blocked, same as the existing Airtime/RC-voucher renumbering rule).
-
-Freetext routing: the shop router's freetext-escape matcher currently sends any results-related phrase (`result`, `checker`, `waec`, `bece`, `voucher`) to the RC-voucher flow. It's extended to distinguish intent — phrases containing `"check"` alongside a results keyword (e.g. "check my result", "check results") route to the new flow's entry step; bare product words ("results", "voucher", "waec") keep routing to RC-voucher purchase as today. An ambiguous phrase falls back to the product menu (showing both options) rather than guessing.
+`shopProductMenu()` (`lib/whatsapp-bot/shop-menus.ts`) gains a 4th line, `4. Check My Results` (renumbered to `3.` when Data is blocked, same as the existing Airtime/RC-voucher renumbering rule). Entry is via that menu digit only — the shop bot's deterministic router has no keyword-based freetext matcher to extend (`shopNaturalToDigit` only resolves network names and confirm/cancel words at specific steps); any other freetext at `SELECT_PRODUCT` already escapes to the AI conversation handler (`shop-ai.ts`) today, same as it does for the existing three products. Teaching the AI layer to place a Check-My-Results order conversationally is out of scope here, exactly mirroring how the RC-voucher purchase flow itself has no bespoke freetext path either.
 
 ### 2. Conversational flow (new shop-prefixed session steps in `shop-router.ts`)
 
@@ -52,9 +50,12 @@ Validation is reused as-is from `lib/results-check-validation.ts` (`isValidVouch
 
 - `mode` ('combo' | 'own_voucher'), `exam_board`, `candidate_type`, `index_number`, `exam_year`, `dob`
 - `voucher_pin`/`voucher_serial` (own_voucher mode only, else null)
-- `channel: 'whatsapp'`, `whatsapp_number` = the customer's inbound WhatsApp number (no separate ask)
-- `shop_id` = the sub-agent's shop, `merchant_commission` = from `calculateResultsCheckPrice({examBoard, mode, shopId})`
-- `payment_status: 'pending_payment'`
+- `phone_number` = the customer's own WhatsApp number in local format (this table's NOT NULL identity column — mirrors how the USSD handler sets it to the caller's own number), `whatsapp_number` = the same number again (no separate ask — the shop bot only has one number for this customer)
+- `channel: 'whatsapp_shop'` — **not** the plain `'whatsapp'` the main bot uses. This is load-bearing: `deductTokenIfWhatsappShopOrder()` (`lib/shop-commerce/token-deduction.ts:71`) gates strictly on `order.channel === "whatsapp_shop"`, the exact literal `airtime_orders`/`results_checker_orders` rows already use for shop-bot sales
+- `shop_id` = the sub-agent's shop, `merchant_commission` = from `calculateResultsCheckPrice({examBoard, mode, shopId}).merchantCommission`
+- `payment_reference` = a generated customer-facing reference (`secureReference("RCK", 2, 3)`, already imported in `shop-router.ts`) — mirrors the USSD handler's `referenceCode` pattern; **distinct** from the Paystack charge `reference`, which (per every other shop product) is the row's own `id`, not this human-readable code
+- `user_id: null` (shop-bot customers are anonymous WhatsApp users, same as the other three shop order tables)
+- `payment_status: 'pending_payment'`, `status: 'pending'` (this table has *two* separate state columns — see Change 4)
 
 No new table, no migration — `results_check_requests`, `user_shops.results_check_markup`, and the admin-notify infrastructure all already exist and are already shop-aware.
 
@@ -62,15 +63,21 @@ No new table, no migration — `results_check_requests`, `user_shops.results_che
 
 `RCCHECK_CONFIRM` re-verifies board availability and re-prices server-side (never trusts cached session values), re-checks the shop's token balance (`fetchShopCodeTokenBalance`, same anti-race guard as every other confirm step), creates the request row, then charges via the existing `chargeMobileMoney({ reference: requestId, ... })` — identical mechanism to Data/Airtime/RC-voucher, just with the new table's row id as the reference.
 
-This requires extending two existing generalization points that the code already calls out as designed for exactly this:
+This requires extending two existing generalization points in `shop-router.ts` that the code already calls out as designed for exactly this:
 - `ShopOrderTable` (`'ussd_shop_orders' | 'airtime_orders' | 'results_checker_orders'`) gains `'results_check_requests'`.
-- `SECONDARY_STATUS_COL` gains `results_check_requests: 'payment_status'`.
+- `BROAD_STATUS_COL` gains `results_check_requests: 'status'` — this table has *two* independent state columns (`payment_status`: `pending_payment`/`paid`/`otp_required`/`failed`, and `status`: `pending`/`checking`/`completed`/`failed`), same split `airtime_orders`/`results_checker_orders` already have. `markOrderOtpRequired` always writes only `payment_status` regardless of table (unchanged); `markOrderFailed` writes both `payment_status` and whatever `BROAD_STATUS_COL[table]` resolves to — `'status'` for this table.
 
-With those two additions, `markOrderOtpRequired`/`markOrderFailed` and the generalized `SUBMIT_OTP` handling work for the new table with no further changes — same as they do for the other three. Completion on successful payment is async via the **existing** Paystack webhook, which (per `lib/shop-commerce/orders.ts`'s header comment) already fulfills these tables by reference — `results_check_requests` completion is already wired there for the main bot/USSD/storefront, so this is adding a 4th table to an existing dispatch, not a new webhook path. The implementation plan must verify the webhook's `results_check_requests` branch isn't gated in a way that assumes a non-shop channel (e.g. a hardcoded shop_id-null expectation) before relying on it firing unchanged.
+With those two additions, `markOrderOtpRequired`/`markOrderFailed` and the generalized `SUBMIT_OTP` case work for the new table with no further changes — same as they do for the other three.
+
+**Webhook fix required (not just verification).** Completion on successful payment is async via the existing Paystack webhook (`app/api/webhooks/paystack/route.ts`), which already has a direct-reference lookup branch for `results_check_requests` (~line 753 — it tries `id = reference` after the `airtime_orders`/`results_checker_orders` branches, used today by the main bot's direct-charge flow). Tracing that branch found it does **not** call `deductTokenIfWhatsappShopOrder()` or credit `shop_profits`, unlike the `airtime_orders`/`results_checker_orders` branches immediately above it — because it's never before had to handle a `shop_id`-bearing row. This is a real, currently-latent gap this feature would otherwise walk into (an order the shop makes money on, but where the shop's profit is never recorded and its session token is never deducted). Fix, scoped narrowly to avoid touching the main bot/USSD-momo behavior that already relies on this branch:
+- Add `shop_id, merchant_commission, channel` to the branch's existing `.select(...)` (currently `"id, fee, payment_status, phone_number, exam_board, index_number, exam_year, payment_reference, mode, voucher_pin"`).
+- After the existing `payment_status`/`status` update, insert into `shop_profits` when `shop_id` and `merchant_commission > 0` — same insert shape `fulfillPaidResultsCheckRequest()` already uses (`results-checker-service.ts:933-956`): `{shop_id, results_check_request_id, profit_amount: merchant_commission, status: 'credited', created_at, updated_at}`, with the same `code !== "23505"` duplicate-guard and FK-column fallback.
+- When `channel === 'whatsapp_shop'`, call `deductTokenIfWhatsappShopOrder({channel, shop_id})` (dynamic import, mirroring the identical call already made for `airtime_orders`/`results_checker_orders` a few dozen lines above in the same file).
+- Everything else in that branch (combo voucher assignment, `notifyAdminsNewResultsCheckRequest`, the WhatsApp confirmation send) is untouched — it already works, and already fires regardless of channel.
 
 ### 5. Admin notification: surface which shop a request came from
 
-`notifyAdminsNewResultsCheckRequest()` (`lib/results-checker-service.ts`) currently labels a request's channel as "WhatsApp"/"Web"/"USSD" with no shop attribution. Small additive change: when `req.shop_id` is present, look up the shop name and append "via **<ShopName>**" to the notification message, so admins can tell a shop-bot request apart from the main number. No change to requests where `shop_id` is null (main bot/USSD/storefront-without-shop).
+`notifyAdminsNewResultsCheckRequest()` (`lib/results-checker-service.ts:146`) labels a request's channel as `req.channel === "whatsapp" ? "WhatsApp" : req.channel === "web" ? "Web" : "USSD"` — with the new `channel: 'whatsapp_shop'` value this feature introduces, that falls through to the wrong label, "USSD". Fix: add an explicit `"whatsapp_shop"` branch → `"WhatsApp Shop"`. Additionally, when `req.shop_id` is present, look up the shop name (`user_shops.shop_name`) and append "via **<ShopName>**" to the message, so admins can tell which sub-agent a request came from. No change to requests where `shop_id` is null (main bot/USSD/storefront-without-shop).
 
 ### 6. Mid-flow shop-code re-entry
 
