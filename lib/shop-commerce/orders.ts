@@ -185,3 +185,59 @@ export async function createShopRcOrder(
   }
   return { orderId: data.id }
 }
+
+// ── Check My Results (Datagod checks the customer's result, distinct from
+// the voucher-purchase RcOrderInput above) ──────────────────────────────────
+
+export interface CheckResultsRequestInput {
+  examBoard: string
+  candidateType: 'school' | 'private'
+  indexNumber: string
+  examYear: number
+  dob: string
+  mode: 'combo' | 'own_voucher'
+  voucherPin?: string | null
+  voucherSerial?: string | null
+  phoneNumber: string       // customer's own number, local format — this table's identity column
+  whatsappNumber: string    // same number; the shop bot always knows it, no separate ask
+  fee: number
+  paymentReference: string
+  shopId: string
+  merchantCommission: number
+  channel: ShopOrderChannel
+}
+
+export async function createShopCheckResultsRequest(
+  input: CheckResultsRequestInput,
+  client: SupabaseClientLike = supabase
+): Promise<{ orderId: string } | { error: string }> {
+  const { data, error } = await client
+    .from("results_check_requests")
+    .insert([{
+      exam_board: input.examBoard,
+      candidate_type: input.candidateType,
+      index_number: input.indexNumber,
+      exam_year: input.examYear,
+      dob: input.dob,
+      mode: input.mode,
+      voucher_pin: input.mode === 'own_voucher' ? (input.voucherPin ?? null) : null,
+      voucher_serial: input.mode === 'own_voucher' ? (input.voucherSerial ?? null) : null,
+      phone_number: input.phoneNumber,
+      whatsapp_number: input.whatsappNumber,
+      fee: input.fee,
+      payment_reference: input.paymentReference,
+      shop_id: input.shopId,
+      merchant_commission: input.merchantCommission,
+      user_id: null,
+      payment_status: "pending_payment",
+      status: "pending",
+      channel: input.channel,
+    }])
+    .select("id")
+    .single()
+
+  if (error || !data) {
+    return { error: error?.message ?? "Failed to create results check request" }
+  }
+  return { orderId: data.id }
+}

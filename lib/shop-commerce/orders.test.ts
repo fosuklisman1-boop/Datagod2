@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { createShopBundleOrder, createShopAirtimeOrder, createShopRcOrder } from "./orders"
+import { createShopBundleOrder, createShopAirtimeOrder, createShopRcOrder, createShopCheckResultsRequest } from "./orders"
 
 // Fake Supabase client that captures the exact payload passed to `.insert(...)`
 // so tests can assert the `channel` tag flows through correctly, plus the
@@ -240,5 +240,82 @@ describe("createShopRcOrder", () => {
 
     expect(captured.payload.customer_name).toBe("Ama Serwaa")
     expect(captured.payload.customer_email).toBe("ama@example.com")
+  })
+})
+
+describe("createShopCheckResultsRequest", () => {
+  const baseInput = {
+    examBoard: "WASSCE",
+    candidateType: "school" as const,
+    indexNumber: "0070202043",
+    examYear: 2024,
+    dob: "15/06/2008",
+    mode: "combo" as const,
+    phoneNumber: "0241234567",
+    whatsappNumber: "0241234567",
+    fee: 12,
+    paymentReference: "RCK123AB",
+    shopId: "s1",
+    merchantCommission: 3,
+  }
+
+  it("tags the insert payload with channel: 'whatsapp_shop' and returns the new request id", async () => {
+    const { client, captured } = fakeInsertClient("results_check_requests", { data: { id: "req1" }, error: null })
+
+    const result = await createShopCheckResultsRequest({ ...baseInput, channel: "whatsapp_shop" }, client)
+
+    expect(result).toEqual({ orderId: "req1" })
+    expect(captured.payload).toMatchObject({
+      exam_board: "WASSCE",
+      candidate_type: "school",
+      index_number: "0070202043",
+      exam_year: 2024,
+      dob: "15/06/2008",
+      mode: "combo",
+      voucher_pin: null,
+      voucher_serial: null,
+      phone_number: "0241234567",
+      whatsapp_number: "0241234567",
+      fee: 12,
+      payment_reference: "RCK123AB",
+      shop_id: "s1",
+      merchant_commission: 3,
+      user_id: null,
+      payment_status: "pending_payment",
+      status: "pending",
+      channel: "whatsapp_shop",
+    })
+  })
+
+  it("stores voucher_pin/voucher_serial only in own_voucher mode", async () => {
+    const { client, captured } = fakeInsertClient("results_check_requests", { data: { id: "req2" }, error: null })
+
+    await createShopCheckResultsRequest({
+      ...baseInput, channel: "whatsapp_shop", mode: "own_voucher",
+      voucherPin: "123456789012", voucherSerial: "WGR1900112581",
+    }, client)
+
+    expect(captured.payload.voucher_pin).toBe("123456789012")
+    expect(captured.payload.voucher_serial).toBe("WGR1900112581")
+  })
+
+  it("nulls voucher_pin/voucher_serial in combo mode even if passed", async () => {
+    const { client, captured } = fakeInsertClient("results_check_requests", { data: { id: "req3" }, error: null })
+
+    await createShopCheckResultsRequest({
+      ...baseInput, channel: "whatsapp_shop", mode: "combo",
+      voucherPin: "should-be-ignored", voucherSerial: "should-be-ignored",
+    }, client)
+
+    expect(captured.payload.voucher_pin).toBeNull()
+    expect(captured.payload.voucher_serial).toBeNull()
+  })
+
+  it("returns { error } instead of throwing when the insert fails", async () => {
+    const { client } = fakeInsertClient("results_check_requests", { data: null, error: { message: "insert failed" } })
+
+    const result = await createShopCheckResultsRequest({ ...baseInput, channel: "whatsapp_shop" }, client)
+
+    expect(result).toEqual({ error: "insert failed" })
   })
 })
