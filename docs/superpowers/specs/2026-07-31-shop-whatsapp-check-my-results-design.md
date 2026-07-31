@@ -79,9 +79,11 @@ With those two additions, `markOrderOtpRequired`/`markOrderFailed` and the gener
 
 `notifyAdminsNewResultsCheckRequest()` (`lib/results-checker-service.ts:146`) labels a request's channel as `req.channel === "whatsapp" ? "WhatsApp" : req.channel === "web" ? "Web" : "USSD"` — with the new `channel: 'whatsapp_shop'` value this feature introduces, that falls through to the wrong label, "USSD". Fix: add an explicit `"whatsapp_shop"` branch → `"WhatsApp Shop"`. Additionally, when `req.shop_id` is present, look up the shop name (`user_shops.shop_name`) and append "via **<ShopName>**" to the message, so admins can tell which sub-agent a request came from. No change to requests where `shop_id` is null (main bot/USSD/storefront-without-shop).
 
-### 6. Mid-flow shop-code re-entry
+### 6. AI-escape gating for the new steps
 
-The router's existing "customer sends a different shop code mid-order" handling lists specific in-progress steps it must escape cleanly from (`CONFIRM`, `AIRTIME_CONFIRM`, `RC_CONFIRM`, `ENTER_PAYMENT_PHONE`, etc.). All new `RCCHECK_*` steps are added to the equivalent sets so this behaves identically to every other in-progress order.
+Once a session exists, `shopWaRouter` is driven entirely by `session.step` — there is no separate "customer sent a different shop code mid-order" mechanism to extend (verified directly in the code; the router's `!session` branch only ever runs on the *first* message of a conversation). What **does** need extending is the existing `MONEY_STEPS`/`FREE_TEXT_ENTRY_STEPS` gate that decides whether non-digit freetext escapes to the AI conversation handler instead of being processed by the current step:
+- `RCCHECK_ENTER_PAYMENT_PHONE` and `RCCHECK_CONFIRM` join `MONEY_STEPS` (money-moving steps never escape to AI, matching every other product's payment-phone/confirm steps).
+- `RCCHECK_ENTER_VOUCHER` and `RCCHECK_ENTER_DOB` join `FREE_TEXT_ENTRY_STEPS` — their valid input contains `/` (PIN/Serial, DD/MM/YYYY), which fails the router's `isDigitOrZero` check and would otherwise escape to the AI before ever reaching these steps. `RCCHECK_ENTER_INDEX`/`RCCHECK_ENTER_YEAR` take pure digits and need no listing, same as the existing `RC_ENTER_QTY`.
 
 ## Error handling
 
