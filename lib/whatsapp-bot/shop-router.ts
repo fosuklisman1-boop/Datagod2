@@ -79,12 +79,13 @@ async function fetchPaystackFeePercent(): Promise<number> {
 // results_checker_orders use `status` instead (mirrors lib/ussd/handlers/otp.ts's
 // SECONDARY_STATUS_COL note and lib/ussd-shop/handlers/{airtime,results-checker}.ts's
 // CONFIRM catch blocks, which this exactly replicates for the WhatsApp channel).
-export type ShopOrderTable = 'ussd_shop_orders' | 'airtime_orders' | 'results_checker_orders'
+export type ShopOrderTable = 'ussd_shop_orders' | 'airtime_orders' | 'results_checker_orders' | 'results_check_requests'
 
 const BROAD_STATUS_COL: Record<ShopOrderTable, 'order_status' | 'status'> = {
   ussd_shop_orders: 'order_status',
   airtime_orders: 'status',
   results_checker_orders: 'status',
+  results_check_requests: 'status',
 }
 
 async function markOrderFailed(table: ShopOrderTable, orderId: string): Promise<void> {
