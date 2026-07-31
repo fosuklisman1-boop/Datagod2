@@ -1190,7 +1190,7 @@ describe("shopWaRouter", () => {
       status: "active", tokenBalance: 5, whatsappActivated: true,
     })
     vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
-    vi.mocked(buildRcBoardOptions).mockResolvedValue(["WASSCE", "BECE"])
+    vi.mocked(isExamBoardEnabled).mockResolvedValue(true)
     vi.mocked(getAvailableCount).mockResolvedValue(3)
     vi.mocked(calculateResultsCheckPrice).mockImplementation(async ({ mode }) =>
       mode === "combo"
@@ -1217,7 +1217,7 @@ describe("shopWaRouter", () => {
       status: "active", tokenBalance: 5, whatsappActivated: true,
     })
     vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
-    vi.mocked(buildRcBoardOptions).mockResolvedValue(["WASSCE"])
+    vi.mocked(isExamBoardEnabled).mockResolvedValue(true)
     vi.mocked(getAvailableCount).mockResolvedValue(0)
     vi.mocked(calculateResultsCheckPrice).mockResolvedValue({
       checkFee: 2, checkFeeMarkup: 0, effectiveCheckFee: 2, totalPaid: 2, merchantCommission: 0,
@@ -1241,7 +1241,7 @@ describe("shopWaRouter", () => {
     vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
     fakeDb.whitelistEnabled = true
     fakeDb.hasCompletedPurchase = false
-    vi.mocked(buildRcBoardOptions).mockResolvedValue(["WASSCE"])
+    vi.mocked(isExamBoardEnabled).mockResolvedValue(true)
     vi.mocked(getAvailableCount).mockResolvedValue(3)
     vi.mocked(calculateResultsCheckPrice).mockResolvedValue({
       checkFee: 2, checkFeeMarkup: 0, effectiveCheckFee: 2, totalPaid: 2, merchantCommission: 0,

@@ -145,6 +145,23 @@ function shopNoProviderMessage(): string {
   return "Payment isn't available for that number.\nEnter a different MoMo number:\n(e.g. 0244123456)\n\n0. Cancel"
 }
 
+// Check My Results has no voucher-inventory dependency in own_voucher mode (the
+// customer supplies their own PIN/serial) — unlike buildRcBoardOptions() (the
+// voucher-PURCHASE flow's board list), which filters out any board with 0
+// stock. Gating Check My Results entry on stock would make the whole feature
+// unavailable whenever inventory empties out (has happened in this codebase
+// before — results_checker_inventory has been observed completely empty),
+// even though own_voucher mode never touches inventory at all. This only
+// respects the admin's per-board enable toggle, matching the main bot's own
+// RC_CHECK_BOARD (lib/ussd/handlers/results-checker.ts's handleRcCheckBoard),
+// which shows all 3 boards unconditionally and checks stock only afterward,
+// per board, purely for combo-mode pricing.
+async function buildRcCheckBoardOptions(): Promise<string[]> {
+  const boards: ExamBoard[] = ['WASSCE', 'BECE', 'NOVDEC']
+  const results = await Promise.all(boards.map(async (b) => (await isExamBoardEnabled(b)) ? b : null))
+  return results.filter((b): b is ExamBoard => b !== null)
+}
+
 // CONFIRM-time anti-race token check. A shop's ussd_shop_codes.token_balance is a
 // SHARED pool across USSD + WhatsApp (design doc: "sessions stay shared with
 // USSD"), and a WhatsApp session can sit for up to 30 minutes (shop-session.ts's
@@ -422,7 +439,7 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
               reply = shopRcBoardMenu(shopName, boards)
             }
           } else if (input === '3') {
-            const boards = await buildRcBoardOptions()
+            const boards = await buildRcCheckBoardOptions()
             if (boards.length === 0) {
               reply = `Results Checker unavailable.\n\n${shopProductMenu(shopName, false)}`
             } else {
@@ -460,7 +477,7 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
             reply = shopRcBoardMenu(shopName, boards)
           }
         } else if (input === '4') {
-          const boards = await buildRcBoardOptions()
+          const boards = await buildRcCheckBoardOptions()
           if (boards.length === 0) {
             reply = `Results Checker unavailable.\n\n${shopProductMenu(shopName)}`
           } else {
