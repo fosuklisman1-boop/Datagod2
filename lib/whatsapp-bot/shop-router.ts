@@ -420,13 +420,20 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
     const FREE_TEXT_ENTRY_STEPS: WaShopSession['step'][] = [
       'ENTER_RECIPIENT', 'AIRTIME_ENTER_RECIPIENT', 'AIRTIME_ENTER_AMOUNT',
       'RCCHECK_ENTER_VOUCHER', 'RCCHECK_ENTER_DOB',
-      // RCCHECK_ENTER_YEAR: unlike RCCHECK_ENTER_INDEX (also pure-digit), its
-      // own invalid-input test sends non-digit text ("abcd") and expects the
-      // case body's own "Invalid year" re-prompt. Without this entry, that
-      // input isn't all-digits, has no shopNaturalToDigit mapping for this
-      // step, and would escape to AI_CONVERSATION before ever reaching the
-      // case — so it's listed here despite otherwise taking numeric input.
+      // RCCHECK_ENTER_YEAR: unlike RCCHECK_ENTER_INDEX (also nominally
+      // pure-digit), its own invalid-input test sends non-digit text
+      // ("abcd") and expects the case body's own "Invalid year" re-prompt.
+      // Without this entry, that input isn't all-digits, has no
+      // shopNaturalToDigit mapping for this step, and would escape to
+      // AI_CONVERSATION before ever reaching the case.
       'RCCHECK_ENTER_YEAR',
+      // RCCHECK_ENTER_INDEX: the case body does input.trim().replace(/\s/g,
+      // '') specifically to handle customers pasting index numbers with
+      // spaces (e.g. "0070 202043") or dashes/OCR letter-digit confusions
+      // (e.g. "O070202043") — none of which are all-digits, so without this
+      // entry that input escapes to AI_CONVERSATION before the case's own
+      // validation/normalisation ever runs.
+      'RCCHECK_ENTER_INDEX',
     ]
     const isDigitOrZero = /^[0-9]+$/.test(input)
     if (!isDigitOrZero && !MONEY_STEPS.includes(session.step) && !FREE_TEXT_ENTRY_STEPS.includes(session.step)) {

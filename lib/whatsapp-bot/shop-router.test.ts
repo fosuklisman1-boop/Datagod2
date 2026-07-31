@@ -1328,6 +1328,29 @@ describe("shopWaRouter", () => {
     expect(lastReplyTo(phone)).toContain("index number")
   })
 
+  it("RCCHECK_ENTER_INDEX: a non-digit index re-prompts instead of escaping to AI", async () => {
+    const phone = "233241000112"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc94b", shopId: "s94b", shopName: "Index Typo Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(isExamBoardEnabled).mockResolvedValue(true)
+    vi.mocked(getAvailableCount).mockResolvedValue(3)
+    vi.mocked(calculateResultsCheckPrice).mockResolvedValue({
+      checkFee: 2, checkFeeMarkup: 0, effectiveCheckFee: 2, totalPaid: 2, merchantCommission: 0,
+    })
+
+    await shopWaRouter(phone, "CODE1", "ix1")
+    await shopWaRouter(phone, "4", "ix2")
+    await shopWaRouter(phone, "1", "ix3") // WASSCE
+    await shopWaRouter(phone, "1", "ix4") // School -> RCCHECK_MODE
+    await shopWaRouter(phone, "1", "ix5") // combo -> RCCHECK_ENTER_INDEX
+
+    await shopWaRouter(phone, "abc1234567", "ix6")
+    expect(lastReplyTo(phone)).toContain("Invalid index number")
+  })
+
   // ── Inbox visibility ─────────────────────────────────────────────────────────
   it("logs both the inbound and outbound message for admin inbox visibility", async () => {
     const phone = "233241000050"
