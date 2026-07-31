@@ -605,7 +605,7 @@ Add to `lib/whatsapp-bot/shop-router.test.ts`, after the existing `// ── Res
       status: "active", tokenBalance: 5, whatsappActivated: true,
     })
     vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
-    vi.mocked(buildRcBoardOptions).mockResolvedValue(["WASSCE", "BECE"])
+    vi.mocked(isExamBoardEnabled).mockResolvedValue(true)
     vi.mocked(getAvailableCount).mockResolvedValue(3)
     vi.mocked(calculateResultsCheckPrice).mockImplementation(async ({ mode }) =>
       mode === "combo"
@@ -632,7 +632,7 @@ Add to `lib/whatsapp-bot/shop-router.test.ts`, after the existing `// ── Res
       status: "active", tokenBalance: 5, whatsappActivated: true,
     })
     vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
-    vi.mocked(buildRcBoardOptions).mockResolvedValue(["WASSCE"])
+    vi.mocked(isExamBoardEnabled).mockResolvedValue(true)
     vi.mocked(getAvailableCount).mockResolvedValue(0)
     vi.mocked(calculateResultsCheckPrice).mockResolvedValue({
       checkFee: 2, checkFeeMarkup: 0, effectiveCheckFee: 2, totalPaid: 2, merchantCommission: 0,
@@ -656,7 +656,7 @@ Add to `lib/whatsapp-bot/shop-router.test.ts`, after the existing `// ── Res
     vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
     fakeDb.whitelistEnabled = true
     fakeDb.hasCompletedPurchase = false
-    vi.mocked(buildRcBoardOptions).mockResolvedValue(["WASSCE"])
+    vi.mocked(isExamBoardEnabled).mockResolvedValue(true)
     vi.mocked(getAvailableCount).mockResolvedValue(3)
     vi.mocked(calculateResultsCheckPrice).mockResolvedValue({
       checkFee: 2, checkFeeMarkup: 0, effectiveCheckFee: 2, totalPaid: 2, merchantCommission: 0,
@@ -721,6 +721,29 @@ import { createShopBundleOrder, createShopAirtimeOrder, createShopRcOrder, creat
 
 (`ShopOrderTable` and `BROAD_STATUS_COL` were already widened in Task 1, together with the coupled `pendingOrderTable` type in `shop-types.ts` — no further change needed here.)
 
+**Add a new local helper, near the file's other small helpers (e.g. right after `shopNoProviderMessage`):**
+
+```ts
+// Check My Results has no voucher-inventory dependency in own_voucher mode (the
+// customer supplies their own PIN/serial) — unlike buildRcBoardOptions() (the
+// voucher-PURCHASE flow's board list), which filters out any board with 0
+// stock. Gating Check My Results entry on stock would make the whole feature
+// unavailable whenever inventory empties out (has happened in this codebase
+// before — results_checker_inventory has been observed completely empty),
+// even though own_voucher mode never touches inventory at all. This only
+// respects the admin's per-board enable toggle, matching the main bot's own
+// RC_CHECK_BOARD (lib/ussd/handlers/results-checker.ts's handleRcCheckBoard),
+// which shows all 3 boards unconditionally and checks stock only afterward,
+// per board, purely for combo-mode pricing.
+async function buildRcCheckBoardOptions(): Promise<string[]> {
+  const boards: ExamBoard[] = ['WASSCE', 'BECE', 'NOVDEC']
+  const results = await Promise.all(boards.map(async (b) => (await isExamBoardEnabled(b)) ? b : null))
+  return results.filter((b): b is ExamBoard => b !== null)
+}
+```
+
+This needs no new test mock — `isExamBoardEnabled` is already in the test file's `@/lib/results-checker-service` mock block, so tests control it directly (see the `vi.mocked(isExamBoardEnabled).mockResolvedValue(true)` lines already added to Step 2's tests above).
+
 In the `SELECT_PRODUCT` case's data-blocked branch (currently `input === '1'` -> Airtime, `input === '2'` -> RC-voucher, `input === '0'` -> exit), insert a new `input === '3'` branch before the `input === '0'` branch:
 
 ```ts
@@ -739,7 +762,7 @@ In the `SELECT_PRODUCT` case's data-blocked branch (currently `input === '1'` ->
               reply = shopRcBoardMenu(shopName, boards)
             }
           } else if (input === '3') {
-            const boards = await buildRcBoardOptions()
+            const boards = await buildRcCheckBoardOptions()
             if (boards.length === 0) {
               reply = `Results Checker unavailable.\n\n${shopProductMenu(shopName, false)}`
             } else {
@@ -770,7 +793,7 @@ In the same case's unblocked branch, insert a new `input === '4'` branch before 
             reply = shopRcBoardMenu(shopName, boards)
           }
         } else if (input === '4') {
-          const boards = await buildRcBoardOptions()
+          const boards = await buildRcCheckBoardOptions()
           if (boards.length === 0) {
             reply = `Results Checker unavailable.\n\n${shopProductMenu(shopName)}`
           } else {
@@ -906,7 +929,7 @@ Add to `lib/whatsapp-bot/shop-router.test.ts`, after Task 5's tests:
       status: "active", tokenBalance: 5, whatsappActivated: true,
     })
     vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
-    vi.mocked(buildRcBoardOptions).mockResolvedValue(["WASSCE"])
+    vi.mocked(isExamBoardEnabled).mockResolvedValue(true)
     vi.mocked(getAvailableCount).mockResolvedValue(3)
     vi.mocked(calculateResultsCheckPrice).mockImplementation(async ({ mode }) =>
       mode === "combo"
@@ -944,7 +967,7 @@ Add to `lib/whatsapp-bot/shop-router.test.ts`, after Task 5's tests:
       status: "active", tokenBalance: 5, whatsappActivated: true,
     })
     vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
-    vi.mocked(buildRcBoardOptions).mockResolvedValue(["WASSCE"])
+    vi.mocked(isExamBoardEnabled).mockResolvedValue(true)
     vi.mocked(getAvailableCount).mockResolvedValue(3)
     vi.mocked(calculateResultsCheckPrice).mockResolvedValue({
       checkFee: 2, checkFeeMarkup: 0, effectiveCheckFee: 2, totalPaid: 2, merchantCommission: 0,
@@ -1117,7 +1140,6 @@ Add to `lib/whatsapp-bot/shop-router.test.ts`, after Task 6's tests:
       status: "active", tokenBalance: 5, whatsappActivated: true,
     })
     vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
-    vi.mocked(buildRcBoardOptions).mockResolvedValue(["WASSCE"])
     vi.mocked(isExamBoardEnabled).mockResolvedValue(true)
     vi.mocked(getAvailableCount).mockResolvedValue(3)
     vi.mocked(calculateResultsCheckPrice).mockImplementation(async ({ mode }) =>
@@ -1180,7 +1202,7 @@ Add to `lib/whatsapp-bot/shop-router.test.ts`, after Task 6's tests:
       status: "active", tokenBalance: 5, whatsappActivated: true,
     })
     vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
-    vi.mocked(buildRcBoardOptions).mockResolvedValue(["WASSCE"])
+    vi.mocked(isExamBoardEnabled).mockResolvedValue(true)
     vi.mocked(getAvailableCount).mockResolvedValue(3)
     vi.mocked(calculateResultsCheckPrice).mockResolvedValue({
       checkFee: 2, checkFeeMarkup: 0, effectiveCheckFee: 2, totalPaid: 2, merchantCommission: 0,
@@ -1214,7 +1236,6 @@ Add to `lib/whatsapp-bot/shop-router.test.ts`, after Task 6's tests:
       status: "active", tokenBalance: 5, whatsappActivated: true,
     })
     vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
-    vi.mocked(buildRcBoardOptions).mockResolvedValue(["WASSCE"])
     vi.mocked(isExamBoardEnabled).mockResolvedValue(true)
     vi.mocked(getAvailableCount).mockResolvedValue(3)
     vi.mocked(calculateResultsCheckPrice).mockResolvedValue({
@@ -1251,7 +1272,7 @@ Add to `lib/whatsapp-bot/shop-router.test.ts`, after Task 6's tests:
       status: "active", tokenBalance: 5, whatsappActivated: true,
     })
     vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
-    vi.mocked(buildRcBoardOptions).mockResolvedValue(["WASSCE"])
+    vi.mocked(isExamBoardEnabled).mockResolvedValue(true)
     vi.mocked(getAvailableCount).mockResolvedValue(3)
     vi.mocked(calculateResultsCheckPrice).mockResolvedValue({
       checkFee: 2, checkFeeMarkup: 0, effectiveCheckFee: 2, totalPaid: 2, merchantCommission: 0,
