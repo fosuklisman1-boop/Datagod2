@@ -236,8 +236,18 @@ export class AgentPortalGHProvider implements MTNProvider {
 
     const today = new Date().toISOString().slice(0, 10)
     // Try the order's own creation date first (most precise), then today (covers
-    // clock/timezone drift), then an unscoped search as a last resort.
-    const dateCandidates = Array.from(new Set([createdDate, today, undefined]))
+    // clock/timezone drift). Deliberately NO unscoped (date=undefined) fallback:
+    // confirmed live 2026-07-30, an unscoped search returns a phone's ENTIRE
+    // order history on AgentPortalGH's side with no day boundary at all, so a
+    // repeat customer's brand-new order would match an old, already-completed
+    // order for the same phone+size from days earlier — every day-scoped search
+    // (createdDate, today) correctly stays within AgentPortalGH's own per-day
+    // "date" filter (confirmed §7: "date scopes to a single day"), so this
+    // couldn't happen through those; only the unscoped step could reach back
+    // arbitrarily far. The hasAmbiguousSibling guard above only checks OUR OWN
+    // table for same-day duplicates and can't protect against this at all —
+    // removing the unscoped search is the actual fix, not an addition to it.
+    const dateCandidates = Array.from(new Set([createdDate, today].filter((d): d is string => !!d)))
 
     for (const date of dateCandidates) {
       try {
