@@ -89,6 +89,7 @@ const fakeDb = vi.hoisted(() => ({
   ownerEmail: "owner@example.com" as string | null,
   tokenBalance: 5 as number | null,
   whitelistEnabled: false,
+  resultsCheckEnabled: true,
   hasCompletedPurchase: true,
   orderUpdates: [] as Array<{ table: string; payload: Record<string, unknown>; id: unknown }>,
   // Backs resolveShopCodeById's lookup for the returning-customer path — the
@@ -136,8 +137,13 @@ vi.mock("@supabase/supabase-js", () => ({
       if (table === "admin_settings") {
         return {
           select: () => ({
-            eq: () => ({
-              maybeSingle: () => Promise.resolve({ data: { value: { enabled: fakeDb.whitelistEnabled } } }),
+            eq: (_col: string, key: string) => ({
+              maybeSingle: () => {
+                if (key === "results_check_settings") {
+                  return Promise.resolve({ data: { value: { enabled: fakeDb.resultsCheckEnabled } } })
+                }
+                return Promise.resolve({ data: { value: { enabled: fakeDb.whitelistEnabled } } })
+              },
             }),
           }),
         }
@@ -208,6 +214,7 @@ describe("shopWaRouter", () => {
     fakeDb.ownerEmail = "owner@example.com"
     fakeDb.tokenBalance = 5
     fakeDb.whitelistEnabled = false
+    fakeDb.resultsCheckEnabled = true
     fakeDb.hasCompletedPurchase = true
     fakeDb.orderUpdates = []
     fakeDb.rememberedShopCode = null
