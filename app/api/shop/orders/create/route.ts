@@ -300,12 +300,15 @@ export async function POST(request: NextRequest) {
       // Sub-agent: verify from sub_agent_shop_packages or sub_agent_catalog
       const { data: subAgentPkg, error: subAgentPkgError } = await supabase
         .from("sub_agent_shop_packages")
-        .select("parent_price, sub_agent_profit_margin, package_id")
+        .select("parent_price, sub_agent_profit_margin, package_id, packages(is_available)")
         .eq("id", shop_package_id)
         .eq("shop_id", shop_id) // package must belong to this sub-agent shop
         .single()
 
       if (!subAgentPkgError && subAgentPkg) {
+        if ((subAgentPkg.packages as any)?.is_available === false) {
+          return NextResponse.json({ error: "This package is no longer available" }, { status: 400 })
+        }
         verifiedBasePrice = subAgentPkg.parent_price
         verifiedProfitMargin = subAgentPkg.sub_agent_profit_margin || 0
         verifiedTotalPrice = verifiedBasePrice + verifiedProfitMargin
@@ -313,9 +316,13 @@ export async function POST(request: NextRequest) {
         // Fallback to sub_agent_catalog
         const { data: catalogEntry } = await supabase
           .from("sub_agent_catalog")
-          .select("parent_price, sub_agent_profit_margin, wholesale_margin, package:packages(size, price, dealer_price)")
+          .select("parent_price, sub_agent_profit_margin, wholesale_margin, package:packages(size, price, dealer_price, is_available)")
           .eq("id", shop_package_id)
           .single()
+
+        if (catalogEntry && (catalogEntry.package as any)?.is_available === false) {
+          return NextResponse.json({ error: "This package is no longer available" }, { status: 400 })
+        }
 
         if (catalogEntry) {
           // Check if parent is a dealer
@@ -377,7 +384,7 @@ export async function POST(request: NextRequest) {
       // match an order could be priced from another shop's catalog entry.
       const { data: shopPkg, error: shopPkgError } = await supabase
         .from("shop_packages")
-        .select("profit_margin, packages(size, price, dealer_price)")
+        .select("profit_margin, packages(size, price, dealer_price, is_available)")
         .eq("id", shop_package_id)
         .eq("shop_id", shop_id)
         .single()
@@ -385,6 +392,10 @@ export async function POST(request: NextRequest) {
       if (shopPkgError || !shopPkg) {
         console.error("[SHOP-ORDER] ❌ Could not find shop package for this shop:", shopPkgError)
         return NextResponse.json({ error: "Invalid package" }, { status: 400 })
+      }
+
+      if ((shopPkg.packages as any)?.is_available === false) {
+        return NextResponse.json({ error: "This package is no longer available" }, { status: 400 })
       }
 
       const pkgPrice = (shopPkg.packages as any)?.price || 0

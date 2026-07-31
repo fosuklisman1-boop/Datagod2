@@ -153,7 +153,7 @@ describe("verifyBundlePrice", () => {
       user_shops: { data: { user_id: "u1" } },
       users: { data: { role: "dealer" } },
       shop_packages: {
-        data: { profit_margin: 2, packages: { price: 10, dealer_price: 8, active: true } },
+        data: { profit_margin: 2, packages: { price: 10, dealer_price: 8, is_available: true } },
       },
     })
 
@@ -167,7 +167,7 @@ describe("verifyBundlePrice", () => {
       user_shops: { data: { user_id: "u1" } },
       users: { data: { role: "dealer" } },
       shop_packages: {
-        data: { profit_margin: 2, packages: { price: 10, dealer_price: 8, active: false } },
+        data: { profit_margin: 2, packages: { price: 10, dealer_price: 8, is_available: false } },
       },
     })
 
@@ -180,7 +180,7 @@ describe("verifyBundlePrice", () => {
       user_shops: { data: { user_id: "pu1" } },
       users: { data: { role: "dealer" } }, // parentIsDealer = true
       sub_agent_shop_packages: {
-        data: { parent_price: 12, sub_agent_profit_margin: 3, packages: { price: 10, dealer_price: 8, active: true } },
+        data: { parent_price: 12, sub_agent_profit_margin: 3, packages: { price: 10, dealer_price: 8, is_available: true } },
       },
     })
 
@@ -196,7 +196,7 @@ describe("verifyBundlePrice", () => {
       users: { data: { role: "dealer" } },
       sub_agent_shop_packages: { data: null }, // no row in the new model → falls back
       sub_agent_catalog: {
-        data: { wholesale_margin: 1, sub_agent_profit_margin: 2, packages: { price: 10, dealer_price: 8, active: true } },
+        data: { wholesale_margin: 1, sub_agent_profit_margin: 2, packages: { price: 10, dealer_price: 8, is_available: true } },
       },
     })
 
@@ -211,7 +211,7 @@ describe("verifyBundlePrice", () => {
       users: { data: { role: "dealer" } },
       sub_agent_shop_packages: { data: null }, // no row in the new model → falls back
       sub_agent_catalog: {
-        data: { wholesale_margin: 1, sub_agent_profit_margin: 2, packages: { price: 10, dealer_price: 8, active: false } },
+        data: { wholesale_margin: 1, sub_agent_profit_margin: 2, packages: { price: 10, dealer_price: 8, is_available: false } },
       },
     })
 

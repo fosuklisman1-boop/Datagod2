@@ -1248,7 +1248,7 @@ export async function executeToolCall(
           let query = supabaseAdmin
             .from("packages")
             .select("id, network, size, price")
-            .eq("active", true)
+            .eq("is_available", true)
             .order("network")
           if (input.network) query = query.ilike("network", `%${String(input.network)}%`)
           const { data, error } = await query
@@ -1266,7 +1266,7 @@ export async function executeToolCall(
         let query = supabaseAdmin
           .from("packages")
           .select("id, network, size, price, dealer_price")
-          .eq("active", true)
+          .eq("is_available", true)
           .order("network")
         if (input.network) {
           query = query.ilike("network", `%${String(input.network)}%`)
@@ -1442,7 +1442,7 @@ export async function executeToolCall(
           .select("id, size, price, dealer_price")
           .ilike("network", String(input.network))
           .eq("size", String(input.size))
-          .eq("active", true)
+          .eq("is_available", true)
           .maybeSingle()
 
         if (pkgErr || !pkg) {
@@ -1917,7 +1917,7 @@ export async function executeToolCall(
           .from("packages")
           .select("id, network, size, price, dealer_price")
           .eq("network", canonicalNetwork)
-          .eq("active", true)
+          .eq("is_available", true)
         const pkg = (pkgs ?? []).find((p: { size: string | number }) => Math.abs(parseFloat(String(p.size)) - targetGb) < 1e-6) as
           | { id: string; network: string; size: string | number; price: number; dealer_price: number | null }
           | undefined
@@ -2602,7 +2602,7 @@ export async function executeToolCall(
         if (action === "list") {
           let q = supabaseAdmin
             .from("packages")
-            .select("id, network, name, size, price, dealer_price, active")
+            .select("id, network, name, size, price, dealer_price, is_available")
             .order("network")
           // Apply network filter when provided — keeps result small and avoids truncation
           if (input.network) q = q.ilike("network", `%${input.network}%`)

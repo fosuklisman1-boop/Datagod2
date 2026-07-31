@@ -61,8 +61,8 @@ export async function GET(request: NextRequest) {
     // sub_agent_shop_packages has: parent_price, sub_agent_profit_margin
     // sub_agent_catalog has: wholesale_margin
     const selectFields = tableName === "sub_agent_shop_packages"
-      ? `id, package_id, parent_price, sub_agent_profit_margin, is_active, created_at, package:packages (id, network, size, price, dealer_price, description, active)`
-      : `id, package_id, wholesale_margin, is_active, created_at, package:packages (id, network, size, price, dealer_price, description, active)`
+      ? `id, package_id, parent_price, sub_agent_profit_margin, is_active, created_at, package:packages (id, network, size, price, dealer_price, description, is_available)`
+      : `id, package_id, wholesale_margin, is_active, created_at, package:packages (id, network, size, price, dealer_price, description, is_available)`
 
     // Get catalog items with package details
     let { data: catalog, error: catalogError } = await supabase
@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
       console.log("Falling back to sub_agent_catalog for sub-agent")
       const { data: fallbackCatalog, error: fallbackError } = await supabase
         .from("sub_agent_catalog")
-        .select(`id, package_id, wholesale_margin, is_active, created_at, package:packages (id, network, size, price, dealer_price, description, active)`)
+        .select(`id, package_id, wholesale_margin, is_active, created_at, package:packages (id, network, size, price, dealer_price, description, is_available)`)
         .eq("shop_id", shop.id)
         .order("created_at", { ascending: false }) as { data: any; error: any }
 

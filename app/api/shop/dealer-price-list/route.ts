@@ -12,7 +12,7 @@ export async function GET() {
     const { data: packages, error } = await supabase
       .from("packages")
       .select("id, network, size, price, dealer_price, description")
-      .eq("active", true)
+      .eq("is_available", true)
       .order("network")
       .order("size")
 

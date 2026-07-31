@@ -74,7 +74,7 @@ export async function GET(request: NextRequest) {
           price,
           dealer_price,
           description,
-          active
+          is_available
         )
       `)
       .eq("shop_id", shop.parent_shop_id)
@@ -87,7 +87,7 @@ export async function GET(request: NextRequest) {
 
     // Transform packages: sub-agent's wholesale price = admin price + parent's margin
     const transformedPackages = (catalogItems || [])
-      .filter((item: any) => item.package?.active)
+      .filter((item: any) => item.package?.is_available)
       .map((item: any) => {
         const pkgPrice = item.package.price || 0
         const pkgDealerPrice = item.package.dealer_price
@@ -109,7 +109,7 @@ export async function GET(request: NextRequest) {
           // parent_price: what the parent sells to sub-agent (admin price + parent's margin)
           parent_price: parentSellingPrice,
           description: item.package.description,
-          active: item.package.active,
+          active: item.package.is_available,
           // profit_margin: parent's margin (for reference, but not used for calculating sub-agent profit)
           profit_margin: parentMargin,
           _parent_wholesale_margin: parentMargin,

@@ -36,10 +36,10 @@ async function fetchBundles(
   if (priceTier === 'sub_agent' && parentShopId) {
     const { data, count } = await supabase
       .from("sub_agent_catalog")
-      .select("package_id, parent_price, packages!inner(id, size, network, active)", { count: 'exact' })
+      .select("package_id, parent_price, packages!inner(id, size, network, is_available)", { count: 'exact' })
       .eq("shop_id", parentShopId)
       .eq("packages.network", network)
-      .eq("packages.active", true)
+      .eq("packages.is_available", true)
       .order("parent_price", { ascending: true })
       .order("package_id", { ascending: true })
       .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
@@ -58,7 +58,7 @@ async function fetchBundles(
     .from("packages")
     .select("id, size, price, dealer_price", { count: 'exact' })
     .eq("network", network)
-    .eq("active", true)
+    .eq("is_available", true)
     .order("price", { ascending: true })
     .order("id", { ascending: true })
     .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
@@ -287,11 +287,11 @@ export async function handleConfirm(
   // Validate price still matches DB (security: prevent stale session attacks)
   const { data: pkg } = await supabase
     .from("packages")
-    .select("price, dealer_price, active")
+    .select("price, dealer_price, is_available")
     .eq("id", bundleId!)
     .single()
 
-  if (!pkg || !pkg.active) {
+  if (!pkg || !pkg.is_available) {
     await setSession(sessionId, { step: 'MAIN', dialingPhone })
     return end('Bundle no longer available. Please try again.')
   }

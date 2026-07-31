@@ -96,7 +96,7 @@ export async function fetchShopNetworks(
         .from("packages")
         .select("network")
         .in("id", packageIds)
-        .eq("active", true)
+        .eq("is_available", true)
 
       for (const pkg of pkgRows ?? []) {
         if (pkg.network && !seen.has(pkg.network)) { seen.add(pkg.network); networks.push(pkg.network) }
@@ -116,7 +116,7 @@ export async function fetchShopNetworks(
       .from("packages")
       .select("network")
       .in("id", spRows.map((r: any) => r.package_id))
-      .eq("active", true)
+      .eq("is_available", true)
 
     for (const pkg of pkgRows ?? []) {
       if (pkg.network && !seen.has(pkg.network)) { seen.add(pkg.network); networks.push(pkg.network) }

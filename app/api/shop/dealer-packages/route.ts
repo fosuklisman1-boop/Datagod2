@@ -38,8 +38,8 @@ export async function GET(request: NextRequest) {
         // Fetch active packages with dealer pricing
         const { data: packages, error: pkgError } = await supabase
             .from("packages")
-            .select("id, network, size, price, dealer_price, description, active")
-            .eq("active", true)
+            .select("id, network, size, price, dealer_price, description, is_available")
+            .eq("is_available", true)
             .order("network")
             .order("size")
 
@@ -58,7 +58,7 @@ export async function GET(request: NextRequest) {
             original_price: pkg.price,
             dealer_price: pkg.dealer_price,
             description: pkg.description,
-            active: pkg.active,
+            active: pkg.is_available,
             has_dealer_discount: pkg.dealer_price !== null && pkg.dealer_price < pkg.price
         }))
 

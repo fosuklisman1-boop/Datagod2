@@ -155,7 +155,7 @@ export async function POST(request: NextRequest) {
     .select("id, price, dealer_price")
     .ilike("network", sanitizedNetwork)
     .eq("size", volumeGb.toString())
-    .eq("active", true)
+    .eq("is_available", true)
     .single()
 
   if (!pkg) {

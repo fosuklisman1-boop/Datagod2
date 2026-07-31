@@ -133,7 +133,7 @@ export async function GET(request: NextRequest) {
             price,
             dealer_price,
             description,
-            active
+            is_available
           )
         `)
         .eq("shop_id", shop.id)
@@ -149,7 +149,7 @@ export async function GET(request: NextRequest) {
       if (!shopPkgsError && shopPkgs && shopPkgs.length > 0) {
         // Transform catalog items using stored parent_price
         packages = shopPkgs
-          .filter((item: any) => item.package?.active)
+          .filter((item: any) => item.package?.is_available)
           .map((item: any) => {
             const pkgPrice = item.package.price || 0;
             const pkgDealerPrice = item.package.dealer_price;
@@ -203,7 +203,7 @@ export async function GET(request: NextRequest) {
               price,
               dealer_price,
               description,
-              active
+              is_available
             )
           `)
           .eq("shop_id", shop.id)
@@ -216,7 +216,7 @@ export async function GET(request: NextRequest) {
 
         // Transform using stored parent_price
         packages = (catalogItems || [])
-          .filter((item: any) => item.package?.active)
+          .filter((item: any) => item.package?.is_available)
           .map((item: any) => {
             const pkgPrice = item.package.price || 0;
             const pkgDealerPrice = item.package.dealer_price;
@@ -268,7 +268,7 @@ export async function GET(request: NextRequest) {
             price,
             dealer_price,
             description,
-            active
+            is_available
           )
         `)
         .eq("shop_id", shop.id)
@@ -279,9 +279,9 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: "Failed to fetch packages" }, { status: 500 })
       }
 
-      // Filter out inactive admin packages
+      // Filter out disabled admin packages
       packages = (shopPackages || [])
-        .filter((item: any) => item.packages?.active !== false)
+        .filter((item: any) => item.packages?.is_available !== false)
         .map((item: any) => {
           const basePrice = (isDealer && item.packages.dealer_price > 0)
             ? item.packages.dealer_price

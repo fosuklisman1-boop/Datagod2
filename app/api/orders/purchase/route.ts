@@ -172,12 +172,16 @@ export async function POST(request: NextRequest) {
     // Get the package to validate price and size
     const { data: packageData, error: packageError } = await supabaseAdmin
       .from("packages")
-      .select("size, price, dealer_price")
+      .select("size, price, dealer_price, is_available")
       .eq("id", packageId)
       .single()
 
     if (packageError || !packageData) {
       return NextResponse.json({ error: "Package not found" }, { status: 404 })
+    }
+
+    if (!packageData.is_available) {
+      return NextResponse.json({ error: "This package is no longer available" }, { status: 400 })
     }
 
     // Determine correct price based on role

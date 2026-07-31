@@ -82,7 +82,7 @@ export async function fetchShopBundles(
         .select("id, size")
         .in("id", sapRows.map(r => r.package_id))
         .eq("network", network)
-        .eq("active", true)
+        .eq("is_available", true)
 
       if (pkgRows?.length) {
         const sapMap = Object.fromEntries(sapRows.map(r => [r.package_id, r]))
@@ -110,7 +110,7 @@ export async function fetchShopBundles(
       .select("id, size, price, dealer_price")
       .in("id", catalogRows.map(r => r.package_id))
       .eq("network", network)
-      .eq("active", true)
+      .eq("is_available", true)
 
     if (!pkgRows?.length) return []
 
@@ -141,7 +141,7 @@ export async function fetchShopBundles(
     .select("id, size, price, dealer_price")
     .in("id", spRows.map(r => r.package_id))
     .eq("network", network)
-    .eq("active", true)
+    .eq("is_available", true)
 
   if (!pkgRows?.length) return []
 
@@ -176,13 +176,13 @@ export async function verifyBundlePrice(
     // New model: sub_agent_shop_packages
     const { data: sapRow } = await client
       .from("sub_agent_shop_packages")
-      .select("parent_price, sub_agent_profit_margin, packages!inner(price, dealer_price, active)")
+      .select("parent_price, sub_agent_profit_margin, packages!inner(price, dealer_price, is_available)")
       .eq("shop_id", shopId)
       .eq("package_id", bundleId)
       .eq("is_active", true)
       .maybeSingle()
 
-    if (sapRow && (sapRow as any).packages?.active) {
+    if (sapRow && (sapRow as any).packages?.is_available) {
       profitAmount = Number(sapRow.sub_agent_profit_margin)
       const bp = basePrice((sapRow as any).packages, parentIsDealer)
       parentProfitAmount = Math.max(0, Number(sapRow.parent_price) - bp)
@@ -191,13 +191,13 @@ export async function verifyBundlePrice(
       // Old model fallback: sub_agent_catalog
       const { data: catalogRow } = await client
         .from("sub_agent_catalog")
-        .select("wholesale_margin, sub_agent_profit_margin, packages!inner(price, dealer_price, active)")
+        .select("wholesale_margin, sub_agent_profit_margin, packages!inner(price, dealer_price, is_available)")
         .eq("shop_id", parentShopId)
         .eq("package_id", bundleId)
         .eq("is_active", true)
         .maybeSingle()
 
-      if (!catalogRow || !(catalogRow as any).packages?.active) {
+      if (!catalogRow || !(catalogRow as any).packages?.is_available) {
         return null
       }
 
@@ -209,7 +209,7 @@ export async function verifyBundlePrice(
     const [shopPkg, shopIsDealer] = await Promise.all([
       client
         .from("shop_packages")
-        .select("profit_margin, packages!inner(price, dealer_price, active)")
+        .select("profit_margin, packages!inner(price, dealer_price, is_available)")
         .eq("shop_id", shopId)
         .eq("package_id", bundleId)
         .eq("is_available", true)
@@ -218,7 +218,7 @@ export async function verifyBundlePrice(
       shopOwnerIsDealer(shopId, client),
     ])
 
-    if (!shopPkg || !(shopPkg as any).packages?.active) {
+    if (!shopPkg || !(shopPkg as any).packages?.is_available) {
       return null
     }
 

@@ -64,10 +64,10 @@ async function loadAllBundlesWa(
   if (priceTier === 'sub_agent' && parentShopId) {
     const { data } = await supabase
       .from("sub_agent_catalog")
-      .select("package_id, parent_price, packages!inner(id, size, network, active)")
+      .select("package_id, parent_price, packages!inner(id, size, network, is_available)")
       .eq("shop_id", parentShopId)
       .eq("packages.network", network)
-      .eq("packages.active", true)
+      .eq("packages.is_available", true)
       .order("parent_price", { ascending: true })
       .order("package_id", { ascending: true })
     return (data ?? []).map((r: any) => ({
@@ -80,7 +80,7 @@ async function loadAllBundlesWa(
     .from("packages")
     .select("id, size, price, dealer_price")
     .eq("network", network)
-    .eq("active", true)
+    .eq("is_available", true)
     .order("price", { ascending: true })
     .order("id", { ascending: true })
   return (data ?? []).map((r: any) => ({
