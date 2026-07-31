@@ -1152,16 +1152,43 @@ Add these four cases in `lib/whatsapp-bot/shop-router.ts`, right after the `RCCH
       }
 ```
 
-Add `'RCCHECK_ENTER_VOUCHER'`, `'RCCHECK_ENTER_DOB'`, and `'RCCHECK_ENTER_YEAR'` to the `FREE_TEXT_ENTRY_STEPS` array:
+Add `'RCCHECK_ENTER_VOUCHER'`, `'RCCHECK_ENTER_DOB'`, `'RCCHECK_ENTER_YEAR'`, and `'RCCHECK_ENTER_INDEX'` to the `FREE_TEXT_ENTRY_STEPS` array:
 
 ```ts
     const FREE_TEXT_ENTRY_STEPS: WaShopSession['step'][] = [
       'ENTER_RECIPIENT', 'AIRTIME_ENTER_RECIPIENT', 'AIRTIME_ENTER_AMOUNT',
-      'RCCHECK_ENTER_VOUCHER', 'RCCHECK_ENTER_DOB', 'RCCHECK_ENTER_YEAR',
+      'RCCHECK_ENTER_VOUCHER', 'RCCHECK_ENTER_DOB', 'RCCHECK_ENTER_YEAR', 'RCCHECK_ENTER_INDEX',
     ]
 ```
 
-`RCCHECK_ENTER_VOUCHER`/`RCCHECK_ENTER_DOB` need this because their *valid* input contains `/`, failing `isDigitOrZero`. `RCCHECK_ENTER_YEAR` needs it too, despite valid input being pure digits: this task's own test sends `"abcd"` to exercise the invalid-year re-prompt, and non-digit freetext at a step not in either list escapes to the AI before the switch case ever runs — the case's own validation would never fire. (`RCCHECK_ENTER_INDEX` has no invalid-non-digit test in this plan, so it's left off the list here, matching `RC_ENTER_QTY`'s existing precedent — but note this means a real customer typing a non-digit index like `"abc1234567"` would currently escape to AI instead of getting the case's own "Invalid index number" re-prompt. Flag this asymmetry to the code-quality reviewer; if it's judged a real gap, add `'RCCHECK_ENTER_INDEX'` too for consistency.)
+`RCCHECK_ENTER_VOUCHER`/`RCCHECK_ENTER_DOB` need this because their *valid* input contains `/`, failing `isDigitOrZero`. `RCCHECK_ENTER_YEAR` and `RCCHECK_ENTER_INDEX` both need it too, despite valid input being pure digits: any non-digit freetext at a step not in either list escapes to the AI before the switch case ever runs, so the case's own re-prompt-on-invalid-input logic never fires. `RCCHECK_ENTER_YEAR`'s need is proven directly by this task's own test (`"abcd"` invalid-year case). `RCCHECK_ENTER_INDEX` has the identical structural exposure — a customer pasting an index number with a space, dash, or a letter/digit OCR-confusion (e.g. `"0070 202043"`, which the case's own `input.trim().replace(/\s/g, '')` is written to handle) would currently escape to the AI before ever reaching that handling, dead-ending the flow with no way back in (unlike `RC_ENTER_QTY`'s equivalent gap, which at least resumes via `place_shop_order`'s AI tool — Check My Results has no AI-tool awareness yet). Add a matching test for this case too:
+
+```ts
+  it("RCCHECK_ENTER_INDEX: a non-digit index re-prompts instead of escaping to AI", async () => {
+    const phone = "233241000112"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc94b", shopId: "s94b", shopName: "Index Typo Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(isExamBoardEnabled).mockResolvedValue(true)
+    vi.mocked(getAvailableCount).mockResolvedValue(3)
+    vi.mocked(calculateResultsCheckPrice).mockResolvedValue({
+      checkFee: 2, checkFeeMarkup: 0, effectiveCheckFee: 2, totalPaid: 2, merchantCommission: 0,
+    })
+
+    await shopWaRouter(phone, "CODE1", "ix1")
+    await shopWaRouter(phone, "4", "ix2")
+    await shopWaRouter(phone, "1", "ix3") // WASSCE
+    await shopWaRouter(phone, "1", "ix4") // School -> RCCHECK_MODE
+    await shopWaRouter(phone, "1", "ix5") // combo -> RCCHECK_ENTER_INDEX
+
+    await shopWaRouter(phone, "abc1234567", "ix6")
+    expect(lastReplyTo(phone)).toContain("Invalid index number")
+  })
+```
+
+(`RC_ENTER_QTY`, the RC-voucher-purchase flow's analogous quantity-entry step, has the same latent gap — out of scope for this plan since it's pre-existing code this feature doesn't touch; worth a separate follow-up ticket, not a blocker here.)
 
 - [ ] **Step 4: Run tests to verify they pass**
 
