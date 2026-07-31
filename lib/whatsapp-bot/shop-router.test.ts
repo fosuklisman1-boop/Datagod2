@@ -1264,6 +1264,70 @@ describe("shopWaRouter", () => {
     fakeDb.hasCompletedPurchase = true
   })
 
+  it("combo mode: index -> year -> dob -> payment-phone prompt", async () => {
+    const phone = "233241000110"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc93", shopId: "s93", shopName: "Combo Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(isExamBoardEnabled).mockResolvedValue(true)
+    vi.mocked(getAvailableCount).mockResolvedValue(3)
+    vi.mocked(calculateResultsCheckPrice).mockImplementation(async ({ mode }) =>
+      mode === "combo"
+        ? { checkFee: 2, checkFeeMarkup: 0, effectiveCheckFee: 2, voucherPrice: 10, totalPaid: 12, merchantCommission: 1 }
+        : { checkFee: 2, checkFeeMarkup: 0, effectiveCheckFee: 2, totalPaid: 2, merchantCommission: 0 }
+    )
+
+    await shopWaRouter(phone, "CODE1", "cd1")
+    await shopWaRouter(phone, "4", "cd2")
+    await shopWaRouter(phone, "1", "cd3") // WASSCE
+    await shopWaRouter(phone, "1", "cd4") // School -> RCCHECK_MODE
+    await shopWaRouter(phone, "1", "cd5") // combo -> RCCHECK_ENTER_INDEX
+    expect(lastReplyTo(phone)).toContain("index number")
+
+    await shopWaRouter(phone, "0070202043", "cd6") // -> RCCHECK_ENTER_YEAR
+    expect(lastReplyTo(phone)).toContain("exam year")
+
+    await shopWaRouter(phone, "abcd", "cd7") // invalid year -> re-prompt
+    expect(lastReplyTo(phone)).toContain("Invalid year")
+
+    await shopWaRouter(phone, "2024", "cd8") // -> RCCHECK_ENTER_DOB
+    expect(lastReplyTo(phone)).toContain("DD/MM/YYYY")
+
+    await shopWaRouter(phone, "31/02/2008", "cd9") // invalid calendar date -> re-prompt
+    expect(lastReplyTo(phone)).toContain("Invalid date")
+
+    await shopWaRouter(phone, "15/06/2008", "cd10") // -> RCCHECK_ENTER_PAYMENT_PHONE
+    expect(lastReplyTo(phone)).toContain("MoMo number")
+  })
+
+  it("own_voucher mode: voucher PIN/serial -> index, with board-aware validation", async () => {
+    const phone = "233241000111"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc94", shopId: "s94", shopName: "Own Voucher Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(isExamBoardEnabled).mockResolvedValue(true)
+    vi.mocked(getAvailableCount).mockResolvedValue(3)
+    vi.mocked(calculateResultsCheckPrice).mockResolvedValue({
+      checkFee: 2, checkFeeMarkup: 0, effectiveCheckFee: 2, totalPaid: 2, merchantCommission: 0,
+    })
+
+    await shopWaRouter(phone, "CODE1", "ov1")
+    await shopWaRouter(phone, "4", "ov2")
+    await shopWaRouter(phone, "1", "ov3") // WASSCE
+    await shopWaRouter(phone, "1", "ov4") // School -> RCCHECK_MODE
+    await shopWaRouter(phone, "2", "ov5") // own_voucher -> RCCHECK_ENTER_VOUCHER
+
+    await shopWaRouter(phone, "12345/WGR1900112581", "ov6") // bad PIN (not 12 digits) -> re-prompt
+    expect(lastReplyTo(phone)).toContain("Invalid PIN or serial")
+
+    await shopWaRouter(phone, "123456789012/WGR1900112581", "ov7") // valid -> RCCHECK_ENTER_INDEX
+    expect(lastReplyTo(phone)).toContain("index number")
+  })
+
   // ── Inbox visibility ─────────────────────────────────────────────────────────
   it("logs both the inbound and outbound message for admin inbox visibility", async () => {
     const phone = "233241000050"

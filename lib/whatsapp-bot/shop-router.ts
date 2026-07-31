@@ -419,6 +419,14 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
     ]
     const FREE_TEXT_ENTRY_STEPS: WaShopSession['step'][] = [
       'ENTER_RECIPIENT', 'AIRTIME_ENTER_RECIPIENT', 'AIRTIME_ENTER_AMOUNT',
+      'RCCHECK_ENTER_VOUCHER', 'RCCHECK_ENTER_DOB',
+      // RCCHECK_ENTER_YEAR: unlike RCCHECK_ENTER_INDEX (also pure-digit), its
+      // own invalid-input test sends non-digit text ("abcd") and expects the
+      // case body's own "Invalid year" re-prompt. Without this entry, that
+      // input isn't all-digits, has no shopNaturalToDigit mapping for this
+      // step, and would escape to AI_CONVERSATION before ever reaching the
+      // case — so it's listed here despite otherwise taking numeric input.
+      'RCCHECK_ENTER_YEAR',
     ]
     const isDigitOrZero = /^[0-9]+$/.test(input)
     if (!isDigitOrZero && !MONEY_STEPS.includes(session.step) && !FREE_TEXT_ENTRY_STEPS.includes(session.step)) {
@@ -1311,6 +1319,105 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
           break
         }
         reply = shopRcCheckModeMenu(session.rcCheckComboTotal ?? 0, session.rcCheckFee ?? 0)
+        break
+      }
+
+      // ── RCCHECK_ENTER_VOUCHER ────────────────────────────────────────────────
+      case 'RCCHECK_ENTER_VOUCHER': {
+        if (input === '0') {
+          if (session.rcCheckComboTotal !== undefined) {
+            session.step = 'RCCHECK_MODE'
+            reply = shopRcCheckModeMenu(session.rcCheckComboTotal, session.rcCheckFee ?? 0)
+          } else {
+            session.step = 'RCCHECK_CANDIDATE_TYPE'
+            reply = shopRcCheckCandidateTypeMenu()
+          }
+          break
+        }
+
+        const board = session.rcCheckBoard! as ExamBoard
+        const raw = input.trim().toUpperCase()
+        const parts = raw.split(/[/,\s]+/)
+        const pin = parts[0] ?? ''
+        const serial = parts[1] ?? ''
+        if (!pin || !serial || !isValidVoucherPin(board, pin) || !isValidVoucherSerial(board, serial)) {
+          reply = board === 'BECE'
+            ? 'Invalid PIN or serial.\nPIN: 10-12 letters/digits\nSerial: digits e.g. 252100270719\n\nFormat: PIN/Serial\n\n0. Back'
+            : 'Invalid PIN or serial.\nPIN: 12 digits\nSerial: e.g. WGR1900112581\n\nFormat: PIN/Serial\ne.g. 012345678912/WGR1900112581\n\n0. Back'
+          break
+        }
+
+        session.step = 'RCCHECK_ENTER_INDEX'
+        session.rcCheckVoucherPin = pin
+        session.rcCheckVoucherSerial = serial
+        reply = shopRcCheckIndexPrompt()
+        break
+      }
+
+      // ── RCCHECK_ENTER_INDEX ──────────────────────────────────────────────────
+      case 'RCCHECK_ENTER_INDEX': {
+        if (input === '0') {
+          if (session.rcCheckMode === 'own_voucher') {
+            session.step = 'RCCHECK_ENTER_VOUCHER'
+            reply = shopRcCheckVoucherPrompt()
+          } else {
+            session.step = 'RCCHECK_MODE'
+            reply = shopRcCheckModeMenu(session.rcCheckComboTotal ?? 0, session.rcCheckFee ?? 0)
+          }
+          break
+        }
+
+        const board = session.rcCheckBoard! as ExamBoard
+        const index = input.trim().replace(/\s/g, '')
+        if (!isValidIndexNumber(board, index)) {
+          const hint = board === 'BECE' ? '10 or 12 digits' : 'exactly 10 digits'
+          reply = `Invalid index number.\nMust be ${hint},\nnumbers only.\ne.g. 0070202043\n\n0. Back`
+          break
+        }
+
+        session.step = 'RCCHECK_ENTER_YEAR'
+        session.rcCheckIndex = index
+        reply = shopRcCheckYearPrompt()
+        break
+      }
+
+      // ── RCCHECK_ENTER_YEAR ───────────────────────────────────────────────────
+      case 'RCCHECK_ENTER_YEAR': {
+        if (input === '0') {
+          session.step = 'RCCHECK_ENTER_INDEX'
+          reply = shopRcCheckIndexPrompt()
+          break
+        }
+
+        const year = parseInt(input, 10)
+        if (Number.isNaN(year) || !isValidExamYear(year)) {
+          reply = `Invalid year.\nEnter a year between\n1980 and ${new Date().getFullYear()}.\n\n0. Back`
+          break
+        }
+
+        session.step = 'RCCHECK_ENTER_DOB'
+        session.rcCheckYear = year
+        reply = shopRcCheckDobPrompt()
+        break
+      }
+
+      // ── RCCHECK_ENTER_DOB ────────────────────────────────────────────────────
+      case 'RCCHECK_ENTER_DOB': {
+        if (input === '0') {
+          session.step = 'RCCHECK_ENTER_YEAR'
+          reply = shopRcCheckYearPrompt()
+          break
+        }
+
+        const normalised = input.trim().replace(/-/g, '/')
+        if (!isValidDob(normalised)) {
+          reply = 'Invalid date.\nUse DD/MM/YYYY\ne.g. 15/06/2008\n\n0. Back'
+          break
+        }
+
+        session.step = 'RCCHECK_ENTER_PAYMENT_PHONE'
+        session.rcCheckDob = normalised
+        reply = shopPaymentPhonePrompt()
         break
       }
 
