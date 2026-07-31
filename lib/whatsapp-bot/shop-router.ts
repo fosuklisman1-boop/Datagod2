@@ -8,12 +8,15 @@ import {
   shopPaymentSentMenu, shopOtpMenu, shopInvalidCodeMenu, sortNetworks, PAGE_SIZE,
   shopAirtimeRecipientPrompt, shopAirtimeNetworkMenu, shopAirtimeAmountPrompt, shopAirtimeConfirmMenu,
   shopRcBoardMenu, shopRcQtyPrompt, shopRcConfirmMenu,
+  shopRcCheckBoardMenu, shopRcCheckCandidateTypeMenu, shopRcCheckModeMenu,
+  shopRcCheckVoucherPrompt, shopRcCheckIndexPrompt, shopRcCheckYearPrompt,
+  shopRcCheckDobPrompt, shopRcCheckConfirmMenu,
 } from "./shop-menus"
 import { resolveShopCode, fetchShopNetworks } from "@/lib/shop-commerce/shop-code"
 import { getShopPref, setShopPref, clearShopPref } from "@/lib/whatsapp-bot/shop-prefs"
 import type { WaShopSession } from "./shop-types"
 import { fetchShopBundles, verifyBundlePrice, shopOwnerIsDealer } from "@/lib/shop-commerce/pricing"
-import { createShopBundleOrder, createShopAirtimeOrder, createShopRcOrder } from "@/lib/shop-commerce/orders"
+import { createShopBundleOrder, createShopAirtimeOrder, createShopRcOrder, createShopCheckResultsRequest } from "@/lib/shop-commerce/orders"
 import { chargeMobileMoney, submitOtp } from "@/lib/paystack"
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
 import { validateNetworkPrefix } from "@/lib/phone-format"
@@ -25,10 +28,12 @@ import {
 } from "@/lib/airtime-pricing"
 import {
   isExamBoardEnabled, getAvailableCount, getMaxQuantity, calculateRCPrice, getRCBulkHint,
+  calculateResultsCheckPrice,
   type ExamBoard,
 } from "@/lib/results-checker-service"
 import { buildRcBoardOptions } from "@/lib/ussd/handlers/results-checker"
 import { secureReference } from "@/lib/secure-random"
+import { isValidVoucherPin, isValidVoucherSerial, isValidIndexNumber, isValidDob, isValidExamYear } from "@/lib/results-check-validation"
 
 // Handles inbound messages that arrived on the dedicated shop WhatsApp number
 // (identified by phone_number_id in the webhook payload, wired in
@@ -403,7 +408,7 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         const dataBlocked = session.dataBlocked === true
 
         if (dataBlocked) {
-          // Renumbered menu (no Data option at all): 1=Airtime, 2=Results Checker.
+          // Renumbered menu (no Data option at all): 1=Airtime, 2=Results Checker, 3=Check My Results.
           if (input === '1') {
             session.step = 'AIRTIME_ENTER_RECIPIENT'
             reply = shopAirtimeRecipientPrompt(shopName)
@@ -415,6 +420,15 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
               session.step = 'RC_SELECT_BOARD'
               session.rcBoardOptions = boards
               reply = shopRcBoardMenu(shopName, boards)
+            }
+          } else if (input === '3') {
+            const boards = await buildRcBoardOptions()
+            if (boards.length === 0) {
+              reply = `Results Checker unavailable.\n\n${shopProductMenu(shopName, false)}`
+            } else {
+              session.step = 'RCCHECK_SELECT_BOARD'
+              session.rcBoardOptions = boards
+              reply = shopRcCheckBoardMenu(shopName, boards)
             }
           } else if (input === '0') {
             deleteAfter = true
@@ -444,6 +458,15 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
             session.step = 'RC_SELECT_BOARD'
             session.rcBoardOptions = boards
             reply = shopRcBoardMenu(shopName, boards)
+          }
+        } else if (input === '4') {
+          const boards = await buildRcBoardOptions()
+          if (boards.length === 0) {
+            reply = `Results Checker unavailable.\n\n${shopProductMenu(shopName)}`
+          } else {
+            session.step = 'RCCHECK_SELECT_BOARD'
+            session.rcBoardOptions = boards
+            reply = shopRcCheckBoardMenu(shopName, boards)
           }
         } else if (input === '0') {
           deleteAfter = true
@@ -1171,6 +1194,86 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
           deleteAfter = true
           reply = 'Sorry, we could not start the payment. Please try again.'
         }
+        break
+      }
+
+      // ── RCCHECK_SELECT_BOARD ─────────────────────────────────────────────────
+      case 'RCCHECK_SELECT_BOARD': {
+        const options = session.rcBoardOptions ?? []
+        if (input === '0') {
+          session.step = 'SELECT_PRODUCT'
+          reply = shopProductMenu(shopName, !(session.dataBlocked === true))
+          break
+        }
+
+        const idx = parseInt(input, 10) - 1
+        const board = Number.isNaN(idx) ? undefined : options[idx]
+        if (!board) {
+          reply = shopRcCheckBoardMenu(shopName, options)
+          break
+        }
+
+        session.step = 'RCCHECK_CANDIDATE_TYPE'
+        session.rcCheckBoard = board
+        reply = shopRcCheckCandidateTypeMenu()
+        break
+      }
+
+      // ── RCCHECK_CANDIDATE_TYPE ───────────────────────────────────────────────
+      case 'RCCHECK_CANDIDATE_TYPE': {
+        if (input === '0') {
+          session.step = 'RCCHECK_SELECT_BOARD'
+          reply = shopRcCheckBoardMenu(shopName, session.rcBoardOptions ?? [])
+          break
+        }
+        if (input !== '1' && input !== '2') {
+          reply = shopRcCheckCandidateTypeMenu()
+          break
+        }
+        const candidateType = input === '1' ? 'school' : 'private'
+        const board = session.rcCheckBoard! as ExamBoard
+
+        const avail = await getAvailableCount(board)
+        const ownPricing = await calculateResultsCheckPrice({ examBoard: board, mode: 'own_voucher', shopId: session.shopId })
+        session.rcCheckCandidateType = candidateType
+        session.rcCheckFee = ownPricing.totalPaid
+
+        if (avail > 0) {
+          const comboPricing = await calculateResultsCheckPrice({ examBoard: board, mode: 'combo', shopId: session.shopId })
+          session.step = 'RCCHECK_MODE'
+          session.rcCheckComboTotal = comboPricing.totalPaid
+          reply = shopRcCheckModeMenu(comboPricing.totalPaid, ownPricing.totalPaid)
+        } else {
+          session.step = 'RCCHECK_ENTER_VOUCHER'
+          session.rcCheckMode = 'own_voucher'
+          session.rcCheckAmount = ownPricing.totalPaid
+          reply = `No vouchers in stock.\nProvide your own PIN.\n\n${shopRcCheckVoucherPrompt()}`
+        }
+        break
+      }
+
+      // ── RCCHECK_MODE ─────────────────────────────────────────────────────────
+      case 'RCCHECK_MODE': {
+        if (input === '0') {
+          session.step = 'RCCHECK_CANDIDATE_TYPE'
+          reply = shopRcCheckCandidateTypeMenu()
+          break
+        }
+        if (input === '1') {
+          session.step = 'RCCHECK_ENTER_INDEX'
+          session.rcCheckMode = 'combo'
+          session.rcCheckAmount = session.rcCheckComboTotal
+          reply = shopRcCheckIndexPrompt()
+          break
+        }
+        if (input === '2') {
+          session.step = 'RCCHECK_ENTER_VOUCHER'
+          session.rcCheckMode = 'own_voucher'
+          session.rcCheckAmount = session.rcCheckFee
+          reply = shopRcCheckVoucherPrompt()
+          break
+        }
+        reply = shopRcCheckModeMenu(session.rcCheckComboTotal ?? 0, session.rcCheckFee ?? 0)
         break
       }
 

@@ -9,7 +9,7 @@ import { resolveEmail } from "@/lib/ussd/resolve-email"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import { DEFAULT_NETWORK_PREFIXES } from "@/lib/phone-format"
 import { isAirtimeEnabled, getAirtimeLimits, airtimeBaseFeeRate } from "@/lib/airtime-pricing"
-import { isExamBoardEnabled, getAvailableCount, getMaxQuantity, calculateRCPrice, getRCBulkHint } from "@/lib/results-checker-service"
+import { isExamBoardEnabled, getAvailableCount, getMaxQuantity, calculateRCPrice, getRCBulkHint, calculateResultsCheckPrice } from "@/lib/results-checker-service"
 import { buildRcBoardOptions } from "@/lib/ussd/handlers/results-checker"
 import { getShopPref, clearShopPref } from "@/lib/whatsapp-bot/shop-prefs"
 // Real (unmocked) module — same instance shop-router.ts itself uses, so calling
@@ -42,6 +42,7 @@ vi.mock("@/lib/shop-commerce/orders", () => ({
   createShopBundleOrder: vi.fn(),
   createShopAirtimeOrder: vi.fn(),
   createShopRcOrder: vi.fn(),
+  createShopCheckResultsRequest: vi.fn(),
 }))
 vi.mock("@/lib/paystack", () => ({
   chargeMobileMoney: vi.fn(),
@@ -73,6 +74,7 @@ vi.mock("@/lib/results-checker-service", () => ({
   getMaxQuantity: vi.fn(),
   calculateRCPrice: vi.fn(),
   getRCBulkHint: vi.fn(),
+  calculateResultsCheckPrice: vi.fn(),
 }))
 vi.mock("@/lib/ussd/handlers/results-checker", () => ({ buildRcBoardOptions: vi.fn() }))
 
@@ -140,7 +142,7 @@ vi.mock("@supabase/supabase-js", () => ({
           }),
         }
       }
-      if (table === "ussd_shop_orders" || table === "airtime_orders" || table === "results_checker_orders") {
+      if (table === "ussd_shop_orders" || table === "airtime_orders" || table === "results_checker_orders" || table === "results_check_requests") {
         return {
           update: (payload: Record<string, unknown>) => ({
             eq: (_col: string, id: unknown) => {
@@ -1178,6 +1180,81 @@ describe("shopWaRouter", () => {
       payload: expect.objectContaining({ status: "failed", payment_status: "failed" }),
       id: "rcOrder2",
     })
+  })
+
+  // ── Check My Results ────────────────────────────────────────────────────────
+  it("walks code -> product(4) -> board -> candidate type -> mode menu (combo available)", async () => {
+    const phone = "233241000100"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc90", shopId: "s90", shopName: "Check Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(buildRcBoardOptions).mockResolvedValue(["WASSCE", "BECE"])
+    vi.mocked(getAvailableCount).mockResolvedValue(3)
+    vi.mocked(calculateResultsCheckPrice).mockImplementation(async ({ mode }) =>
+      mode === "combo"
+        ? { checkFee: 2, checkFeeMarkup: 0, effectiveCheckFee: 2, voucherPrice: 10, totalPaid: 12, merchantCommission: 1 }
+        : { checkFee: 2, checkFeeMarkup: 0, effectiveCheckFee: 2, totalPaid: 2, merchantCommission: 0 }
+    )
+
+    await shopWaRouter(phone, "CODE1", "ck1") // ENTER_CODE -> SELECT_PRODUCT
+    await shopWaRouter(phone, "4", "ck2") // SELECT_PRODUCT -> RCCHECK_SELECT_BOARD
+    expect(lastReplyTo(phone)).toContain("Select exam board")
+
+    await shopWaRouter(phone, "1", "ck3") // WASSCE -> RCCHECK_CANDIDATE_TYPE
+    expect(lastReplyTo(phone)).toContain("Candidate Type")
+
+    await shopWaRouter(phone, "1", "ck4") // School -> RCCHECK_MODE (combo available)
+    expect(lastReplyTo(phone)).toContain("GHS 12.00")
+    expect(lastReplyTo(phone)).toContain("GHS 2.00")
+  })
+
+  it("skips the mode menu and forces own_voucher when the board has 0 voucher stock", async () => {
+    const phone = "233241000101"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc91", shopId: "s91", shopName: "No Stock Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(buildRcBoardOptions).mockResolvedValue(["WASSCE"])
+    vi.mocked(getAvailableCount).mockResolvedValue(0)
+    vi.mocked(calculateResultsCheckPrice).mockResolvedValue({
+      checkFee: 2, checkFeeMarkup: 0, effectiveCheckFee: 2, totalPaid: 2, merchantCommission: 0,
+    })
+
+    await shopWaRouter(phone, "CODE1", "ck5")
+    await shopWaRouter(phone, "4", "ck6")
+    await shopWaRouter(phone, "1", "ck7") // WASSCE -> RCCHECK_CANDIDATE_TYPE
+
+    await shopWaRouter(phone, "2", "ck8") // Private -> forced RCCHECK_ENTER_VOUCHER
+    expect(lastReplyTo(phone)).toContain("No vouchers in stock")
+    expect(lastReplyTo(phone)).toContain("PIN")
+  })
+
+  it("renumbers Check My Results to option 3 when Data is blocked", async () => {
+    const phone = "233241000102"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc92", shopId: "s92", shopName: "Blocked Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    fakeDb.whitelistEnabled = true
+    fakeDb.hasCompletedPurchase = false
+    vi.mocked(buildRcBoardOptions).mockResolvedValue(["WASSCE"])
+    vi.mocked(getAvailableCount).mockResolvedValue(3)
+    vi.mocked(calculateResultsCheckPrice).mockResolvedValue({
+      checkFee: 2, checkFeeMarkup: 0, effectiveCheckFee: 2, totalPaid: 2, merchantCommission: 0,
+    })
+
+    await shopWaRouter(phone, "CODE1", "ck9")
+    expect(lastReplyTo(phone)).toContain("3. Check My Results")
+
+    await shopWaRouter(phone, "3", "ck10") // renumbered Check My Results
+    expect(lastReplyTo(phone)).toContain("Select exam board")
+
+    fakeDb.whitelistEnabled = false
+    fakeDb.hasCompletedPurchase = true
   })
 
   // ── Inbox visibility ─────────────────────────────────────────────────────────
