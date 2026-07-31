@@ -590,6 +590,41 @@ Add `"results_check_requests"` to the fake Supabase client's table-recognition c
       if (table === "ussd_shop_orders" || table === "airtime_orders" || table === "results_checker_orders" || table === "results_check_requests") {
 ```
 
+Make the fake client's existing `admin_settings` branch key-aware, so it can serve both the pre-existing data-whitelist setting and the new results-check-service kill switch with independent values. Currently (around line 136-144):
+
+```ts
+      if (table === "admin_settings") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: () => Promise.resolve({ data: { value: { enabled: fakeDb.whitelistEnabled } } }),
+            }),
+          }),
+        }
+      }
+```
+
+Change to:
+
+```ts
+      if (table === "admin_settings") {
+        return {
+          select: () => ({
+            eq: (_col: string, key: string) => ({
+              maybeSingle: () => {
+                if (key === "results_check_settings") {
+                  return Promise.resolve({ data: { value: { enabled: fakeDb.resultsCheckEnabled } } })
+                }
+                return Promise.resolve({ data: { value: { enabled: fakeDb.whitelistEnabled } } })
+              },
+            }),
+          }),
+        }
+      }
+```
+
+Add `resultsCheckEnabled: true` to the `fakeDb` object's initial shape (near `whitelistEnabled: false`) — defaults to enabled, matching the real admin default (`enabled !== false`).
+
 Add the new menu functions and `chargeMobileMoney`/`createShopCheckResultsRequest` are already imported for mocking above; also add the import line for the new menu renderers is not needed in the test file (the router imports them, not the test) — no further import changes needed here since the test file imports `shopWaRouter` itself, not individual menu functions.
 
 - [ ] **Step 2: Write the failing test**
@@ -731,18 +766,36 @@ import { createShopBundleOrder, createShopAirtimeOrder, createShopRcOrder, creat
 // unavailable whenever inventory empties out (has happened in this codebase
 // before — results_checker_inventory has been observed completely empty),
 // even though own_voucher mode never touches inventory at all. This only
-// respects the admin's per-board enable toggle, matching the main bot's own
-// RC_CHECK_BOARD (lib/ussd/handlers/results-checker.ts's handleRcCheckBoard),
-// which shows all 3 boards unconditionally and checks stock only afterward,
-// per board, purely for combo-mode pricing.
+// respects the admin's per-board enable toggle (results_checker_enabled_<board>) —
+// unlike USSD/the main WhatsApp bot's Check-flow board menu (lib/ussd/menus.ts's
+// rcCheckBoardMenu, always all 3 boards, no per-board filtering at all), this is
+// a deliberately stricter, per-board gate for the shop channel. Combo-mode stock
+// is still checked separately, per board, once one is selected — purely for
+// pricing, not for whether the board can be checked at all.
 async function buildRcCheckBoardOptions(): Promise<string[]> {
   const boards: ExamBoard[] = ['WASSCE', 'BECE', 'NOVDEC']
   const results = await Promise.all(boards.map(async (b) => (await isExamBoardEnabled(b)) ? b : null))
   return results.filter((b): b is ExamBoard => b !== null)
 }
+
+// The master service-wide kill switch (admin_settings.results_check_settings.enabled)
+// that USSD and the main WhatsApp bot both check at their equivalent menu entry
+// (lib/ussd/handlers/results-checker.ts's RC_MENU case '3': `if (!enabled) return
+// cont('Service not available...')`). That helper (getRcCheckSettings) is private
+// to that file, so — same reasoning as fetchPaystackFeePercent above — this is
+// resolved inline here with the module's own Supabase client, mirroring the exact
+// admin_settings row shape.
+async function isResultsCheckServiceEnabled(): Promise<boolean> {
+  const { data } = await supabase
+    .from("admin_settings")
+    .select("value")
+    .eq("key", "results_check_settings")
+    .maybeSingle()
+  return (data as any)?.value?.enabled !== false
+}
 ```
 
-This needs no new test mock — `isExamBoardEnabled` is already in the test file's `@/lib/results-checker-service` mock block, so tests control it directly (see the `vi.mocked(isExamBoardEnabled).mockResolvedValue(true)` lines already added to Step 2's tests above).
+This needs no new test mock for `buildRcCheckBoardOptions` — `isExamBoardEnabled` is already in the test file's `@/lib/results-checker-service` mock block, so tests control it directly (see the `vi.mocked(isExamBoardEnabled).mockResolvedValue(true)` lines already added to Step 2's tests above). `isResultsCheckServiceEnabled` reads through the same fake Supabase client the test file already provides for `admin_settings` (used for the data-whitelist setting) — extend that fake client's `admin_settings` branch to also serve a `results_check_settings` row (default `{ enabled: true }` via a new `fakeDb.resultsCheckEnabled = true` field), added in this task's Step 1 alongside the other fake-client extensions.
 
 In the `SELECT_PRODUCT` case's data-blocked branch (currently `input === '1'` -> Airtime, `input === '2'` -> RC-voucher, `input === '0'` -> exit), insert a new `input === '3'` branch before the `input === '0'` branch:
 
@@ -762,7 +815,8 @@ In the `SELECT_PRODUCT` case's data-blocked branch (currently `input === '1'` ->
               reply = shopRcBoardMenu(shopName, boards)
             }
           } else if (input === '3') {
-            const boards = await buildRcCheckBoardOptions()
+            const serviceEnabled = await isResultsCheckServiceEnabled()
+            const boards = serviceEnabled ? await buildRcCheckBoardOptions() : []
             if (boards.length === 0) {
               reply = `Results Checker unavailable.\n\n${shopProductMenu(shopName, false)}`
             } else {
@@ -793,7 +847,8 @@ In the same case's unblocked branch, insert a new `input === '4'` branch before 
             reply = shopRcBoardMenu(shopName, boards)
           }
         } else if (input === '4') {
-          const boards = await buildRcCheckBoardOptions()
+          const serviceEnabled = await isResultsCheckServiceEnabled()
+          const boards = serviceEnabled ? await buildRcCheckBoardOptions() : []
           if (boards.length === 0) {
             reply = `Results Checker unavailable.\n\n${shopProductMenu(shopName)}`
           } else {
@@ -1367,8 +1422,14 @@ Add these two cases in `lib/whatsapp-bot/shop-router.ts`, right after the `RCCHE
 
         // Re-verify server-side (stale-session guard) — mirrors every other
         // shop CONFIRM step; do NOT trust session.rcCheckAmount for the charge.
-        const enabled = await isExamBoardEnabled(board)
-        if (!enabled) {
+        // Checks both the service-wide kill switch (an admin could disable the
+        // whole service mid-session — up to 30 min per shop-session.ts's TTL)
+        // and the per-board enable toggle re-verified at entry.
+        const [serviceEnabled, enabled] = await Promise.all([
+          isResultsCheckServiceEnabled(),
+          isExamBoardEnabled(board),
+        ])
+        if (!serviceEnabled || !enabled) {
           deleteAfter = true
           reply = 'Results Checker is no longer available. Please send your shop code to start again.'
           break
