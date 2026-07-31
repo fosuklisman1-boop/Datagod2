@@ -16,6 +16,9 @@
 
 **Files:**
 - Modify: `lib/whatsapp-bot/shop-types.ts`
+- Modify: `lib/whatsapp-bot/shop-router.ts`
+
+**Note:** this task touches two files, not one, because `WaShopSession.pendingOrderTable`'s type and `shop-router.ts`'s own `ShopOrderTable` type are structurally coupled — the `SUBMIT_OTP` case does `const table: ShopOrderTable = session.pendingOrderTable ?? 'ussd_shop_orders'`. Widening one without the other breaks `tsc --noEmit` immediately (confirmed by running it: `error TS2322: Type '"results_check_requests"' is not assignable to type 'ShopOrderTable'` at that exact line). They must land in the same commit.
 
 - [ ] **Step 1: Add the new steps, session fields, and `pendingOrderTable` value**
 
@@ -64,15 +67,32 @@ Add new fields after the existing `// Results Checker flow` block:
   rcCheckDob?: string
 ```
 
-- [ ] **Step 2: Type-check**
+- [ ] **Step 2: Widen the coupled type in `shop-router.ts`**
+
+In `lib/whatsapp-bot/shop-router.ts`, extend the `ShopOrderTable` type and `BROAD_STATUS_COL` map:
+
+```ts
+export type ShopOrderTable = 'ussd_shop_orders' | 'airtime_orders' | 'results_checker_orders' | 'results_check_requests'
+
+const BROAD_STATUS_COL: Record<ShopOrderTable, 'order_status' | 'status'> = {
+  ussd_shop_orders: 'order_status',
+  airtime_orders: 'status',
+  results_checker_orders: 'status',
+  results_check_requests: 'status',
+}
+```
+
+(This table has two independent state columns — `payment_status` and `status` — same split `airtime_orders`/`results_checker_orders` already have. `markOrderOtpRequired` always writes only `payment_status` regardless of table, unchanged; `markOrderFailed` writes both `payment_status` and whatever `BROAD_STATUS_COL[table]` resolves to.)
+
+- [ ] **Step 3: Type-check**
 
 Run: `npx tsc --noEmit`
-Expected: Errors only in files that switch exhaustively on `WaShopStep`/`ShopOrderTable` without a `default` — none exist yet (both `shop-router.ts`'s switch has a `default` case and no other file exhaustively matches these unions). Expected: no errors from this change alone (the new members are additive to already-open unions/optional fields).
+Expected: No errors.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add lib/whatsapp-bot/shop-types.ts
+git add lib/whatsapp-bot/shop-types.ts lib/whatsapp-bot/shop-router.ts
 git commit -m "feat(whatsapp-shop): add session types for Check My Results flow"
 ```
 
@@ -699,18 +719,7 @@ Extend the `@/lib/shop-commerce/orders` import (line 16) to add `createShopCheck
 import { createShopBundleOrder, createShopAirtimeOrder, createShopRcOrder, createShopCheckResultsRequest } from "@/lib/shop-commerce/orders"
 ```
 
-Extend the `ShopOrderTable` type and `BROAD_STATUS_COL` map (lines 82-88):
-
-```ts
-export type ShopOrderTable = 'ussd_shop_orders' | 'airtime_orders' | 'results_checker_orders' | 'results_check_requests'
-
-const BROAD_STATUS_COL: Record<ShopOrderTable, 'order_status' | 'status'> = {
-  ussd_shop_orders: 'order_status',
-  airtime_orders: 'status',
-  results_checker_orders: 'status',
-  results_check_requests: 'status',
-}
-```
+(`ShopOrderTable` and `BROAD_STATUS_COL` were already widened in Task 1, together with the coupled `pendingOrderTable` type in `shop-types.ts` — no further change needed here.)
 
 In the `SELECT_PRODUCT` case's data-blocked branch (currently `input === '1'` -> Airtime, `input === '2'` -> RC-voucher, `input === '0'` -> exit), insert a new `input === '3'` branch before the `input === '0'` branch:
 
