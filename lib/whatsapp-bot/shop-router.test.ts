@@ -3,7 +3,7 @@ import { sendWhatsAppText } from "@/lib/whatsapp-bot/send"
 import { logMessage } from "@/lib/whatsapp-bot/log-message"
 import { resolveShopCode, fetchShopNetworks } from "@/lib/shop-commerce/shop-code"
 import { fetchShopBundles, verifyBundlePrice, shopOwnerIsDealer } from "@/lib/shop-commerce/pricing"
-import { createShopBundleOrder, createShopAirtimeOrder, createShopRcOrder } from "@/lib/shop-commerce/orders"
+import { createShopBundleOrder, createShopAirtimeOrder, createShopRcOrder, createShopCheckResultsRequest } from "@/lib/shop-commerce/orders"
 import { chargeMobileMoney, submitOtp } from "@/lib/paystack"
 import { resolveEmail } from "@/lib/ussd/resolve-email"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
@@ -1349,6 +1349,169 @@ describe("shopWaRouter", () => {
 
     await shopWaRouter(phone, "abc1234567", "ix6")
     expect(lastReplyTo(phone)).toContain("Invalid index number")
+  })
+
+  it("combo mode: full flow through payment-phone, confirm, charge, and OTP", async () => {
+    const phone = "233241000120"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc95", shopId: "s95", shopName: "Full Combo Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(isExamBoardEnabled).mockResolvedValue(true)
+    vi.mocked(getAvailableCount).mockResolvedValue(3)
+    vi.mocked(calculateResultsCheckPrice).mockImplementation(async ({ mode }) =>
+      mode === "combo"
+        ? { checkFee: 2, checkFeeMarkup: 0, effectiveCheckFee: 2, voucherPrice: 10, totalPaid: 12, merchantCommission: 1 }
+        : { checkFee: 2, checkFeeMarkup: 0, effectiveCheckFee: 2, totalPaid: 2, merchantCommission: 0 }
+    )
+
+    await shopWaRouter(phone, "CODE1", "fc1")
+    await shopWaRouter(phone, "4", "fc2")
+    await shopWaRouter(phone, "1", "fc3") // WASSCE
+    await shopWaRouter(phone, "1", "fc4") // School
+    await shopWaRouter(phone, "1", "fc5") // combo -> RCCHECK_ENTER_INDEX
+    await shopWaRouter(phone, "0070202043", "fc6")
+    await shopWaRouter(phone, "2024", "fc7")
+    await shopWaRouter(phone, "15/06/2008", "fc8") // -> RCCHECK_ENTER_PAYMENT_PHONE
+
+    await shopWaRouter(phone, "0244000333", "fc9") // -> RCCHECK_CONFIRM
+    expect(lastReplyTo(phone)).toContain("Pay now")
+    expect(lastReplyTo(phone)).toContain("GHS 12.00")
+
+    vi.mocked(createShopCheckResultsRequest).mockResolvedValue({ orderId: "req1" })
+    vi.mocked(chargeMobileMoney).mockResolvedValue({ status: "send_otp", reference: "req1" })
+
+    await shopWaRouter(phone, "1", "fc10") // CONFIRM -> pay -> send_otp
+
+    expect(createShopCheckResultsRequest).toHaveBeenCalledWith(expect.objectContaining({
+      examBoard: "WASSCE",
+      candidateType: "school",
+      indexNumber: "0070202043",
+      examYear: 2024,
+      dob: "15/06/2008",
+      mode: "combo",
+      voucherPin: null,
+      voucherSerial: null,
+      phoneNumber: "0241000120",
+      whatsappNumber: "0241000120",
+      fee: 12,
+      shopId: "s95",
+      merchantCommission: 1,
+      channel: "whatsapp_shop",
+    }))
+    expect(chargeMobileMoney).toHaveBeenCalledWith(expect.objectContaining({
+      amount: 12,
+      phone: "0244000333",
+      provider: "mtn",
+      reference: "req1",
+    }))
+    expect(lastReplyTo(phone)).toContain("OTP")
+
+    vi.mocked(submitOtp).mockResolvedValue({ status: "pending", reference: "req1" })
+    await shopWaRouter(phone, "123456", "fc11")
+    expect(submitOtp).toHaveBeenCalledWith("req1", "123456")
+  })
+
+  it("RCCHECK_CONFIRM: a token balance that hit zero rejects and does not create a request or charge", async () => {
+    const phone = "233241000121"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc96", shopId: "s96", shopName: "Broke Check Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(isExamBoardEnabled).mockResolvedValue(true)
+    vi.mocked(getAvailableCount).mockResolvedValue(3)
+    vi.mocked(calculateResultsCheckPrice).mockResolvedValue({
+      checkFee: 2, checkFeeMarkup: 0, effectiveCheckFee: 2, totalPaid: 2, merchantCommission: 0,
+    })
+
+    await shopWaRouter(phone, "CODE1", "tz1")
+    await shopWaRouter(phone, "4", "tz2")
+    await shopWaRouter(phone, "1", "tz3") // WASSCE -> RCCHECK_CANDIDATE_TYPE
+    await shopWaRouter(phone, "1", "tz3b") // School -> RCCHECK_MODE (stock is 3, so the mode menu shows)
+    await shopWaRouter(phone, "2", "tz4") // own_voucher -> RCCHECK_ENTER_VOUCHER
+    await shopWaRouter(phone, "123456789012/WGR1900112581", "tz5")
+    await shopWaRouter(phone, "0070202043", "tz6")
+    await shopWaRouter(phone, "2024", "tz7")
+    await shopWaRouter(phone, "15/06/2008", "tz8")
+    await shopWaRouter(phone, "0244000333", "tz9")
+
+    fakeDb.tokenBalance = 0
+    await shopWaRouter(phone, "1", "tz10")
+
+    expect(createShopCheckResultsRequest).not.toHaveBeenCalled()
+    expect(chargeMobileMoney).not.toHaveBeenCalled()
+    expect(lastReplyTo(phone)).toContain("no sessions left")
+
+    fakeDb.tokenBalance = 5
+  })
+
+  it("RCCHECK_CONFIRM: chargeMobileMoney throwing marks the results check request failed", async () => {
+    const phone = "233241000122"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc97", shopId: "s97", shopName: "Throw Check Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(isExamBoardEnabled).mockResolvedValue(true)
+    vi.mocked(getAvailableCount).mockResolvedValue(3)
+    vi.mocked(calculateResultsCheckPrice).mockResolvedValue({
+      checkFee: 2, checkFeeMarkup: 0, effectiveCheckFee: 2, totalPaid: 2, merchantCommission: 0,
+    })
+    vi.mocked(createShopCheckResultsRequest).mockResolvedValue({ orderId: "req2" })
+    vi.mocked(chargeMobileMoney).mockRejectedValue(new Error("Paystack charge failed (HTTP 400)"))
+
+    await shopWaRouter(phone, "CODE1", "th1")
+    await shopWaRouter(phone, "4", "th2") // -> RCCHECK_SELECT_BOARD
+    await shopWaRouter(phone, "1", "th3") // WASSCE -> RCCHECK_CANDIDATE_TYPE
+    await shopWaRouter(phone, "1", "th3b") // School -> RCCHECK_MODE (stock is 3)
+    await shopWaRouter(phone, "2", "th4") // own_voucher -> RCCHECK_ENTER_VOUCHER
+    await shopWaRouter(phone, "123456789012/WGR1900112581", "th5")
+    await shopWaRouter(phone, "0070202043", "th6")
+    await shopWaRouter(phone, "2024", "th7")
+    await shopWaRouter(phone, "15/06/2008", "th8")
+    await shopWaRouter(phone, "0244000333", "th9")
+
+    await shopWaRouter(phone, "1", "th10")
+
+    expect(lastReplyTo(phone)).toContain("could not start the payment")
+    expect(fakeDb.orderUpdates).toContainEqual({
+      table: "results_check_requests",
+      payload: expect.objectContaining({ status: "failed", payment_status: "failed" }),
+      id: "req2",
+    })
+  })
+
+  it("RCCHECK_CONFIRM: the board going disabled between mode selection and confirm is rejected", async () => {
+    const phone = "233241000123"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc98", shopId: "s98", shopName: "Disabled Mid Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(isExamBoardEnabled).mockResolvedValue(true)
+    vi.mocked(getAvailableCount).mockResolvedValue(3)
+    vi.mocked(calculateResultsCheckPrice).mockResolvedValue({
+      checkFee: 2, checkFeeMarkup: 0, effectiveCheckFee: 2, totalPaid: 2, merchantCommission: 0,
+    })
+
+    await shopWaRouter(phone, "CODE1", "db1")
+    await shopWaRouter(phone, "4", "db2") // -> RCCHECK_SELECT_BOARD
+    await shopWaRouter(phone, "1", "db3") // WASSCE -> RCCHECK_CANDIDATE_TYPE
+    await shopWaRouter(phone, "1", "db3b") // School -> RCCHECK_MODE (stock is 3)
+    await shopWaRouter(phone, "2", "db4") // own_voucher -> RCCHECK_ENTER_VOUCHER
+    await shopWaRouter(phone, "123456789012/WGR1900112581", "db5")
+    await shopWaRouter(phone, "0070202043", "db6")
+    await shopWaRouter(phone, "2024", "db7")
+    await shopWaRouter(phone, "15/06/2008", "db8")
+    await shopWaRouter(phone, "0244000333", "db9")
+
+    vi.mocked(isExamBoardEnabled).mockResolvedValue(false)
+    await shopWaRouter(phone, "1", "db10")
+
+    expect(createShopCheckResultsRequest).not.toHaveBeenCalled()
+    expect(lastReplyTo(phone)).toContain("no longer available")
   })
 
   // ── Inbox visibility ─────────────────────────────────────────────────────────

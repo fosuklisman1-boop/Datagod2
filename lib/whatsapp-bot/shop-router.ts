@@ -413,8 +413,8 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
     // decimal point. Everywhere else, digits pass straight through; obvious
     // phrases resolve via shopNaturalToDigit; anything else escapes to AI.
     const MONEY_STEPS: WaShopSession['step'][] = [
-      'CONFIRM', 'AIRTIME_CONFIRM', 'RC_CONFIRM',
-      'ENTER_PAYMENT_PHONE', 'AIRTIME_ENTER_PAYMENT_PHONE', 'RC_ENTER_PAYMENT_PHONE',
+      'CONFIRM', 'AIRTIME_CONFIRM', 'RC_CONFIRM', 'RCCHECK_CONFIRM',
+      'ENTER_PAYMENT_PHONE', 'AIRTIME_ENTER_PAYMENT_PHONE', 'RC_ENTER_PAYMENT_PHONE', 'RCCHECK_ENTER_PAYMENT_PHONE',
       'SUBMIT_OTP',
     ]
     const FREE_TEXT_ENTRY_STEPS: WaShopSession['step'][] = [
@@ -1425,6 +1425,156 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         session.step = 'RCCHECK_ENTER_PAYMENT_PHONE'
         session.rcCheckDob = normalised
         reply = shopPaymentPhonePrompt()
+        break
+      }
+
+      // ── RCCHECK_ENTER_PAYMENT_PHONE ──────────────────────────────────────────
+      case 'RCCHECK_ENTER_PAYMENT_PHONE': {
+        if (input === '0') {
+          deleteAfter = true
+          reply = 'Order cancelled.'
+          break
+        }
+
+        const local = normalizeGhanaLocal(input)
+        if (!isValidLocalGhana(local)) {
+          reply = shopInvalidPaymentPhoneMenu()
+          break
+        }
+
+        const paystackProvider = paystackProviderFromPhone(local)
+        if (!paystackProvider) {
+          reply = shopNoProviderMessage()
+          break
+        }
+
+        session.step = 'RCCHECK_CONFIRM'
+        session.paymentPhone = local
+        session.paystackProvider = paystackProvider
+        reply = shopRcCheckConfirmMenu(
+          shopName, session.rcCheckBoard!, session.rcCheckCandidateType ?? 'school',
+          session.rcCheckIndex!, session.rcCheckYear!, session.rcCheckDob!,
+          session.rcCheckMode ?? 'own_voucher', session.rcCheckAmount ?? 0, local
+        )
+        break
+      }
+
+      // ── RCCHECK_CONFIRM ──────────────────────────────────────────────────────
+      case 'RCCHECK_CONFIRM': {
+        if (input === '2' || input === '0') {
+          deleteAfter = true
+          reply = 'Order cancelled.'
+          break
+        }
+        if (input !== '1') {
+          reply = shopRcCheckConfirmMenu(
+            shopName, session.rcCheckBoard!, session.rcCheckCandidateType ?? 'school',
+            session.rcCheckIndex!, session.rcCheckYear!, session.rcCheckDob!,
+            session.rcCheckMode ?? 'own_voucher', session.rcCheckAmount ?? 0, session.paymentPhone!
+          )
+          break
+        }
+
+        // Same anti-race token recheck as every other CONFIRM step.
+        const tokenBalance = await fetchShopCodeTokenBalance(session.shopCodeId!)
+        if (tokenBalance === null || tokenBalance <= 0) {
+          deleteAfter = true
+          reply = 'This shop has no sessions left. Please contact the seller.'
+          break
+        }
+
+        const board = session.rcCheckBoard! as ExamBoard
+        const mode = session.rcCheckMode ?? 'own_voucher'
+
+        // Re-verify server-side (stale-session guard) — mirrors every other
+        // shop CONFIRM step; do NOT trust session.rcCheckAmount for the charge.
+        // Checks both the service-wide kill switch (an admin could disable the
+        // whole service mid-session — up to 30 min per shop-session.ts's TTL)
+        // and the per-board enable toggle re-verified at entry.
+        const [serviceEnabled, enabled] = await Promise.all([
+          isResultsCheckServiceEnabled(),
+          isExamBoardEnabled(board),
+        ])
+        if (!serviceEnabled || !enabled) {
+          deleteAfter = true
+          reply = 'Results Checker is no longer available. Please send your shop code to start again.'
+          break
+        }
+        if (mode === 'combo') {
+          const avail = await getAvailableCount(board)
+          if (avail < 1) {
+            deleteAfter = true
+            reply = 'No vouchers left for that board. Please send your shop code to start again.'
+            break
+          }
+        }
+
+        const pricing = await calculateResultsCheckPrice({ examBoard: board, mode, shopId: session.shopId })
+
+        const referenceCode = secureReference("RCK", 2, 3)
+        const localCustomerPhone = normalizeGhanaLocal(from)
+        const customerEmail = await resolveEmail(from).catch(() => null)
+
+        const orderResult = await createShopCheckResultsRequest({
+          examBoard: board,
+          candidateType: session.rcCheckCandidateType ?? 'school',
+          indexNumber: session.rcCheckIndex!,
+          examYear: session.rcCheckYear!,
+          dob: session.rcCheckDob!,
+          mode,
+          voucherPin: session.rcCheckVoucherPin ?? null,
+          voucherSerial: session.rcCheckVoucherSerial ?? null,
+          phoneNumber: localCustomerPhone,
+          whatsappNumber: localCustomerPhone,
+          fee: pricing.totalPaid,
+          paymentReference: referenceCode,
+          shopId: session.shopId!,
+          merchantCommission: pricing.merchantCommission,
+          channel: 'whatsapp_shop',
+        })
+
+        if ('error' in orderResult) {
+          console.error("[WA-SHOP-RCCHECK-CONFIRM] Failed to create request:", orderResult.error)
+          deleteAfter = true
+          reply = 'Sorry, there was an error creating your request. Please try again.'
+          break
+        }
+
+        const orderId = orderResult.orderId
+        const email = customerEmail ?? await resolveEmail(from).catch(() => `${from.replace(/\D/g, '')}@ussd.datagod.com`)
+
+        try {
+          const { status } = await chargeMobileMoney({
+            email,
+            amount: pricing.totalPaid,
+            phone: session.paymentPhone!,
+            provider: session.paystackProvider as 'mtn' | 'vod' | 'tgo',
+            reference: orderId,
+            metadata: {
+              source: 'whatsapp_shop_results_check',
+              results_check_request_id: orderId,
+              exam_board: board,
+              mode,
+              shop_id: session.shopId,
+            },
+          })
+
+          if (status === 'send_otp') {
+            await markOrderOtpRequired('results_check_requests', orderId)
+            session.step = 'SUBMIT_OTP'
+            session.pendingOrderId = orderId
+            session.pendingOrderTable = 'results_check_requests'
+            reply = shopOtpMenu()
+          } else {
+            deleteAfter = true
+            reply = shopPaymentSentMenu(session.paymentPhone!)
+          }
+        } catch (err) {
+          console.error("[WA-SHOP-RCCHECK-CONFIRM] Charge failed:", err)
+          await markOrderFailed('results_check_requests', orderId)
+          deleteAfter = true
+          reply = 'Sorry, we could not start the payment. Please try again.'
+        }
         break
       }
 
