@@ -432,7 +432,7 @@ export default function ResultsCheckRequestsPage() {
                           </>
                         )}
                         <span className="text-muted-foreground">Channel</span>
-                        <span>{req.channel === "whatsapp" ? "WhatsApp" : "USSD"} · {req.mode === "combo" ? "Combo" : "Own voucher"}</span>
+                        <span>{req.channel === "whatsapp" ? "WhatsApp" : req.channel === "whatsapp_shop" ? "WhatsApp Shop" : req.channel === "web" ? "Web" : "USSD"} · {req.mode === "combo" ? "Combo" : "Own voucher"}</span>
                         <span className="text-muted-foreground">Fee · Ref</span>
                         <span>GHS {req.fee.toFixed(2)} · <span className="font-mono">{req.payment_reference}</span></span>
                       </div>

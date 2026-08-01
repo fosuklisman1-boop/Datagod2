@@ -1264,6 +1264,56 @@ describe("shopWaRouter", () => {
     fakeDb.hasCompletedPurchase = true
   })
 
+  it("SELECT_PRODUCT: Check My Results is unavailable when the service-wide kill switch is off", async () => {
+    const phone = "233241000130"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc99", shopId: "s99", shopName: "Kill Switch Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    fakeDb.resultsCheckEnabled = false
+
+    await shopWaRouter(phone, "CODE1", "ks1")
+    await shopWaRouter(phone, "4", "ks2")
+
+    expect(lastReplyTo(phone)).toContain("Results Checker unavailable")
+
+    fakeDb.resultsCheckEnabled = true
+  })
+
+  it("RCCHECK_CONFIRM: the service-wide kill switch flipping off mid-session is rejected at confirm", async () => {
+    const phone = "233241000131"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc100", shopId: "s100", shopName: "Kill Switch Mid Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(isExamBoardEnabled).mockResolvedValue(true)
+    vi.mocked(getAvailableCount).mockResolvedValue(3)
+    vi.mocked(calculateResultsCheckPrice).mockResolvedValue({
+      checkFee: 2, checkFeeMarkup: 0, effectiveCheckFee: 2, totalPaid: 2, merchantCommission: 0,
+    })
+
+    await shopWaRouter(phone, "CODE1", "ksm1")
+    await shopWaRouter(phone, "4", "ksm2")
+    await shopWaRouter(phone, "1", "ksm3") // WASSCE -> RCCHECK_CANDIDATE_TYPE
+    await shopWaRouter(phone, "1", "ksm3b") // School -> RCCHECK_MODE
+    await shopWaRouter(phone, "2", "ksm4") // own_voucher -> RCCHECK_ENTER_VOUCHER
+    await shopWaRouter(phone, "123456789012/WGR1900112581", "ksm5")
+    await shopWaRouter(phone, "0070202043", "ksm6")
+    await shopWaRouter(phone, "2024", "ksm7")
+    await shopWaRouter(phone, "15/06/2008", "ksm8")
+    await shopWaRouter(phone, "0244000333", "ksm9")
+
+    fakeDb.resultsCheckEnabled = false
+    await shopWaRouter(phone, "1", "ksm10")
+
+    expect(createShopCheckResultsRequest).not.toHaveBeenCalled()
+    expect(lastReplyTo(phone)).toContain("no longer available")
+
+    fakeDb.resultsCheckEnabled = true
+  })
+
   it("combo mode: index -> year -> dob -> payment-phone prompt", async () => {
     const phone = "233241000110"
     vi.mocked(resolveShopCode).mockResolvedValue({

@@ -847,10 +847,28 @@ export async function POST(request: NextRequest) {
         const modeNote = checkReq.mode === 'combo'
           ? `\nSerial: ${assignedVoucherSerial ?? 'N/A'}\nPIN: ${assignedVoucherPin ?? 'will be assigned'}`
           : ''
+        const isShopChannel = checkReq.channel === "whatsapp_shop"
+        const confirmMsg = `✓ Payment confirmed! Your ${checkReq.exam_board} results check request has been submitted.\n\nIndex: ${checkReq.index_number}\nYear: ${checkReq.exam_year}\nRef: ${checkReq.payment_reference}${modeNote}\n\nWe'll send your results to this WhatsApp shortly.`
         await sendWhatsAppText(
           waPhone,
-          `✓ Payment confirmed! Your ${checkReq.exam_board} results check request has been submitted.\n\nIndex: ${checkReq.index_number}\nYear: ${checkReq.exam_year}\nRef: ${checkReq.payment_reference}${modeNote}\n\nWe'll send your results to this WhatsApp shortly.`,
+          confirmMsg,
+          isShopChannel ? process.env.WHATSAPP_SHOP_PHONE_NUMBER_ID : undefined,
         ).catch(e => console.warn("[WEBHOOK] WA notify failed:", e))
+
+        // Shop customers may be "warm" in whatsapp_conversations from messaging
+        // the SHOP number (see the deliverResultsViaWhatsApp fix for the same
+        // root cause) — send an SMS fallback too, matching the payment-confirmation
+        // pattern every sibling shop product (ussd_shop_orders/airtime_orders,
+        // above in this same file) already uses, so confirmation doesn't depend
+        // solely on which WhatsApp number the send above used.
+        if (isShopChannel) {
+          await sendSMS({
+            phone: checkReq.phone_number,
+            message: confirmMsg,
+            type: "results_check_payment",
+            reference: checkReq.id,
+          }).catch(e => console.warn("[WEBHOOK] SMS notify failed:", e))
+        }
 
         return NextResponse.json({ received: true })
       }
