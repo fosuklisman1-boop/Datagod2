@@ -50,9 +50,9 @@ export function shopInvalidCodeMenu(reason: string): string {
 
 export function shopProductMenu(shopName: string, showData = true): string {
   if (showData) {
-    return `${shopName}\nWhat to buy?\n1. Data Bundle\n2. Airtime\n3. Results Checker\n0. Exit`
+    return `${shopName}\nWhat to buy?\n1. Data Bundle\n2. Airtime\n3. Results Checker\n4. Check My Results\n0. Exit`
   }
-  return `${shopName}\nWhat to buy?\n1. Airtime\n2. Results Checker\n0. Exit`
+  return `${shopName}\nWhat to buy?\n1. Airtime\n2. Results Checker\n3. Check My Results\n0. Exit`
 }
 
 // ── Shop Data Bundle ──────────────────────────────────────────────────────────
@@ -197,6 +197,65 @@ export function shopRcConfirmMenu(
     `${board} x ${qty}\n` +
     `GHS ${total.toFixed(2)} from\n${formatLocal(paymentPhone)}\n` +
     `PIN(s) sent by SMS\n\n` +
+    `1. Pay now\n2. Cancel`
+  )
+}
+
+// ── Shop Check My Results (Datagod checks on the customer's behalf) ──────────
+export function shopRcCheckBoardMenu(shopName: string, boards: string[]): string {
+  const lines = boards.map((b, i) => `${i + 1}. ${b}`)
+  lines.push('0. Back')
+  return `${shopName}\nCheck My Results\nSelect exam board:\n` + lines.join('\n')
+}
+
+export function shopRcCheckCandidateTypeMenu(): string {
+  return 'Candidate Type:\n1. School\n2. Private\n\n0. Back'
+}
+
+export function shopRcCheckModeMenu(comboTotal: number, ownFee: number): string {
+  return (
+    `How to pay?\n` +
+    `1. Buy voucher + check\n   GHS ${comboTotal.toFixed(2)}\n` +
+    `2. I have a voucher\n   GHS ${ownFee.toFixed(2)}\n\n` +
+    `0. Back`
+  )
+}
+
+export function shopRcCheckVoucherPrompt(): string {
+  return 'Enter voucher PIN\nand serial number:\n(PIN/Serial)\ne.g. 1234/567890\n\n0. Back'
+}
+
+export function shopRcCheckIndexPrompt(): string {
+  return 'Enter your index number:\n(10 digits e.g. 0070202043)\n\n0. Back'
+}
+
+export function shopRcCheckYearPrompt(): string {
+  return 'Enter exam year:\n(e.g. 2024)\n\n0. Back'
+}
+
+export function shopRcCheckDobPrompt(): string {
+  return 'Enter date of birth:\n(DD/MM/YYYY)\ne.g. 15/06/2008\n\n0. Back'
+}
+
+export function shopRcCheckConfirmMenu(
+  shopName: string,
+  board: string,
+  candidateType: 'school' | 'private',
+  indexNo: string,
+  year: number,
+  dob: string,
+  mode: 'combo' | 'own_voucher',
+  amount: number,
+  paymentPhone: string
+): string {
+  const boardLine = `${board} (${candidateType === 'school' ? 'School' : 'Private'})`
+  const detail = mode === 'combo' ? 'Voucher + check' : 'Check only'
+  return (
+    `${shopName}\n` +
+    `${boardLine}\n` +
+    `Index: ${indexNo}\nYear: ${year}\nDOB: ${dob}\n` +
+    `${detail}\n` +
+    `GHS ${amount.toFixed(2)} from\n${formatLocal(paymentPhone)}\n\n` +
     `1. Pay now\n2. Cancel`
   )
 }

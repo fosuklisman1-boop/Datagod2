@@ -8,12 +8,15 @@ import {
   shopPaymentSentMenu, shopOtpMenu, shopInvalidCodeMenu, sortNetworks, PAGE_SIZE,
   shopAirtimeRecipientPrompt, shopAirtimeNetworkMenu, shopAirtimeAmountPrompt, shopAirtimeConfirmMenu,
   shopRcBoardMenu, shopRcQtyPrompt, shopRcConfirmMenu,
+  shopRcCheckBoardMenu, shopRcCheckCandidateTypeMenu, shopRcCheckModeMenu,
+  shopRcCheckVoucherPrompt, shopRcCheckIndexPrompt, shopRcCheckYearPrompt,
+  shopRcCheckDobPrompt, shopRcCheckConfirmMenu,
 } from "./shop-menus"
 import { resolveShopCode, fetchShopNetworks } from "@/lib/shop-commerce/shop-code"
 import { getShopPref, setShopPref, clearShopPref } from "@/lib/whatsapp-bot/shop-prefs"
 import type { WaShopSession } from "./shop-types"
 import { fetchShopBundles, verifyBundlePrice, shopOwnerIsDealer } from "@/lib/shop-commerce/pricing"
-import { createShopBundleOrder, createShopAirtimeOrder, createShopRcOrder } from "@/lib/shop-commerce/orders"
+import { createShopBundleOrder, createShopAirtimeOrder, createShopRcOrder, createShopCheckResultsRequest } from "@/lib/shop-commerce/orders"
 import { chargeMobileMoney, submitOtp } from "@/lib/paystack"
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
 import { validateNetworkPrefix } from "@/lib/phone-format"
@@ -25,10 +28,12 @@ import {
 } from "@/lib/airtime-pricing"
 import {
   isExamBoardEnabled, getAvailableCount, getMaxQuantity, calculateRCPrice, getRCBulkHint,
+  calculateResultsCheckPrice,
   type ExamBoard,
 } from "@/lib/results-checker-service"
 import { buildRcBoardOptions } from "@/lib/ussd/handlers/results-checker"
 import { secureReference } from "@/lib/secure-random"
+import { isValidVoucherPin, isValidVoucherSerial, isValidIndexNumber, isValidDob, isValidExamYear } from "@/lib/results-check-validation"
 
 // Handles inbound messages that arrived on the dedicated shop WhatsApp number
 // (identified by phone_number_id in the webhook payload, wired in
@@ -79,12 +84,13 @@ async function fetchPaystackFeePercent(): Promise<number> {
 // results_checker_orders use `status` instead (mirrors lib/ussd/handlers/otp.ts's
 // SECONDARY_STATUS_COL note and lib/ussd-shop/handlers/{airtime,results-checker}.ts's
 // CONFIRM catch blocks, which this exactly replicates for the WhatsApp channel).
-export type ShopOrderTable = 'ussd_shop_orders' | 'airtime_orders' | 'results_checker_orders'
+export type ShopOrderTable = 'ussd_shop_orders' | 'airtime_orders' | 'results_checker_orders' | 'results_check_requests'
 
 const BROAD_STATUS_COL: Record<ShopOrderTable, 'order_status' | 'status'> = {
   ussd_shop_orders: 'order_status',
   airtime_orders: 'status',
   results_checker_orders: 'status',
+  results_check_requests: 'status',
 }
 
 async function markOrderFailed(table: ShopOrderTable, orderId: string): Promise<void> {
@@ -137,6 +143,41 @@ async function shopAirtimeFeeRate(
 // used by the payment-phone step of all three products.
 function shopNoProviderMessage(): string {
   return "Payment isn't available for that number.\nEnter a different MoMo number:\n(e.g. 0244123456)\n\n0. Cancel"
+}
+
+// Check My Results has no voucher-inventory dependency in own_voucher mode (the
+// customer supplies their own PIN/serial) — unlike buildRcBoardOptions() (the
+// voucher-PURCHASE flow's board list), which filters out any board with 0
+// stock. Gating Check My Results entry on stock would make the whole feature
+// unavailable whenever inventory empties out (has happened in this codebase
+// before — results_checker_inventory has been observed completely empty),
+// even though own_voucher mode never touches inventory at all. This only
+// respects the admin's per-board enable toggle (results_checker_enabled_<board>) —
+// unlike USSD/the main WhatsApp bot's Check-flow board menu (lib/ussd/menus.ts's
+// rcCheckBoardMenu, always all 3 boards, no per-board filtering at all), this is
+// a deliberately stricter, per-board gate for the shop channel. Combo-mode stock
+// is still checked separately, per board, once one is selected — purely for
+// pricing, not for whether the board can be checked at all.
+async function buildRcCheckBoardOptions(): Promise<string[]> {
+  const boards: ExamBoard[] = ['WASSCE', 'BECE', 'NOVDEC']
+  const results = await Promise.all(boards.map(async (b) => (await isExamBoardEnabled(b)) ? b : null))
+  return results.filter((b): b is ExamBoard => b !== null)
+}
+
+// The master service-wide kill switch (admin_settings.results_check_settings.enabled)
+// that USSD and the main WhatsApp bot both check at their equivalent menu entry
+// (lib/ussd/handlers/results-checker.ts's RC_MENU case '3': `if (!enabled) return
+// cont('Service not available...')`). That helper (getRcCheckSettings) is private
+// to that file, so — same reasoning as fetchPaystackFeePercent above — this is
+// resolved inline here with the module's own Supabase client, mirroring the exact
+// admin_settings row shape.
+async function isResultsCheckServiceEnabled(): Promise<boolean> {
+  const { data } = await supabase
+    .from("admin_settings")
+    .select("value")
+    .eq("key", "results_check_settings")
+    .maybeSingle()
+  return (data as any)?.value?.enabled !== false
 }
 
 // CONFIRM-time anti-race token check. A shop's ussd_shop_codes.token_balance is a
@@ -372,12 +413,27 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
     // decimal point. Everywhere else, digits pass straight through; obvious
     // phrases resolve via shopNaturalToDigit; anything else escapes to AI.
     const MONEY_STEPS: WaShopSession['step'][] = [
-      'CONFIRM', 'AIRTIME_CONFIRM', 'RC_CONFIRM',
-      'ENTER_PAYMENT_PHONE', 'AIRTIME_ENTER_PAYMENT_PHONE', 'RC_ENTER_PAYMENT_PHONE',
+      'CONFIRM', 'AIRTIME_CONFIRM', 'RC_CONFIRM', 'RCCHECK_CONFIRM',
+      'ENTER_PAYMENT_PHONE', 'AIRTIME_ENTER_PAYMENT_PHONE', 'RC_ENTER_PAYMENT_PHONE', 'RCCHECK_ENTER_PAYMENT_PHONE',
       'SUBMIT_OTP',
     ]
     const FREE_TEXT_ENTRY_STEPS: WaShopSession['step'][] = [
       'ENTER_RECIPIENT', 'AIRTIME_ENTER_RECIPIENT', 'AIRTIME_ENTER_AMOUNT',
+      'RCCHECK_ENTER_VOUCHER', 'RCCHECK_ENTER_DOB',
+      // RCCHECK_ENTER_YEAR: unlike RCCHECK_ENTER_INDEX (also nominally
+      // pure-digit), its own invalid-input test sends non-digit text
+      // ("abcd") and expects the case body's own "Invalid year" re-prompt.
+      // Without this entry, that input isn't all-digits, has no
+      // shopNaturalToDigit mapping for this step, and would escape to
+      // AI_CONVERSATION before ever reaching the case.
+      'RCCHECK_ENTER_YEAR',
+      // RCCHECK_ENTER_INDEX: the case body does input.trim().replace(/\s/g,
+      // '') specifically to handle customers pasting index numbers with
+      // spaces (e.g. "0070 202043") or dashes/OCR letter-digit confusions
+      // (e.g. "O070202043") — none of which are all-digits, so without this
+      // entry that input escapes to AI_CONVERSATION before the case's own
+      // validation/normalisation ever runs.
+      'RCCHECK_ENTER_INDEX',
     ]
     const isDigitOrZero = /^[0-9]+$/.test(input)
     if (!isDigitOrZero && !MONEY_STEPS.includes(session.step) && !FREE_TEXT_ENTRY_STEPS.includes(session.step)) {
@@ -402,7 +458,7 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         const dataBlocked = session.dataBlocked === true
 
         if (dataBlocked) {
-          // Renumbered menu (no Data option at all): 1=Airtime, 2=Results Checker.
+          // Renumbered menu (no Data option at all): 1=Airtime, 2=Results Checker, 3=Check My Results.
           if (input === '1') {
             session.step = 'AIRTIME_ENTER_RECIPIENT'
             reply = shopAirtimeRecipientPrompt(shopName)
@@ -414,6 +470,16 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
               session.step = 'RC_SELECT_BOARD'
               session.rcBoardOptions = boards
               reply = shopRcBoardMenu(shopName, boards)
+            }
+          } else if (input === '3') {
+            const serviceEnabled = await isResultsCheckServiceEnabled()
+            const boards = serviceEnabled ? await buildRcCheckBoardOptions() : []
+            if (boards.length === 0) {
+              reply = `Results Checker unavailable.\n\n${shopProductMenu(shopName, false)}`
+            } else {
+              session.step = 'RCCHECK_SELECT_BOARD'
+              session.rcBoardOptions = boards
+              reply = shopRcCheckBoardMenu(shopName, boards)
             }
           } else if (input === '0') {
             deleteAfter = true
@@ -443,6 +509,16 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
             session.step = 'RC_SELECT_BOARD'
             session.rcBoardOptions = boards
             reply = shopRcBoardMenu(shopName, boards)
+          }
+        } else if (input === '4') {
+          const serviceEnabled = await isResultsCheckServiceEnabled()
+          const boards = serviceEnabled ? await buildRcCheckBoardOptions() : []
+          if (boards.length === 0) {
+            reply = `Results Checker unavailable.\n\n${shopProductMenu(shopName)}`
+          } else {
+            session.step = 'RCCHECK_SELECT_BOARD'
+            session.rcBoardOptions = boards
+            reply = shopRcCheckBoardMenu(shopName, boards)
           }
         } else if (input === '0') {
           deleteAfter = true
@@ -1167,6 +1243,335 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         } catch (err) {
           console.error("[WA-SHOP-RC-CONFIRM] Charge failed:", err)
           await markOrderFailed('results_checker_orders', orderId)
+          deleteAfter = true
+          reply = 'Sorry, we could not start the payment. Please try again.'
+        }
+        break
+      }
+
+      // ── RCCHECK_SELECT_BOARD ─────────────────────────────────────────────────
+      case 'RCCHECK_SELECT_BOARD': {
+        const options = session.rcBoardOptions ?? []
+        if (input === '0') {
+          session.step = 'SELECT_PRODUCT'
+          reply = shopProductMenu(shopName, !(session.dataBlocked === true))
+          break
+        }
+
+        const idx = parseInt(input, 10) - 1
+        const board = Number.isNaN(idx) ? undefined : options[idx]
+        if (!board) {
+          reply = shopRcCheckBoardMenu(shopName, options)
+          break
+        }
+
+        session.step = 'RCCHECK_CANDIDATE_TYPE'
+        session.rcCheckBoard = board
+        reply = shopRcCheckCandidateTypeMenu()
+        break
+      }
+
+      // ── RCCHECK_CANDIDATE_TYPE ───────────────────────────────────────────────
+      case 'RCCHECK_CANDIDATE_TYPE': {
+        if (input === '0') {
+          session.step = 'RCCHECK_SELECT_BOARD'
+          reply = shopRcCheckBoardMenu(shopName, session.rcBoardOptions ?? [])
+          break
+        }
+        if (input !== '1' && input !== '2') {
+          reply = shopRcCheckCandidateTypeMenu()
+          break
+        }
+        const candidateType = input === '1' ? 'school' : 'private'
+        const board = session.rcCheckBoard! as ExamBoard
+
+        const avail = await getAvailableCount(board)
+        const ownPricing = await calculateResultsCheckPrice({ examBoard: board, mode: 'own_voucher', shopId: session.shopId })
+        session.rcCheckCandidateType = candidateType
+        session.rcCheckFee = ownPricing.totalPaid
+
+        if (avail > 0) {
+          const comboPricing = await calculateResultsCheckPrice({ examBoard: board, mode: 'combo', shopId: session.shopId })
+          session.step = 'RCCHECK_MODE'
+          session.rcCheckComboTotal = comboPricing.totalPaid
+          reply = shopRcCheckModeMenu(comboPricing.totalPaid, ownPricing.totalPaid)
+        } else {
+          session.step = 'RCCHECK_ENTER_VOUCHER'
+          session.rcCheckMode = 'own_voucher'
+          session.rcCheckAmount = ownPricing.totalPaid
+          reply = `No vouchers in stock.\nProvide your own PIN.\n\n${shopRcCheckVoucherPrompt()}`
+        }
+        break
+      }
+
+      // ── RCCHECK_MODE ─────────────────────────────────────────────────────────
+      case 'RCCHECK_MODE': {
+        if (input === '0') {
+          session.step = 'RCCHECK_CANDIDATE_TYPE'
+          reply = shopRcCheckCandidateTypeMenu()
+          break
+        }
+        if (input === '1') {
+          session.step = 'RCCHECK_ENTER_INDEX'
+          session.rcCheckMode = 'combo'
+          session.rcCheckAmount = session.rcCheckComboTotal
+          reply = shopRcCheckIndexPrompt()
+          break
+        }
+        if (input === '2') {
+          session.step = 'RCCHECK_ENTER_VOUCHER'
+          session.rcCheckMode = 'own_voucher'
+          session.rcCheckAmount = session.rcCheckFee
+          reply = shopRcCheckVoucherPrompt()
+          break
+        }
+        reply = shopRcCheckModeMenu(session.rcCheckComboTotal ?? 0, session.rcCheckFee ?? 0)
+        break
+      }
+
+      // ── RCCHECK_ENTER_VOUCHER ────────────────────────────────────────────────
+      case 'RCCHECK_ENTER_VOUCHER': {
+        if (input === '0') {
+          if (session.rcCheckComboTotal !== undefined) {
+            session.step = 'RCCHECK_MODE'
+            reply = shopRcCheckModeMenu(session.rcCheckComboTotal, session.rcCheckFee ?? 0)
+          } else {
+            session.step = 'RCCHECK_CANDIDATE_TYPE'
+            reply = shopRcCheckCandidateTypeMenu()
+          }
+          break
+        }
+
+        const board = session.rcCheckBoard! as ExamBoard
+        const raw = input.trim().toUpperCase()
+        const parts = raw.split(/[/,\s]+/)
+        const pin = parts[0] ?? ''
+        const serial = parts[1] ?? ''
+        if (!pin || !serial || !isValidVoucherPin(board, pin) || !isValidVoucherSerial(board, serial)) {
+          reply = board === 'BECE'
+            ? 'Invalid PIN or serial.\nPIN: 10-12 letters/digits\nSerial: digits e.g. 252100270719\n\nFormat: PIN/Serial\n\n0. Back'
+            : 'Invalid PIN or serial.\nPIN: 12 digits\nSerial: e.g. WGR1900112581\n\nFormat: PIN/Serial\ne.g. 012345678912/WGR1900112581\n\n0. Back'
+          break
+        }
+
+        session.step = 'RCCHECK_ENTER_INDEX'
+        session.rcCheckVoucherPin = pin
+        session.rcCheckVoucherSerial = serial
+        reply = shopRcCheckIndexPrompt()
+        break
+      }
+
+      // ── RCCHECK_ENTER_INDEX ──────────────────────────────────────────────────
+      case 'RCCHECK_ENTER_INDEX': {
+        if (input === '0') {
+          if (session.rcCheckMode === 'own_voucher') {
+            session.step = 'RCCHECK_ENTER_VOUCHER'
+            reply = shopRcCheckVoucherPrompt()
+          } else {
+            session.step = 'RCCHECK_MODE'
+            reply = shopRcCheckModeMenu(session.rcCheckComboTotal ?? 0, session.rcCheckFee ?? 0)
+          }
+          break
+        }
+
+        const board = session.rcCheckBoard! as ExamBoard
+        const index = input.trim().replace(/\s/g, '')
+        if (!isValidIndexNumber(board, index)) {
+          const hint = board === 'BECE' ? '10 or 12 digits' : 'exactly 10 digits'
+          reply = `Invalid index number.\nMust be ${hint},\nnumbers only.\ne.g. 0070202043\n\n0. Back`
+          break
+        }
+
+        session.step = 'RCCHECK_ENTER_YEAR'
+        session.rcCheckIndex = index
+        reply = shopRcCheckYearPrompt()
+        break
+      }
+
+      // ── RCCHECK_ENTER_YEAR ───────────────────────────────────────────────────
+      case 'RCCHECK_ENTER_YEAR': {
+        if (input === '0') {
+          session.step = 'RCCHECK_ENTER_INDEX'
+          reply = shopRcCheckIndexPrompt()
+          break
+        }
+
+        const year = parseInt(input, 10)
+        if (Number.isNaN(year) || !isValidExamYear(year)) {
+          reply = `Invalid year.\nEnter a year between\n1980 and ${new Date().getFullYear()}.\n\n0. Back`
+          break
+        }
+
+        session.step = 'RCCHECK_ENTER_DOB'
+        session.rcCheckYear = year
+        reply = shopRcCheckDobPrompt()
+        break
+      }
+
+      // ── RCCHECK_ENTER_DOB ────────────────────────────────────────────────────
+      case 'RCCHECK_ENTER_DOB': {
+        if (input === '0') {
+          session.step = 'RCCHECK_ENTER_YEAR'
+          reply = shopRcCheckYearPrompt()
+          break
+        }
+
+        const normalised = input.trim().replace(/-/g, '/')
+        if (!isValidDob(normalised)) {
+          reply = 'Invalid date.\nUse DD/MM/YYYY\ne.g. 15/06/2008\n\n0. Back'
+          break
+        }
+
+        session.step = 'RCCHECK_ENTER_PAYMENT_PHONE'
+        session.rcCheckDob = normalised
+        reply = shopPaymentPhonePrompt()
+        break
+      }
+
+      // ── RCCHECK_ENTER_PAYMENT_PHONE ──────────────────────────────────────────
+      case 'RCCHECK_ENTER_PAYMENT_PHONE': {
+        if (input === '0') {
+          deleteAfter = true
+          reply = 'Order cancelled.'
+          break
+        }
+
+        const local = normalizeGhanaLocal(input)
+        if (!isValidLocalGhana(local)) {
+          reply = shopInvalidPaymentPhoneMenu()
+          break
+        }
+
+        const paystackProvider = paystackProviderFromPhone(local)
+        if (!paystackProvider) {
+          reply = shopNoProviderMessage()
+          break
+        }
+
+        session.step = 'RCCHECK_CONFIRM'
+        session.paymentPhone = local
+        session.paystackProvider = paystackProvider
+        reply = shopRcCheckConfirmMenu(
+          shopName, session.rcCheckBoard!, session.rcCheckCandidateType ?? 'school',
+          session.rcCheckIndex!, session.rcCheckYear!, session.rcCheckDob!,
+          session.rcCheckMode ?? 'own_voucher', session.rcCheckAmount ?? 0, local
+        )
+        break
+      }
+
+      // ── RCCHECK_CONFIRM ──────────────────────────────────────────────────────
+      case 'RCCHECK_CONFIRM': {
+        if (input === '2' || input === '0') {
+          deleteAfter = true
+          reply = 'Order cancelled.'
+          break
+        }
+        if (input !== '1') {
+          reply = shopRcCheckConfirmMenu(
+            shopName, session.rcCheckBoard!, session.rcCheckCandidateType ?? 'school',
+            session.rcCheckIndex!, session.rcCheckYear!, session.rcCheckDob!,
+            session.rcCheckMode ?? 'own_voucher', session.rcCheckAmount ?? 0, session.paymentPhone!
+          )
+          break
+        }
+
+        // Same anti-race token recheck as every other CONFIRM step.
+        const tokenBalance = await fetchShopCodeTokenBalance(session.shopCodeId!)
+        if (tokenBalance === null || tokenBalance <= 0) {
+          deleteAfter = true
+          reply = 'This shop has no sessions left. Please contact the seller.'
+          break
+        }
+
+        const board = session.rcCheckBoard! as ExamBoard
+        const mode = session.rcCheckMode ?? 'own_voucher'
+
+        // Re-verify server-side (stale-session guard) — mirrors every other
+        // shop CONFIRM step; do NOT trust session.rcCheckAmount for the charge.
+        // Checks both the service-wide kill switch (an admin could disable the
+        // whole service mid-session — up to 30 min per shop-session.ts's TTL)
+        // and the per-board enable toggle re-verified at entry.
+        const [serviceEnabled, enabled] = await Promise.all([
+          isResultsCheckServiceEnabled(),
+          isExamBoardEnabled(board),
+        ])
+        if (!serviceEnabled || !enabled) {
+          deleteAfter = true
+          reply = 'Results Checker is no longer available. Please send your shop code to start again.'
+          break
+        }
+        if (mode === 'combo') {
+          const avail = await getAvailableCount(board)
+          if (avail < 1) {
+            deleteAfter = true
+            reply = 'No vouchers left for that board. Please send your shop code to start again.'
+            break
+          }
+        }
+
+        const pricing = await calculateResultsCheckPrice({ examBoard: board, mode, shopId: session.shopId })
+
+        const referenceCode = secureReference("RCK", 2, 3)
+        const localCustomerPhone = normalizeGhanaLocal(from)
+        const customerEmail = await resolveEmail(from).catch(() => null)
+
+        const orderResult = await createShopCheckResultsRequest({
+          examBoard: board,
+          candidateType: session.rcCheckCandidateType ?? 'school',
+          indexNumber: session.rcCheckIndex!,
+          examYear: session.rcCheckYear!,
+          dob: session.rcCheckDob!,
+          mode,
+          voucherPin: session.rcCheckVoucherPin ?? null,
+          voucherSerial: session.rcCheckVoucherSerial ?? null,
+          phoneNumber: localCustomerPhone,
+          whatsappNumber: localCustomerPhone,
+          fee: pricing.totalPaid,
+          paymentReference: referenceCode,
+          shopId: session.shopId!,
+          merchantCommission: pricing.merchantCommission,
+          channel: 'whatsapp_shop',
+        })
+
+        if ('error' in orderResult) {
+          console.error("[WA-SHOP-RCCHECK-CONFIRM] Failed to create request:", orderResult.error)
+          deleteAfter = true
+          reply = 'Sorry, there was an error creating your request. Please try again.'
+          break
+        }
+
+        const orderId = orderResult.orderId
+        const email = customerEmail ?? await resolveEmail(from).catch(() => `${from.replace(/\D/g, '')}@ussd.datagod.com`)
+
+        try {
+          const { status } = await chargeMobileMoney({
+            email,
+            amount: pricing.totalPaid,
+            phone: session.paymentPhone!,
+            provider: session.paystackProvider as 'mtn' | 'vod' | 'tgo',
+            reference: orderId,
+            metadata: {
+              source: 'whatsapp_shop_results_check',
+              results_check_request_id: orderId,
+              exam_board: board,
+              mode,
+              shop_id: session.shopId,
+            },
+          })
+
+          if (status === 'send_otp') {
+            await markOrderOtpRequired('results_check_requests', orderId)
+            session.step = 'SUBMIT_OTP'
+            session.pendingOrderId = orderId
+            session.pendingOrderTable = 'results_check_requests'
+            reply = shopOtpMenu()
+          } else {
+            deleteAfter = true
+            reply = shopPaymentSentMenu(session.paymentPhone!)
+          }
+        } catch (err) {
+          console.error("[WA-SHOP-RCCHECK-CONFIRM] Charge failed:", err)
+          await markOrderFailed('results_check_requests', orderId)
           deleteAfter = true
           reply = 'Sorry, we could not start the payment. Please try again.'
         }

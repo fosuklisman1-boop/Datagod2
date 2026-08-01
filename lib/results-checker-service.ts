@@ -143,13 +143,26 @@ export async function notifyAdminsNewResultsCheckRequest(requestId: string): Pro
     .single()
   if (!req) return
 
-  const channelLabel = req.channel === "whatsapp" ? "WhatsApp" : req.channel === "web" ? "Web" : "USSD"
+  const channelLabel = req.channel === "whatsapp" ? "WhatsApp"
+    : req.channel === "whatsapp_shop" ? "WhatsApp Shop"
+    : req.channel === "web" ? "Web" : "USSD"
+
+  let shopSuffix = ""
+  if (req.shop_id) {
+    const { data: shop } = await supabase
+      .from("user_shops")
+      .select("shop_name")
+      .eq("id", req.shop_id)
+      .maybeSingle()
+    if (shop?.shop_name) shopSuffix = ` via ${shop.shop_name}`
+  }
+
   const modeLabel = req.mode === "combo" ? "Combo (voucher assigned)" : "Own voucher"
   const message =
     `🔔 New Results Check Request\n\n` +
     `${req.exam_board} · ${modeLabel}\n` +
     `Index: ${req.index_number} (${req.exam_year})\n` +
-    `Channel: ${channelLabel} · ${req.phone_number}\n` +
+    `Channel: ${channelLabel}${shopSuffix} · ${req.phone_number}\n` +
     `Ref: ${req.payment_reference}` +
     voucherInfoBlock(req) +
     `\n\nReply "pending" to view and pick up requests.`
@@ -184,8 +197,20 @@ async function deliverResultsViaWhatsApp(
   const { sendWhatsAppText, sendWhatsAppMedia, sendWhatsAppTemplate } = await import("@/lib/whatsapp-bot/send")
 
   // 1. Warm path — free-form delivers and reads best. If everything sends, done.
+  //
+  // whatsapp_shop rows are excluded from the warm check: whatsapp_conversations
+  // is keyed only by phone_number (shared across the main bot's number AND every
+  // shop's number — see lib/whatsapp-bot/log-message.ts), so a customer who only
+  // ever messaged a SHOP's WhatsApp number would incorrectly read as "warm" here.
+  // The free-form send below has no phone_number_id override, so it would go out
+  // from the MAIN bot's number — where that customer is actually cold — and Meta
+  // silently drops it (see the cold-path fallback below for why that's dangerous:
+  // there'd be no fallback since the code already thinks the warm path handled it).
+  // Forcing the template path is always correct for this channel: approved
+  // templates aren't restricted by which specific number the recipient has
+  // messaged before.
   let textAlreadySent = false
-  if (await isWaWarm(waPhone)) {
+  if (req.channel !== 'whatsapp_shop' && await isWaWarm(waPhone)) {
     let ok = true
     if (req.result_data) {
       const resultMsg =

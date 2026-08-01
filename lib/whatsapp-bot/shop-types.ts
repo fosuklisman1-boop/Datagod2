@@ -18,6 +18,17 @@ export type WaShopStep =
   | 'RC_ENTER_QTY'
   | 'RC_ENTER_PAYMENT_PHONE'
   | 'RC_CONFIRM'
+  // Check My Results (Datagod checks on the customer's behalf — distinct
+  // from the RC_* voucher-purchase flow above)
+  | 'RCCHECK_SELECT_BOARD'
+  | 'RCCHECK_CANDIDATE_TYPE'
+  | 'RCCHECK_MODE'
+  | 'RCCHECK_ENTER_VOUCHER'
+  | 'RCCHECK_ENTER_INDEX'
+  | 'RCCHECK_ENTER_YEAR'
+  | 'RCCHECK_ENTER_DOB'
+  | 'RCCHECK_ENTER_PAYMENT_PHONE'
+  | 'RCCHECK_CONFIRM'
   // Sticky "handed off to AI" marker (lib/whatsapp-bot/shop-router.ts). Once the
   // router escapes to the AI conversation handler, the session is set to this
   // step instead of being deleted — every subsequent reply (including a direct
@@ -63,7 +74,7 @@ export interface WaShopSession {
   // product's CONFIRM step (mirrors lib/ussd-shop/types.ts's USSDShopSession, which
   // leaves this undefined only for data-bundle orders; here it's always set so
   // SUBMIT_OTP never has to guess/default).
-  pendingOrderTable?: 'ussd_shop_orders' | 'airtime_orders' | 'results_checker_orders'
+  pendingOrderTable?: 'ussd_shop_orders' | 'airtime_orders' | 'results_checker_orders' | 'results_check_requests'
   // Airtime flow
   airtimeRecipient?: string
   airtimeNetwork?: string
@@ -78,5 +89,17 @@ export interface WaShopSession {
   rcTotal?: number
   rcMerchantCommission?: number
   rcBoardOptions?: string[]
+  // Check My Results flow
+  rcCheckBoard?: string
+  rcCheckCandidateType?: 'school' | 'private'
+  rcCheckMode?: 'combo' | 'own_voucher'
+  rcCheckFee?: number          // own_voucher total (shop-marked-up)
+  rcCheckComboTotal?: number   // combo total (shop-marked-up); undefined when the board has 0 stock
+  rcCheckAmount?: number       // the amount actually shown/charged, set once mode is chosen
+  rcCheckVoucherPin?: string
+  rcCheckVoucherSerial?: string
+  rcCheckIndex?: string
+  rcCheckYear?: number
+  rcCheckDob?: string
   dataBlocked?: boolean
 }

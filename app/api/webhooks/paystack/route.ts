@@ -753,7 +753,7 @@ export async function POST(request: NextRequest) {
       // Handle WhatsApp results-check requests (reference IS the UUID)
       const { data: checkReq } = await supabase
         .from("results_check_requests")
-        .select("id, fee, payment_status, phone_number, exam_board, index_number, exam_year, payment_reference, mode, voucher_pin")
+        .select("id, fee, payment_status, phone_number, exam_board, index_number, exam_year, payment_reference, mode, voucher_pin, shop_id, merchant_commission, channel")
         .eq("id", reference)
         .maybeSingle()
 
@@ -804,6 +804,38 @@ export async function POST(request: NextRequest) {
           .update(updatePayload)
           .eq("id", checkReq.id)
 
+        // Shop attribution (added for the shop WhatsApp bot's Check My Results
+        // flow — the main bot's direct-charge callers never set shop_id, so this
+        // is a no-op for them). Mirrors the identical insert shape
+        // fulfillPaidResultsCheckRequest() uses (lib/results-checker-service.ts).
+        if (checkReq.shop_id && Number(checkReq.merchant_commission) > 0) {
+          const { error: profitError } = await supabase.from("shop_profits").insert([{
+            shop_id: checkReq.shop_id,
+            results_check_request_id: checkReq.id,
+            profit_amount: checkReq.merchant_commission,
+            status: "credited",
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          }])
+          if (profitError && profitError.code !== "23505") {
+            console.error("[WEBHOOK] Failed to credit shop profit for results check request:", profitError.message)
+          } else if (!profitError) {
+            console.log(`[WEBHOOK] ✓ Shop profit credited: GHS ${checkReq.merchant_commission} for results check request ${checkReq.id}`)
+          }
+        }
+
+        // WhatsApp shop bot bills 1 session token per completed order, same as
+        // the airtime_orders/results_checker_orders branches above.
+        if (checkReq.channel === "whatsapp_shop") {
+          const { deductTokenIfWhatsappShopOrder } = await import("@/lib/shop-commerce/token-deduction")
+          const deductResult = await deductTokenIfWhatsappShopOrder(checkReq)
+          if (deductResult.deducted) {
+            console.log("[WEBHOOK] ✓ WhatsApp shop token deducted for results check request:", checkReq.id)
+          } else if (deductResult.reason !== "not_whatsapp_shop") {
+            console.error("[WEBHOOK] Failed to deduct WhatsApp shop token:", deductResult)
+          }
+        }
+
         await notifyAdminsNewResultsCheckRequest(checkReq.id).catch(e => console.warn("[WEBHOOK] Admin notify failed:", e))
 
         // Notify user on WhatsApp that their request is confirmed
@@ -815,10 +847,28 @@ export async function POST(request: NextRequest) {
         const modeNote = checkReq.mode === 'combo'
           ? `\nSerial: ${assignedVoucherSerial ?? 'N/A'}\nPIN: ${assignedVoucherPin ?? 'will be assigned'}`
           : ''
+        const isShopChannel = checkReq.channel === "whatsapp_shop"
+        const confirmMsg = `✓ Payment confirmed! Your ${checkReq.exam_board} results check request has been submitted.\n\nIndex: ${checkReq.index_number}\nYear: ${checkReq.exam_year}\nRef: ${checkReq.payment_reference}${modeNote}\n\nWe'll send your results to this WhatsApp shortly.`
         await sendWhatsAppText(
           waPhone,
-          `✓ Payment confirmed! Your ${checkReq.exam_board} results check request has been submitted.\n\nIndex: ${checkReq.index_number}\nYear: ${checkReq.exam_year}\nRef: ${checkReq.payment_reference}${modeNote}\n\nWe'll send your results to this WhatsApp shortly.`,
+          confirmMsg,
+          isShopChannel ? process.env.WHATSAPP_SHOP_PHONE_NUMBER_ID : undefined,
         ).catch(e => console.warn("[WEBHOOK] WA notify failed:", e))
+
+        // Shop customers may be "warm" in whatsapp_conversations from messaging
+        // the SHOP number (see the deliverResultsViaWhatsApp fix for the same
+        // root cause) — send an SMS fallback too, matching the payment-confirmation
+        // pattern every sibling shop product (ussd_shop_orders/airtime_orders,
+        // above in this same file) already uses, so confirmation doesn't depend
+        // solely on which WhatsApp number the send above used.
+        if (isShopChannel) {
+          await sendSMS({
+            phone: checkReq.phone_number,
+            message: confirmMsg,
+            type: "results_check_payment",
+            reference: checkReq.id,
+          }).catch(e => console.warn("[WEBHOOK] SMS notify failed:", e))
+        }
 
         return NextResponse.json({ received: true })
       }

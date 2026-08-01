@@ -3,7 +3,9 @@ import {
   shopRecipientPrompt, shopPaymentPhonePrompt, shopInvalidPaymentPhoneMenu, shopConfirmMenu,
   shopPaymentSentMenu, shopOtpMenu, shopAirtimeRecipientPrompt, shopAirtimeNetworkMenu,
   shopAirtimeAmountPrompt, shopAirtimeConfirmMenu, shopRcBoardMenu, shopRcQtyPrompt,
-  shopRcConfirmMenu, sortNetworks, PAGE_SIZE,
+  shopRcConfirmMenu, shopRcCheckBoardMenu, shopRcCheckCandidateTypeMenu, shopRcCheckModeMenu,
+  shopRcCheckVoucherPrompt, shopRcCheckIndexPrompt, shopRcCheckYearPrompt, shopRcCheckDobPrompt,
+  shopRcCheckConfirmMenu, sortNetworks, PAGE_SIZE,
 } from "./shop-menus"
 import { WaShopBundleOption } from "./shop-types"
 
@@ -21,19 +23,21 @@ describe("whatsapp-bot shop-menus", () => {
       expect(text).toContain("Enter shop code")
     })
 
-    it("shopProductMenu shows the shop name and all three products by default", () => {
+    it("shopProductMenu shows the shop name and all four products by default", () => {
       const text = shopProductMenu("Kofi's Data Shop")
       expect(text).toContain("Kofi's Data Shop")
       expect(text).toContain("1. Data Bundle")
       expect(text).toContain("2. Airtime")
       expect(text).toContain("3. Results Checker")
+      expect(text).toContain("4. Check My Results")
     })
 
-    it("shopProductMenu omits Data Bundle when showData is false", () => {
+    it("shopProductMenu omits Data Bundle when showData is false, renumbering Check My Results to 3", () => {
       const text = shopProductMenu("Kofi's Data Shop", false)
       expect(text).not.toContain("Data Bundle")
       expect(text).toContain("1. Airtime")
       expect(text).toContain("2. Results Checker")
+      expect(text).toContain("3. Check My Results")
     })
   })
 
@@ -174,6 +178,73 @@ describe("whatsapp-bot shop-menus", () => {
       expect(text).toContain("WASSCE x 2")
       expect(text).toContain("GHS 21.00 from")
       expect(text).toContain("0245555555")
+    })
+  })
+
+  describe("shop check-my-results menus", () => {
+    it("shopRcCheckBoardMenu lists the shop name and each board with a number", () => {
+      const text = shopRcCheckBoardMenu("Shop A", ["WASSCE", "BECE"])
+      expect(text).toContain("Shop A")
+      expect(text).toContain("1. WASSCE")
+      expect(text).toContain("2. BECE")
+      expect(text).toContain("0. Back")
+    })
+
+    it("shopRcCheckCandidateTypeMenu offers school/private", () => {
+      const text = shopRcCheckCandidateTypeMenu()
+      expect(text).toContain("1. School")
+      expect(text).toContain("2. Private")
+      expect(text).toContain("0. Back")
+    })
+
+    it("shopRcCheckModeMenu shows both the combo and own-voucher prices", () => {
+      const text = shopRcCheckModeMenu(12, 2)
+      expect(text).toContain("GHS 12.00")
+      expect(text).toContain("GHS 2.00")
+      expect(text).toContain("0. Back")
+    })
+
+    it("shopRcCheckVoucherPrompt asks for PIN/Serial", () => {
+      const text = shopRcCheckVoucherPrompt()
+      expect(text).toContain("PIN")
+      expect(text).toContain("Serial")
+      expect(text).toContain("0. Back")
+    })
+
+    it("shopRcCheckIndexPrompt asks for the index number", () => {
+      expect(shopRcCheckIndexPrompt()).toContain("index number")
+    })
+
+    it("shopRcCheckYearPrompt asks for the exam year", () => {
+      expect(shopRcCheckYearPrompt()).toContain("exam year")
+    })
+
+    it("shopRcCheckDobPrompt asks for DD/MM/YYYY", () => {
+      expect(shopRcCheckDobPrompt()).toContain("DD/MM/YYYY")
+    })
+
+    it("shopRcCheckConfirmMenu shows board, candidate type, index, year, dob, mode, amount, and payment number", () => {
+      const text = shopRcCheckConfirmMenu(
+        "Shop A", "WASSCE", "school", "0070202043", 2024, "15/06/2008", "combo", 12, "233245555555"
+      )
+      expect(text).toContain("Shop A")
+      expect(text).toContain("WASSCE (School)")
+      expect(text).toContain("Index: 0070202043")
+      expect(text).toContain("Year: 2024")
+      expect(text).toContain("DOB: 15/06/2008")
+      expect(text).toContain("Voucher + check")
+      expect(text).toContain("GHS 12.00 from")
+      expect(text).toContain("0245555555")
+      expect(text).toContain("1. Pay now")
+      expect(text).toContain("2. Cancel")
+    })
+
+    it("shopRcCheckConfirmMenu labels own_voucher mode as 'Check only'", () => {
+      const text = shopRcCheckConfirmMenu(
+        "Shop A", "WASSCE", "private", "0070202043", 2024, "15/06/2008", "own_voucher", 2, "233245555555"
+      )
+      expect(text).toContain("WASSCE (Private)")
+      expect(text).toContain("Check only")
     })
   })
 })
