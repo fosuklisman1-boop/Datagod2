@@ -540,25 +540,38 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
                   <div>
                     <Label className="text-sm">Voucher PIN</Label>
                     <Input
-                      inputMode="numeric"
                       value={formData.voucherPin}
-                      onChange={e => setFormData(p => ({ ...p, voucherPin: e.target.value.replace(/\D/g, "").slice(0, 12) }))}
+                      onChange={e => setFormData(p => ({
+                        ...p,
+                        voucherPin: selectedBoard === "BECE"
+                          ? e.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 12)
+                          : e.target.value.replace(/\D/g, "").slice(0, 12),
+                      }))}
                       onBlur={() => validateField("voucherPin")}
-                      placeholder="12-digit PIN"
+                      placeholder={selectedBoard === "BECE" ? "e.g. 5FBR336742D4" : "12-digit PIN"}
                       className={`mt-1 font-mono ${formErrors.voucherPin ? "border-destructive" : ""}`}
                     />
-                    {formErrors.voucherPin && <p className="text-xs text-destructive mt-1">{formErrors.voucherPin}</p>}
+                    {formErrors.voucherPin
+                      ? <p className="text-xs text-destructive mt-1">{formErrors.voucherPin}</p>
+                      : <p className="text-xs text-muted-foreground mt-1">{selectedBoard === "BECE" ? "BECE PIN is alphanumeric (e.g. 5FBR336742D4)" : "WASSCE/NOVDEC PIN is 12 digits"}</p>}
                   </div>
                   <div>
                     <Label className="text-sm">Voucher Serial Number</Label>
                     <Input
                       value={formData.voucherSerial}
-                      onChange={e => setFormData(p => ({ ...p, voucherSerial: e.target.value.toUpperCase() }))}
+                      onChange={e => setFormData(p => ({
+                        ...p,
+                        voucherSerial: selectedBoard === "BECE"
+                          ? e.target.value.replace(/\D/g, "").slice(0, 14)
+                          : e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""),
+                      }))}
                       onBlur={() => validateField("voucherSerial")}
-                      placeholder="e.g. WR1234567"
+                      placeholder={selectedBoard === "BECE" ? "e.g. 252100270719" : "e.g. WGR1900112581"}
                       className={`mt-1 font-mono ${formErrors.voucherSerial ? "border-destructive" : ""}`}
                     />
-                    {formErrors.voucherSerial && <p className="text-xs text-destructive mt-1">{formErrors.voucherSerial}</p>}
+                    {formErrors.voucherSerial
+                      ? <p className="text-xs text-destructive mt-1">{formErrors.voucherSerial}</p>
+                      : <p className="text-xs text-muted-foreground mt-1">{selectedBoard === "BECE" ? "BECE serial is numeric (e.g. 252100270719)" : "WASSCE/NOVDEC serial is letter-prefixed (e.g. WGR1900112581)"}</p>}
                   </div>
                 </div>
               )}
