@@ -25,9 +25,10 @@ export async function POST(req: NextRequest) {
         if (action === "init") {
             const { channels, recipients, subject, message } = body
             // recipients:
-            //   { type: 'roles',    roles: string[] }
-            //   { type: 'specific', users: [{id,email,phone,name}] }
-            //   { type: 'group',    groupId: string }   ← address-book group (M5)
+            //   { type: 'roles',       roles: string[] }
+            //   { type: 'specific',    users: [{id,email,phone,name}] }
+            //   { type: 'group',       groupId: string }   ← address-book group (M5)
+            //   { type: 'shop_owners' }                    ← everyone with a user_shops row
             // Optional (group): mergeFields:boolean (default true) personalises
             // [FirstName]/[LastName]/[Phone] per recipient.
 
@@ -50,8 +51,8 @@ export async function POST(req: NextRequest) {
             if (!recipients || typeof recipients !== "object") {
                 return NextResponse.json({ error: "recipients is required" }, { status: 400 })
             }
-            if (recipients.type !== "roles" && recipients.type !== "specific" && recipients.type !== "group") {
-                return NextResponse.json({ error: "recipients.type must be 'roles', 'specific', or 'group'" }, { status: 400 })
+            if (recipients.type !== "roles" && recipients.type !== "specific" && recipients.type !== "group" && recipients.type !== "shop_owners") {
+                return NextResponse.json({ error: "recipients.type must be 'roles', 'specific', 'group', or 'shop_owners'" }, { status: 400 })
             }
             if (recipients.type === "specific" && (!Array.isArray(recipients.users) || recipients.users.length === 0)) {
                 return NextResponse.json({ error: "recipients.users is required for specific targeting" }, { status: 400 })
@@ -66,12 +67,13 @@ export async function POST(req: NextRequest) {
                 return NextResponse.json({ error: "recipients.groupId is required for group targeting" }, { status: 400 })
             }
 
-            // For a group audience, resolve + personalise the address-book contacts
-            // up front so we can fail fast on an empty/oversized group and then
+            // For a group or shop-owners audience, resolve the actual contacts up
+            // front so we can fail fast on an empty/oversized audience and then
             // enqueue them as pre-rendered "specific" recipients (each carrying its
-            // own rendered_message). Backwards-compatible: roles/specific untouched.
-            let groupSpecificUsers:
-                | Array<{ phone: string; name?: string; renderedMessage?: string }>
+            // own rendered_message where applicable). Backwards-compatible:
+            // roles/specific untouched.
+            let resolvedUsers:
+                | Array<{ id?: string; phone?: string; email?: string; name?: string; renderedMessage?: string }>
                 | undefined
             let targetGroupLabel: string[] = recipients.roles || ["specific"]
             if (recipients.type === "group") {
@@ -88,7 +90,7 @@ export async function POST(req: NextRequest) {
                 if (resolved.contacts.length > 5000) {
                     return NextResponse.json({ error: "cannot target more than 5000 contacts at once" }, { status: 400 })
                 }
-                groupSpecificUsers = resolved.contacts.map((c) => ({
+                resolvedUsers = resolved.contacts.map((c) => ({
                     phone: c.phone,
                     name: c.firstName,
                     renderedMessage: mergeFields
@@ -96,6 +98,47 @@ export async function POST(req: NextRequest) {
                         : undefined,
                 }))
                 targetGroupLabel = [`group:${recipients.groupId}`]
+            } else if (recipients.type === "shop_owners") {
+                // Every distinct user who owns a shop (user_shops row) — dealers and
+                // sub-agents alike. Paginated: 1195 shop owners already exceeds
+                // Supabase's default 1000-row response cap, so a plain .select()
+                // would silently truncate without this.
+                const seen = new Set<string>()
+                const owners: Array<{ id: string; email?: string; phone?: string; name?: string }> = []
+                let page = 0
+                const pageSize = 1000
+                let hasMore = true
+                while (hasMore) {
+                    const { data, error } = await supabase
+                        .from("user_shops")
+                        .select("id, users(id, email, phone_number, first_name)")
+                        .not("user_id", "is", null)
+                        .order("id", { ascending: true })
+                        .range(page * pageSize, (page + 1) * pageSize - 1)
+                    if (error) {
+                        return NextResponse.json({ error: `Failed to resolve shop owners: ${error.message}` }, { status: 400 })
+                    }
+                    if (data && data.length > 0) {
+                        for (const row of data as any[]) {
+                            const u = row.users
+                            if (!u?.id || seen.has(u.id)) continue
+                            seen.add(u.id)
+                            owners.push({ id: u.id, email: u.email ?? undefined, phone: u.phone_number ?? undefined, name: u.first_name ?? undefined })
+                        }
+                        hasMore = data.length === pageSize
+                        page++
+                    } else {
+                        hasMore = false
+                    }
+                }
+                if (owners.length === 0) {
+                    return NextResponse.json({ error: "No shop owners found" }, { status: 400 })
+                }
+                if (owners.length > 5000) {
+                    return NextResponse.json({ error: "cannot target more than 5000 shop owners at once" }, { status: 400 })
+                }
+                resolvedUsers = owners
+                targetGroupLabel = ["shop_owners"]
             }
 
             const { data: broadcastLog, error: logError } = await supabase
@@ -124,11 +167,13 @@ export async function POST(req: NextRequest) {
             const broadcastId = broadcastLog.id
 
             // Persist the full recipient list so the cron can finish the send.
-            // A group audience is enqueued as pre-rendered "specific" recipients.
+            // Group and shop-owner audiences are enqueued as pre-resolved "specific"
+            // recipients.
+            const preResolved = recipients.type === "group" || recipients.type === "shop_owners"
             const enqueued = await enqueueRecipients(supabase, broadcastId, {
-                targetType: recipients.type === "group" ? "specific" : recipients.type,
+                targetType: preResolved ? "specific" : recipients.type,
                 roles: recipients.roles,
-                specificUsers: recipients.type === "group" ? groupSpecificUsers : recipients.users,
+                specificUsers: preResolved ? resolvedUsers : recipients.users,
             })
 
             if (enqueued === 0) {

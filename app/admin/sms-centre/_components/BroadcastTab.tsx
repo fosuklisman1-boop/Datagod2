@@ -49,7 +49,7 @@ const ALL_CHANNELS = ["sms", "whatsapp", "email", "push"] as const
 type Channel = (typeof ALL_CHANNELS)[number]
 
 const ALL_ROLES = ["user", "dealer", "sub_agent", "admin"] as const
-type Audience = "roles" | "specific" | "group"
+type Audience = "roles" | "specific" | "group" | "shop_owners"
 
 export default function BroadcastTab() {
   const [groups, setGroups] = useState<Group[]>([])
@@ -155,6 +155,8 @@ export default function BroadcastTab() {
       ? `group "${selectedGroup?.name ?? "?"}" (${estimatedRecipients ?? "?"} contacts)`
       : audienceType === "specific"
       ? `${selectedUsers.length} selected user${selectedUsers.length === 1 ? "" : "s"}`
+      : audienceType === "shop_owners"
+      ? "all shop owners"
       : `all users in role${roles.length === 1 ? "" : "s"} ${roles.join(", ")}`
 
   function send() {
@@ -184,6 +186,8 @@ export default function BroadcastTab() {
               name: u.first_name,
             })),
           }
+        : audienceType === "shop_owners"
+        ? { type: "shop_owners" as const }
         : { type: "roles" as const, roles }
 
     setSending(true)
@@ -253,6 +257,7 @@ export default function BroadcastTab() {
                 { id: "roles", label: "Platform roles" },
                 { id: "specific", label: "Specific users" },
                 { id: "group", label: "Address-book group" },
+                { id: "shop_owners", label: "Shop Owners" },
               ] as { id: Audience; label: string }[]).map((opt) => (
                 <button
                   key={opt.id}
@@ -348,6 +353,12 @@ export default function BroadcastTab() {
                 </label>
               </div>
             )}
+
+            {audienceType === "shop_owners" && (
+              <p className="text-sm text-muted-foreground">
+                Sends to every user who owns a shop — dealers and sub-agents alike. No further selection needed.
+              </p>
+            )}
           </CardContent>
         </Card>
 
@@ -434,6 +445,8 @@ export default function BroadcastTab() {
                   ? String(estimatedRecipients)
                   : audienceType === "roles"
                   ? "all users in selected role(s)"
+                  : audienceType === "shop_owners"
+                  ? "all shop owners"
                   : "—"
               }
             />
@@ -444,6 +457,8 @@ export default function BroadcastTab() {
                   ? String(estimatedCredits)
                   : audienceType === "roles"
                   ? "all users in selected role(s)"
+                  : audienceType === "shop_owners"
+                  ? "all shop owners"
                   : "—"
               }
             />
