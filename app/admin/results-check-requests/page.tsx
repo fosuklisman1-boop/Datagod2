@@ -31,6 +31,7 @@ interface CheckRequest {
   voucher_pin: string | null
   voucher_serial: string | null
   whatsapp_number: string | null
+  customer_email: string | null
   payment_reference: string
   created_at: string
   claimed_by: string | null
@@ -42,6 +43,22 @@ const STATUS_COLORS: Record<string, string> = {
   checking: "bg-warning/15 text-warning border-warning/30",
   completed: "bg-success/15 text-success border-success/30",
   failed: "bg-destructive/15 text-destructive border-destructive/30",
+}
+
+// Mirrors the branching in deliverResultsCheckRequest() (lib/results-checker-service.ts)
+// so the button label always names the channel(s) that will actually fire —
+// WhatsApp delivery is additive whenever whatsapp_number is on file, regardless
+// of the primary channel.
+function deliveryChannelLabel(req: CheckRequest, resultText: string, hasMedia: boolean): string {
+  if (req.channel === "whatsapp") return "WhatsApp"
+  const channels: string[] = []
+  if (req.channel === "web" && req.customer_email) {
+    if (resultText || hasMedia) channels.push("Email")
+  } else if (resultText) {
+    channels.push("SMS")
+  }
+  if (req.whatsapp_number) channels.push("WhatsApp")
+  return channels.length > 0 ? channels.join(" + ") : "SMS"
 }
 
 export default function ResultsCheckRequestsPage() {
@@ -526,7 +543,13 @@ export default function ResultsCheckRequestsPage() {
                           onClick={() => deliverResult(req)}
                         >
                           <Send size={13} />
-                          {delivering[req.id] ? "Sending..." : `Send via ${req.channel === "whatsapp" ? "WhatsApp" : "SMS"}`}
+                          {delivering[req.id]
+                            ? "Sending..."
+                            : `Send via ${deliveryChannelLabel(
+                                req,
+                                resultInputs[req.id]?.trim() ?? req.result_data ?? "",
+                                !!(mediaFiles[req.id] || req.media_url)
+                              )}`}
                         </Button>
                       </div>
                     </div>
