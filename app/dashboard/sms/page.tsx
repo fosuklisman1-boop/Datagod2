@@ -91,7 +91,7 @@ interface MomoDialog {
 }
 
 // ─── constants / helpers ──────────────────────────────────────────────────
-const MAX_RECIPIENTS = 50
+const MAX_RECIPIENTS = 5000
 
 // Quick-insert chips: {shop_*} tokens are resolved server-side (and previewed
 // client-side); Promo / Order now drop in handy starter text.
