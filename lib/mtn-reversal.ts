@@ -10,6 +10,32 @@ export type ReversalRow = {
   shop_order_id: string | null
   api_order_id: string | null
   provider: string | null
+  external_status?: string | null
+}
+
+// Mirrors the "completed" branch of every provider's own normalizeStatus()
+// (sykes/xpress/codecraft/eazyghdata/bisdel/datakazina) — used to tell a
+// genuine provider-confirmed completion apart from a tracking row whose
+// status column was merely copied over by an unrelated flow.
+const PROVIDER_COMPLETED_KEYWORDS = new Set([
+  "completed", "complete", "success", "successful", "delivered", "done", "sent", "fulfilled",
+])
+
+/**
+ * True only if `external_status` — the provider's own last-reported raw
+ * status string — itself reads as a completion. Tracking rows can also have
+ * their `status` column flipped to "completed" without ever being confirmed
+ * BY the provider: admin bulk-completing manually-downloaded orders
+ * (bulk-update-status) and the sync cron's own "reconcile against an
+ * already-terminal order" step both write status="completed" without
+ * touching external_status, since neither ever asked the provider. Such rows
+ * must never be treated as a provider reversal candidate — the provider's
+ * last real word on the order (e.g. "failed") never changed.
+ */
+export function looksProviderCompleted(externalStatus: string | null | undefined): boolean {
+  if (!externalStatus) return false
+  const s = String(externalStatus).toLowerCase().trim().replace(/[\s-]+/g, "_")
+  return PROVIDER_COMPLETED_KEYWORDS.has(s)
 }
 
 /** A completed tracking row whose provider now reports failed, still inside the 72h window. */
@@ -110,17 +136,26 @@ export async function flagReversal(
   return { flagged: true, superseded }
 }
 
-/** Load completed tracking rows for a provider still inside the 72h reversal window. */
+/**
+ * Load completed tracking rows for a provider still inside the 72h reversal
+ * window — restricted to rows the provider itself actually confirmed
+ * completed (see looksProviderCompleted). A row flipped to status="completed"
+ * by an unrelated flow (admin bulk-completing a manually-downloaded batch,
+ * or the sync cron's reconcile-against-terminal-order step) never had the
+ * provider's blessing in the first place, so a still-"failed" provider
+ * response for it isn't a reversal — it's the same failure that was always
+ * there.
+ */
 export async function fetchReversalCandidates(supabase: SupabaseClient, provider: string, limit = 200): Promise<ReversalRow[]> {
   const since = new Date(Date.now() - REVERSAL_WINDOW_MS).toISOString()
   const { data } = await supabase
     .from("mtn_fulfillment_tracking")
-    .select("id, mtn_order_id, order_type, order_id, shop_order_id, api_order_id, provider, status, updated_at")
+    .select("id, mtn_order_id, order_type, order_id, shop_order_id, api_order_id, provider, status, external_status, updated_at")
     .eq("provider", provider)
     .eq("status", "completed")
     .gte("updated_at", since)
     .not("mtn_order_id", "is", null)
     .order("updated_at", { ascending: false })
     .limit(limit)
-  return (data as any[]) ?? []
+  return ((data as any[]) ?? []).filter((row) => looksProviderCompleted(row.external_status))
 }

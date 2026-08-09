@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest"
-import { isReversal, flagReversal, REVERSAL_WINDOW_MS } from "./mtn-reversal"
+import { isReversal, flagReversal, fetchReversalCandidates, looksProviderCompleted, REVERSAL_WINDOW_MS } from "./mtn-reversal"
 
 vi.mock("@/lib/push-service", () => ({ notifyAdminsPush: vi.fn().mockResolvedValue(undefined) }))
 
@@ -18,6 +18,76 @@ describe("isReversal", () => {
   it("ignores completions older than the window", () => {
     const old = new Date(now.getTime() - REVERSAL_WINDOW_MS - 1000).toISOString()
     expect(isReversal({ trackingStatus: "completed", completedAt: old, providerStatus: "failed", now })).toBe(false)
+  })
+})
+
+describe("looksProviderCompleted", () => {
+  it("accepts common provider completion keywords", () => {
+    for (const s of ["completed", "Complete", "SUCCESS", "successful", "Delivered", "done", "sent", "fulfilled"]) {
+      expect(looksProviderCompleted(s)).toBe(true)
+    }
+  })
+  it("rejects a genuine provider failure string", () => {
+    expect(looksProviderCompleted("failed")).toBe(false)
+  })
+  it("rejects null/undefined/empty (row whose external_status was never set by a real provider check)", () => {
+    expect(looksProviderCompleted(null)).toBe(false)
+    expect(looksProviderCompleted(undefined)).toBe(false)
+    expect(looksProviderCompleted("")).toBe(false)
+  })
+})
+
+describe("fetchReversalCandidates", () => {
+  // Regression test for: admin bulk-completes a manually-downloaded batch of
+  // orders whose Sykes attempt genuinely failed. bulk-update-status (and the
+  // sync cron's own reconcile-against-terminal step) flips
+  // mtn_fulfillment_tracking.status to "completed" but never touches
+  // external_status, since neither ever asked Sykes. Before this fix, the
+  // next cron run would find that row via fetchReversalCandidates, see
+  // Sykes still reporting "failed", and wrongly flag/reverse the order the
+  // admin had just legitimately completed.
+  function makeFake(rows: any[]) {
+    const fake: any = {
+      from() {
+        return {
+          select() {
+            return {
+              eq() { return this },
+              gte() { return this },
+              not() { return this },
+              order() { return this },
+              limit: () => Promise.resolve({ data: rows }),
+            }
+          },
+        }
+      },
+    }
+    return fake
+  }
+
+  it("excludes a row bulk-completed by an admin (external_status still the real Sykes failure)", async () => {
+    const fake = makeFake([
+      { id: "trk1", mtn_order_id: 1, provider: "sykes", status: "completed", external_status: "failed", updated_at: new Date().toISOString() },
+    ])
+    const rows = await fetchReversalCandidates(fake, "sykes")
+    expect(rows).toEqual([])
+  })
+
+  it("excludes a row whose external_status was never set (reconciled, never asked the provider)", async () => {
+    const fake = makeFake([
+      { id: "trk2", mtn_order_id: 2, provider: "sykes", status: "completed", external_status: null, updated_at: new Date().toISOString() },
+    ])
+    const rows = await fetchReversalCandidates(fake, "sykes")
+    expect(rows).toEqual([])
+  })
+
+  it("includes a row the provider itself genuinely confirmed completed", async () => {
+    const fake = makeFake([
+      { id: "trk3", mtn_order_id: 3, provider: "sykes", status: "completed", external_status: "delivered", updated_at: new Date().toISOString() },
+    ])
+    const rows = await fetchReversalCandidates(fake, "sykes")
+    expect(rows).toHaveLength(1)
+    expect(rows[0].id).toBe("trk3")
   })
 })
 
