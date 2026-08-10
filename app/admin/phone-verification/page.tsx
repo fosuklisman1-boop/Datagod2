@@ -330,7 +330,7 @@ export default function PhoneVerificationPage() {
             <Phone className="w-6 h-6" /> Phone Number Verification
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            {checkType === "mtn_whitelist"
+            {isWhitelistView
               ? "Bulk-check Ghana numbers against MTN whitelist-capable providers (Xpress/CodeCraft/AgentPortalGH) to see which can currently receive an MTN data order."
               : "Bulk-verify Ghana MoMo numbers against Moolre. Numbers with a returned account name are saved as verified."}
           </p>
