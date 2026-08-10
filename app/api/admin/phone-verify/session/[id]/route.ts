@@ -26,7 +26,7 @@ export async function GET(
 
     const { data: session, error: sessionError } = await supabase
       .from("phone_verification_sessions")
-      .select("id, file_name, total_count, verified_count, invalid_count, not_applicable_count, check_type, status, created_at, completed_at")
+      .select("id, file_name, total_count, verified_count, invalid_count, not_applicable_count, check_type, whitelist_providers, status, created_at, completed_at")
       .eq("id", id)
       .single()
 
