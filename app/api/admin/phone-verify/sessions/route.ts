@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   try {
     const { data, error } = await supabase
       .from("phone_verification_sessions")
-      .select("id, file_name, total_count, verified_count, invalid_count, status, created_at, completed_at")
+      .select("id, file_name, total_count, verified_count, invalid_count, not_applicable_count, check_type, status, created_at, completed_at")
       .order("created_at", { ascending: false })
       .limit(100)
 

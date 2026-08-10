@@ -26,7 +26,7 @@ export async function GET(
 
     const { data: session, error: sessionError } = await supabase
       .from("phone_verification_sessions")
-      .select("id, file_name, total_count, verified_count, invalid_count, status, created_at, completed_at")
+      .select("id, file_name, total_count, verified_count, invalid_count, not_applicable_count, check_type, status, created_at, completed_at")
       .eq("id", id)
       .single()
 
@@ -36,7 +36,7 @@ export async function GET(
 
     let query = supabase
       .from("phone_verification_results")
-      .select("id, phone_number, account_name, network, status, verified_at", { count: "exact" })
+      .select("id, phone_number, account_name, network, status, whitelist_provider, verified_at", { count: "exact" })
       .eq("session_id", id)
       .order("status", { ascending: false })
       .range(from, to)

@@ -13,7 +13,7 @@ async function fetchAllResults(sessionId: string) {
   while (true) {
     const { data, error } = await supabase
       .from("phone_verification_results")
-      .select("phone_number, account_name, network, status")
+      .select("phone_number, account_name, network, status, whitelist_provider")
       .eq("session_id", sessionId)
       .order("status", { ascending: false })
       .range(from, from + 999)
@@ -38,7 +38,7 @@ export async function GET(
   try {
     const { data: session, error: sessionError } = await supabase
       .from("phone_verification_sessions")
-      .select("id, file_name")
+      .select("id, file_name, check_type")
       .eq("id", id)
       .single()
 
@@ -50,19 +50,28 @@ export async function GET(
 
     const XLSX = await import("xlsx")
 
-    const toRow = (r: any) => ({
-      "Phone Number": r.phone_number,
-      "Account Name": r.account_name ?? "",
-      "Network": r.network,
-      "Status": r.status === "verified" ? "Verified" : r.status === "invalid" ? "Invalid" : "Pending",
-    })
+    const isWhitelist = session.check_type === "mtn_whitelist"
 
-    // Export contains verified numbers only — never invalids or duplicates.
+    const toRow = (r: any) => isWhitelist
+      ? {
+          "Phone Number": r.phone_number,
+          "Network": r.network,
+          "Allowed By": r.whitelist_provider ?? "",
+          "Status": r.status === "verified" ? "Allowed" : r.status === "invalid" ? "Blocked" : r.status === "not_applicable" ? "N/A" : "Pending",
+        }
+      : {
+          "Phone Number": r.phone_number,
+          "Account Name": r.account_name ?? "",
+          "Network": r.network,
+          "Status": r.status === "verified" ? "Verified" : r.status === "invalid" ? "Invalid" : "Pending",
+        }
+
+    // Export contains verified/allowed numbers only — never invalids, duplicates, or not-applicable.
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(
       wb,
       XLSX.utils.json_to_sheet(allResults.filter(r => r.status === "verified").map(toRow)),
-      "Verified"
+      isWhitelist ? "Allowed" : "Verified"
     )
 
     const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" })
