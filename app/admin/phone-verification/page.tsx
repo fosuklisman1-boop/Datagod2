@@ -111,8 +111,19 @@ export default function PhoneVerificationPage() {
           setAvailableProviders(providers)
           setSelectedProviders(new Set(providers.filter(p => p.configured).map(p => p.name)))
         } catch {
-          // Leave the defaults (whitelist enabled, no providers known yet) —
-          // a real check happens server-side on upload too.
+          // The availability fetch failed — fall back to offering every
+          // known provider as if configured, rather than leaving the
+          // checkbox row empty and permanently stuck (before provider
+          // selection existed, a failed fetch here was harmless since the
+          // server always ran every configured provider automatically).
+          // Safe because the upload route re-validates the selection
+          // server-side on every submit regardless — an admin who picks a
+          // genuinely-unconfigured provider due to this fallback just gets
+          // a clear "Provider(s) not configured" error on submit instead of
+          // a silently-stuck UI.
+          const fallbackProviders = Object.keys(PROVIDER_LABELS).map(name => ({ name, configured: true }))
+          setAvailableProviders(fallbackProviders)
+          setSelectedProviders(new Set(fallbackProviders.map(p => p.name)))
         }
       })()
     }
