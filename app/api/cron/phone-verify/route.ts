@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { processVerificationChunk } from "@/lib/phone-verify-processor"
+import { processWhitelistChunk } from "@/lib/phone-verify-whitelist-processor"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -26,7 +27,7 @@ export async function GET(request: NextRequest) {
   try {
     const { data: sessions, error } = await supabase
       .from("phone_verification_sessions")
-      .select("id, file_name")
+      .select("id, file_name, check_type")
       .eq("status", "processing")
       .order("created_at")
 
@@ -47,7 +48,9 @@ export async function GET(request: NextRequest) {
       while (Date.now() - startTime < BUDGET_MS) {
         let result
         try {
-          result = await processVerificationChunk(supabase, session.id)
+          result = session.check_type === "mtn_whitelist"
+            ? await processWhitelistChunk(supabase, session.id)
+            : await processVerificationChunk(supabase, session.id)
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e)
           console.error(`[CRON-PHONE-VERIFY] sessionId=${session.id} error="${msg}"`)
