@@ -51,32 +51,47 @@ export async function GET(
     const XLSX = await import("xlsx")
 
     const isWhitelist = session.check_type === "mtn_whitelist"
+    // A "blocked" export only makes sense for whitelist sessions — Moolre
+    // sessions always export verified-only, regardless of the query param.
+    const requestedStatus = new URL(request.url).searchParams.get("status")
+    const isBlockedExport = isWhitelist && requestedStatus === "invalid"
+    const exportStatus = isBlockedExport ? "invalid" : "verified"
 
-    const toRow = (r: any) => isWhitelist
+    const toRow = (r: any) => isBlockedExport
       ? {
           "Phone Number": r.phone_number,
           "Network": r.network,
-          "Allowed By": r.whitelist_provider ?? "",
-          "Status": r.status === "verified" ? "Allowed" : r.status === "invalid" ? "Blocked" : r.status === "not_applicable" ? "N/A" : "Pending",
+          "Status": "Blocked",
         }
-      : {
-          "Phone Number": r.phone_number,
-          "Account Name": r.account_name ?? "",
-          "Network": r.network,
-          "Status": r.status === "verified" ? "Verified" : r.status === "invalid" ? "Invalid" : "Pending",
-        }
+      : isWhitelist
+        ? {
+            "Phone Number": r.phone_number,
+            "Network": r.network,
+            "Allowed By": r.whitelist_provider ?? "",
+            "Status": "Allowed",
+          }
+        : {
+            "Phone Number": r.phone_number,
+            "Account Name": r.account_name ?? "",
+            "Network": r.network,
+            "Status": "Verified",
+          }
 
-    // Export contains verified/allowed numbers only — never invalids, duplicates, or not-applicable.
+    const sheetName = isBlockedExport ? "Blocked" : isWhitelist ? "Allowed" : "Verified"
+
+    // Each export contains exactly one status: verified/allowed by default,
+    // or blocked when explicitly requested (whitelist sessions only) —
+    // duplicates and not-applicable rows are never exported either way.
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(
       wb,
-      XLSX.utils.json_to_sheet(allResults.filter(r => r.status === "verified").map(toRow)),
-      isWhitelist ? "Allowed" : "Verified"
+      XLSX.utils.json_to_sheet(allResults.filter(r => r.status === exportStatus).map(toRow)),
+      sheetName
     )
 
     const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" })
     const date = new Date().toISOString().split("T")[0]
-    const filename = `verification-${id.slice(0, 8)}-${date}.xlsx`
+    const filename = `verification-${id.slice(0, 8)}-${sheetName.toLowerCase()}-${date}.xlsx`
 
     return new NextResponse(buffer, {
       headers: {

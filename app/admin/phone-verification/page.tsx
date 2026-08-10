@@ -323,10 +323,10 @@ export default function PhoneVerificationPage() {
     await loadResults(session.id, "all", 1)
   }
 
-  const downloadExport = async (sessionId: string) => {
+  const downloadExport = async (sessionId: string, status: "verified" | "invalid" = "verified") => {
     try {
       const token = await getToken()
-      const res = await fetch(`/api/admin/phone-verify/session/${sessionId}/export`, {
+      const res = await fetch(`/api/admin/phone-verify/session/${sessionId}/export?status=${status}`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (!res.ok) { toast.error("Export failed"); return }
@@ -334,7 +334,7 @@ export default function PhoneVerificationPage() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url
-      a.download = `verification-${sessionId.slice(0, 8)}.xlsx`
+      a.download = `verification-${sessionId.slice(0, 8)}-${status}.xlsx`
       a.click()
       URL.revokeObjectURL(url)
     } catch {
@@ -615,8 +615,13 @@ export default function PhoneVerificationPage() {
                   {verifyState === "completed" && (
                     <div className="flex gap-2 flex-wrap">
                       <Button onClick={() => downloadExport(progress.sessionId)} className="gap-2">
-                        <Download className="w-4 h-4" /> Export .xlsx
+                        <Download className="w-4 h-4" /> {isWhitelistView ? "Export Allowed" : "Export .xlsx"}
                       </Button>
+                      {isWhitelistView && (
+                        <Button variant="outline" onClick={() => downloadExport(progress.sessionId, "invalid")} className="gap-2">
+                          <Download className="w-4 h-4" /> Export Blocked
+                        </Button>
+                      )}
                       <Button
                         variant="outline"
                         onClick={() => { setVerifyState("idle"); setProgress(null); setResultsPage(null); setPastedNumbers(""); setRateLimitWarning(false) }}
@@ -765,9 +770,16 @@ export default function PhoneVerificationPage() {
                                 <Eye className="w-4 h-4 mr-1" /> View
                               </Button>
                               {session.status === "completed" && (
-                                <Button variant="ghost" size="sm" onClick={() => downloadExport(session.id)}>
-                                  <Download className="w-4 h-4 mr-1" /> xlsx
-                                </Button>
+                                <>
+                                  <Button variant="ghost" size="sm" onClick={() => downloadExport(session.id)}>
+                                    <Download className="w-4 h-4 mr-1" /> {session.check_type === "mtn_whitelist" ? "Allowed" : "xlsx"}
+                                  </Button>
+                                  {session.check_type === "mtn_whitelist" && (
+                                    <Button variant="ghost" size="sm" onClick={() => downloadExport(session.id, "invalid")}>
+                                      <Download className="w-4 h-4 mr-1" /> Blocked
+                                    </Button>
+                                  )}
+                                </>
                               )}
                             </div>
                           </td>
