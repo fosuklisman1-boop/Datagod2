@@ -38,16 +38,40 @@ export async function findExistingMoolreNumbers(
 }
 
 /**
- * Numbers whose MTN whitelist status was checked within the last 24h — see
- * WHITELIST_FRESHNESS_MS. Unlike Moolre account names, whitelist status is
- * time-varying (that's why the 24h retry cron exists), so only a RECENT
- * check counts as "already known" — an older or missing one is treated as
- * unchecked. mtn_number_registry.phone is unique, so unlike
- * findExistingMoolreNumbers this never needs inner pagination per chunk.
+ * True if a stored whitelist result for a number is "covered" by a run's
+ * selected provider set — i.e. re-checking wouldn't ask anything genuinely
+ * new. An allowed row is covered only if the allowing provider is itself
+ * selected; a blocked row is covered only if every selected provider has
+ * already been tried against this number (checkedProviders is a superset
+ * of selectedProviders). Narrowing or changing the provider selection
+ * between runs can un-cover a previously "known" result on purpose.
+ */
+export function isWhitelistResultCovered(
+  row: { status: "allowed" | "blocked"; allowedBy: string | null; checkedProviders: string[] },
+  selectedProviders: string[]
+): boolean {
+  if (row.status === "allowed") {
+    return row.allowedBy !== null && selectedProviders.includes(row.allowedBy)
+  }
+  const checked = new Set(row.checkedProviders)
+  return selectedProviders.every(p => checked.has(p))
+}
+
+/**
+ * Numbers whose MTN whitelist status was checked within the last 24h AND
+ * whose stored result is covered (see isWhitelistResultCovered) by this
+ * run's selected provider set. Unlike Moolre account names, whitelist status
+ * is time-varying (that's why the 24h retry cron exists) AND now also
+ * selection-dependent (narrowing which providers are asked can make a
+ * previously-known result no longer "known enough" to skip) — either
+ * condition failing means treat the number as unchecked.
+ * mtn_number_registry.phone is unique, so unlike findExistingMoolreNumbers
+ * this never needs inner pagination per chunk.
  */
 export async function findRecentWhitelistChecks(
   supabase: SupabaseClient,
-  candidates: string[]
+  candidates: string[],
+  selectedProviders: string[]
 ): Promise<Map<string, { status: "allowed" | "blocked"; allowedBy: string | null }>> {
   const result = new Map<string, { status: "allowed" | "blocked"; allowedBy: string | null }>()
   const cutoff = new Date(Date.now() - WHITELIST_FRESHNESS_MS).toISOString()
@@ -56,13 +80,18 @@ export async function findRecentWhitelistChecks(
     const chunk = candidates.slice(i, i + CHUNK)
     const { data, error } = await supabase
       .from("mtn_number_registry")
-      .select("phone, whitelist_status, whitelist_allowed_by, whitelist_last_checked")
+      .select("phone, whitelist_status, whitelist_allowed_by, whitelist_checked_providers, whitelist_last_checked")
       .in("phone", chunk)
       .gte("whitelist_last_checked", cutoff)
       .range(0, 999) // phone is unique, chunk size is well under a page
     if (error) throw new Error(`Whitelist freshness lookup failed: ${error.message}`)
     for (const row of data ?? []) {
-      if (row.whitelist_status === "allowed" || row.whitelist_status === "blocked") {
+      if (row.whitelist_status !== "allowed" && row.whitelist_status !== "blocked") continue
+      const covered = isWhitelistResultCovered(
+        { status: row.whitelist_status, allowedBy: row.whitelist_allowed_by, checkedProviders: row.whitelist_checked_providers ?? [] },
+        selectedProviders
+      )
+      if (covered) {
         result.set(row.phone, { status: row.whitelist_status, allowedBy: row.whitelist_allowed_by })
       }
     }
