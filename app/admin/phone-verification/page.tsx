@@ -19,10 +19,17 @@ type ResultFilter = "all" | "verified" | "invalid" | "duplicate" | "not_applicab
 const NORMAL_DELAY_MS = 200
 const MAX_BACKOFF_MS = 120_000
 
+const PROVIDER_LABELS: Record<string, string> = {
+  xpress: "Xpress",
+  codecraft: "CodeCraft",
+  agentportalgh: "AgentPortalGH",
+}
+
 interface Progress {
   sessionId: string
   fileName: string
   checkType: CheckType
+  whitelistProviders: string[]
   total: number
   verified: number
   invalid: number
@@ -44,6 +51,7 @@ interface SessionSummary {
   id: string
   file_name: string
   check_type: CheckType
+  whitelist_providers: string[] | null
   total_count: number
   verified_count: number
   invalid_count: number
@@ -76,6 +84,8 @@ export default function PhoneVerificationPage() {
   const [verifyState, setVerifyState] = useState<VerifyState>("idle")
   const [checkType, setCheckType] = useState<CheckType>("moolre")
   const [whitelistAvailable, setWhitelistAvailable] = useState(true)
+  const [availableProviders, setAvailableProviders] = useState<Array<{ name: string; configured: boolean }>>([])
+  const [selectedProviders, setSelectedProviders] = useState<Set<string>>(new Set())
   const [progress, setProgress] = useState<Progress | null>(null)
   const [resultsPage, setResultsPage] = useState<ResultsPage | null>(null)
   const [resultFilter, setResultFilter] = useState<ResultFilter>("all")
@@ -97,8 +107,12 @@ export default function PhoneVerificationPage() {
           })
           const data = await res.json()
           setWhitelistAvailable(data.available !== false)
+          const providers: Array<{ name: string; configured: boolean }> = Array.isArray(data.providers) ? data.providers : []
+          setAvailableProviders(providers)
+          setSelectedProviders(new Set(providers.filter(p => p.configured).map(p => p.name)))
         } catch {
-          // Leave the default (enabled) — a real check happens server-side on upload too.
+          // Leave the defaults (whitelist enabled, no providers known yet) —
+          // a real check happens server-side on upload too.
         }
       })()
     }
@@ -142,7 +156,21 @@ export default function PhoneVerificationPage() {
     }
   }, [])
 
+  const toggleProvider = (name: string) => {
+    setSelectedProviders(prev => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
+  }
+
   const handleFileSelect = useCallback(async (file: File) => {
+    if (checkType === "mtn_whitelist" && selectedProviders.size === 0) {
+      toast.error("Select at least one provider to check against")
+      return
+    }
+
     setVerifyState("uploading")
     setProgress(null)
     setResultsPage(null)
@@ -152,6 +180,9 @@ export default function PhoneVerificationPage() {
       const formData = new FormData()
       formData.append("file", file)
       formData.append("checkType", checkType)
+      if (checkType === "mtn_whitelist") {
+        formData.append("providers", Array.from(selectedProviders).join(","))
+      }
 
       const uploadRes = await fetch("/api/admin/phone-verify/upload", {
         method: "POST",
@@ -161,9 +192,13 @@ export default function PhoneVerificationPage() {
       const uploadData = await uploadRes.json()
       if (!uploadRes.ok) throw new Error(uploadData.error ?? "Upload failed")
 
-      const { sessionId, total, newCount = total, duplicates = 0, checkType: sessionCheckType } = uploadData
+      const {
+        sessionId, total, newCount = total, duplicates = 0,
+        checkType: sessionCheckType, whitelistProviders: sessionWhitelistProviders,
+      } = uploadData
       setProgress({
         sessionId, fileName: file.name, checkType: sessionCheckType ?? checkType,
+        whitelistProviders: sessionWhitelistProviders ?? [],
         total, verified: 0, invalid: 0, notApplicable: 0, duplicates, processed: duplicates,
       })
       setRateLimitWarning(false)
@@ -235,7 +270,7 @@ export default function PhoneVerificationPage() {
       setVerifyState("error")
       toast.error(error.message ?? "Verification failed")
     }
-  }, [loadResults, checkType])
+  }, [loadResults, checkType, selectedProviders])
 
   const handleTextSubmit = useCallback(async () => {
     const trimmed = pastedNumbers.trim()
@@ -264,6 +299,7 @@ export default function PhoneVerificationPage() {
       sessionId: session.id,
       fileName: session.file_name,
       checkType: session.check_type,
+      whitelistProviders: session.whitelist_providers ?? [],
       total: session.total_count,
       verified: session.verified_count,
       invalid: session.invalid_count,
@@ -387,6 +423,29 @@ export default function PhoneVerificationPage() {
                     </button>
                   </div>
 
+                  {/* Provider selection — only relevant in whitelist mode */}
+                  {checkType === "mtn_whitelist" && (
+                    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-muted/50 px-3 py-2">
+                      <span className="text-xs text-muted-foreground">Check against:</span>
+                      {availableProviders.map(p => (
+                        <label
+                          key={p.name}
+                          className={`flex items-center gap-1.5 text-sm ${!p.configured ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                          title={p.configured ? undefined : "Not configured"}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedProviders.has(p.name)}
+                            disabled={!p.configured}
+                            onChange={() => toggleProvider(p.name)}
+                            className="accent-primary"
+                          />
+                          {PROVIDER_LABELS[p.name] ?? p.name}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+
                   {/* Input mode toggle */}
                   <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
                     <button
@@ -453,7 +512,11 @@ export default function PhoneVerificationPage() {
                             ? `${pastedNumbers.trim().split(/[\r\n]+/).filter(l => l.trim()).length.toLocaleString()} numbers detected`
                             : "One number per line · numbers already uploaded before are flagged as duplicates"}
                         </span>
-                        <Button onClick={handleTextSubmit} disabled={!pastedNumbers.trim()} className="gap-2">
+                        <Button
+                          onClick={handleTextSubmit}
+                          disabled={!pastedNumbers.trim() || (checkType === "mtn_whitelist" && selectedProviders.size === 0)}
+                          className="gap-2"
+                        >
                           <Phone className="w-4 h-4" /> Verify Numbers
                         </Button>
                       </div>
@@ -482,6 +545,11 @@ export default function PhoneVerificationPage() {
                     {progress.fileName}
                     <Badge variant="outline" className="ml-1">{isWhitelistView ? "MTN Whitelist" : "Moolre"}</Badge>
                   </CardTitle>
+                  {isWhitelistView && progress.whitelistProviders.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Checked against: {progress.whitelistProviders.map(p => PROVIDER_LABELS[p] ?? p).join(", ")}
+                    </p>
+                  )}
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div>
