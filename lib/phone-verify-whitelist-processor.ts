@@ -13,6 +13,7 @@ export interface WhitelistChunkResult {
   remaining: number
   verified: number
   invalid: number
+  notApplicable: number
   rateLimited: number
   status: "completed" | "in_progress"
 }
@@ -83,14 +84,14 @@ export async function processWhitelistChunk(
 ): Promise<WhitelistChunkResult> {
   const { data: session, error: sessionErr } = await supabase
     .from("phone_verification_sessions")
-    .select("id, status, verified_count, invalid_count")
+    .select("id, status, verified_count, invalid_count, not_applicable_count")
     .eq("id", sessionId)
     .single()
 
   if (sessionErr || !session) throw new Error("Session not found")
 
   if (session.status === "completed") {
-    return { processed: 0, remaining: 0, verified: session.verified_count, invalid: session.invalid_count, rateLimited: 0, status: "completed" }
+    return { processed: 0, remaining: 0, verified: session.verified_count, invalid: session.invalid_count, notApplicable: session.not_applicable_count, rateLimited: 0, status: "completed" }
   }
 
   const { data: pending, error: fetchError } = await supabase
@@ -106,7 +107,7 @@ export async function processWhitelistChunk(
 
   if (!pending || pending.length === 0) {
     await supabase.from("phone_verification_sessions").update({ status: "completed", completed_at: now }).eq("id", sessionId)
-    return { processed: 0, remaining: 0, verified: session.verified_count, invalid: session.invalid_count, rateLimited: 0, status: "completed" }
+    return { processed: 0, remaining: 0, verified: session.verified_count, invalid: session.invalid_count, notApplicable: session.not_applicable_count, rateLimited: 0, status: "completed" }
   }
 
   const mtnPhones = pending.filter(r => r.network === "MTN").map(r => r.phone_number)
@@ -171,6 +172,7 @@ export async function processWhitelistChunk(
     remaining: remaining ?? 0,
     verified: newVerified,
     invalid: newInvalid,
+    notApplicable: newNotApplicable,
     rateLimited: 0,
     status: isDone ? "completed" : "in_progress",
   }

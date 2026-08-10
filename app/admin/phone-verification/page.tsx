@@ -209,6 +209,7 @@ export default function PhoneVerificationPage() {
           ...prev,
           verified: processData.verified,
           invalid: processData.invalid,
+          notApplicable: processData.notApplicable ?? prev.notApplicable,
           processed: prev.total - processData.remaining,
         } : prev)
 
