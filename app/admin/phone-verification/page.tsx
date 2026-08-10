@@ -8,12 +8,13 @@ import { Badge } from "@/components/ui/badge"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
-import { Loader2, Upload, Download, CheckCircle, XCircle, Eye, Phone, ClipboardList, Copy } from "lucide-react"
+import { Loader2, Upload, Download, CheckCircle, XCircle, Eye, Phone, ClipboardList, Copy, CircleMinus, ShieldCheck } from "lucide-react"
 
 type Tab = "upload" | "history"
 type VerifyState = "idle" | "uploading" | "processing" | "completed" | "error"
 type InputMode = "file" | "text"
-type ResultFilter = "all" | "verified" | "invalid" | "duplicate"
+type CheckType = "moolre" | "mtn_whitelist"
+type ResultFilter = "all" | "verified" | "invalid" | "duplicate" | "not_applicable"
 
 const NORMAL_DELAY_MS = 200
 const MAX_BACKOFF_MS = 120_000
@@ -21,9 +22,11 @@ const MAX_BACKOFF_MS = 120_000
 interface Progress {
   sessionId: string
   fileName: string
+  checkType: CheckType
   total: number
   verified: number
   invalid: number
+  notApplicable: number
   duplicates: number
   processed: number
 }
@@ -32,16 +35,19 @@ interface VerificationResult {
   id: number
   phone_number: string
   account_name: string | null
+  whitelist_provider: string | null
   network: string
-  status: "pending" | "verified" | "invalid" | "duplicate"
+  status: "pending" | "verified" | "invalid" | "duplicate" | "not_applicable"
 }
 
 interface SessionSummary {
   id: string
   file_name: string
+  check_type: CheckType
   total_count: number
   verified_count: number
   invalid_count: number
+  not_applicable_count: number
   status: string
   created_at: string
   completed_at: string | null
@@ -55,6 +61,10 @@ interface ResultsPage {
   pages: number
 }
 
+function duplicateCount(s: { total_count: number; verified_count: number; invalid_count: number; not_applicable_count: number }): number {
+  return Math.max(0, s.total_count - s.verified_count - s.invalid_count - s.not_applicable_count)
+}
+
 async function getToken(): Promise<string> {
   const { data: { session } } = await supabase.auth.getSession()
   return session?.access_token ?? ""
@@ -64,6 +74,8 @@ export default function PhoneVerificationPage() {
   const { isAdmin, loading: adminLoading } = useAdminProtected()
   const [activeTab, setActiveTab] = useState<Tab>("upload")
   const [verifyState, setVerifyState] = useState<VerifyState>("idle")
+  const [checkType, setCheckType] = useState<CheckType>("moolre")
+  const [whitelistAvailable, setWhitelistAvailable] = useState(true)
   const [progress, setProgress] = useState<Progress | null>(null)
   const [resultsPage, setResultsPage] = useState<ResultsPage | null>(null)
   const [resultFilter, setResultFilter] = useState<ResultFilter>("all")
@@ -74,6 +86,23 @@ export default function PhoneVerificationPage() {
   const [pastedNumbers, setPastedNumbers] = useState("")
   const [rateLimitWarning, setRateLimitWarning] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (isAdmin && !adminLoading) {
+      (async () => {
+        try {
+          const token = await getToken()
+          const res = await fetch("/api/admin/phone-verify/whitelist-availability", {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+          const data = await res.json()
+          setWhitelistAvailable(data.available !== false)
+        } catch {
+          // Leave the default (enabled) — a real check happens server-side on upload too.
+        }
+      })()
+    }
+  }, [isAdmin, adminLoading])
 
   useEffect(() => {
     if (isAdmin && !adminLoading && activeTab === "history") loadSessions()
@@ -122,6 +151,7 @@ export default function PhoneVerificationPage() {
       const token = await getToken()
       const formData = new FormData()
       formData.append("file", file)
+      formData.append("checkType", checkType)
 
       const uploadRes = await fetch("/api/admin/phone-verify/upload", {
         method: "POST",
@@ -131,8 +161,11 @@ export default function PhoneVerificationPage() {
       const uploadData = await uploadRes.json()
       if (!uploadRes.ok) throw new Error(uploadData.error ?? "Upload failed")
 
-      const { sessionId, total, newCount = total, duplicates = 0 } = uploadData
-      setProgress({ sessionId, fileName: file.name, total, verified: 0, invalid: 0, duplicates, processed: duplicates })
+      const { sessionId, total, newCount = total, duplicates = 0, checkType: sessionCheckType } = uploadData
+      setProgress({
+        sessionId, fileName: file.name, checkType: sessionCheckType ?? checkType,
+        total, verified: 0, invalid: 0, notApplicable: 0, duplicates, processed: duplicates,
+      })
       setRateLimitWarning(false)
       setVerifyState("processing")
 
@@ -145,7 +178,7 @@ export default function PhoneVerificationPage() {
       }
 
       let remaining = total
-      let backoffMs = 10_000  // start at 10s, doubles on consecutive rate-limit hits
+      let backoffMs = 10_000
       let consecutiveRateLimits = 0
 
       while (remaining > 0) {
@@ -158,7 +191,6 @@ export default function PhoneVerificationPage() {
           })
           processData = await processRes.json()
 
-          // On server error: wait and retry rather than hard-stop
           if (!processRes.ok) {
             consecutiveRateLimits++
             const wait = Math.min(backoffMs * consecutiveRateLimits, MAX_BACKOFF_MS)
@@ -167,7 +199,6 @@ export default function PhoneVerificationPage() {
             continue
           }
         } catch {
-          // Network error — wait and retry
           consecutiveRateLimits++
           await new Promise(r => setTimeout(r, Math.min(10_000 * consecutiveRateLimits, MAX_BACKOFF_MS)))
           continue
@@ -190,7 +221,7 @@ export default function PhoneVerificationPage() {
           await new Promise(r => setTimeout(r, backoffMs))
         } else {
           consecutiveRateLimits = 0
-          backoffMs = 10_000  // reset on clean chunk
+          backoffMs = 10_000
           setRateLimitWarning(false)
           await new Promise(r => setTimeout(r, NORMAL_DELAY_MS))
         }
@@ -203,7 +234,7 @@ export default function PhoneVerificationPage() {
       setVerifyState("error")
       toast.error(error.message ?? "Verification failed")
     }
-  }, [loadResults])
+  }, [loadResults, checkType])
 
   const handleTextSubmit = useCallback(async () => {
     const trimmed = pastedNumbers.trim()
@@ -227,15 +258,17 @@ export default function PhoneVerificationPage() {
   const handleViewSession = async (session: SessionSummary) => {
     setActiveTab("upload")
     setVerifyState("completed")
-    const dupCount = Math.max(0, session.total_count - session.verified_count - session.invalid_count)
+    const dupCount = duplicateCount(session)
     setProgress({
       sessionId: session.id,
       fileName: session.file_name,
+      checkType: session.check_type,
       total: session.total_count,
       verified: session.verified_count,
       invalid: session.invalid_count,
+      notApplicable: session.not_applicable_count,
       duplicates: dupCount,
-      processed: session.verified_count + session.invalid_count + dupCount,
+      processed: session.verified_count + session.invalid_count + session.not_applicable_count + dupCount,
     })
     setResultFilter("all")
     setCurrentPage(1)
@@ -285,6 +318,8 @@ export default function PhoneVerificationPage() {
   const progressPct = progress && progress.total > 0
     ? Math.round((progress.processed / progress.total) * 100)
     : 0
+  const activeCheckType = progress?.checkType ?? checkType
+  const isWhitelistView = activeCheckType === "mtn_whitelist"
 
   return (
     <DashboardLayout>
@@ -294,7 +329,9 @@ export default function PhoneVerificationPage() {
             <Phone className="w-6 h-6" /> Phone Number Verification
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Bulk-verify Ghana MoMo numbers against Moolre. Numbers with a returned account name are saved as verified.
+            {checkType === "mtn_whitelist"
+              ? "Bulk-check Ghana numbers against MTN whitelist-capable providers (Xpress/CodeCraft/AgentPortalGH) to see which can currently receive an MTN data order."
+              : "Bulk-verify Ghana MoMo numbers against Moolre. Numbers with a returned account name are saved as verified."}
           </p>
         </div>
 
@@ -321,6 +358,34 @@ export default function PhoneVerificationPage() {
             {(verifyState === "idle" || verifyState === "error") && (
               <Card>
                 <CardContent className="pt-6 space-y-4">
+                  {/* Check type toggle */}
+                  <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
+                    <button
+                      onClick={() => setCheckType("moolre")}
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                        checkType === "moolre"
+                          ? "bg-background shadow text-foreground"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <Phone className="w-4 h-4" /> Moolre (MoMo Check)
+                    </button>
+                    <button
+                      onClick={() => whitelistAvailable && setCheckType("mtn_whitelist")}
+                      disabled={!whitelistAvailable}
+                      title={whitelistAvailable ? undefined : "No MTN whitelist provider is configured (Xpress/CodeCraft/AgentPortalGH)"}
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                        !whitelistAvailable
+                          ? "text-muted-foreground/50 cursor-not-allowed"
+                          : checkType === "mtn_whitelist"
+                            ? "bg-background shadow text-foreground"
+                            : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <ShieldCheck className="w-4 h-4" /> MTN Whitelist (Order Eligibility)
+                    </button>
+                  </div>
+
                   {/* Input mode toggle */}
                   <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
                     <button
@@ -414,6 +479,7 @@ export default function PhoneVerificationPage() {
                       ? <Loader2 className="w-4 h-4 animate-spin text-primary" />
                       : <CheckCircle className="w-4 h-4 text-success" />}
                     {progress.fileName}
+                    <Badge variant="outline" className="ml-1">{isWhitelistView ? "MTN Whitelist" : "Moolre"}</Badge>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -434,15 +500,21 @@ export default function PhoneVerificationPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className={`grid grid-cols-2 gap-3 ${isWhitelistView ? "sm:grid-cols-5" : "sm:grid-cols-4"}`}>
                     <div className="bg-success/10 border border-success/30 rounded-lg p-3 text-center">
                       <div className="text-2xl font-bold text-success">{progress.verified.toLocaleString()}</div>
-                      <div className="text-xs text-muted-foreground">Verified</div>
+                      <div className="text-xs text-muted-foreground">{isWhitelistView ? "Allowed" : "Verified"}</div>
                     </div>
                     <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-3 text-center">
                       <div className="text-2xl font-bold text-destructive">{progress.invalid.toLocaleString()}</div>
-                      <div className="text-xs text-muted-foreground">Invalid</div>
+                      <div className="text-xs text-muted-foreground">{isWhitelistView ? "Blocked" : "Invalid"}</div>
                     </div>
+                    {isWhitelistView && (
+                      <div className="bg-muted border border-border rounded-lg p-3 text-center">
+                        <div className="text-2xl font-bold">{progress.notApplicable.toLocaleString()}</div>
+                        <div className="text-xs text-muted-foreground">N/A</div>
+                      </div>
+                    )}
                     <div className="bg-warning/10 border border-warning/30 rounded-lg p-3 text-center">
                       <div className="text-2xl font-bold text-warning">{progress.duplicates.toLocaleString()}</div>
                       <div className="text-xs text-muted-foreground">Duplicate</div>
@@ -483,16 +555,17 @@ export default function PhoneVerificationPage() {
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <CardTitle className="text-sm">Results</CardTitle>
                     <div className="flex gap-2 flex-wrap">
-                      {(["all", "verified", "invalid", "duplicate"] as const).map(f => (
+                      {(["all", "verified", "invalid", "duplicate", ...(isWhitelistView ? ["not_applicable" as const] : [])] as const).map(f => (
                         <Button
                           key={f} size="sm"
                           variant={resultFilter === f ? "default" : "outline"}
                           onClick={() => handleFilterChange(f)}
                         >
                           {f === "all" && `All (${resultsPage.session.total_count.toLocaleString()})`}
-                          {f === "verified" && `✓ Verified (${resultsPage.session.verified_count.toLocaleString()})`}
-                          {f === "invalid" && `✗ Invalid (${resultsPage.session.invalid_count.toLocaleString()})`}
-                          {f === "duplicate" && `⧉ Duplicate (${Math.max(0, resultsPage.session.total_count - resultsPage.session.verified_count - resultsPage.session.invalid_count).toLocaleString()})`}
+                          {f === "verified" && `✓ ${isWhitelistView ? "Allowed" : "Verified"} (${resultsPage.session.verified_count.toLocaleString()})`}
+                          {f === "invalid" && `✗ ${isWhitelistView ? "Blocked" : "Invalid"} (${resultsPage.session.invalid_count.toLocaleString()})`}
+                          {f === "duplicate" && `⧉ Duplicate (${duplicateCount(resultsPage.session).toLocaleString()})`}
+                          {f === "not_applicable" && `– N/A (${resultsPage.session.not_applicable_count.toLocaleString()})`}
                         </Button>
                       ))}
                     </div>
@@ -505,7 +578,7 @@ export default function PhoneVerificationPage() {
                         <tr className="border-b text-left text-muted-foreground">
                           <th className="pb-2 pr-4">#</th>
                           <th className="pb-2 pr-4">Phone</th>
-                          <th className="pb-2 pr-4">Account Name</th>
+                          <th className="pb-2 pr-4">{isWhitelistView ? "Allowed By" : "Account Name"}</th>
                           <th className="pb-2 pr-4">Network</th>
                           <th className="pb-2">Status</th>
                         </tr>
@@ -515,20 +588,24 @@ export default function PhoneVerificationPage() {
                           <tr key={row.id} className="border-b last:border-0">
                             <td className="py-2 pr-4 text-muted-foreground">{(resultsPage.page - 1) * 100 + i + 1}</td>
                             <td className="py-2 pr-4 font-mono">{row.phone_number}</td>
-                            <td className="py-2 pr-4">{row.account_name ?? "—"}</td>
+                            <td className="py-2 pr-4">{(isWhitelistView ? row.whitelist_provider : row.account_name) ?? "—"}</td>
                             <td className="py-2 pr-4"><Badge variant="outline">{row.network}</Badge></td>
                             <td className="py-2">
                               {row.status === "verified" ? (
                                 <Badge className="bg-success/10 text-success border-success/30">
-                                  <CheckCircle className="w-3 h-3 mr-1" /> Verified
+                                  <CheckCircle className="w-3 h-3 mr-1" /> {isWhitelistView ? "Allowed" : "Verified"}
                                 </Badge>
                               ) : row.status === "duplicate" ? (
                                 <Badge className="bg-warning/10 text-warning border-warning/30">
                                   <Copy className="w-3 h-3 mr-1" /> Duplicate
                                 </Badge>
+                              ) : row.status === "not_applicable" ? (
+                                <Badge className="bg-muted text-muted-foreground border-border">
+                                  <CircleMinus className="w-3 h-3 mr-1" /> N/A
+                                </Badge>
                               ) : (
                                 <Badge className="bg-destructive/10 text-destructive border-destructive/30">
-                                  <XCircle className="w-3 h-3 mr-1" /> Invalid
+                                  <XCircle className="w-3 h-3 mr-1" /> {isWhitelistView ? "Blocked" : "Invalid"}
                                 </Badge>
                               )}
                             </td>
@@ -576,6 +653,7 @@ export default function PhoneVerificationPage() {
                       <tr className="border-b text-left text-muted-foreground">
                         <th className="pb-2 pr-4">Date</th>
                         <th className="pb-2 pr-4">File</th>
+                        <th className="pb-2 pr-4">Type</th>
                         <th className="pb-2 pr-4 text-center">Total</th>
                         <th className="pb-2 pr-4 text-center">Verified</th>
                         <th className="pb-2 pr-4 text-center">Invalid</th>
@@ -589,10 +667,15 @@ export default function PhoneVerificationPage() {
                         <tr key={session.id} className="border-b last:border-0">
                           <td className="py-2 pr-4 text-muted-foreground text-xs">{new Date(session.created_at).toLocaleString()}</td>
                           <td className="py-2 pr-4 max-w-[180px] truncate">{session.file_name}</td>
+                          <td className="py-2 pr-4">
+                            <Badge variant="outline" className="text-xs">
+                              {session.check_type === "mtn_whitelist" ? "Whitelist" : "Moolre"}
+                            </Badge>
+                          </td>
                           <td className="py-2 pr-4 text-center">{session.total_count.toLocaleString()}</td>
                           <td className="py-2 pr-4 text-center text-success font-medium">{session.verified_count.toLocaleString()}</td>
                           <td className="py-2 pr-4 text-center text-destructive">{session.invalid_count.toLocaleString()}</td>
-                          <td className="py-2 pr-4 text-center text-warning">{Math.max(0, session.total_count - session.verified_count - session.invalid_count).toLocaleString()}</td>
+                          <td className="py-2 pr-4 text-center text-warning">{duplicateCount(session).toLocaleString()}</td>
                           <td className="py-2 pr-4 text-center">
                             <Badge variant={session.status === "completed" ? "default" : "secondary"}>{session.status}</Badge>
                           </td>
