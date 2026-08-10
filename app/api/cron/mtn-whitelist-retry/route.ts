@@ -4,7 +4,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyCronAuth } from "@/lib/cron-auth"
-import { WHITELIST_REGISTRY } from "@/lib/mtn-providers/provider-whitelist"
+import { WHITELIST_REGISTRY, unionProviders } from "@/lib/mtn-providers/provider-whitelist"
 import { releaseWhitelistHeldOrders } from "@/lib/mtn-hold"
 
 export const dynamic = "force-dynamic"
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
   // 1. Find blocked numbers due for a retry.
   const { data: due, error: fetchErr } = await supabase
     .from("mtn_number_registry")
-    .select("phone, whitelist_retry_count")
+    .select("phone, whitelist_retry_count, whitelist_checked_providers")
     .eq("whitelist_status", "blocked")
     .lt("whitelist_retry_count", MAX_RETRIES)
     .or(`whitelist_last_checked.is.null,whitelist_last_checked.lt.${cutoff}`)
@@ -43,6 +43,7 @@ export async function GET(request: NextRequest) {
 
   // Only use configured whitelist providers
   const configuredProviders = WHITELIST_REGISTRY.filter(p => p.configured())
+  const attemptedProviders = configuredProviders.map(p => p.name)
 
   for (const row of rows) {
     const phone = row.phone as string
@@ -58,6 +59,7 @@ export async function GET(request: NextRequest) {
           whitelist_status: "allowed",
           whitelist_allowed_by: allowedBy.provider,
           whitelist_last_checked: new Date().toISOString(),
+          whitelist_checked_providers: unionProviders(row.whitelist_checked_providers ?? [], attemptedProviders),
         }).eq("phone", phone)
 
         await releaseWhitelistHeldOrders([phone])
@@ -67,6 +69,7 @@ export async function GET(request: NextRequest) {
         await supabase.from("mtn_number_registry").update({
           whitelist_retry_count: nextCount,
           whitelist_last_checked: new Date().toISOString(),
+          whitelist_checked_providers: unionProviders(row.whitelist_checked_providers ?? [], attemptedProviders),
           // Auto-exhaust after this final retry
           ...(nextCount >= MAX_RETRIES ? { whitelist_status: "exhausted" } : {}),
         }).eq("phone", phone)
