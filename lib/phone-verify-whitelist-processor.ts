@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
-import { checkWhitelistBatch, hasWhitelistProviders } from "@/lib/mtn-providers/provider-whitelist"
+import { checkWhitelistBatch, unionProviders, WHITELIST_REGISTRY } from "@/lib/mtn-providers/provider-whitelist"
 
 // CodeCraft's own batch endpoint caps at 100 numbers per call — the binding
 // constraint among the three whitelist-capable providers (Xpress allows up to
@@ -41,6 +41,12 @@ export interface WhitelistDecision {
  * whitelistResults (shouldn't normally happen — checkWhitelistBatch always
  * returns an entry for every input) defaults to blocked, matching
  * checkWhitelistBatch's own "unconfigured/no answer = not allowed" stance.
+ *
+ * Does NOT know about provider selection or whitelist_checked_providers —
+ * every row in one processing chunk shares the same session-level selected
+ * provider set, so folding the newly-tried providers into
+ * whitelist_checked_providers is a uniform per-chunk step handled by the
+ * caller (processWhitelistChunk), not per-row decision logic.
  */
 export function decideWhitelistOutcomes(
   pending: Array<{ id: number; phone_number: string; network: string }>,
@@ -78,13 +84,32 @@ export function decideWhitelistOutcomes(
   return { notApplicableIds, verifiedByProvider, invalidIds, registryUpserts }
 }
 
+/** Fetches each phone's current whitelist_checked_providers, defaulting to []. */
+async function fetchCheckedProviders(
+  supabase: SupabaseClient,
+  phones: string[]
+): Promise<Map<string, string[]>> {
+  const result = new Map<string, string[]>()
+  for (let i = 0; i < phones.length; i += 500) {
+    const chunk = phones.slice(i, i + 500)
+    const { data } = await supabase
+      .from("mtn_number_registry")
+      .select("phone, whitelist_checked_providers")
+      .in("phone", chunk)
+    for (const row of data ?? []) {
+      result.set(row.phone, row.whitelist_checked_providers ?? [])
+    }
+  }
+  return result
+}
+
 export async function processWhitelistChunk(
   supabase: SupabaseClient,
   sessionId: string
 ): Promise<WhitelistChunkResult> {
   const { data: session, error: sessionErr } = await supabase
     .from("phone_verification_sessions")
-    .select("id, status, verified_count, invalid_count, not_applicable_count")
+    .select("id, status, verified_count, invalid_count, not_applicable_count, whitelist_providers")
     .eq("id", sessionId)
     .single()
 
@@ -110,14 +135,20 @@ export async function processWhitelistChunk(
     return { processed: 0, remaining: 0, verified: session.verified_count, invalid: session.invalid_count, notApplicable: session.not_applicable_count, rateLimited: 0, status: "completed" }
   }
 
+  // Sessions created before this feature (or a defensive fallback) use the
+  // full registry; every session created going forward always has this set
+  // by the upload route's provider-selection validation.
+  const selectedProviders: string[] = session.whitelist_providers ?? WHITELIST_REGISTRY.map(p => p.name)
+  const registry = WHITELIST_REGISTRY.filter(p => selectedProviders.includes(p.name))
+
   const mtnPhones = pending.filter(r => r.network === "MTN").map(r => r.phone_number)
-  if (mtnPhones.length > 0 && !hasWhitelistProviders()) {
-    // Should be unreachable: the upload route already refuses to start an
-    // mtn_whitelist session when no provider is configured.
-    throw new Error("No MTN whitelist provider is configured")
+  if (mtnPhones.length > 0 && !registry.some(p => p.configured())) {
+    // Should be unreachable: the upload route already validates every
+    // selected provider is configured before a session can start.
+    throw new Error("No selected MTN whitelist provider is configured")
   }
   const whitelistResults = mtnPhones.length > 0
-    ? await checkWhitelistBatch(mtnPhones)
+    ? await checkWhitelistBatch(mtnPhones, registry)
     : new Map<string, { allowed: boolean; allowedBy?: string }>()
 
   const decision = decideWhitelistOutcomes(pending, whitelistResults, now)
@@ -140,11 +171,20 @@ export async function processWhitelistChunk(
       .in("id", decision.invalidIds)
     if (invalidError) console.error("[PHONE-VERIFY-WHITELIST] invalid update failed:", invalidError.message)
   }
-  for (let i = 0; i < decision.registryUpserts.length; i += 500) {
-    const { error: upsertError } = await supabase
-      .from("mtn_number_registry")
-      .upsert(decision.registryUpserts.slice(i, i + 500), { onConflict: "phone" })
-    if (upsertError) console.error("[PHONE-VERIFY-WHITELIST] registry upsert failed:", upsertError.message)
+
+  if (decision.registryUpserts.length > 0) {
+    const phones = decision.registryUpserts.map(r => r.phone)
+    const existingCheckedProviders = await fetchCheckedProviders(supabase, phones)
+    const upsertsWithProviders = decision.registryUpserts.map(r => ({
+      ...r,
+      whitelist_checked_providers: unionProviders(existingCheckedProviders.get(r.phone) ?? [], selectedProviders),
+    }))
+    for (let i = 0; i < upsertsWithProviders.length; i += 500) {
+      const { error: upsertError } = await supabase
+        .from("mtn_number_registry")
+        .upsert(upsertsWithProviders.slice(i, i + 500), { onConflict: "phone" })
+      if (upsertError) console.error("[PHONE-VERIFY-WHITELIST] registry upsert failed:", upsertError.message)
+    }
   }
 
   const [{ count: verifiedCount }, { count: invalidCount }, { count: notApplicableCount }, { count: remaining }] =
