@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { processVerificationChunk } from "@/lib/phone-verify-processor"
+import { processWhitelistChunk } from "@/lib/phone-verify-whitelist-processor"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -19,7 +20,16 @@ export async function POST(request: NextRequest) {
   if (!sessionId) return NextResponse.json({ error: "sessionId required" }, { status: 400 })
 
   try {
-    const result = await processVerificationChunk(supabase, sessionId)
+    const { data: session, error: sessionError } = await supabase
+      .from("phone_verification_sessions")
+      .select("check_type")
+      .eq("id", sessionId)
+      .single()
+    if (sessionError || !session) return NextResponse.json({ error: "Session not found" }, { status: 404 })
+
+    const result = session.check_type === "mtn_whitelist"
+      ? await processWhitelistChunk(supabase, sessionId)
+      : await processVerificationChunk(supabase, sessionId)
     return NextResponse.json(result)
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
