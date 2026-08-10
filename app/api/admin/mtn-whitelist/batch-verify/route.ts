@@ -5,7 +5,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
-import { WHITELIST_REGISTRY, checkWhitelistBatch } from "@/lib/mtn-providers/provider-whitelist"
+import { WHITELIST_REGISTRY, checkWhitelistBatch, unionProviders } from "@/lib/mtn-providers/provider-whitelist"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
@@ -49,33 +49,50 @@ export async function POST(request: NextRequest) {
   const results = await checkWhitelistBatch(phones, configuredProviders)
 
   const now = new Date().toISOString()
-  const allowedPhones: string[] = []
-  const blockedPhones: string[] = []
-  // Group allowed phones by which provider allowed them so whitelist_allowed_by
-  // is recorded per number (the previous inline loop never set this column).
-  const allowedByProvider = new Map<string, string[]>()
+  const attemptedProviders = configuredProviders.map(p => p.name)
 
-  for (const phone of phones) {
-    const r = results.get(phone)
-    if (r?.allowed) {
-      allowedPhones.push(phone)
-      const provider = r.allowedBy ?? "unknown"
-      if (!allowedByProvider.has(provider)) allowedByProvider.set(provider, [])
-      allowedByProvider.get(provider)!.push(phone)
-    } else {
-      blockedPhones.push(phone)
+  // Fetch existing checked-providers per phone so the write below unions
+  // rather than overwrites — this endpoint and the phone-verification upload
+  // flow both touch whitelist_checked_providers, and neither should erase
+  // what the other already recorded.
+  const existingCheckedProviders = new Map<string, string[]>()
+  for (let i = 0; i < phones.length; i += 500) {
+    const chunk = phones.slice(i, i + 500)
+    const { data: existingRows, error: existingError } = await supabase
+      .from("mtn_number_registry")
+      .select("phone, whitelist_checked_providers")
+      .in("phone", chunk)
+    if (existingError) {
+      console.error("[MTN-WHITELIST-BATCH-VERIFY] checked-providers lookup failed (falling back to empty history for this chunk):", existingError.message)
+      continue
+    }
+    for (const row of existingRows ?? []) {
+      existingCheckedProviders.set(row.phone, row.whitelist_checked_providers ?? [])
     }
   }
 
-  for (const [provider, phonesForProvider] of allowedByProvider) {
-    await supabase.from("mtn_number_registry")
-      .update({ whitelist_status: "allowed", whitelist_allowed_by: provider, whitelist_last_checked: now, whitelist_retry_count: 0 })
-      .in("phone", phonesForProvider)
-  }
-  if (blockedPhones.length > 0) {
-    await supabase.from("mtn_number_registry")
-      .update({ whitelist_status: "blocked", whitelist_allowed_by: null, whitelist_last_checked: now, whitelist_retry_count: 0 })
-      .in("phone", blockedPhones)
+  let allowedCount = 0
+  let blockedCount = 0
+  const upsertRows = phones.map(phone => {
+    const r = results.get(phone)
+    const allowed = r?.allowed === true
+    if (allowed) allowedCount++
+    else blockedCount++
+    return {
+      phone,
+      whitelist_status: allowed ? ("allowed" as const) : ("blocked" as const),
+      whitelist_allowed_by: allowed ? (r?.allowedBy ?? null) : null,
+      whitelist_last_checked: now,
+      whitelist_retry_count: 0,
+      whitelist_checked_providers: unionProviders(existingCheckedProviders.get(phone) ?? [], attemptedProviders),
+    }
+  })
+
+  for (let i = 0; i < upsertRows.length; i += 500) {
+    const { error: upsertError } = await supabase
+      .from("mtn_number_registry")
+      .upsert(upsertRows.slice(i, i + 500), { onConflict: "phone" })
+    if (upsertError) console.error("[MTN-WHITELIST-BATCH-VERIFY] registry upsert failed:", upsertError.message)
   }
 
   const total = count ?? 0
@@ -86,8 +103,8 @@ export async function POST(request: NextRequest) {
     ok: true,
     done,
     processed: phones.length,
-    allowed: allowedPhones.length,
-    blocked: blockedPhones.length,
+    allowed: allowedCount,
+    blocked: blockedCount,
     nextOffset,
     total,
   })
