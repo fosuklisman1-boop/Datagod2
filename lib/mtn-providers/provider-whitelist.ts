@@ -288,3 +288,40 @@ export async function checkWhitelistWithFallback(
 export function isWhitelistProvider(providerName: string): boolean {
   return WHITELIST_REGISTRY.some(p => p.name === providerName && p.configured())
 }
+
+// ── Provider selection (bulk admin tools) ──────────────────────────────────────
+
+/**
+ * Per-provider configuration snapshot — used by the phone-verification
+ * upload UI to show which providers a bulk whitelist check can use.
+ */
+export function listWhitelistProviders(
+  registry: WhitelistEntry[] = WHITELIST_REGISTRY
+): Array<{ name: string; configured: boolean }> {
+  return registry.map(p => ({ name: p.name, configured: p.configured() }))
+}
+
+/**
+ * Validates an admin-chosen subset of provider names for a bulk whitelist
+ * run: every name must be a real registry entry AND currently configured.
+ * Returns the validated names deduped and normalized to registry order, or
+ * an error message naming exactly what's wrong.
+ */
+export function validateProviderSelection(
+  names: string[],
+  registry: WhitelistEntry[] = WHITELIST_REGISTRY
+): { valid: true; providers: string[] } | { valid: false; error: string } {
+  if (names.length === 0) return { valid: false, error: "At least one provider must be selected" }
+  const unknown = names.filter(n => !registry.some(p => p.name === n))
+  if (unknown.length > 0) return { valid: false, error: `Unknown provider(s): ${unknown.join(", ")}` }
+  const configuredNames = new Set(registry.filter(p => p.configured()).map(p => p.name))
+  const unconfigured = names.filter(n => !configuredNames.has(n))
+  if (unconfigured.length > 0) return { valid: false, error: `Provider(s) not configured: ${unconfigured.join(", ")}` }
+  const selected = new Set(names)
+  return { valid: true, providers: registry.filter(p => selected.has(p.name)).map(p => p.name) }
+}
+
+/** Union of two provider-name lists, deduped, order-preserving on first occurrence. */
+export function unionProviders(existing: string[], added: string[]): string[] {
+  return Array.from(new Set([...existing, ...added]))
+}

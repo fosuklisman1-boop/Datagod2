@@ -1,4 +1,4 @@
-import { checkWhitelistBatch, type WhitelistEntry } from "./provider-whitelist"
+import { checkWhitelistBatch, listWhitelistProviders, validateProviderSelection, unionProviders, type WhitelistEntry } from "./provider-whitelist"
 
 function fakeEntry(name: string, allowedSet: Set<string>, configured = true): WhitelistEntry {
   return {
@@ -60,5 +60,56 @@ describe("checkWhitelistBatch", () => {
     ]
     await checkWhitelistBatch(["0551111111"], registry)
     expect(secondProviderCalled).toBe(false)
+  })
+})
+
+describe("listWhitelistProviders", () => {
+  it("reports each registry entry's name and configured state", () => {
+    const registry = [
+      fakeEntry("xpress", new Set(), true),
+      fakeEntry("codecraft", new Set(), false),
+    ]
+    expect(listWhitelistProviders(registry)).toEqual([
+      { name: "xpress", configured: true },
+      { name: "codecraft", configured: false },
+    ])
+  })
+})
+
+describe("validateProviderSelection", () => {
+  const registry = [
+    fakeEntry("xpress", new Set(), true),
+    fakeEntry("codecraft", new Set(), true),
+    fakeEntry("agentportalgh", new Set(), false),
+  ]
+
+  it("rejects an empty selection", () => {
+    const result = validateProviderSelection([], registry)
+    expect(result).toEqual({ valid: false, error: "At least one provider must be selected" })
+  })
+
+  it("rejects an unknown provider name", () => {
+    const result = validateProviderSelection(["xpress", "bogus"], registry)
+    expect(result).toEqual({ valid: false, error: "Unknown provider(s): bogus" })
+  })
+
+  it("rejects a known but unconfigured provider", () => {
+    const result = validateProviderSelection(["agentportalgh"], registry)
+    expect(result).toEqual({ valid: false, error: "Provider(s) not configured: agentportalgh" })
+  })
+
+  it("accepts a valid subset, deduped and normalized to registry order", () => {
+    const result = validateProviderSelection(["codecraft", "xpress", "codecraft"], registry)
+    expect(result).toEqual({ valid: true, providers: ["xpress", "codecraft"] })
+  })
+})
+
+describe("unionProviders", () => {
+  it("merges two lists without duplicates", () => {
+    expect(unionProviders(["xpress"], ["xpress", "codecraft"])).toEqual(["xpress", "codecraft"])
+  })
+
+  it("returns the added list as-is when existing is empty", () => {
+    expect(unionProviders([], ["xpress"])).toEqual(["xpress"])
   })
 })
