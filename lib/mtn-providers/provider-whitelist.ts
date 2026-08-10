@@ -142,7 +142,7 @@ async function checkAgentPortalGHBatch(
 // Add new whitelist-capable providers here. Order matters: providers listed
 // earlier are tried first when the active provider doesn't support whitelist.
 
-type WhitelistEntry = {
+export type WhitelistEntry = {
   name: string
   configured: () => boolean
   check: (msisdn: string) => Promise<WhitelistResult>
@@ -218,6 +218,41 @@ export async function checkWhitelistForOrder(
  */
 export function hasWhitelistProviders(): boolean {
   return WHITELIST_REGISTRY.some(p => p.configured())
+}
+
+/**
+ * Check a batch of numbers against every configured whitelist provider,
+ * stopping at the first provider that allows each number (mirrors
+ * checkWhitelistForOrder's precedence, batched for bulk use).
+ *
+ * Unlike checkWhitelistForOrder, this does NOT filter out fulfillment-disabled
+ * providers — it answers "is this number allowed by ANY whitelist-capable
+ * provider we have credentials for," independent of which provider
+ * fulfillment currently prefers.
+ *
+ * Callers must ensure at least one provider is configured first (see
+ * hasWhitelistProviders()) — with none configured this returns every number
+ * as not allowed rather than failing open, since bulk reporting must never
+ * claim a check happened when it didn't.
+ */
+export async function checkWhitelistBatch(
+  msisdns: string[],
+  registry: WhitelistEntry[] = WHITELIST_REGISTRY
+): Promise<Map<string, { allowed: boolean; allowedBy?: string }>> {
+  const result = new Map<string, { allowed: boolean; allowedBy?: string }>()
+  msisdns.forEach(m => result.set(m, { allowed: false }))
+
+  const configured = registry.filter(p => p.configured())
+  for (const entry of configured) {
+    const toCheck = msisdns.filter(m => !result.get(m)!.allowed)
+    if (toCheck.length === 0) break
+    const batchResults = await entry.checkBatch(toCheck)
+    for (const r of batchResults) {
+      if (r.allowed) result.set(r.msisdn, { allowed: true, allowedBy: entry.name })
+    }
+  }
+
+  return result
 }
 
 // ── Batch helpers (used by retry cron + admin endpoint) ───────────────────────

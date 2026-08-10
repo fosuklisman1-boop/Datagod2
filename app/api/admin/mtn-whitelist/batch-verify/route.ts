@@ -5,7 +5,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
-import { WHITELIST_REGISTRY } from "@/lib/mtn-providers/provider-whitelist"
+import { WHITELIST_REGISTRY, checkWhitelistBatch } from "@/lib/mtn-providers/provider-whitelist"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
@@ -46,31 +46,35 @@ export async function POST(request: NextRequest) {
   const phones = (rows ?? []).map(r => r.phone as string)
   if (phones.length === 0) return NextResponse.json({ ok: true, done: true, total: count ?? 0 })
 
-  const allowed = new Set<string>()
+  const results = await checkWhitelistBatch(phones, configuredProviders)
 
-  // Run each provider's batch check in sequence; once a number is allowed, skip it for later providers
-  for (const entry of configuredProviders) {
-    const toCheck = phones.filter(p => !allowed.has(p))
-    if (toCheck.length === 0) break
-    const results = await entry.checkBatch(toCheck)
-    for (const r of results) {
-      if (r.allowed) allowed.add(r.msisdn)
+  const now = new Date().toISOString()
+  const allowedPhones: string[] = []
+  const blockedPhones: string[] = []
+  // Group allowed phones by which provider allowed them so whitelist_allowed_by
+  // is recorded per number (the previous inline loop never set this column).
+  const allowedByProvider = new Map<string, string[]>()
+
+  for (const phone of phones) {
+    const r = results.get(phone)
+    if (r?.allowed) {
+      allowedPhones.push(phone)
+      const provider = r.allowedBy ?? "unknown"
+      if (!allowedByProvider.has(provider)) allowedByProvider.set(provider, [])
+      allowedByProvider.get(provider)!.push(phone)
+    } else {
+      blockedPhones.push(phone)
     }
   }
 
-  // Batch update the registry
-  const now = new Date().toISOString()
-  const allowedPhones = [...allowed]
-  const blockedPhones = phones.filter(p => !allowed.has(p))
-
-  if (allowedPhones.length > 0) {
+  for (const [provider, phonesForProvider] of allowedByProvider) {
     await supabase.from("mtn_number_registry")
-      .update({ whitelist_status: "allowed", whitelist_last_checked: now, whitelist_retry_count: 0 })
-      .in("phone", allowedPhones)
+      .update({ whitelist_status: "allowed", whitelist_allowed_by: provider, whitelist_last_checked: now, whitelist_retry_count: 0 })
+      .in("phone", phonesForProvider)
   }
   if (blockedPhones.length > 0) {
     await supabase.from("mtn_number_registry")
-      .update({ whitelist_status: "blocked", whitelist_last_checked: now, whitelist_retry_count: 0 })
+      .update({ whitelist_status: "blocked", whitelist_allowed_by: null, whitelist_last_checked: now, whitelist_retry_count: 0 })
       .in("phone", blockedPhones)
   }
 
