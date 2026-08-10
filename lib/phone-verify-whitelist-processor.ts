@@ -122,19 +122,22 @@ export async function processWhitelistChunk(
   const decision = decideWhitelistOutcomes(pending, whitelistResults, now)
 
   if (decision.notApplicableIds.length > 0) {
-    await supabase.from("phone_verification_results")
+    const { error: notApplicableError } = await supabase.from("phone_verification_results")
       .update({ status: "not_applicable", verified_at: now })
       .in("id", decision.notApplicableIds)
+    if (notApplicableError) console.error("[PHONE-VERIFY-WHITELIST] not_applicable update failed:", notApplicableError.message)
   }
   for (const [provider, ids] of decision.verifiedByProvider) {
-    await supabase.from("phone_verification_results")
+    const { error: verifiedError } = await supabase.from("phone_verification_results")
       .update({ status: "verified", whitelist_provider: provider, verified_at: now })
       .in("id", ids)
+    if (verifiedError) console.error(`[PHONE-VERIFY-WHITELIST] verified update failed for provider ${provider}:`, verifiedError.message)
   }
   if (decision.invalidIds.length > 0) {
-    await supabase.from("phone_verification_results")
+    const { error: invalidError } = await supabase.from("phone_verification_results")
       .update({ status: "invalid", whitelist_provider: null, verified_at: now })
       .in("id", decision.invalidIds)
+    if (invalidError) console.error("[PHONE-VERIFY-WHITELIST] invalid update failed:", invalidError.message)
   }
   for (let i = 0; i < decision.registryUpserts.length; i += 500) {
     const { error: upsertError } = await supabase
