@@ -4,7 +4,7 @@ import { verifyAdminAccess } from "@/lib/admin-auth"
 import { normalizeGhanaPhoneNumber } from "@/lib/phone-validation"
 import { detectNetworkWithMap } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
-import { hasWhitelistProviders } from "@/lib/mtn-providers/provider-whitelist"
+import { hasWhitelistProviders, validateProviderSelection } from "@/lib/mtn-providers/provider-whitelist"
 import {
   findExistingMoolreNumbers,
   findRecentWhitelistChecks,
@@ -57,11 +57,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Only .csv and .xlsx files are supported" }, { status: 400 })
     }
 
-    if (checkType === "mtn_whitelist" && !hasWhitelistProviders()) {
-      return NextResponse.json(
-        { error: "No MTN whitelist provider is configured (Xpress/CodeCraft/AgentPortalGH)" },
-        { status: 400 }
-      )
+    let whitelistProviders: string[] | null = null
+    if (checkType === "mtn_whitelist") {
+      if (!hasWhitelistProviders()) {
+        return NextResponse.json(
+          { error: "No MTN whitelist provider is configured (Xpress/CodeCraft/AgentPortalGH)" },
+          { status: 400 }
+        )
+      }
+      const requestedProviders = String(formData.get("providers") ?? "")
+        .split(",")
+        .map(s => s.trim())
+        .filter(Boolean)
+      const validated = validateProviderSelection(requestedProviders)
+      if (!validated.valid) {
+        return NextResponse.json({ error: validated.error }, { status: 400 })
+      }
+      whitelistProviders = validated.providers
     }
 
     const phoneLines = await fileToPhoneLines(file)
@@ -76,7 +88,7 @@ export async function POST(request: NextRequest) {
     let duplicates: number
 
     if (checkType === "mtn_whitelist") {
-      const recent = await findRecentWhitelistChecks(supabase, phones)
+      const recent = await findRecentWhitelistChecks(supabase, phones, whitelistProviders!)
       duplicates = phones.filter(p => recent.has(p)).length
       rows = buildWhitelistRows(phoneInputs, recent)
     } else {
@@ -89,7 +101,14 @@ export async function POST(request: NextRequest) {
 
     const { data: session, error: sessionError } = await supabase
       .from("phone_verification_sessions")
-      .insert({ file_name: file.name, total_count: phones.length, status: "processing", created_by: userId, check_type: checkType })
+      .insert({
+        file_name: file.name,
+        total_count: phones.length,
+        status: "processing",
+        created_by: userId,
+        check_type: checkType,
+        whitelist_providers: whitelistProviders,
+      })
       .select("id")
       .single()
 
@@ -101,7 +120,7 @@ export async function POST(request: NextRequest) {
       if (error) throw new Error(`Bulk insert failed at offset ${i}: ${error.message}`)
     }
 
-    return NextResponse.json({ sessionId: session.id, total: phones.length, newCount, duplicates, checkType })
+    return NextResponse.json({ sessionId: session.id, total: phones.length, newCount, duplicates, checkType, whitelistProviders })
   } catch (error) {
     console.error("[PHONE-VERIFY-UPLOAD]", error)
     return NextResponse.json({ error: "Upload failed" }, { status: 500 })
