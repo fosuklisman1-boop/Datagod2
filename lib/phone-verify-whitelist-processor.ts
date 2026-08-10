@@ -92,10 +92,14 @@ async function fetchCheckedProviders(
   const result = new Map<string, string[]>()
   for (let i = 0; i < phones.length; i += 500) {
     const chunk = phones.slice(i, i + 500)
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("mtn_number_registry")
       .select("phone, whitelist_checked_providers")
       .in("phone", chunk)
+    if (error) {
+      console.error("[PHONE-VERIFY-WHITELIST] checked-providers lookup failed (falling back to empty history for this chunk):", error.message)
+      continue
+    }
     for (const row of data ?? []) {
       result.set(row.phone, row.whitelist_checked_providers ?? [])
     }
