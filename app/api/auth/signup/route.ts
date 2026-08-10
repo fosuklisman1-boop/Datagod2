@@ -212,6 +212,16 @@ export async function POST(request: NextRequest) {
       // Don't fail signup if wallet creation fails, but log it
     }
 
+    // Notify admins — fire-and-forget, never blocks signup on push failure
+    import("@/lib/push-service").then(({ notifyAdminsPush }) => {
+      const name = `${firstName || "Someone"} ${lastName || ""}`.trim()
+      notifyAdminsPush({
+        title: "🆕 New Signup",
+        body: `${name} just signed up (${phoneNumber})`,
+        data: { url: "/admin/users" },
+      }).catch(err => console.error("[SIGNUP] Admin push notification failed:", err))
+    })
+
     // Send Welcome Email
     if (email) {
       import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
