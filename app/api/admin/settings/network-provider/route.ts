@@ -8,7 +8,11 @@ const NETWORK_KEYS: Record<string, string> = {
   at_bigtime: "at_bigtime_provider_selection",
 }
 
-const VALID_PROVIDERS = ["datakazina", "xpress", "eazyghdata", "codecraft"]
+const VALID_PROVIDERS_BY_NETWORK: Record<string, string[]> = {
+  telecel: ["datakazina", "xpress", "eazyghdata", "codecraft", "agentportalgh"],
+  at_ishare: ["datakazina", "xpress", "eazyghdata", "codecraft", "agentportalgh"],
+  at_bigtime: ["datakazina", "xpress", "eazyghdata", "codecraft"],
+}
 
 export async function GET(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
@@ -43,8 +47,9 @@ export async function POST(request: NextRequest) {
   if (!settingKey) {
     return NextResponse.json({ error: "Invalid network. Use: telecel, at_ishare, at_bigtime" }, { status: 400 })
   }
-  if (!VALID_PROVIDERS.includes(provider)) {
-    return NextResponse.json({ error: `Invalid provider. Use: ${VALID_PROVIDERS.join(", ")}` }, { status: 400 })
+  const validProviders = VALID_PROVIDERS_BY_NETWORK[network] ?? []
+  if (!validProviders.includes(provider)) {
+    return NextResponse.json({ error: `Invalid provider for ${network}. Use: ${validProviders.join(", ")}` }, { status: 400 })
   }
 
   const { error } = await supabase
