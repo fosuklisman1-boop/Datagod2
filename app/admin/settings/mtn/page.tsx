@@ -119,7 +119,7 @@ export default function MTNSettingsPage() {
   const [disabledProviders, setDisabledProviders] = useState<MTNProviderName[]>([])
   const [togglingDisabled, setTogglingDisabled] = useState<MTNProviderName | null>(null)
 
-  type NonMTNProvider = "datakazina" | "xpress" | "eazyghdata" | "codecraft"
+  type NonMTNProvider = "datakazina" | "xpress" | "eazyghdata" | "codecraft" | "agentportalgh"
   const [telecelProvider, setTelecelProvider] = useState<NonMTNProvider>("codecraft")
   const [atIshareProvider, setAtIshareProvider] = useState<NonMTNProvider>("codecraft")
   const [atBigtimeProvider, setAtBigtimeProvider] = useState<NonMTNProvider>("codecraft")
@@ -1133,12 +1133,16 @@ export default function MTNSettingsPage() {
               const current = netKey === "telecel" ? telecelProvider : netKey === "at_ishare" ? atIshareProvider : atBigtimeProvider
               const setter = netKey === "telecel" ? setTelecelProvider : netKey === "at_ishare" ? setAtIshareProvider : setAtBigtimeProvider
               const isSaving = savingNetworkProvider === netKey
-              const providers: { value: NonMTNProvider; label: string; sub: string }[] = [
+              const baseProviders: { value: NonMTNProvider; label: string; sub: string }[] = [
                 { value: "codecraft", label: "CodeCraft", sub: "Default AT/Telecel API" },
                 { value: "datakazina", label: "DataKazina", sub: "Multi-network" },
                 { value: "xpress", label: "Xpress", sub: "Batch-enabled" },
                 { value: "eazyghdata", label: "EazyGhData", sub: "Package-based" },
               ]
+              const providers: { value: NonMTNProvider; label: string; sub: string }[] =
+                netKey === "at_bigtime"
+                  ? baseProviders
+                  : [...baseProviders, { value: "agentportalgh", label: "AgentPortalGH", sub: "Webhook-first" }]
               return (
                 <Card key={netKey} className="border-2">
                   <CardHeader>
