@@ -116,54 +116,26 @@ export async function fulfillUssdOrder(
     const isAutoEnabled = forceManual || (globalSettings?.value?.enabled ?? true)
 
     if (isAutoEnabled) {
-      const networkLower = network.toLowerCase()
-      const isBigTime = networkLower.includes("bigtime")
-
-      const { getProviderNameForNetwork, NETWORK_TO_REQUEST_NETWORK } = await import("@/lib/mtn-providers/factory")
-      const providerName = await getProviderNameForNetwork(networkUpper)
-
-      if (providerName === "codecraft") {
-        const apiNetwork = networkLower.includes("telecel") ? "TELECEL" : "AT"
-        const { atishareService } = await import("@/lib/at-ishare-service")
-        atishareService.fulfillOrder({
-          phoneNumber: recipientPhone,
-          sizeGb,
-          orderId,
-          network: apiNetwork,
-          orderType: trackingOrderType,
-          isBigTime,
-        }).then(async (result) => {
-          if (result.success) {
-            await markUssdOrderStatus(orderId, 'processing', orderTable)
-            console.log("[USSD-FULFILL] ✓ Codecraft order placed, awaiting cron confirmation:", orderId)
-          } else {
-            console.error("[USSD-FULFILL] Codecraft returned failure:", result.message)
-            await markUssdOrderStatus(orderId, 'pending', orderTable)
-          }
-        }).catch(async (err: any) => {
-          console.error("[USSD-FULFILL] Codecraft error:", err)
+      const { createNonMTNOrder } = await import("@/lib/non-mtn-fulfillment")
+      createNonMTNOrder({
+        phoneNumber: recipientPhone,
+        sizeGb,
+        orderId,
+        network,
+        orderType: trackingOrderType,
+      }).then(async (result) => {
+        if (result.success) {
+          await markUssdOrderStatus(orderId, 'processing', orderTable)
+          console.log(`[USSD-FULFILL] ✓ ${result.provider} order placed, awaiting cron confirmation:`, orderId)
+        } else {
+          console.error(`[USSD-FULFILL] ${result.provider} returned failure:`, result.message)
           await markUssdOrderStatus(orderId, 'pending', orderTable)
-        })
-        return { success: true, message: "Codecraft fulfillment triggered" }
-      } else {
-        const { getProviderByName } = await import("@/lib/mtn-providers/factory")
-        const p = getProviderByName(providerName as any)
-        const reqNetwork = NETWORK_TO_REQUEST_NETWORK[networkUpper] ?? "AirtelTigo"
-        p.createOrder({ recipient_phone: recipientPhone, network: reqNetwork, size_gb: sizeGb, client_ref: orderId })
-          .then(async (result) => {
-            if (result.success) {
-              await markUssdOrderStatus(orderId, 'processing', orderTable)
-              console.log(`[USSD-FULFILL] ✓ ${providerName} order placed:`, orderId)
-            } else {
-              console.error(`[USSD-FULFILL] ${providerName} returned failure:`, result.message)
-              await markUssdOrderStatus(orderId, 'pending', orderTable)
-            }
-          }).catch(async (err: any) => {
-            console.error(`[USSD-FULFILL] ${providerName} error:`, err)
-            await markUssdOrderStatus(orderId, 'pending', orderTable)
-          })
-        return { success: true, message: `${providerName} fulfillment triggered` }
-      }
+        }
+      }).catch(async (err: any) => {
+        console.error("[USSD-FULFILL] Non-MTN fulfillment error:", err)
+        await markUssdOrderStatus(orderId, 'pending', orderTable)
+      })
+      return { success: true, message: "Non-MTN fulfillment triggered" }
     }
   }
 
