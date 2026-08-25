@@ -131,17 +131,23 @@ export const NETWORK_TO_REQUEST_NETWORK: Record<string, "Telecel" | "AirtelTigo"
     "AT-BIGTIME": "AirtelTigo",
 }
 
-const NON_MTN_CAPABLE: MTNProviderName[] = ["datakazina", "xpress", "eazyghdata", "codecraft"]
+export const NON_MTN_CAPABLE: Record<string, MTNProviderName[]> = {
+    telecel_provider_selection: ["datakazina", "xpress", "eazyghdata", "codecraft", "agentportalgh"],
+    at_ishare_provider_selection: ["datakazina", "xpress", "eazyghdata", "codecraft", "agentportalgh"],
+    at_bigtime_provider_selection: ["datakazina", "xpress", "eazyghdata", "codecraft"],
+}
 
 /**
  * Read the admin-selected provider for a non-MTN network (Telecel / AT-iShare / AT-BigTime).
  * Falls back to "codecraft" if the setting is absent or invalid. If the selected
- * (or default) provider is deactivated, falls through NON_MTN_CAPABLE in order to
- * the first active one — same fail-open pattern as getMTNProvider().
+ * (or default) provider is deactivated, falls through NON_MTN_CAPABLE[settingKey] in
+ * order to the first active one — same fail-open pattern as getMTNProvider().
  */
 export async function getProviderNameForNetwork(normalizedNetwork: string): Promise<MTNProviderName> {
     const settingKey = NON_MTN_NETWORK_KEYS[normalizedNetwork]
-    if (!settingKey) return withNonMtnFallback("codecraft")
+    if (!settingKey) return "codecraft"
+
+    const capable = NON_MTN_CAPABLE[settingKey] ?? ["codecraft"]
 
     try {
         const { data } = await supabase
@@ -151,21 +157,22 @@ export async function getProviderNameForNetwork(normalizedNetwork: string): Prom
             .maybeSingle()
 
         const name = data?.value?.provider as MTNProviderName | undefined
-        return withNonMtnFallback(name && NON_MTN_CAPABLE.includes(name) ? name : "codecraft")
+        return withNonMtnFallback(name && capable.includes(name) ? name : "codecraft", settingKey)
     } catch {
-        return withNonMtnFallback("codecraft")
+        return withNonMtnFallback("codecraft", settingKey)
     }
 }
 
-async function withNonMtnFallback(name: MTNProviderName): Promise<MTNProviderName> {
+async function withNonMtnFallback(name: MTNProviderName, settingKey: string): Promise<MTNProviderName> {
+    const capable = NON_MTN_CAPABLE[settingKey] ?? ["codecraft"]
     const disabled = await getDisabledProviders()
     if (!disabled.has(name)) return name
-    const fallback = NON_MTN_CAPABLE.find(p => !disabled.has(p))
+    const fallback = capable.find(p => !disabled.has(p))
     if (fallback) {
         console.warn(`[MTN-Factory] Non-MTN provider "${name}" is deactivated — falling back to "${fallback}"`)
         return fallback
     }
-    console.error(`[MTN-Factory] All non-MTN-capable providers are deactivated — using "${name}" anyway (fail open)`)
+    console.error(`[MTN-Factory] All non-MTN-capable providers for "${settingKey}" are deactivated — using "${name}" anyway (fail open)`)
     return name
 }
 
