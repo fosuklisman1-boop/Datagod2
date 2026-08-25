@@ -19,19 +19,27 @@ describe("mapItemStatus", () => {
 
 describe("buildQueuePayload", () => {
   it("rounds fractional GB to integer", () => {
-    const body = buildQueuePayload("0241234567", 1.7, "ref-uuid")
+    const body = buildQueuePayload("0241234567", 1.7, "ref-uuid", "MTN")
     expect(body.items[0].data_gb).toBe(2)
   })
-  it("always sets service to mtn", () => {
-    const body = buildQueuePayload("0241234567", 3, "ref-uuid")
+  it("sets service to mtn for the MTN network", () => {
+    const body = buildQueuePayload("0241234567", 3, "ref-uuid", "MTN")
     expect(body.service).toBe("mtn")
   })
+  it("sets service to telecel for the Telecel network", () => {
+    const body = buildQueuePayload("0241234567", 3, "ref-uuid", "Telecel")
+    expect(body.service).toBe("telecel")
+  })
+  it("sets service to airteltigo for the AirtelTigo network", () => {
+    const body = buildQueuePayload("0241234567", 3, "ref-uuid", "AirtelTigo")
+    expect(body.service).toBe("airteltigo")
+  })
   it("passes the reference through unchanged", () => {
-    const body = buildQueuePayload("0241234567", 5, "my-uuid-123")
+    const body = buildQueuePayload("0241234567", 5, "my-uuid-123", "MTN")
     expect(body.items[0].reference).toBe("my-uuid-123")
   })
   it("passes the msisdn through unchanged", () => {
-    const body = buildQueuePayload("0241234567", 5, "r")
+    const body = buildQueuePayload("0241234567", 5, "r", "MTN")
     expect(body.items[0].msisdn).toBe("0241234567")
   })
 })

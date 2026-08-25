@@ -37,10 +37,12 @@ export function mapItemStatus(raw: string): "pending" | "processing" | "complete
 export function buildQueuePayload(
   msisdn: string,
   dataGb: number,
-  reference: string
+  reference: string,
+  network: "MTN" | "Telecel" | "AirtelTigo"
 ): { service: string; items: Array<{ msisdn: string; data_gb: number; reference: string }> } {
+  const service = network === "Telecel" ? "telecel" : network === "AirtelTigo" ? "airteltigo" : "mtn"
   return {
-    service: "mtn",
+    service,
     items: [{ msisdn, data_gb: Math.round(dataGb), reference }],
   }
 }
@@ -138,7 +140,7 @@ export class AgentPortalGHProvider implements MTNProvider {
     try {
       res = await apiFetch("/api/queue/add", {
         method: "POST",
-        body: JSON.stringify(buildQueuePayload(phone, request.size_gb, reference)),
+        body: JSON.stringify(buildQueuePayload(phone, request.size_gb, reference, request.network)),
       })
     } catch (err) {
       return { success: false, message: err instanceof Error ? err.message : "Network error", error_type: "NETWORK_ERROR" }
