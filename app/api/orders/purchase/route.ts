@@ -5,7 +5,6 @@ import { notificationTemplates } from "@/lib/notification-service"
 import { sendPushToUser } from "@/lib/push-service"
 import { sendSMS } from "@/lib/sms-service"
 import { customerTrackingService } from "@/lib/customer-tracking-service"
-import { atishareService } from "@/lib/at-ishare-service"
 import { isPhoneBlacklisted } from "@/lib/blacklist"
 import {
   isAutoFulfillmentEnabled as isMTNAutoFulfillmentEnabled,
@@ -380,21 +379,16 @@ export async function POST(request: NextRequest) {
 
         console.log(`[FULFILLMENT] Order details - Network: ${network}, Size: ${sizeGb}GB, OrderID: ${order[0].id}`)
 
-        // Determine API network and endpoint based on order network
-        const networkLower = normalizedNetwork.toLowerCase()
-        const isBigTime = networkLower.includes("bigtime")
-        const apiNetwork = networkLower.includes("telecel") ? "TELECEL" : "AT"
-
-        // Non-blocking fulfillment trigger
-        console.log(`[FULFILLMENT] Calling atishareService.fulfillOrder with network: ${apiNetwork}, isBigTime: ${isBigTime}`)
-        atishareService.fulfillOrder({
+        // Non-blocking fulfillment trigger — createNonMTNOrder resolves the admin's
+        // selected provider for this network internally.
+        console.log(`[FULFILLMENT] Calling createNonMTNOrder for network: ${normalizedNetwork}`)
+        import("@/lib/non-mtn-fulfillment").then(({ createNonMTNOrder }) => createNonMTNOrder({
           phoneNumber,
           sizeGb,
           orderId: order[0].id,
-          network: apiNetwork,
+          network: normalizedNetwork,
           orderType: "wallet",  // Wallet orders use orders table
-          isBigTime,
-        }).then(result => {
+        })).then(result => {
           console.log(`[FULFILLMENT] Fulfillment response for order ${order[0].id}:`, result)
         }).catch(err => {
           console.error(`[FULFILLMENT] Error triggering fulfillment for order ${order[0].id}:`, err)

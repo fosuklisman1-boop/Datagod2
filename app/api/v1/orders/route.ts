@@ -3,7 +3,6 @@ import { authenticateApiKey, logApiRequest } from "@/lib/api-auth"
 import { createClient } from "@supabase/supabase-js"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { createMTNOrder, saveMTNTracking, normalizePhoneNumber, isAutoFulfillmentEnabled as isMTNAutoEnabled } from "@/lib/mtn-fulfillment"
-import { atishareService } from "@/lib/at-ishare-service"
 import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 
@@ -254,27 +253,24 @@ export async function POST(request: NextRequest) {
       }
     })()
   } 
-  // B. AT / Telecel Fulfillment (CodeCraft)
+  // B. AT / Telecel Fulfillment
   else {
     const fulfillableNetworks = ["AT - iShare", "AT-iShare", "AT - ishare", "at - ishare", "Telecel", "telecel", "TELECEL", "AT - BigTime", "AT-BigTime", "AT - bigtime", "at - bigtime"]
     const isAutoFulfillable = fulfillableNetworks.some(n => n.toLowerCase() === normalizedNetwork)
-    
+
     if (isAutoFulfillable) {
       (async () => {
         try {
-          const isBigTime = normalizedNetwork.includes("bigtime")
-          const apiNetwork = normalizedNetwork.includes("telecel") ? "TELECEL" : "AT"
-          
-          atishareService.fulfillOrder({
+          const { createNonMTNOrder } = await import("@/lib/non-mtn-fulfillment")
+          await createNonMTNOrder({
             phoneNumber: cleanRecipient,
             sizeGb: volumeGb,
             orderId: orderId,
-            network: apiNetwork,
+            network: normalizedNetwork,
             orderType: "api",
-            isBigTime,
-          }).catch(err => console.error("[API v1] CodeCraft fulfillment error:", err))
+          })
         } catch (err) {
-          console.error("[API v1] CodeCraft trigger error:", err)
+          console.error("[API v1] Non-MTN fulfillment trigger error:", err)
         }
       })()
     }

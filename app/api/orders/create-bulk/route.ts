@@ -9,7 +9,6 @@ import {
   saveMTNTracking,
   normalizePhoneNumber,
 } from "@/lib/mtn-fulfillment"
-import { atishareService } from "@/lib/at-ishare-service"
 import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import { supabaseAdmin } from "@/lib/supabase" // Need admin client for checking settings if not already available, but usage below checks 'supabase' which is user client?
@@ -472,9 +471,7 @@ export async function POST(request: NextRequest) {
             }
 
             console.log(`[BULK-FULFILLMENT] Starting async fulfillment for ${createdOrders.length} ${network} orders...`)
-            const networkLower = normalizedNetwork.toLowerCase()
-            const isBigTime = networkLower.includes("bigtime")
-            const apiNetwork = networkLower.includes("telecel") ? "TELECEL" : "AT"
+            const { createNonMTNOrder } = await import("@/lib/non-mtn-fulfillment")
 
             for (const order of createdOrders) {
               try {
@@ -487,15 +484,14 @@ export async function POST(request: NextRequest) {
                 const sizeGb = parseFloat(order.size) || 0
                 if (sizeGb === 0) continue
 
-                console.log(`[BULK-FULFILLMENT] Triggering ${apiNetwork} fulfillment for order ${order.id}: ${order.phone_number}, ${sizeGb}GB`)
+                console.log(`[BULK-FULFILLMENT] Triggering fulfillment for order ${order.id}: ${order.phone_number}, ${sizeGb}GB`)
 
-                atishareService.fulfillOrder({
+                createNonMTNOrder({
                   phoneNumber: order.phone_number,
                   sizeGb,
                   orderId: order.id,
-                  network: apiNetwork,
+                  network: normalizedNetwork,
                   orderType: "wallet", // Bulk creates orders in 'orders' table, same as wallet purchase
-                  isBigTime,
                 }).then(result => {
                   console.log(`[BULK-FULFILLMENT] Fulfillment result for order ${order.id}:`, result)
                 }).catch(err => {

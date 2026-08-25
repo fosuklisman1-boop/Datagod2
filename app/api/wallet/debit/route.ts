@@ -2,7 +2,6 @@ import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { sendSMS } from "@/lib/sms-service"
 import { sendPushToUser } from "@/lib/push-service"
-import { atishareService } from "@/lib/at-ishare-service"
 import { customerTrackingService } from "@/lib/customer-tracking-service"
 import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 import {
@@ -268,20 +267,16 @@ export async function POST(request: NextRequest) {
           if (shouldFulfill) {
             try {
               const sizeGb = parseInt(shopOrder.volume_gb?.toString().replace(/[^0-9]/g, "") || "0") || 0
-              const networkLower = normalizedNetwork.toLowerCase()
-              const isBigTime = networkLower.includes("bigtime")
-              const apiNetwork = networkLower.includes("telecel") ? "TELECEL" : "AT"
 
-              console.log(`[WALLET-DEBIT] Triggering fulfillment: ${apiNetwork}, ${sizeGb}GB to ${shopOrder.customer_phone}`)
+              console.log(`[WALLET-DEBIT] Triggering fulfillment: ${normalizedNetwork}, ${sizeGb}GB to ${shopOrder.customer_phone}`)
 
-              atishareService.fulfillOrder({
+              import("@/lib/non-mtn-fulfillment").then(({ createNonMTNOrder }) => createNonMTNOrder({
                 phoneNumber: shopOrder.customer_phone,
                 sizeGb,
                 orderId: orderId,
-                network: apiNetwork,
+                network: normalizedNetwork,
                 orderType: "shop",
-                isBigTime,
-              }).then(result => {
+              })).then(result => {
                 console.log(`[WALLET-DEBIT] ✓ Fulfillment response:`, result)
               }).catch(err => {
                 console.error(`[WALLET-DEBIT] ❌ Fulfillment error:`, err)
