@@ -270,13 +270,14 @@ export async function POST(request: NextRequest) {
 
               console.log(`[WALLET-DEBIT] Triggering fulfillment: ${normalizedNetwork}, ${sizeGb}GB to ${shopOrder.customer_phone}`)
 
-              import("@/lib/non-mtn-fulfillment").then(({ createNonMTNOrder }) => createNonMTNOrder({
+              const { createNonMTNOrder } = await import("@/lib/non-mtn-fulfillment")
+              createNonMTNOrder({
                 phoneNumber: shopOrder.customer_phone,
                 sizeGb,
                 orderId: orderId,
                 network: normalizedNetwork,
                 orderType: "shop",
-              })).then(result => {
+              }).then(result => {
                 console.log(`[WALLET-DEBIT] ✓ Fulfillment response:`, result)
               }).catch(err => {
                 console.error(`[WALLET-DEBIT] ❌ Fulfillment error:`, err)

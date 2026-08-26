@@ -1,7 +1,7 @@
 import { atishareService } from "@/lib/at-ishare-service"
 import { saveMTNTracking } from "@/lib/mtn-fulfillment"
-import { getProviderNameForNetwork, getProviderByName, NETWORK_TO_REQUEST_NETWORK } from "@/lib/mtn-providers/factory"
-import type { MTNOrderRequest } from "@/lib/mtn-providers/types"
+import { getProviderNameForNetwork, getProviderByName, isProviderCapableForNetwork, NETWORK_TO_REQUEST_NETWORK } from "@/lib/mtn-providers/factory"
+import type { MTNOrderRequest, MTNProviderName } from "@/lib/mtn-providers/types"
 
 export interface NonMTNOrderParams {
   phoneNumber: string
@@ -10,6 +10,12 @@ export interface NonMTNOrderParams {
   /** Raw network label as stored on the order, e.g. "AT - iShare", "Telecel", "AT - BigTime". */
   network: string
   orderType: "wallet" | "shop" | "api" | "ussd" | "ussd_shop"
+  /**
+   * Optional explicit provider choice (e.g. from an admin's manual-fulfillment
+   * dropdown). Used only if it's capability-checked for the resolved network;
+   * otherwise falls back to the admin-configured default exactly as before.
+   */
+  providerOverride?: MTNProviderName
 }
 
 export interface NonMTNOrderResult {
@@ -43,9 +49,18 @@ function toTrackingOrderType(orderType: NonMTNOrderParams["orderType"]): "shop" 
  * filter by provider, not network) can resolve it.
  */
 export async function createNonMTNOrder(params: NonMTNOrderParams): Promise<NonMTNOrderResult> {
-  const { phoneNumber, sizeGb, orderId, network, orderType } = params
+  const { phoneNumber, sizeGb, orderId, network, orderType, providerOverride } = params
   const normalizedKey = normalizeNetworkKey(network)
-  const providerName = await getProviderNameForNetwork(normalizedKey)
+
+  let providerName: MTNProviderName
+  if (providerOverride && isProviderCapableForNetwork(normalizedKey, providerOverride)) {
+    providerName = providerOverride
+  } else {
+    if (providerOverride) {
+      console.warn(`[NonMTN] Override "${providerOverride}" is not capable for ${normalizedKey} — falling back to admin-configured provider`)
+    }
+    providerName = await getProviderNameForNetwork(normalizedKey)
+  }
 
   if (providerName === "codecraft") {
     const isBigTime = normalizedKey === "AT - BIGTIME"
@@ -66,8 +81,10 @@ export async function createNonMTNOrder(params: NonMTNOrderParams): Promise<NonM
   const provider = getProviderByName(providerName)
   const result = await provider.createOrder(mtnRequest)
 
-  if (result.order_id) {
+  if (result.success && result.order_id) {
     await saveMTNTracking(orderId, result.order_id, mtnRequest, result, toTrackingOrderType(orderType), providerName)
+  } else if (!result.success) {
+    await saveMTNTracking(orderId, `FAILED_INIT_${Date.now()}`, mtnRequest, result, toTrackingOrderType(orderType), providerName)
   }
 
   return {

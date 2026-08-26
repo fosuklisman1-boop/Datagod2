@@ -562,13 +562,14 @@ export async function PATCH(request: NextRequest) {
           }
 
           if (sizeGb > 0) {
-            import("@/lib/non-mtn-fulfillment").then(({ createNonMTNOrder }) => createNonMTNOrder({
+            const { createNonMTNOrder } = await import("@/lib/non-mtn-fulfillment")
+            createNonMTNOrder({
               phoneNumber: shopOrderData.customer_phone,
               sizeGb,
               orderId: attempt.order_id,
               network: shopOrderData.network,
               orderType: "shop",
-            })).then(result => {
+            }).then(result => {
               console.log(`[ADMIN-PAYMENT-ATTEMPTS] ✓ Fulfillment triggered for order ${attempt.order_id}:`, result)
             }).catch(err => {
               console.error(`[ADMIN-PAYMENT-ATTEMPTS] ❌ Fulfillment error for order ${attempt.order_id}:`, err)

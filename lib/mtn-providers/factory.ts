@@ -137,6 +137,13 @@ export const NON_MTN_CAPABLE: Record<string, MTNProviderName[]> = {
     at_bigtime_provider_selection: ["datakazina", "xpress", "eazyghdata", "codecraft"],
 }
 
+/** Is `provider` a valid, capability-checked choice for this non-MTN network? */
+export function isProviderCapableForNetwork(normalizedNetwork: string, provider: MTNProviderName): boolean {
+    const settingKey = NON_MTN_NETWORK_KEYS[normalizedNetwork]
+    if (!settingKey) return false
+    return (NON_MTN_CAPABLE[settingKey] ?? []).includes(provider)
+}
+
 /**
  * Read the admin-selected provider for a non-MTN network (Telecel / AT-iShare / AT-BigTime).
  * Falls back to "codecraft" if the setting is absent or invalid. If the selected

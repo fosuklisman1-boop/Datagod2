@@ -382,13 +382,14 @@ export async function POST(request: NextRequest) {
         // Non-blocking fulfillment trigger — createNonMTNOrder resolves the admin's
         // selected provider for this network internally.
         console.log(`[FULFILLMENT] Calling createNonMTNOrder for network: ${normalizedNetwork}`)
-        import("@/lib/non-mtn-fulfillment").then(({ createNonMTNOrder }) => createNonMTNOrder({
+        const { createNonMTNOrder } = await import("@/lib/non-mtn-fulfillment")
+        createNonMTNOrder({
           phoneNumber,
           sizeGb,
           orderId: order[0].id,
           network: normalizedNetwork,
           orderType: "wallet",  // Wallet orders use orders table
-        })).then(result => {
+        }).then(result => {
           console.log(`[FULFILLMENT] Fulfillment response for order ${order[0].id}:`, result)
         }).catch(err => {
           console.error(`[FULFILLMENT] Error triggering fulfillment for order ${order[0].id}:`, err)

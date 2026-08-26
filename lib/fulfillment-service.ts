@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js"
 import { createMTNOrder, saveMTNTracking, checkMTNOrderStatus, MTNOrderRequest, MTNOrderResponse } from "@/lib/mtn-fulfillment"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { isPhoneBlacklisted } from "@/lib/blacklist"
+import type { MTNProviderName } from "@/lib/mtn-providers/types"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -219,6 +220,11 @@ export async function processManualFulfillment(
           orderId,
           network: orderData.network || normalizedNetwork,
           orderType: orderType === "bulk" ? "wallet" : orderType === "api" ? "api" : "shop",
+          // finalProvider is either the admin's explicit dropdown choice or the
+          // resolved default (getMTNProvider()/getProviderNameForNetwork()) — either
+          // way createNonMTNOrder's isProviderCapableForNetwork() re-validates it and
+          // falls back to the admin-configured provider if it's ever invalid.
+          providerOverride: finalProvider as MTNProviderName | undefined,
         })
 
         if (!result.success) {
