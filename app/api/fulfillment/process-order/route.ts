@@ -184,29 +184,26 @@ export async function POST(request: NextRequest) {
           }
 
           // Import dynamically to avoid top-level issues
-          const { atishareService } = await import("@/lib/at-ishare-service")
-          
+          const { createNonMTNOrder } = await import("@/lib/non-mtn-fulfillment")
+
           const sizeGbStr = verifiedVolumeGb.toString().replace(/[^0-9]/g, "")
           const sizeGb = parseInt(sizeGbStr) || 0
-          const networkLower = verifiedNetwork.toLowerCase()
-          const isBigTime = networkLower.includes("bigtime")
-          const apiNetwork = networkLower.includes("telecel") ? "TELECEL" : "AT"
-          
-          // Trigger Codecraft fulfillment asynchronously
-          atishareService.fulfillOrder({
+
+          // Trigger fulfillment asynchronously — createNonMTNOrder resolves the
+          // admin's selected provider for this network internally.
+          createNonMTNOrder({
             phoneNumber: verifiedPhonePrefix,
             sizeGb,
             orderId: shop_order_id,
-            network: apiNetwork,
+            network: verifiedNetwork,
             orderType: "shop",
-            isBigTime,
           }).catch(err => {
-            console.error("[FULFILLMENT] Codecraft async error:", err)
+            console.error("[FULFILLMENT] Non-MTN async error:", err)
           })
 
           return NextResponse.json({
             success: true,
-            message: "CodeCraft auto-fulfillment triggered successfully",
+            message: "Auto-fulfillment triggered successfully",
             fulfillment_method: "auto_codecraft",
           })
         }

@@ -3,7 +3,6 @@ import { NextRequest, NextResponse } from "next/server"
 import { notificationTemplates } from "@/lib/notification-service"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { notifyAdminsPush } from "@/lib/push-service"
-import { atishareService } from "@/lib/at-ishare-service"
 import { customerTrackingService } from "@/lib/customer-tracking-service"
 import { isPhoneBlacklisted } from "@/lib/blacklist"
 import { verifyAdminAccess } from "@/lib/admin-auth"
@@ -563,17 +562,13 @@ export async function PATCH(request: NextRequest) {
           }
 
           if (sizeGb > 0) {
-            const isBigTime = networkLower.includes("bigtime")
-            const apiNetwork = networkLower.includes("telecel") ? "TELECEL" : "AT"
-
-            atishareService.fulfillOrder({
+            import("@/lib/non-mtn-fulfillment").then(({ createNonMTNOrder }) => createNonMTNOrder({
               phoneNumber: shopOrderData.customer_phone,
               sizeGb,
               orderId: attempt.order_id,
-              network: apiNetwork,
+              network: shopOrderData.network,
               orderType: "shop",
-              isBigTime,
-            }).then(result => {
+            })).then(result => {
               console.log(`[ADMIN-PAYMENT-ATTEMPTS] ✓ Fulfillment triggered for order ${attempt.order_id}:`, result)
             }).catch(err => {
               console.error(`[ADMIN-PAYMENT-ATTEMPTS] ❌ Fulfillment error for order ${attempt.order_id}:`, err)
