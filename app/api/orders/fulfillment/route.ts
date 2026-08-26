@@ -137,26 +137,30 @@ async function handleTriggerFulfillment(
     const sizeGb = parseInt(order.size.toString().replace(/[^0-9]/g, "")) || 0
 
     // Normalize network name for API
-    const networkMap: Record<string, string> = {
-      "MTN": "MTN",
-      "TELECEL": "TELECEL",
-      "AT": "AT",
-      "AT-iShare": "AT",
-      "AT - iShare": "AT",
-      "AT - ishare": "AT",
-      "at - ishare": "AT",
-    }
-    // Normalize to uppercase before lookup
     const normalizedNetwork = order.network?.trim().toUpperCase() || "AT"
-    const apiNetwork = networkMap[normalizedNetwork] || order.network || "AT"
 
-    // Trigger fulfillment
-    const result = await atishareService.fulfillOrder({
-      phoneNumber: order.phone_number,
-      sizeGb,
-      orderId,
-      network: apiNetwork,
-    })
+    // Trigger fulfillment. MTN keeps going through CodeCraft's REST API directly — an
+    // existing admin fallback path unrelated to the MTN provider factory, unchanged
+    // here. Only the non-MTN branch is resolved through the admin's per-network
+    // provider selection.
+    let result: { success: boolean; message?: string; reference?: string; errorCode?: string }
+    if (normalizedNetwork === "MTN") {
+      result = await atishareService.fulfillOrder({
+        phoneNumber: order.phone_number,
+        sizeGb,
+        orderId,
+        network: "MTN",
+      })
+    } else {
+      const { createNonMTNOrder } = await import("@/lib/non-mtn-fulfillment")
+      result = await createNonMTNOrder({
+        phoneNumber: order.phone_number,
+        sizeGb,
+        orderId,
+        network: order.network || "AT",
+        orderType: "wallet",
+      })
+    }
 
     if (result.success) {
       return NextResponse.json({
@@ -322,15 +326,28 @@ async function handleRetryFulfillment(
     
     console.log(`[FULFILLMENT] Retrying with: phone=${order.phone_number}, size=${sizeGb}GB, network=${order.network}, isBigTime=${isBigTime}`)
 
-    const result = await atishareService.fulfillOrder({
-      phoneNumber: order.phone_number,
-      sizeGb,
-      orderId,
-      network: networkLower.includes("mtn") ? "MTN" : 
-               networkLower.includes("telecel") ? "TELECEL" : "AT",
-      orderType,
-      isBigTime,
-    })
+    // MTN keeps going through CodeCraft's REST API directly — same pre-existing
+    // fallback path as handleTriggerFulfillment above, unchanged here.
+    let result: { success: boolean; message?: string; reference?: string; errorCode?: string }
+    if (networkLower.includes("mtn")) {
+      result = await atishareService.fulfillOrder({
+        phoneNumber: order.phone_number,
+        sizeGb,
+        orderId,
+        network: "MTN",
+        orderType,
+        isBigTime,
+      })
+    } else {
+      const { createNonMTNOrder } = await import("@/lib/non-mtn-fulfillment")
+      result = await createNonMTNOrder({
+        phoneNumber: order.phone_number,
+        sizeGb,
+        orderId,
+        network: order.network,
+        orderType,
+      })
+    }
 
     if (result.success) {
       return NextResponse.json({
