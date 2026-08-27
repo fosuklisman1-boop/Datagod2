@@ -42,6 +42,35 @@ function getNetworkColor(network: string): string {
   return colorMap[network] || "bg-muted text-foreground"
 }
 
+// Mirrors lib/mtn-providers/factory.ts's provider-capability rules: MTN accepts all 7
+// providers; non-MTN (Telecel/AT-iShare/AT-BigTime) accepts only the 4 non-MTN-capable
+// ones, with agentportalgh further excluded from AT-BigTime specifically (business
+// decision — AgentPortalGH's API doesn't distinguish AT-iShare from AT-BigTime, so this
+// exclusion is enforced here rather than by the provider itself).
+function getProviderOptionsForNetwork(network: string): { value: string; label: string }[] {
+  const upper = (network || "").toUpperCase()
+  const isMTN = upper === "MTN"
+  if (isMTN) {
+    return [
+      { value: "xpress", label: "Xpress" },
+      { value: "codecraft", label: "Codecraft" },
+      { value: "sykes", label: "Sykes" },
+      { value: "datakazina", label: "Datakazina" },
+      { value: "eazyghdata", label: "EazyGhData" },
+      { value: "bisdel", label: "Bisdel" },
+      { value: "agentportalgh", label: "AgentPortalGH" },
+    ]
+  }
+  const isBigTime = upper.includes("BIGTIME") || upper.includes("BIG TIME")
+  return [
+    { value: "xpress", label: "Xpress" },
+    { value: "codecraft", label: "Codecraft" },
+    { value: "datakazina", label: "Datakazina" },
+    { value: "eazyghdata", label: "EazyGhData" },
+    ...(isBigTime ? [] : [{ value: "agentportalgh", label: "AgentPortalGH" }]),
+  ]
+}
+
 export default function OrderPaymentStatusPage() {
   const router = useRouter()
   const { isAdmin, loading: adminLoading } = useAdminProtected()
@@ -1098,14 +1127,7 @@ export default function OrderPaymentStatusPage() {
                                     <DropdownMenuContent align="end" className="w-44">
                                       <DropdownMenuLabel className="text-xs text-muted-foreground">Select Provider</DropdownMenuLabel>
                                       <DropdownMenuSeparator />
-                                      {[
-                                        { value: "xpress",     label: "Xpress" },
-                                        { value: "codecraft",  label: "Codecraft" },
-                                        { value: "sykes",      label: "Sykes" },
-                                        { value: "datakazina", label: "Datakazina" },
-                                        { value: "eazyghdata", label: "EazyGhData" },
-                                        { value: "bisdel",     label: "Bisdel" },
-                                      ].map(p => (
+                                      {getProviderOptionsForNetwork(order.network).map(p => (
                                         <DropdownMenuItem
                                           key={p.value}
                                           className="cursor-pointer"
