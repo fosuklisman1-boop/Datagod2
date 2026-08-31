@@ -1,0 +1,33 @@
+-- Fixes "Mark Registered" silently failing (POST /api/admin/mtn-registration/mark-registered
+-- returning 500 "Failed to mark batch registered") for every batch downloaded via the newly
+-- batched claim_mtn_registration_batch() (see 20260831_mtn_registration_batch_claim_fix.sql).
+--
+-- Root cause: the mark-registered route's UPDATE mtn_number_registry
+-- SET status='registered' ... WHERE submitted_batch = $1 AND status = 'submitted'
+-- goes through PostgREST (service role), which inherits the same 8s
+-- statement_timeout as the claim RPC (see the other migration's note on why
+-- SET LOCAL ROLE service_role doesn't reset it). mtn_number_registry had NO
+-- index on submitted_batch, so this UPDATE had to scan every 'submitted'-status
+-- row (grows with however many batches are downloaded-but-not-yet-registered —
+-- 6 batches / ~102k rows at the time this was diagnosed) and filter for the
+-- one matching batch UUID. Confirmed via EXPLAIN ANALYZE (rolled back, no data
+-- touched): ~4.5s for a 20,000-row batch against a 102k-row 'submitted' pool,
+-- with no safety margin under the 8s ceiling and getting worse as more batches
+-- pile up unregistered (which is exactly what happens once this starts failing
+-- — every stuck batch makes the next one's scan slower too).
+--
+-- Fix: index submitted_batch directly, so the lookup is a fast index scan
+-- rather than a scan-and-filter over the whole submitted pool. Confirmed via
+-- EXPLAIN ANALYZE (rolled back) this drops execution to ~2.7s for a 20,000-row
+-- batch, independent of how many other batches are pending registration —
+-- scales with the batch's own size, not the whole table.
+--
+-- No code change needed: mtn_number_registry.status stays 'submitted' and
+-- mtn_registration_batches.status stays 'submitted' for any batch whose mark-
+-- registered attempt failed (the route updates numbers before the batch row,
+-- and Postgres rolls back the whole transaction on timeout — nothing was ever
+-- partially written). Existing stuck batches can simply be retried from the
+-- admin UI once this index is live.
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS mtn_registry_submitted_batch_idx
+  ON mtn_number_registry(submitted_batch);
