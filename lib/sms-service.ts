@@ -936,6 +936,26 @@ async function getAdminPhoneNumbers(): Promise<string[]> {
  * Used for critical alerts like fulfillment failures
  */
 export async function notifyAdmins(message: string, type: string, reference?: string, skipEmailFallback = false): Promise<void> {
+  // Admin-configurable kill switch for specific alert types (e.g. muting
+  // low-balance/fulfillment-failure noise without losing fraud/security
+  // alerts like price_manipulation/payment_mismatch, which don't go through
+  // this gate unless explicitly added to the list). Fails open — a
+  // settings-read error must never silently swallow a real alert.
+  try {
+    const { data } = await supabase
+      .from('admin_settings')
+      .select('value')
+      .eq('key', 'disabled_sms_alert_types')
+      .maybeSingle()
+    const disabledTypes: string[] = data?.value?.types ?? []
+    if (disabledTypes.includes(type)) {
+      console.log(`[SMS] Admin alert type "${type}" is disabled via admin_settings.disabled_sms_alert_types — skipping SMS`)
+      return
+    }
+  } catch (e) {
+    console.warn('[SMS] Could not check disabled_sms_alert_types setting, proceeding:', e)
+  }
+
   // Check if SMS is known to be exhausted
   const now = Date.now()
   if (isSmsExhausted && (now - lastExhaustionCheck < EXHAUSTION_CACHE_MS)) {
