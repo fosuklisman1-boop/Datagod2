@@ -138,6 +138,36 @@ async function checkAgentPortalGHBatch(
   return results
 }
 
+async function checkApexPrime(msisdn: string): Promise<WhitelistResult> {
+  try {
+    const { ApexPrimeProvider } = await import("./apexprime-provider")
+    const data = await new ApexPrimeProvider().verifyNumber(msisdn, "MTN")
+    return { allowed: data?.is_valid === true, provider: "apexprime", reason: data?.message }
+  } catch {
+    return { allowed: true, provider: "apexprime" }
+  }
+}
+
+async function checkApexPrimeBatch(
+  msisdns: string[]
+): Promise<Array<{ msisdn: string; allowed: boolean; reason?: string }>> {
+  // No native batch endpoint on Apex Prime's side — verify sequentially.
+  // Their docs describe verify-number as instant, so this is acceptable for
+  // the bulk-verify tool's expected volumes.
+  const results: Array<{ msisdn: string; allowed: boolean; reason?: string }> = []
+  const { ApexPrimeProvider } = await import("./apexprime-provider")
+  const provider = new ApexPrimeProvider()
+  for (const msisdn of msisdns) {
+    try {
+      const data = await provider.verifyNumber(msisdn, "MTN")
+      results.push({ msisdn, allowed: data?.is_valid === true, reason: data?.message })
+    } catch {
+      results.push({ msisdn, allowed: true })
+    }
+  }
+  return results
+}
+
 // ── Registry ──────────────────────────────────────────────────────────────────
 // Add new whitelist-capable providers here. Order matters: providers listed
 // earlier are tried first when the active provider doesn't support whitelist.
@@ -167,6 +197,12 @@ export const WHITELIST_REGISTRY: WhitelistEntry[] = [
     configured: () => !!process.env.AGENTPORTALGH_API_KEY,
     check: checkAgentPortalGH,
     checkBatch: checkAgentPortalGHBatch,
+  },
+  {
+    name: "apexprime",
+    configured: () => !!process.env.APEXPRIME_API_KEY,
+    check: checkApexPrime,
+    checkBatch: checkApexPrimeBatch,
   },
   // Add future whitelist providers here ↓
 ]
