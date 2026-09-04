@@ -10,9 +10,9 @@ export async function GET(request: NextRequest) {
   if (!isAdmin) return errorResponse!
 
   const action = request.nextUrl.searchParams.get("action")
-  const provider = new ApexPrimeProvider()
 
   try {
+    const provider = new ApexPrimeProvider()
     if (action === "balance") {
       return NextResponse.json(await provider.getWalletSummary())
     }
