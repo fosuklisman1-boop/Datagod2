@@ -34,6 +34,10 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/sync-mtn-status/apexprime",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/verify-pending-payments",
       "schedule": "*/2 * * * *"
     },
