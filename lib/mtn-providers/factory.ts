@@ -13,6 +13,7 @@ import { EazyGhDataProvider } from "./eazyghdata-provider"
 import { BisdelProvider } from "./bisdel-provider"
 import { CodeCraftMTNProvider } from "./codecraft-provider"
 import { AgentPortalGHProvider } from "./agentportalgh-provider"
+import { ApexPrimeProvider } from "./apexprime-provider"
 
 /**
  * Get the currently selected provider from database settings
@@ -33,7 +34,7 @@ async function getSelectedProvider(): Promise<MTNProviderName> {
         const provider = data?.value?.provider as MTNProviderName | undefined
 
         // Validate provider name
-        if (provider === "sykes" || provider === "datakazina" || provider === "xpress" || provider === "eazyghdata" || provider === "bisdel" || provider === "codecraft" || provider === "agentportalgh") {
+        if (provider === "sykes" || provider === "datakazina" || provider === "xpress" || provider === "eazyghdata" || provider === "bisdel" || provider === "codecraft" || provider === "agentportalgh" || provider === "apexprime") {
             return provider
         }
 
@@ -45,7 +46,7 @@ async function getSelectedProvider(): Promise<MTNProviderName> {
     }
 }
 
-const VALID_PROVIDERS: MTNProviderName[] = ["sykes", "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft", "agentportalgh"]
+const VALID_PROVIDERS: MTNProviderName[] = ["sykes", "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft", "agentportalgh", "apexprime"]
 
 /**
  * Providers an admin has deactivated — excluded from automatic selection
@@ -95,6 +96,8 @@ export async function getMTNProvider(): Promise<MTNProvider> {
     switch (providerName) {
         case "agentportalgh":
             return new AgentPortalGHProvider()
+        case "apexprime":
+            return new ApexPrimeProvider()
         case "bisdel":
             return new BisdelProvider()
         case "codecraft":
@@ -132,8 +135,8 @@ export const NETWORK_TO_REQUEST_NETWORK: Record<string, "Telecel" | "AirtelTigo"
 }
 
 export const NON_MTN_CAPABLE: Record<string, MTNProviderName[]> = {
-    telecel_provider_selection: ["datakazina", "xpress", "eazyghdata", "codecraft", "agentportalgh"],
-    at_ishare_provider_selection: ["datakazina", "xpress", "eazyghdata", "codecraft", "agentportalgh"],
+    telecel_provider_selection: ["datakazina", "xpress", "eazyghdata", "codecraft", "agentportalgh", "apexprime"],
+    at_ishare_provider_selection: ["datakazina", "xpress", "eazyghdata", "codecraft", "agentportalgh", "apexprime"],
     at_bigtime_provider_selection: ["datakazina", "xpress", "eazyghdata", "codecraft"],
 }
 
@@ -221,6 +224,8 @@ export function getProviderByName(name: MTNProviderName): MTNProvider {
     switch (name) {
         case "agentportalgh":
             return new AgentPortalGHProvider()
+        case "apexprime":
+            return new ApexPrimeProvider()
         case "bisdel":
             return new BisdelProvider()
         case "codecraft":

@@ -18,4 +18,16 @@ describe("NON_MTN_CAPABLE", () => {
       expect(NON_MTN_CAPABLE[key]).toEqual(expect.arrayContaining(["datakazina", "xpress", "eazyghdata", "codecraft"]))
     }
   })
+
+  it("includes apexprime for Telecel", () => {
+    expect(NON_MTN_CAPABLE.telecel_provider_selection).toContain("apexprime")
+  })
+
+  it("includes apexprime for AT-iShare", () => {
+    expect(NON_MTN_CAPABLE.at_ishare_provider_selection).toContain("apexprime")
+  })
+
+  it("EXCLUDES apexprime for AT-BigTime", () => {
+    expect(NON_MTN_CAPABLE.at_bigtime_provider_selection).not.toContain("apexprime")
+  })
 })
