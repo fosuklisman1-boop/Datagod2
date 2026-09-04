@@ -67,9 +67,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, message: "Ignored non-order event" })
     }
 
-    const clientReference = payload.client_reference
+    // UUID validation regex — client_reference must be a well-formed UUID to prevent
+    // PostgREST filter injection. Apex Prime sends back our own client_ref (which is
+    // always a UUID from crypto.randomUUID() or provided by our order creation).
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+    let clientReference = payload.client_reference
     if (!clientReference) {
       console.warn("[Webhook.ApexPrime] Missing client_reference in payload", payload)
+    } else if (!UUID_RE.test(clientReference)) {
+      console.warn("[Webhook.ApexPrime] Invalid client_reference format (expected UUID)", { clientReference, payload })
+      clientReference = undefined
     }
 
     // Primary correlation: client_reference is always our own internal order
@@ -81,7 +89,7 @@ export async function POST(request: NextRequest) {
     if (clientReference) {
       const { data } = await supabase
         .from("mtn_fulfillment_tracking")
-        .select("id, order_type, order_id, shop_order_id, api_order_id, recipient_phone, size_gb, status, updated_at")
+        .select("id, order_type, order_id, shop_order_id, api_order_id, recipient_phone, size_gb, network, status, updated_at")
         .eq("provider", "apexprime")
         .or(`order_id.eq.${clientReference},shop_order_id.eq.${clientReference},api_order_id.eq.${clientReference}`)
         .maybeSingle()
@@ -91,13 +99,16 @@ export async function POST(request: NextRequest) {
     // Fallback: match by network + gb_amount + recipient among recent
     // pending/processing apexprime rows. Should never fire per their docs —
     // logged loudly if it does, so a real divergence is noticed immediately.
+    // SECURITY: network filter prevents two pending orders for the same phone+size
+    // but different networks (e.g. MTN 5GB and Telecel 5GB) from matching the wrong one.
     if (!tracking && payload.network && payload.gb_amount && payload.recipient) {
       console.warn("[Webhook.ApexPrime] client_reference lookup failed, trying fallback match", { clientReference, payload })
       const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
       const { data } = await supabase
         .from("mtn_fulfillment_tracking")
-        .select("id, order_type, order_id, shop_order_id, api_order_id, recipient_phone, size_gb, status, updated_at")
+        .select("id, order_type, order_id, shop_order_id, api_order_id, recipient_phone, size_gb, network, status, updated_at")
         .eq("provider", "apexprime")
+        .eq("network", payload.network)
         .eq("recipient_phone", payload.recipient)
         .eq("size_gb", payload.gb_amount)
         .in("status", ["pending", "processing"])
