@@ -9,8 +9,8 @@ const NETWORK_KEYS: Record<string, string> = {
 }
 
 const VALID_PROVIDERS_BY_NETWORK: Record<string, string[]> = {
-  telecel: ["datakazina", "xpress", "eazyghdata", "codecraft", "agentportalgh"],
-  at_ishare: ["datakazina", "xpress", "eazyghdata", "codecraft", "agentportalgh"],
+  telecel: ["datakazina", "xpress", "eazyghdata", "codecraft", "agentportalgh", "apexprime"],
+  at_ishare: ["datakazina", "xpress", "eazyghdata", "codecraft", "agentportalgh", "apexprime"],
   at_bigtime: ["datakazina", "xpress", "eazyghdata", "codecraft"],
 }
 

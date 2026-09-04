@@ -119,7 +119,7 @@ export default function MTNSettingsPage() {
   const [disabledProviders, setDisabledProviders] = useState<MTNProviderName[]>([])
   const [togglingDisabled, setTogglingDisabled] = useState<MTNProviderName | null>(null)
 
-  type NonMTNProvider = "datakazina" | "xpress" | "eazyghdata" | "codecraft" | "agentportalgh"
+  type NonMTNProvider = "datakazina" | "xpress" | "eazyghdata" | "codecraft" | "agentportalgh" | "apexprime"
   const [telecelProvider, setTelecelProvider] = useState<NonMTNProvider>("codecraft")
   const [atIshareProvider, setAtIshareProvider] = useState<NonMTNProvider>("codecraft")
   const [atBigtimeProvider, setAtBigtimeProvider] = useState<NonMTNProvider>("codecraft")
@@ -1139,10 +1139,13 @@ export default function MTNSettingsPage() {
                 { value: "xpress", label: "Xpress", sub: "Batch-enabled" },
                 { value: "eazyghdata", label: "EazyGhData", sub: "Package-based" },
               ]
+              const nonBigTimeProviders: { value: NonMTNProvider; label: string; sub: string }[] = [
+                ...baseProviders,
+                { value: "agentportalgh", label: "AgentPortalGH", sub: "Webhook-first" },
+                { value: "apexprime", label: "Apex Prime", sub: "GroupShare/Store" },
+              ]
               const providers: { value: NonMTNProvider; label: string; sub: string }[] =
-                netKey === "at_bigtime"
-                  ? baseProviders
-                  : [...baseProviders, { value: "agentportalgh", label: "AgentPortalGH", sub: "Webhook-first" }]
+                netKey === "at_bigtime" ? baseProviders : nonBigTimeProviders
               return (
                 <Card key={netKey} className="border-2">
                   <CardHeader>
