@@ -31,6 +31,14 @@ function timingSafeEqualStr(a: string, b: string): boolean {
 }
 
 /**
+ * Apex Prime's own network vocabulary ("Ishare") differs from ours ("AirtelTigo")
+ * for this one network — MTN and Telecel happen to match in both vocabularies.
+ */
+function toInternalNetwork(apexNetwork: string): string {
+  return apexNetwork === "Ishare" ? "AirtelTigo" : apexNetwork
+}
+
+/**
  * POST /api/webhooks/mtn/apexprime
  *
  * Apex Prime's webhooks are unsigned — authenticated via a shared secret we
@@ -108,7 +116,7 @@ export async function POST(request: NextRequest) {
         .from("mtn_fulfillment_tracking")
         .select("id, order_type, order_id, shop_order_id, api_order_id, recipient_phone, size_gb, network, status, updated_at")
         .eq("provider", "apexprime")
-        .eq("network", payload.network)
+        .eq("network", toInternalNetwork(payload.network))
         .eq("recipient_phone", payload.recipient)
         .eq("size_gb", payload.gb_amount)
         .in("status", ["pending", "processing"])
