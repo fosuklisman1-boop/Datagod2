@@ -56,7 +56,7 @@ export default function MTNSettingsPage() {
   const [toggling, setToggling] = useState(false)
   const [gateSettings, setGateSettings] = useState<{ enabled: boolean; updated_at?: string } | null>(null)
   const [gateToggling, setGateToggling] = useState(false)
-  const [mtnProvider, setMtnProvider] = useState<"sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft" | "agentportalgh">("sykes")
+  const [mtnProvider, setMtnProvider] = useState<"sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft" | "agentportalgh" | "apexprime">("sykes")
   const [syncingPackages, setSyncingPackages] = useState(false)
   const [savingProvider, setSavingProvider] = useState(false)
   const [bisdelCategories, setBisdelCategories] = useState<string[]>([])
@@ -111,7 +111,16 @@ export default function MTNSettingsPage() {
   const [apgOrderItems, setApgOrderItems] = useState<Record<string | number, any[]>>({})
   const [apgSubTab, setApgSubTab] = useState("overview")
 
-  type MTNProviderName = "sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft" | "agentportalgh"
+  const [apexBalance, setApexBalance] = useState<any>(null)
+  const [apexBalanceLoading, setApexBalanceLoading] = useState(false)
+  const [apexTransactions, setApexTransactions] = useState<any>(null)
+  const [apexFulfillmentPaths, setApexFulfillmentPaths] = useState<Record<string, string>>({ MTN: "groupshare", Telecel: "groupshare", AirtelTigo: "groupshare" })
+  const [apexSavingPath, setApexSavingPath] = useState<string | null>(null)
+  const [apexVerifyPhone, setApexVerifyPhone] = useState("")
+  const [apexVerifyResult, setApexVerifyResult] = useState<any>(null)
+  const [apexVerifying, setApexVerifying] = useState(false)
+
+  type MTNProviderName = "sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft" | "agentportalgh" | "apexprime"
   const [retrySequenceEnabled, setRetrySequenceEnabled] = useState(false)
   const [retrySequence, setRetrySequence] = useState<MTNProviderName[]>([])
   const [savingRetrySequence, setSavingRetrySequence] = useState(false)
@@ -156,6 +165,75 @@ export default function MTNSettingsPage() {
       loadApgOrders()
     }
   }, [activeTab])
+
+  useEffect(() => {
+    if (activeTab !== "apexprime") return
+    const loadApexData = async () => {
+      setApexBalanceLoading(true)
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session?.access_token) return
+        const headers = { Authorization: `Bearer ${session.access_token}` }
+        const [balanceRes, txRes, pathsRes] = await Promise.all([
+          fetch("/api/admin/apexprime?action=balance", { headers }),
+          fetch("/api/admin/apexprime?action=transactions", { headers }),
+          fetch("/api/admin/apexprime?action=fulfillment-paths", { headers }),
+        ])
+        if (balanceRes.ok) setApexBalance(await balanceRes.json())
+        if (txRes.ok) setApexTransactions(await txRes.json())
+        if (pathsRes.ok) {
+          const data = await pathsRes.json()
+          if (data.paths) setApexFulfillmentPaths(data.paths)
+        }
+      } catch (e) {
+        console.error("Error loading Apex Prime data:", e)
+      } finally {
+        setApexBalanceLoading(false)
+      }
+    }
+    loadApexData()
+  }, [activeTab])
+
+  const handleSetApexFulfillmentPath = async (network: "MTN" | "Telecel" | "AirtelTigo", path: "groupshare" | "store") => {
+    setApexSavingPath(network)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) { toast.error("Authentication required"); return }
+      const res = await fetch("/api/admin/apexprime", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ action: "set-fulfillment-path", network, path }),
+      })
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Failed") }
+      setApexFulfillmentPaths(prev => ({ ...prev, [network]: path }))
+      toast.success(`${network} now fulfills via ${path === "store" ? "Store" : "GroupShare"}`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to update")
+    } finally {
+      setApexSavingPath(null)
+    }
+  }
+
+  const handleApexVerify = async () => {
+    if (!apexVerifyPhone) return
+    setApexVerifying(true)
+    setApexVerifyResult(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) { toast.error("Authentication required"); return }
+      const res = await fetch("/api/admin/apexprime", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ action: "verify", phone: apexVerifyPhone, network: "MTN" }),
+      })
+      const data = await res.json()
+      setApexVerifyResult(data)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Verification failed")
+    } finally {
+      setApexVerifying(false)
+    }
+  }
 
   useEffect(() => {
     if (activeTab === "agentportalgh") loadApgTransactions()
@@ -883,6 +961,7 @@ export default function MTNSettingsPage() {
   const PROVIDER_LABELS: Record<MTNProviderName, string> = {
     sykes: "Sykes", datakazina: "DataKazina", xpress: "Xpress",
     eazyghdata: "EazyGhData", bisdel: "Bisdel", codecraft: "CodeCraft", agentportalgh: "AgentPortalGH",
+    apexprime: "Apex Prime",
   }
 
   return (
@@ -1848,6 +1927,106 @@ export default function MTNSettingsPage() {
                 </Card>
               </TabsContent>
             </Tabs>
+          </TabsContent>
+
+          {/* ─── Apex Prime ─── */}
+          <TabsContent value="apexprime" className="space-y-4 mt-6">
+            <ActivationCard providerKey="apexprime" label="Apex Prime" />
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Wallet className="h-5 w-5" />Balances</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {apexBalanceLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Loading…</div>
+                ) : apexBalance?.balances ? (
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {Object.entries(apexBalance.balances).map(([key, val]: [string, any]) => (
+                      <div key={key} className="p-3 bg-muted/40 rounded-lg">
+                        <p className="text-xs text-muted-foreground uppercase tracking-wide">{key}</p>
+                        <p className="text-lg font-semibold text-foreground">{val.amount} {val.unit}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No balance data available.</p>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Zap className="h-5 w-5" />Fulfillment Path</CardTitle>
+                <CardDescription>Choose how Apex Prime fulfills orders for each network — GroupShare sends against your pre-purchased GB balance; Store buys a fixed-price catalog item per order.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {(["MTN", "Telecel", "AirtelTigo"] as const).map(network => (
+                  <div key={network} className="flex items-center justify-between p-3 border rounded-lg">
+                    <span className="text-sm font-medium">{network === "AirtelTigo" ? "AT - iShare" : network}</span>
+                    <div className="flex gap-2">
+                      {(["groupshare", "store"] as const).map(path => (
+                        <Button
+                          key={path}
+                          size="sm"
+                          variant={apexFulfillmentPaths[network] === path ? "default" : "outline"}
+                          disabled={apexSavingPath === network}
+                          onClick={() => handleSetApexFulfillmentPath(network, path)}
+                        >
+                          {path === "groupshare" ? "GroupShare" : "Store"}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><ShieldCheck className="h-5 w-5" />Whitelist Checker</CardTitle>
+                <CardDescription>Ad-hoc single-number check against Apex Prime's verify-number endpoint (instant). Bulk checks run from /admin/phone-verification.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex gap-2">
+                  <Input placeholder="0241234567" value={apexVerifyPhone} onChange={e => setApexVerifyPhone(e.target.value)} />
+                  <Button onClick={handleApexVerify} disabled={apexVerifying || !apexVerifyPhone}>
+                    {apexVerifying ? <Loader2 className="h-4 w-4 animate-spin" /> : "Check"}
+                  </Button>
+                </div>
+                {apexVerifyResult && (
+                  <Alert className={apexVerifyResult.is_valid ? "border-success/30 bg-success/10" : "border-destructive/30 bg-destructive/10"}>
+                    <AlertDescription className="text-xs">
+                      {apexVerifyResult.is_valid
+                        ? `Allowed${apexVerifyResult.provider_data?.name ? ` — ${apexVerifyResult.provider_data.name}` : ""}`
+                        : apexVerifyResult.message ?? "Not valid / not found"}
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5" />Transactions</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {apexTransactions?.transactions?.length ? (
+                  <div className="space-y-2">
+                    {apexTransactions.transactions.map((t: any, i: number) => (
+                      <div key={i} className="flex justify-between text-sm p-2 border-b">
+                        <span>{t.description}</span>
+                        <span className={t.type === "credit" ? "text-success" : "text-destructive"}>
+                          {t.type === "credit" ? "+" : "-"}{t.amount}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No transactions to show.</p>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </div>
