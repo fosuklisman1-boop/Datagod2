@@ -42,11 +42,11 @@ function getNetworkColor(network: string): string {
   return colorMap[network] || "bg-muted text-foreground"
 }
 
-// Mirrors lib/mtn-providers/factory.ts's provider-capability rules: MTN accepts all 7
-// providers; non-MTN (Telecel/AT-iShare/AT-BigTime) accepts only the 4 non-MTN-capable
-// ones, with agentportalgh further excluded from AT-BigTime specifically (business
-// decision — AgentPortalGH's API doesn't distinguish AT-iShare from AT-BigTime, so this
-// exclusion is enforced here rather than by the provider itself).
+// Mirrors lib/mtn-providers/factory.ts's provider-capability rules: MTN accepts all 8
+// providers; non-MTN (Telecel/AT-iShare/AT-BigTime) accepts only the non-MTN-capable
+// ones, with agentportalgh/apexprime further excluded from AT-BigTime specifically
+// (business decision — neither provider's API distinguishes AT-iShare from AT-BigTime,
+// so this exclusion is enforced here rather than by the provider itself).
 function getProviderOptionsForNetwork(network: string): { value: string; label: string }[] {
   const upper = (network || "").toUpperCase()
   const isMTN = upper === "MTN"
@@ -59,6 +59,7 @@ function getProviderOptionsForNetwork(network: string): { value: string; label: 
       { value: "eazyghdata", label: "EazyGhData" },
       { value: "bisdel", label: "Bisdel" },
       { value: "agentportalgh", label: "AgentPortalGH" },
+      { value: "apexprime", label: "Apex Prime" },
     ]
   }
   const isBigTime = upper.includes("BIGTIME") || upper.includes("BIG TIME")
@@ -67,7 +68,7 @@ function getProviderOptionsForNetwork(network: string): { value: string; label: 
     { value: "codecraft", label: "Codecraft" },
     { value: "datakazina", label: "Datakazina" },
     { value: "eazyghdata", label: "EazyGhData" },
-    ...(isBigTime ? [] : [{ value: "agentportalgh", label: "AgentPortalGH" }]),
+    ...(isBigTime ? [] : [{ value: "agentportalgh", label: "AgentPortalGH" }, { value: "apexprime", label: "Apex Prime" }]),
   ]
 }
 

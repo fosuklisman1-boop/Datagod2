@@ -7,6 +7,7 @@ import {
   MTNOrderRequest,
 } from "@/lib/mtn-fulfillment"
 import { isPhoneBlacklisted } from "@/lib/blacklist"
+import type { MTNProviderName } from "@/lib/mtn-providers/types"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -123,6 +124,10 @@ export async function fulfillUssdOrder(
         orderId,
         network,
         orderType: trackingOrderType,
+        // Admin's explicit dropdown choice — createNonMTNOrder's
+        // isProviderCapableForNetwork() re-validates it and falls back to the
+        // admin-configured provider if it's ever invalid for this network.
+        providerOverride: provider as MTNProviderName | undefined,
       }).then(async (result) => {
         if (result.success) {
           await markUssdOrderStatus(orderId, 'processing', orderTable)
