@@ -469,7 +469,14 @@ export async function createMTNOrder(order: MTNOrderRequest): Promise<MTNOrderRe
     // (e.g. CodeCraft's whitelist), and a provider outside that registry can still
     // fulfil the order directly. Registration holds (NUMBER_NOT_REGISTERED) never
     // reach here — that's a global MTN-network constraint no provider can bypass.
-    if (!response.success) {
+    //
+    // Skipped entirely when order.provider was explicitly set (an admin's manual
+    // per-order pick, e.g. from the order-payment-status "Fulfill" dropdown) — an
+    // explicit choice is a hard pin, not just a preferred first attempt. Without
+    // this, an admin picking "Apex Prime" for a stuck order could silently end up
+    // fulfilled by whatever's first in the retry sequence instead, with no visible
+    // link between the pick and the actual outcome.
+    if (!response.success && !order.provider) {
       const sequence = (await getRetrySequence()).filter(name => name !== provider.name)
       for (const nextName of sequence) {
         console.log(`[MTN] "${provider.name}" attempt failed (${response.message}), trying retry-sequence provider "${nextName}"`)
@@ -502,6 +509,8 @@ export async function createMTNOrder(order: MTNOrderRequest): Promise<MTNOrderRe
           error_type: "WHITELIST_BLOCKED",
         }
       }
+    } else if (!response.success && order.provider) {
+      console.log(`[MTN] "${provider.name}" attempt failed (${response.message}) — explicit provider pin, not falling through to retry sequence`)
     }
 
     return response
