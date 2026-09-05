@@ -100,6 +100,8 @@ export async function POST(request: NextRequest) {
         .select("id, order_type, order_id, shop_order_id, api_order_id, recipient_phone, size_gb, network, status, updated_at")
         .eq("provider", "apexprime")
         .or(`order_id.eq.${clientReference},shop_order_id.eq.${clientReference},api_order_id.eq.${clientReference}`)
+        .order("created_at", { ascending: false })
+        .limit(1)
         .maybeSingle()
       tracking = data
     }

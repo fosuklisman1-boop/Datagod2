@@ -89,7 +89,17 @@ export function parseTrackingId(id: string): { kind: "bundle" | "store"; rawId: 
   const idx = id.indexOf(":")
   if (idx === -1) return null
   const kind = id.slice(0, idx)
-  const rawId = id.slice(idx + 1)
+  let rawId = id.slice(idx + 1)
+  if (kind === "store") {
+    // Store tracking ids are "store:<reference>:<uniquifier>" — the uniquifier
+    // exists only so repeated Store submissions of the same order don't collide
+    // on mtn_fulfillment_tracking's UNIQUE(mtn_order_id) constraint (Store never
+    // returns its own order id from Apex Prime, so the order's own reference is
+    // reused as the base — see createViaStore). /status only wants the bare
+    // reference, not the uniquifier.
+    const lastColon = rawId.lastIndexOf(":")
+    if (lastColon !== -1) rawId = rawId.slice(0, lastColon)
+  }
   if ((kind === "bundle" || kind === "store") && rawId.length > 0) return { kind, rawId }
   return null
 }
@@ -135,6 +145,10 @@ export class ApexPrimeProvider implements MTNProvider {
 
     if (!res.ok || json.success !== true) {
       return { success: false, message: json?.message ?? `API error ${res.status}`, error_type: "API_ERROR" }
+    }
+
+    if (json.order_id == null) {
+      return { success: false, message: "Apex Prime returned no order_id", error_type: "API_ERROR" }
     }
 
     return { success: true, order_id: `bundle:${json.order_id}`, message: json.message ?? "Bundle order initiated" }
@@ -184,8 +198,12 @@ export class ApexPrimeProvider implements MTNProvider {
 
     // Store orders never receive an order_id from Apex Prime — our own
     // reference (already a UUID) is the only stable identifier available,
-    // which is also what /status expects for type: "store".
-    return { success: true, order_id: `store:${reference}`, message: json.message ?? "Store order placed" }
+    // which is also what /status expects for type: "store". A uniquifier is
+    // appended to the STORED id only (never sent to Apex Prime) so that a
+    // second Store submission for the same order doesn't collide on
+    // mtn_fulfillment_tracking's UNIQUE(mtn_order_id) constraint — see
+    // parseTrackingId, which strips it back off before calling /status.
+    return { success: true, order_id: `store:${reference}:${crypto.randomUUID()}`, message: json.message ?? "Store order placed" }
   }
 
   async checkOrderStatus(orderId: string | number): Promise<MTNOrderStatusResponse> {
@@ -252,6 +270,9 @@ export class ApexPrimeProvider implements MTNProvider {
       method: "POST",
       body: JSON.stringify({ phone_number: phone, network }),
     })
+    if (!res.ok) {
+      throw new Error(`Apex Prime verify-number API error ${res.status}`)
+    }
     return res.json()
   }
 }

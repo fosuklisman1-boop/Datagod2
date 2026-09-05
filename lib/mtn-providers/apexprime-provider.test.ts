@@ -68,4 +68,13 @@ describe("parseTrackingId", () => {
   it("returns null for an empty raw id after the prefix", () => {
     expect(parseTrackingId("bundle:")).toBeNull()
   })
+  it("strips a trailing uniquifier from a store-prefixed id", () => {
+    expect(parseTrackingId("store:abc-123-uuid:d290f1ee-6c54-4b01-90e6-d701748f0851")).toEqual({
+      kind: "store",
+      rawId: "abc-123-uuid",
+    })
+  })
+  it("does not strip a trailing segment from a bundle-prefixed id", () => {
+    expect(parseTrackingId("bundle:10839:extra")).toEqual({ kind: "bundle", rawId: "10839:extra" })
+  })
 })
