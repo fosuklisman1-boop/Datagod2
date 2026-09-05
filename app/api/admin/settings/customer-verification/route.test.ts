@@ -70,4 +70,16 @@ describe("POST /api/admin/settings/customer-verification", () => {
     expect(body.settings).toEqual({ enabled: true, providers: [] })
     expect(upsertMock).toHaveBeenCalled()
   })
+
+  it("returns 500 when upsert fails", async () => {
+    upsertMock.mockResolvedValueOnce({ error: new Error("database error") } as any)
+    const req = new NextRequest("http://localhost/api/admin/settings/customer-verification", {
+      method: "POST",
+      body: JSON.stringify({ enabled: false, providers: [] }),
+    })
+    const res = await POST(req)
+    const body = await res.json()
+    expect(res.status).toBe(500)
+    expect(body.error).toBe("Failed to update setting")
+  })
 })

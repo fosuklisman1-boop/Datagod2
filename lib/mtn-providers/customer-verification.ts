@@ -19,7 +19,7 @@
 import { supabaseAdmin as supabase } from "@/lib/supabase"
 import { WHITELIST_REGISTRY, type WhitelistEntry } from "./provider-whitelist"
 
-const SETTING_KEY = "customer_verification_settings"
+export const SETTING_KEY = "customer_verification_settings"
 
 export type CustomerVerificationSettings = {
   enabled: boolean

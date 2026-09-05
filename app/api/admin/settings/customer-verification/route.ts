@@ -2,9 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { supabaseAdmin as supabase } from "@/lib/supabase"
 import { listWhitelistProviders, validateProviderSelection } from "@/lib/mtn-providers/provider-whitelist"
-import { getCustomerVerificationSettings } from "@/lib/mtn-providers/customer-verification"
-
-const SETTING_KEY = "customer_verification_settings"
+import { getCustomerVerificationSettings, SETTING_KEY } from "@/lib/mtn-providers/customer-verification"
 
 export async function GET(request: NextRequest) {
   try {
@@ -55,6 +53,7 @@ export async function POST(request: NextRequest) {
     )
     if (error) throw error
 
+    console.log(`[CUSTOMER-VERIFICATION-SETTING] set enabled=${enabled} providers=${validatedProviders.join(",")} by admin ${adminId}`)
     return NextResponse.json({ success: true, settings: newValue })
   } catch (error) {
     console.error("[CUSTOMER-VERIFICATION-SETTING] POST error:", error)
