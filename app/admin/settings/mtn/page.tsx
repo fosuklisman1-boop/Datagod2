@@ -39,6 +39,7 @@ interface MTNBalance {
     bisdel: ProviderBalance
     codecraft: ProviderBalance
     agentportalgh: ProviderBalance
+    apexprime: ProviderBalance
   }
   threshold: number
   active_provider: string
@@ -1093,7 +1094,7 @@ export default function MTNSettingsPage() {
                   <div className="flex items-center justify-center py-8"><Loader2 className="h-5 w-5 animate-spin" /></div>
                 ) : balance ? (
                   <div className="space-y-4">
-                    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
                       {(Object.keys(PROVIDER_LABELS) as MTNProviderName[]).map(key => {
                         const pb = balance.balances[key as keyof typeof balance.balances]
                         if (!pb) return null

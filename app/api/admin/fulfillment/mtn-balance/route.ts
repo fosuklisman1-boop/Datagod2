@@ -9,6 +9,7 @@ import { EazyGhDataProvider } from "@/lib/mtn-providers/eazyghdata-provider"
 import { BisdelProvider } from "@/lib/mtn-providers/bisdel-provider"
 import { CodeCraftMTNProvider } from "@/lib/mtn-providers/codecraft-provider"
 import { AgentPortalGHProvider } from "@/lib/mtn-providers/agentportalgh-provider"
+import { ApexPrimeProvider } from "@/lib/mtn-providers/apexprime-provider"
 import { sendLowBalanceAlert } from "@/lib/mtn-balance-alert"
 
 /**
@@ -31,8 +32,9 @@ export async function GET(request: NextRequest) {
     const bisdelProvider = new BisdelProvider()
     const codeCraftProvider = new CodeCraftMTNProvider()
     const agentPortalGHProvider = new AgentPortalGHProvider()
+    const apexPrimeProvider = new ApexPrimeProvider()
 
-    const [sykesBalance, datakazinaBalance, xpressBalance, eazyghDataBalance, bisdelBalance, codeCraftBalance, agentportalghBalance] = await Promise.all([
+    const [sykesBalance, datakazinaBalance, xpressBalance, eazyghDataBalance, bisdelBalance, codeCraftBalance, agentportalghBalance, apexprimeBalance] = await Promise.all([
       sykesProvider.checkBalance().catch(() => null),
       datakazinaProvider.checkBalance().catch(() => null),
       xpressProvider.checkBalance().catch(() => null),
@@ -40,6 +42,7 @@ export async function GET(request: NextRequest) {
       bisdelProvider.checkBalance().catch(() => null),
       codeCraftProvider.checkBalance().catch(() => null),
       agentPortalGHProvider.checkBalance().catch(() => null),
+      apexPrimeProvider.checkBalance().catch(() => null),
     ])
 
     // Get the currently selected provider
@@ -62,11 +65,12 @@ export async function GET(request: NextRequest) {
     const bisdelLow = bisdelBalance !== null && bisdelBalance < threshold
     const codeCraftLow = codeCraftBalance !== null && codeCraftBalance < threshold
     const agentportalghLow = agentportalghBalance !== null && agentportalghBalance < threshold
+    const apexprimeLow = apexprimeBalance !== null && apexprimeBalance < threshold
 
-    const balanceMap = { sykes: sykesBalance, datakazina: datakazinaBalance, xpress: xpressBalance, eazyghdata: eazyghDataBalance, bisdel: bisdelBalance, codecraft: codeCraftBalance, agentportalgh: agentportalghBalance }
-    const lowMap = { sykes: sykesLow, datakazina: datakazinaLow, xpress: xpressLow, eazyghdata: eazyghDataLow, bisdel: bisdelLow, codecraft: codeCraftLow, agentportalgh: agentportalghLow }
+    const balanceMap = { sykes: sykesBalance, datakazina: datakazinaBalance, xpress: xpressBalance, eazyghdata: eazyghDataBalance, bisdel: bisdelBalance, codecraft: codeCraftBalance, agentportalgh: agentportalghBalance, apexprime: apexprimeBalance }
+    const lowMap = { sykes: sykesLow, datakazina: datakazinaLow, xpress: xpressLow, eazyghdata: eazyghDataLow, bisdel: bisdelLow, codecraft: codeCraftLow, agentportalgh: agentportalghLow, apexprime: apexprimeLow }
 
-    if (sykesLow || datakazinaLow || xpressLow || eazyghDataLow || bisdelLow || codeCraftLow || agentportalghLow) {
+    if (sykesLow || datakazinaLow || xpressLow || eazyghDataLow || bisdelLow || codeCraftLow || agentportalghLow || apexprimeLow) {
       sendLowBalanceAlert(balanceMap, lowMap, threshold).catch((e) => console.error("[MTN Balance] Alert error:", e))
     }
 
@@ -121,6 +125,13 @@ export async function GET(request: NextRequest) {
           is_low: agentportalghLow,
           is_active: activeProvider.name === "agentportalgh",
           alert: agentportalghLow && agentportalghBalance !== null ? `AgentPortalGH balance is below threshold of ₵${threshold}` : null,
+        },
+        apexprime: {
+          balance: apexprimeBalance,
+          currency: "GHS",
+          is_low: apexprimeLow,
+          is_active: activeProvider.name === "apexprime",
+          alert: apexprimeLow && apexprimeBalance !== null ? `Apex Prime balance is below threshold of ₵${threshold}` : null,
         },
       },
       threshold,

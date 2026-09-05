@@ -23,6 +23,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   xpress: "Xpress",
   codecraft: "CodeCraft",
   agentportalgh: "AgentPortalGH",
+  apexprime: "Apex Prime",
 }
 
 interface Progress {

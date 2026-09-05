@@ -467,7 +467,7 @@ const setMtnProviderTool: Anthropic.Tool = {
   input_schema: {
     type: "object" as const,
     properties: {
-      provider: { type: "string", enum: ["sykes", "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft", "agentportalgh"], description: "Provider to switch to. Omit to just read current setting." },
+      provider: { type: "string", enum: ["sykes", "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft", "agentportalgh", "apexprime"], description: "Provider to switch to. Omit to just read current setting." },
     },
     required: [],
   },
@@ -661,7 +661,7 @@ const syncFulfillmentStatusTool: Anthropic.Tool = {
       tracking_id: { type: "string", description: "Provider tracking ID — get this from get_mtn_logs" },
       mtn_order_id: { type: "string", description: "MTN order ID — get this from get_mtn_logs" },
       sync_all_pending: { type: "boolean", description: "true to sync all pending MTN orders at once (no tracking_id needed)" },
-      provider: { type: "string", enum: ["sykes", "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft", "agentportalgh"], description: "Provider to sync from" },
+      provider: { type: "string", enum: ["sykes", "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft", "agentportalgh", "apexprime"], description: "Provider to sync from" },
     },
     required: [],
   },
