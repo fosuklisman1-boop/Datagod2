@@ -138,11 +138,22 @@ async function checkAgentPortalGHBatch(
   return results
 }
 
+// Apex Prime's own MTN Pre-Check & Approval Note (confirmed with them 2026-09-05):
+// first-time MTN numbers must clear MTN's own approval before they can receive
+// data — a number mid-approval isn't rejected, it's "awaiting_mtn_approval" and
+// clears over time (their 24h/72h whitelist-retry cron already re-checks these).
+// Their stated integration contract is to check `unorderable`, not `is_valid`,
+// before ordering — combining both here is strictly more conservative than
+// either alone, since every case observed live had them in agreement.
+export function isApexPrimeOrderable(data: any): boolean {
+  return data?.is_valid === true && data?.provider_data?.unorderable !== true
+}
+
 async function checkApexPrime(msisdn: string): Promise<WhitelistResult> {
   try {
     const { ApexPrimeProvider } = await import("./apexprime-provider")
     const data = await new ApexPrimeProvider().verifyNumber(msisdn, "MTN")
-    return { allowed: data?.is_valid === true, provider: "apexprime", reason: data?.message }
+    return { allowed: isApexPrimeOrderable(data), provider: "apexprime", reason: data?.message }
   } catch {
     return { allowed: true, provider: "apexprime" }
   }
@@ -160,7 +171,7 @@ async function checkApexPrimeBatch(
   for (const msisdn of msisdns) {
     try {
       const data = await provider.verifyNumber(msisdn, "MTN")
-      results.push({ msisdn, allowed: data?.is_valid === true, reason: data?.message })
+      results.push({ msisdn, allowed: isApexPrimeOrderable(data), reason: data?.message })
     } catch {
       results.push({ msisdn, allowed: true })
     }

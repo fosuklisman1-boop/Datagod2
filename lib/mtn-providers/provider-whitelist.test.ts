@@ -1,4 +1,4 @@
-import { checkWhitelistBatch, listWhitelistProviders, validateProviderSelection, unionProviders, type WhitelistEntry } from "./provider-whitelist"
+import { checkWhitelistBatch, listWhitelistProviders, validateProviderSelection, unionProviders, isApexPrimeOrderable, type WhitelistEntry } from "./provider-whitelist"
 
 function fakeEntry(name: string, allowedSet: Set<string>, configured = true): WhitelistEntry {
   return {
@@ -111,5 +111,35 @@ describe("unionProviders", () => {
 
   it("returns the added list as-is when existing is empty", () => {
     expect(unionProviders([], ["xpress"])).toEqual(["xpress"])
+  })
+})
+
+describe("isApexPrimeOrderable", () => {
+  it("allows a number that's valid and not unorderable (real live response shape)", () => {
+    const data = { success: true, is_valid: true, provider_data: { exists: true, verified: true, is_valid: true, unorderable: false, status: "verified" } }
+    expect(isApexPrimeOrderable(data)).toBe(true)
+  })
+
+  it("blocks a number flagged unorderable even if is_valid were somehow true", () => {
+    const data = { is_valid: true, provider_data: { unorderable: true } }
+    expect(isApexPrimeOrderable(data)).toBe(false)
+  })
+
+  it("blocks a number awaiting MTN approval (real live response shape)", () => {
+    const data = { success: false, is_valid: false, provider_data: { exists: false, verified: false, is_valid: false, unorderable: true, status: "awaiting_mtn_approval" } }
+    expect(isApexPrimeOrderable(data)).toBe(false)
+  })
+
+  it("treats a missing provider_data as orderable when is_valid is true", () => {
+    expect(isApexPrimeOrderable({ is_valid: true })).toBe(true)
+  })
+
+  it("blocks when is_valid is missing entirely", () => {
+    expect(isApexPrimeOrderable({ provider_data: { unorderable: false } })).toBe(false)
+  })
+
+  it("blocks on a null/undefined response", () => {
+    expect(isApexPrimeOrderable(null)).toBe(false)
+    expect(isApexPrimeOrderable(undefined)).toBe(false)
   })
 })
