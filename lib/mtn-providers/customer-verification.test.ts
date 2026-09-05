@@ -148,6 +148,27 @@ describe("checkCustomerFacingVerification", () => {
     const result = await checkCustomerFacingVerification(["0551111111"])
     expect(result).toEqual([{ phone: "0551111111", verified: true }])
   })
+
+  it("exercises the real WHITELIST_REGISTRY default parameter's filter() against actual entries", async () => {
+    const { supabaseAdmin } = await import("@/lib/supabase")
+    ;(supabaseAdmin.from as any).mockReturnValue({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: async () => ({
+            data: { value: { enabled: true, providers: ["xpress"] } },
+            error: null,
+          }),
+        }),
+      }),
+    })
+    // No registry override — this binds the real WHITELIST_REGISTRY default and
+    // runs registry.filter(...) against its real entries. In the test env none
+    // of xpress/codecraft/agentportalgh/apexprime's configured() checks are
+    // true (their API-key env vars aren't set), so filter() correctly yields
+    // an empty array and the function fails open — verified for every phone.
+    const result = await checkCustomerFacingVerification(["0551111111"])
+    expect(result).toEqual([{ phone: "0551111111", verified: true }])
+  })
 })
 
 describe("getCustomerVerificationSettings", () => {
