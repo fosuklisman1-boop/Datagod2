@@ -13,7 +13,17 @@ export async function POST(request: NextRequest) {
     RATE_LIMITS.VERIFY_PHONE_LIVE.windowMs
   )
   if (!rateLimit.allowed) {
-    return NextResponse.json({ error: RATE_LIMITS.VERIFY_PHONE_LIVE.message }, { status: 429 })
+    return NextResponse.json(
+      { error: RATE_LIMITS.VERIFY_PHONE_LIVE.message },
+      {
+        status: 429,
+        headers: {
+          "X-RateLimit-Limit": RATE_LIMITS.VERIFY_PHONE_LIVE.maxRequests.toString(),
+          "X-RateLimit-Remaining": "0",
+          "X-RateLimit-Reset": new Date(rateLimit.resetAt).toISOString(),
+        },
+      }
+    )
   }
 
   let phones: unknown

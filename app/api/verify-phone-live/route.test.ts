@@ -3,7 +3,7 @@ import { NextRequest } from "next/server"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
 vi.mock("@/lib/rate-limiter", () => ({
-  applyRateLimit: vi.fn(async () => ({ allowed: true, remaining: 19, resetAt: Date.now() + 60000 })),
+  applyRateLimit: vi.fn(async () => ({ allowed: true, remaining: 4, resetAt: Date.now() + 60000 })),
 }))
 
 vi.mock("@/lib/mtn-providers/customer-verification", () => ({
@@ -41,6 +41,11 @@ describe("POST /api/verify-phone-live", () => {
 
   it("rejects an empty phones array with 400", async () => {
     const res = await POST(makeRequest({ phones: [] }))
+    expect(res.status).toBe(400)
+  })
+
+  it("rejects a phones array with non-string entries with 400", async () => {
+    const res = await POST(makeRequest({ phones: ["0551111111", null, 123] }))
     expect(res.status).toBe(400)
   })
 
