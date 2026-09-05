@@ -107,7 +107,15 @@ export default function MtnRegistrationPage() {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || "Failed to mark registered")
-      toast.success(`Marked ${data.numbersRegistered} numbers as registered.`)
+      const released = data.ordersReleased ?? 0
+      if (released > 0) {
+        const parts = [`${data.ordersDispatched ?? 0} fulfilled`]
+        if (data.ordersQueuedManual > 0) parts.push(`${data.ordersQueuedManual} queued for manual fulfillment`)
+        if (data.ordersFailed > 0) parts.push(`${data.ordersFailed} still blocked (will auto-retry every 24h)`)
+        toast.success(`Marked ${data.numbersRegistered} numbers as registered. ${released} held order(s) released — ${parts.join(", ")}.`)
+      } else {
+        toast.success(`Marked ${data.numbersRegistered} numbers as registered.`)
+      }
       await loadStatus()
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to mark registered")

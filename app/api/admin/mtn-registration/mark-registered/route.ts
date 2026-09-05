@@ -52,13 +52,16 @@ export async function POST(request: NextRequest) {
 
     // Push release: fulfill any held orders for the just-registered numbers.
     // Best-effort — a failure here is caught by the hourly self-heal cron.
-    let ordersReleased = 0
+    let ordersReleased = 0, ordersDispatched = 0, ordersQueuedManual = 0, ordersFailed = 0
     try {
       const phones = (numRows ?? []).map((r: any) => r.phone).filter(Boolean)
       if (phones.length > 0) {
         const { releaseHeldMtnOrders } = await import("@/lib/mtn-hold")
         const rel = await releaseHeldMtnOrders(phones)
         ordersReleased = rel.released
+        ordersDispatched = rel.dispatched
+        ordersQueuedManual = rel.queuedManual
+        ordersFailed = rel.failed
       }
     } catch (relErr) {
       console.error("[MTN-REG-MARK] release failed (cron will catch):", relErr)
@@ -79,7 +82,14 @@ export async function POST(request: NextRequest) {
       console.warn("[MTN-REG-MARK] audit insert threw:", auditErr)
     }
 
-    return NextResponse.json({ ok: true, numbersRegistered: numRows?.length ?? 0, ordersReleased })
+    return NextResponse.json({
+      ok: true,
+      numbersRegistered: numRows?.length ?? 0,
+      ordersReleased,
+      ordersDispatched,
+      ordersQueuedManual,
+      ordersFailed,
+    })
   } catch (error) {
     console.error("[MTN-REG-MARK] error:", error)
     return NextResponse.json({ error: "Failed to mark batch registered" }, { status: 500 })
