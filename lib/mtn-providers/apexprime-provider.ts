@@ -91,12 +91,14 @@ export function parseTrackingId(id: string): { kind: "bundle" | "store"; rawId: 
   const kind = id.slice(0, idx)
   let rawId = id.slice(idx + 1)
   if (kind === "store") {
-    // Store tracking ids are "store:<reference>:<uniquifier>" — the uniquifier
+    // Store tracking ids are "store:<lookupId>:<uniquifier>" — the uniquifier
     // exists only so repeated Store submissions of the same order don't collide
-    // on mtn_fulfillment_tracking's UNIQUE(mtn_order_id) constraint (Store never
-    // returns its own order id from Apex Prime, so the order's own reference is
-    // reused as the base — see createViaStore). /status only wants the bare
-    // reference, not the uniquifier.
+    // on mtn_fulfillment_tracking's UNIQUE(mtn_order_id) constraint. <lookupId>
+    // is /store-order's own client_code when present (their docs say /status's
+    // order_id param accepts "Database ID or 3-digit client order code" — Store
+    // orders never get a database id, so client_code is the intended lookup key),
+    // falling back to our own reference when client_code is absent — see
+    // createViaStore. /status only wants the bare lookupId, not the uniquifier.
     const lastColon = rawId.lastIndexOf(":")
     if (lastColon !== -1) rawId = rawId.slice(0, lastColon)
   }
@@ -196,14 +198,17 @@ export class ApexPrimeProvider implements MTNProvider {
       return { success: false, message: json?.message ?? `API error ${res.status}`, error_type: "API_ERROR" }
     }
 
-    // Store orders never receive an order_id from Apex Prime — our own
-    // reference (already a UUID) is the only stable identifier available,
-    // which is also what /status expects for type: "store". A uniquifier is
-    // appended to the STORED id only (never sent to Apex Prime) so that a
-    // second Store submission for the same order doesn't collide on
-    // mtn_fulfillment_tracking's UNIQUE(mtn_order_id) constraint — see
+    // Store orders never receive a database order_id from Apex Prime. Their
+    // /status docs say its order_id param accepts "Database ID or 3-digit
+    // client order code" — so /store-order's own client_code (when present)
+    // is the intended lookup key for a Store order, not our own reference.
+    // Fall back to the reference only if client_code is genuinely absent.
+    // A uniquifier is appended to the STORED id only (never sent to Apex
+    // Prime) so a second Store submission for the same order doesn't collide
+    // on mtn_fulfillment_tracking's UNIQUE(mtn_order_id) constraint — see
     // parseTrackingId, which strips it back off before calling /status.
-    return { success: true, order_id: `store:${reference}:${crypto.randomUUID()}`, message: json.message ?? "Store order placed" }
+    const lookupId = json.client_code ?? reference
+    return { success: true, order_id: `store:${lookupId}:${crypto.randomUUID()}`, message: json.message ?? "Store order placed" }
   }
 
   async checkOrderStatus(orderId: string | number): Promise<MTNOrderStatusResponse> {
