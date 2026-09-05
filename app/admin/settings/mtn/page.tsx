@@ -114,7 +114,7 @@ export default function MTNSettingsPage() {
   const [apexBalance, setApexBalance] = useState<any>(null)
   const [apexBalanceLoading, setApexBalanceLoading] = useState(false)
   const [apexTransactions, setApexTransactions] = useState<any>(null)
-  const [apexFulfillmentPaths, setApexFulfillmentPaths] = useState<Record<string, string>>({ MTN: "groupshare", Telecel: "groupshare", AirtelTigo: "groupshare" })
+  const [apexFulfillmentPaths, setApexFulfillmentPaths] = useState<Record<string, string>>({})
   const [apexSavingPath, setApexSavingPath] = useState<string | null>(null)
   const [apexVerifyPhone, setApexVerifyPhone] = useState("")
   const [apexVerifyResult, setApexVerifyResult] = useState<any>(null)
@@ -179,11 +179,35 @@ export default function MTNSettingsPage() {
           fetch("/api/admin/apexprime?action=transactions", { headers }),
           fetch("/api/admin/apexprime?action=fulfillment-paths", { headers }),
         ])
-        if (balanceRes.ok) setApexBalance(await balanceRes.json())
-        if (txRes.ok) setApexTransactions(await txRes.json())
+        if (balanceRes.ok) {
+          const data = await balanceRes.json()
+          if (data.error) {
+            toast.error(`Failed to load Apex Prime balance: ${data.error}`)
+          } else {
+            setApexBalance(data)
+          }
+        } else {
+          toast.error("Failed to load Apex Prime balance")
+        }
+        if (txRes.ok) {
+          const data = await txRes.json()
+          if (data.error) {
+            toast.error(`Failed to load Apex Prime transactions: ${data.error}`)
+          } else {
+            setApexTransactions(data)
+          }
+        } else {
+          toast.error("Failed to load Apex Prime transactions")
+        }
         if (pathsRes.ok) {
           const data = await pathsRes.json()
-          if (data.paths) setApexFulfillmentPaths(data.paths)
+          if (data.error || !data.paths) {
+            toast.error(data.error ? `Failed to load fulfillment paths: ${data.error}` : "Failed to load fulfillment paths")
+          } else {
+            setApexFulfillmentPaths(data.paths)
+          }
+        } else {
+          toast.error("Failed to load fulfillment paths")
         }
       } catch (e) {
         console.error("Error loading Apex Prime data:", e)
@@ -227,6 +251,11 @@ export default function MTNSettingsPage() {
         body: JSON.stringify({ action: "verify", phone: apexVerifyPhone, network: "MTN" }),
       })
       const data = await res.json()
+      if (!res.ok) {
+        toast.error(data.error || "Verification failed")
+        setApexVerifyResult(null)
+        return
+      }
       setApexVerifyResult(data)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Verification failed")
@@ -1964,7 +1993,10 @@ export default function MTNSettingsPage() {
                 {(["MTN", "Telecel", "AirtelTigo"] as const).map(network => (
                   <div key={network} className="flex items-center justify-between p-3 border rounded-lg">
                     <span className="text-sm font-medium">{network === "AirtelTigo" ? "AT - iShare" : network}</span>
-                    <div className="flex gap-2">
+                    <div className="flex items-center gap-2">
+                      {!apexFulfillmentPaths[network] && (
+                        <span className="text-xs text-muted-foreground italic">Not loaded</span>
+                      )}
                       {(["groupshare", "store"] as const).map(path => (
                         <Button
                           key={path}
