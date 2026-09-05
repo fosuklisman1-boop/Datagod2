@@ -75,21 +75,32 @@ export async function checkCustomerFacingVerification(
     return phones.map(phone => ({ phone, verified: true }))
   }
 
-  const results: Array<{ phone: string; verified: boolean }> = []
-  for (const phone of phones) {
-    let verified = false
-    for (const provider of configured) {
-      try {
-        const result = await provider.check(phone)
-        if (result.allowed) {
-          verified = true
-          break
+  // Dedupe so a repeated phone in the input is only ever checked once against
+  // the providers, no matter how many times it appears in `phones`.
+  const uniquePhones = [...new Set(phones)]
+
+  // Each phone's own check runs concurrently with the others (that's the
+  // parallelism), but within a single phone the provider loop stays
+  // sequential — the first provider to approve wins and short-circuits the
+  // rest for THAT phone, so ordering there still matters.
+  const uniqueResults = await Promise.all(
+    uniquePhones.map(async phone => {
+      let verified = false
+      for (const provider of configured) {
+        try {
+          const result = await provider.check(phone)
+          if (result.allowed) {
+            verified = true
+            break
+          }
+        } catch {
+          // this provider's failure doesn't count as approval; try the next one
         }
-      } catch {
-        // this provider's failure doesn't count as approval; try the next one
       }
-    }
-    results.push({ phone, verified })
-  }
-  return results
+      return { phone, verified }
+    })
+  )
+
+  const verifiedByPhone = new Map(uniqueResults.map(r => [r.phone, r.verified]))
+  return phones.map(phone => ({ phone, verified: verifiedByPhone.get(phone)! }))
 }

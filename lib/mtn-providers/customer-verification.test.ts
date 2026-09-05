@@ -107,6 +107,47 @@ describe("checkCustomerFacingVerification", () => {
     )
     expect(result).toEqual([{ phone: "0551111111", verified: false }])
   })
+
+  it("checks a duplicate phone only once but returns one result per input occurrence", async () => {
+    let callCount = 0
+    const countingEntry: WhitelistEntry = {
+      name: "xpress",
+      configured: () => true,
+      check: async (msisdn) => {
+        callCount++
+        return { allowed: msisdn === "0551111111", provider: "xpress" }
+      },
+      checkBatch: async (msisdns) => msisdns.map(m => ({ msisdn: m, allowed: m === "0551111111" })),
+    }
+    const result = await checkCustomerFacingVerification(
+      ["0551111111", "0552222222", "0551111111"],
+      [countingEntry],
+      { enabled: true, providers: ["xpress"] }
+    )
+    expect(result).toEqual([
+      { phone: "0551111111", verified: true },
+      { phone: "0552222222", verified: false },
+      { phone: "0551111111", verified: true },
+    ])
+    // Only 2 unique phones, so exactly 2 calls despite 3 input entries
+    expect(callCount).toBe(2)
+  })
+
+  it("exercises the real default registry + settings read when called with only phones", async () => {
+    const { supabaseAdmin } = await import("@/lib/supabase")
+    ;(supabaseAdmin.from as any).mockReturnValue({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: async () => ({
+            data: { value: { enabled: false, providers: [] } },
+            error: null,
+          }),
+        }),
+      }),
+    })
+    const result = await checkCustomerFacingVerification(["0551111111"])
+    expect(result).toEqual([{ phone: "0551111111", verified: true }])
+  })
 })
 
 describe("getCustomerVerificationSettings", () => {
@@ -144,5 +185,37 @@ describe("getCustomerVerificationSettings", () => {
     })
     const settings = await getCustomerVerificationSettings()
     expect(settings).toEqual({ enabled: true, providers: ["xpress", "apexprime"] })
+  })
+
+  it("defaults to disabled when the stored value is malformed (providers not an array)", async () => {
+    const { supabaseAdmin } = await import("@/lib/supabase")
+    ;(supabaseAdmin.from as any).mockReturnValue({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: async () => ({
+            data: { value: { enabled: "yes", providers: "not-an-array" } },
+            error: null,
+          }),
+        }),
+      }),
+    })
+    const settings = await getCustomerVerificationSettings()
+    expect(settings).toEqual({ enabled: false, providers: [] })
+  })
+
+  it("defaults to disabled when the stored value is missing the providers field", async () => {
+    const { supabaseAdmin } = await import("@/lib/supabase")
+    ;(supabaseAdmin.from as any).mockReturnValue({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: async () => ({
+            data: { value: { enabled: true } },
+            error: null,
+          }),
+        }),
+      }),
+    })
+    const settings = await getCustomerVerificationSettings()
+    expect(settings).toEqual({ enabled: false, providers: [] })
   })
 })
