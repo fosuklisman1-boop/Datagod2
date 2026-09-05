@@ -456,7 +456,7 @@ export default function MTNFulfillmentLogsPage() {
                 <DropdownMenuContent align="end">
                   <DropdownMenuLabel>Sync by provider</DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  {["sykes", "codecraft", "eazyghdata", "xpress", "datakazina", "bisdel", "agentportalgh"].map(p => (
+                  {["sykes", "codecraft", "eazyghdata", "xpress", "datakazina", "bisdel", "agentportalgh", "apexprime"].map(p => (
                     <DropdownMenuItem key={p} onClick={() => handleSyncAllPending(p)}>
                       {p.charAt(0).toUpperCase() + p.slice(1)}
                     </DropdownMenuItem>
@@ -585,6 +585,8 @@ export default function MTNFulfillmentLogsPage() {
                                 <Badge className="bg-violet-100 text-violet-800 border-border">CodeCraft</Badge>
                               ) : log.provider === "agentportalgh" ? (
                                 <Badge className="bg-amber-100 text-amber-800 border-border">AgentPortalGH</Badge>
+                              ) : log.provider === "apexprime" ? (
+                                <Badge className="bg-cyan-100 text-cyan-800 border-border">Apex Prime</Badge>
                               ) : (
                                 <Badge className="bg-primary/10 text-primary border-primary/20">Sykes</Badge>
                               )}
