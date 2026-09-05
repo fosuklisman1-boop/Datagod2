@@ -74,6 +74,12 @@ export default function MTNSettingsPage() {
   const [loadingWhitelist, setLoadingWhitelist] = useState(true)
   const [togglingWhitelist, setTogglingWhitelist] = useState(false)
 
+  const [custVerifyEnabled, setCustVerifyEnabled] = useState(false)
+  const [custVerifyProviders, setCustVerifyProviders] = useState<string[]>([])
+  const [custVerifyAvailable, setCustVerifyAvailable] = useState<Array<{ name: string; configured: boolean }>>([])
+  const [loadingCustVerify, setLoadingCustVerify] = useState(true)
+  const [savingCustVerify, setSavingCustVerify] = useState(false)
+
   const [threshold, setThreshold] = useState<number>(500)
   const [thresholdInput, setThresholdInput] = useState<string>("500")
   const [savingThreshold, setSavingThreshold] = useState(false)
@@ -145,6 +151,7 @@ export default function MTNSettingsPage() {
     loadBisdelCatalog()
     loadAtFulfillmentSetting()
     loadWhitelistSetting()
+    loadCustomerVerificationSetting()
     loadNetworkProvider("telecel", setTelecelProvider)
     loadNetworkProvider("at_ishare", setAtIshareProvider)
     loadNetworkProvider("at_bigtime", setAtBigtimeProvider)
@@ -733,6 +740,50 @@ export default function MTNSettingsPage() {
       toast.success(d.message)
     } catch (e) { toast.error(e instanceof Error ? e.message : "Failed to update") }
     finally { setTogglingWhitelist(false) }
+  }
+
+  const loadCustomerVerificationSetting = async () => {
+    try {
+      setLoadingCustVerify(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch("/api/admin/settings/customer-verification", {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      })
+      if (res.ok) {
+        const d = await res.json()
+        setCustVerifyEnabled(d.settings?.enabled ?? false)
+        setCustVerifyProviders(d.settings?.providers ?? [])
+        setCustVerifyAvailable(d.availableProviders ?? [])
+      }
+    } catch (e) { console.error("Error loading customer verification setting:", e) }
+    finally { setLoadingCustVerify(false) }
+  }
+
+  const saveCustomerVerificationSetting = async (enabled: boolean, providers: string[]) => {
+    try {
+      setSavingCustVerify(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) { toast.error("Authentication required"); return }
+      const res = await fetch("/api/admin/settings/customer-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ enabled, providers }),
+      })
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Failed") }
+      const d = await res.json()
+      setCustVerifyEnabled(d.settings.enabled)
+      setCustVerifyProviders(d.settings.providers)
+      toast.success("Customer verification settings saved")
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Failed to update") }
+    finally { setSavingCustVerify(false) }
+  }
+
+  const toggleCustVerifyProvider = (name: string) => {
+    const next = custVerifyProviders.includes(name)
+      ? custVerifyProviders.filter(p => p !== name)
+      : [...custVerifyProviders, name]
+    setCustVerifyProviders(next)
+    saveCustomerVerificationSetting(custVerifyEnabled, next)
   }
 
   async function apgAuthHeaders(): Promise<Record<string, string>> {
@@ -1373,6 +1424,59 @@ export default function MTNSettingsPage() {
                     {whitelistEnabled
                       ? <><strong>ON:</strong> MTN orders are verified against Xpress → Codecraft → AgentPortalGH. Numbers not enabled are held and retried every 24h for up to 72h.</>
                       : <><strong>OFF:</strong> MTN orders skip whitelist verification and go straight to the active fulfillment provider.</>}
+                  </AlertDescription>
+                </Alert>
+              </CardContent>
+            </Card>
+
+            {/* Customer-Facing Live Verification (independent of the internal whitelist gate above) */}
+            <Card className="border-2">
+              <CardHeader>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <ShieldCheck className={`h-5 w-5 ${custVerifyEnabled ? "text-success" : "text-muted-foreground"}`} />
+                      Live Verification at Checkout
+                    </CardTitle>
+                    <CardDescription className="mt-1">Shows customers a warning at checkout if their MTN number isn&apos;t verified by any provider selected below. Independent of the whitelist gate above — has its own provider list.</CardDescription>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {loadingCustVerify ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : (
+                      <>
+                        {savingCustVerify && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                        <span className={`text-sm font-medium ${custVerifyEnabled ? "text-success" : "text-muted-foreground"}`}>{custVerifyEnabled ? "Enabled" : "Disabled"}</span>
+                        <Switch
+                          checked={custVerifyEnabled}
+                          onCheckedChange={(checked) => saveCustomerVerificationSetting(checked, custVerifyProviders)}
+                          disabled={savingCustVerify || loadingCustVerify}
+                        />
+                      </>
+                    )}
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex flex-wrap gap-3">
+                  {custVerifyAvailable.map(p => (
+                    <label key={p.name} className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm cursor-pointer ${custVerifyProviders.includes(p.name) ? "border-primary bg-primary/5" : "border-border"} ${!p.configured ? "opacity-50" : ""}`}>
+                      <input
+                        type="checkbox"
+                        checked={custVerifyProviders.includes(p.name)}
+                        onChange={() => toggleCustVerifyProvider(p.name)}
+                        disabled={!p.configured || savingCustVerify}
+                      />
+                      {p.name}{!p.configured && " (not configured)"}
+                    </label>
+                  ))}
+                </div>
+                <Alert className={custVerifyEnabled && custVerifyProviders.length > 0 ? "border-success/30 bg-success/10" : "border-warning/30 bg-warning/10"}>
+                  <ShieldCheck className={`h-4 w-4 ${custVerifyEnabled && custVerifyProviders.length > 0 ? "text-success" : "text-warning"}`} />
+                  <AlertDescription className={custVerifyEnabled && custVerifyProviders.length > 0 ? "text-success" : "text-warning"}>
+                    {!custVerifyEnabled
+                      ? <><strong>OFF:</strong> Customers never see a verification warning at checkout.</>
+                      : custVerifyProviders.length === 0
+                      ? <><strong>ON, but no providers selected:</strong> every number is treated as verified until you pick at least one provider above.</>
+                      : <><strong>ON:</strong> checking against {custVerifyProviders.join(", ")}. MTN only.</>}
                   </AlertDescription>
                 </Alert>
               </CardContent>
