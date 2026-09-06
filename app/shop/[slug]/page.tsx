@@ -1298,12 +1298,21 @@ export default function ShopStorefront() {
               <CardHeader>
                 <CardTitle>Number not yet verified</CardTitle>
                 <CardDescription>
-                  This number hasn&apos;t been verified yet. If you proceed, your order will still be processed, but delivery may be delayed until it clears — you&apos;ll receive it automatically once verified.
+                  This number hasn&apos;t been verified yet. If you proceed, your order will still be processed, but delivery may be delayed until the number is confirmed — you&apos;ll receive your data automatically once that happens.
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => { setVerifyWarningOpen(false); setPendingNormalizedPhone(null) }}>Change number</Button>
-                <Button onClick={handleProceedAfterVerifyWarning}>Proceed anyway</Button>
+                <Button disabled={submitting} onClick={handleProceedAfterVerifyWarning}>
+                  {submitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    "Proceed anyway"
+                  )}
+                </Button>
               </CardContent>
             </Card>
           </div>
