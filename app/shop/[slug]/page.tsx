@@ -612,12 +612,15 @@ export default function ShopStorefront() {
         })
         if (verifyRes.ok) {
           const verifyData = await verifyRes.json()
-          const isVerified = verifyData.results?.[0]?.verified !== false
-          if (!isVerified) {
+          const verifiedResult = verifyData.results?.[0]?.verified
+          if (verifiedResult === false) {
             setSubmitting(false)
             setPendingNormalizedPhone(normalizedPhone)
             setVerifyWarningOpen(true)
             return
+          }
+          if (verifiedResult === true) {
+            toast.success("Number verified ✓")
           }
         }
       } catch (verifyErr) {

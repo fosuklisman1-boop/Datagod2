@@ -527,6 +527,7 @@ export function BulkOrdersForm() {
         }
 
         const unverifiedPhones: string[] = []
+        let allChunksConfirmed = true
         for (const chunk of chunks) {
           const verifyRes = await fetch("/api/verify-phone-live", {
             method: "POST",
@@ -538,6 +539,7 @@ export function BulkOrdersForm() {
             const results: Array<{ phone: string; verified: boolean }> = verifyData.results ?? []
             unverifiedPhones.push(...results.filter(r => !r.verified).map(r => r.phone))
           } else {
+            allChunksConfirmed = false
             console.warn("[BULK-ORDERS] Live verification check returned non-OK status for a chunk, treating that chunk as verified:", verifyRes.status)
           }
         }
@@ -546,6 +548,10 @@ export function BulkOrdersForm() {
           setIsSubmitting(false)
           setBatchVerifyWarning({ unverifiedPhones, ordersToSubmit: validOrders, networkLabel: selectedNetworkLabel })
           return
+        }
+
+        if (allChunksConfirmed) {
+          toast.success(`All ${validOrders.length} number(s) verified ✓`)
         }
       } catch (verifyErr) {
         console.warn("[BULK-ORDERS] Live verification check failed, proceeding:", verifyErr)

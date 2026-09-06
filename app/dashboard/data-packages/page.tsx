@@ -281,13 +281,16 @@ export default function DataPackagesPage() {
         })
         if (verifyRes.ok) {
           const verifyData = await verifyRes.json()
-          const isVerified = verifyData.results?.[0]?.verified !== false
-          if (!isVerified) {
+          const verifiedResult = verifyData.results?.[0]?.verified
+          if (verifiedResult === false) {
             setPurchasing(null)
             setPhoneModalOpen(false)
             setPendingPhoneNumber(phoneNumber)
             setVerifyWarningOpen(true)
             return
+          }
+          if (verifiedResult === true) {
+            toast.success("Number verified ✓")
           }
         } else {
           console.warn("[DATA-PACKAGES] Live verification check returned non-OK status, proceeding:", verifyRes.status)
