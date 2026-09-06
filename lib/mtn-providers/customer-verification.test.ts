@@ -108,16 +108,18 @@ describe("checkCustomerFacingVerification", () => {
     expect(result).toEqual([{ phone: "0551111111", verified: false }])
   })
 
-  it("checks a duplicate phone only once but returns one result per input occurrence", async () => {
-    let callCount = 0
+  it("checks each unique phone only once via checkBatch, returning one result per input occurrence", async () => {
+    let batchCallCount = 0
+    let lastBatchArg: string[] = []
     const countingEntry: WhitelistEntry = {
       name: "xpress",
       configured: () => true,
-      check: async (msisdn) => {
-        callCount++
-        return { allowed: msisdn === "0551111111", provider: "xpress" }
+      check: async (msisdn) => ({ allowed: msisdn === "0551111111", provider: "xpress" }),
+      checkBatch: async (msisdns) => {
+        batchCallCount++
+        lastBatchArg = msisdns
+        return msisdns.map(m => ({ msisdn: m, allowed: m === "0551111111" }))
       },
-      checkBatch: async (msisdns) => msisdns.map(m => ({ msisdn: m, allowed: m === "0551111111" })),
     }
     const result = await checkCustomerFacingVerification(
       ["0551111111", "0552222222", "0551111111"],
@@ -129,8 +131,9 @@ describe("checkCustomerFacingVerification", () => {
       { phone: "0552222222", verified: false },
       { phone: "0551111111", verified: true },
     ])
-    // Only 2 unique phones, so exactly 2 calls despite 3 input entries
-    expect(callCount).toBe(2)
+    // checkBatch called exactly once (not once per phone), with only the 2 unique phones
+    expect(batchCallCount).toBe(1)
+    expect(lastBatchArg.slice().sort()).toEqual(["0551111111", "0552222222"])
   })
 
   it("exercises the real default registry + settings read when called with only phones", async () => {

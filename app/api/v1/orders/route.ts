@@ -290,14 +290,19 @@ export async function POST(request: NextRequest) {
       // the dealer's own client timing out and retrying an already-created,
       // already-charged order into a duplicate.
       const VERIFICATION_TIMEOUT_MS = 5000
-      const timeout = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("verification check timed out")), VERIFICATION_TIMEOUT_MS)
-      )
-      const [result] = await Promise.race([
-        checkCustomerFacingVerification([normalizedRecipientPhone]),
-        timeout,
-      ])
-      verificationWarning = result ? !result.verified : false
+      let timeoutId: ReturnType<typeof setTimeout>
+      const timeout = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error("verification check timed out")), VERIFICATION_TIMEOUT_MS)
+      })
+      try {
+        const [result] = await Promise.race([
+          checkCustomerFacingVerification([normalizedRecipientPhone]),
+          timeout,
+        ])
+        verificationWarning = result ? !result.verified : false
+      } finally {
+        clearTimeout(timeoutId!)
+      }
     } catch (err) {
       console.error("[API v1] Live verification check error (failing open):", err)
       verificationWarning = false

@@ -48,9 +48,11 @@ export async function getCustomerVerificationSettings(): Promise<CustomerVerific
 
 /**
  * Checks each phone against every admin-selected, registry-configured
- * provider in registry order — verified as soon as any one approves.
- * A provider whose check() throws simply doesn't count as an approval;
- * it never fails the batch.
+ * provider — verified as soon as any one approves. Uses each provider's
+ * batch endpoint (one HTTP call per provider, not one per phone) so a
+ * large phone list doesn't fan out into hundreds of real API calls.
+ * A provider whose checkBatch() throws simply doesn't count as an
+ * approval for any phone still pending; it never fails the whole check.
  *
  * `settings` and `registry` are optional purely for testability (inject a
  * fake registry/settings instead of hitting the DB and real provider
@@ -79,28 +81,22 @@ export async function checkCustomerFacingVerification(
   // the providers, no matter how many times it appears in `phones`.
   const uniquePhones = [...new Set(phones)]
 
-  // Each phone's own check runs concurrently with the others (that's the
-  // parallelism), but within a single phone the provider loop stays
-  // sequential — the first provider to approve wins and short-circuits the
-  // rest for THAT phone, so ordering there still matters.
-  const uniqueResults = await Promise.all(
-    uniquePhones.map(async phone => {
-      let verified = false
-      for (const provider of configured) {
-        try {
-          const result = await provider.check(phone)
-          if (result.allowed) {
-            verified = true
-            break
-          }
-        } catch {
-          // this provider's failure doesn't count as approval; try the next one
-        }
-      }
-      return { phone, verified }
-    })
-  )
+  const verifiedSet = new Set<string>()
+  let remaining = uniquePhones
 
-  const verifiedByPhone = new Map(uniqueResults.map(r => [r.phone, r.verified]))
-  return phones.map(phone => ({ phone, verified: verifiedByPhone.get(phone)! }))
+  for (const provider of configured) {
+    if (remaining.length === 0) break
+    try {
+      const batchResults = await provider.checkBatch(remaining)
+      for (const r of batchResults) {
+        if (r.allowed) verifiedSet.add(r.msisdn)
+      }
+      remaining = remaining.filter(p => !verifiedSet.has(p))
+    } catch {
+      // this provider's batch failure doesn't count as approval for anyone
+      // still pending; move on to the next provider with the same remaining set
+    }
+  }
+
+  return phones.map(phone => ({ phone, verified: verifiedSet.has(phone) }))
 }

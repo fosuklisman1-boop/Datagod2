@@ -630,7 +630,7 @@ export default function ShopStorefront() {
 
   const handleProceedAfterVerifyWarning = async () => {
     setVerifyWarningOpen(false)
-    if (pendingNormalizedPhone) {
+    if (pendingNormalizedPhone && selectedPackage) {
       const phone = pendingNormalizedPhone
       setPendingNormalizedPhone(null)
       setSubmitting(true)

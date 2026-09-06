@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Grid3x3, List, Search, Loader2 } from "lucide-react"
 import { PhoneNumberModal } from "@/components/phone-number-modal"
 import { SuccessModal } from "@/components/success-modal"
@@ -283,10 +284,13 @@ export default function DataPackagesPage() {
           const isVerified = verifyData.results?.[0]?.verified !== false
           if (!isVerified) {
             setPurchasing(null)
+            setPhoneModalOpen(false)
             setPendingPhoneNumber(phoneNumber)
             setVerifyWarningOpen(true)
             return
           }
+        } else {
+          console.warn("[DATA-PACKAGES] Live verification check returned non-OK status, proceeding:", verifyRes.status)
         }
       } catch (verifyErr) {
         console.warn("[DATA-PACKAGES] Live verification check failed, proceeding:", verifyErr)
@@ -676,31 +680,29 @@ export default function DataPackagesPage() {
           onAction={() => router.push("/dashboard/my-orders")}
         />
 
-        {verifyWarningOpen && (
-          <div className="fixed inset-0 bg-background/50 flex items-center justify-center p-4 z-[60]">
-            <Card className="w-full max-w-md bg-card">
-              <CardHeader>
-                <CardTitle>Number not yet verified</CardTitle>
-                <CardDescription>
-                  This number hasn&apos;t been verified yet. If you proceed, your order will still be processed, but delivery may be delayed until the number is confirmed — you&apos;ll receive your data automatically once that happens.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => { setVerifyWarningOpen(false); setPendingPhoneNumber(null) }}>Cancel</Button>
-                <Button disabled={purchasing !== null} onClick={handleProceedAfterVerifyWarning}>
-                  {purchasing !== null ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Processing...
-                    </>
-                  ) : (
-                    "Proceed anyway"
-                  )}
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
-        )}
+        <Dialog open={verifyWarningOpen} onOpenChange={(open) => { if (!open) { setVerifyWarningOpen(false); setPendingPhoneNumber(null) } }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Number not yet verified</DialogTitle>
+              <DialogDescription>
+                This number hasn&apos;t been verified yet. If you proceed, your order will still be processed, but delivery may be delayed until it clears — you&apos;ll receive it automatically once verified.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => { setVerifyWarningOpen(false); setPendingPhoneNumber(null); setPhoneModalOpen(true) }}>Change number</Button>
+              <Button disabled={purchasing !== null} onClick={handleProceedAfterVerifyWarning}>
+                {purchasing !== null ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  "Proceed anyway"
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </DashboardLayout>
   )

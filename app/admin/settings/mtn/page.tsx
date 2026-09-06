@@ -1469,16 +1469,30 @@ export default function MTNSettingsPage() {
                     </label>
                   ))}
                 </div>
-                <Alert className={custVerifyEnabled && custVerifyProviders.length > 0 ? "border-success/30 bg-success/10" : "border-warning/30 bg-warning/10"}>
-                  <ShieldCheck className={`h-4 w-4 ${custVerifyEnabled && custVerifyProviders.length > 0 ? "text-success" : "text-warning"}`} />
-                  <AlertDescription className={custVerifyEnabled && custVerifyProviders.length > 0 ? "text-success" : "text-warning"}>
-                    {!custVerifyEnabled
-                      ? <><strong>OFF:</strong> Customers never see a verification warning at checkout.</>
-                      : custVerifyProviders.length === 0
-                      ? <><strong>ON, but no providers selected:</strong> every number is treated as verified until you pick at least one provider above.</>
-                      : <><strong>ON:</strong> checking against {custVerifyProviders.join(", ")}. MTN only.</>}
-                  </AlertDescription>
-                </Alert>
+                {(() => {
+                  const meaningfullyOn = custVerifyEnabled && custVerifyProviders.length > 0
+                  const promiseUnbacked = meaningfullyOn && !whitelistEnabled
+                  const alertClass = promiseUnbacked
+                    ? "border-destructive/30 bg-destructive/10"
+                    : meaningfullyOn
+                    ? "border-success/30 bg-success/10"
+                    : "border-warning/30 bg-warning/10"
+                  const textClass = promiseUnbacked ? "text-destructive" : meaningfullyOn ? "text-success" : "text-warning"
+                  return (
+                    <Alert className={alertClass}>
+                      <ShieldCheck className={`h-4 w-4 ${textClass}`} />
+                      <AlertDescription className={textClass}>
+                        {!custVerifyEnabled
+                          ? <><strong>OFF:</strong> Customers never see a verification warning at checkout.</>
+                          : custVerifyProviders.length === 0
+                          ? <><strong>ON, but no providers selected:</strong> every number is treated as verified until you pick at least one provider above.</>
+                          : promiseUnbacked
+                          ? <><strong>WARNING:</strong> checking against {custVerifyProviders.join(", ")}, but the MTN Whitelist Verification gate above is OFF — customers who proceed past an "unverified" warning won't actually be held/retried, so the promise shown to them won't be kept. Turn on the whitelist gate above, or turn this off.</>
+                          : <><strong>ON:</strong> checking against {custVerifyProviders.join(", ")}. MTN only.</>}
+                      </AlertDescription>
+                    </Alert>
+                  )
+                })()}
               </CardContent>
             </Card>
 

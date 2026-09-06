@@ -5,6 +5,9 @@ import { listWhitelistProviders, validateProviderSelection } from "@/lib/mtn-pro
 import { getCustomerVerificationSettings, SETTING_KEY } from "@/lib/mtn-providers/customer-verification"
 
 export async function GET(request: NextRequest) {
+  const { isAdmin, errorResponse } = await verifyAdminAccess(request)
+  if (!isAdmin) return errorResponse!
+
   try {
     const settings = await getCustomerVerificationSettings()
     return NextResponse.json({

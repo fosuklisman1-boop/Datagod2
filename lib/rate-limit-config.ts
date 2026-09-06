@@ -31,7 +31,7 @@ export const RATE_LIMITS = {
     },
 
     VERIFY_PHONE_LIVE: {
-        maxRequests: 5,
+        maxRequests: 20,
         windowMs: 60 * 1000, // 1 minute per IP
         message: 'Too many verification requests. Please wait a moment and try again.',
     },

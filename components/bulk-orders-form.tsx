@@ -519,22 +519,33 @@ export function BulkOrdersForm() {
 
     if (selectedNetworkLabel.toUpperCase() === "MTN" && validOrders.length > 0) {
       try {
-        const verifyRes = await fetch("/api/verify-phone-live", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phones: validOrders.map(o => o.phone) }),
-        })
-        if (verifyRes.ok) {
-          const verifyData = await verifyRes.json()
-          const results: Array<{ phone: string; verified: boolean }> = verifyData.results ?? []
-          const unverifiedPhones = results.filter(r => !r.verified).map(r => r.phone)
-          if (unverifiedPhones.length > 0) {
-            setIsSubmitting(false)
-            setBatchVerifyWarning({ unverifiedPhones, ordersToSubmit: validOrders, networkLabel: selectedNetworkLabel })
-            return
+        const CHUNK_SIZE = 100
+        const allPhones = validOrders.map(o => o.phone)
+        const chunks: string[][] = []
+        for (let i = 0; i < allPhones.length; i += CHUNK_SIZE) {
+          chunks.push(allPhones.slice(i, i + CHUNK_SIZE))
+        }
+
+        const unverifiedPhones: string[] = []
+        for (const chunk of chunks) {
+          const verifyRes = await fetch("/api/verify-phone-live", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ phones: chunk }),
+          })
+          if (verifyRes.ok) {
+            const verifyData = await verifyRes.json()
+            const results: Array<{ phone: string; verified: boolean }> = verifyData.results ?? []
+            unverifiedPhones.push(...results.filter(r => !r.verified).map(r => r.phone))
+          } else {
+            console.warn("[BULK-ORDERS] Live verification check returned non-OK status for a chunk, treating that chunk as verified:", verifyRes.status)
           }
-        } else {
-          console.warn("[BULK-ORDERS] Live verification check returned non-OK status, proceeding:", verifyRes.status)
+        }
+
+        if (unverifiedPhones.length > 0) {
+          setIsSubmitting(false)
+          setBatchVerifyWarning({ unverifiedPhones, ordersToSubmit: validOrders, networkLabel: selectedNetworkLabel })
+          return
         }
       } catch (verifyErr) {
         console.warn("[BULK-ORDERS] Live verification check failed, proceeding:", verifyErr)
