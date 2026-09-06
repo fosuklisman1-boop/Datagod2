@@ -54,6 +54,11 @@ export function BulkOrdersForm() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showSummary, setShowSummary] = useState(false)
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
+  const [batchVerifyWarning, setBatchVerifyWarning] = useState<{
+    unverifiedPhones: string[]
+    ordersToSubmit: ValidationResult["orders"]
+    networkLabel: string
+  } | null>(null)
   const excelFileInput = useRef<HTMLInputElement | null>(null)
 
   // Load packages from database on mount
@@ -454,25 +459,14 @@ export function BulkOrdersForm() {
     }
   }
 
-  const handleConfirmSubmission = async () => {
-    if (!validationResults) return
-
-    const validOrders = validationResults.orders.filter(o => o.status === "valid")
+  const submitBulkOrders = async (ordersToSubmit: ValidationResult["orders"], networkLabel: string) => {
     setIsSubmitting(true)
     try {
-      // Get the selected network label
-      const selectedNetworkLabel = networks.find(n => n.id === selectedNetwork)?.label
-      if (!selectedNetworkLabel) {
-        throw new Error("Invalid network selected")
-      }
-
-      // Get auth token and user
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token || !session.user?.id) {
         throw new Error("Not authenticated")
       }
 
-      // Call the bulk create API
       const response = await fetch("/api/orders/create-bulk", {
         method: "POST",
         headers: {
@@ -480,27 +474,23 @@ export function BulkOrdersForm() {
           "Authorization": `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
-          orders: validOrders.map(o => ({
+          orders: ordersToSubmit.map(o => ({
             phone_number: o.phone,
             volume_gb: o.volume,
             price: o.price,
           })),
-          network: selectedNetworkLabel,
+          network: networkLabel,
         }),
       })
 
       const data = await response.json()
-
       if (!response.ok) {
         throw new Error(data.error || "Failed to submit orders")
       }
 
       toast.success(`Successfully created ${data.count} orders!`)
-
-      // Close summary dialog
       setShowSummary(false)
-
-      // Reset form
+      setBatchVerifyWarning(null)
       setValidationResults(null)
       setTextInput("")
       setSelectedNetwork("")
@@ -513,6 +503,43 @@ export function BulkOrdersForm() {
     } finally {
       setIsSubmitting(false)
     }
+  }
+
+  const handleConfirmSubmission = async () => {
+    if (!validationResults) return
+
+    const validOrders = validationResults.orders.filter(o => o.status === "valid")
+    const selectedNetworkLabel = networks.find(n => n.id === selectedNetwork)?.label
+    if (!selectedNetworkLabel) {
+      toast.error("Invalid network selected")
+      return
+    }
+
+    setIsSubmitting(true)
+
+    if (selectedNetworkLabel.toUpperCase() === "MTN" && validOrders.length > 0) {
+      try {
+        const verifyRes = await fetch("/api/verify-phone-live", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phones: validOrders.map(o => o.phone) }),
+        })
+        if (verifyRes.ok) {
+          const verifyData = await verifyRes.json()
+          const results: Array<{ phone: string; verified: boolean }> = verifyData.results ?? []
+          const unverifiedPhones = results.filter(r => !r.verified).map(r => r.phone)
+          if (unverifiedPhones.length > 0) {
+            setIsSubmitting(false)
+            setBatchVerifyWarning({ unverifiedPhones, ordersToSubmit: validOrders, networkLabel: selectedNetworkLabel })
+            return
+          }
+        }
+      } catch (verifyErr) {
+        console.warn("[BULK-ORDERS] Live verification check failed, proceeding:", verifyErr)
+      }
+    }
+
+    await submitBulkOrders(validOrders, selectedNetworkLabel)
   }
 
   return (
@@ -813,6 +840,50 @@ export function BulkOrdersForm() {
                 className="bg-gradient-to-r from-primary to-primary"
               >
                 {isSubmitting ? "Processing..." : "Confirm & Submit"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Batch Verification Warning Dialog */}
+        <Dialog open={!!batchVerifyWarning} onOpenChange={(open) => { if (!open) setBatchVerifyWarning(null) }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{batchVerifyWarning?.unverifiedPhones.length} number(s) not yet verified</DialogTitle>
+              <DialogDescription>
+                The following numbers haven&apos;t been verified yet: {batchVerifyWarning?.unverifiedPhones.join(", ")}.
+                Orders for these may be delayed until they clear — they&apos;ll still be delivered automatically once verified.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="flex-col sm:flex-row gap-2">
+              <Button variant="outline" onClick={() => setBatchVerifyWarning(null)} disabled={isSubmitting}>
+                Cancel
+              </Button>
+              <Button
+                variant="outline"
+                disabled={
+                  isSubmitting ||
+                  !batchVerifyWarning ||
+                  batchVerifyWarning.ordersToSubmit.length === batchVerifyWarning.unverifiedPhones.length
+                }
+                onClick={() => {
+                  if (!batchVerifyWarning) return
+                  const filtered = batchVerifyWarning.ordersToSubmit.filter(
+                    o => !batchVerifyWarning.unverifiedPhones.includes(o.phone)
+                  )
+                  submitBulkOrders(filtered, batchVerifyWarning.networkLabel)
+                }}
+              >
+                {isSubmitting ? "Processing..." : "Remove unverified & submit rest"}
+              </Button>
+              <Button
+                disabled={isSubmitting || !batchVerifyWarning}
+                onClick={() => {
+                  if (!batchVerifyWarning) return
+                  submitBulkOrders(batchVerifyWarning.ordersToSubmit, batchVerifyWarning.networkLabel)
+                }}
+              >
+                {isSubmitting ? "Processing..." : "Proceed with all"}
               </Button>
             </DialogFooter>
           </DialogContent>
