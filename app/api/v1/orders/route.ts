@@ -224,6 +224,7 @@ export async function POST(request: NextRequest) {
 
   // --- 4. Trigger Asynchronous Fulfillment ---
   const normalizedNetwork = sanitizedNetwork.trim().toLowerCase()
+  const normalizedRecipientPhone = normalizePhoneNumber(cleanRecipient)
 
   // A. MTN Fulfillment
   if (normalizedNetwork === "mtn") {
@@ -232,7 +233,7 @@ export async function POST(request: NextRequest) {
         const mtnAuto = await isMTNAutoEnabled()
         if (mtnAuto) {
           const mtnRequest = {
-            recipient_phone: normalizePhoneNumber(cleanRecipient),
+            recipient_phone: normalizedRecipientPhone,
             network: "MTN" as const,
             size_gb: volumeGb,
             client_ref: orderId ? String(orderId) : undefined, // echoed back in DataKazina's webhook reference
@@ -240,7 +241,7 @@ export async function POST(request: NextRequest) {
           const mtnResult = await createMTNOrder(mtnRequest)
           if (orderId && mtnResult.held) {
             const { holdMtnOrder } = await import("@/lib/mtn-hold")
-            await holdMtnOrder({ table: "api_orders", orderId: String(orderId), phone: normalizePhoneNumber(cleanRecipient) })
+            await holdMtnOrder({ table: "api_orders", orderId: String(orderId), phone: normalizedRecipientPhone })
           } else if (orderId && mtnResult.order_id) {
             await saveMTNTracking(String(orderId), mtnResult.order_id, mtnRequest, mtnResult, "api", mtnResult.provider || "sykes")
             if (mtnResult.success) {
@@ -276,11 +277,26 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // NOTE: unlike the async fulfillment blocks above, this runs synchronously and its result is included in the response below.
   let verificationWarning = false
   if (normalizedNetwork === "mtn") {
     try {
       const { checkCustomerFacingVerification } = await import("@/lib/mtn-providers/customer-verification")
-      const [result] = await checkCustomerFacingVerification([normalizePhoneNumber(cleanRecipient)])
+      // Bounded — this check now sits on a synchronous, external-facing response
+      // path (unlike every other consumer of this shared function, which is
+      // fire-and-forget or browser-side with its own spinner). Two of the four
+      // whitelist providers have no fetch timeout of their own, so without this
+      // bound a hung provider could stall this response indefinitely, risking
+      // the dealer's own client timing out and retrying an already-created,
+      // already-charged order into a duplicate.
+      const VERIFICATION_TIMEOUT_MS = 5000
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("verification check timed out")), VERIFICATION_TIMEOUT_MS)
+      )
+      const [result] = await Promise.race([
+        checkCustomerFacingVerification([normalizedRecipientPhone]),
+        timeout,
+      ])
       verificationWarning = result ? !result.verified : false
     } catch (err) {
       console.error("[API v1] Live verification check error (failing open):", err)
