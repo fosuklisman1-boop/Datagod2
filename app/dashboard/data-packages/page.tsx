@@ -269,6 +269,8 @@ export default function DataPackagesPage() {
       return
     }
 
+    setPurchasing(selectedPackageForPurchase.id)
+
     if (!skipVerification && selectedPackageForPurchase.network.toUpperCase() === "MTN") {
       try {
         const verifyRes = await fetch("/api/verify-phone-live", {
@@ -280,6 +282,7 @@ export default function DataPackagesPage() {
           const verifyData = await verifyRes.json()
           const isVerified = verifyData.results?.[0]?.verified !== false
           if (!isVerified) {
+            setPurchasing(null)
             setPendingPhoneNumber(phoneNumber)
             setVerifyWarningOpen(true)
             return
@@ -362,9 +365,10 @@ export default function DataPackagesPage() {
 
   const handleProceedAfterVerifyWarning = async () => {
     setVerifyWarningOpen(false)
-    if (pendingPhoneNumber) {
+    if (pendingPhoneNumber && selectedPackageForPurchase) {
       const phone = pendingPhoneNumber
       setPendingPhoneNumber(null)
+      setPurchasing(selectedPackageForPurchase.id)
       await handlePhoneNumberSubmit(phone, true)
     }
   }
