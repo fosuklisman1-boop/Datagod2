@@ -17,6 +17,7 @@
  */
 
 import { supabaseAdmin as supabase } from "@/lib/supabase"
+import { normalizePhoneNumber } from "@/lib/mtn-fulfillment"
 import { WHITELIST_REGISTRY, type WhitelistEntry } from "./provider-whitelist"
 
 export const SETTING_KEY = "customer_verification_settings"
@@ -49,8 +50,10 @@ export async function getCustomerVerificationSettings(): Promise<CustomerVerific
 /**
  * Checks each phone against every admin-selected, registry-configured
  * provider — verified as soon as any one approves. Uses each provider's
- * batch endpoint (one HTTP call per provider, not one per phone) so a
- * large phone list doesn't fan out into hundreds of real API calls.
+ * batch endpoint where available (one HTTP call for most providers, not
+ * one per phone — Apex Prime has no native batch endpoint and loops
+ * internally, a pre-existing constraint of that provider's integration)
+ * so a large phone list doesn't fan out into hundreds of real API calls.
  * A provider whose checkBatch() throws simply doesn't count as an
  * approval for any phone still pending; it never fails the whole check.
  *
@@ -88,8 +91,17 @@ export async function checkCustomerFacingVerification(
     if (remaining.length === 0) break
     try {
       const batchResults = await provider.checkBatch(remaining)
+      // Match by normalized form, not exact string equality — some providers
+      // (e.g. AgentPortalGH) echo back a differently-formatted number than
+      // what was sent (e.g. 233551234567 for an input of 0551234567), which
+      // would otherwise silently drop a genuine approval and show the
+      // customer a false "not yet verified" warning for a number that's
+      // actually fine.
+      const remainingByNormalized = new Map(remaining.map(p => [normalizePhoneNumber(p), p]))
       for (const r of batchResults) {
-        if (r.allowed) verifiedSet.add(r.msisdn)
+        if (!r.allowed) continue
+        const original = remainingByNormalized.get(normalizePhoneNumber(r.msisdn))
+        if (original) verifiedSet.add(original)
       }
       remaining = remaining.filter(p => !verifiedSet.has(p))
     } catch {

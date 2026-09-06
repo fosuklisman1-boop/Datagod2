@@ -136,6 +136,24 @@ describe("checkCustomerFacingVerification", () => {
     expect(lastBatchArg.slice().sort()).toEqual(["0551111111", "0552222222"])
   })
 
+  it("matches a provider's differently-formatted echoed number back to the original input", async () => {
+    const entry: WhitelistEntry = {
+      name: "agentportalgh",
+      configured: () => true,
+      check: async () => ({ allowed: false, provider: "agentportalgh" }),
+      checkBatch: async (msisdns) =>
+        // Simulates a provider echoing back the international format (2335...)
+        // for an input sent in local format (0551234567...).
+        msisdns.map(m => ({ msisdn: "233" + m.slice(1), allowed: true })),
+    }
+    const result = await checkCustomerFacingVerification(
+      ["0551234567"],
+      [entry],
+      { enabled: true, providers: ["agentportalgh"] }
+    )
+    expect(result).toEqual([{ phone: "0551234567", verified: true }])
+  })
+
   it("exercises the real default registry + settings read when called with only phones", async () => {
     const { supabaseAdmin } = await import("@/lib/supabase")
     ;(supabaseAdmin.from as any).mockReturnValue({
