@@ -43,6 +43,8 @@ export default function DataPackagesPage() {
   const [wallet, setWallet] = useState<{ balance: number } | null>(null)
   const [phoneModalOpen, setPhoneModalOpen] = useState(false)
   const [selectedPackageForPurchase, setSelectedPackageForPurchase] = useState<Package | null>(null)
+  const [verifyWarningOpen, setVerifyWarningOpen] = useState(false)
+  const [pendingPhoneNumber, setPendingPhoneNumber] = useState<string | null>(null)
   const [globalOrderingEnabled, setGlobalOrderingEnabled] = useState(true)
   const [successModal, setSuccessModal] = useState<{
     open: boolean
@@ -253,7 +255,7 @@ export default function DataPackagesPage() {
     setPhoneModalOpen(true)
   }
 
-  const handlePhoneNumberSubmit = async (phoneNumber: string) => {
+  const handlePhoneNumberSubmit = async (phoneNumber: string, skipVerification = false) => {
     if (!selectedPackageForPurchase || !user) {
       toast.error("Error: Missing package or user information")
       return
@@ -265,6 +267,27 @@ export default function DataPackagesPage() {
     if (!phoneCheck.isValid) {
       toast.error(phoneCheck.error || "Please enter a valid phone number")
       return
+    }
+
+    if (!skipVerification && selectedPackageForPurchase.network.toUpperCase() === "MTN") {
+      try {
+        const verifyRes = await fetch("/api/verify-phone-live", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phones: [phoneNumber] }),
+        })
+        if (verifyRes.ok) {
+          const verifyData = await verifyRes.json()
+          const isVerified = verifyData.results?.[0]?.verified !== false
+          if (!isVerified) {
+            setPendingPhoneNumber(phoneNumber)
+            setVerifyWarningOpen(true)
+            return
+          }
+        }
+      } catch (verifyErr) {
+        console.warn("[DATA-PACKAGES] Live verification check failed, proceeding:", verifyErr)
+      }
     }
 
     try {
@@ -334,6 +357,15 @@ export default function DataPackagesPage() {
     } finally {
       setPurchasing(null)
       setSelectedPackageForPurchase(null)
+    }
+  }
+
+  const handleProceedAfterVerifyWarning = async () => {
+    setVerifyWarningOpen(false)
+    if (pendingPhoneNumber) {
+      const phone = pendingPhoneNumber
+      setPendingPhoneNumber(null)
+      await handlePhoneNumberSubmit(phone, true)
     }
   }
 
@@ -639,6 +671,32 @@ export default function DataPackagesPage() {
           actionLabel="View Orders"
           onAction={() => router.push("/dashboard/my-orders")}
         />
+
+        {verifyWarningOpen && (
+          <div className="fixed inset-0 bg-background/50 flex items-center justify-center p-4 z-[60]">
+            <Card className="w-full max-w-md bg-card">
+              <CardHeader>
+                <CardTitle>Number not yet verified</CardTitle>
+                <CardDescription>
+                  This number hasn&apos;t been verified yet. If you proceed, your order will still be processed, but delivery may be delayed until the number is confirmed — you&apos;ll receive your data automatically once that happens.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => { setVerifyWarningOpen(false); setPendingPhoneNumber(null) }}>Cancel</Button>
+                <Button disabled={purchasing !== null} onClick={handleProceedAfterVerifyWarning}>
+                  {purchasing !== null ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    "Proceed anyway"
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        )}
       </div>
     </DashboardLayout>
   )
