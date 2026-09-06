@@ -67,6 +67,8 @@ export default function ShopStorefront() {
     customer_phone: "",
   })
   const [submitting, setSubmitting] = useState(false)
+  const [verifyWarningOpen, setVerifyWarningOpen] = useState(false)
+  const [pendingNormalizedPhone, setPendingNormalizedPhone] = useState<string | null>(null)
   const [turnstileToken, setTurnstileToken] = useState<string>("")
   const [turnstileEnabled, setTurnstileEnabled] = useState<boolean>(true) // default true until status loads
   const [honeypot, setHoneypot] = useState<string>("")
@@ -333,34 +335,8 @@ export default function ShopStorefront() {
     setTimeout(tick, 3000)
   }
 
-  const handleSubmitOrder = async () => {
-    if (!orderData.customer_name.trim()) {
-      toast.error("Please enter your name")
-      return
-    }
-
-    if (!orderData.customer_email.trim()) {
-      toast.error("Please enter your email")
-      return
-    }
-
-    if (!validatePhoneNumberField(orderData.customer_phone, selectedPackage.packages.network, prefixMap)) {
-      toast.error("Please enter a valid phone number")
-      return
-    }
-
+  const proceedWithOrderCreation = async (normalizedPhone: string) => {
     try {
-      setSubmitting(true)
-
-      console.log("[CHECKOUT] Starting order submission...")
-
-      // Normalize phone number using shared utility
-      const phoneResult = validatePhoneNumber(orderData.customer_phone, selectedPackage.packages.network, prefixMap)
-      if (!phoneResult.isValid) {
-        throw new Error(phoneResult.error || "Invalid phone number")
-      }
-      const normalizedPhone = phoneResult.normalized
-
       const pkg = selectedPackage.packages
       const profitAmount = selectedPackage.profit_margin
 
@@ -596,6 +572,69 @@ export default function ShopStorefront() {
       toast.error(errorMessage)
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const handleSubmitOrder = async () => {
+    if (!orderData.customer_name.trim()) {
+      toast.error("Please enter your name")
+      return
+    }
+
+    if (!orderData.customer_email.trim()) {
+      toast.error("Please enter your email")
+      return
+    }
+
+    if (!validatePhoneNumberField(orderData.customer_phone, selectedPackage.packages.network, prefixMap)) {
+      toast.error("Please enter a valid phone number")
+      return
+    }
+
+    setSubmitting(true)
+    console.log("[CHECKOUT] Starting order submission...")
+
+    // Normalize phone number using shared utility
+    const phoneResult = validatePhoneNumber(orderData.customer_phone, selectedPackage.packages.network, prefixMap)
+    if (!phoneResult.isValid) {
+      toast.error(phoneResult.error || "Invalid phone number")
+      setSubmitting(false)
+      return
+    }
+    const normalizedPhone = phoneResult.normalized
+
+    if (selectedPackage.packages.network.toUpperCase() === "MTN") {
+      try {
+        const verifyRes = await fetch("/api/verify-phone-live", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phones: [normalizedPhone] }),
+        })
+        if (verifyRes.ok) {
+          const verifyData = await verifyRes.json()
+          const isVerified = verifyData.results?.[0]?.verified !== false
+          if (!isVerified) {
+            setSubmitting(false)
+            setPendingNormalizedPhone(normalizedPhone)
+            setVerifyWarningOpen(true)
+            return
+          }
+        }
+      } catch (verifyErr) {
+        console.warn("[CHECKOUT] Live verification check failed, proceeding:", verifyErr)
+      }
+    }
+
+    await proceedWithOrderCreation(normalizedPhone)
+  }
+
+  const handleProceedAfterVerifyWarning = async () => {
+    setVerifyWarningOpen(false)
+    if (pendingNormalizedPhone) {
+      const phone = pendingNormalizedPhone
+      setPendingNormalizedPhone(null)
+      setSubmitting(true)
+      await proceedWithOrderCreation(phone)
     }
   }
 
@@ -1247,6 +1286,25 @@ export default function ShopStorefront() {
                   </Button>
                 </div>
               </div>
+            </Card>
+          </div>
+        )
+      }
+
+      {
+        verifyWarningOpen && (
+          <div className="fixed inset-0 bg-background/50 flex items-center justify-center p-4 z-[60]">
+            <Card className="w-full max-w-md bg-card">
+              <CardHeader>
+                <CardTitle>Number not yet verified</CardTitle>
+                <CardDescription>
+                  This number hasn&apos;t been verified yet. If you proceed, your order will still be processed, but delivery may be delayed until it clears — you&apos;ll receive it automatically once verified.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => { setVerifyWarningOpen(false); setPendingNormalizedPhone(null) }}>Change number</Button>
+                <Button onClick={handleProceedAfterVerifyWarning}>Proceed anyway</Button>
+              </CardContent>
             </Card>
           </div>
         )
