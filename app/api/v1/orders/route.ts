@@ -276,6 +276,18 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  let verificationWarning = false
+  if (normalizedNetwork === "mtn") {
+    try {
+      const { checkCustomerFacingVerification } = await import("@/lib/mtn-providers/customer-verification")
+      const [result] = await checkCustomerFacingVerification([normalizePhoneNumber(cleanRecipient)])
+      verificationWarning = result ? !result.verified : false
+    } catch (err) {
+      console.error("[API v1] Live verification check error (failing open):", err)
+      verificationWarning = false
+    }
+  }
+
   return NextResponse.json({
     success: true,
     message: "Order placed successfully",
@@ -288,6 +300,7 @@ export async function POST(request: NextRequest) {
       recipient: cleanRecipient,
       status: "pending",
       created_at: orderCreatedAt,
-    }
+    },
+    verification_warning: verificationWarning,
   }, { status: 201 })
 }
