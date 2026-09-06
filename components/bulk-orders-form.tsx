@@ -533,6 +533,8 @@ export function BulkOrdersForm() {
             setBatchVerifyWarning({ unverifiedPhones, ordersToSubmit: validOrders, networkLabel: selectedNetworkLabel })
             return
           }
+        } else {
+          console.warn("[BULK-ORDERS] Live verification check returned non-OK status, proceeding:", verifyRes.status)
         }
       } catch (verifyErr) {
         console.warn("[BULK-ORDERS] Live verification check failed, proceeding:", verifyErr)
@@ -851,7 +853,7 @@ export function BulkOrdersForm() {
             <DialogHeader>
               <DialogTitle>{batchVerifyWarning?.unverifiedPhones.length} number(s) not yet verified</DialogTitle>
               <DialogDescription>
-                The following numbers haven&apos;t been verified yet: {batchVerifyWarning?.unverifiedPhones.join(", ")}.
+                The following numbers haven&apos;t been verified yet: {[...new Set(batchVerifyWarning?.unverifiedPhones ?? [])].join(", ")}.
                 Orders for these may be delayed until they clear — they&apos;ll still be delivered automatically once verified.
               </DialogDescription>
             </DialogHeader>
@@ -864,7 +866,7 @@ export function BulkOrdersForm() {
                 disabled={
                   isSubmitting ||
                   !batchVerifyWarning ||
-                  batchVerifyWarning.ordersToSubmit.length === batchVerifyWarning.unverifiedPhones.length
+                  batchVerifyWarning.ordersToSubmit.filter(o => !batchVerifyWarning.unverifiedPhones.includes(o.phone)).length === 0
                 }
                 onClick={() => {
                   if (!batchVerifyWarning) return
