@@ -39,7 +39,9 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
   const [sendingOtp, setSendingOtp] = useState(false)
   const [verifyingOtp, setVerifyingOtp] = useState(false)
   const otpCooldown = useResendCooldown(paymentPhone.replace(/\D/g, ""))
-  const [momoModal, setMomoModal] = useState<null | { state: "awaiting" | "success" | "failed"; reference?: string; summary?: any; message?: string }>(null)
+  const [momoModal, setMomoModal] = useState<null | { state: "awaiting" | "otp" | "success" | "failed"; reference?: string; summary?: any; message?: string }>(null)
+  const [momoOtpInput, setMomoOtpInput] = useState("")
+  const [momoOtpSubmitting, setMomoOtpSubmitting] = useState(false)
 
   // Predefined amounts
   const quickAmounts = [50, 100, 200, 500]
@@ -151,6 +153,33 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
     setTimeout(tick, 3000)
   }
 
+  // Submit the OTP Paystack sent for a Telecel Cash direct charge. Success only
+  // means the code was accepted — the top-up itself still completes via the
+  // charge.success webhook, which pollMomoStatus (already running) picks up.
+  const submitMomoOtp = async () => {
+    if (!momoModal || momoModal.state !== "otp" || !momoOtpInput.trim()) return
+    setMomoOtpSubmitting(true)
+    try {
+      const res = await fetch("/api/payments/submit-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reference: momoModal.reference, otp: momoOtpInput.trim() }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.success) {
+        toast.error(data.error || "That code was rejected. Please try again.")
+        setMomoOtpSubmitting(false)
+        return
+      }
+      setMomoModal({ state: "awaiting", reference: momoModal.reference, summary: momoModal.summary })
+      setMomoOtpInput("")
+      setMomoOtpSubmitting(false)
+    } catch {
+      toast.error("Could not submit the code. Please try again.")
+      setMomoOtpSubmitting(false)
+    }
+  }
+
   const handleTopUp = async () => {
     // Validation
     const amountValue = parseFloat(amount)
@@ -210,7 +239,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
         const data = await res.json().catch(() => ({}))
         if (!res.ok || !data.success) { throw new Error(data?.error || "Could not start the Mobile Money charge. Please try again.") }
         const summary = { amount: parseFloat(amount), paymentPhone, reference: data.reference }
-        setMomoModal({ state: "awaiting", reference: data.reference, summary })
+        setMomoModal({ state: data.status === "send_otp" ? "otp" : "awaiting", reference: data.reference, summary })
         pollMomoStatus(data.reference, summary)
         setIsLoading(false)
         return
@@ -475,6 +504,39 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
             </CardContent>
           )}
 
+          {momoModal.state === "otp" && (
+            <CardContent className="pt-8 pb-6 text-center space-y-4">
+              <div className="mx-auto w-16 h-16 rounded-full bg-primary flex items-center justify-center">
+                <Zap className="w-8 h-8 text-primary-foreground" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-foreground">Enter the code sent to your phone</h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Your provider sent a one-time code to{" "}
+                  <span className="font-semibold">{momoModal.summary?.paymentPhone}</span> to approve this top-up.
+                </p>
+              </div>
+              <Input
+                type="text"
+                inputMode="numeric"
+                autoFocus
+                placeholder="Enter OTP"
+                value={momoOtpInput}
+                onChange={(e) => setMomoOtpInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") submitMomoOtp() }}
+                className="text-center text-lg tracking-widest"
+                disabled={momoOtpSubmitting}
+              />
+              <Button
+                onClick={submitMomoOtp}
+                disabled={momoOtpSubmitting || !momoOtpInput.trim()}
+                className="w-full bg-gradient-to-r from-primary to-primary/80 hover:from-primary hover:to-primary/80 text-white"
+              >
+                {momoOtpSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Submit code"}
+              </Button>
+            </CardContent>
+          )}
+
           {momoModal.state === "success" && (
             <CardContent className="pt-8 pb-6 text-center space-y-4">
               <div className="mx-auto w-16 h-16 rounded-full bg-success/15 flex items-center justify-center">
@@ -488,6 +550,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
                 onClick={() => {
                   setMomoModal(null); setAmount(""); setPaymentPhone("")
                   setOtpSent(false); setOtpVerified(false); setOtpCode(""); setPaymentStatus("idle")
+                  setMomoOtpInput(""); setMomoOtpSubmitting(false)
                 }}
                 className="w-full bg-gradient-to-r from-primary to-primary/80 hover:from-primary hover:to-primary/80 text-white"
               >
@@ -505,7 +568,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
                 <h3 className="text-lg font-bold text-foreground">Top-up not completed</h3>
                 <p className="text-sm text-muted-foreground mt-1">{momoModal.message || "The prompt was not approved. Please try again."}</p>
               </div>
-              <Button variant="outline" onClick={() => { setMomoModal(null); setPaymentStatus("idle") }} className="w-full">Close</Button>
+              <Button variant="outline" onClick={() => { setMomoModal(null); setPaymentStatus("idle"); setMomoOtpInput(""); setMomoOtpSubmitting(false) }} className="w-full">Close</Button>
             </CardContent>
           )}
         </Card>

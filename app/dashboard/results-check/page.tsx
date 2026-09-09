@@ -74,12 +74,14 @@ export default function DashboardResultsCheckPage() {
 
   // Live "approve the prompt" modal for the MoMo flow
   const [momoModal, setMomoModal] = useState<null | {
-    state: "awaiting" | "success" | "failed"
+    state: "awaiting" | "otp" | "success" | "failed"
     orderId?: string
     reference?: string
     summary?: { label: string; paymentPhone: string; amount: number; whatsappNumber: string }
     message?: string
   }>(null)
+  const [momoOtpInput, setMomoOtpInput] = useState("")
+  const [momoOtpSubmitting, setMomoOtpSubmitting] = useState(false)
 
   // Success screen (wallet path, or after MoMo completes)
   const [success, setSuccess] = useState<SuccessInfo | null>(null)
@@ -250,6 +252,33 @@ export default function DashboardResultsCheckPage() {
     setTimeout(tick, 3000)
   }
 
+  // Submit the OTP Paystack sent for a Telecel Cash direct charge. Success only
+  // means the code was accepted — the payment itself still completes via the
+  // charge.success webhook, which pollMomoStatus (already running) picks up.
+  const submitMomoOtp = async () => {
+    if (!momoModal || momoModal.state !== "otp" || !momoOtpInput.trim()) return
+    setMomoOtpSubmitting(true)
+    try {
+      const res = await fetch("/api/payments/submit-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reference: momoModal.reference, otp: momoOtpInput.trim(), orderId: momoModal.orderId, orderType: "results_check_service" }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.success) {
+        toast.error(data.error || "That code was rejected. Please try again.")
+        setMomoOtpSubmitting(false)
+        return
+      }
+      setMomoModal({ state: "awaiting", orderId: momoModal.orderId, reference: momoModal.reference, summary: momoModal.summary })
+      setMomoOtpInput("")
+      setMomoOtpSubmitting(false)
+    } catch {
+      toast.error("Could not submit the code. Please try again.")
+      setMomoOtpSubmitting(false)
+    }
+  }
+
   const handleSubmit = async () => {
     if (!token) { toast.error("Your session expired. Please refresh and sign in again."); return }
     if (!selectedBoard || !candidateType || !mode || !validate()) return
@@ -347,7 +376,7 @@ export default function DashboardResultsCheckPage() {
         examBoard: selectedBoard,
         paidVia: "momo",
       }
-      setMomoModal({ state: "awaiting", orderId, reference: chargeData.reference, summary })
+      setMomoModal({ state: chargeData.status === "send_otp" ? "otp" : "awaiting", orderId, reference: chargeData.reference, summary })
       pollMomoStatus(orderId, chargeData.reference, summary, successInfo)
     } catch {
       toast.error("Something went wrong. Please try again.")
@@ -754,6 +783,39 @@ export default function DashboardResultsCheckPage() {
               </CardContent>
             )}
 
+            {momoModal.state === "otp" && (
+              <CardContent className="pt-8 pb-6 text-center space-y-4">
+                <div className="mx-auto w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center">
+                  <svg className="w-8 h-8 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-foreground">Enter the code sent to your phone</h3>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Your provider sent a one-time code to{" "}
+                    <span className="font-semibold">{momoModal.summary?.paymentPhone}</span> to approve this payment.
+                  </p>
+                </div>
+                <Input
+                  type="text"
+                  inputMode="numeric"
+                  autoFocus
+                  placeholder="Enter OTP"
+                  value={momoOtpInput}
+                  onChange={(e) => setMomoOtpInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") submitMomoOtp() }}
+                  className="text-center text-lg tracking-widest"
+                  disabled={momoOtpSubmitting}
+                />
+                <Button
+                  onClick={submitMomoOtp}
+                  disabled={momoOtpSubmitting || !momoOtpInput.trim()}
+                  className="w-full rounded-xl"
+                >
+                  {momoOtpSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Submit code"}
+                </Button>
+              </CardContent>
+            )}
+
             {momoModal.state === "failed" && (
               <CardContent className="pt-8 pb-6 text-center space-y-4">
                 <div className="mx-auto w-16 h-16 rounded-full bg-red-100 flex items-center justify-center">
@@ -763,7 +825,7 @@ export default function DashboardResultsCheckPage() {
                   <h3 className="text-lg font-bold text-foreground">Payment not completed</h3>
                   <p className="text-sm text-muted-foreground mt-1">{momoModal.message || "The prompt was not approved. Please try again."}</p>
                 </div>
-                <Button variant="outline" onClick={() => setMomoModal(null)} className="w-full rounded-xl">Close</Button>
+                <Button variant="outline" onClick={() => { setMomoModal(null); setMomoOtpInput(""); setMomoOtpSubmitting(false) }} className="w-full rounded-xl">Close</Button>
               </CardContent>
             )}
           </Card>

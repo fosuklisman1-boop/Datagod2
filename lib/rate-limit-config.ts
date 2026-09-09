@@ -36,6 +36,13 @@ export const RATE_LIMITS = {
         message: 'Too many verification requests. Please wait a moment and try again.',
     },
 
+    // Direct MoMo charge OTP submission (unauthenticated — guards against OTP brute-forcing)
+    MOMO_SUBMIT_OTP: {
+        maxRequests: 5,
+        windowMs: 60 * 1000, // 1 minute per IP
+        message: 'Too many attempts. Please wait a moment and try again.',
+    },
+
     SUPPORT_CONFIG: {
         maxRequests: 60,
         windowMs: 60 * 1000, // 1 minute

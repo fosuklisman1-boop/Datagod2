@@ -88,7 +88,9 @@ export default function ShopStorefront() {
   const [sendingOtp, setSendingOtp] = useState(false)
   const [verifyingOtp, setVerifyingOtp] = useState(false)
   // Live MoMo charge modal
-  const [momoModal, setMomoModal] = useState<null | { state: "awaiting" | "success" | "failed"; orderId?: string; summary?: any; message?: string }>(null)
+  const [momoModal, setMomoModal] = useState<null | { state: "awaiting" | "otp" | "success" | "failed"; orderId?: string; summary?: any; message?: string; reference?: string }>(null)
+  const [momoOtpInput, setMomoOtpInput] = useState("")
+  const [momoOtpSubmitting, setMomoOtpSubmitting] = useState(false)
   const [globalOrderingEnabled, setGlobalOrderingEnabled] = useState(true)
   const [termsContent, setTermsContent] = useState("")
   const [termsLastUpdated, setTermsLastUpdated] = useState<string | null>(null)
@@ -335,6 +337,33 @@ export default function ShopStorefront() {
     setTimeout(tick, 3000)
   }
 
+  // Submit the OTP Paystack sent for a Telecel Cash direct charge. Success only
+  // means the code was accepted — the payment itself still completes via the
+  // charge.success webhook, which pollMomoStatus (already running) picks up.
+  const submitMomoOtp = async () => {
+    if (!momoModal || momoModal.state !== "otp" || !momoOtpInput.trim()) return
+    setMomoOtpSubmitting(true)
+    try {
+      const res = await fetch("/api/payments/submit-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reference: momoModal.reference, otp: momoOtpInput.trim(), orderId: momoModal.orderId, orderType: "data" }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.success) {
+        toast.error(data.error || "That code was rejected. Please try again.")
+        setMomoOtpSubmitting(false)
+        return
+      }
+      setMomoModal({ state: "awaiting", orderId: momoModal.orderId, summary: momoModal.summary, reference: momoModal.reference })
+      setMomoOtpInput("")
+      setMomoOtpSubmitting(false)
+    } catch {
+      toast.error("Could not submit the code. Please try again.")
+      setMomoOtpSubmitting(false)
+    }
+  }
+
   const proceedWithOrderCreation = async (normalizedPhone: string) => {
     try {
       const pkg = selectedPackage.packages
@@ -451,9 +480,15 @@ export default function ShopStorefront() {
         if (!chargeRes.ok || !chargeData.success) {
           throw new Error(chargeData?.error || "Could not start the Mobile Money charge. Please try again.")
         }
-        // Close the checkout dialog and show the live "approve the prompt" modal.
+        // Close the checkout dialog and show the live payment modal. Telecel Cash
+        // charges come back "send_otp" (needs a typed code); MTN/AirtelTigo use a
+        // push-to-approve prompt instead ("pay_offline"/"pending").
         setCheckoutOpen(false)
-        setMomoModal({ state: "awaiting", orderId: order.id, summary })
+        if (chargeData.status === "send_otp") {
+          setMomoModal({ state: "otp", orderId: order.id, summary, reference: chargeData.reference })
+        } else {
+          setMomoModal({ state: "awaiting", orderId: order.id, summary, reference: chargeData.reference })
+        }
         pollMomoStatus(order.id, { ...summary, reference: chargeData.reference })
         return
       }
@@ -1348,6 +1383,39 @@ export default function ShopStorefront() {
               </CardContent>
             )}
 
+            {momoModal.state === "otp" && (
+              <CardContent className="pt-8 pb-6 text-center space-y-4">
+                <div className="mx-auto w-16 h-16 rounded-full bg-primary flex items-center justify-center">
+                  <svg className="w-8 h-8 text-primary-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-foreground">Enter the code sent to your phone</h3>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Your provider sent a one-time code to{" "}
+                    <span className="font-semibold">{momoModal.summary?.paymentPhone}</span> to approve this payment.
+                  </p>
+                </div>
+                <Input
+                  type="text"
+                  inputMode="numeric"
+                  autoFocus
+                  placeholder="Enter OTP"
+                  value={momoOtpInput}
+                  onChange={(e) => setMomoOtpInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") submitMomoOtp() }}
+                  className="text-center text-lg tracking-widest"
+                  disabled={momoOtpSubmitting}
+                />
+                <Button
+                  onClick={submitMomoOtp}
+                  disabled={momoOtpSubmitting || !momoOtpInput.trim()}
+                  className="w-full bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary"
+                >
+                  {momoOtpSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Submit code"}
+                </Button>
+              </CardContent>
+            )}
+
             {momoModal.state === "success" && (
               <CardContent className="pt-8 pb-6 text-center space-y-4">
                 <div className="mx-auto w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
@@ -1372,6 +1440,7 @@ export default function ShopStorefront() {
                     setSelectedPackage(null)
                     setOrderData({ customer_name: "", customer_email: "", customer_phone: "" })
                     setPaymentPhone(""); setOtpSent(false); setOtpVerified(false); setOtpCode("")
+                    setMomoOtpInput(""); setMomoOtpSubmitting(false)
                   }}
                   className="w-full bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary"
                 >
@@ -1390,8 +1459,8 @@ export default function ShopStorefront() {
                   <p className="text-sm text-muted-foreground mt-1">{momoModal.message || "The prompt was not approved. Please try again."}</p>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" onClick={() => setMomoModal(null)} className="flex-1">Close</Button>
-                  <Button onClick={() => { setMomoModal(null); setCheckoutOpen(true) }} className="flex-1 bg-primary hover:bg-primary text-white">Try again</Button>
+                  <Button variant="outline" onClick={() => { setMomoModal(null); setMomoOtpInput(""); setMomoOtpSubmitting(false) }} className="flex-1">Close</Button>
+                  <Button onClick={() => { setMomoModal(null); setMomoOtpInput(""); setMomoOtpSubmitting(false); setCheckoutOpen(true) }} className="flex-1 bg-primary hover:bg-primary text-white">Try again</Button>
                 </div>
               </CardContent>
             )}

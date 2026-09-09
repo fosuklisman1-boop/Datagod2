@@ -36,7 +36,9 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
   const [verifyingOtp, setVerifyingOtp] = useState(false)
   const otpCooldown = useResendCooldown(paymentPhone.replace(/\D/g, ""))
   // Live "approve the prompt" modal for the direct-charge flow
-  const [momoModal, setMomoModal] = useState<null | { state: "awaiting" | "success" | "failed"; orderId?: string; summary?: any; message?: string }>(null)
+  const [momoModal, setMomoModal] = useState<null | { state: "awaiting" | "otp" | "success" | "failed"; orderId?: string; reference?: string; summary?: any; message?: string }>(null)
+  const [momoOtpInput, setMomoOtpInput] = useState("")
+  const [momoOtpSubmitting, setMomoOtpSubmitting] = useState(false)
   const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null)
   const [networkLogos, setNetworkLogos] = useState<Record<string, string>>({})
   const [constraints, setConstraints] = useState<any>(null)
@@ -125,6 +127,33 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
       setTimeout(tick, 3000)
     }
     setTimeout(tick, 3000)
+  }
+
+  // Submit the OTP Paystack sent for a Telecel Cash direct charge. Success only
+  // means the code was accepted — the payment itself still completes via the
+  // charge.success webhook, which pollMomoStatus (already running) picks up.
+  const submitMomoOtp = async () => {
+    if (!momoModal || momoModal.state !== "otp" || !momoOtpInput.trim()) return
+    setMomoOtpSubmitting(true)
+    try {
+      const res = await fetch("/api/payments/submit-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reference: momoModal.reference, otp: momoOtpInput.trim(), orderId: momoModal.orderId, orderType: "airtime" }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.success) {
+        toast.error(data.error || "That code was rejected. Please try again.")
+        setMomoOtpSubmitting(false)
+        return
+      }
+      setMomoModal({ state: "awaiting", orderId: momoModal.orderId, reference: momoModal.reference, summary: momoModal.summary })
+      setMomoOtpInput("")
+      setMomoOtpSubmitting(false)
+    } catch {
+      toast.error("Could not submit the code. Please try again.")
+      setMomoOtpSubmitting(false)
+    }
   }
 
   useEffect(() => {
@@ -299,7 +328,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
         if (!chargeRes.ok || !chargeData.success) {
           throw new Error(chargeData?.error || "Could not start the Mobile Money charge. Please try again.")
         }
-        setMomoModal({ state: "awaiting", orderId: data.orderId, summary })
+        setMomoModal({ state: chargeData.status === "send_otp" ? "otp" : "awaiting", orderId: data.orderId, reference: chargeData.reference, summary })
         pollMomoStatus(data.orderId, { ...summary, reference: chargeData.reference })
         return
       }
@@ -636,6 +665,39 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
             </CardContent>
           )}
 
+          {momoModal.state === "otp" && (
+            <CardContent className="pt-8 pb-6 text-center space-y-4">
+              <div className="mx-auto w-16 h-16 rounded-full bg-primary flex items-center justify-center">
+                <Zap className="w-8 h-8 text-primary-foreground" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-foreground">Enter the code sent to your phone</h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Your provider sent a one-time code to{" "}
+                  <span className="font-semibold">{momoModal.summary?.paymentPhone}</span> to approve this payment.
+                </p>
+              </div>
+              <Input
+                type="text"
+                inputMode="numeric"
+                autoFocus
+                placeholder="Enter OTP"
+                value={momoOtpInput}
+                onChange={(e) => setMomoOtpInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") submitMomoOtp() }}
+                className="text-center text-lg tracking-widest"
+                disabled={momoOtpSubmitting}
+              />
+              <Button
+                onClick={submitMomoOtp}
+                disabled={momoOtpSubmitting || !momoOtpInput.trim()}
+                className="w-full bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary rounded-xl"
+              >
+                {momoOtpSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Submit code"}
+              </Button>
+            </CardContent>
+          )}
+
           {momoModal.state === "success" && (
             <CardContent className="pt-8 pb-6 text-center space-y-4">
               <div className="mx-auto w-16 h-16 rounded-full bg-success/15 flex items-center justify-center">
@@ -676,7 +738,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                 <h3 className="text-lg font-bold text-foreground">Payment not completed</h3>
                 <p className="text-sm text-muted-foreground mt-1">{momoModal.message || "The prompt was not approved. Please try again."}</p>
               </div>
-              <Button variant="outline" onClick={() => setMomoModal(null)} className="w-full rounded-xl">Close</Button>
+              <Button variant="outline" onClick={() => { setMomoModal(null); setMomoOtpInput(""); setMomoOtpSubmitting(false) }} className="w-full rounded-xl">Close</Button>
             </CardContent>
           )}
         </Card>
