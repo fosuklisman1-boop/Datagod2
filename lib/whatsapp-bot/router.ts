@@ -306,18 +306,18 @@ export async function waRouter(phone: string, text: string): Promise<string> {
           await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_BUNDLE' })
           result = { message: 'Wallet balance too low.\nEnter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
         } else {
-          result = await handleConfirm('1', sessionId, session)
+          result = await handleConfirm('1', sessionId, session, 'whatsapp')
           await tagOrderChannel(sessionId, phone, 'ussd_orders', result.ussdServiceOp === 17)
           // Already chose "Pay via Wallet" above — skip the redundant payment-method screen.
           if (result.ussdServiceOp === 2) {
             const updated = await getWaSession(sessionId)
             if (updated?.step === 'PAYMENT_METHOD') {
-              result = await handlePaymentMethod('1', sessionId, updated)
+              result = await handlePaymentMethod('1', sessionId, updated, 'whatsapp')
             }
           }
         }
       } else if (input === '0') {
-        result = await handleConfirm('2', sessionId, session) // cancel
+        result = await handleConfirm('2', sessionId, session, 'whatsapp') // cancel
       } else {
         result = { message: waConfirmMenu(session.network!, session.bundleSize!, session.bundlePrice!, session.recipientPhone!, session.walletBalance ?? 0), ussdServiceOp: 2 }
       }
@@ -330,7 +330,7 @@ export async function waRouter(phone: string, text: string): Promise<string> {
         await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE' })
         result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
       } else {
-        result = await handlePaymentMethod(input, sessionId, session)
+        result = await handlePaymentMethod(input, sessionId, session, 'whatsapp')
       }
       break
 
@@ -406,18 +406,18 @@ export async function waRouter(phone: string, text: string): Promise<string> {
           await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_AIRTIME' })
           result = { message: 'Wallet balance too low.\nEnter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
         } else {
-          result = await handleAirtimeConfirm('1', sessionId, session)
+          result = await handleAirtimeConfirm('1', sessionId, session, 'whatsapp')
           await tagOrderChannel(sessionId, phone, 'airtime_orders', false)
           // Already chose "Pay via Wallet" above — skip the redundant payment-method screen.
           if (result.ussdServiceOp === 2) {
             const updated = await getWaSession(sessionId)
             if (updated?.step === 'AIRTIME_PAYMENT_METHOD') {
-              result = await handleAirtimePaymentMethod('1', sessionId, updated)
+              result = await handleAirtimePaymentMethod('1', sessionId, updated, 'whatsapp')
             }
           }
         }
       } else if (input === '0') {
-        result = await handleAirtimeConfirm('2', sessionId, session)
+        result = await handleAirtimeConfirm('2', sessionId, session, 'whatsapp')
       } else {
         result = { message: waAirtimeConfirmMenu(session.airtimeNetwork!, session.airtimeRecipient!, session.airtimeAmount!, session.airtimeToDeliver!, session.walletBalance ?? 0), ussdServiceOp: 2 }
       }
@@ -429,7 +429,7 @@ export async function waRouter(phone: string, text: string): Promise<string> {
         await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE' })
         result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
       } else {
-        result = await handleAirtimePaymentMethod(input, sessionId, session)
+        result = await handleAirtimePaymentMethod(input, sessionId, session, 'whatsapp')
       }
       break
 
@@ -472,18 +472,18 @@ export async function waRouter(phone: string, text: string): Promise<string> {
           await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_RC' })
           result = { message: 'Wallet balance too low.\nEnter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
         } else {
-          result = await handleRcConfirm('1', sessionId, session)
+          result = await handleRcConfirm('1', sessionId, session, 'whatsapp')
           await tagOrderChannel(sessionId, phone, 'results_checker_orders', false)
           // Already chose "Pay via Wallet" above — skip the redundant payment-method screen.
           if (result.ussdServiceOp === 2) {
             const updated = await getWaSession(sessionId)
             if (updated?.step === 'RC_PAYMENT_METHOD') {
-              result = await handleRcPaymentMethod('1', sessionId, updated)
+              result = await handleRcPaymentMethod('1', sessionId, updated, 'whatsapp')
             }
           }
         }
       } else if (input === '0') {
-        result = await handleRcConfirm('2', sessionId, session)
+        result = await handleRcConfirm('2', sessionId, session, 'whatsapp')
       } else {
         result = { message: waRcConfirmMenu(session.rcBoard!, session.rcQty!, session.rcTotal!, session.walletBalance ?? 0), ussdServiceOp: 2 }
       }
@@ -495,7 +495,7 @@ export async function waRouter(phone: string, text: string): Promise<string> {
         await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE' })
         result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
       } else {
-        result = await handleRcPaymentMethod(input, sessionId, session)
+        result = await handleRcPaymentMethod(input, sessionId, session, 'whatsapp')
       }
       break
 
@@ -618,33 +618,33 @@ async function handleWaEnterPaymentPhone(
   // chose "Pay via MoMo" AND entered the charge number, so auto-select
   // "2. MoMo prompt" instead of re-asking (mirrors the wallet-path skip in CONFIRM).
   if (session.waNextStep === 'CONFIRM_BUNDLE') {
-    let res = await handleConfirm('1', sessionId, updatedSession)
+    let res = await handleConfirm('1', sessionId, updatedSession, 'whatsapp')
     if (res.ussdServiceOp === 2) {
       const s2 = await getWaSession(sessionId)
       if (s2?.step === 'PAYMENT_METHOD') {
-        res = await handlePaymentMethod('2', sessionId, s2)
+        res = await handlePaymentMethod('2', sessionId, s2, 'whatsapp')
       }
     }
     void tagOrderChannel(sessionId, updatedSession.dialingPhone ?? sessionId, 'ussd_orders', res.ussdServiceOp === 17)
     return { ...res, message: fixWaMomoMsg(res.message) }
   }
   if (session.waNextStep === 'CONFIRM_AIRTIME') {
-    let res = await handleAirtimeConfirm('1', sessionId, updatedSession)
+    let res = await handleAirtimeConfirm('1', sessionId, updatedSession, 'whatsapp')
     if (res.ussdServiceOp === 2) {
       const s2 = await getWaSession(sessionId)
       if (s2?.step === 'AIRTIME_PAYMENT_METHOD') {
-        res = await handleAirtimePaymentMethod('2', sessionId, s2)
+        res = await handleAirtimePaymentMethod('2', sessionId, s2, 'whatsapp')
       }
     }
     void tagOrderChannel(sessionId, sessionId, 'airtime_orders', false)
     return { ...res, message: fixWaMomoMsg(res.message) }
   }
   if (session.waNextStep === 'CONFIRM_RC') {
-    let res = await handleRcConfirm('1', sessionId, updatedSession)
+    let res = await handleRcConfirm('1', sessionId, updatedSession, 'whatsapp')
     if (res.ussdServiceOp === 2) {
       const s2 = await getWaSession(sessionId)
       if (s2?.step === 'RC_PAYMENT_METHOD') {
-        res = await handleRcPaymentMethod('2', sessionId, s2)
+        res = await handleRcPaymentMethod('2', sessionId, s2, 'whatsapp')
       }
     }
     void tagOrderChannel(sessionId, sessionId, 'results_checker_orders', false)
@@ -657,14 +657,14 @@ async function handleWaEnterPaymentPhone(
 
   // Standard MoMo payment-method paths
   if (parentStep === 'PAYMENT_METHOD') {
-    const res = await handlePaymentMethod('2', sessionId, updatedSession)
+    const res = await handlePaymentMethod('2', sessionId, updatedSession, 'whatsapp')
     return { ...res, message: fixWaMomoMsg(res.message) }
   }
   if (parentStep === 'AIRTIME_PAYMENT_METHOD') {
-    const res = await handleAirtimePaymentMethod('2', sessionId, updatedSession)
+    const res = await handleAirtimePaymentMethod('2', sessionId, updatedSession, 'whatsapp')
     return { ...res, message: fixWaMomoMsg(res.message) }
   }
-  const res = await handleRcPaymentMethod('2', sessionId, updatedSession)
+  const res = await handleRcPaymentMethod('2', sessionId, updatedSession, 'whatsapp')
   return { ...res, message: fixWaMomoMsg(res.message) }
 }
 

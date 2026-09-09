@@ -16,6 +16,7 @@ import { chargeMobileMoney } from "../../paystack"
 import { paystackProviderFromPhone } from "../paystack-provider"
 import { secureReference } from "../../secure-random"
 import { sendSMS, SMSTemplates } from "../../sms-service"
+import { sendWhatsAppText } from "../../whatsapp-bot/send"
 import {
   isExamBoardEnabled, getAvailableCount, getMaxQuantity, calculateRCPrice,
   purchaseResultsCheckerVouchers, getRCBulkHint, type ExamBoard,
@@ -109,7 +110,8 @@ export async function handleRcEnterQty(
 export async function handleRcConfirm(
   input: string,
   sessionId: string,
-  session: USSDSession
+  session: USSDSession,
+  channel: 'ussd' | 'whatsapp' = 'ussd'
 ): Promise<UzoResponse> {
   if (input.trim() === "2") {
     await setSession(sessionId, { step: "MAIN", dialingPhone: session.dialingPhone })
@@ -157,14 +159,15 @@ export async function handleRcConfirm(
     rcUnitPrice: pricing.unitPrice,
     rcTotal: pricing.totalPaid,
   })
-  return createRcOrderAndChargeMomo(sessionId, session, board, qty, pricing.unitPrice, pricing.totalPaid, provider)
+  return createRcOrderAndChargeMomo(sessionId, session, board, qty, pricing.unitPrice, pricing.totalPaid, provider, channel)
 }
 
 // ── RC_PAYMENT_METHOD ─────────────────────────────────────────────────────────
 export async function handleRcPaymentMethod(
   input: string,
   sessionId: string,
-  session: USSDSession
+  session: USSDSession,
+  channel: 'ussd' | 'whatsapp' = 'ussd'
 ): Promise<UzoResponse> {
   const dialingPhone = session.dialingPhone!
   const board = session.rcBoard! as ExamBoard
@@ -179,7 +182,7 @@ export async function handleRcPaymentMethod(
   if (input.trim() === "2") {
     const provider = paystackProviderFromPhone(dialingPhone)
     if (!provider) return end("Payment not available for your number.")
-    return createRcOrderAndChargeMomo(sessionId, session, board, qty, session.rcUnitPrice!, total, provider)
+    return createRcOrderAndChargeMomo(sessionId, session, board, qty, session.rcUnitPrice!, total, provider, channel)
   }
 
   if (input.trim() === "1") {
@@ -231,7 +234,8 @@ async function createRcOrderAndChargeMomo(
   qty: number,
   unitPrice: number,
   total: number,
-  provider: "mtn" | "vod" | "tgo"
+  provider: "mtn" | "vod" | "tgo",
+  channel: 'ussd' | 'whatsapp' = 'ussd'
 ): Promise<UzoResponse> {
   const dialingPhone = session.dialingPhone!
   const localDialing = toLocal(dialingPhone)
@@ -287,7 +291,12 @@ async function createRcOrderAndChargeMomo(
       console.log("[USSD-RC] ✓ Charge initiated:", order.id, "status:", status)
       if (status === "send_otp") {
         await supabase.from("results_checker_orders").update({ payment_status: "otp_required", updated_at: new Date().toISOString() }).eq("id", order.id)
-        sendSMS({ phone: dialingPhone, message: SMSTemplates.ussdOtpRequired(), type: "otp_required", reference: order.id }).catch(() => {})
+        if (channel === "whatsapp") {
+          await setSession(dialingPhone, { step: "SUBMIT_OTP", dialingPhone, pendingOrderId: order.id, pendingOrderTable: "results_checker_orders" })
+          await sendWhatsAppText(dialingPhone, `Your provider requires a one-time code to complete this payment.\n\nReply here with the OTP you received.\n\n0. Cancel`)
+        } else {
+          sendSMS({ phone: dialingPhone, message: SMSTemplates.ussdOtpRequired(), type: "otp_required", reference: order.id }).catch(() => {})
+        }
       }
     } catch (err) {
       console.error("[USSD-RC] Charge failed:", err)
@@ -1001,7 +1010,7 @@ export async function handleRcCheckConfirmMomo(
   after(async () => {
     await new Promise(r => setTimeout(r, 3000))
     try {
-      await chargeMobileMoney({
+      const { status } = await chargeMobileMoney({
         email,
         amount,
         phone: momoPhone,
@@ -1016,6 +1025,13 @@ export async function handleRcCheckConfirmMomo(
           mode,
         },
       })
+      if (status === "send_otp") {
+        await supabase.from("results_check_requests")
+          .update({ payment_status: "otp_required", updated_at: new Date().toISOString() })
+          .eq("id", request.id)
+        await setSession(sessionId, { step: "SUBMIT_OTP", dialingPhone: waPhone, pendingOrderId: request.id, pendingOrderTable: "results_check_requests" })
+        await sendWhatsAppText(sessionId, `Your provider requires a one-time code to complete this payment.\n\nReply here with the OTP you received.\n\n0. Cancel`)
+      }
     } catch (err) {
       console.error("[RC-CHECK] MoMo charge failed:", err)
       await supabase.from("results_check_requests")
@@ -1026,6 +1042,6 @@ export async function handleRcCheckConfirmMomo(
 
   await setSession(sessionId, { step: "MAIN", dialingPhone: waPhone })
   return end(
-    `MoMo prompt sent to ${toLocal(momoPhone)}.\nApprove GHS ${amount.toFixed(2)} to submit\nyour results check request.\n\nReceived an OTP instead?\nRedial and enter the code.`
+    `MoMo prompt sent to ${toLocal(momoPhone)}.\nApprove GHS ${amount.toFixed(2)} to submit your results check request.\n\nIf you receive an OTP code, reply here with it.`
   )
 }

@@ -8,6 +8,7 @@ import { chargeMobileMoney, submitOtp } from "../../paystack"
 import { paystackProviderFromPhone } from "../paystack-provider"
 import { fulfillUssdOrder } from "../fulfill"
 import { sendSMS, SMSTemplates } from "../../sms-service"
+import { sendWhatsAppText } from "../../whatsapp-bot/send"
 import { getJoinCommunityLink } from "../../app-settings"
 import { validateNetworkPrefix } from "../../phone-format"
 import { getPrefixValidationConfig } from "../../network-prefix-config"
@@ -262,7 +263,8 @@ export async function handleEnterRecipient(
 export async function handleConfirm(
   input: string,
   sessionId: string,
-  session: USSDSession
+  session: USSDSession,
+  channel: 'ussd' | 'whatsapp' = 'ussd'
 ): Promise<UzoResponse> {
   if (input.trim() === '2') {
     // Cancel
@@ -384,8 +386,17 @@ export async function handleConfirm(
       console.log("[USSD-CONFIRM] ✓ Charge initiated for order:", orderId, "status:", status)
       if (status === 'send_otp') {
         await supabase.from("ussd_orders").update({ payment_status: 'otp_required', updated_at: new Date().toISOString() }).eq("id", orderId)
-        console.log("[USSD-CONFIRM] OTP required — user must redial to complete:", orderId)
-        sendSMS({ phone: dialingPhone!, message: SMSTemplates.ussdOtpRequired(), type: 'otp_required', reference: orderId }).catch(() => {})
+        if (channel === 'whatsapp') {
+          // Unlike USSD (stateless per-dial, must redial to resume), WhatsApp's
+          // session is keyed by phone number and stays addressable — reopen it
+          // directly into SUBMIT_OTP and push a follow-up message, rather than
+          // relying on the USSD-only redial-resume lookup in lib/ussd/router.ts.
+          await setSession(dialingPhone!, { step: 'SUBMIT_OTP', dialingPhone, pendingOrderId: orderId })
+          await sendWhatsAppText(dialingPhone!, `Your provider requires a one-time code to complete this payment.\n\nReply here with the OTP you received.\n\n0. Cancel`)
+        } else {
+          console.log("[USSD-CONFIRM] OTP required — user must redial to complete:", orderId)
+          sendSMS({ phone: dialingPhone!, message: SMSTemplates.ussdOtpRequired(), type: 'otp_required', reference: orderId }).catch(() => {})
+        }
       }
     } catch (err) {
       console.error("[USSD-CONFIRM] Charge failed:", err)
@@ -402,7 +413,8 @@ export async function handleConfirm(
 export async function handlePaymentMethod(
   input: string,
   sessionId: string,
-  session: USSDSession
+  session: USSDSession,
+  channel: 'ussd' | 'whatsapp' = 'ussd'
 ): Promise<UzoResponse> {
   const orderId = session.pendingOrderId!
   const verifiedPrice = session.bundlePrice!
@@ -446,8 +458,13 @@ export async function handlePaymentMethod(
         console.log("[USSD-PAYMENT_METHOD] ✓ MoMo charge initiated:", orderId, status)
         if (status === 'send_otp') {
           await supabase.from("ussd_orders").update({ payment_status: 'otp_required', updated_at: new Date().toISOString() }).eq("id", orderId)
-          console.log("[USSD-PAYMENT_METHOD] OTP required — user must redial to complete:", orderId)
-          sendSMS({ phone: dialingPhone!, message: SMSTemplates.ussdOtpRequired(), type: 'otp_required', reference: orderId }).catch(() => {})
+          if (channel === 'whatsapp') {
+            await setSession(dialingPhone!, { step: 'SUBMIT_OTP', dialingPhone, pendingOrderId: orderId })
+            await sendWhatsAppText(dialingPhone!, `Your provider requires a one-time code to complete this payment.\n\nReply here with the OTP you received.\n\n0. Cancel`)
+          } else {
+            console.log("[USSD-PAYMENT_METHOD] OTP required — user must redial to complete:", orderId)
+            sendSMS({ phone: dialingPhone!, message: SMSTemplates.ussdOtpRequired(), type: 'otp_required', reference: orderId }).catch(() => {})
+          }
         }
       } catch (err) {
         console.error("[USSD-PAYMENT_METHOD] MoMo charge failed:", err)

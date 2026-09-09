@@ -13,6 +13,7 @@ import { chargeMobileMoney } from "../../paystack"
 import { paystackProviderFromPhone } from "../paystack-provider"
 import { secureReference } from "../../secure-random"
 import { sendSMS, SMSTemplates } from "../../sms-service"
+import { sendWhatsAppText } from "../../whatsapp-bot/send"
 import {
   detectAirtimeNetwork, isAirtimeEnabled, getAirtimeLimits,
   airtimeBaseFeeRate, splitInclusive,
@@ -130,7 +131,8 @@ export async function handleAirtimeEnterAmount(
 export async function handleAirtimeConfirm(
   input: string,
   sessionId: string,
-  session: USSDSession
+  session: USSDSession,
+  channel: 'ussd' | 'whatsapp' = 'ussd'
 ): Promise<UzoResponse> {
   if (input.trim() === "2") {
     await setSession(sessionId, { step: "MAIN", dialingPhone: session.dialingPhone })
@@ -219,14 +221,15 @@ export async function handleAirtimeConfirm(
     pendingOrderId: order.id,
     pendingOrderTable: "airtime_orders",
   })
-  return chargeAirtimeMomo(sessionId, session, order.id, amount, provider!)
+  return chargeAirtimeMomo(sessionId, session, order.id, amount, provider!, channel)
 }
 
 // ── AIRTIME_PAYMENT_METHOD ────────────────────────────────────────────────────
 export async function handleAirtimePaymentMethod(
   input: string,
   sessionId: string,
-  session: USSDSession
+  session: USSDSession,
+  channel: 'ussd' | 'whatsapp' = 'ussd'
 ): Promise<UzoResponse> {
   const orderId = session.pendingOrderId!
   const amount = session.airtimeAmount!
@@ -243,7 +246,7 @@ export async function handleAirtimePaymentMethod(
   if (input.trim() === "2") {
     const provider = paystackProviderFromPhone(dialingPhone)
     if (!provider) return end("Payment not available for your number.")
-    return chargeAirtimeMomo(sessionId, session, orderId, amount, provider)
+    return chargeAirtimeMomo(sessionId, session, orderId, amount, provider, channel)
   }
 
   if (input.trim() === "1") {
@@ -309,7 +312,8 @@ async function chargeAirtimeMomo(
   session: USSDSession,
   orderId: string,
   amount: number,
-  provider: "mtn" | "vod" | "tgo"
+  provider: "mtn" | "vod" | "tgo",
+  channel: 'ussd' | 'whatsapp' = 'ussd'
 ): Promise<UzoResponse> {
   const dialingPhone = session.dialingPhone!
   const localDialing = toLocal(dialingPhone)
@@ -344,7 +348,12 @@ async function chargeAirtimeMomo(
         await supabase.from("airtime_orders")
           .update({ payment_status: "otp_required", updated_at: new Date().toISOString() })
           .eq("id", orderId)
-        sendSMS({ phone: dialingPhone, message: SMSTemplates.ussdOtpRequired(), type: "otp_required", reference: orderId }).catch(() => {})
+        if (channel === "whatsapp") {
+          await setSession(dialingPhone, { step: "SUBMIT_OTP", dialingPhone, pendingOrderId: orderId, pendingOrderTable: "airtime_orders" })
+          await sendWhatsAppText(dialingPhone, `Your provider requires a one-time code to complete this payment.\n\nReply here with the OTP you received.\n\n0. Cancel`)
+        } else {
+          sendSMS({ phone: dialingPhone, message: SMSTemplates.ussdOtpRequired(), type: "otp_required", reference: orderId }).catch(() => {})
+        }
       }
     } catch (err) {
       console.error("[USSD-AIRTIME] Charge failed:", err)
