@@ -24,8 +24,10 @@ interface WithdrawalRequest {
   net_amount?: number
   withdrawal_method: string
   account_details: any
-  status: "pending" | "approved" | "rejected" | "completed" | "processing" | "failed"
+  status: "pending" | "approved" | "rejected" | "completed" | "processing" | "failed" | "awaiting_transfer_otp"
   moolre_transfer_id?: string
+  payout_provider?: string
+  paystack_transfer_code?: string
   reference_code: string
   rejection_reason?: string
   created_at: string
@@ -71,6 +73,8 @@ export default function WithdrawalsPage() {
   // Solvency banner
   const [moolreBalance, setMoolreBalance] = useState<number | null>(null)
   const [loadingMoolreBalance, setLoadingMoolreBalance] = useState(false)
+  const [paystackBalance, setPaystackBalance] = useState<number | null>(null)
+  const [loadingPaystackBalance, setLoadingPaystackBalance] = useState(false)
 
   // Bulk approve
   const [bulkLoading, setBulkLoading] = useState(false)
@@ -87,12 +91,14 @@ export default function WithdrawalsPage() {
     setSelectedIds(new Set())
   }, [filterStatus])
 
-  // Load Moolre balance when viewing pending
+  // Load Moolre + Paystack balances when viewing pending
   useEffect(() => {
     if (isAdmin && filterStatus === "pending") {
       loadMoolreBalance()
+      loadPaystackBalance()
     } else {
       setMoolreBalance(null)
+      setPaystackBalance(null)
     }
   }, [isAdmin, filterStatus])
 
@@ -140,20 +146,37 @@ export default function WithdrawalsPage() {
     }
   }
 
-  const approveWithdrawal = async (withdrawalId: string, manual = false) => {
+  const loadPaystackBalance = async () => {
+    try {
+      setLoadingPaystackBalance(true)
+      const headers = await authHeaders()
+      const res = await fetch("/api/admin/withdrawals/paystack-balance", { headers })
+      if (!res.ok) return
+      const data = await res.json()
+      setPaystackBalance(typeof data.balance === "number" ? data.balance : null)
+    } catch {
+      // Non-fatal — banner just won't show balance
+    } finally {
+      setLoadingPaystackBalance(false)
+    }
+  }
+
+  const approveWithdrawal = async (withdrawalId: string, manual = false, provider: "moolre" | "paystack" = "moolre") => {
     try {
       setActionLoadingId(withdrawalId)
       const headers = await authHeaders()
       const response = await fetch("/api/admin/withdrawals/approve", {
         method: "POST",
         headers,
-        body: JSON.stringify({ withdrawalId, manual }),
+        body: JSON.stringify({ withdrawalId, manual, provider }),
       })
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || "Failed to approve withdrawal")
 
       if (manual) {
         toast.success("Withdrawal manually approved — remember to transfer funds.")
+      } else if (data.status === "awaiting_transfer_otp") {
+        toast.success("Transfer initiated — enter the OTP below to complete it.")
       } else if (data.status === "processing") {
         toast.success("Transfer initiated — awaiting MoMo confirmation.")
       } else {
@@ -161,7 +184,7 @@ export default function WithdrawalsPage() {
       }
       setSelectedWithdrawal(null)
       loadWithdrawals()
-      if (filterStatus === "pending") loadMoolreBalance()
+      if (filterStatus === "pending") { loadMoolreBalance(); loadPaystackBalance() }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to approve withdrawal")
     } finally {
@@ -212,6 +235,31 @@ export default function WithdrawalsPage() {
     }
   }
 
+  const [otpDrafts, setOtpDrafts] = useState<Record<string, string>>({})
+
+  const submitTransferOtp = async (withdrawalId: string) => {
+    const otp = (otpDrafts[withdrawalId] || "").trim()
+    if (!otp) { toast.error("Enter the OTP first"); return }
+    try {
+      setActionLoadingId(withdrawalId)
+      const headers = await authHeaders()
+      const response = await fetch("/api/admin/withdrawals/submit-transfer-otp", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ withdrawalId, otp }),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || "Failed to submit OTP")
+      toast.success(data.status === "completed" ? "Transfer completed" : "OTP accepted — monitoring for completion")
+      setOtpDrafts(prev => { const next = { ...prev }; delete next[withdrawalId]; return next })
+      loadWithdrawals()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to submit OTP")
+    } finally {
+      setActionLoadingId(null)
+    }
+  }
+
   // ── Name validation ──────────────────────────────────────────────────────────
   const validateName = async (withdrawal: WithdrawalRequest) => {
     try {
@@ -249,7 +297,7 @@ export default function WithdrawalsPage() {
   const deselectAll = () => setSelectedIds(new Set())
 
   // ── Bulk approve ─────────────────────────────────────────────────────────────
-  const bulkApprove = async (manual: boolean) => {
+  const bulkApprove = async (manual: boolean, provider: "moolre" | "paystack" = "moolre") => {
     if (selectedIds.size === 0) return
     const ids = [...selectedIds]
     try {
@@ -258,7 +306,7 @@ export default function WithdrawalsPage() {
       const res = await fetch("/api/admin/withdrawals/bulk-approve", {
         method: "POST",
         headers,
-        body: JSON.stringify({ withdrawalIds: ids, manual }),
+        body: JSON.stringify({ withdrawalIds: ids, manual, provider }),
       })
       const data = await res.json()
       if (!res.ok) {
@@ -268,7 +316,7 @@ export default function WithdrawalsPage() {
       setBulkResults(data.results)
       setSelectedIds(new Set())
       loadWithdrawals()
-      if (filterStatus === "pending") loadMoolreBalance()
+      if (filterStatus === "pending") { loadMoolreBalance(); loadPaystackBalance() }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Bulk approve failed")
     } finally {
@@ -285,7 +333,7 @@ export default function WithdrawalsPage() {
   const getStatusIcon = (status: string) => {
     if (status === "approved" || status === "completed") return <CheckCircle className="h-4 w-4 text-success" />
     if (status === "rejected" || status === "failed") return <XCircle className="h-4 w-4 text-destructive" />
-    if (status === "processing") return <Loader2 className="h-4 w-4 text-primary animate-spin" />
+    if (status === "processing" || status === "awaiting_transfer_otp") return <Loader2 className="h-4 w-4 text-primary animate-spin" />
     return <Clock className="h-4 w-4 text-warning" />
   }
 
@@ -294,7 +342,7 @@ export default function WithdrawalsPage() {
     if (status === "approved")   return "bg-success/15 text-success"
     if (status === "rejected" || status === "failed") return "bg-destructive/15 text-destructive"
     if (status === "completed")  return "bg-primary/10 text-primary"
-    if (status === "processing") return "bg-primary/5 text-primary"
+    if (status === "processing" || status === "awaiting_transfer_otp") return "bg-primary/5 text-primary"
     return "bg-muted text-foreground"
   }
 
@@ -362,6 +410,11 @@ export default function WithdrawalsPage() {
                     <span className="text-muted-foreground italic">unavailable</span>
                   )}
                 </div>
+                {loadingPaystackBalance ? (
+                  <p className="text-xs text-muted-foreground mt-1">Checking Paystack balance…</p>
+                ) : paystackBalance !== null ? (
+                  <p className="text-xs text-muted-foreground mt-1">Paystack balance: GHS {paystackBalance.toFixed(2)}</p>
+                ) : null}
                 <div className="flex items-center gap-2">
                   <span className="text-muted-foreground">Pending Payouts:</span>
                   <span className="font-bold font-mono">GHS {totalPending.toFixed(2)}</span>
@@ -417,6 +470,15 @@ export default function WithdrawalsPage() {
                 >
                   {bulkLoading ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
                   Approve Auto ({selectedIds.size})
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={bulkLoading}
+                  onClick={() => bulkApprove(false, "paystack")}
+                  className="h-7 px-3 text-xs bg-primary hover:bg-primary/90 text-primary-foreground"
+                >
+                  {bulkLoading ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+                  Approve via Paystack ({selectedIds.size})
                 </Button>
                 <Button
                   size="sm"
@@ -688,6 +750,39 @@ export default function WithdrawalsPage() {
                           </div>
                         )}
 
+                        {/* Awaiting Paystack transfer OTP */}
+                        {withdrawal.status === "awaiting_transfer_otp" && (
+                          <div className="mb-3 bg-primary/5 p-3 rounded border border-primary/20 space-y-2">
+                            <p className="text-xs text-primary">Enter the OTP Paystack sent to complete this transfer.</p>
+                            <div className="flex gap-2">
+                              <Input
+                                value={otpDrafts[withdrawal.id] || ""}
+                                onChange={(e) => setOtpDrafts(prev => ({ ...prev, [withdrawal.id]: e.target.value }))}
+                                placeholder="Enter OTP"
+                                className="text-sm"
+                                disabled={actionLoadingId === withdrawal.id}
+                              />
+                              <Button
+                                size="sm"
+                                onClick={() => submitTransferOtp(withdrawal.id)}
+                                disabled={actionLoadingId === withdrawal.id || !(otpDrafts[withdrawal.id] || "").trim()}
+                                className="bg-primary hover:bg-primary/90 text-primary-foreground shrink-0"
+                              >
+                                {actionLoadingId === withdrawal.id ? <Loader2 className="h-3 w-3 animate-spin" /> : "Submit"}
+                              </Button>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={actionLoadingId === withdrawal.id}
+                              onClick={() => resetProcessing(withdrawal.id)}
+                              className="w-full text-xs border-border text-warning hover:bg-warning/10"
+                            >
+                              ↺ Abandon & reset to pending
+                            </Button>
+                          </div>
+                        )}
+
                         {/* Failed notice */}
                         {withdrawal.status === "failed" && (
                           <div className="mb-3 bg-destructive/10 p-3 rounded border border-border">
@@ -712,6 +807,18 @@ export default function WithdrawalsPage() {
                                 {actionLoadingId === withdrawal.id
                                   ? <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Processing...</>
                                   : withdrawal.status === "failed" ? "↺ Retry Transfer (Auto)" : "✓ Approve & Transfer (Auto)"}
+                              </Button>
+                            )}
+                            {(withdrawal.withdrawal_method === "mobile_money" || (withdrawal.withdrawal_method === "bank_transfer" && (withdrawal.account_details as any)?.sublistid)) && (
+                              <Button
+                                onClick={() => approveWithdrawal(withdrawal.id, false, "paystack")}
+                                disabled={actionLoadingId === withdrawal.id}
+                                variant="outline"
+                                className="w-full text-sm border-primary text-primary hover:bg-primary/5"
+                              >
+                                {actionLoadingId === withdrawal.id
+                                  ? <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Processing...</>
+                                  : withdrawal.status === "failed" ? "↺ Retry via Paystack" : "Approve via Paystack"}
                               </Button>
                             )}
                             <div className="flex gap-2">
