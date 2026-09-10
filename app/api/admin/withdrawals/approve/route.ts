@@ -4,6 +4,10 @@ import { notificationTemplates } from "@/lib/notification-service"
 import { sendSMS } from "@/lib/sms-service"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { initiateTransfer } from "@/lib/moolre-transfer"
+import {
+  createRecipient, initiateTransfer as initiatePaystackTransfer,
+  mapNetworkToPaystackBankCode, matchBankByName, fetchGhanaBankList,
+} from "@/lib/paystack-transfer"
 import { sendPushToUser } from "@/lib/push-service"
 import { checkWithdrawalCoolingOff } from "@/lib/withdrawal-policy"
 
@@ -129,7 +133,7 @@ export async function POST(request: NextRequest) {
   if (!isAdmin) return errorResponse
 
   try {
-    const { withdrawalId, manual } = await request.json()
+    const { withdrawalId, manual, provider = "moolre" } = await request.json()
 
     if (!withdrawalId || typeof withdrawalId !== "string") {
       return NextResponse.json({ error: "Withdrawal ID required" }, { status: 400 })
@@ -303,6 +307,114 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`[WITHDRAWAL-APPROVE] Transfer: method=${withdrawal.withdrawal_method}, gross=GHS ${withdrawal.amount}, fee=GHS ${withdrawal.fee_amount ?? 0}, net=GHS ${transferAmount}`)
+
+    if (provider === "paystack") {
+      const recipientName = accountDetails?.account_name || accountDetails?.name || "Datagod Merchant"
+      let bankCode: string | undefined
+      let recipientAccountNumber: string | undefined
+      let recipientType: "mobile_money" | "ghipss" = "mobile_money"
+
+      if (isBankTransfer) {
+        const banks = await fetchGhanaBankList()
+        const match = matchBankByName(String(accountDetails?.bank_name ?? ""), banks)
+        if (!match) {
+          await supabase
+            .from("withdrawal_requests")
+            .update({ status: "pending", transfer_attempted_at: null, moolre_external_ref: null, updated_at: new Date().toISOString() })
+            .eq("id", withdrawalId)
+          return NextResponse.json(
+            { error: `No matching bank found on Paystack for "${accountDetails?.bank_name}". Use Moolre or manual approval.` },
+            { status: 400 }
+          )
+        }
+        bankCode = match.code
+        recipientAccountNumber = accountDetails?.account_number
+        recipientType = "ghipss"
+      } else {
+        bankCode = mapNetworkToPaystackBankCode(String(network ?? ""))
+        recipientAccountNumber = phone
+        recipientType = "mobile_money"
+        if (!bankCode) {
+          await supabase
+            .from("withdrawal_requests")
+            .update({ status: "pending", transfer_attempted_at: null, moolre_external_ref: null, updated_at: new Date().toISOString() })
+            .eq("id", withdrawalId)
+          return NextResponse.json({ error: `Unsupported network for Paystack: ${network}` }, { status: 400 })
+        }
+      }
+
+      const recipient = await createRecipient({
+        name: recipientName,
+        accountNumber: recipientAccountNumber!,
+        bankCode,
+        type: recipientType,
+      })
+      if (!recipient) {
+        await supabase
+          .from("withdrawal_requests")
+          .update({ status: "pending", transfer_attempted_at: null, moolre_external_ref: null, updated_at: new Date().toISOString() })
+          .eq("id", withdrawalId)
+        return NextResponse.json({ error: "Could not create Paystack transfer recipient." }, { status: 503 })
+      }
+
+      const paystackResult = await initiatePaystackTransfer({
+        recipientCode: recipient.recipientCode,
+        amount: Number(transferAmount),
+        reference: withdrawalId,
+      })
+
+      if (!paystackResult) {
+        await supabase
+          .from("withdrawal_requests")
+          .update({ status: "pending", transfer_attempted_at: null, moolre_external_ref: null, updated_at: new Date().toISOString() })
+          .eq("id", withdrawalId)
+        return NextResponse.json({ error: "Could not reach Paystack. Please try again." }, { status: 503 })
+      }
+
+      if (paystackResult.status === "failed") {
+        await supabase
+          .from("withdrawal_requests")
+          .update({ status: "pending", transfer_attempted_at: null, moolre_external_ref: null, updated_at: new Date().toISOString() })
+          .eq("id", withdrawalId)
+        return NextResponse.json({ error: `Transfer rejected: ${paystackResult.errorMessage}` }, { status: 400 })
+      }
+
+      if (paystackResult.status === "success") {
+        await supabase
+          .from("withdrawal_requests")
+          .update({
+            status: "completed",
+            payout_provider: "paystack",
+            paystack_recipient_code: recipient.recipientCode,
+            paystack_transfer_code: paystackResult.transferCode,
+            paystack_fee: paystackResult.fee,
+            transfer_completed_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", withdrawalId)
+        await syncShopBalance(withdrawal.shop_id)
+        await notifyShopOwner(withdrawal, withdrawalId)
+        return NextResponse.json({ success: true, message: "Withdrawal approved and transferred successfully" })
+      }
+
+      // status "otp" (the expected path — OTP stays enabled) or "pending"
+      await supabase
+        .from("withdrawal_requests")
+        .update({
+          status: "awaiting_transfer_otp",
+          payout_provider: "paystack",
+          paystack_recipient_code: recipient.recipientCode,
+          paystack_transfer_code: paystackResult.transferCode,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", withdrawalId)
+
+      return NextResponse.json({
+        success: true,
+        status: "awaiting_transfer_otp",
+        message: "Transfer initiated — enter the OTP sent to complete it.",
+      })
+    }
 
     // Initiate Moolre transfer — mobile money or bank (channel=2)
     const result = await initiateTransfer(
