@@ -394,10 +394,18 @@ export default function WithdrawalsPage() {
           ))}
         </div>
 
-        {/* Solvency Banner — only when viewing pending */}
-        {filterStatus === "pending" && withdrawals.length > 0 && (
+        {/* Solvency Banner — only when viewing pending. Combines both rails:
+            an admin can cover the pending queue by mixing Moolre and Paystack
+            approvals, so "shortfall" should reflect combined capacity, not
+            Moolre alone — otherwise a real Paystack balance goes unseen and
+            the banner cries shortfall when the queue is actually payable. */}
+        {filterStatus === "pending" && withdrawals.length > 0 && (() => {
+          const combinedBalance = (moolreBalance ?? 0) + (paystackBalance ?? 0)
+          const haveAnyBalance = moolreBalance !== null || paystackBalance !== null
+          const isSufficient = haveAnyBalance && combinedBalance >= totalPending
+          return (
           <Card className={`border ${
-            moolreBalance !== null && moolreBalance < totalPending
+            haveAnyBalance && !isSufficient
               ? "border-destructive/50 bg-destructive/5"
               : "border-success/30 bg-success/5"
           }`}>
@@ -414,24 +422,30 @@ export default function WithdrawalsPage() {
                     <span className="text-muted-foreground italic">unavailable</span>
                   )}
                 </div>
-                {loadingPaystackBalance ? (
-                  <p className="text-xs text-muted-foreground mt-1">Checking Paystack balance…</p>
-                ) : paystackBalance !== null ? (
-                  <p className="text-xs text-muted-foreground mt-1">Paystack balance: GHS {paystackBalance.toFixed(2)}</p>
-                ) : null}
+                <div className="flex items-center gap-2">
+                  <Wallet className="w-4 h-4 text-primary" />
+                  <span className="text-muted-foreground">Paystack Balance:</span>
+                  {loadingPaystackBalance ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : paystackBalance !== null ? (
+                    <span className="font-bold font-mono">GHS {paystackBalance.toFixed(2)}</span>
+                  ) : (
+                    <span className="text-muted-foreground italic">unavailable</span>
+                  )}
+                </div>
                 <div className="flex items-center gap-2">
                   <span className="text-muted-foreground">Pending Payouts:</span>
                   <span className="font-bold font-mono">GHS {totalPending.toFixed(2)}</span>
                 </div>
-                {moolreBalance !== null && (
-                  moolreBalance >= totalPending ? (
+                {haveAnyBalance && (
+                  isSufficient ? (
                     <Badge className="bg-success/15 text-success flex items-center gap-1">
-                      <ShieldCheck className="w-3 h-3" /> Sufficient
+                      <ShieldCheck className="w-3 h-3" /> Sufficient (combined)
                     </Badge>
                   ) : (
                     <Badge className="bg-destructive/15 text-destructive flex items-center gap-1">
                       <AlertTriangle className="w-3 h-3" />
-                      Shortfall GHS {(totalPending - moolreBalance).toFixed(2)}
+                      Shortfall GHS {(totalPending - combinedBalance).toFixed(2)} (combined)
                     </Badge>
                   )
                 )}
@@ -439,15 +453,16 @@ export default function WithdrawalsPage() {
                   size="sm"
                   variant="ghost"
                   className="h-7 px-2 text-xs text-muted-foreground"
-                  onClick={loadMoolreBalance}
-                  disabled={loadingMoolreBalance}
+                  onClick={() => { loadMoolreBalance(); loadPaystackBalance() }}
+                  disabled={loadingMoolreBalance || loadingPaystackBalance}
                 >
-                  {loadingMoolreBalance ? <Loader2 className="w-3 h-3 animate-spin" /> : "↺ Refresh"}
+                  {(loadingMoolreBalance || loadingPaystackBalance) ? <Loader2 className="w-3 h-3 animate-spin" /> : "↺ Refresh"}
                 </Button>
               </div>
             </CardContent>
           </Card>
-        )}
+          )
+        })()}
 
         {/* Bulk Action Toolbar — visible when items are selected */}
         {canSelect && selectableWithdrawals.length > 0 && (
