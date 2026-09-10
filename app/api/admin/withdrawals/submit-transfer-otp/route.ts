@@ -98,6 +98,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: result.errorMessage || "That code was rejected. Please try again." }, { status: 400 })
     }
 
+    if (result.status !== "success" && result.status !== "pending") {
+      console.error("[SUBMIT-TRANSFER-OTP] Unexpected Paystack status after finalize:", result.status)
+      return NextResponse.json({ error: "Unexpected response from Paystack. Please contact support before retrying." }, { status: 502 })
+    }
+
     // "success" or "pending" — Paystack accepted the OTP; the transfer.success
     // webhook (Task 7) is the authoritative completion signal for "pending",
     // but mark completed immediately on "success" for the same UX as Moolre.
