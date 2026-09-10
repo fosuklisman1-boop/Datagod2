@@ -1457,6 +1457,7 @@ export async function POST(request: NextRequest) {
                 status: "completed",
                 paystack_fee: Number(event.data?.fee ?? 0) / 100,
                 transfer_completed_at: new Date().toISOString(),
+                moolre_external_ref: null,
                 updated_at: new Date().toISOString(),
               })
               .eq("id", withdrawalId)
