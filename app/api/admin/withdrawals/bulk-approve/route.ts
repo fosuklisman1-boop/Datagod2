@@ -222,12 +222,12 @@ export async function POST(request: NextRequest) {
           }
 
           const recipient = await createRecipient({ name: recipientName, accountNumber: recipientAccountNumber!, bankCode, type: recipientType })
-          if (!recipient) {
+          if (!recipient.recipientCode) {
             await supabase
               .from("withdrawal_requests")
               .update({ status: "pending", transfer_attempted_at: null, moolre_external_ref: null, updated_at: new Date().toISOString() })
               .eq("id", locked.id)
-            results.push({ id: locked.id, shopName, amount, success: false, status: "pending", message: "Could not create Paystack recipient" })
+            results.push({ id: locked.id, shopName, amount, success: false, status: "pending", message: `Could not create Paystack recipient: ${recipient.error}` })
             continue
           }
 

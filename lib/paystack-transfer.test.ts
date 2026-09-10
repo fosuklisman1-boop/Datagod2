@@ -80,10 +80,10 @@ describe("createRecipient", () => {
     const body = JSON.parse(fetchMock.mock.calls[0][1].body)
     expect(body).toEqual({ type: "mobile_money", name: "Jane Doe", account_number: "0241234567", bank_code: "MTN", currency: "GHS" })
   })
-  it("returns null when Paystack rejects the recipient", async () => {
+  it("returns Paystack's error message when it rejects the recipient", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ status: false, message: "Invalid account" }, 400))
     const result = await createRecipient({ name: "Jane Doe", accountNumber: "bad", bankCode: "MTN", type: "mobile_money" })
-    expect(result).toBeNull()
+    expect(result).toEqual({ error: "Invalid account" })
   })
 })
 

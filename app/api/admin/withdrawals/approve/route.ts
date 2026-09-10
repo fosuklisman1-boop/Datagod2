@@ -355,12 +355,12 @@ export async function POST(request: NextRequest) {
         bankCode,
         type: recipientType,
       })
-      if (!recipient) {
+      if (!recipient.recipientCode) {
         await supabase
           .from("withdrawal_requests")
           .update({ status: "pending", transfer_attempted_at: null, moolre_external_ref: null, updated_at: new Date().toISOString() })
           .eq("id", withdrawalId)
-        return NextResponse.json({ error: "Could not create Paystack transfer recipient." }, { status: 503 })
+        return NextResponse.json({ error: `Could not create Paystack transfer recipient: ${recipient.error}` }, { status: 503 })
       }
 
       const paystackResult = await initiatePaystackTransfer({

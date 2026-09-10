@@ -84,8 +84,15 @@ export interface CreateRecipientParams {
   type: "mobile_money" | "ghipss"
 }
 
-/** Creates a fresh recipient every call — no caching/reuse (see plan's Global Constraints). */
-export async function createRecipient(params: CreateRecipientParams): Promise<{ recipientCode: string } | null> {
+/**
+ * Creates a fresh recipient every call — no caching/reuse (see plan's Global
+ * Constraints). Returns Paystack's own rejection message on failure (e.g. an
+ * invalid/unsupported bank_code) rather than a bare null, so callers can show
+ * the admin the actual reason instead of a generic "could not create" error —
+ * this is a real API integration point where the exact accepted values are
+ * worth confirming against Paystack's own error text, not just assumed.
+ */
+export async function createRecipient(params: CreateRecipientParams): Promise<{ recipientCode: string; error?: undefined } | { recipientCode?: undefined; error: string }> {
   try {
     const response = await fetch(`${PAYSTACK_BASE_URL}/transferrecipient`, {
       method: "POST",
@@ -101,12 +108,12 @@ export async function createRecipient(params: CreateRecipientParams): Promise<{ 
     const json = await response.json()
     if (!response.ok || !json.status || !json.data?.recipient_code) {
       console.error("[PAYSTACK-TRANSFER] Recipient creation error:", json)
-      return null
+      return { error: String(json?.message ?? `HTTP ${response.status}`) }
     }
     return { recipientCode: String(json.data.recipient_code) }
   } catch (error) {
     console.error("[PAYSTACK-TRANSFER] Recipient creation fetch error:", error)
-    return null
+    return { error: error instanceof Error ? error.message : "Network error reaching Paystack" }
   }
 }
 
