@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Guard: only allow rejecting withdrawals that haven't been transferred yet
-    const rejectableStatuses = ["pending", "failed", "approved"]
+    const rejectableStatuses = ["pending", "failed", "approved", "awaiting_transfer_otp"]
     if (!rejectableStatuses.includes(withdrawal.status)) {
       return NextResponse.json(
         { error: `Cannot reject a withdrawal with status: ${withdrawal.status}` },

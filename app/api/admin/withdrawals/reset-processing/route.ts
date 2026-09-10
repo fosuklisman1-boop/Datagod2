@@ -27,9 +27,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Withdrawal not found" }, { status: 404 })
     }
 
-    if (withdrawal.status !== "processing") {
+    if (withdrawal.status !== "processing" && withdrawal.status !== "awaiting_transfer_otp") {
       return NextResponse.json(
-        { error: `Only processing withdrawals can be reset (current: ${withdrawal.status})` },
+        { error: `Only processing or awaiting-OTP withdrawals can be reset (current: ${withdrawal.status})` },
         { status: 400 }
       )
     }
@@ -41,6 +41,9 @@ export async function POST(request: NextRequest) {
         moolre_transfer_id: null,
         moolre_external_ref: null,
         moolre_fee: null,
+        paystack_recipient_code: null,
+        paystack_transfer_code: null,
+        paystack_fee: null,
         transfer_attempted_at: null,
         updated_at: new Date().toISOString(),
       })
