@@ -1434,6 +1434,68 @@ export async function POST(request: NextRequest) {
 
       await supabase.from("wallet_payments").update({ status: "failed", updated_at: new Date().toISOString() }).eq("reference", reference)
       await supabase.from("payment_attempts").update({ status: "failed", gateway_response: gateway_response || "failed" }).eq("reference", reference)
+    } else if (
+      event.event === "transfer.success" ||
+      event.event === "transfer.failed" ||
+      event.event === "transfer.reversed"
+    ) {
+      const withdrawalId = event.data?.reference
+      if (!withdrawalId) {
+        console.warn("[PAYSTACK-WEBHOOK] Transfer event with no reference:", event.event)
+      } else {
+        const { data: withdrawal } = await supabase
+          .from("withdrawal_requests")
+          .select("id, shop_id, amount, status")
+          .eq("id", withdrawalId)
+          .maybeSingle()
+
+        if (withdrawal && withdrawal.status !== "completed") {
+          if (event.event === "transfer.success") {
+            await supabase
+              .from("withdrawal_requests")
+              .update({
+                status: "completed",
+                paystack_fee: Number(event.data?.fee ?? 0) / 100,
+                transfer_completed_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", withdrawalId)
+
+            try {
+              const { data: breakdown } = await supabase.rpc("get_shop_balance_breakdown", { p_shop_id: withdrawal.shop_id })
+              if (breakdown) {
+                const creditedProfit = Number(breakdown.credited_p) || 0
+                const totalWithdrawn = Number(breakdown.total_w) || 0
+                await supabase.from("shop_available_balance").upsert({
+                  shop_id: withdrawal.shop_id,
+                  available_balance: creditedProfit - totalWithdrawn,
+                  total_profit: Number(breakdown.total_p) || 0,
+                  withdrawn_amount: totalWithdrawn,
+                  credited_profit: creditedProfit,
+                  withdrawn_profit: Number(breakdown.withdrawn_p) || 0,
+                  updated_at: new Date().toISOString(),
+                }, { onConflict: "shop_id" })
+              }
+            } catch (err) {
+              console.error("[PAYSTACK-WEBHOOK] Balance sync error:", err)
+            }
+            console.log(`[PAYSTACK-WEBHOOK] Transfer completed via webhook: ${withdrawalId}`)
+          } else {
+            // transfer.failed or transfer.reversed — funds did not reach the recipient
+            await supabase
+              .from("withdrawal_requests")
+              .update({
+                status: "pending",
+                transfer_attempted_at: null,
+                moolre_external_ref: null,
+                paystack_transfer_code: null,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", withdrawalId)
+            console.warn(`[PAYSTACK-WEBHOOK] Transfer ${event.event}, reverted to pending: ${withdrawalId}`)
+          }
+        }
+      }
     }
 
     return NextResponse.json({ received: true })
