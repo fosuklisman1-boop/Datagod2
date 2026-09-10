@@ -54,6 +54,10 @@ interface NameValidation {
 
 const SELECTABLE_STATUSES = ["pending", "failed"]
 
+const FILTER_TAB_LABELS: Record<string, string> = {
+  awaiting_transfer_otp: "Awaiting OTP",
+}
+
 export default function WithdrawalsPage() {
   const { isAdmin, loading: adminLoading } = useAdminProtected()
   const [withdrawals, setWithdrawals] = useState<WithdrawalRequest[]>([])
@@ -378,14 +382,14 @@ export default function WithdrawalsPage() {
 
         {/* Filter Buttons */}
         <div className="flex flex-wrap gap-2 sm:gap-3">
-          {["pending", "processing", "approved", "completed", "failed", "rejected", "all"].map((status) => (
+          {["pending", "processing", "awaiting_transfer_otp", "approved", "completed", "failed", "rejected", "all"].map((status) => (
             <Button
               key={status}
               variant={filterStatus === status ? "default" : "outline"}
               onClick={() => setFilterStatus(status)}
               className={filterStatus === status ? "bg-primary hover:bg-primary" : ""}
             >
-              {status.charAt(0).toUpperCase() + status.slice(1)}
+              {FILTER_TAB_LABELS[status] ?? (status.charAt(0).toUpperCase() + status.slice(1))}
             </Button>
           ))}
         </div>
