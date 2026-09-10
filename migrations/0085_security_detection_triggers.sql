@@ -107,14 +107,20 @@ DROP TRIGGER IF EXISTS sec_detect_wallet_txn_trg ON public.wallet_transactions;
 CREATE TRIGGER sec_detect_wallet_txn_trg AFTER INSERT ON public.wallet_transactions
   FOR EACH ROW EXECUTE FUNCTION public.sec_detect_wallet_txn();
 
--- 5) Withdrawal marked completed without a Moolre transfer = money paid with no payout record.
+-- 5) Withdrawal marked completed with no payout record from ANY provider = money
+-- paid with nothing to show for it. Originally checked moolre_transfer_id alone
+-- (Moolre was the only rail); widened when Paystack shipped as an alternative
+-- provider, since a legitimate Paystack completion has moolre_transfer_id NULL
+-- by design (it records paystack_transfer_code instead) — checking Moolre alone
+-- made this fire on every real Paystack payout.
 CREATE OR REPLACE FUNCTION public.sec_detect_withdrawal()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $f$
 BEGIN
   IF lower(COALESCE(NEW.status, '')) = 'completed'
-     AND (NEW.moolre_transfer_id IS NULL OR NEW.moolre_transfer_id = '') THEN
+     AND (NEW.moolre_transfer_id IS NULL OR NEW.moolre_transfer_id = '')
+     AND (NEW.paystack_transfer_code IS NULL OR NEW.paystack_transfer_code = '') THEN
     PERFORM public.raise_security_alert('critical', 'withdrawal_anomaly',
-      'Withdrawal marked completed without Moolre transfer (' || COALESCE(NEW.reference_code, NEW.id::text) || ', ' || COALESCE(NEW.amount, 0) || ')',
+      'Withdrawal marked completed without a payout record (' || COALESCE(NEW.reference_code, NEW.id::text) || ', ' || COALESCE(NEW.amount, 0) || ')',
       jsonb_build_object('withdrawal_id', NEW.id, 'amount', NEW.amount, 'status', NEW.status, 'user_id', NEW.user_id, 'shop_id', NEW.shop_id),
       NEW.user_id::text);
   END IF;
