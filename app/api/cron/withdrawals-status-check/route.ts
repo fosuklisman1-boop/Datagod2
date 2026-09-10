@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { getTransferStatus } from "@/lib/moolre-transfer"
+import { getTransferStatus as getPaystackTransferStatus } from "@/lib/paystack-transfer"
 import { notificationTemplates } from "@/lib/notification-service"
 import { sendSMS } from "@/lib/sms-service"
 import { sendPushToUser } from "@/lib/push-service"
@@ -176,6 +177,51 @@ export async function GET(request: NextRequest) {
       } else {
         // txstatus=0 (still pending) or txstatus=3 (unknown) — check again next run
         pending++
+      }
+    }
+
+    // Reconcile Paystack transfers stuck in "processing" (rare — most complete
+    // synchronously via submit-transfer-otp or asynchronously via the
+    // transfer.success webhook; this only catches a timing gap between the two).
+    const { data: paystackProcessing } = await supabase
+      .from("withdrawal_requests")
+      .select("id, shop_id, amount")
+      .eq("status", "processing")
+      .eq("payout_provider", "paystack")
+
+    for (const withdrawal of paystackProcessing ?? []) {
+      try {
+        const result = await getPaystackTransferStatus(withdrawal.id)
+        if (!result) continue
+
+        if (result.status === "success") {
+          await supabase
+            .from("withdrawal_requests")
+            .update({
+              status: "completed",
+              paystack_fee: result.fee,
+              transfer_completed_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", withdrawal.id)
+          await syncShopBalance(withdrawal.shop_id)
+          await notifyCompletion(withdrawal)
+          console.log(`[CRON-WITHDRAWALS] Paystack transfer completed: ${withdrawal.id}`)
+        } else if (result.status === "failed") {
+          await supabase
+            .from("withdrawal_requests")
+            .update({
+              status: "pending",
+              transfer_attempted_at: null,
+              paystack_transfer_code: null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", withdrawal.id)
+          console.warn(`[CRON-WITHDRAWALS] Paystack transfer failed, reverted to pending: ${withdrawal.id}`)
+        }
+        // "otp" or "pending" — leave as-is, still resolving
+      } catch (err) {
+        console.error(`[CRON-WITHDRAWALS] Error polling Paystack transfer ${withdrawal.id}:`, err)
       }
     }
 
