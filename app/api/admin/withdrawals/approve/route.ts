@@ -389,6 +389,7 @@ export async function POST(request: NextRequest) {
             paystack_transfer_code: paystackResult.transferCode,
             paystack_fee: paystackResult.fee,
             transfer_completed_at: new Date().toISOString(),
+            moolre_external_ref: null,
             updated_at: new Date().toISOString(),
           })
           .eq("id", withdrawalId)
@@ -405,6 +406,7 @@ export async function POST(request: NextRequest) {
           payout_provider: "paystack",
           paystack_recipient_code: recipient.recipientCode,
           paystack_transfer_code: paystackResult.transferCode,
+          moolre_external_ref: null,
           updated_at: new Date().toISOString(),
         })
         .eq("id", withdrawalId)

@@ -252,7 +252,7 @@ export async function POST(request: NextRequest) {
               .update({
                 status: "completed", payout_provider: "paystack",
                 paystack_recipient_code: recipient.recipientCode, paystack_transfer_code: paystackResult.transferCode,
-                paystack_fee: paystackResult.fee, transfer_completed_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+                paystack_fee: paystackResult.fee, transfer_completed_at: new Date().toISOString(), moolre_external_ref: null, updated_at: new Date().toISOString(),
               })
               .eq("id", locked.id)
             notifyOwner(locked.shop_id, amount, locked.id, true).catch(() => {})
@@ -266,7 +266,7 @@ export async function POST(request: NextRequest) {
             .update({
               status: "awaiting_transfer_otp", payout_provider: "paystack",
               paystack_recipient_code: recipient.recipientCode, paystack_transfer_code: paystackResult.transferCode,
-              updated_at: new Date().toISOString(),
+              moolre_external_ref: null, updated_at: new Date().toISOString(),
             })
             .eq("id", locked.id)
           results.push({ id: locked.id, shopName, amount, success: true, status: "awaiting_transfer_otp", message: "Awaiting OTP — enter it on the withdrawals list" })
