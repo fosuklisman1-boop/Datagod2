@@ -271,22 +271,33 @@ export async function POST(request: NextRequest) {
             continue
           }
 
-          // status "otp" (expected — OTP stays enabled) or "pending"
-          const { error: otpPersistErr } = await supabase
+          // status "otp" — genuinely needs an admin-entered code. Any other
+          // non-terminal status ("pending") means Paystack is processing the
+          // transfer asynchronously with no code required — the normal path
+          // once transfer-OTP is disabled on the Paystack account — so it
+          // goes to "processing" (same state Moolre uses for "still
+          // confirming"), not the OTP-entry state. The transfer.success
+          // webhook or the reconciliation cron completes it from there.
+          const isOtpRequired = paystackResult.status === "otp"
+          const { error: pendingPersistErr } = await supabase
             .from("withdrawal_requests")
             .update({
-              status: "awaiting_transfer_otp", payout_provider: "paystack",
+              status: isOtpRequired ? "awaiting_transfer_otp" : "processing", payout_provider: "paystack",
               paystack_recipient_code: recipient.recipientCode, paystack_transfer_code: paystackResult.transferCode,
               moolre_external_ref: null, updated_at: new Date().toISOString(),
             })
             .eq("id", locked.id)
-          if (otpPersistErr) {
+          if (pendingPersistErr) {
             console.error(
               "[BULK-APPROVE] CRITICAL: failed to persist Paystack transfer tracking after a real transfer was initiated:",
-              otpPersistErr, "withdrawalId:", locked.id, "transferCode:", paystackResult.transferCode
+              pendingPersistErr, "withdrawalId:", locked.id, "transferCode:", paystackResult.transferCode
             )
           }
-          results.push({ id: locked.id, shopName, amount, success: true, status: "awaiting_transfer_otp", message: "Awaiting OTP — enter it on the withdrawals list" })
+          results.push({
+            id: locked.id, shopName, amount, success: true,
+            status: isOtpRequired ? "awaiting_transfer_otp" : "processing",
+            message: isOtpRequired ? "Awaiting OTP — enter it on the withdrawals list" : "Processing — will complete automatically",
+          })
           continue
         }
 

@@ -410,11 +410,18 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: true, message: "Withdrawal approved and transferred successfully" })
       }
 
-      // status "otp" (the expected path — OTP stays enabled) or "pending"
-      const { error: otpPersistErr } = await supabase
+      // status "otp" — genuinely needs an admin-entered code. Any other
+      // non-terminal status ("pending") means Paystack is processing the
+      // transfer asynchronously with no code required — the normal path once
+      // transfer-OTP is disabled on the Paystack account — so it goes to
+      // "processing" (same state Moolre uses for "still confirming"), not
+      // the OTP-entry state. The transfer.success webhook or the
+      // reconciliation cron completes it from there.
+      const isOtpRequired = paystackResult.status === "otp"
+      const { error: pendingPersistErr } = await supabase
         .from("withdrawal_requests")
         .update({
-          status: "awaiting_transfer_otp",
+          status: isOtpRequired ? "awaiting_transfer_otp" : "processing",
           payout_provider: "paystack",
           paystack_recipient_code: recipient.recipientCode,
           paystack_transfer_code: paystackResult.transferCode,
@@ -422,17 +429,19 @@ export async function POST(request: NextRequest) {
           updated_at: new Date().toISOString(),
         })
         .eq("id", withdrawalId)
-      if (otpPersistErr) {
+      if (pendingPersistErr) {
         console.error(
           "[WITHDRAWAL-APPROVE] CRITICAL: failed to persist Paystack transfer tracking after a real transfer was initiated:",
-          otpPersistErr, "withdrawalId:", withdrawalId, "transferCode:", paystackResult.transferCode
+          pendingPersistErr, "withdrawalId:", withdrawalId, "transferCode:", paystackResult.transferCode
         )
       }
 
       return NextResponse.json({
         success: true,
-        status: "awaiting_transfer_otp",
-        message: "Transfer initiated — enter the OTP sent to complete it.",
+        status: isOtpRequired ? "awaiting_transfer_otp" : "processing",
+        message: isOtpRequired
+          ? "Transfer initiated — enter the OTP sent to complete it."
+          : "Transfer initiated — processing automatically.",
       })
     }
 
