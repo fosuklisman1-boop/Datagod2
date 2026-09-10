@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { initiateTransfer, getMoolreTransferBalance } from "@/lib/moolre-transfer"
+import {
+  createRecipient, initiateTransfer as initiatePaystackTransfer,
+  mapNetworkToPaystackBankCode, matchBankByName, fetchGhanaBankList,
+  getPaystackTransferBalance,
+} from "@/lib/paystack-transfer"
 import { sendPushToUser } from "@/lib/push-service"
 import { notificationTemplates } from "@/lib/notification-service"
 
@@ -61,7 +66,7 @@ export async function POST(request: NextRequest) {
   if (!isAdmin) return errorResponse
 
   try {
-    const { withdrawalIds, manual = false } = await request.json()
+    const { withdrawalIds, manual = false, provider = "moolre" } = await request.json()
 
     if (!Array.isArray(withdrawalIds) || withdrawalIds.length === 0) {
       return NextResponse.json({ error: "No withdrawal IDs provided" }, { status: 400 })
@@ -94,25 +99,26 @@ export async function POST(request: NextRequest) {
     // Solvency check — skip for manual (admin is handling the transfer themselves)
     if (!manual) {
       const totalNet = found.reduce((sum, w) => sum + Number(w.net_amount ?? w.amount), 0)
-      const wallet = await getMoolreTransferBalance()
+      const wallet = provider === "paystack" ? await getPaystackTransferBalance() : await getMoolreTransferBalance()
+      const providerLabel = provider === "paystack" ? "Paystack" : "Moolre"
 
       if (!wallet) {
         return NextResponse.json(
-          { error: "Could not verify Moolre wallet balance. Use manual approval or try again." },
+          { error: `Could not verify ${providerLabel} wallet balance. Use manual approval or try again.` },
           { status: 503 }
         )
       }
 
       if (wallet.balance < totalNet) {
         return NextResponse.json({
-          error: `Insufficient Moolre balance. Need GHS ${totalNet.toFixed(2)} but wallet has GHS ${wallet.balance.toFixed(2)}.`,
-          moolreBalance: wallet.balance,
+          error: `Insufficient ${providerLabel} balance. Need GHS ${totalNet.toFixed(2)} but wallet has GHS ${wallet.balance.toFixed(2)}.`,
+          walletBalance: wallet.balance,
           totalRequired: totalNet,
           shortfall: totalNet - wallet.balance,
         }, { status: 400 })
       }
 
-      console.log(`[BULK-APPROVE] Solvency OK: wallet=GHS ${wallet.balance.toFixed(2)}, needed=GHS ${totalNet.toFixed(2)}`)
+      console.log(`[BULK-APPROVE] Solvency OK (${providerLabel}): wallet=GHS ${wallet.balance.toFixed(2)}, needed=GHS ${totalNet.toFixed(2)}`)
     }
 
     // Fetch shop names for result labels
@@ -163,7 +169,7 @@ export async function POST(request: NextRequest) {
           continue
         }
 
-        // Auto transfer via Moolre
+        // Auto transfer
         const details = locked.account_details as any
         const isBankTransfer = locked.withdrawal_method === "bank_transfer"
         const transferAmount = Number(locked.net_amount ?? locked.amount)
@@ -174,6 +180,96 @@ export async function POST(request: NextRequest) {
             .update({ status: "pending", transfer_attempted_at: null, moolre_external_ref: null, updated_at: new Date().toISOString() })
             .eq("id", locked.id)
           results.push({ id: locked.id, shopName, amount, success: false, status: "pending", message: "Invalid transfer amount" })
+          continue
+        }
+
+        if (provider === "paystack") {
+          const recipientName = details?.account_name || details?.name || "Datagod Merchant"
+          let bankCode: string | undefined
+          let recipientAccountNumber: string | undefined
+          let recipientType: "mobile_money" | "ghipss" = "mobile_money"
+
+          if (isBankTransfer) {
+            const banks = await fetchGhanaBankList()
+            const match = matchBankByName(String(details?.bank_name ?? ""), banks)
+            if (!match) {
+              await supabase
+                .from("withdrawal_requests")
+                .update({ status: "pending", transfer_attempted_at: null, moolre_external_ref: null, updated_at: new Date().toISOString() })
+                .eq("id", locked.id)
+              results.push({ id: locked.id, shopName, amount, success: false, status: "pending", message: `No matching bank found on Paystack for "${details?.bank_name}"` })
+              continue
+            }
+            bankCode = match.code
+            recipientAccountNumber = details?.account_number
+            recipientType = "ghipss"
+          } else {
+            bankCode = mapNetworkToPaystackBankCode(String(details?.network ?? ""))
+            recipientAccountNumber = details?.phone
+            if (!bankCode) {
+              await supabase
+                .from("withdrawal_requests")
+                .update({ status: "pending", transfer_attempted_at: null, moolre_external_ref: null, updated_at: new Date().toISOString() })
+                .eq("id", locked.id)
+              results.push({ id: locked.id, shopName, amount, success: false, status: "pending", message: `Unsupported network for Paystack: ${details?.network}` })
+              continue
+            }
+          }
+
+          const recipient = await createRecipient({ name: recipientName, accountNumber: recipientAccountNumber!, bankCode, type: recipientType })
+          if (!recipient) {
+            await supabase
+              .from("withdrawal_requests")
+              .update({ status: "pending", transfer_attempted_at: null, moolre_external_ref: null, updated_at: new Date().toISOString() })
+              .eq("id", locked.id)
+            results.push({ id: locked.id, shopName, amount, success: false, status: "pending", message: "Could not create Paystack recipient" })
+            continue
+          }
+
+          const paystackResult = await initiatePaystackTransfer({ recipientCode: recipient.recipientCode, amount: transferAmount, reference: locked.id })
+
+          if (!paystackResult) {
+            await supabase
+              .from("withdrawal_requests")
+              .update({ status: "pending", transfer_attempted_at: null, moolre_external_ref: null, updated_at: new Date().toISOString() })
+              .eq("id", locked.id)
+            results.push({ id: locked.id, shopName, amount, success: false, status: "pending", message: "Paystack unreachable" })
+            continue
+          }
+
+          if (paystackResult.status === "failed") {
+            await supabase
+              .from("withdrawal_requests")
+              .update({ status: "pending", transfer_attempted_at: null, moolre_external_ref: null, updated_at: new Date().toISOString() })
+              .eq("id", locked.id)
+            results.push({ id: locked.id, shopName, amount, success: false, status: "pending", message: paystackResult.errorMessage || "Transfer rejected" })
+            continue
+          }
+
+          if (paystackResult.status === "success") {
+            await supabase
+              .from("withdrawal_requests")
+              .update({
+                status: "completed", payout_provider: "paystack",
+                paystack_recipient_code: recipient.recipientCode, paystack_transfer_code: paystackResult.transferCode,
+                paystack_fee: paystackResult.fee, transfer_completed_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+              })
+              .eq("id", locked.id)
+            notifyOwner(locked.shop_id, amount, locked.id, true).catch(() => {})
+            results.push({ id: locked.id, shopName, amount, success: true, status: "completed", message: `Sent — TX: ${paystackResult.transferCode}` })
+            continue
+          }
+
+          // status "otp" (expected — OTP stays enabled) or "pending"
+          await supabase
+            .from("withdrawal_requests")
+            .update({
+              status: "awaiting_transfer_otp", payout_provider: "paystack",
+              paystack_recipient_code: recipient.recipientCode, paystack_transfer_code: paystackResult.transferCode,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", locked.id)
+          results.push({ id: locked.id, shopName, amount, success: true, status: "awaiting_transfer_otp", message: "Awaiting OTP — enter it on the withdrawals list" })
           continue
         }
 
