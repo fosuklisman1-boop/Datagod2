@@ -726,6 +726,14 @@ export default function WithdrawalsPage() {
                           </div>
                         )}
 
+                        {/* Paystack Transfer Code */}
+                        {withdrawal.paystack_transfer_code && (
+                          <div className="mb-3 bg-muted/40 p-2 rounded border border-border">
+                            <p className="text-xs text-muted-foreground">Paystack Transfer Code</p>
+                            <p className="font-mono text-xs">{withdrawal.paystack_transfer_code}</p>
+                          </div>
+                        )}
+
                         {/* Manual transfer notice */}
                         {withdrawal.status === "approved" && !withdrawal.moolre_transfer_id && (
                           <div className="mb-3 bg-warning/10 p-3 rounded border border-border">
