@@ -38,6 +38,10 @@ export async function POST(request: NextRequest) {
       .from("withdrawal_requests")
       .update({
         status: "pending",
+        // Reset the rail label too, so an abandoned Paystack attempt doesn't
+        // leave the row looking like a live Paystack transfer while it sits
+        // back in the pending queue.
+        payout_provider: "moolre",
         moolre_transfer_id: null,
         moolre_external_ref: null,
         moolre_fee: null,

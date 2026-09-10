@@ -108,7 +108,27 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Failed to fetch processing withdrawals" }, { status: 500 })
     }
 
-    if (!processingWithdrawals || processingWithdrawals.length === 0) {
+    // Paystack rows awaiting reconciliation. Selected here — BEFORE the
+    // early-return below — because the common case is zero Moolre "processing"
+    // rows, and returning early on that alone would make the Paystack loop
+    // dead code in exactly the situation it exists for.
+    // "awaiting_transfer_otp" is included as well: a Paystack transfer that came
+    // back "pending" (rather than "otp") is bucketed there by the approve route
+    // but will never receive an OTP, so polling is its only route to resolution.
+    // The paystack_transfer_code guard is defense-in-depth — a row with no real
+    // Paystack transfer can never be polled against Paystack even if
+    // payout_provider were somehow wrong.
+    const { data: paystackProcessing } = await supabase
+      .from("withdrawal_requests")
+      .select("id, shop_id, amount")
+      .in("status", ["processing", "awaiting_transfer_otp"])
+      .eq("payout_provider", "paystack")
+      .not("paystack_transfer_code", "is", null)
+
+    if (
+      (!processingWithdrawals || processingWithdrawals.length === 0) &&
+      (!paystackProcessing || paystackProcessing.length === 0)
+    ) {
       return NextResponse.json({ processed: 0, completed: 0, failed: 0, pending: 0 })
     }
 
@@ -116,7 +136,7 @@ export async function GET(request: NextRequest) {
     let failed = 0
     let pending = 0
 
-    for (const withdrawal of processingWithdrawals) {
+    for (const withdrawal of processingWithdrawals ?? []) {
       const statusResult = await getTransferStatus(withdrawal.moolre_external_ref)
 
       if (!statusResult) {
@@ -180,15 +200,10 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Reconcile Paystack transfers stuck in "processing" (rare — most complete
+    // Reconcile Paystack transfers stuck mid-flight (rare — most complete
     // synchronously via submit-transfer-otp or asynchronously via the
     // transfer.success webhook; this only catches a timing gap between the two).
-    const { data: paystackProcessing } = await supabase
-      .from("withdrawal_requests")
-      .select("id, shop_id, amount")
-      .eq("status", "processing")
-      .eq("payout_provider", "paystack")
-
+    // The rows were selected above, before the early-return.
     for (const withdrawal of paystackProcessing ?? []) {
       try {
         const result = await getPaystackTransferStatus(withdrawal.id)
@@ -226,7 +241,7 @@ export async function GET(request: NextRequest) {
     }
 
     const summary = {
-      processed: processingWithdrawals.length,
+      processed: processingWithdrawals?.length ?? 0,
       completed,
       failed,
       pending,

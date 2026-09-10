@@ -145,6 +145,11 @@ export async function POST(request: NextRequest) {
             status: "processing",
             transfer_attempted_at: new Date().toISOString(),
             moolre_external_ref: w.id,
+            // Default back to "moolre" at lock time — the Paystack branch below
+            // overwrites it only when Paystack is actually used. Prevents a row
+            // that once went through Paystack staying labelled "paystack" while
+            // a live Moolre transfer runs against it.
+            payout_provider: "moolre",
             updated_at: new Date().toISOString(),
           })
           .eq("id", w.id)
@@ -247,7 +252,7 @@ export async function POST(request: NextRequest) {
           }
 
           if (paystackResult.status === "success") {
-            await supabase
+            const { error: persistErr } = await supabase
               .from("withdrawal_requests")
               .update({
                 status: "completed", payout_provider: "paystack",
@@ -255,13 +260,19 @@ export async function POST(request: NextRequest) {
                 paystack_fee: paystackResult.fee, transfer_completed_at: new Date().toISOString(), moolre_external_ref: null, updated_at: new Date().toISOString(),
               })
               .eq("id", locked.id)
+            if (persistErr) {
+              console.error(
+                "[BULK-APPROVE] CRITICAL: failed to persist Paystack transfer tracking after a real transfer was initiated:",
+                persistErr, "withdrawalId:", locked.id, "transferCode:", paystackResult.transferCode
+              )
+            }
             notifyOwner(locked.shop_id, amount, locked.id, true).catch(() => {})
             results.push({ id: locked.id, shopName, amount, success: true, status: "completed", message: `Sent — TX: ${paystackResult.transferCode}` })
             continue
           }
 
           // status "otp" (expected — OTP stays enabled) or "pending"
-          await supabase
+          const { error: otpPersistErr } = await supabase
             .from("withdrawal_requests")
             .update({
               status: "awaiting_transfer_otp", payout_provider: "paystack",
@@ -269,6 +280,12 @@ export async function POST(request: NextRequest) {
               moolre_external_ref: null, updated_at: new Date().toISOString(),
             })
             .eq("id", locked.id)
+          if (otpPersistErr) {
+            console.error(
+              "[BULK-APPROVE] CRITICAL: failed to persist Paystack transfer tracking after a real transfer was initiated:",
+              otpPersistErr, "withdrawalId:", locked.id, "transferCode:", paystackResult.transferCode
+            )
+          }
           results.push({ id: locked.id, shopName, amount, success: true, status: "awaiting_transfer_otp", message: "Awaiting OTP — enter it on the withdrawals list" })
           continue
         }

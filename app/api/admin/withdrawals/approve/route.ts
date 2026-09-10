@@ -167,6 +167,12 @@ export async function POST(request: NextRequest) {
         status: "processing",
         transfer_attempted_at: new Date().toISOString(),
         moolre_external_ref: withdrawalId,
+        // Default every approval back to "moolre" at lock time. The Paystack
+        // branch below overwrites this with "paystack" only when Paystack is
+        // actually used — so a row that once went through Paystack and later
+        // gets approved via Moolre is never left mislabelled (which would let
+        // the Paystack reconciliation loop intercept a live Moolre transfer).
+        payout_provider: "moolre",
         updated_at: new Date().toISOString(),
       })
       .eq("id", withdrawalId)
@@ -380,7 +386,7 @@ export async function POST(request: NextRequest) {
       }
 
       if (paystackResult.status === "success") {
-        await supabase
+        const { error: persistErr } = await supabase
           .from("withdrawal_requests")
           .update({
             status: "completed",
@@ -393,13 +399,19 @@ export async function POST(request: NextRequest) {
             updated_at: new Date().toISOString(),
           })
           .eq("id", withdrawalId)
+        if (persistErr) {
+          console.error(
+            "[WITHDRAWAL-APPROVE] CRITICAL: failed to persist Paystack transfer tracking after a real transfer was initiated:",
+            persistErr, "withdrawalId:", withdrawalId, "transferCode:", paystackResult.transferCode
+          )
+        }
         await syncShopBalance(withdrawal.shop_id)
         await notifyShopOwner(withdrawal, withdrawalId)
         return NextResponse.json({ success: true, message: "Withdrawal approved and transferred successfully" })
       }
 
       // status "otp" (the expected path — OTP stays enabled) or "pending"
-      await supabase
+      const { error: otpPersistErr } = await supabase
         .from("withdrawal_requests")
         .update({
           status: "awaiting_transfer_otp",
@@ -410,6 +422,12 @@ export async function POST(request: NextRequest) {
           updated_at: new Date().toISOString(),
         })
         .eq("id", withdrawalId)
+      if (otpPersistErr) {
+        console.error(
+          "[WITHDRAWAL-APPROVE] CRITICAL: failed to persist Paystack transfer tracking after a real transfer was initiated:",
+          otpPersistErr, "withdrawalId:", withdrawalId, "transferCode:", paystackResult.transferCode
+        )
+      }
 
       return NextResponse.json({
         success: true,

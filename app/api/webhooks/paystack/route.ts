@@ -1445,57 +1445,110 @@ export async function POST(request: NextRequest) {
       } else {
         const { data: withdrawal } = await supabase
           .from("withdrawal_requests")
-          .select("id, shop_id, amount, status")
+          .select("id, shop_id, amount, status, payout_provider, paystack_transfer_code")
           .eq("id", withdrawalId)
           .maybeSingle()
 
-        if (withdrawal && withdrawal.status !== "completed") {
-          if (event.event === "transfer.success") {
-            await supabase
-              .from("withdrawal_requests")
-              .update({
-                status: "completed",
-                paystack_fee: Number(event.data?.fee ?? 0) / 100,
-                transfer_completed_at: new Date().toISOString(),
-                moolre_external_ref: null,
-                updated_at: new Date().toISOString(),
-              })
-              .eq("id", withdrawalId)
+        // A transfer event may only mutate the row if it belongs to the row's
+        // CURRENT live Paystack attempt. Without this, a delayed or redelivered
+        // webhook for an abandoned/superseded attempt could resurrect a rejected
+        // withdrawal back into the payout queue, or revert a live Moolre transfer.
+        const eventTransferCode = event.data?.transfer_code
+        const isCurrentPaystackAttempt = withdrawal
+          && withdrawal.payout_provider === "paystack"
+          && withdrawal.paystack_transfer_code
+          && withdrawal.paystack_transfer_code === eventTransferCode
 
-            try {
-              const { data: breakdown } = await supabase.rpc("get_shop_balance_breakdown", { p_shop_id: withdrawal.shop_id })
-              if (breakdown) {
-                const creditedProfit = Number(breakdown.credited_p) || 0
-                const totalWithdrawn = Number(breakdown.total_w) || 0
-                await supabase.from("shop_available_balance").upsert({
-                  shop_id: withdrawal.shop_id,
-                  available_balance: creditedProfit - totalWithdrawn,
-                  total_profit: Number(breakdown.total_p) || 0,
-                  withdrawn_amount: totalWithdrawn,
-                  credited_profit: creditedProfit,
-                  withdrawn_profit: Number(breakdown.withdrawn_p) || 0,
-                  updated_at: new Date().toISOString(),
-                }, { onConflict: "shop_id" })
-              }
-            } catch (err) {
-              console.error("[PAYSTACK-WEBHOOK] Balance sync error:", err)
-            }
-            console.log(`[PAYSTACK-WEBHOOK] Transfer completed via webhook: ${withdrawalId}`)
-          } else {
-            // transfer.failed or transfer.reversed — funds did not reach the recipient
-            await supabase
-              .from("withdrawal_requests")
-              .update({
-                status: "pending",
-                transfer_attempted_at: null,
-                moolre_external_ref: null,
-                paystack_transfer_code: null,
+        if (
+          isCurrentPaystackAttempt &&
+          event.event === "transfer.success" &&
+          ["awaiting_transfer_otp", "processing"].includes(withdrawal!.status)
+        ) {
+          await supabase
+            .from("withdrawal_requests")
+            .update({
+              status: "completed",
+              paystack_fee: Number(event.data?.fee ?? 0) / 100,
+              transfer_completed_at: new Date().toISOString(),
+              moolre_external_ref: null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", withdrawalId)
+
+          try {
+            const { data: breakdown } = await supabase.rpc("get_shop_balance_breakdown", { p_shop_id: withdrawal!.shop_id })
+            if (breakdown) {
+              const creditedProfit = Number(breakdown.credited_p) || 0
+              const totalWithdrawn = Number(breakdown.total_w) || 0
+              await supabase.from("shop_available_balance").upsert({
+                shop_id: withdrawal!.shop_id,
+                available_balance: creditedProfit - totalWithdrawn,
+                total_profit: Number(breakdown.total_p) || 0,
+                withdrawn_amount: totalWithdrawn,
+                credited_profit: creditedProfit,
+                withdrawn_profit: Number(breakdown.withdrawn_p) || 0,
                 updated_at: new Date().toISOString(),
-              })
-              .eq("id", withdrawalId)
-            console.warn(`[PAYSTACK-WEBHOOK] Transfer ${event.event}, reverted to pending: ${withdrawalId}`)
+              }, { onConflict: "shop_id" })
+            }
+          } catch (err) {
+            console.error("[PAYSTACK-WEBHOOK] Balance sync error:", err)
           }
+          console.log(`[PAYSTACK-WEBHOOK] Transfer completed via webhook: ${withdrawalId}`)
+        } else if (
+          isCurrentPaystackAttempt &&
+          (event.event === "transfer.failed" || event.event === "transfer.reversed") &&
+          ["awaiting_transfer_otp", "processing"].includes(withdrawal!.status)
+        ) {
+          // Failed/reversed before the withdrawal ever completed — funds did not
+          // reach the recipient, so hand it back to the pending queue.
+          await supabase
+            .from("withdrawal_requests")
+            .update({
+              status: "pending",
+              transfer_attempted_at: null,
+              moolre_external_ref: null,
+              paystack_transfer_code: null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", withdrawalId)
+          console.warn(`[PAYSTACK-WEBHOOK] Transfer ${event.event}, reverted to pending: ${withdrawalId}`)
+        } else if (
+          isCurrentPaystackAttempt &&
+          event.event === "transfer.reversed" &&
+          withdrawal!.status === "completed"
+        ) {
+          // Clawed back hours after the payout appeared to succeed (submit-transfer-otp
+          // or the success branch above already marked it completed). Mark it failed —
+          // it is no longer "completed", so the next recompute of the balance breakdown
+          // naturally returns the shop's credited profit.
+          await supabase
+            .from("withdrawal_requests")
+            .update({ status: "failed", updated_at: new Date().toISOString() })
+            .eq("id", withdrawalId)
+
+          try {
+            const { data: breakdown } = await supabase.rpc("get_shop_balance_breakdown", { p_shop_id: withdrawal!.shop_id })
+            if (breakdown) {
+              const creditedProfit = Number(breakdown.credited_p) || 0
+              const totalWithdrawn = Number(breakdown.total_w) || 0
+              await supabase.from("shop_available_balance").upsert({
+                shop_id: withdrawal!.shop_id,
+                available_balance: creditedProfit - totalWithdrawn,
+                total_profit: Number(breakdown.total_p) || 0,
+                withdrawn_amount: totalWithdrawn,
+                credited_profit: creditedProfit,
+                withdrawn_profit: Number(breakdown.withdrawn_p) || 0,
+                updated_at: new Date().toISOString(),
+              }, { onConflict: "shop_id" })
+            }
+          } catch (err) {
+            console.error("[PAYSTACK-WEBHOOK] Balance sync error (reversal-after-completion):", err)
+          }
+          console.warn(`[PAYSTACK-WEBHOOK] Completed transfer reversed after the fact, marked failed: ${withdrawalId}`)
         }
+        // Anything else — a stray event for a row that is rejected/approved, or
+        // one that belongs to a different/older Paystack transfer_code — is
+        // deliberately ignored: it does not describe this row's live attempt.
       }
     }
 
