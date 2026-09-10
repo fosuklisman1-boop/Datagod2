@@ -1,10 +1,74 @@
+// admin_settings lookups return the row matching the queried key; anything
+// else (e.g. a table this fake doesn't know) resolves to no row, matching a
+// real fail-open Supabase response instead of throwing.
+function fakeSupabase(settingsByKey: Record<string, any>) {
+  return {
+    from(_table: string) {
+      return {
+        select() {
+          return {
+            eq(_col: string, key: string) {
+              return {
+                maybeSingle: () =>
+                  Promise.resolve({
+                    data: settingsByKey[key] ? { value: settingsByKey[key] } : null,
+                    error: null,
+                  }),
+              }
+            },
+          }
+        },
+        upsert() {
+          return Promise.resolve({ data: null, error: null })
+        },
+      }
+    },
+  } as any
+}
+
+vi.mock("@/lib/supabase", () => ({
+  supabaseAdmin: fakeSupabase({
+    // Registration gate OFF isolates these tests to the whitelist pre-check
+    // (the gate itself is already covered by mtn-hold.test.ts).
+    mtn_registration_gate_enabled: { enabled: false },
+    mtn_whitelist_enabled: { enabled: true },
+  }),
+}))
+
+vi.mock("@/lib/mtn-providers/factory", () => ({
+  getMTNProvider: vi.fn(),
+  getProviderByName: vi.fn(),
+  getRetrySequence: vi.fn().mockResolvedValue([]),
+}))
+
+vi.mock("@/lib/mtn-providers/provider-whitelist", () => ({
+  hasWhitelistProviders: vi.fn(() => true),
+  // Mirrors the real WHITELIST_REGISTRY shape: only codecraft/xpress-style
+  // providers participate in whitelisting — sykes/datakazina/etc. don't.
+  isWhitelistProvider: vi.fn((name: string) => name === "codecraft" || name === "xpress"),
+  checkWhitelistForOrder: vi.fn(),
+}))
+
 import {
   normalizePhoneNumber,
   isValidPhoneFormat,
   getNetworkFromPhone,
   validatePhoneNetworkMatch,
   extractOrderIdFromReference,
+  createMTNOrder,
 } from "@/lib/mtn-fulfillment"
+import { getProviderByName } from "@/lib/mtn-providers/factory"
+import { checkWhitelistForOrder } from "@/lib/mtn-providers/provider-whitelist"
+import type { MTNProvider } from "@/lib/mtn-providers/types"
+
+function fakeMtnProvider(name: string, result: any): MTNProvider {
+  return {
+    name,
+    createOrder: vi.fn().mockResolvedValue(result),
+    checkOrderStatus: vi.fn(),
+    checkBalance: vi.fn(),
+  }
+}
 
 describe("MTN Fulfillment Service", () => {
   describe("normalizePhoneNumber", () => {
@@ -117,6 +181,54 @@ describe("MTN Fulfillment Service", () => {
       expect(extractOrderIdFromReference("")).toBe(null)
       expect(extractOrderIdFromReference("ORDER-758918")).toBe(null)
       expect(extractOrderIdFromReference("498abc")).toBe(null) // too short
+    })
+  })
+
+  describe("createMTNOrder — whitelist pre-check scoping", () => {
+    beforeEach(() => {
+      vi.clearAllMocks()
+    })
+
+    it("does not run the whitelist pre-check when the active provider has no whitelist endpoint", async () => {
+      // sykes has no entry in WHITELIST_REGISTRY (it's the system default provider) —
+      // an unrelated provider's whitelist database not knowing this number must
+      // never block an order that was never going through that provider anyway.
+      const sykes = fakeMtnProvider("sykes", { success: true, order_id: "1", message: "ok" })
+      vi.mocked(getProviderByName).mockReturnValue(sykes)
+      vi.mocked(checkWhitelistForOrder).mockResolvedValue({ allowed: false, provider: null })
+
+      const result = await createMTNOrder({
+        recipient_phone: "0551234567",
+        network: "MTN",
+        size_gb: 1,
+        provider: "sykes",
+      })
+
+      expect(checkWhitelistForOrder).not.toHaveBeenCalled()
+      expect(sykes.createOrder).toHaveBeenCalledTimes(1)
+      expect(result.success).toBe(true)
+    })
+
+    it("still runs the whitelist pre-check when the active provider does have a whitelist endpoint", async () => {
+      // No regression: codecraft is whitelist-capable, so a block from
+      // checkWhitelistForOrder must still hold the order before it ever calls
+      // codecraft's own createOrder.
+      const codecraft = fakeMtnProvider("codecraft", { success: true, order_id: "2", message: "ok" })
+      vi.mocked(getProviderByName).mockReturnValue(codecraft)
+      vi.mocked(checkWhitelistForOrder).mockResolvedValue({ allowed: false, provider: null })
+
+      const result = await createMTNOrder({
+        recipient_phone: "0551234567",
+        network: "MTN",
+        size_gb: 1,
+        provider: "codecraft",
+      })
+
+      expect(checkWhitelistForOrder).toHaveBeenCalledTimes(1)
+      expect(codecraft.createOrder).not.toHaveBeenCalled()
+      expect(result.success).toBe(false)
+      expect(result.held).toBe(true)
+      expect(result.error_type).toBe("WHITELIST_BLOCKED")
     })
   })
 })

@@ -395,16 +395,24 @@ export async function createMTNOrder(order: MTNOrderRequest): Promise<MTNOrderRe
     // (active provider first, then the rest). Gated by admin toggle
     // (mtn_whitelist_enabled) so the feature can be turned off without
     // removing API keys. Fails open so API outages never block orders.
+    //
+    // Only runs when the active provider itself participates in whitelisting
+    // (has an entry in WHITELIST_REGISTRY). Providers like sykes/datakazina
+    // have no whitelist of their own and never consult one to fulfill — gating
+    // them on whether some OTHER, unrelated provider's database happens to
+    // recognize the number would wrongly block orders for numbers that are
+    // already registered (mtn_number_registry.status), just never submitted
+    // to Xpress/CodeCraft/AgentPortalGH/ApexPrime specifically.
     let whitelistBlocked = false
     try {
-      const { hasWhitelistProviders, checkWhitelistForOrder } = await import("@/lib/mtn-providers/provider-whitelist")
+      const { hasWhitelistProviders, checkWhitelistForOrder, isWhitelistProvider } = await import("@/lib/mtn-providers/provider-whitelist")
       const { data: wlSetting } = await supabase
         .from("admin_settings")
         .select("value")
         .eq("key", "mtn_whitelist_enabled")
         .maybeSingle()
       const whitelistEnabled = wlSetting?.value?.enabled !== false // default ON
-      if (whitelistEnabled && hasWhitelistProviders()) {
+      if (whitelistEnabled && hasWhitelistProviders() && isWhitelistProvider(provider.name)) {
         const { normalizeGhanaPhone } = await import("@/lib/phone-format")
         const norm = normalizeGhanaPhone(order.recipient_phone) ?? order.recipient_phone
         const { allowed, provider: allowedBy } = await checkWhitelistForOrder(norm, provider.name)

@@ -287,11 +287,24 @@ export async function processManualFulfillment(
     // (async/queued model). Gating on !order_id would wrongly trigger the failure path
     // and send a failure SMS even when the fallback took the order.
     if (!mtnResponse.success) {
-      if (mtnResponse.held && mtnResponse.error_type === "NUMBER_NOT_REGISTERED") {
-        console.log(`${logPrefix} Registration gate hold — number not yet registered`)
+      // Re-hold on ANY gate hold (registration or whitelist), matching every
+      // other MTN dispatch site (lib/mtn-hold.ts's callers). This used to be
+      // narrowed to NUMBER_NOT_REGISTERED only, so a local fallback-provider
+      // block right below could still reach a WHITELIST_BLOCKED order — but
+      // that fallback was later centralized into createMTNOrder()'s retry
+      // sequence (which already runs before this point) and removed from here.
+      // Left narrow, a WHITELIST_BLOCKED result from the admin's manual-fulfill
+      // button reverted the order to "pending" instead of "held_registration",
+      // so the 24h whitelist-retry cron (which only scans held_registration
+      // rows) could never find it and its "retrying every 24h" message was false.
+      if (mtnResponse.held) {
+        const holdReason = mtnResponse.error_type === "WHITELIST_BLOCKED"
+          ? "number blocked by whitelist provider check"
+          : "number pending MTN registration"
+        console.log(`${logPrefix} MTN gate hold — ${holdReason}`)
         const { holdMtnOrder } = await import("@/lib/mtn-hold")
         await holdMtnOrder({ table: tableName as any, orderId, phone })
-        return { success: false, message: "Held: number pending MTN registration", orderId }
+        return { success: false, message: `Held: ${holdReason}`, orderId }
       }
       console.error(`${logPrefix} MTN API failed: ${mtnResponse.message}`)
 
