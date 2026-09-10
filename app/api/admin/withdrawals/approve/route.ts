@@ -10,6 +10,7 @@ import {
 } from "@/lib/paystack-transfer"
 import { sendPushToUser } from "@/lib/push-service"
 import { checkWithdrawalCoolingOff } from "@/lib/withdrawal-policy"
+import { normalizePhoneNumber } from "@/lib/mtn-fulfillment"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -338,7 +339,7 @@ export async function POST(request: NextRequest) {
         recipientType = "ghipss"
       } else {
         bankCode = mapNetworkToPaystackBankCode(String(network ?? ""))
-        recipientAccountNumber = phone
+        recipientAccountNumber = phone ? normalizePhoneNumber(phone) : phone
         recipientType = "mobile_money"
         if (!bankCode) {
           await supabase

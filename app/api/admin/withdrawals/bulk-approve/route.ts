@@ -9,6 +9,7 @@ import {
 } from "@/lib/paystack-transfer"
 import { sendPushToUser } from "@/lib/push-service"
 import { notificationTemplates } from "@/lib/notification-service"
+import { normalizePhoneNumber } from "@/lib/mtn-fulfillment"
 
 // Serial processing of N transfers can take several seconds each
 export const maxDuration = 300
@@ -210,7 +211,7 @@ export async function POST(request: NextRequest) {
             recipientType = "ghipss"
           } else {
             bankCode = mapNetworkToPaystackBankCode(String(details?.network ?? ""))
-            recipientAccountNumber = details?.phone
+            recipientAccountNumber = details?.phone ? normalizePhoneNumber(details.phone) : details?.phone
             if (!bankCode) {
               await supabase
                 .from("withdrawal_requests")
