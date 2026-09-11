@@ -4,7 +4,7 @@ import { generateShopSession } from "@/lib/shop-token-edge"
 import { Ratelimit } from "@upstash/ratelimit"
 import { Redis } from "@upstash/redis"
 import { resolveCustomDomain } from "@/lib/custom-domain-lookup"
-import { getServiceRedirect } from "@/lib/custom-domains"
+import { getServiceRedirect, normalizeDomainHost } from "@/lib/custom-domains"
 
 // Per-IP cookie-issuance rate limit. Real customers refresh a handful of cookies
 // per browsing session (visit, navigate to checkout, etc.). Attackers harvesting
@@ -85,9 +85,22 @@ export async function middleware(request: NextRequest) {
   // admin-configured custom domain (its own branding, scoped to one service).
   // Unmapped/unknown hosts fail open to normal main-site rendering — see
   // lib/custom-domain-lookup.ts.
-  const hostname = request.headers.get("host")?.split(":")[0].toLowerCase() ?? null
+  //
+  // isMainAppHost is a pure, synchronous check computed BEFORE resolveCustomDomain
+  // is ever called, so none of the main app's own host shapes — the root domain,
+  // any subdomain of it (www/app/admin/api/shop-subdomains), localhost, or a
+  // Vercel preview/prod alias — pay the Redis/Supabase cost of a lookup on every
+  // request, not even a cached-negative one.
+  const hostname = normalizeDomainHost(request.headers.get("host"))
+  const isMainAppHost =
+    !hostname ||
+    hostname === ROOT_DOMAIN ||
+    hostname.endsWith(`.${ROOT_DOMAIN}`) ||
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    hostname.endsWith(".vercel.app")
   const customDomainConfig =
-    !shopSubdomain && hostname && hostname !== ROOT_DOMAIN
+    !shopSubdomain && hostname && !isMainAppHost
       ? await resolveCustomDomain(hostname)
       : null
 
@@ -105,6 +118,16 @@ export async function middleware(request: NextRequest) {
   const buildRequestHeaders = () => {
     const h = new Headers(request.headers)
     h.set("x-nonce", nonce)
+    // Always clear any inherited/client-supplied x-domain-* headers first, then
+    // re-set them only when genuinely resolved below. Without this, a request
+    // to the main site that happens to carry a client-supplied x-domain-service
+    // header would pass it straight through unmodified, and app/layout.tsx
+    // reading it (even with its own validation) has no protection against a
+    // header that was never meant to be there in the first place.
+    h.delete("x-domain-service")
+    h.delete("x-domain-site-name")
+    h.delete("x-domain-logo")
+    h.delete("x-domain-color")
     if (customDomainConfig) {
       try {
         h.set("x-domain-service", customDomainConfig.service)

@@ -17,6 +17,15 @@ const SERVICE_PATH_PREFIXES: Record<DomainService, string[]> = {
 }
 
 /**
+ * Returns a service's own first/primary path — the target used both as the
+ * fallback redirect destination in getServiceRedirect below and as the mobile
+ * bottom-nav FAB's repointed href when a domain is scoped to this service.
+ */
+export function getServicePrimaryPath(service: DomainService): string {
+  return SERVICE_PATH_PREFIXES[service][0]
+}
+
+/**
  * Given the requested path and the domain's chosen service, return the path to
  * redirect to if this path belongs to a DIFFERENT service's family, else null
  * (the path is either service-agnostic — wallet, orders, auth, admin — or
@@ -24,13 +33,17 @@ const SERVICE_PATH_PREFIXES: Record<DomainService, string[]> = {
  */
 export function getServiceRedirect(path: string, service: DomainService): string | null {
   const ownPrefixes = SERVICE_PATH_PREFIXES[service]
+  // Defensive: an unrecognized service value should never crash rendering (e.g.
+  // a stale cached/header value referencing a since-removed service) — treat it
+  // as "no restriction" rather than throwing on the SERVICE_PATH_PREFIXES miss.
+  if (!ownPrefixes) return null
   if (ownPrefixes.some(p => path.startsWith(p))) return null
 
   const belongsToOtherService = (Object.entries(SERVICE_PATH_PREFIXES) as [DomainService, string[]][])
     .some(([s, prefixes]) => s !== service && prefixes.some(p => path.startsWith(p)))
   if (!belongsToOtherService) return null
 
-  return ownPrefixes[0]
+  return getServicePrimaryPath(service)
 }
 
 /** Convenience wrapper for nav filtering: true when `path` should be shown for `service`. */

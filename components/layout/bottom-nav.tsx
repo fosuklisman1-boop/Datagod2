@@ -6,6 +6,18 @@ import { Home, Package, Wallet, ShoppingBag, Store, Users, CreditCard, Bot, Sign
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useUserRole } from "@/hooks/use-user-role"
 import { cn } from "@/lib/utils"
+import { useDomainBranding } from "@/components/providers/domain-branding-provider"
+import { getServicePrimaryPath, type DomainService } from "@/lib/custom-domains"
+
+// Short, FAB-appropriate labels for each service, used when a custom domain is
+// scoped to one service and the FAB is repointed to that service's own page
+// instead of the default Data/Buy Data target.
+const SERVICE_FAB_LABELS: Record<DomainService, string> = {
+  data_bundles: "Data",
+  airtime: "Airtime",
+  results_checker: "Results",
+  bulk_sms: "SMS",
+}
 
 const ADMIN_NAV = [
   { href: "/admin/users",                label: "Users",    icon: Users,      isFab: false },
@@ -19,15 +31,30 @@ export function BottomNav() {
   const pathname = usePathname()
   const isMobile = useIsMobile()
   const { isDealer, isAdmin, isSubAgent } = useUserRole()
+  const domainBranding = useDomainBranding()
 
   if (!isMobile) return null
 
+  // On a custom domain scoped to one service, the FAB — the single most
+  // prominent control on mobile — is repointed to that service's own page
+  // instead of the hardcoded data-packages/buy-stock target, so tapping it
+  // doesn't trigger middleware's service redirect to somewhere else. When
+  // domainBranding.service is null (main site/shop, today's behavior for all
+  // current traffic), this is a no-op: fabHref/fabLabel fall through to the
+  // exact same values as before.
+  const fabHref = domainBranding.service
+    ? getServicePrimaryPath(domainBranding.service)
+    : isSubAgent ? "/dashboard/buy-stock" : "/dashboard/data-packages"
+  const fabLabel = domainBranding.service
+    ? SERVICE_FAB_LABELS[domainBranding.service]
+    : isSubAgent ? "Buy Data" : "Data"
+
   const USER_NAV = [
-    { href: "/dashboard",                                                   label: "Home",    icon: Home,        isFab: false },
-    { href: "/dashboard/wallet",                                            label: "Wallet",  icon: Wallet,      isFab: false },
-    { href: isSubAgent ? "/dashboard/buy-stock" : "/dashboard/data-packages", label: isSubAgent ? "Buy Data" : "Data", icon: Package, isFab: true },
-    { href: "/dashboard/my-orders",                                         label: "Orders",  icon: ShoppingBag, isFab: false },
-    { href: "/dashboard/shop-dashboard",                                    label: "Shop",    icon: Store,       isFab: false },
+    { href: "/dashboard",             label: "Home",    icon: Home,        isFab: false },
+    { href: "/dashboard/wallet",      label: "Wallet",  icon: Wallet,      isFab: false },
+    { href: fabHref,                  label: fabLabel,  icon: Package,     isFab: true },
+    { href: "/dashboard/my-orders",   label: "Orders",  icon: ShoppingBag, isFab: false },
+    { href: "/dashboard/shop-dashboard", label: "Shop",  icon: Store,      isFab: false },
   ]
 
   const onAdminPage = pathname.startsWith("/admin")

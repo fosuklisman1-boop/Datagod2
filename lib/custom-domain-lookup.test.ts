@@ -79,15 +79,52 @@ describe("resolveCustomDomain", () => {
     expect(redisSetMock).toHaveBeenCalledWith("custom_domain:checkresults.com", sampleConfig, { ex: 300 })
   })
 
-  it("returns null and does not cache when no active row matches", async () => {
-    redisGetMock.mockResolvedValueOnce(null)
-    maybeSingleMock.mockResolvedValueOnce({ data: null, error: null })
+  it("negative-caches a definitive miss on both the exact host and its www-toggled variant", async () => {
+    redisGetMock.mockResolvedValue(null) // no cache hit for either host form
+    maybeSingleMock.mockResolvedValue({ data: null, error: null }) // no active row for either form
     const { resolveCustomDomain } = await import("./custom-domain-lookup")
 
     const result = await resolveCustomDomain("unknown-domain.com")
 
     expect(result).toBeNull()
-    expect(redisSetMock).not.toHaveBeenCalled()
+    expect(redisSetMock).toHaveBeenCalledWith("custom_domain:unknown-domain.com", "__none__", { ex: 60 })
+    expect(redisSetMock).toHaveBeenCalledWith("custom_domain:www.unknown-domain.com", "__none__", { ex: 60 })
+  })
+
+  it("negative-caches so a repeated lookup for the same host never touches Supabase again", async () => {
+    redisGetMock.mockResolvedValue(null)
+    maybeSingleMock.mockResolvedValue({ data: null, error: null })
+    const { resolveCustomDomain } = await import("./custom-domain-lookup")
+
+    const first = await resolveCustomDomain("ghost-domain.com")
+    expect(first).toBeNull()
+    const callsAfterFirstLookup = maybeSingleMock.mock.calls.length
+    expect(callsAfterFirstLookup).toBeGreaterThan(0)
+
+    // Simulate the negative marker that was just written now living in the
+    // cache under the exact host's own key — a real Redis would already
+    // reflect this by the time a second request comes in.
+    redisGetMock.mockImplementation(async (key: string) =>
+      key === "custom_domain:ghost-domain.com" ? "__none__" : null
+    )
+
+    const second = await resolveCustomDomain("ghost-domain.com")
+
+    expect(second).toBeNull()
+    expect(maybeSingleMock.mock.calls.length).toBe(callsAfterFirstLookup) // no new Supabase calls
+  })
+
+  it("falls back to the www-toggled host when the exact host has no active row", async () => {
+    redisGetMock.mockResolvedValue(null) // no cache hit for either form
+    maybeSingleMock
+      .mockResolvedValueOnce({ data: null, error: null }) // miss for "checkresults.com"
+      .mockResolvedValueOnce({ data: sampleConfig, error: null }) // hit for "www.checkresults.com"
+    const { resolveCustomDomain } = await import("./custom-domain-lookup")
+
+    const result = await resolveCustomDomain("checkresults.com")
+
+    expect(result).toEqual(sampleConfig)
+    expect(maybeSingleMock).toHaveBeenCalledTimes(2)
   })
 
   it("falls back to Supabase and still returns a result when Redis throws", async () => {

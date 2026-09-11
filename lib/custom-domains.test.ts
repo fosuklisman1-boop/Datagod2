@@ -1,16 +1,30 @@
 import { describe, it, expect } from "vitest"
 import {
   getServiceRedirect,
+  getServicePrimaryPath,
   isPathAllowedForService,
   normalizeDomainHost,
   hexToHslTriplet,
   isReservedDomainHost,
 } from "./custom-domains"
 
+describe("getServicePrimaryPath", () => {
+  it("returns each service's own first/primary path", () => {
+    expect(getServicePrimaryPath("data_bundles")).toBe("/dashboard/data-packages")
+    expect(getServicePrimaryPath("airtime")).toBe("/dashboard/airtime")
+    expect(getServicePrimaryPath("results_checker")).toBe("/dashboard/results-checker")
+    expect(getServicePrimaryPath("bulk_sms")).toBe("/dashboard/sms")
+  })
+})
+
 describe("getServiceRedirect", () => {
   it("returns null for a path belonging to the domain's own service", () => {
     expect(getServiceRedirect("/dashboard/data-packages", "data_bundles")).toBeNull()
     expect(getServiceRedirect("/dashboard/data-packages/foo", "data_bundles")).toBeNull()
+  })
+
+  it("returns null instead of throwing for an unrecognized service value", () => {
+    expect(getServiceRedirect("/dashboard/airtime", "not_a_real_service" as any)).toBeNull()
   })
 
   it("returns null for account-wide paths regardless of service", () => {

@@ -316,6 +316,10 @@ export default function HomePage() {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
+          // domainBranding.siteName is admin-only input, but JSON.stringify does
+          // not escape "</script>" — the .replace neutralizes a literal
+          // "</script>" breakout attempt without altering how the JSON parses
+          // (a standard, safe technique: < is a valid JSON escape for "<").
           __html: JSON.stringify({
             "@context": "https://schema.org",
             "@type": "WebSite",
@@ -330,7 +334,7 @@ export default function HomePage() {
               },
               query_input: "required name=search_term_string",
             },
-          }),
+          }).replace(/</g, "\\u003c"),
         }}
       />
 

@@ -118,8 +118,16 @@ export default async function RootLayout({
 
   // Read the custom-domain branding (if any) that middleware resolved for this
   // request's Host header — null on the main site and on shop subdomains.
+  // The service value is validated against the known enum before casting: an
+  // unrecognized/malformed value (middleware clears these headers on every
+  // no-match request, but this is defense-in-depth against any other source of
+  // a stray header) must never reach getServiceRedirect's SERVICE_PATH_PREFIXES
+  // lookup as an untyped string, which would otherwise throw and break SSR for
+  // every dashboard page.
+  const VALID_DOMAIN_SERVICES: DomainService[] = ["data_bundles", "airtime", "results_checker", "bulk_sms"];
+  const rawService = headersList.get("x-domain-service");
   const domainBranding: DomainBranding = {
-    service: headersList.get("x-domain-service") as DomainService | null,
+    service: VALID_DOMAIN_SERVICES.includes(rawService as DomainService) ? (rawService as DomainService) : null,
     siteName: headersList.get("x-domain-site-name"),
     logoUrl: headersList.get("x-domain-logo"),
     primaryColor: headersList.get("x-domain-color"),
