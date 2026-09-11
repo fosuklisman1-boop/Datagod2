@@ -724,6 +724,8 @@ export default function ShopStorefront() {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
+          // shop_name is shop-owner-controlled input embedded in raw HTML — escape "<"
+          // so a literal "</script>" in the name can't break out of the tag.
           __html: JSON.stringify({
             "@context": "https://schema.org",
             "@type": "BreadcrumbList",
@@ -747,7 +749,7 @@ export default function ShopStorefront() {
                 item: shop?.subdomain ? shopOrigin(shop.subdomain) : `https://www.datagod.store/shop/${shopSlug}`,
               },
             ],
-          }),
+          }).replace(/</g, "\\u003c"),
         }}
       />
       {/* Navigation Bar */}
