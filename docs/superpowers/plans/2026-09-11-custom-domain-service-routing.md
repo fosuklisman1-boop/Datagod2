@@ -1901,7 +1901,7 @@ Expected: no redirect (passes through — account-wide route).
 
 - [ ] **Step 3: Verify branding in the browser**
 
-Add `127.0.0.1 test.local` to your hosts file (or use a browser extension / `curl`'s `--resolve` flag to point `test.local` at `127.0.0.1:3000`), then load `http://test.local:3000/`. Confirm: the homepage nav and footer show "TestAirtime" and the uploaded logo instead of "DATAGOD"; the `--primary` CSS variable reflects `#2563EB` (inspect any `bg-primary`/`text-primary` element's computed color, or check `getComputedStyle(document.documentElement).getPropertyValue('--primary')` in the browser console — expect the HSL triplet for `#2563EB`, i.e. `217 91% 53%` per `hexToHslTriplet`).
+Add `127.0.0.1 test.local` to your hosts file (or use a browser extension / `curl`'s `--resolve` flag to point `test.local` at `127.0.0.1:3000`), then load `http://test.local:3000/`. Confirm: the homepage nav and footer show "TestAirtime" and the uploaded logo instead of "DATAGOD"; the `--primary` CSS variable reflects `#2563EB` (inspect any `bg-primary`/`text-primary` element's computed color, or check `getComputedStyle(document.documentElement).getPropertyValue('--primary')` in the browser console — expect the HSL triplet for `#2563EB`, i.e. `221 83% 53%` per `hexToHslTriplet`).
 
 - [ ] **Step 4: Verify nav filtering**
 
