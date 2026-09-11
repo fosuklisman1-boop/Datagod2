@@ -471,11 +471,17 @@ export async function createMTNOrder(order: MTNOrderRequest): Promise<MTNOrderRe
       console.error("[MTN-WHITELIST] Check failed — failing open:", wlErr)
     }
 
-    // Primary attempt (skipped entirely if the whitelist blocked it — a provider
-    // outside the whitelist registry may still be able to serve the number, so we
-    // fall straight into the retry sequence rather than failing immediately).
+    // Primary attempt. A whitelist block on the AUTO-selected path skips the
+    // attempt entirely and falls straight into the retry sequence below — a
+    // provider outside the whitelist registry may still be able to serve the
+    // number. An explicit admin pick (order.provider) is different: the admin
+    // already chose this specific provider, so a whitelist "not recognized"
+    // pre-check no longer pre-emptively holds it — the order is actually
+    // attempted, and the provider's own API decides success/failure. Holding a
+    // manual pick on a whitelist guess (rather than a real attempt) was the
+    // exact bug behind orders cycling in held_registration indefinitely.
     let response: MTNOrderResponse
-    if (whitelistBlocked) {
+    if (whitelistBlocked && !order.provider) {
       response = {
         success: false,
         held: true,
@@ -484,6 +490,9 @@ export async function createMTNOrder(order: MTNOrderRequest): Promise<MTNOrderRe
         error_type: "WHITELIST_BLOCKED",
       }
     } else {
+      if (whitelistBlocked) {
+        console.log(`[MTN] Whitelist check didn't recognize this number, but "${provider.name}" was explicitly picked — attempting anyway`)
+      }
       console.log(`[MTN] Creating order with provider: ${provider.name}`)
       const primaryResult = await provider.createOrder(order)
       response = { ...primaryResult, provider: provider.name }

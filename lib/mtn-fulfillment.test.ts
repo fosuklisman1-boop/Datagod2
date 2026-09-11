@@ -57,7 +57,7 @@ import {
   extractOrderIdFromReference,
   createMTNOrder,
 } from "@/lib/mtn-fulfillment"
-import { getProviderByName } from "@/lib/mtn-providers/factory"
+import { getProviderByName, getMTNProvider, getRetrySequence } from "@/lib/mtn-providers/factory"
 import { checkWhitelistForOrder } from "@/lib/mtn-providers/provider-whitelist"
 import type { MTNProvider } from "@/lib/mtn-providers/types"
 
@@ -210,9 +210,11 @@ describe("MTN Fulfillment Service", () => {
     })
 
     it("still runs the whitelist pre-check when the active provider does have a whitelist endpoint", async () => {
-      // No regression: codecraft is whitelist-capable, so a block from
-      // checkWhitelistForOrder must still hold the order before it ever calls
-      // codecraft's own createOrder.
+      // codecraft is whitelist-capable, so the check still runs and is still
+      // logged/visible — but an explicit admin pick (order.provider set) is no
+      // longer pre-emptively held on a whitelist "not recognized" result. The
+      // admin already chose this specific provider, so it gets a real attempt;
+      // codecraft's own API decides success/failure, not a whitelist guess.
       const codecraft = fakeMtnProvider("codecraft", { success: true, order_id: "2", message: "ok" })
       vi.mocked(getProviderByName).mockReturnValue(codecraft)
       vi.mocked(checkWhitelistForOrder).mockResolvedValue({ allowed: false, provider: null })
@@ -222,6 +224,27 @@ describe("MTN Fulfillment Service", () => {
         network: "MTN",
         size_gb: 1,
         provider: "codecraft",
+      })
+
+      expect(checkWhitelistForOrder).toHaveBeenCalledTimes(1)
+      expect(codecraft.createOrder).toHaveBeenCalledTimes(1)
+      expect(result.success).toBe(true)
+      expect(result.held).toBeUndefined()
+    })
+
+    it("holds on a whitelist block when the provider was auto-selected (not an explicit pick)", async () => {
+      // The auto-selected path keeps the original protection: a whitelist block
+      // still skips the attempt and holds (after the retry sequence, tested
+      // elsewhere, also fails) — only an explicit admin pick bypasses the hold.
+      const codecraft = fakeMtnProvider("codecraft", { success: true, order_id: "3", message: "ok" })
+      vi.mocked(getMTNProvider).mockResolvedValue(codecraft)
+      vi.mocked(getRetrySequence).mockResolvedValue([])
+      vi.mocked(checkWhitelistForOrder).mockResolvedValue({ allowed: false, provider: null })
+
+      const result = await createMTNOrder({
+        recipient_phone: "0551234567",
+        network: "MTN",
+        size_gb: 1,
       })
 
       expect(checkWhitelistForOrder).toHaveBeenCalledTimes(1)
