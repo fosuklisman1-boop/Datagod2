@@ -14,6 +14,7 @@ import GuestPurchaseButton from "@/components/GuestPurchaseButton"
 import { HomeAIChatWidget } from "@/components/home/AIChatWidget"
 import { useCommunityLink } from "@/hooks/use-community-link"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 
 function Step({
   number,
@@ -307,6 +308,7 @@ function MockProfitMargin() {
 
 export default function HomePage() {
   const { communityLink, loading: communityLoading } = useCommunityLink()
+  const domainBranding = useDomainBranding()
 
   return (
     <div className="min-h-screen bg-background">
@@ -317,7 +319,7 @@ export default function HomePage() {
           __html: JSON.stringify({
             "@context": "https://schema.org",
             "@type": "WebSite",
-            name: "DATAGOD",
+            name: domainBranding.siteName || "DATAGOD",
             url: "https://www.datagod.store",
             description: "Buy affordable data packages from multiple networks with instant delivery",
             potentialAction: {
@@ -335,8 +337,12 @@ export default function HomePage() {
       {/* Navigation */}
       <nav className="sticky top-0 z-50 flex items-center justify-between px-4 sm:px-6 py-4 border-b border-border bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70">
         <div className="flex items-center gap-3">
-          <div aria-hidden className="h-7 w-7 rounded-lg bg-gradient-to-br from-primary to-brand-accent" />
-          <h1 className="text-lg sm:text-xl font-display font-semibold text-foreground tracking-tight">DATAGOD</h1>
+          {domainBranding.logoUrl ? (
+            <img src={domainBranding.logoUrl} alt={`${domainBranding.siteName || "DATAGOD"} logo`} className="h-7 w-7 rounded-lg object-cover" />
+          ) : (
+            <div aria-hidden className="h-7 w-7 rounded-lg bg-gradient-to-br from-primary to-brand-accent" />
+          )}
+          <h1 className="text-lg sm:text-xl font-display font-semibold text-foreground tracking-tight">{domainBranding.siteName || "DATAGOD"}</h1>
         </div>
         <div className="hidden md:flex items-center gap-6">
           {["Networks", "Services", "How it works", "Shops"].map((l) => (
@@ -693,7 +699,7 @@ When your sub-agent clicks the link, they see a branded invite page showing your
                style={{ backgroundImage: "radial-gradient(500px 200px at 50% 0, hsl(var(--primary) / 0.16), transparent 70%)" }}>
         <div className="max-w-4xl mx-auto px-4 sm:px-6 space-y-4 sm:space-y-6">
           <h2 className="font-display text-2xl sm:text-3xl md:text-4xl font-semibold text-foreground">Ready to get started?</h2>
-          <p className="text-sm sm:text-lg text-muted-foreground">Join thousands who trust DATAGOD for data, airtime &amp; more.</p>
+          <p className="text-sm sm:text-lg text-muted-foreground">Join thousands who trust {domainBranding.siteName || "DATAGOD"} for data, airtime &amp; more.</p>
           <Link href="/auth/signup"><Button size="lg" className="w-full sm:w-auto">Create your free account</Button></Link>
         </div>
       </section>
@@ -704,8 +710,12 @@ When your sub-agent clicks the link, they see a branded invite page showing your
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6 sm:gap-8 mb-8">
             <div>
               <div className="flex items-center gap-2 mb-3">
-                <div aria-hidden className="h-5 w-5 rounded bg-gradient-to-br from-primary to-brand-accent" />
-                <span className="font-display font-semibold text-foreground">DATAGOD</span>
+                {domainBranding.logoUrl ? (
+                  <img src={domainBranding.logoUrl} alt={`${domainBranding.siteName || "DATAGOD"} logo`} className="h-5 w-5 rounded object-cover" />
+                ) : (
+                  <div aria-hidden className="h-5 w-5 rounded bg-gradient-to-br from-primary to-brand-accent" />
+                )}
+                <span className="font-display font-semibold text-foreground">{domainBranding.siteName || "DATAGOD"}</span>
               </div>
               <p className="text-sm">Your trusted data hub for Ghana — data, airtime, AFA, vouchers &amp; SMS.</p>
             </div>
@@ -719,7 +729,7 @@ When your sub-agent clicks the link, they see a branded invite page showing your
             ))}
           </div>
           <div className="border-t border-border pt-8 text-center text-sm">
-            <p>&copy; 2026 DATAGOD. All rights reserved.</p>
+            <p>&copy; 2026 {domainBranding.siteName || "DATAGOD"}. All rights reserved.</p>
           </div>
         </div>
       </footer>
