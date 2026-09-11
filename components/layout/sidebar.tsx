@@ -4,6 +4,8 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { supabase } from "@/lib/supabase"
+import { useDomainBranding } from "@/components/providers/domain-branding-provider"
+import { isPathAllowedForService } from "@/lib/custom-domains"
 import { useIsAdmin } from "@/hooks/use-admin"
 import { useAppSettings } from "@/hooks/use-app-settings"
 import { useAuth } from "@/hooks/use-auth"
@@ -91,6 +93,7 @@ export function Sidebar() {
   const { isAdmin } = useIsAdmin()
   const { joinCommunityLink } = useAppSettings()
   const { logout, user } = useAuth()
+  const domainBranding = useDomainBranding()
   const [isOpen, setIsOpen] = useState(true)
   const [isMobile, setIsMobile] = useState(false)
   const [loadingPath, setLoadingPath] = useState<string | null>(null)
@@ -293,7 +296,11 @@ export function Sidebar() {
         )}>
           <Link href="/dashboard" className="flex items-center gap-3">
             <div className="bg-card p-2 rounded-lg flex-shrink-0 relative">
-              <img src="/favicon-v2.jpeg" alt="DATAGOD Logo" className="w-6 h-6 rounded-lg object-cover" />
+              <img
+                src={domainBranding.logoUrl || "/favicon-v2.jpeg"}
+                alt={domainBranding.siteName ? `${domainBranding.siteName} Logo` : "DATAGOD Logo"}
+                className="w-6 h-6 rounded-lg object-cover"
+              />
               {userRole === 'dealer' && (
                 <div className="absolute -top-3 -right-3 rotate-12">
                   <Crown className="w-5 h-5 text-brand-accent fill-brand-accent/80 drop-shadow-md" />
@@ -302,7 +309,7 @@ export function Sidebar() {
             </div>
             {isOpen && (
               <div>
-                <h1 className="text-xl font-bold">DATAGOD</h1>
+                <h1 className="text-xl font-bold">{domainBranding.siteName || "DATAGOD"}</h1>
                 <p className={cn(
                   "text-xs",
                   userRole === 'dealer' ? "text-primary" : "text-muted-foreground"
@@ -348,6 +355,8 @@ export function Sidebar() {
             if (!userRole || !item.roles.includes(userRole)) return false
             // Hide upgrade page for dealers with no subscription end-date (permanent dealers)
             if (item.href === '/dashboard/upgrade' && userRole === 'dealer' && !dealerHasSubscription) return false
+            // On a custom domain scoped to one service, hide nav entries for the other services.
+            if (!isPathAllowedForService(item.href, domainBranding.service)) return false
             return true
           }).map((item) => {
               const Icon = item.icon
@@ -404,7 +413,7 @@ export function Sidebar() {
                   userRole === 'dealer' ? "text-primary/80" : "text-muted-foreground"
                 )}>SHOP</p>
               )}
-              {shopItems.filter(item => userRole && item.roles.includes(userRole)).map((item) => {
+              {shopItems.filter(item => userRole && item.roles.includes(userRole) && isPathAllowedForService(item.href, domainBranding.service)).map((item) => {
                 const Icon = item.icon
                 const isActive = pathname === item.href
                 const isLoading = loadingPath === item.href
