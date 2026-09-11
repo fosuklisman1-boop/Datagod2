@@ -255,11 +255,24 @@ export async function processManualFulfillment(
     }
 
     // Call MTN API
+    //
+    // provider (not finalProvider) is passed here deliberately: finalProvider
+    // is *always* populated (it falls back to getMTNProvider()'s resolved
+    // default when no override was given), but createMTNOrder() treats any
+    // truthy `order.provider` as a hard pin and skips its mtn_retry_sequence
+    // fallback entirely. Forcing finalProvider through meant every call site
+    // with no real override — bulk-manual-fulfill's "Fulfil All Pending" in
+    // particular, which never sends a provider — silently hard-pinned to the
+    // primary provider and could never fall through to the configured retry
+    // sequence on failure. Passing the raw, possibly-undefined `provider` lets
+    // createMTNOrder() distinguish a genuine per-order override (the admin's
+    // "Fulfill as..." dropdown) from "no override" and auto-select + retry
+    // exactly as it already does for every other unforced dispatch path.
     const mtnRequest: MTNOrderRequest = {
       recipient_phone: phone,
       network: "MTN",
       size_gb: volumeGb,
-      provider: finalProvider,
+      provider,
       client_ref: orderId, // echoed back in DataKazina's webhook reference
     }
 
