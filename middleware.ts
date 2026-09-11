@@ -3,6 +3,8 @@ import { createServerClient } from "@supabase/ssr"
 import { generateShopSession } from "@/lib/shop-token-edge"
 import { Ratelimit } from "@upstash/ratelimit"
 import { Redis } from "@upstash/redis"
+import { resolveCustomDomain } from "@/lib/custom-domain-lookup"
+import { getServiceRedirect } from "@/lib/custom-domains"
 
 // Per-IP cookie-issuance rate limit. Real customers refresh a handful of cookies
 // per browsing session (visit, navigate to checkout, etc.). Attackers harvesting
@@ -78,10 +80,44 @@ export async function middleware(request: NextRequest) {
       ? `/shop/${shopSubdomain}${path === "/" ? "" : path}`
       : null
 
-  // Builds request headers that include the nonce for the layout server component.
+  // ── Custom domain resolution ────────────────────────────────────────────────
+  // A host that isn't the root domain and isn't a shop subdomain may be an
+  // admin-configured custom domain (its own branding, scoped to one service).
+  // Unmapped/unknown hosts fail open to normal main-site rendering — see
+  // lib/custom-domain-lookup.ts.
+  const hostname = request.headers.get("host")?.split(":")[0].toLowerCase() ?? null
+  const customDomainConfig =
+    !shopSubdomain && hostname && hostname !== ROOT_DOMAIN
+      ? await resolveCustomDomain(hostname)
+      : null
+
+  if (customDomainConfig) {
+    const serviceRedirectPath = getServiceRedirect(path, customDomainConfig.service)
+    if (serviceRedirectPath) {
+      const url = request.nextUrl.clone()
+      url.pathname = serviceRedirectPath
+      return NextResponse.redirect(url)
+    }
+  }
+
+  // Builds request headers that include the nonce for the layout server component,
+  // plus the resolved custom-domain branding (if any) for app/layout.tsx to read.
   const buildRequestHeaders = () => {
     const h = new Headers(request.headers)
     h.set("x-nonce", nonce)
+    if (customDomainConfig) {
+      try {
+        h.set("x-domain-service", customDomainConfig.service)
+        h.set("x-domain-site-name", customDomainConfig.site_name)
+        if (customDomainConfig.logo_url) h.set("x-domain-logo", customDomainConfig.logo_url)
+        if (customDomainConfig.primary_color) h.set("x-domain-color", customDomainConfig.primary_color)
+      } catch (e) {
+        // A malformed branding value must never take down every request to this
+        // domain — skip branding for this request rather than throwing out of
+        // middleware.
+        console.error("[MIDDLEWARE] Failed to set custom-domain branding headers:", e instanceof Error ? e.message : e)
+      }
+    }
     return h
   }
 
