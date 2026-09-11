@@ -46,6 +46,7 @@ import {
   BookOpen,
   Send,
   MessageSquare,
+  Globe,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
@@ -962,6 +963,28 @@ export function Sidebar() {
                     <ClipboardCheck className="w-5 h-5 flex-shrink-0" />
                   )}
                   {isOpen && "Check Requests"}
+                </Button>
+              </Link>
+              <Link href="/admin/custom-domains" onClick={() => handleNavigation("/admin/custom-domains")}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    userRole === 'dealer'
+                      ? (pathname === "/admin/custom-domains" ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-lg" : "text-primary hover:bg-card/10")
+                      : (pathname === "/admin/custom-domains" ? "bg-primary/10 text-primary font-medium" : "text-sidebar-foreground hover:bg-accent"),
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/custom-domains" && "opacity-70"
+                  )}
+                  title={!isOpen ? "Custom Domains" : undefined}
+                  disabled={loadingPath === "/admin/custom-domains"}
+                >
+                  {loadingPath === "/admin/custom-domains" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <Globe className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && "Custom Domains"}
                 </Button>
               </Link>
               <Link href="/admin/whatsapp" onClick={() => handleNavigation("/admin/whatsapp")}>
