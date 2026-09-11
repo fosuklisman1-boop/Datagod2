@@ -444,8 +444,26 @@ export async function createMTNOrder(order: MTNOrderRequest): Promise<MTNOrderRe
             { onConflict: "phone" }
           )
           if (allowedBy && allowedBy !== provider.name) {
-            provider = getProviderByName(allowedBy as any)
-            console.log(`[MTN-WHITELIST] Switched fulfillment to ${allowedBy} (approved by that provider)`)
+            // A provider can confirm a number is real without being trusted to
+            // grab the order for itself — mtn_disabled_providers is an all-or-
+            // nothing kill switch (also removes it from checking), so this is a
+            // second, independent gate on just the auto-switch. Missing setting
+            // defaults to allowing every provider to switch, preserving the
+            // pre-existing behavior until an admin narrows it down.
+            const { data: switchSetting } = await supabase
+              .from("admin_settings")
+              .select("value")
+              .eq("key", "mtn_whitelist_switch_providers")
+              .maybeSingle()
+            const switchAllowed = Array.isArray(switchSetting?.value?.providers)
+              ? switchSetting.value.providers.includes(allowedBy)
+              : true
+            if (switchAllowed) {
+              provider = getProviderByName(allowedBy as any)
+              console.log(`[MTN-WHITELIST] Switched fulfillment to ${allowedBy} (approved by that provider)`)
+            } else {
+              console.log(`[MTN-WHITELIST] ${allowedBy} approved the number but is not switch-eligible — keeping ${provider.name} as fulfiller`)
+            }
           }
         }
       }

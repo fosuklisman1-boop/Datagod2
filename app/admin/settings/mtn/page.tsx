@@ -80,6 +80,11 @@ export default function MTNSettingsPage() {
   const [loadingCustVerify, setLoadingCustVerify] = useState(true)
   const [savingCustVerify, setSavingCustVerify] = useState(false)
 
+  const [switchProviders, setSwitchProviders] = useState<string[]>([])
+  const [switchAvailable, setSwitchAvailable] = useState<Array<{ name: string; configured: boolean }>>([])
+  const [loadingSwitch, setLoadingSwitch] = useState(true)
+  const [savingSwitch, setSavingSwitch] = useState(false)
+
   const [threshold, setThreshold] = useState<number>(500)
   const [thresholdInput, setThresholdInput] = useState<string>("500")
   const [savingThreshold, setSavingThreshold] = useState(false)
@@ -152,6 +157,7 @@ export default function MTNSettingsPage() {
     loadAtFulfillmentSetting()
     loadWhitelistSetting()
     loadCustomerVerificationSetting()
+    loadWhitelistSwitchSetting()
     loadNetworkProvider("telecel", setTelecelProvider)
     loadNetworkProvider("at_ishare", setAtIshareProvider)
     loadNetworkProvider("at_bigtime", setAtBigtimeProvider)
@@ -784,6 +790,48 @@ export default function MTNSettingsPage() {
       : [...custVerifyProviders, name]
     setCustVerifyProviders(next)
     saveCustomerVerificationSetting(custVerifyEnabled, next)
+  }
+
+  const loadWhitelistSwitchSetting = async () => {
+    try {
+      setLoadingSwitch(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch("/api/admin/settings/mtn-whitelist-switch", {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      })
+      if (res.ok) {
+        const d = await res.json()
+        setSwitchProviders(d.providers ?? [])
+        setSwitchAvailable(d.availableProviders ?? [])
+      }
+    } catch (e) { console.error("Error loading whitelist-switch setting:", e) }
+    finally { setLoadingSwitch(false) }
+  }
+
+  const saveWhitelistSwitchSetting = async (providers: string[]) => {
+    try {
+      setSavingSwitch(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) { toast.error("Authentication required"); return }
+      const res = await fetch("/api/admin/settings/mtn-whitelist-switch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ providers }),
+      })
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Failed") }
+      const d = await res.json()
+      setSwitchProviders(d.providers)
+      toast.success("Whitelist-switch settings saved")
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Failed to update") }
+    finally { setSavingSwitch(false) }
+  }
+
+  const toggleSwitchProvider = (name: string) => {
+    const next = switchProviders.includes(name)
+      ? switchProviders.filter(p => p !== name)
+      : [...switchProviders, name]
+    setSwitchProviders(next)
+    saveWhitelistSwitchSetting(next)
   }
 
   async function apgAuthHeaders(): Promise<Record<string, string>> {
@@ -1493,6 +1541,48 @@ export default function MTNSettingsPage() {
                     </Alert>
                   )
                 })()}
+              </CardContent>
+            </Card>
+
+            {/* Whitelist-driven fulfillment switch — per-provider control */}
+            <Card className="border-2">
+              <CardHeader>
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <ShieldCheck className="h-5 w-5 text-primary" />
+                    Whitelist Auto-Switch Providers
+                  </CardTitle>
+                  <CardDescription className="mt-1">
+                    When the whitelist check above finds a DIFFERENT provider recognizes the customer&apos;s number, fulfillment normally switches to that provider. Uncheck a provider here to still let it confirm numbers are valid, without ever letting it take over the order. Independent of that provider being enabled/disabled for normal selection.
+                  </CardDescription>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {loadingSwitch ? (
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                ) : (
+                  <div className="flex flex-wrap gap-3">
+                    {switchAvailable.map(p => (
+                      <label key={p.name} className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm cursor-pointer ${switchProviders.includes(p.name) ? "border-primary bg-primary/5" : "border-border"} ${!p.configured ? "opacity-50" : ""}`}>
+                        <input
+                          type="checkbox"
+                          checked={switchProviders.includes(p.name)}
+                          onChange={() => toggleSwitchProvider(p.name)}
+                          disabled={!p.configured || savingSwitch}
+                        />
+                        {p.name}{!p.configured && " (not configured)"}
+                      </label>
+                    ))}
+                  </div>
+                )}
+                <Alert className="border-primary/20 bg-primary/5">
+                  <ShieldCheck className="h-4 w-4 text-primary" />
+                  <AlertDescription>
+                    {switchProviders.length === 0
+                      ? <>No provider can currently take over fulfillment via auto-switch — every order stays with whichever provider was already selected, even if another provider recognizes the number.</>
+                      : <>{switchProviders.join(", ")} can take over fulfillment via auto-switch. Any other configured provider can still confirm a number is valid, but will never grab the order for itself.</>}
+                  </AlertDescription>
+                </Alert>
               </CardContent>
             </Card>
 
