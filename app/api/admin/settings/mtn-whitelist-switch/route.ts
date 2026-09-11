@@ -3,7 +3,7 @@ import { verifyAdminAccess } from "@/lib/admin-auth"
 import { supabaseAdmin as supabase } from "@/lib/supabase"
 import { listWhitelistProviders, validateProviderSelection } from "@/lib/mtn-providers/provider-whitelist"
 
-export const SETTING_KEY = "mtn_whitelist_switch_providers"
+const SETTING_KEY = "mtn_whitelist_switch_providers"
 
 export async function GET(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
