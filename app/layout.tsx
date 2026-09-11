@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, DM_Sans, JetBrains_Mono } from "next/font/google";
 import { headers } from "next/headers";
+import { DomainBrandingProvider, type DomainBranding } from "@/components/providers/domain-branding-provider";
+import type { DomainService } from "@/lib/custom-domains";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
@@ -114,6 +116,15 @@ export default async function RootLayout({
   const headersList = await headers();
   const nonce = headersList.get("x-nonce") ?? "";
 
+  // Read the custom-domain branding (if any) that middleware resolved for this
+  // request's Host header — null on the main site and on shop subdomains.
+  const domainBranding: DomainBranding = {
+    service: headersList.get("x-domain-service") as DomainService | null,
+    siteName: headersList.get("x-domain-site-name"),
+    logoUrl: headersList.get("x-domain-logo"),
+    primaryColor: headersList.get("x-domain-color"),
+  };
+
   // Maintenance mode: a DB-free kill switch. When on, render ONLY the maintenance
   // screen — the app providers (which call Supabase/auth) never mount, so nothing
   // tries to reach the backend while it's down. Toggle via the MAINTENANCE_MODE
@@ -204,17 +215,19 @@ export default async function RootLayout({
           <MaintenanceScreen />
         ) : (
           <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} disableTransitionOnChange nonce={nonce}>
-            <AuthProvider>
-              <ServiceWorkerRegister />
-              <PeriodicSyncRegister />
-              <BackgroundSyncRegister />
-              <PushNotificationRegister />
-              <PushOptInBanner />
-              <ChristmasThemeProvider />
-              <InactivityLogoutProvider />
-              {children}
-              <Toaster />
-            </AuthProvider>
+            <DomainBrandingProvider branding={domainBranding}>
+              <AuthProvider>
+                <ServiceWorkerRegister />
+                <PeriodicSyncRegister />
+                <BackgroundSyncRegister />
+                <PushNotificationRegister />
+                <PushOptInBanner />
+                <ChristmasThemeProvider />
+                <InactivityLogoutProvider />
+                {children}
+                <Toaster />
+              </AuthProvider>
+            </DomainBrandingProvider>
           </ThemeProvider>
         )}
       </body>
