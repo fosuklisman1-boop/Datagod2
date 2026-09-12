@@ -61,6 +61,21 @@ export async function middleware(request: NextRequest) {
   const nonce = btoa(crypto.randomUUID())
   const path = request.nextUrl.pathname
 
+  // ── Canonical host redirect ──────────────────────────────────────────────
+  // The bare apex (e.g. "datagod.store") and "www.datagod.store" both serve
+  // the app with no redirect between them today — every page's metadataBase
+  // and canonical tag hardcode the www host, so the apex was silently
+  // duplicating that content under a second, uncanonicalized host. Force
+  // apex -> www so search engines consolidate ranking signal onto one host.
+  // Only the exact bare root domain matches here — shop subdomains, custom
+  // domains, localhost, and Vercel preview URLs are untouched.
+  const requestHostname = request.headers.get("host")?.split(":")[0]?.toLowerCase() ?? null
+  if (requestHostname === ROOT_DOMAIN) {
+    const url = request.nextUrl.clone()
+    url.hostname = `www.${ROOT_DOMAIN}`
+    return NextResponse.redirect(url, 308)
+  }
+
   // ── Subdomain storefront rewrite ────────────────────────────────────────────
   // <shop>.datagod.store/* is rewritten internally to /shop/<shop>/* so the existing
   // app/shop/[slug] routes serve it. The browser URL stays clean (rewrite, not redirect).

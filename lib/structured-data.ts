@@ -18,7 +18,6 @@ export const generateOrganizationSchema = () => ({
   contactPoint: {
     "@type": "ContactPoint",
     contactType: "Customer Service",
-    telephone: "+233-XXX-XXX-XXXX",
     availableLanguage: ["en"],
   },
 });
@@ -42,6 +41,7 @@ export const generateHomepageSchema = () => ({
 export const generateProductSchema = (
   name: string,
   price: number,
+  url: string,
   currency: string = "GHS",
   description?: string,
   rating?: number,
@@ -56,7 +56,7 @@ export const generateProductSchema = (
     price: price.toString(),
     priceCurrency: currency,
     availability: "https://schema.org/InStock",
-    url: `https://www.datagod.store/shop/${name.toLowerCase().replace(/\s+/g, "-")}`,
+    url,
   },
   ...(rating && reviewCount && {
     aggregateRating: {

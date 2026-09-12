@@ -1,6 +1,12 @@
 import { createClient } from "@supabase/supabase-js"
 import Link from "next/link"
 import { Shield } from "lucide-react"
+import type { Metadata } from "next"
+
+export const metadata: Metadata = {
+  title: "Terms of Service | DATAGOD",
+  description: "DATAGOD Terms of Service — account registration, delivery policy, payment verification, and wallet terms for buying data, airtime, and digital services in Ghana.",
+}
 
 const DEFAULT_TERMS = `Welcome to DATAGOD. By accessing or using our platform, you agree to be bound by these Terms of Service. Please read them carefully before creating an account or making any purchase.
 

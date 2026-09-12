@@ -8,7 +8,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.datagod.store'
   const rootDomain = (process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'datagod.store').toLowerCase()
 
-  // Static routes
+  // Static routes. /auth/login and /auth/signup are deliberately excluded:
+  // their own metadata sets `robots: { index: false }` (see their layout.tsx
+  // files), and listing a noindex URL in the sitemap is a known Search
+  // Console anti-pattern ("Excluded by noindex tag").
   const staticRoutes: MetadataRoute.Sitemap = [
     {
       url: baseUrl,
@@ -23,16 +26,22 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 0.8,
     },
     {
-      url: `${baseUrl}/auth/login`,
+      url: `${baseUrl}/vouchers`,
       lastModified: new Date(),
       changeFrequency: 'monthly',
-      priority: 0.8,
+      priority: 0.5,
     },
     {
-      url: `${baseUrl}/auth/signup`,
+      url: `${baseUrl}/terms`,
       lastModified: new Date(),
-      changeFrequency: 'monthly',
-      priority: 0.8,
+      changeFrequency: 'yearly',
+      priority: 0.3,
+    },
+    {
+      url: `${baseUrl}/privacy`,
+      lastModified: new Date(),
+      changeFrequency: 'yearly',
+      priority: 0.3,
     },
   ]
 
@@ -60,63 +69,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     // Continue without shop routes if there's an error
   }
 
-  // Dashboard routes (authenticated only, but included for completeness)
-  const dashboardRoutes: MetadataRoute.Sitemap = [
-    {
-      url: `${baseUrl}/dashboard`,
-      lastModified: new Date(),
-      changeFrequency: 'weekly',
-      priority: 0.6,
-    },
-    {
-      url: `${baseUrl}/dashboard/data-packages`,
-      lastModified: new Date(),
-      changeFrequency: 'weekly',
-      priority: 0.6,
-    },
-    {
-      url: `${baseUrl}/dashboard/my-orders`,
-      lastModified: new Date(),
-      changeFrequency: 'weekly',
-      priority: 0.6,
-    },
-    {
-      url: `${baseUrl}/dashboard/my-shop`,
-      lastModified: new Date(),
-      changeFrequency: 'weekly',
-      priority: 0.6,
-    },
-    {
-      url: `${baseUrl}/dashboard/shop-dashboard`,
-      lastModified: new Date(),
-      changeFrequency: 'weekly',
-      priority: 0.6,
-    },
-    {
-      url: `${baseUrl}/dashboard/wallet`,
-      lastModified: new Date(),
-      changeFrequency: 'weekly',
-      priority: 0.6,
-    },
-    {
-      url: `${baseUrl}/dashboard/transactions`,
-      lastModified: new Date(),
-      changeFrequency: 'weekly',
-      priority: 0.6,
-    },
-    {
-      url: `${baseUrl}/dashboard/profile`,
-      lastModified: new Date(),
-      changeFrequency: 'weekly',
-      priority: 0.6,
-    },
-    {
-      url: `${baseUrl}/dashboard/complaints`,
-      lastModified: new Date(),
-      changeFrequency: 'weekly',
-      priority: 0.6,
-    },
-  ]
-
-  return [...staticRoutes, ...shopRoutes, ...dashboardRoutes]
+  // Dashboard routes are intentionally NOT in the sitemap: they're auth-gated
+  // (middleware redirects unauthenticated requests, including every crawler,
+  // straight to /auth/login) and robots.ts disallows /dashboard outright.
+  // Submitting URLs here that robots.txt blocks trains Search Console to flag
+  // them as errors instead of leaving the sitemap clean.
+  return [...staticRoutes, ...shopRoutes]
 }

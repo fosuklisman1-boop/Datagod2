@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { shopService, shopPackageService, shopOrderService, networkLogoService } from "@/lib/shop-service"
 import { shopOrigin } from "@/lib/shop-url"
+import { generateProductSchema } from "@/lib/structured-data"
 import { supabase } from "@/lib/supabase"
 import { useShopSettings } from "@/hooks/use-shop-settings"
 import { validatePhoneNumber } from "@/lib/phone-validation"
@@ -752,6 +753,26 @@ export default function ShopStorefront() {
           }).replace(/</g, "\\u003c"),
         }}
       />
+      {/* Product Schema — one entry per package currently listed for this shop */}
+      {packages.length > 0 && (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify(
+              packages.map((shopPkg) => {
+                const pkg = shopPkg.packages
+                return generateProductSchema(
+                  `${pkg.size}GB ${pkg.network} Data Bundle`,
+                  pkg.price + shopPkg.profit_margin,
+                  shop?.subdomain ? shopOrigin(shop.subdomain) : `https://www.datagod.store/shop/${shopSlug}`,
+                  "GHS",
+                  pkg.description || undefined
+                )
+              })
+            ).replace(/</g, "\\u003c"),
+          }}
+        />
+      )}
       {/* Navigation Bar */}
       <nav className="bg-card border-b border-border shadow-sm sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
@@ -829,7 +850,7 @@ export default function ShopStorefront() {
         <div className="h-40 relative overflow-hidden">
           <img
             src={shop.banner_url}
-            alt={shop.shop_name}
+            alt={shop.shop_name || shop.name || "Shop"}
             className="w-full h-full object-cover"
           />
           <div className="absolute inset-0 bg-background/30" />

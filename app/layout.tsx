@@ -15,6 +15,7 @@ import { BackgroundSyncRegister } from "@/components/background-sync-register";
 import { PushNotificationRegister } from "@/components/push-notification-register";
 import { PushOptInBanner } from "@/components/push-opt-in-banner";
 import { MaintenanceScreen } from "@/components/maintenance-screen";
+import { generateOrganizationSchema, generateHomepageSchema, generateLocalBusinessSchema } from "@/lib/structured-data";
 
 // Per design spec: Inter = display/headings, DM Sans = body, JetBrains Mono = labels/metadata.
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
@@ -149,26 +150,19 @@ export default async function RootLayout({
         <script
           nonce={nonce}
           type="application/ld+json"
-          dangerouslySetInnerHTML={{
-            __html: JSON.stringify({
-              "@context": "https://schema.org",
-              "@type": "Organization",
-              name: "DATAGOD",
-              url: "https://www.datagod.store",
-              logo: "https://www.datagod.store/favicon-v2.jpeg",
-              description: "Affordable data packages, airtime, and mobile services for multiple networks in Ghana",
-              sameAs: [
-                "https://web.facebook.com/datagod.store",
-                "https://twitter.com/datagodstore",
-                "https://www.instagram.com/datagodstore",
-              ],
-              contactPoint: {
-                "@type": "ContactPoint",
-                contactType: "Customer Service",
-                availableLanguage: ["en"],
-              },
-            }),
-          }}
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(generateOrganizationSchema()) }}
+        />
+        {/* WebSite + SearchAction Schema — enables Google's sitelinks searchbox */}
+        <script
+          nonce={nonce}
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(generateHomepageSchema()) }}
+        />
+        {/* LocalBusiness Schema — signals Ghana-local relevance for local-intent searches */}
+        <script
+          nonce={nonce}
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(generateLocalBusinessSchema()) }}
         />
         {/* iOS splash screens — auto-generated for all current Apple device sizes */}
         <link rel="apple-touch-startup-image" href="/splash/apple-splash-2048-2732.jpg" media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
