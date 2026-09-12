@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
@@ -20,7 +20,7 @@ type DomainService = "data_bundles" | "airtime" | "results_checker" | "bulk_sms"
 interface CustomDomainRow {
   id: string
   domain: string
-  service: DomainService
+  services: DomainService[]
   site_name: string
   logo_url: string | null
   primary_color: string | null
@@ -36,7 +36,9 @@ const SERVICE_LABELS: Record<DomainService, string> = {
   bulk_sms: "Bulk SMS",
 }
 
-const EMPTY_FORM = { domain: "", service: "data_bundles" as DomainService, site_name: "", logo_url: "", primary_color: "" }
+const ALL_SERVICES = Object.keys(SERVICE_LABELS) as DomainService[]
+
+const EMPTY_FORM = { domain: "", services: [] as DomainService[], site_name: "", logo_url: "", primary_color: "" }
 
 export default function CustomDomainsPage() {
   const [domains, setDomains] = useState<CustomDomainRow[]>([])
@@ -80,12 +82,21 @@ export default function CustomDomainsPage() {
     setEditing(row)
     setForm({
       domain: row.domain,
-      service: row.service,
+      services: row.services,
       site_name: row.site_name,
       logo_url: row.logo_url || "",
       primary_color: row.primary_color || "",
     })
     setDialogOpen(true)
+  }
+
+  const toggleService = (service: DomainService) => {
+    setForm(f => ({
+      ...f,
+      services: f.services.includes(service)
+        ? f.services.filter(s => s !== service)
+        : [...f.services, service],
+    }))
   }
 
   const handleLogoUpload = async (file: File) => {
@@ -113,7 +124,7 @@ export default function CustomDomainsPage() {
             headers,
             body: JSON.stringify({
               id: editing.id,
-              service: form.service,
+              services: form.services,
               site_name: form.site_name,
               logo_url: form.logo_url || null,
               primary_color: form.primary_color || null,
@@ -124,7 +135,7 @@ export default function CustomDomainsPage() {
             headers,
             body: JSON.stringify({
               domain: form.domain,
-              service: form.service,
+              services: form.services,
               site_name: form.site_name,
               logo_url: form.logo_url || null,
               primary_color: form.primary_color || null,
@@ -178,7 +189,7 @@ export default function CustomDomainsPage() {
           <div>
             <h1 className="text-2xl font-bold">Custom Domains</h1>
             <p className="text-sm text-muted-foreground">
-              Point a domain you own at one service, with its own name/logo/color. Accounts, wallet, and orders stay shared with the main site.
+              Point a domain you own at one or more services, with its own name/logo/color. Accounts, wallet, and orders stay shared with the main site.
             </p>
           </div>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -200,15 +211,15 @@ export default function CustomDomainsPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Service</Label>
-                  <Select value={form.service} onValueChange={v => setForm(f => ({ ...f, service: v as DomainService }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {(Object.keys(SERVICE_LABELS) as DomainService[]).map(s => (
-                        <SelectItem key={s} value={s}>{SERVICE_LABELS[s]}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label>Services</Label>
+                  <div className="space-y-2">
+                    {ALL_SERVICES.map(s => (
+                      <label key={s} className="flex items-center gap-2 text-sm cursor-pointer">
+                        <Checkbox checked={form.services.includes(s)} onCheckedChange={() => toggleService(s)} />
+                        {SERVICE_LABELS[s]}
+                      </label>
+                    ))}
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <Label>Site Name</Label>
@@ -241,7 +252,7 @@ export default function CustomDomainsPage() {
                 </div>
               </div>
               <DialogFooter>
-                <Button onClick={handleSave} disabled={saving || !form.domain || !form.site_name}>
+                <Button onClick={handleSave} disabled={saving || !form.domain || !form.site_name || form.services.length === 0}>
                   {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
                   {editing ? "Save Changes" : "Add Domain"}
                 </Button>
@@ -267,7 +278,7 @@ export default function CustomDomainsPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Domain</TableHead>
-                    <TableHead>Service</TableHead>
+                    <TableHead>Services</TableHead>
                     <TableHead>Site Name</TableHead>
                     <TableHead>Active</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
@@ -277,7 +288,9 @@ export default function CustomDomainsPage() {
                   {domains.map(row => (
                     <TableRow key={row.id}>
                       <TableCell className="font-medium">{row.domain}</TableCell>
-                      <TableCell><Badge variant="outline">{SERVICE_LABELS[row.service]}</Badge></TableCell>
+                      <TableCell className="space-x-1">
+                        {row.services.map(s => <Badge key={s} variant="outline">{SERVICE_LABELS[s]}</Badge>)}
+                      </TableCell>
                       <TableCell className="flex items-center gap-2">
                         {row.logo_url && <img src={row.logo_url} alt="" className="w-5 h-5 rounded object-cover" />}
                         {row.site_name}

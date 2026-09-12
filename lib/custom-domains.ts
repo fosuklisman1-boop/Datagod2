@@ -2,7 +2,7 @@ export type DomainService = "data_bundles" | "airtime" | "results_checker" | "bu
 
 export interface CustomDomainConfig {
   domain: string
-  service: DomainService
+  services: DomainService[]
   site_name: string
   logo_url: string | null
   primary_color: string | null
@@ -16,6 +16,22 @@ const SERVICE_PATH_PREFIXES: Record<DomainService, string[]> = {
   bulk_sms: ["/dashboard/sms"],
 }
 
+// Dealer/business-management tools that aren't tied to any one of the four
+// core services — hidden and blocked on any branded domain, regardless of
+// which services are selected, unless a selected service's own path already
+// covers the route (e.g. bulk_sms already covers /dashboard/sms).
+const NON_SERVICE_GATED_PATHS = [
+  "/dashboard/afa-orders",
+  "/dashboard/upgrade",
+  "/dashboard/my-shop",
+  "/dashboard/shop-dashboard",
+  "/dashboard/sub-agents",
+  "/dashboard/sub-agent-catalog",
+  "/dashboard/ussd-shop",
+  "/dashboard/payment-reverify",
+  "/dashboard/buy-stock",
+]
+
 /**
  * Returns a service's own first/primary path — the target used both as the
  * fallback redirect destination in getServiceRedirect below and as the mobile
@@ -26,30 +42,36 @@ export function getServicePrimaryPath(service: DomainService): string {
 }
 
 /**
- * Given the requested path and the domain's chosen service, return the path to
- * redirect to if this path belongs to a DIFFERENT service's family, else null
- * (the path is either service-agnostic — wallet, orders, auth, admin — or
- * already belongs to this domain's own service).
+ * Given the requested path and the domain's selected services, return the
+ * path to redirect to if this path belongs to a service NOT selected, or to
+ * a non-service dealer/business-management route, else null (the path is
+ * either account-wide — wallet, orders, auth, admin — or already belongs to
+ * one of this domain's own selected services).
  */
-export function getServiceRedirect(path: string, service: DomainService): string | null {
-  const ownPrefixes = SERVICE_PATH_PREFIXES[service]
-  // Defensive: an unrecognized service value should never crash rendering (e.g.
-  // a stale cached/header value referencing a since-removed service) — treat it
-  // as "no restriction" rather than throwing on the SERVICE_PATH_PREFIXES miss.
-  if (!ownPrefixes) return null
+export function getServiceRedirect(path: string, services: DomainService[]): string | null {
+  if (!services || services.length === 0) return null
+
+  // Recognized-service check first, filtering out any unrecognized value
+  // defensively (e.g. a stale cached/header entry referencing a since-removed
+  // service) so it never crashes rendering.
+  const validServices = services.filter(s => SERVICE_PATH_PREFIXES[s])
+  if (validServices.length === 0) return null
+
+  const ownPrefixes = validServices.flatMap(s => SERVICE_PATH_PREFIXES[s])
   if (ownPrefixes.some(p => path.startsWith(p))) return null
 
   const belongsToOtherService = (Object.entries(SERVICE_PATH_PREFIXES) as [DomainService, string[]][])
-    .some(([s, prefixes]) => s !== service && prefixes.some(p => path.startsWith(p)))
-  if (!belongsToOtherService) return null
+    .some(([s, prefixes]) => !validServices.includes(s) && prefixes.some(p => path.startsWith(p)))
+  const belongsToNonServiceGated = NON_SERVICE_GATED_PATHS.some(p => path.startsWith(p))
+  if (!belongsToOtherService && !belongsToNonServiceGated) return null
 
-  return getServicePrimaryPath(service)
+  return getServicePrimaryPath(validServices[0])
 }
 
-/** Convenience wrapper for nav filtering: true when `path` should be shown for `service`. */
-export function isPathAllowedForService(path: string, service: DomainService | null): boolean {
-  if (!service) return true
-  return getServiceRedirect(path, service) === null
+/** Convenience wrapper for nav filtering: true when `path` should be shown for `services`. */
+export function isPathAllowedForService(path: string, services: DomainService[] | null): boolean {
+  if (!services || services.length === 0) return true
+  return getServiceRedirect(path, services) === null
 }
 
 export function normalizeDomainHost(host: string | null): string | null {

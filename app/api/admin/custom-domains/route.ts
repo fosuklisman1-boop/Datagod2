@@ -11,13 +11,26 @@ function normalizeDomainInput(raw: string): string {
   return raw.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/+$/, "")
 }
 
+/** Validates a `services` request field: must be a non-empty array of known
+ * service values. Returns the deduplicated array, or an error message. */
+function parseServices(raw: unknown): { services: DomainService[] } | { error: string } {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return { error: `'services' must be a non-empty array of: ${VALID_SERVICES.join(", ")}` }
+  }
+  const invalid = raw.find(s => !VALID_SERVICES.includes(s as DomainService))
+  if (invalid !== undefined) {
+    return { error: `'services' must be one of: ${VALID_SERVICES.join(", ")} (got "${invalid}")` }
+  }
+  return { services: Array.from(new Set(raw as DomainService[])) }
+}
+
 export async function GET(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse!
 
   const { data, error } = await supabase
     .from("custom_domains")
-    .select("id, domain, service, site_name, logo_url, primary_color, is_active, created_at, updated_at")
+    .select("id, domain, services, site_name, logo_url, primary_color, is_active, created_at, updated_at")
     .order("created_at", { ascending: false })
 
   if (error) {
@@ -34,7 +47,6 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const domain = normalizeDomainInput(String(body.domain || ""))
-    const service = body.service as string
     const siteName = String(body.site_name || "").trim()
     const logoUrl = body.logo_url ? String(body.logo_url) : null
     const primaryColor = body.primary_color ? String(body.primary_color) : null
@@ -42,9 +54,11 @@ export async function POST(request: NextRequest) {
     if (!domain || !domain.includes(".")) {
       return NextResponse.json({ error: "A valid domain is required" }, { status: 400 })
     }
-    if (!VALID_SERVICES.includes(service as DomainService)) {
-      return NextResponse.json({ error: `'service' must be one of: ${VALID_SERVICES.join(", ")}` }, { status: 400 })
+    const servicesResult = parseServices(body.services)
+    if ("error" in servicesResult) {
+      return NextResponse.json({ error: servicesResult.error }, { status: 400 })
     }
+    const { services } = servicesResult
     if (!siteName) {
       return NextResponse.json({ error: "'site_name' is required" }, { status: 400 })
     }
@@ -55,7 +69,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const row = { domain, service, site_name: siteName, logo_url: logoUrl, primary_color: primaryColor, is_active: true }
+    const row = { domain, services, site_name: siteName, logo_url: logoUrl, primary_color: primaryColor, is_active: true }
     const { data, error } = await supabase.from("custom_domains").insert(row).select().single()
 
     if (error) {
@@ -66,7 +80,7 @@ export async function POST(request: NextRequest) {
     }
 
     await setCustomDomainCache({
-      domain, service: service as DomainService, site_name: siteName, logo_url: logoUrl, primary_color: primaryColor, is_active: true,
+      domain, services, site_name: siteName, logo_url: logoUrl, primary_color: primaryColor, is_active: true,
     })
 
     return NextResponse.json({ domain: data }, { status: 201 })
@@ -86,11 +100,12 @@ export async function PATCH(request: NextRequest) {
     if (!id) return NextResponse.json({ error: "'id' is required" }, { status: 400 })
 
     const updates: Record<string, unknown> = {}
-    if (body.service !== undefined) {
-      if (!VALID_SERVICES.includes(body.service as DomainService)) {
-        return NextResponse.json({ error: `'service' must be one of: ${VALID_SERVICES.join(", ")}` }, { status: 400 })
+    if (body.services !== undefined) {
+      const servicesResult = parseServices(body.services)
+      if ("error" in servicesResult) {
+        return NextResponse.json({ error: servicesResult.error }, { status: 400 })
       }
-      updates.service = body.service
+      updates.services = servicesResult.services
     }
     if (body.site_name !== undefined) {
       const siteName = String(body.site_name).trim()
@@ -115,7 +130,7 @@ export async function PATCH(request: NextRequest) {
 
     if (data.is_active) {
       await setCustomDomainCache({
-        domain: data.domain, service: data.service, site_name: data.site_name,
+        domain: data.domain, services: data.services, site_name: data.site_name,
         logo_url: data.logo_url, primary_color: data.primary_color, is_active: data.is_active,
       })
     } else {

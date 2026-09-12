@@ -105,7 +105,7 @@ export async function middleware(request: NextRequest) {
       : null
 
   if (customDomainConfig) {
-    const serviceRedirectPath = getServiceRedirect(path, customDomainConfig.service)
+    const serviceRedirectPath = getServiceRedirect(path, customDomainConfig.services)
     if (serviceRedirectPath) {
       const url = request.nextUrl.clone()
       url.pathname = serviceRedirectPath
@@ -120,17 +120,17 @@ export async function middleware(request: NextRequest) {
     h.set("x-nonce", nonce)
     // Always clear any inherited/client-supplied x-domain-* headers first, then
     // re-set them only when genuinely resolved below. Without this, a request
-    // to the main site that happens to carry a client-supplied x-domain-service
+    // to the main site that happens to carry a client-supplied x-domain-services
     // header would pass it straight through unmodified, and app/layout.tsx
     // reading it (even with its own validation) has no protection against a
     // header that was never meant to be there in the first place.
-    h.delete("x-domain-service")
+    h.delete("x-domain-services")
     h.delete("x-domain-site-name")
     h.delete("x-domain-logo")
     h.delete("x-domain-color")
     if (customDomainConfig) {
       try {
-        h.set("x-domain-service", customDomainConfig.service)
+        h.set("x-domain-services", customDomainConfig.services.join(","))
         h.set("x-domain-site-name", customDomainConfig.site_name)
         if (customDomainConfig.logo_url) h.set("x-domain-logo", customDomainConfig.logo_url)
         if (customDomainConfig.primary_color) h.set("x-domain-color", customDomainConfig.primary_color)

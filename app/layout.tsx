@@ -125,9 +125,12 @@ export default async function RootLayout({
   // lookup as an untyped string, which would otherwise throw and break SSR for
   // every dashboard page.
   const VALID_DOMAIN_SERVICES: DomainService[] = ["data_bundles", "airtime", "results_checker", "bulk_sms"];
-  const rawService = headersList.get("x-domain-service");
+  const rawServices = headersList.get("x-domain-services");
+  const parsedServices = rawServices
+    ? rawServices.split(",").filter((s): s is DomainService => VALID_DOMAIN_SERVICES.includes(s as DomainService))
+    : [];
   const domainBranding: DomainBranding = {
-    service: VALID_DOMAIN_SERVICES.includes(rawService as DomainService) ? (rawService as DomainService) : null,
+    services: parsedServices.length > 0 ? parsedServices : null,
     siteName: headersList.get("x-domain-site-name"),
     logoUrl: headersList.get("x-domain-logo"),
     primaryColor: headersList.get("x-domain-color"),

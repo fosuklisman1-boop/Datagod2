@@ -49,7 +49,7 @@ beforeEach(() => {
 describe("GET /api/admin/custom-domains", () => {
   it("returns the list of configured domains", async () => {
     fromMock.mockReturnValue(makeBuilder({
-      data: [{ id: "1", domain: "checkresults.com", service: "results_checker", site_name: "CheckResults", logo_url: null, primary_color: null, is_active: true, created_at: "2026-01-01", updated_at: "2026-01-01" }],
+      data: [{ id: "1", domain: "checkresults.com", services: ["results_checker"], site_name: "CheckResults", logo_url: null, primary_color: null, is_active: true, created_at: "2026-01-01", updated_at: "2026-01-01" }],
       error: null,
     }))
     const res = await GET(new NextRequest("http://localhost/api/admin/custom-domains"))
@@ -61,44 +61,71 @@ describe("GET /api/admin/custom-domains", () => {
 
 describe("POST /api/admin/custom-domains", () => {
   it("rejects an unrecognized service", async () => {
-    const res = await POST(postRequest({ domain: "checkresults.com", service: "not-a-service", site_name: "CheckResults" }))
+    const res = await POST(postRequest({ domain: "checkresults.com", services: ["not-a-service"], site_name: "CheckResults" }))
+    expect(res.status).toBe(400)
+  })
+
+  it("rejects a missing services array", async () => {
+    const res = await POST(postRequest({ domain: "checkresults.com", site_name: "CheckResults" }))
+    expect(res.status).toBe(400)
+  })
+
+  it("rejects an empty services array", async () => {
+    const res = await POST(postRequest({ domain: "checkresults.com", services: [], site_name: "CheckResults" }))
+    expect(res.status).toBe(400)
+  })
+
+  it("rejects a non-array services value", async () => {
+    const res = await POST(postRequest({ domain: "checkresults.com", services: "results_checker", site_name: "CheckResults" }))
     expect(res.status).toBe(400)
   })
 
   it("rejects a missing site_name", async () => {
-    const res = await POST(postRequest({ domain: "checkresults.com", service: "results_checker", site_name: "" }))
+    const res = await POST(postRequest({ domain: "checkresults.com", services: ["results_checker"], site_name: "" }))
     expect(res.status).toBe(400)
   })
 
   it("rejects a domain that collides with the root domain", async () => {
-    const res = await POST(postRequest({ domain: "datagod.store", service: "airtime", site_name: "X" }))
+    const res = await POST(postRequest({ domain: "datagod.store", services: ["airtime"], site_name: "X" }))
     const body = await res.json()
     expect(res.status).toBe(400)
     expect(body.error).toMatch(/collides/)
   })
 
   it("rejects a domain that collides with the shop-subdomain shape", async () => {
-    const res = await POST(postRequest({ domain: "my-shop.datagod.store", service: "airtime", site_name: "X" }))
+    const res = await POST(postRequest({ domain: "my-shop.datagod.store", services: ["airtime"], site_name: "X" }))
     expect(res.status).toBe(400)
   })
 
   it("normalizes a pasted https://www. URL before storing it, and write-throughs the cache", async () => {
     fromMock.mockReturnValue(makeBuilder({
-      data: { id: "1", domain: "checkresults.com", service: "results_checker", site_name: "CheckResults", logo_url: null, primary_color: null, is_active: true },
+      data: { id: "1", domain: "checkresults.com", services: ["results_checker"], site_name: "CheckResults", logo_url: null, primary_color: null, is_active: true },
       error: null,
     }))
 
-    const res = await POST(postRequest({ domain: "https://www.CheckResults.com/", service: "results_checker", site_name: "CheckResults" }))
+    const res = await POST(postRequest({ domain: "https://www.CheckResults.com/", services: ["results_checker"], site_name: "CheckResults" }))
     const body = await res.json()
 
     expect(res.status).toBe(201)
     expect(body.domain.domain).toBe("checkresults.com")
-    expect(setCacheMock).toHaveBeenCalledWith(expect.objectContaining({ domain: "checkresults.com" }))
+    expect(setCacheMock).toHaveBeenCalledWith(expect.objectContaining({ domain: "checkresults.com", services: ["results_checker"] }))
+  })
+
+  it("accepts multiple services and deduplicates repeats", async () => {
+    fromMock.mockReturnValue(makeBuilder({
+      data: { id: "1", domain: "checkresults.com", services: ["results_checker", "airtime"], site_name: "CheckResults", logo_url: null, primary_color: null, is_active: true },
+      error: null,
+    }))
+
+    const res = await POST(postRequest({ domain: "checkresults.com", services: ["results_checker", "airtime", "airtime"], site_name: "CheckResults" }))
+
+    expect(res.status).toBe(201)
+    expect(setCacheMock).toHaveBeenCalledWith(expect.objectContaining({ services: ["results_checker", "airtime"] }))
   })
 
   it("returns 409 when the domain already exists", async () => {
     fromMock.mockReturnValue(makeBuilder({ data: null, error: { code: "23505", message: "duplicate key" } }))
-    const res = await POST(postRequest({ domain: "checkresults.com", service: "results_checker", site_name: "CheckResults" }))
+    const res = await POST(postRequest({ domain: "checkresults.com", services: ["results_checker"], site_name: "CheckResults" }))
     expect(res.status).toBe(409)
   })
 })
@@ -109,9 +136,14 @@ describe("PATCH /api/admin/custom-domains", () => {
     expect(res.status).toBe(400)
   })
 
+  it("rejects an empty services array on update", async () => {
+    const res = await PATCH(postRequest({ id: "1", services: [] }, "PATCH"))
+    expect(res.status).toBe(400)
+  })
+
   it("clears the cache instead of writing to it when is_active is set to false", async () => {
     fromMock.mockReturnValue(makeBuilder({
-      data: { id: "1", domain: "checkresults.com", service: "results_checker", site_name: "CheckResults", logo_url: null, primary_color: null, is_active: false },
+      data: { id: "1", domain: "checkresults.com", services: ["results_checker"], site_name: "CheckResults", logo_url: null, primary_color: null, is_active: false },
       error: null,
     }))
 

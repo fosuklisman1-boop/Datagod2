@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
+import type { CustomDomainConfig } from "./custom-domains"
 
 const redisGetMock = vi.fn()
 const redisSetMock = vi.fn()
@@ -48,9 +49,9 @@ beforeEach(() => {
   redisSetMock.mockResolvedValue(undefined)
 })
 
-const sampleConfig = {
+const sampleConfig: CustomDomainConfig = {
   domain: "checkresults.com",
-  service: "results_checker" as const,
+  services: ["results_checker"],
   site_name: "CheckResults",
   logo_url: null,
   primary_color: "#059669",

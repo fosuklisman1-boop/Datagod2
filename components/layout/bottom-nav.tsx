@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Home, Package, Wallet, ShoppingBag, Store, Users, CreditCard, Bot, Signal, Smartphone } from "lucide-react"
+import { Home, Package, Wallet, ShoppingBag, Store, User, Users, CreditCard, Bot, Signal, Smartphone } from "lucide-react"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useUserRole } from "@/hooks/use-user-role"
 import { cn } from "@/lib/utils"
@@ -35,26 +35,35 @@ export function BottomNav() {
 
   if (!isMobile) return null
 
-  // On a custom domain scoped to one service, the FAB — the single most
-  // prominent control on mobile — is repointed to that service's own page
-  // instead of the hardcoded data-packages/buy-stock target, so tapping it
-  // doesn't trigger middleware's service redirect to somewhere else. When
-  // domainBranding.service is null (main site/shop, today's behavior for all
-  // current traffic), this is a no-op: fabHref/fabLabel fall through to the
-  // exact same values as before.
-  const fabHref = domainBranding.service
-    ? getServicePrimaryPath(domainBranding.service)
+  // On a custom domain scoped to one or more services, the FAB — the single
+  // most prominent control on mobile — is repointed to the first selected
+  // service's own page instead of the hardcoded data-packages/buy-stock
+  // target, so tapping it doesn't trigger middleware's service redirect to
+  // somewhere else. Shop Dashboard is a dealer/business-management route
+  // (blocked on any branded domain regardless of selected services — see
+  // NON_SERVICE_GATED_PATHS in lib/custom-domains.ts), so it gets the same
+  // treatment: repointed to Profile, an always-safe account-wide destination,
+  // rather than a slot that would bounce the moment it's tapped. When
+  // domainBranding.services is null (main site/shop, today's behavior for all
+  // current traffic), both are no-ops: they fall through to the exact same
+  // values as before.
+  const primaryService = domainBranding.services?.[0] ?? null
+  const fabHref = primaryService
+    ? getServicePrimaryPath(primaryService)
     : isSubAgent ? "/dashboard/buy-stock" : "/dashboard/data-packages"
-  const fabLabel = domainBranding.service
-    ? SERVICE_FAB_LABELS[domainBranding.service]
+  const fabLabel = primaryService
+    ? SERVICE_FAB_LABELS[primaryService]
     : isSubAgent ? "Buy Data" : "Data"
+  const shopSlotHref = primaryService ? "/dashboard/profile" : "/dashboard/shop-dashboard"
+  const shopSlotLabel = primaryService ? "Profile" : "Shop"
+  const ShopSlotIcon = primaryService ? User : Store
 
   const USER_NAV = [
     { href: "/dashboard",             label: "Home",    icon: Home,        isFab: false },
     { href: "/dashboard/wallet",      label: "Wallet",  icon: Wallet,      isFab: false },
     { href: fabHref,                  label: fabLabel,  icon: Package,     isFab: true },
     { href: "/dashboard/my-orders",   label: "Orders",  icon: ShoppingBag, isFab: false },
-    { href: "/dashboard/shop-dashboard", label: "Shop",  icon: Store,      isFab: false },
+    { href: shopSlotHref,             label: shopSlotLabel, icon: ShopSlotIcon, isFab: false },
   ]
 
   const onAdminPage = pathname.startsWith("/admin")

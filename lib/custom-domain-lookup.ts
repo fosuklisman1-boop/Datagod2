@@ -73,7 +73,7 @@ async function lookupExact(host: string): Promise<LookupResult> {
   try {
     const { data, error } = await supabaseAdmin
       .from("custom_domains")
-      .select("domain, service, site_name, logo_url, primary_color, is_active")
+      .select("domain, services, site_name, logo_url, primary_color, is_active")
       .eq("domain", host)
       .eq("is_active", true)
       .maybeSingle()

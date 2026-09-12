@@ -4,14 +4,14 @@ import { createContext, useContext, type ReactNode } from "react"
 import { hexToHslTriplet, type DomainService } from "@/lib/custom-domains"
 
 export interface DomainBranding {
-  service: DomainService | null
+  services: DomainService[] | null
   siteName: string | null
   logoUrl: string | null
   primaryColor: string | null
 }
 
 const DEFAULT_BRANDING: DomainBranding = {
-  service: null,
+  services: null,
   siteName: null,
   logoUrl: null,
   primaryColor: null,
@@ -20,7 +20,7 @@ const DEFAULT_BRANDING: DomainBranding = {
 const DomainBrandingContext = createContext<DomainBranding>(DEFAULT_BRANDING)
 
 /** Returns the current request's custom-domain branding, or the default
- * (all-null, `service: null` meaning "no restriction") on the main site/shop. */
+ * (all-null, `services: null` meaning "no restriction") on the main site/shop. */
 export function useDomainBranding(): DomainBranding {
   return useContext(DomainBrandingContext)
 }
