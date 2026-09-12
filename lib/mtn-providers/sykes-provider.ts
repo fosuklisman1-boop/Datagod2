@@ -187,8 +187,14 @@ export class SykesProvider implements MTNProvider {
 
             // Check JSON success field (API returns { success: true/false, ... })
             if (!data.success) {
+                // Deliberately does NOT call recordFailure() here: a well-formed HTTP 200
+                // with success:false (bad phone, duplicate reference, insufficient balance,
+                // etc.) means Sykes is up and correctly rejecting one specific request —
+                // the opposite of a service outage. Tripping the shared circuit breaker on
+                // this would let a handful of individually-bad orders in a bulk retry (e.g.
+                // "Fulfil All Pending") block every other, unrelated order in that same
+                // batch from ever reaching Sykes as a retry-sequence fallback.
                 log("error", "Order", "Sykes MTN API returned error in response", { traceId, data })
-                recordFailure(mtnConfig)
                 recordMetrics(false, latency)
 
                 return {
