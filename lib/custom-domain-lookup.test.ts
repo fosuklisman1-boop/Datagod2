@@ -42,6 +42,8 @@ beforeEach(() => {
     ...ORIGINAL_ENV,
     UPSTASH_REDIS_REST_URL: "https://fake-upstash.example.com",
     UPSTASH_REDIS_REST_TOKEN: "fake-token",
+    NEXT_PUBLIC_APP_URL: "https://www.datagod.store",
+    NEXT_PUBLIC_ROOT_DOMAIN: "datagod.store",
   }
   // Real @upstash/redis `.set()` always resolves to a Promise; give the mock
   // the same shape by default so the implementation's fire-and-forget
@@ -160,5 +162,44 @@ describe("setCustomDomainCache / clearCustomDomainCache", () => {
     const { clearCustomDomainCache } = await import("./custom-domain-lookup")
     await clearCustomDomainCache("checkresults.com")
     expect(redisDelMock).toHaveBeenCalledWith("custom_domain:checkresults.com")
+  })
+})
+
+describe("resolveTrustedBaseUrl", () => {
+  it("returns the app's own base URL for the root domain", async () => {
+    const { resolveTrustedBaseUrl } = await import("./custom-domain-lookup")
+    expect(await resolveTrustedBaseUrl("datagod.store")).toBe("https://www.datagod.store")
+  })
+
+  it("returns the app's own base URL for a null/missing host", async () => {
+    const { resolveTrustedBaseUrl } = await import("./custom-domain-lookup")
+    expect(await resolveTrustedBaseUrl(null)).toBe("https://www.datagod.store")
+  })
+
+  it("trusts an active custom domain and returns its own https origin", async () => {
+    redisGetMock.mockResolvedValueOnce(sampleConfig)
+    const { resolveTrustedBaseUrl } = await import("./custom-domain-lookup")
+    expect(await resolveTrustedBaseUrl("checkresults.com")).toBe("https://checkresults.com")
+  })
+
+  it("falls back to the app's own base URL for a host with no active custom domain", async () => {
+    redisGetMock.mockResolvedValueOnce(null)
+    maybeSingleMock.mockResolvedValueOnce({ data: null, error: null })
+    redisGetMock.mockResolvedValueOnce(null)
+    maybeSingleMock.mockResolvedValueOnce({ data: null, error: null })
+    const { resolveTrustedBaseUrl } = await import("./custom-domain-lookup")
+    expect(await resolveTrustedBaseUrl("some-random-domain.example.com")).toBe("https://www.datagod.store")
+  })
+
+  it("never falls through to the attacker-controlled request Origin — only Host-derived, DB-verified domains are trusted", async () => {
+    // Sanity check on the function's signature/contract itself: it takes a
+    // Host string, not a full Request/Origin — there is no code path here
+    // that could read an Origin header at all.
+    redisGetMock.mockResolvedValueOnce(null)
+    maybeSingleMock.mockResolvedValueOnce({ data: null, error: null })
+    redisGetMock.mockResolvedValueOnce(null)
+    maybeSingleMock.mockResolvedValueOnce({ data: null, error: null })
+    const { resolveTrustedBaseUrl } = await import("./custom-domain-lookup")
+    expect(await resolveTrustedBaseUrl("evil.example.com")).toBe("https://www.datagod.store")
   })
 })

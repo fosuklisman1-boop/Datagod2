@@ -8,6 +8,7 @@ import { verifyShopSession } from "@/lib/shop-token"
 import { isPhoneOtpVerified, isWalletOtpRequired, isStorefrontOtpRequired, isStorefrontDirectChargeEnabled, isWalletDirectChargeEnabled } from "@/lib/storefront-otp"
 import { logSecurityEvent } from "@/lib/security-log"
 import { checkPhoneVerified } from "@/lib/phone-verify-guard"
+import { resolveTrustedBaseUrl } from "@/lib/custom-domain-lookup"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -478,14 +479,9 @@ export async function POST(request: NextRequest) {
       orderType === "results_check_service" ? "results-check/confirmation" :
       `order-confirmation/${orderId}`
     const appendOrderId = orderType === "airtime" || orderType === "results_checker" || orderType === "results_check_service"
-    // SECURITY: Never use request.headers.get("origin") — it's attacker-controlled
-    // and would let a crafted request steer Paystack's post-payment redirect to a
-    // phishing site. Use server env exclusively.
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL
-      ? process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "")
-      : process.env.VERCEL_URL
-        ? `https://${process.env.VERCEL_URL}`
-        : "http://localhost:3000"
+    // See resolveTrustedBaseUrl's doc comment for why this is safe against
+    // the phishing-redirect risk a raw Origin/Host trust would otherwise carry.
+    const baseUrl = await resolveTrustedBaseUrl(request.headers.get("host"))
     let redirectUrl: string
     if (shopId && orderId && shopSlug) {
       redirectUrl = `${baseUrl}/shop/${shopSlug}/${confirmationPath}?reference=${reference}${appendOrderId ? `&orderId=${orderId}` : ""}`

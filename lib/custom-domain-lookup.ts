@@ -1,6 +1,6 @@
 import { Redis } from "@upstash/redis"
 import { supabaseAdmin } from "@/lib/supabase"
-import type { CustomDomainConfig } from "@/lib/custom-domains"
+import { normalizeDomainHost, type CustomDomainConfig } from "@/lib/custom-domains"
 
 const redis = process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
   ? new Redis({
@@ -165,4 +165,42 @@ export async function clearCustomDomainCache(domain: string): Promise<void> {
   } catch (e) {
     console.error("[CUSTOM-DOMAIN-LOOKUP] Redis cache clear failed (non-fatal):", e instanceof Error ? e.message : e)
   }
+}
+
+function defaultBaseUrlFallback(): string {
+  return process.env.NEXT_PUBLIC_APP_URL
+    ? process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "")
+    : process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : "http://localhost:3000"
+}
+
+/**
+ * Resolve the base URL a server-generated customer-facing redirect (e.g. a
+ * Paystack post-payment return URL) should use — this is deliberately NOT
+ * "whatever the request claims," to avoid an open-redirect/phishing risk.
+ *
+ * SECURITY: never build such a redirect from the request's Origin header —
+ * it's set by whatever page made the fetch call and is fully
+ * attacker-controlled for a cross-origin request (a phishing site could POST
+ * to a payment-init endpoint with an arbitrary Origin and steer the
+ * post-payment redirect to itself).
+ *
+ * The Host header is a different trust boundary: Vercel's own edge routing
+ * (TLS SNI + Host) only ever delivers a request to this deployment under a
+ * host that's genuinely attached to this Vercel project, so it can't be
+ * forged into an arbitrary third-party domain the way Origin can. Even so,
+ * this stays conservative and only trusts it two ways: the exact root
+ * domain (the existing NEXT_PUBLIC_APP_URL/VERCEL_URL/localhost fallback),
+ * or a host that matches an admin-configured ACTIVE row in custom_domains —
+ * never an arbitrary attached-but-unintended host (e.g. a raw *.vercel.app
+ * preview alias).
+ */
+export async function resolveTrustedBaseUrl(host: string | null): Promise<string> {
+  const normalized = normalizeDomainHost(host)
+  const rootDomain = (process.env.NEXT_PUBLIC_ROOT_DOMAIN || "datagod.store").toLowerCase()
+  if (!normalized || normalized === rootDomain) return defaultBaseUrlFallback()
+
+  const customDomain = await resolveCustomDomain(normalized)
+  return customDomain ? `https://${normalized}` : defaultBaseUrlFallback()
 }
