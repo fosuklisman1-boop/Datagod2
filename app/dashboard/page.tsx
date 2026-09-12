@@ -13,6 +13,19 @@ import { Button } from "@/components/ui/button"
 import { TrendingUp, ShoppingCart, CheckCircle, AlertCircle, Clock, Loader2, type LucideIcon } from "lucide-react"
 import { BulkOrdersForm } from "@/components/bulk-orders-form"
 import { supabase } from "@/lib/supabase"
+import { useDomainBranding } from "@/components/providers/domain-branding-provider"
+import { getServicePrimaryPath, type DomainService } from "@/lib/custom-domains"
+
+// Short, quick-action-appropriate labels for each service, used when a custom
+// domain is scoped to one or more services and the primary CTAs are repointed
+// to the domain's own first selected service instead of the hardcoded
+// data-packages target.
+const SERVICE_QUICK_LABELS: Record<DomainService, string> = {
+  data_bundles: "Buy Data",
+  airtime: "Buy Airtime",
+  results_checker: "Check Results",
+  bulk_sms: "Buy SMS",
+}
 
 // Format large numbers with K/M suffix
 const formatCount = (num: number | string): string => {
@@ -79,6 +92,8 @@ export default function DashboardPage() {
   const { user, loading: authLoading } = useAuth()
   const { showOnboarding, completeOnboarding, isLoading: onboardingLoading } = useOnboarding()
   const { isDealer } = useUserRole()
+  const domainBranding = useDomainBranding()
+  const primaryService = domainBranding.services?.[0] ?? null
   const [firstName, setFirstName] = useState("")
   const [userEmail, setUserEmail] = useState("")
   const [joinDate, setJoinDate] = useState("")
@@ -316,8 +331,8 @@ export default function DashboardPage() {
               {new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })} • {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })}
             </p>
           </div>
-          <Button onClick={() => router.push("/dashboard/data-packages")} className="font-semibold">
-            + Buy Data
+          <Button onClick={() => router.push(primaryService ? getServicePrimaryPath(primaryService) : "/dashboard/data-packages")} className="font-semibold">
+            + {primaryService ? SERVICE_QUICK_LABELS[primaryService] : "Buy Data"}
           </Button>
         </div>
 
@@ -341,8 +356,8 @@ export default function DashboardPage() {
                 <Button onClick={() => router.push("/dashboard/wallet")} className="bg-card text-primary hover:bg-card/90 font-semibold">
                   ＋ Top Up
                 </Button>
-                <Button onClick={() => router.push("/dashboard/data-packages")} className="bg-card/15 text-white hover:bg-card/25 border-0">
-                  Buy Data
+                <Button onClick={() => router.push(primaryService ? getServicePrimaryPath(primaryService) : "/dashboard/data-packages")} className="bg-card/15 text-white hover:bg-card/25 border-0">
+                  {primaryService ? SERVICE_QUICK_LABELS[primaryService] : "Buy Data"}
                 </Button>
                 <Button onClick={() => router.push("/dashboard/my-orders")} className="bg-card/15 text-white hover:bg-card/25 border-0">
                   My Orders
@@ -389,15 +404,31 @@ export default function DashboardPage() {
             <CardDescription>Get started with common tasks</CardDescription>
           </CardHeader>
           <CardContent className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            <Button onClick={() => router.push("/dashboard/data-packages")} className="font-semibold">
-              Buy Data Package
-            </Button>
-            <Button variant="outline" onClick={() => router.push("/dashboard/airtime")} className="font-semibold">
-              Buy Airtime
-            </Button>
-            <Button variant="outline" onClick={() => router.push("/dashboard/my-shop")} className="font-semibold">
-              Create Shop
-            </Button>
+            {(!domainBranding.services || domainBranding.services.includes("data_bundles")) && (
+              <Button onClick={() => router.push("/dashboard/data-packages")} className="font-semibold">
+                Buy Data Package
+              </Button>
+            )}
+            {(!domainBranding.services || domainBranding.services.includes("airtime")) && (
+              <Button variant="outline" onClick={() => router.push("/dashboard/airtime")} className="font-semibold">
+                Buy Airtime
+              </Button>
+            )}
+            {domainBranding.services?.includes("results_checker") && (
+              <Button variant="outline" onClick={() => router.push("/dashboard/results-checker")} className="font-semibold">
+                Check Results
+              </Button>
+            )}
+            {domainBranding.services?.includes("bulk_sms") && (
+              <Button variant="outline" onClick={() => router.push("/dashboard/sms")} className="font-semibold">
+                Buy SMS
+              </Button>
+            )}
+            {!domainBranding.services && (
+              <Button variant="outline" onClick={() => router.push("/dashboard/my-shop")} className="font-semibold">
+                Create Shop
+              </Button>
+            )}
             <Button variant="outline" onClick={() => router.push("/dashboard/my-orders")} className="font-semibold">
               View My Orders
             </Button>
