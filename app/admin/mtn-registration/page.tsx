@@ -48,6 +48,7 @@ export default function MtnRegistrationPage() {
   const [exporting, setExporting] = useState(false)
   const [markingId, setMarkingId] = useState<string | null>(null)
   const [redownloadingId, setRedownloadingId] = useState<string | null>(null)
+  const [releasingHeld, setReleasingHeld] = useState(false)
 
   const loadStatus = useCallback(async () => {
     setLoading(true)
@@ -124,6 +125,34 @@ export default function MtnRegistrationPage() {
     }
   }
 
+  const handleReleaseHeld = async () => {
+    setReleasingHeld(true)
+    try {
+      const token = await getToken()
+      const res = await fetch("/api/admin/mtn-registration/release-held", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || "Failed to release held orders")
+      if (data.checked === 0) {
+        toast.info("No held orders to check right now.")
+      } else if (data.released === 0) {
+        toast.info(`Checked ${data.checked} held order(s) — none are registered/whitelisted yet.`)
+      } else {
+        const parts = [`${data.dispatched} fulfilled`]
+        if (data.queuedManual > 0) parts.push(`${data.queuedManual} queued for manual fulfillment`)
+        if (data.failed > 0) parts.push(`${data.failed} still blocked`)
+        toast.success(`Checked ${data.checked} held order(s) — ${data.released} released: ${parts.join(", ")}.`)
+      }
+      await loadStatus()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to release held orders")
+    } finally {
+      setReleasingHeld(false)
+    }
+  }
+
   const handleRedownload = async (batchId: string, batchTime: string) => {
     setRedownloadingId(batchId)
     try {
@@ -185,6 +214,22 @@ export default function MtnRegistrationPage() {
                 <div className="text-3xl font-bold">
                   {loading ? "—" : (counts[key] ?? 0).toLocaleString()}
                 </div>
+                {key === "held_orders" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-3 w-full"
+                    onClick={handleReleaseHeld}
+                    disabled={releasingHeld || loading}
+                  >
+                    {releasingHeld ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                    )}
+                    {releasingHeld ? "Checking…" : "Release held orders now"}
+                  </Button>
+                )}
               </CardContent>
             </Card>
           ))}
