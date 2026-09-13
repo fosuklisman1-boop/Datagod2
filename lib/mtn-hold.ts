@@ -255,3 +255,36 @@ export async function releaseWhitelistHeldOrders(
   console.log(`[MTN-WL-RELEASE] released=${released} dispatched=${dispatched} failed=${failed}`)
   return { released, dispatched, failed }
 }
+
+/**
+ * Read-only: normalized, deduped phones currently on a held_registration
+ * order, across all 5 order tables. Used by the on-demand "release held
+ * orders now" admin action to find phones worth re-checking against
+ * whitelist_status — releaseHeldMtnOrders() already does its own
+ * registration-status re-check internally and needs no phone list, but
+ * releaseWhitelistHeldOrders() requires an explicit list of phones to check.
+ */
+export async function getHeldOrderPhones(): Promise<string[]> {
+  const supabase = serviceClient()
+  const { normalizeGhanaPhone } = await import("@/lib/phone-format")
+  const phones = new Set<string>()
+
+  for (const table of MTN_ORDER_TABLES) {
+    const statusCol = statusColumnFor(table)
+    const phoneCol = phoneColumnFor(table)
+    const { data, error } = await supabase
+      .from(table)
+      .select(phoneCol)
+      .eq(statusCol, HOLD_STATUS)
+    if (error) {
+      console.error(`[MTN-HOLD] getHeldOrderPhones select failed for ${table}:`, error)
+      continue
+    }
+    for (const row of (data as any[]) ?? []) {
+      const norm = normalizeGhanaPhone(String((row as any)[phoneCol] ?? ""))
+      if (norm) phones.add(norm)
+    }
+  }
+
+  return [...phones]
+}
