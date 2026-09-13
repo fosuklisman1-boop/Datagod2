@@ -2,7 +2,22 @@ import {
   mapItemStatus,
   buildQueuePayload,
   deriveOrderStatus,
+  classifyRejectionReason,
 } from "@/lib/mtn-providers/agentportalgh-provider"
+
+describe("classifyRejectionReason", () => {
+  it("classifies a duplicate/stale reference as DUPLICATE_REFERENCE, not a whitelist block", () => {
+    expect(classifyRejectionReason("reference has already been used: 07ece726-bc83-41a8-9cff-c471d0a87d46"))
+      .toBe("DUPLICATE_REFERENCE")
+  })
+  it("is case-insensitive and tolerates the shorter 'already used' phrasing", () => {
+    expect(classifyRejectionReason("Reference Already Used")).toBe("DUPLICATE_REFERENCE")
+  })
+  it("classifies any other rejection reason as WHITELIST_BLOCKED", () => {
+    expect(classifyRejectionReason("Number not on the MTN beneficiary whitelist")).toBe("WHITELIST_BLOCKED")
+    expect(classifyRejectionReason("Invalid MSISDN")).toBe("WHITELIST_BLOCKED")
+  })
+})
 
 describe("mapItemStatus", () => {
   it("maps 'success' to completed", () => expect(mapItemStatus("success")).toBe("completed"))

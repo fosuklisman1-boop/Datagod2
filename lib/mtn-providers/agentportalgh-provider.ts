@@ -48,6 +48,18 @@ export function buildQueuePayload(
 }
 
 /**
+ * Classify a per-item rejection reason from POST /api/queue/add's `rejected`
+ * array. A duplicate/stale client_ref is NOT a whitelist problem — it's an
+ * ordinary, retryable failure (no `held` flag), so mislabeling it
+ * "WHITELIST_BLOCKED" would be misleading and, if anything downstream ever
+ * keys off error_type, risks it being conflated with a genuine per-item
+ * whitelist rejection from AgentPortalGH's own check.
+ */
+export function classifyRejectionReason(reason: string): "DUPLICATE_REFERENCE" | "WHITELIST_BLOCKED" {
+  return /reference.*already.*(been )?used/i.test(reason) ? "DUPLICATE_REFERENCE" : "WHITELIST_BLOCKED"
+}
+
+/**
  * Derive a terminal/in-flight status from an order-listing entry returned by
  * GET /api/beneficiaries/orders (confirmed shape per AgentPortalGH docs §7:
  * { group_name, processing_status, uploaded_count, success_count,
@@ -161,10 +173,14 @@ export class AgentPortalGHProvider implements MTNProvider {
       return { success: false, message: json?.error ?? json?.message ?? `API error ${res.status}`, error_type: "API_ERROR" }
     }
 
-    // added === 0 means every item was rejected (whitelist block or validation)
+    // added === 0 means every item was rejected (whitelist block, validation,
+    // or a stale/duplicate client_ref). No `held` flag either way: this stays
+    // an ordinary failure so createMTNOrder's retry sequence still gets to
+    // try the next provider, and if every provider fails the order simply
+    // reverts to "pending" like any other failure — never specially held.
     if (json.added === 0) {
       const reason = (json.rejected as any[])?.[0]?.reason ?? "Order rejected by provider"
-      return { success: false, message: reason, error_type: "WHITELIST_BLOCKED", order_id: reference }
+      return { success: false, message: reason, error_type: classifyRejectionReason(reason), order_id: reference }
     }
 
     return { success: true, order_id: reference, message: "Order queued" }
