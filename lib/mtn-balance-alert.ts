@@ -7,7 +7,7 @@ function buildLowBalanceLines(
   const labels: Record<string, string> = {
     sykes: "Sykes", datakazina: "DataKazina", xpress: "Xpress",
     eazyghdata: "EazyGhData", bisdel: "Bisdel", codecraft: "CodeCraft", agentportalgh: "AgentPortalGH",
-    apexprime: "Apex Prime",
+    apexprime: "Apex Prime", bundleportal: "Bundle Portal",
   }
   return Object.entries(lows)
     .filter(([k, v]) => v && balances[k] !== null)
