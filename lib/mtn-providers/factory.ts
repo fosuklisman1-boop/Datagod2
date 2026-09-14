@@ -5,7 +5,7 @@
  */
 
 import { supabaseAdmin as supabase } from "@/lib/supabase"
-import type { MTNProvider, MTNProviderName } from "./types"
+import type { MTNProvider, MTNProviderName, NonMTNProviderName } from "./types"
 import { SykesProvider } from "./sykes-provider"
 import { DataKazinaProvider } from "./datakazina-provider"
 import { XpressProvider } from "./xpress-provider"
@@ -14,6 +14,7 @@ import { BisdelProvider } from "./bisdel-provider"
 import { CodeCraftMTNProvider } from "./codecraft-provider"
 import { AgentPortalGHProvider } from "./agentportalgh-provider"
 import { ApexPrimeProvider } from "./apexprime-provider"
+import { SPFastITProvider } from "./spfastit-provider"
 
 /**
  * Get the currently selected provider from database settings
@@ -134,14 +135,14 @@ export const NETWORK_TO_REQUEST_NETWORK: Record<string, "Telecel" | "AirtelTigo"
     "AT-BIGTIME": "AirtelTigo",
 }
 
-export const NON_MTN_CAPABLE: Record<string, MTNProviderName[]> = {
+export const NON_MTN_CAPABLE: Record<string, NonMTNProviderName[]> = {
     telecel_provider_selection: ["datakazina", "xpress", "eazyghdata", "codecraft", "agentportalgh", "apexprime"],
-    at_ishare_provider_selection: ["datakazina", "xpress", "eazyghdata", "codecraft", "agentportalgh", "apexprime"],
+    at_ishare_provider_selection: ["datakazina", "xpress", "eazyghdata", "codecraft", "agentportalgh", "apexprime", "spfastit"],
     at_bigtime_provider_selection: ["datakazina", "xpress", "eazyghdata", "codecraft"],
 }
 
 /** Is `provider` a valid, capability-checked choice for this non-MTN network? */
-export function isProviderCapableForNetwork(normalizedNetwork: string, provider: MTNProviderName): boolean {
+export function isProviderCapableForNetwork(normalizedNetwork: string, provider: NonMTNProviderName): boolean {
     const settingKey = NON_MTN_NETWORK_KEYS[normalizedNetwork]
     if (!settingKey) return false
     return (NON_MTN_CAPABLE[settingKey] ?? []).includes(provider)
@@ -170,7 +171,7 @@ export function isProviderCapableForNetwork(normalizedNetwork: string, provider:
  * memory for the documented "excludes from ... non-MTN routing" claim this
  * fix intentionally supersedes).
  */
-export async function getProviderNameForNetwork(normalizedNetwork: string): Promise<MTNProviderName> {
+export async function getProviderNameForNetwork(normalizedNetwork: string): Promise<NonMTNProviderName> {
     const settingKey = NON_MTN_NETWORK_KEYS[normalizedNetwork]
     if (!settingKey) return "codecraft"
 
@@ -183,7 +184,7 @@ export async function getProviderNameForNetwork(normalizedNetwork: string): Prom
             .eq("key", settingKey)
             .maybeSingle()
 
-        const name = data?.value?.provider as MTNProviderName | undefined
+        const name = data?.value?.provider as NonMTNProviderName | undefined
         return name && capable.includes(name) ? name : "codecraft"
     } catch {
         return "codecraft"
@@ -220,7 +221,7 @@ export async function getRetrySequence(): Promise<MTNProviderName[]> {
 /**
  * Get a specific provider by name (for testing or manual override)
  */
-export function getProviderByName(name: MTNProviderName): MTNProvider {
+export function getProviderByName(name: NonMTNProviderName): MTNProvider {
     switch (name) {
         case "agentportalgh":
             return new AgentPortalGHProvider()
@@ -238,5 +239,7 @@ export function getProviderByName(name: MTNProviderName): MTNProvider {
             return new EazyGhDataProvider()
         case "sykes":
             return new SykesProvider()
+        case "spfastit":
+            return new SPFastITProvider()
     }
 }
