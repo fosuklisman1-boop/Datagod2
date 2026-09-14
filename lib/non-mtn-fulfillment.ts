@@ -1,7 +1,7 @@
 import { atishareService } from "@/lib/at-ishare-service"
 import { saveMTNTracking } from "@/lib/mtn-fulfillment"
 import { getProviderNameForNetwork, getProviderByName, isProviderCapableForNetwork, NETWORK_TO_REQUEST_NETWORK } from "@/lib/mtn-providers/factory"
-import type { MTNOrderRequest, MTNProviderName } from "@/lib/mtn-providers/types"
+import type { MTNOrderRequest, NonMTNProviderName } from "@/lib/mtn-providers/types"
 
 export interface NonMTNOrderParams {
   phoneNumber: string
@@ -15,7 +15,7 @@ export interface NonMTNOrderParams {
    * dropdown). Used only if it's capability-checked for the resolved network;
    * otherwise falls back to the admin-configured default exactly as before.
    */
-  providerOverride?: MTNProviderName
+  providerOverride?: NonMTNProviderName
 }
 
 export interface NonMTNOrderResult {
@@ -52,7 +52,7 @@ export async function createNonMTNOrder(params: NonMTNOrderParams): Promise<NonM
   const { phoneNumber, sizeGb, orderId, network, orderType, providerOverride } = params
   const normalizedKey = normalizeNetworkKey(network)
 
-  let providerName: MTNProviderName
+  let providerName: NonMTNProviderName
   if (providerOverride && isProviderCapableForNetwork(normalizedKey, providerOverride)) {
     providerName = providerOverride
   } else {
