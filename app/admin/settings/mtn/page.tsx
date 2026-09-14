@@ -57,7 +57,7 @@ export default function MTNSettingsPage() {
   const [toggling, setToggling] = useState(false)
   const [gateSettings, setGateSettings] = useState<{ enabled: boolean; updated_at?: string } | null>(null)
   const [gateToggling, setGateToggling] = useState(false)
-  const [mtnProvider, setMtnProvider] = useState<"sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft" | "agentportalgh" | "apexprime">("sykes")
+  const [mtnProvider, setMtnProvider] = useState<"sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft" | "agentportalgh" | "apexprime" | "bundleportal">("sykes")
   const [syncingPackages, setSyncingPackages] = useState(false)
   const [savingProvider, setSavingProvider] = useState(false)
   const [bisdelCategories, setBisdelCategories] = useState<string[]>([])
@@ -132,7 +132,15 @@ export default function MTNSettingsPage() {
   const [apexVerifyResult, setApexVerifyResult] = useState<any>(null)
   const [apexVerifying, setApexVerifying] = useState(false)
 
-  type MTNProviderName = "sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft" | "agentportalgh" | "apexprime"
+  const [bpBalance, setBpBalance] = useState<number | null>(null)
+  const [bpBalanceLoading, setBpBalanceLoading] = useState(false)
+  const [bpMtnRoute, setBpMtnRoute] = useState<"mtn" | "mtn_2" | "mtn_3">("mtn")
+  const [bpSavingRoute, setBpSavingRoute] = useState(false)
+  const [bpVerifyPhone, setBpVerifyPhone] = useState("")
+  const [bpVerifyResult, setBpVerifyResult] = useState<any>(null)
+  const [bpVerifying, setBpVerifying] = useState(false)
+
+  type MTNProviderName = "sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft" | "agentportalgh" | "apexprime" | "bundleportal"
   const [retrySequenceEnabled, setRetrySequenceEnabled] = useState(false)
   const [retrySequence, setRetrySequence] = useState<MTNProviderName[]>([])
   const [savingRetrySequence, setSavingRetrySequence] = useState(false)
@@ -140,7 +148,7 @@ export default function MTNSettingsPage() {
   const [disabledProviders, setDisabledProviders] = useState<MTNProviderName[]>([])
   const [togglingDisabled, setTogglingDisabled] = useState<MTNProviderName | null>(null)
 
-  type NonMTNProvider = "datakazina" | "xpress" | "eazyghdata" | "codecraft" | "agentportalgh" | "apexprime" | "spfastit"
+  type NonMTNProvider = "datakazina" | "xpress" | "eazyghdata" | "codecraft" | "agentportalgh" | "apexprime" | "spfastit" | "bundleportal"
   const [telecelProvider, setTelecelProvider] = useState<NonMTNProvider>("codecraft")
   const [atIshareProvider, setAtIshareProvider] = useState<NonMTNProvider>("codecraft")
   const [atBigtimeProvider, setAtBigtimeProvider] = useState<NonMTNProvider>("codecraft")
@@ -1090,7 +1098,7 @@ export default function MTNSettingsPage() {
   const PROVIDER_LABELS: Record<MTNProviderName, string> = {
     sykes: "Sykes", datakazina: "DataKazina", xpress: "Xpress",
     eazyghdata: "EazyGhData", bisdel: "Bisdel", codecraft: "CodeCraft", agentportalgh: "AgentPortalGH",
-    apexprime: "Apex Prime",
+    apexprime: "Apex Prime", bundleportal: "Bundle Portal",
   }
 
   return (
@@ -1353,6 +1361,7 @@ export default function MTNSettingsPage() {
                 { value: "datakazina", label: "DataKazina", sub: "Multi-network" },
                 { value: "xpress", label: "Xpress", sub: "Batch-enabled" },
                 { value: "eazyghdata", label: "EazyGhData", sub: "Package-based" },
+                { value: "bundleportal", label: "Bundle Portal", sub: "Webhook-first, all networks" },
               ]
               const nonBigTimeProviders: { value: NonMTNProvider; label: string; sub: string }[] = [
                 ...baseProviders,
