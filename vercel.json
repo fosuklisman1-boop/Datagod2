@@ -38,6 +38,10 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/sync-mtn-status/spfastit",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/verify-pending-payments",
       "schedule": "*/2 * * * *"
     },
