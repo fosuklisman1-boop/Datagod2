@@ -11,6 +11,7 @@ import { CodeCraftMTNProvider } from "@/lib/mtn-providers/codecraft-provider"
 import { AgentPortalGHProvider } from "@/lib/mtn-providers/agentportalgh-provider"
 import { ApexPrimeProvider } from "@/lib/mtn-providers/apexprime-provider"
 import { SPFastITProvider } from "@/lib/mtn-providers/spfastit-provider"
+import { BundlePortalProvider } from "@/lib/mtn-providers/bundleportal-provider"
 import { sendLowBalanceAlert } from "@/lib/mtn-balance-alert"
 
 /**
@@ -35,8 +36,9 @@ export async function GET(request: NextRequest) {
     const agentPortalGHProvider = new AgentPortalGHProvider()
     const apexPrimeProvider = new ApexPrimeProvider()
     const spfastitProvider = new SPFastITProvider()
+    const bundlePortalProvider = new BundlePortalProvider()
 
-    const [sykesBalance, datakazinaBalance, xpressBalance, eazyghDataBalance, bisdelBalance, codeCraftBalance, agentportalghBalance, apexprimeBalance, spfastitBalance] = await Promise.all([
+    const [sykesBalance, datakazinaBalance, xpressBalance, eazyghDataBalance, bisdelBalance, codeCraftBalance, agentportalghBalance, apexprimeBalance, spfastitBalance, bundleportalBalance] = await Promise.all([
       sykesProvider.checkBalance().catch(() => null),
       datakazinaProvider.checkBalance().catch(() => null),
       xpressProvider.checkBalance().catch(() => null),
@@ -46,6 +48,7 @@ export async function GET(request: NextRequest) {
       agentPortalGHProvider.checkBalance().catch(() => null),
       apexPrimeProvider.checkBalance().catch(() => null),
       spfastitProvider.checkBalance().catch(() => null),
+      bundlePortalProvider.checkBalance().catch(() => null),
     ])
 
     // Get the currently selected provider
@@ -69,11 +72,12 @@ export async function GET(request: NextRequest) {
     const codeCraftLow = codeCraftBalance !== null && codeCraftBalance < threshold
     const agentportalghLow = agentportalghBalance !== null && agentportalghBalance < threshold
     const apexprimeLow = apexprimeBalance !== null && apexprimeBalance < threshold
+    const bundleportalLow = bundleportalBalance !== null && bundleportalBalance < threshold
 
-    const balanceMap = { sykes: sykesBalance, datakazina: datakazinaBalance, xpress: xpressBalance, eazyghdata: eazyghDataBalance, bisdel: bisdelBalance, codecraft: codeCraftBalance, agentportalgh: agentportalghBalance, apexprime: apexprimeBalance }
-    const lowMap = { sykes: sykesLow, datakazina: datakazinaLow, xpress: xpressLow, eazyghdata: eazyghDataLow, bisdel: bisdelLow, codecraft: codeCraftLow, agentportalgh: agentportalghLow, apexprime: apexprimeLow }
+    const balanceMap = { sykes: sykesBalance, datakazina: datakazinaBalance, xpress: xpressBalance, eazyghdata: eazyghDataBalance, bisdel: bisdelBalance, codecraft: codeCraftBalance, agentportalgh: agentportalghBalance, apexprime: apexprimeBalance, bundleportal: bundleportalBalance }
+    const lowMap = { sykes: sykesLow, datakazina: datakazinaLow, xpress: xpressLow, eazyghdata: eazyghDataLow, bisdel: bisdelLow, codecraft: codeCraftLow, agentportalgh: agentportalghLow, apexprime: apexprimeLow, bundleportal: bundleportalLow }
 
-    if (sykesLow || datakazinaLow || xpressLow || eazyghDataLow || bisdelLow || codeCraftLow || agentportalghLow || apexprimeLow) {
+    if (sykesLow || datakazinaLow || xpressLow || eazyghDataLow || bisdelLow || codeCraftLow || agentportalghLow || apexprimeLow || bundleportalLow) {
       sendLowBalanceAlert(balanceMap, lowMap, threshold).catch((e) => console.error("[MTN Balance] Alert error:", e))
     }
 
@@ -148,6 +152,13 @@ export async function GET(request: NextRequest) {
           is_low: apexprimeLow,
           is_active: activeProvider.name === "apexprime",
           alert: apexprimeLow && apexprimeBalance !== null ? `Apex Prime balance is below threshold of ₵${threshold}` : null,
+        },
+        bundleportal: {
+          balance: bundleportalBalance,
+          currency: "GHS",
+          is_low: bundleportalLow,
+          is_active: activeProvider.name === "bundleportal",
+          alert: bundleportalLow && bundleportalBalance !== null ? `Bundle Portal balance is below threshold of ₵${threshold}` : null,
         },
       },
       threshold,
