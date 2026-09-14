@@ -140,7 +140,7 @@ export default function MTNSettingsPage() {
   const [disabledProviders, setDisabledProviders] = useState<MTNProviderName[]>([])
   const [togglingDisabled, setTogglingDisabled] = useState<MTNProviderName | null>(null)
 
-  type NonMTNProvider = "datakazina" | "xpress" | "eazyghdata" | "codecraft" | "agentportalgh" | "apexprime"
+  type NonMTNProvider = "datakazina" | "xpress" | "eazyghdata" | "codecraft" | "agentportalgh" | "apexprime" | "spfastit"
   const [telecelProvider, setTelecelProvider] = useState<NonMTNProvider>("codecraft")
   const [atIshareProvider, setAtIshareProvider] = useState<NonMTNProvider>("codecraft")
   const [atBigtimeProvider, setAtBigtimeProvider] = useState<NonMTNProvider>("codecraft")
@@ -1337,6 +1337,13 @@ export default function MTNSettingsPage() {
 
             {/* Per-Network Provider Selectors */}
             {(["telecel", "at_ishare", "at_bigtime"] as const).map(netKey => {
+              // disabledProviders is server-enforced MTN-only (network-provider route rejects
+              // anything else) and can never actually contain "spfastit" — this guard just
+              // keeps TypeScript happy about the now-widened NonMTNProvider type at these two
+              // call sites without changing disabledProviders' own (correctly narrow) type.
+              const isMTNCapableProvider = (provider: NonMTNProvider): provider is Extract<NonMTNProvider, MTNProviderName> => {
+                return provider in PROVIDER_LABELS
+              }
               const networkLabel = netKey === "telecel" ? "Telecel" : netKey === "at_ishare" ? "AT - iShare" : "AT - BigTime"
               const current = netKey === "telecel" ? telecelProvider : netKey === "at_ishare" ? atIshareProvider : atBigtimeProvider
               const setter = netKey === "telecel" ? setTelecelProvider : netKey === "at_ishare" ? setAtIshareProvider : setAtBigtimeProvider
@@ -1352,8 +1359,12 @@ export default function MTNSettingsPage() {
                 { value: "agentportalgh", label: "AgentPortalGH", sub: "Webhook-first" },
                 { value: "apexprime", label: "Apex Prime", sub: "GroupShare/Store" },
               ]
+              const ishareProviders: { value: NonMTNProvider; label: string; sub: string }[] = [
+                ...nonBigTimeProviders,
+                { value: "spfastit", label: "SPFastIT", sub: "AirtelTigo-only" },
+              ]
               const providers: { value: NonMTNProvider; label: string; sub: string }[] =
-                netKey === "at_bigtime" ? baseProviders : nonBigTimeProviders
+                netKey === "at_bigtime" ? baseProviders : netKey === "at_ishare" ? ishareProviders : nonBigTimeProviders
               return (
                 <Card key={netKey} className="border-2">
                   <CardHeader>
@@ -1363,7 +1374,7 @@ export default function MTNSettingsPage() {
                   <CardContent>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                       {providers.map(p => {
-                        const isProviderDisabled = disabledProviders.includes(p.value)
+                        const isProviderDisabled = isMTNCapableProvider(p.value) && disabledProviders.includes(p.value)
                         return (
                           <button
                             key={p.value}
@@ -1386,7 +1397,7 @@ export default function MTNSettingsPage() {
                       })}
                     </div>
                     {isSaving && <div className="flex items-center gap-2 mt-3 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Updating…</div>}
-                    {disabledProviders.includes(current) && (
+                    {isMTNCapableProvider(current) && disabledProviders.includes(current) && (
                       <Alert className="mt-3 border-warning/30 bg-warning/10">
                         <AlertCircle className="h-4 w-4 text-warning" />
                         <AlertDescription className="text-warning text-xs">
