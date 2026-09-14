@@ -42,13 +42,15 @@ function getNetworkColor(network: string): string {
   return colorMap[network] || "bg-muted text-foreground"
 }
 
-// Mirrors lib/mtn-providers/factory.ts's provider-capability rules: MTN accepts all 8
+// Mirrors lib/mtn-providers/factory.ts's provider-capability rules: MTN accepts all 9
 // providers; non-MTN (Telecel/AT-iShare/AT-BigTime) accepts only the non-MTN-capable
 // ones, with agentportalgh/apexprime further excluded from AT-BigTime specifically
 // (business decision — neither provider's API distinguishes AT-iShare from AT-BigTime,
-// so this exclusion is enforced here rather than by the provider itself), and spfastit
+// so this exclusion is enforced here rather than by the provider itself), spfastit
 // offered only for AT-iShare (it's AirtelTigo-only — not capable for Telecel or MTN,
-// per NON_MTN_CAPABLE.at_ishare_provider_selection in factory.ts).
+// per NON_MTN_CAPABLE.at_ishare_provider_selection in factory.ts), and bundleportal
+// offered on every branch, including AT-BigTime — it's a full member capable on all
+// networks (see NON_MTN_CAPABLE.at_bigtime_provider_selection in factory.ts).
 function getProviderOptionsForNetwork(network: string): { value: string; label: string }[] {
   const upper = (network || "").toUpperCase()
   const isMTN = upper === "MTN"
@@ -62,6 +64,7 @@ function getProviderOptionsForNetwork(network: string): { value: string; label: 
       { value: "bisdel", label: "Bisdel" },
       { value: "agentportalgh", label: "AgentPortalGH" },
       { value: "apexprime", label: "Apex Prime" },
+      { value: "bundleportal", label: "Bundle Portal" },
     ]
   }
   const isBigTime = upper.includes("BIGTIME") || upper.includes("BIG TIME")
@@ -73,6 +76,7 @@ function getProviderOptionsForNetwork(network: string): { value: string; label: 
     { value: "eazyghdata", label: "EazyGhData" },
     ...(isBigTime ? [] : [{ value: "agentportalgh", label: "AgentPortalGH" }, { value: "apexprime", label: "Apex Prime" }]),
     ...(isIshare ? [{ value: "spfastit", label: "SPFastIT" }] : []),
+    { value: "bundleportal", label: "Bundle Portal" },
   ]
 }
 
