@@ -49,6 +49,11 @@ async function getSelectedProvider(): Promise<MTNProviderName> {
 
 const VALID_PROVIDERS: MTNProviderName[] = ["sykes", "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft", "agentportalgh", "apexprime"]
 
+/** True only for a genuinely MTN-capable provider name (never "spfastit" or any other non-MTN-only provider). */
+export function isValidMtnProviderName(name: string): name is MTNProviderName {
+    return VALID_PROVIDERS.includes(name as MTNProviderName)
+}
+
 /**
  * Providers an admin has deactivated — excluded from automatic selection
  * (primary + retry sequence) everywhere. Does not affect explicit overrides

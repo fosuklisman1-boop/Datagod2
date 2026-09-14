@@ -35,11 +35,19 @@ vi.mock("@/lib/supabase", () => ({
   }),
 }))
 
-vi.mock("@/lib/mtn-providers/factory", () => ({
-  getMTNProvider: vi.fn(),
-  getProviderByName: vi.fn(),
-  getRetrySequence: vi.fn().mockResolvedValue([]),
-}))
+vi.mock("@/lib/mtn-providers/factory", async (importOriginal) => {
+  // Keep the real isValidMtnProviderName (a pure, supabase-free check) so the
+  // new explicit-override validation in createMTNOrder behaves realistically
+  // against the "sykes"/"codecraft" providers these tests pass — only the
+  // settings-backed selection functions need to be test-doubles.
+  const actual = await importOriginal<typeof import("@/lib/mtn-providers/factory")>()
+  return {
+    ...actual,
+    getMTNProvider: vi.fn(),
+    getProviderByName: vi.fn(),
+    getRetrySequence: vi.fn().mockResolvedValue([]),
+  }
+})
 
 vi.mock("@/lib/mtn-providers/provider-whitelist", () => ({
   hasWhitelistProviders: vi.fn(() => true),

@@ -1,4 +1,5 @@
 import { supabaseAdmin as supabase } from "@/lib/supabase"
+import type { MTNProviderName } from "@/lib/mtn-providers/types"
 import crypto from "crypto"
 import {
   mtnConfig,
@@ -338,7 +339,7 @@ export function isInsufficientFundsError(message: string): boolean {
  * based on admin settings, while maintaining backward compatibility.
  */
 export async function createMTNOrder(order: MTNOrderRequest): Promise<MTNOrderResponse> {
-  const { getMTNProvider, getProviderByName, getRetrySequence } = await import("@/lib/mtn-providers/factory")
+  const { getMTNProvider, getProviderByName, getRetrySequence, isValidMtnProviderName } = await import("@/lib/mtn-providers/factory")
 
   try {
     // Registration gate (Phase 2): MTN only fulfills pre-registered numbers.
@@ -386,9 +387,22 @@ export async function createMTNOrder(order: MTNOrderRequest): Promise<MTNOrderRe
       console.error("[MTN-GATE] Gate check failed — failing open:", gateErr)
     }
 
-    // Get the selected provider (either forced in request or from global settings)
-    let provider = order.provider
-      ? getProviderByName(order.provider as any)
+    // Get the selected provider (either forced in request or from global settings).
+    // An explicit override is only honored if it's a genuinely MTN-capable provider —
+    // getProviderByName() also accepts non-MTN-only providers (e.g. "spfastit", for
+    // AT-iShare dispatch), so an invalid MTN override falls back to the admin-configured
+    // default rather than silently routing an MTN order through a provider that can't
+    // serve it. Never expected in normal operation (no admin UI offers an invalid
+    // provider here) — this is a safety net against a hand-crafted API call, so it's
+    // logged loudly if it ever fires. Computed as a plain boolean (not inline in the
+    // ternary below) so an invalid override still only costs one cheap local check,
+    // not an extra getMTNProvider() DB round-trip on the normal, valid-override path.
+    const hasValidOverride = order.provider ? isValidMtnProviderName(order.provider) : false
+    if (order.provider && !hasValidOverride) {
+      console.warn(`[MTN] Invalid explicit provider override "${order.provider}" — not MTN-capable, falling back to admin-configured default`)
+    }
+    let provider = hasValidOverride
+      ? getProviderByName(order.provider as MTNProviderName)
       : await getMTNProvider()
 
     // Whitelist pre-check: try all configured whitelist providers in order
