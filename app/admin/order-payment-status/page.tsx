@@ -46,7 +46,9 @@ function getNetworkColor(network: string): string {
 // providers; non-MTN (Telecel/AT-iShare/AT-BigTime) accepts only the non-MTN-capable
 // ones, with agentportalgh/apexprime further excluded from AT-BigTime specifically
 // (business decision — neither provider's API distinguishes AT-iShare from AT-BigTime,
-// so this exclusion is enforced here rather than by the provider itself).
+// so this exclusion is enforced here rather than by the provider itself), and spfastit
+// offered only for AT-iShare (it's AirtelTigo-only — not capable for Telecel or MTN,
+// per NON_MTN_CAPABLE.at_ishare_provider_selection in factory.ts).
 function getProviderOptionsForNetwork(network: string): { value: string; label: string }[] {
   const upper = (network || "").toUpperCase()
   const isMTN = upper === "MTN"
@@ -63,12 +65,14 @@ function getProviderOptionsForNetwork(network: string): { value: string; label: 
     ]
   }
   const isBigTime = upper.includes("BIGTIME") || upper.includes("BIG TIME")
+  const isIshare = upper.includes("ISHARE")
   return [
     { value: "xpress", label: "Xpress" },
     { value: "codecraft", label: "Codecraft" },
     { value: "datakazina", label: "Datakazina" },
     { value: "eazyghdata", label: "EazyGhData" },
     ...(isBigTime ? [] : [{ value: "agentportalgh", label: "AgentPortalGH" }, { value: "apexprime", label: "Apex Prime" }]),
+    ...(isIshare ? [{ value: "spfastit", label: "SPFastIT" }] : []),
   ]
 }
 
