@@ -143,4 +143,15 @@ describe("processWebhook", () => {
     await processWebhook({ event: "order.refunded", order_id: "our-ref-5", status: "failed" })
     expect(refunded.status).toBe("failed")
   })
+
+  it("re-delivering the SAME terminal status only stamps webhook_received_at, nothing else", async () => {
+    const target = seedTracking({ mtn_order_id: "our-ref-6", status: "completed" })
+
+    await processWebhook({ event: "order.completed", order_id: "our-ref-6", status: "completed" })
+
+    expect(fakeDb.updates).toHaveLength(1)
+    expect(fakeDb.updates[0].id).toBe(target.id)
+    expect(Object.keys(fakeDb.updates[0].payload)).toEqual(["webhook_received_at"])
+    expect(target.status).toBe("completed")
+  })
 })
