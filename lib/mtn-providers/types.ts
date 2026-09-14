@@ -62,3 +62,14 @@ export interface MTNProvider {
  * Supported provider names
  */
 export type MTNProviderName = "sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft" | "agentportalgh" | "apexprime"
+
+/**
+ * Every MTNProviderName, plus providers capable of only a non-MTN network.
+ * Used exclusively by non-MTN dispatch (createNonMTNOrder, getProviderByName,
+ * NON_MTN_CAPABLE, getProviderNameForNetwork, isProviderCapableForNetwork) —
+ * NEVER by MTN-only selection (getMTNProvider, getRetrySequence,
+ * getDisabledProviders, WHITELIST_REGISTRY), which stay typed to the
+ * narrower MTNProviderName so a network-exclusive provider can't be assigned
+ * there without a deliberate, explicit type change.
+ */
+export type NonMTNProviderName = MTNProviderName | "spfastit"
