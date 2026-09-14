@@ -169,7 +169,7 @@ export default SPFastITProvider
 ```
 
 Notes:
-- No `validatePhoneNetworkMatch` call (unlike MTN providers) — SPFastIT only ever receives AT-iShare-network requests via `createNonMTNOrder`'s dispatch, and that path doesn't validate network/prefix match for non-MTN providers today (matches existing CodeCraft/DataKazina non-MTN behavior — out of scope to add here).
+- **Correction (caught in Task 2's code review, applied to the implementation):** the claim originally here — that `validatePhoneNetworkMatch` could be skipped because CodeCraft/DataKazina's non-MTN dispatch path doesn't validate it — was factually wrong. All 8 existing providers, including `datakazina-provider.ts` and `codecraft-provider.ts`, call `validatePhoneNetworkMatch(recipient_phone, network)` unconditionally in `createOrder`, and `non-mtn-fulfillment.ts` populates a real `network` value on the request it passes to them. SPFastIT's implementation was corrected to include this same check, matching every other provider.
 - `checkBalance()` divides by 1024 to normalize MB → GB, matching the unit every other provider's `checkBalance()` returns (confirmed by reading `sykes-provider.ts`/`bisdel-provider.ts`'s balance parsing — both return a raw currency/GB-scale number, and the balance-check cron's low-balance threshold comparison assumes a consistent unit across providers). *(Self-review note: SPFastIT's balance is in data volume (GB), not currency, unlike every other provider's wallet balance in cedis — flagged explicitly in Task section below so the plan doesn't silently conflate the two.)*
 
 ### 3. `lib/mtn-providers/factory.ts`
