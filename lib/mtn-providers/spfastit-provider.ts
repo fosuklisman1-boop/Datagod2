@@ -44,6 +44,18 @@ export function mapSpfastitStatus(raw: string): "pending" | "processing" | "comp
   return "processing"
 }
 
+// SPFastIT explicitly documents 1000MB = 1GB ("Your system uses 1000MB = 1GB"),
+// NOT the binary 1024 convention every other provider in this codebase uses.
+// Independently confirmed by their own check_balance example response:
+// wallet_balance_mb: 100000, wallet_balance_gb: 100 → 100000/100 = 1000.
+export function gbToBundleMb(sizeGb: number): number {
+  return Math.round(sizeGb * 1000)
+}
+
+export function mbToGb(mb: number): number {
+  return mb / 1000
+}
+
 // ── Provider class ───────────────────────────────────────────────────────────
 
 export class SPFastITProvider implements MTNProvider {
@@ -57,7 +69,7 @@ export class SPFastITProvider implements MTNProvider {
       return { success: false, message: `Phone does not match ${request.network}`, error_type: "VALIDATION" }
     }
     const phone = normalizePhoneNumber(request.recipient_phone)
-    const bundleMb = Math.round(request.size_gb * 1024)
+    const bundleMb = gbToBundleMb(request.size_gb)
     const clientReference = request.client_ref
 
     let res: Response
@@ -134,7 +146,7 @@ export class SPFastITProvider implements MTNProvider {
       const json = await res.json()
       if (json.status !== "success") return null
       const mb = json.available_mb
-      return typeof mb === "number" ? mb / 1024 : null
+      return typeof mb === "number" ? mbToGb(mb) : null
     } catch {
       return null
     }
