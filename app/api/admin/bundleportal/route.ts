@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { supabaseAdmin as supabase } from "@/lib/supabase"
-import { BundlePortalProvider, MTN_ROUTE_KEY } from "@/lib/mtn-providers/bundleportal-provider"
+import { BundlePortalProvider, MTN_ROUTE_KEY, getActiveMtnRoute } from "@/lib/mtn-providers/bundleportal-provider"
 
 export const dynamic = "force-dynamic"
 
@@ -18,13 +18,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, balance, currency: "GHS" })
     }
     if (action === "mtn-route") {
-      const { data } = await supabase
-        .from("admin_settings")
-        .select("value")
-        .eq("key", MTN_ROUTE_KEY)
-        .maybeSingle()
-      const route = data?.value?.route
-      return NextResponse.json({ success: true, route: route === "mtn_2" || route === "mtn_3" ? route : "mtn" })
+      return NextResponse.json({ success: true, route: await getActiveMtnRoute() })
     }
     return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 })
   } catch (error) {
