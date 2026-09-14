@@ -10,6 +10,7 @@ import { BisdelProvider } from "@/lib/mtn-providers/bisdel-provider"
 import { CodeCraftMTNProvider } from "@/lib/mtn-providers/codecraft-provider"
 import { AgentPortalGHProvider } from "@/lib/mtn-providers/agentportalgh-provider"
 import { ApexPrimeProvider } from "@/lib/mtn-providers/apexprime-provider"
+import { SPFastITProvider } from "@/lib/mtn-providers/spfastit-provider"
 import { sendLowBalanceAlert } from "@/lib/mtn-balance-alert"
 
 /**
@@ -33,8 +34,9 @@ export async function GET(request: NextRequest) {
     const codeCraftProvider = new CodeCraftMTNProvider()
     const agentPortalGHProvider = new AgentPortalGHProvider()
     const apexPrimeProvider = new ApexPrimeProvider()
+    const spfastitProvider = new SPFastITProvider()
 
-    const [sykesBalance, datakazinaBalance, xpressBalance, eazyghDataBalance, bisdelBalance, codeCraftBalance, agentportalghBalance, apexprimeBalance] = await Promise.all([
+    const [sykesBalance, datakazinaBalance, xpressBalance, eazyghDataBalance, bisdelBalance, codeCraftBalance, agentportalghBalance, apexprimeBalance, spfastitBalance] = await Promise.all([
       sykesProvider.checkBalance().catch(() => null),
       datakazinaProvider.checkBalance().catch(() => null),
       xpressProvider.checkBalance().catch(() => null),
@@ -43,6 +45,7 @@ export async function GET(request: NextRequest) {
       codeCraftProvider.checkBalance().catch(() => null),
       agentPortalGHProvider.checkBalance().catch(() => null),
       apexPrimeProvider.checkBalance().catch(() => null),
+      spfastitProvider.checkBalance().catch(() => null),
     ])
 
     // Get the currently selected provider
@@ -74,8 +77,21 @@ export async function GET(request: NextRequest) {
       sendLowBalanceAlert(balanceMap, lowMap, threshold).catch((e) => console.error("[MTN Balance] Alert error:", e))
     }
 
+    // SPFastIT's balance is GB of data remaining, not currency — kept out of the
+    // balanceMap/lowMap/sendLowBalanceAlert (currency-only) path above and given
+    // its own GB-denominated threshold instead.
+    const spfastitThresholdGb = parseFloat(process.env.SPFASTIT_LOW_BALANCE_GB || "5")
+    const spfastitLow = spfastitBalance !== null && spfastitBalance < spfastitThresholdGb
+
     return NextResponse.json({
       success: true,
+      spfastit: {
+        balance_gb: spfastitBalance,
+        threshold_gb: spfastitThresholdGb,
+        is_low: spfastitLow,
+        is_active: false, // SPFastIT can never be the active MTN provider — it's AT-iShare only
+        alert: spfastitLow && spfastitBalance !== null ? `SPFastIT balance is below threshold of ${spfastitThresholdGb}GB` : null,
+      },
       balances: {
         sykes: {
           balance: sykesBalance,

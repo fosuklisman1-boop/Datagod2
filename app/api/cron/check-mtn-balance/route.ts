@@ -9,6 +9,7 @@ import { BisdelProvider } from "@/lib/mtn-providers/bisdel-provider"
 import { CodeCraftMTNProvider } from "@/lib/mtn-providers/codecraft-provider"
 import { AgentPortalGHProvider } from "@/lib/mtn-providers/agentportalgh-provider"
 import { ApexPrimeProvider } from "@/lib/mtn-providers/apexprime-provider"
+import { SPFastITProvider } from "@/lib/mtn-providers/spfastit-provider"
 import { sendLowBalanceAlert } from "@/lib/mtn-balance-alert"
 
 export const dynamic = "force-dynamic"
@@ -18,7 +19,7 @@ export async function GET(request: NextRequest) {
   if (!auth.authorized) return auth.errorResponse!
 
   try {
-    const [sykes, datakazina, xpress, eazyghdata, bisdel, codecraft, agentportalgh, apexprime] = await Promise.all([
+    const [sykes, datakazina, xpress, eazyghdata, bisdel, codecraft, agentportalgh, apexprime, spfastit] = await Promise.all([
       new SykesProvider().checkBalance().catch(() => null),
       new DataKazinaProvider().checkBalance().catch(() => null),
       new XpressProvider().checkBalance().catch(() => null),
@@ -27,6 +28,7 @@ export async function GET(request: NextRequest) {
       new CodeCraftMTNProvider().checkBalance().catch(() => null),
       new AgentPortalGHProvider().checkBalance().catch(() => null),
       new ApexPrimeProvider().checkBalance().catch(() => null),
+      new SPFastITProvider().checkBalance().catch(() => null),
     ])
 
     const { data: settingData } = await supabase
@@ -55,8 +57,23 @@ export async function GET(request: NextRequest) {
       await sendLowBalanceAlert(balances, lows, threshold)
     }
 
+    // SPFastIT's balance is GB of data remaining, not currency — a separate,
+    // GB-denominated threshold, checked and logged independently so it's never
+    // compared against the currency threshold above.
+    const spfastitThresholdGb = parseFloat(process.env.SPFASTIT_LOW_BALANCE_GB || "5")
+    const spfastitLow = spfastit !== null && spfastit < spfastitThresholdGb
+    if (spfastitLow) {
+      console.warn(`[CRON-MTN-BALANCE] SPFastIT balance low: ${spfastit}GB remaining (threshold ${spfastitThresholdGb}GB)`)
+    }
+
     console.log(`[CRON-MTN-BALANCE] threshold=₵${threshold} anyLow=${anyLow}`, balances)
-    return NextResponse.json({ success: true, threshold, anyLow, balances })
+    return NextResponse.json({
+      success: true,
+      threshold,
+      anyLow,
+      balances,
+      spfastit: { balance_gb: spfastit, threshold_gb: spfastitThresholdGb, is_low: spfastitLow },
+    })
   } catch (error: any) {
     console.error("[CRON-MTN-BALANCE] Error:", error)
     return NextResponse.json({ error: error.message }, { status: 500 })
