@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
 // Mutable so getActiveMtnRoute's tests can reconfigure it per-case without
-// vi.resetModules()/vi.doMock() gymnastics — mirrors the vi.hoisted mutable-
-// fixture pattern already established in bundleportal-webhook-processor.test.ts.
+// vi.resetModules()/vi.doMock() gymnastics — this mutable-fixture pattern will
+// be reused by bundleportal-webhook-processor.test.ts (Task 7) for the same reason.
 const fakeSettings = vi.hoisted(() => ({ current: {} as Record<string, any> }))
 
 vi.mock("@/lib/supabase", () => ({

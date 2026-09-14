@@ -87,7 +87,13 @@ export class BundlePortalProvider implements MTNProvider {
     const phone = normalizePhoneNumber(request.recipient_phone)
     // Always sent, even though the docs mark it optional — it's the sole
     // idempotency key AND the sole status-lookup key for this provider.
-    const orderId = request.client_ref ?? crypto.randomUUID()
+    const orderId = request.client_ref ?? (() => {
+      console.warn(
+        "[BundlePortal] createOrder called with no client_ref — generating a random UUID. " +
+        "Idempotent retry-safety requires a stable reference; a caller-level retry after this could double-charge."
+      )
+      return crypto.randomUUID()
+    })()
     const mtnRoute = await getActiveMtnRoute()
     const bpNetwork = mapNetworkToBundlePortal(request.network, request.isBigTime, mtnRoute)
 
