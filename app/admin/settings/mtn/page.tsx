@@ -240,6 +240,88 @@ export default function MTNSettingsPage() {
     loadApexData()
   }, [activeTab])
 
+  useEffect(() => {
+    if (activeTab !== "bundleportal") return
+    const loadBundlePortalData = async () => {
+      setBpBalanceLoading(true)
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session?.access_token) return
+        const headers = { Authorization: `Bearer ${session.access_token}` }
+        const [balanceRes, routeRes] = await Promise.all([
+          fetch("/api/admin/bundleportal?action=balance", { headers }),
+          fetch("/api/admin/bundleportal?action=mtn-route", { headers }),
+        ])
+        if (balanceRes.ok) {
+          const data = await balanceRes.json()
+          if (data.error) {
+            toast.error(`Failed to load Bundle Portal balance: ${data.error}`)
+          } else {
+            setBpBalance(data.balance)
+          }
+        } else {
+          toast.error("Failed to load Bundle Portal balance")
+        }
+        if (routeRes.ok) {
+          const data = await routeRes.json()
+          if (data.error || !data.route) {
+            toast.error(data.error ? `Failed to load MTN route: ${data.error}` : "Failed to load MTN route")
+          } else {
+            setBpMtnRoute(data.route)
+          }
+        } else {
+          toast.error("Failed to load MTN route")
+        }
+      } catch (e) {
+        console.error("Error loading Bundle Portal data:", e)
+      } finally {
+        setBpBalanceLoading(false)
+      }
+    }
+    loadBundlePortalData()
+  }, [activeTab])
+
+  const handleSetBundlePortalMtnRoute = async (route: "mtn" | "mtn_2" | "mtn_3") => {
+    setBpSavingRoute(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) { toast.error("Authentication required"); return }
+      const res = await fetch("/api/admin/bundleportal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ action: "set-mtn-route", route }),
+      })
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Failed") }
+      setBpMtnRoute(route)
+      toast.success(`Bundle Portal MTN route set to ${route}`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to update")
+    } finally {
+      setBpSavingRoute(false)
+    }
+  }
+
+  const handleBundlePortalVerify = async () => {
+    if (!bpVerifyPhone) return
+    setBpVerifying(true)
+    setBpVerifyResult(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) { toast.error("Authentication required"); return }
+      const res = await fetch("/api/admin/bundleportal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ action: "verify", phone: bpVerifyPhone, network: "mtn" }),
+      })
+      const data = await res.json()
+      setBpVerifyResult(data)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Verification failed")
+    } finally {
+      setBpVerifying(false)
+    }
+  }
+
   const handleSetApexFulfillmentPath = async (network: "MTN" | "Telecel" | "AirtelTigo", path: "groupshare" | "store") => {
     setApexSavingPath(network)
     try {
@@ -2285,6 +2367,71 @@ export default function MTNSettingsPage() {
                   </div>
                 ) : (
                   <p className="text-sm text-muted-foreground">No transactions to show.</p>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="bundleportal" className="space-y-4 mt-6">
+            <ActivationCard providerKey="bundleportal" label="Bundle Portal" />
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Wallet className="h-5 w-5" />Balance</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {bpBalanceLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Loading…</div>
+                ) : bpBalance !== null ? (
+                  <p className="text-lg font-semibold text-foreground">₵{bpBalance.toFixed(2)}</p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No balance data available.</p>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Zap className="h-5 w-5" />MTN Delivery Route</CardTitle>
+                <CardDescription>MTN is available on three independent, separately-catalogued delivery routes. Pick one active route — new MTN orders through Bundle Portal use it.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-2">
+                  {(["mtn", "mtn_2", "mtn_3"] as const).map(route => (
+                    <Button
+                      key={route}
+                      size="sm"
+                      variant={bpMtnRoute === route ? "default" : "outline"}
+                      disabled={bpSavingRoute}
+                      onClick={() => handleSetBundlePortalMtnRoute(route)}
+                    >
+                      {route === "mtn" ? "MTN (default)" : route === "mtn_2" ? "MTN 2" : "MTN 3"}
+                    </Button>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><ShieldCheck className="h-5 w-5" />Whitelist Checker</CardTitle>
+                <CardDescription>Ad-hoc single-number check against Bundle Portal's verify_number endpoint. Bulk checks run from /admin/phone-verification.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex gap-2">
+                  <Input placeholder="0241234567" value={bpVerifyPhone} onChange={e => setBpVerifyPhone(e.target.value)} />
+                  <Button onClick={handleBundlePortalVerify} disabled={bpVerifying || !bpVerifyPhone}>
+                    {bpVerifying ? <Loader2 className="h-4 w-4 animate-spin" /> : "Check"}
+                  </Button>
+                </div>
+                {bpVerifyResult && (
+                  <Alert className={bpVerifyResult.data?.allowed ? "border-success/30 bg-success/10" : "border-destructive/30 bg-destructive/10"}>
+                    <AlertDescription className="text-xs">
+                      {bpVerifyResult.data?.allowed
+                        ? `Allowed${bpVerifyResult.data?.can_order === false ? " (but a prior order for this number is still in flight)" : ""}`
+                        : bpVerifyResult.data?.allowlist_message ?? bpVerifyResult.message ?? "Not allowed / not found"}
+                    </AlertDescription>
+                  </Alert>
                 )}
               </CardContent>
             </Card>
