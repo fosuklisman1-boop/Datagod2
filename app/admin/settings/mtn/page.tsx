@@ -314,6 +314,11 @@ export default function MTNSettingsPage() {
         body: JSON.stringify({ action: "verify", phone: bpVerifyPhone, network: "mtn" }),
       })
       const data = await res.json()
+      if (!res.ok) {
+        toast.error(data.error || "Verification failed")
+        setBpVerifyResult(null)
+        return
+      }
       setBpVerifyResult(data)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Verification failed")
