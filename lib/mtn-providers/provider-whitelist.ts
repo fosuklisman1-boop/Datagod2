@@ -138,6 +138,35 @@ async function checkAgentPortalGHBatch(
   return results
 }
 
+async function checkBundlePortal(msisdn: string): Promise<WhitelistResult> {
+  try {
+    const { BundlePortalProvider } = await import("./bundleportal-provider")
+    const data = await new BundlePortalProvider().verifyNumber(msisdn, "mtn")
+    return { allowed: data?.data?.allowed === true, provider: "bundleportal", reason: data?.data?.allowlist_message }
+  } catch {
+    return { allowed: true, provider: "bundleportal" }
+  }
+}
+
+async function checkBundlePortalBatch(
+  msisdns: string[]
+): Promise<Array<{ msisdn: string; allowed: boolean; reason?: string }>> {
+  // No native batch endpoint on Bundle Portal's side — verify sequentially,
+  // matching Apex Prime's approach (checkApexPrimeBatch below).
+  const results: Array<{ msisdn: string; allowed: boolean; reason?: string }> = []
+  const { BundlePortalProvider } = await import("./bundleportal-provider")
+  const provider = new BundlePortalProvider()
+  for (const msisdn of msisdns) {
+    try {
+      const data = await provider.verifyNumber(msisdn, "mtn")
+      results.push({ msisdn, allowed: data?.data?.allowed === true, reason: data?.data?.allowlist_message })
+    } catch {
+      results.push({ msisdn, allowed: true })
+    }
+  }
+  return results
+}
+
 // Apex Prime's own MTN Pre-Check & Approval Note (confirmed with them 2026-09-05):
 // first-time MTN numbers must clear MTN's own approval before they can receive
 // data — a number mid-approval isn't rejected, it's "awaiting_mtn_approval" and
@@ -214,6 +243,12 @@ export const WHITELIST_REGISTRY: WhitelistEntry[] = [
     configured: () => !!process.env.APEXPRIME_API_KEY,
     check: checkApexPrime,
     checkBatch: checkApexPrimeBatch,
+  },
+  {
+    name: "bundleportal",
+    configured: () => !!process.env.BUNDLEPORTAL_API_KEY,
+    check: checkBundlePortal,
+    checkBatch: checkBundlePortalBatch,
   },
   // Add future whitelist providers here ↓
 ]
