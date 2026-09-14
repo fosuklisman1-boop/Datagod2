@@ -77,6 +77,7 @@ export async function createNonMTNOrder(params: NonMTNOrderParams): Promise<NonM
     network: reqNetwork,
     size_gb: sizeGb,
     client_ref: orderId,
+    isBigTime: normalizedKey === "AT - BIGTIME",
   }
   const provider = getProviderByName(providerName)
   const result = await provider.createOrder(mtnRequest)
