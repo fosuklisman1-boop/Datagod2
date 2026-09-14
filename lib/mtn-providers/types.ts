@@ -16,6 +16,13 @@ export interface MTNOrderRequest {
      * recover the order via extractOrderIdFromReference.
      */
     client_ref?: string
+    /**
+     * True only for an AT-BigTime order. This codebase has no separate
+     * `network` value for BigTime vs. iShare — both are "AirtelTigo" — so
+     * this is the only signal distinguishing them. Every existing provider
+     * ignores this field; only Bundle Portal reads it.
+     */
+    isBigTime?: boolean
 }
 
 export interface MTNOrderResponse {
@@ -61,7 +68,7 @@ export interface MTNProvider {
 /**
  * Supported provider names
  */
-export type MTNProviderName = "sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft" | "agentportalgh" | "apexprime"
+export type MTNProviderName = "sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft" | "agentportalgh" | "apexprime" | "bundleportal"
 
 /**
  * Every MTNProviderName, plus providers capable of only a non-MTN network.
