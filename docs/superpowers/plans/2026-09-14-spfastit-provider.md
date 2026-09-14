@@ -12,6 +12,8 @@ Design doc: `docs/superpowers/specs/2026-09-14-spfastit-provider-design.md`
 
 **Deliberate scope trim from the design doc** (documented here so it's a decision, not a gap): the design doc said SPFastIT's low-balance signal should appear on "both balance surfaces" — this plan wires that into both routes' JSON response (so the admin balance page shows it) but does **not** extend `sendLowBalanceAlert`'s SMS/email dispatch to include SPFastIT, since that function's message-building is currency-only and mixing in a GB-denominated line would need real changes to `lib/mtn-balance-alert.ts` that the original design didn't call for. SPFastIT's low-balance state is visible on the admin page and in cron logs; automated SMS/email paging for it can be a fast follow if wanted.
 
+**Scope addition found during Task 3/4's code review** (added here, not in the original design doc): `getProviderByName` — widened in Task 3 so non-MTN dispatch can construct a `SPFastITProvider` — is *also* called from the MTN-order path in `lib/mtn-fulfillment.ts`'s `createMTNOrder()`, fed from an explicit per-order `provider` override that two admin routes (`manual-fulfill`, `bulk-manual-fulfill`) pass through from raw request bodies with no allowlist check (and `lib/ussd/fulfill.ts`'s `fulfillUssdOrder` funnels into the same `createMTNOrder()` call, so fixing it there covers both). No UI anywhere offers `"spfastit"` for an MTN order (confirmed by reading all 4 provider-picker surfaces), so this is reachable only by an already-authenticated admin hand-crafting a raw API call — not a UI mistake — but it's a real gap in the "structurally excluded from MTN" goal, so **Task 4b** below closes it.
+
 ---
 
 ### Task 1: Widen the provider-name type
@@ -556,6 +558,114 @@ Expected: no new errors.
 ```bash
 git add lib/non-mtn-fulfillment.ts
 git commit -m "feat(spfastit): widen createNonMTNOrder's provider type to include SPFastIT"
+```
+
+---
+
+### Task 4b: Validate the explicit provider override against real MTN capability
+
+**Files:**
+- Modify: `lib/mtn-providers/factory.ts`
+- Modify: `lib/mtn-fulfillment.ts`
+
+**Why this task exists:** code review of Tasks 3/4 found that `createMTNOrder()`'s explicit-provider-override path (`order.provider ? getProviderByName(order.provider as any) : await getMTNProvider()`, currently at line 391) now accepts `"spfastit"` successfully — `getProviderByName` was widened in Task 3 to support non-MTN dispatch, but this MTN-order code path uses the same function and has no allowlist check of its own. `order.provider` here is reachable from `app/api/admin/fulfillment/manual-fulfill/route.ts` and `bulk-manual-fulfill/route.ts`'s raw request-body `provider` field (both pass it through with no validation), and from `lib/ussd/fulfill.ts`'s `fulfillUssdOrder(..., provider?: string)` param, which spreads it into the same `createMTNOrder()` call. No admin UI offers `"spfastit"` as an option anywhere for an MTN order (confirmed across all 4 provider-picker surfaces), so this is only reachable via a hand-crafted authenticated API call — but fixing it here closes both the manual-fulfill and USSD paths in one place, since both funnel through this one function.
+
+- [ ] **Step 1: Add an exported validity check to the factory**
+
+In `lib/mtn-providers/factory.ts`, find:
+
+```ts
+const VALID_PROVIDERS: MTNProviderName[] = ["sykes", "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft", "agentportalgh", "apexprime"]
+```
+
+Replace with (keeps `VALID_PROVIDERS` itself private/unexported exactly as before — adds one small exported type-predicate function instead of exposing the raw array):
+
+```ts
+const VALID_PROVIDERS: MTNProviderName[] = ["sykes", "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft", "agentportalgh", "apexprime"]
+
+/** True only for a genuinely MTN-capable provider name (never "spfastit" or any other non-MTN-only provider). */
+export function isValidMtnProviderName(name: string): name is MTNProviderName {
+    return VALID_PROVIDERS.includes(name as MTNProviderName)
+}
+```
+
+- [ ] **Step 2: Use it in `createMTNOrder`'s explicit-override path**
+
+In `lib/mtn-fulfillment.ts`, find this exact line near the top of the file:
+
+```ts
+import { supabaseAdmin as supabase } from "@/lib/supabase"
+```
+
+Replace with (adds the one type import this task needs):
+
+```ts
+import { supabaseAdmin as supabase } from "@/lib/supabase"
+import type { MTNProviderName } from "@/lib/mtn-providers/types"
+```
+
+Then find (around line 341):
+
+```ts
+  const { getMTNProvider, getProviderByName, getRetrySequence } = await import("@/lib/mtn-providers/factory")
+```
+
+Replace with:
+
+```ts
+  const { getMTNProvider, getProviderByName, getRetrySequence, isValidMtnProviderName } = await import("@/lib/mtn-providers/factory")
+```
+
+Find (around line 389-392):
+
+```ts
+    // Get the selected provider (either forced in request or from global settings)
+    let provider = order.provider
+      ? getProviderByName(order.provider as any)
+      : await getMTNProvider()
+```
+
+Replace with:
+
+```ts
+    // Get the selected provider (either forced in request or from global settings).
+    // An explicit override is only honored if it's a genuinely MTN-capable provider —
+    // getProviderByName() also accepts non-MTN-only providers (e.g. "spfastit", for
+    // AT-iShare dispatch), so an invalid MTN override falls back to the admin-configured
+    // default rather than silently routing an MTN order through a provider that can't
+    // serve it. Never expected in normal operation (no admin UI offers an invalid
+    // provider here) — this is a safety net against a hand-crafted API call, so it's
+    // logged loudly if it ever fires. Computed as a plain boolean (not inline in the
+    // ternary below) so an invalid override still only costs one cheap local check,
+    // not an extra getMTNProvider() DB round-trip on the normal, valid-override path.
+    const hasValidOverride = order.provider ? isValidMtnProviderName(order.provider) : false
+    if (order.provider && !hasValidOverride) {
+      console.warn(`[MTN] Invalid explicit provider override "${order.provider}" — not MTN-capable, falling back to admin-configured default`)
+    }
+    let provider = hasValidOverride
+      ? getProviderByName(order.provider as MTNProviderName)
+      : await getMTNProvider()
+```
+
+- [ ] **Step 3: Type-check**
+
+Run: `npx tsc --noEmit`
+Expected: no errors.
+
+- [ ] **Step 4: Run the full test suite**
+
+Run: `npx vitest run`
+Expected: all tests passing, no regressions. `lib/mtn-fulfillment.test.ts` in particular exercises `createMTNOrder`'s provider-selection branches — confirm nothing there broke from this restructuring.
+
+- [ ] **Step 5: Manual reasoning check (no test framework coverage for this specific branch — explain why)**
+
+This branch isn't covered by an automated test because `createMTNOrder()` as a whole has no existing test harness in this codebase (confirmed: `lib/mtn-fulfillment.test.ts` only tests pure helper functions like `normalizePhoneNumber`, not `createMTNOrder` itself — mirroring how `sykes-provider.ts`/`bisdel-provider.ts` aren't HTTP-mocked either). Instead, verify by reading the three branches of the new `if`/`else` and confirming: (a) `order.provider` unset → unchanged behavior (`getMTNProvider()`), (b) `order.provider` set to any of the 8 real `MTNProviderName` values → unchanged behavior (`getProviderByName` with the real value), (c) `order.provider` set to `"spfastit"` or any other invalid string → falls back to `getMTNProvider()` instead of constructing a wrong-network provider, with a `console.warn` so it's visible in logs if it ever happens.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add lib/mtn-providers/factory.ts lib/mtn-fulfillment.ts
+git commit -m "fix(spfastit): reject spfastit (and any non-MTN provider) as an explicit MTN order override"
 ```
 
 ---
