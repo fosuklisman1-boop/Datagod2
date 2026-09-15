@@ -272,6 +272,7 @@ export async function purchaseAirtime(params: PurchaseAirtimeParams): Promise<Pu
     p_amount: totalPaid,
   })
   if (deductError) {
+    console.error("[AIRTIME-SVC] Wallet deduction RPC error:", deductError)
     const err: any = new Error("Failed to process payment")
     err.code = "PAYMENT_FAILED"
     throw err
@@ -305,6 +306,7 @@ export async function purchaseAirtime(params: PurchaseAirtimeParams): Promise<Pu
     .single()
 
   if (orderError || !order) {
+    console.error("[AIRTIME-SVC] Order creation failed, refunding wallet:", orderError)
     await supabase
       .from("wallets")
       .update({ balance: balanceBefore, total_spent: deductResult[0].new_total_spent - totalPaid, updated_at: new Date().toISOString() })

@@ -15,6 +15,7 @@ const h = vi.hoisted(() => {
     deductResult: [{ new_balance: 88, old_balance: 100, new_total_spent: 12 }] as any,
     insertedOrder: { id: "order-1" } as any,
     insertError: null as any,
+    calls: [] as Array<{ table: string; patch: any }>,
   }
 
   const fake = {
@@ -58,7 +59,19 @@ const h = vi.hoisted(() => {
           update: () => ({ eq: () => Promise.resolve({ data: null, error: null }) }),
         }
       }
-      if (table === "transactions" || table === "notifications" || table === "wallets" || table === "user_shops") {
+      if (table === "wallets") {
+        return {
+          insert: () => Promise.resolve({ data: null, error: null }),
+          update: (patch: any) => ({
+            eq: () => {
+              state.calls.push({ table: "wallets", patch })
+              return Promise.resolve({ data: null, error: null })
+            },
+          }),
+          select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: null, error: null }) }) }),
+        }
+      }
+      if (table === "transactions" || table === "notifications" || table === "user_shops") {
         return {
           insert: () => Promise.resolve({ data: null, error: null }),
           update: () => ({ eq: () => Promise.resolve({ data: null, error: null }) }),
@@ -119,6 +132,7 @@ beforeEach(() => {
   h.state.deductResult = [{ new_balance: 88, old_balance: 100, new_total_spent: 12 }]
   h.state.insertedOrder = { id: "order-1" }
   h.state.insertError = null
+  h.state.calls = []
 })
 
 describe("purchaseAirtime", () => {
@@ -149,5 +163,23 @@ describe("purchaseAirtime", () => {
     await expect(
       purchaseAirtime({ userId: "user-1", network: "MTN", beneficiaryPhone: "0541234567", airtimeAmount: 10 })
     ).rejects.toMatchObject({ code: "DUPLICATE_REQUEST" })
+  })
+
+  it("throws PAYMENT_FAILED when the deduct_wallet RPC errors", async () => {
+    h.state.deductError = "connection reset"
+    await expect(
+      purchaseAirtime({ userId: "user-1", network: "MTN", beneficiaryPhone: "0541234567", airtimeAmount: 10 })
+    ).rejects.toMatchObject({ code: "PAYMENT_FAILED" })
+  })
+
+  it("throws ORDER_CREATE_FAILED and refunds the wallet to its pre-deduction balance when the order insert fails", async () => {
+    h.state.insertError = { message: "insert failed" }
+    await expect(
+      purchaseAirtime({ userId: "user-1", network: "MTN", beneficiaryPhone: "0541234567", airtimeAmount: 10 })
+    ).rejects.toMatchObject({ code: "ORDER_CREATE_FAILED" })
+
+    const refundCall = h.state.calls.find((c) => c.table === "wallets")
+    expect(refundCall).toBeDefined()
+    expect(refundCall!.patch.balance).toBe(100) // deductResult[0].old_balance
   })
 })
