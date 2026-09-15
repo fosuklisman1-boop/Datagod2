@@ -80,7 +80,7 @@ async function syncTable(table: AfaTable, statusCol: "status" | "order_status"):
         // so a status-vocabulary mismatch (unrecognized string silently
         // mapped to "processing" by normalizeApexStatus) is at least visible
         // in logs, not entirely silent.
-        console.log(`[CRON-AFA-APEXPRIME] ${table} ${row.id}: still ${chk.status} (${chk.message})`)
+        console.log(`[CRON-AFA-APEXPRIME] ${table} ${row.id}: still ${chk.status} — raw status "${chk.order?.status}" (${chk.message})`)
       }
       // "pending"/"processing" => still waiting on MTN, no-op
     } catch (err) {
@@ -91,15 +91,15 @@ async function syncTable(table: AfaTable, statusCol: "status" | "order_status"):
     if (i < rows.length - 1) await sleep(DELAY_BETWEEN_REQUESTS_MS)
   }
 
-  // Self-heal: a row stuck "pending" with no fulfillment_ref for a while means
-  // the process was interrupted before ever actually submitting to Apex Prime
-  // (or before saving the reference it got back) — nothing was submitted, so
-  // it's always safe to release it back to "failed" for a normal retry. This
-  // is the only way such a row could ever leave "pending": the fulfillment
-  // code's own re-entry guard only allows re-claiming "unfulfilled"/"failed"
-  // rows, never "pending", and this cron's main query above requires a
-  // non-null fulfillment_ref, so a null-ref row would otherwise be stuck
-  // forever with no path back to either place.
+  // A row stuck "pending" with no fulfillment_ref for a while means the
+  // process was interrupted before saving the reference — but this is
+  // ambiguous, not safe: the interruption could have happened either before
+  // Apex Prime ever saw the request (nothing submitted, safe to retry) OR
+  // after Apex Prime accepted and debited the wallet but before we recorded
+  // the reference (already submitted — a retry would double-register and
+  // double-charge). We can't tell these apart from here, so release it back
+  // to "failed" for a human to check Apex Prime's own records before
+  // retrying, rather than asserting it's safe.
   const staleThreshold = new Date(Date.now() - 10 * 60 * 1000).toISOString()
   const { data: staleRows } = await supabase
     .from(table)
@@ -115,11 +115,11 @@ async function syncTable(table: AfaTable, statusCol: "status" | "order_status"):
       .from(table)
       .update({
         fulfillment_status: "failed",
-        fulfillment_error: "Submission to Apex Prime was interrupted before completing — safe to retry",
+        fulfillment_error: "Submission to Apex Prime was interrupted before we could confirm the outcome — it may or may not have reached Apex Prime. Check Apex Prime's transaction/wallet log for this recipient before retrying, to avoid a possible duplicate registration and charge.",
         updated_at: new Date().toISOString(),
       })
       .eq("id", row.id)
-    console.log(`[CRON-AFA-APEXPRIME] Self-healed stale pending row (no ref, >10min old): ${table} ${row.id}`)
+    console.log(`[CRON-AFA-APEXPRIME] Released stale pending row for manual review (no ref, >10min old — outcome unconfirmed): ${table} ${row.id}`)
     synced++
   }
 
