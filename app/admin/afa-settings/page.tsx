@@ -19,9 +19,13 @@ export default function AFASettingsPage() {
   const [loading, setLoading] = useState(false)
   const [fetching, setFetching] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [afaProvider, setAfaProvider] = useState<"sykes" | "apexprime">("sykes")
+  const [loadingProvider, setLoadingProvider] = useState(true)
+  const [savingProvider, setSavingProvider] = useState(false)
 
   useEffect(() => {
     fetchCurrentPrice()
+    loadProviderSetting()
   }, [])
 
   const fetchCurrentPrice = async () => {
@@ -89,6 +93,54 @@ export default function AFASettingsPage() {
     }
   }
 
+  const loadProviderSetting = async () => {
+    try {
+      setLoadingProvider(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch("/api/admin/settings/afa-provider", {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      })
+      if (!response.ok) throw new Error("Failed to fetch provider setting")
+      const data = await response.json()
+      setAfaProvider(data.provider === "apexprime" ? "apexprime" : "sykes")
+    } catch (err) {
+      console.error("Error fetching AFA provider setting:", err)
+    } finally {
+      setLoadingProvider(false)
+    }
+  }
+
+  const handleProviderChange = async (provider: "sykes" | "apexprime") => {
+    if (provider === afaProvider || savingProvider) return
+    try {
+      setSavingProvider(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error("Not authenticated")
+        return
+      }
+      const response = await fetch("/api/admin/settings/afa-provider", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ provider }),
+      })
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || "Failed to update provider")
+      }
+      setAfaProvider(provider)
+      toast.success(`AFA registrations will now use ${provider === "apexprime" ? "Apex Prime" : "Sykes"}`)
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Failed to update provider"
+      toast.error(errorMsg)
+    } finally {
+      setSavingProvider(false)
+    }
+  }
+
   if (adminLoading) {
     return (
       <DashboardLayout>
@@ -110,6 +162,52 @@ export default function AFASettingsPage() {
         <h1 className="text-3xl font-bold">AFA Registration Settings</h1>
         <p className="text-muted-foreground mt-2">Manage MTN AFA registration pricing</p>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Registration Provider</CardTitle>
+          <CardDescription>
+            Choose which provider fulfils new AFA registrations.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loadingProvider ? (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => handleProviderChange("sykes")}
+                  disabled={savingProvider}
+                  className={`p-4 rounded-lg border-2 transition-all text-left ${
+                    afaProvider === "sykes" ? "bg-primary/5 border-primary shadow-md" : "bg-card border-border"
+                  } ${savingProvider ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                >
+                  <p className="font-semibold text-sm">Sykes</p>
+                  <p className="text-xs text-muted-foreground mt-1">Current default. Registration completes immediately on submission.</p>
+                </button>
+                <button
+                  onClick={() => handleProviderChange("apexprime")}
+                  disabled={savingProvider}
+                  className={`p-4 rounded-lg border-2 transition-all text-left ${
+                    afaProvider === "apexprime" ? "bg-primary/5 border-primary shadow-md" : "bg-card border-border"
+                  } ${savingProvider ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                >
+                  <p className="font-semibold text-sm">Apex Prime</p>
+                  <p className="text-xs text-muted-foreground mt-1">Pays from the Main Wallet also used for Apex Prime data orders. Async — stays &quot;processing&quot; until MTN approves.</p>
+                </button>
+              </div>
+              {savingProvider && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />Updating…
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
