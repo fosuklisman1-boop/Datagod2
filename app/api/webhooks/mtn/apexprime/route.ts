@@ -134,7 +134,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, message: "Webhook received, no matching order" })
     }
 
-    const newStatus = normalizeApexStatus(payload.status)
+    const newStatus = normalizeApexStatus(payload.status, payload.message)
 
     // Reversal safeguard: a webhook reporting failed for an order we already
     // marked completed (within the reversal window) is a provider reversal.

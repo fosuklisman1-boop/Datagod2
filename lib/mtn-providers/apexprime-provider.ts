@@ -51,10 +51,25 @@ export function mapNetworkToApex(network: "MTN" | "Telecel" | "AirtelTigo"): "MT
   return "MTN"
 }
 
-/** Map Apex Prime's status string to our canonical 4-state set. */
-export function normalizeApexStatus(raw: string): "pending" | "processing" | "completed" | "failed" {
+/**
+ * Map Apex Prime's status string to our canonical 4-state set.
+ *
+ * `message` is an optional second signal, checked only when `raw` itself
+ * reads as a completion. In production Apex Prime has been observed
+ * reporting `status: "completed"` for an order their own admin panel already
+ * refunded — the refund is visible only in the free-text message ("Refunded
+ * by Admin"), never in `status`. Their GroupShare/AutoSync log format also
+ * happens to contain the literal phrase "refunded message from Alexa" mid-
+ * chain for orders that go on to genuinely complete, so the override is
+ * scoped to non-AutoSync messages to avoid misreading that as a real refund.
+ */
+export function normalizeApexStatus(raw: string, message?: string): "pending" | "processing" | "completed" | "failed" {
   const s = (raw ?? "").toLowerCase().trim()
-  if (s === "completed" || s === "success" || s === "successful") return "completed"
+  if (s === "completed" || s === "success" || s === "successful") {
+    const m = (message ?? "").toLowerCase()
+    if (m.includes("refund") && !m.includes("autosync")) return "failed"
+    return "completed"
+  }
   if (s.includes("fail") || s.includes("reject") || s.includes("cancel") || s.includes("refund")) return "failed"
   if (s === "pending" || s === "waiting") return "pending"
   return "processing"
@@ -242,7 +257,7 @@ export class ApexPrimeProvider implements MTNProvider {
       return { success: false, message: json?.message ?? `API error ${res.status}` }
     }
 
-    return { success: true, status: normalizeApexStatus(json.status), message: json.message ?? "Status retrieved", order: json }
+    return { success: true, status: normalizeApexStatus(json.status, json.message), message: json.message ?? "Status retrieved", order: json }
   }
 
   async checkBalance(): Promise<number | null> {

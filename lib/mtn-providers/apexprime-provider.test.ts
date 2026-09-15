@@ -26,6 +26,21 @@ describe("normalizeApexStatus", () => {
     expect(normalizeApexStatus("something-else")).toBe("processing")
     expect(normalizeApexStatus("")).toBe("processing")
   })
+  it("treats a 'completed' status as failed when the message reveals a refund", () => {
+    expect(normalizeApexStatus("completed", "Refunded by Admin")).toBe("failed")
+    expect(normalizeApexStatus("Success", "Order was refunded")).toBe("failed")
+  })
+  it("does not treat 'refunded' mid-chain in a GroupShare AutoSync log as a real refund", () => {
+    expect(
+      normalizeApexStatus(
+        "completed",
+        "Sent to Supplier 1. Order ID: APEX_1 | refunded message from Alexa | AutoSync 2026-09-14 20:07:37: supplier=completed"
+      )
+    ).toBe("completed")
+  })
+  it("ignores the message when the status itself doesn't read as completed", () => {
+    expect(normalizeApexStatus("processing", "Refunded by Admin")).toBe("processing")
+  })
 })
 
 describe("findMatchingProduct", () => {
