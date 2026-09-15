@@ -10,7 +10,7 @@ export async function GET() {
   try {
     const { data: settings, error } = await supabase
       .from("app_settings")
-      .select("paystack_fee_percentage, wallet_topup_fee_percentage, withdrawal_fee_percentage")
+      .select("paystack_fee_percentage, wallet_topup_fee_percentage, withdrawal_fee_percentage, withdrawal_fee_minimum, minimum_withdrawal_amount")
       .is("key", null)
       .single()
 
@@ -21,6 +21,8 @@ export async function GET() {
         paystack_fee_percentage: 3.0,
         wallet_topup_fee_percentage: 0,
         withdrawal_fee_percentage: 0,
+        withdrawal_fee_minimum: 0,
+        minimum_withdrawal_amount: 5,
       })
     }
 
@@ -30,6 +32,8 @@ export async function GET() {
         paystack_fee_percentage: 3.0,
         wallet_topup_fee_percentage: 0,
         withdrawal_fee_percentage: 0,
+        withdrawal_fee_minimum: 0,
+        minimum_withdrawal_amount: 5,
       })
     }
 
@@ -37,6 +41,8 @@ export async function GET() {
       paystack_fee_percentage: settings.paystack_fee_percentage || 3.0,
       wallet_topup_fee_percentage: settings.wallet_topup_fee_percentage || 0,
       withdrawal_fee_percentage: settings.withdrawal_fee_percentage || 0,
+      withdrawal_fee_minimum: settings.withdrawal_fee_minimum ?? 0,
+      minimum_withdrawal_amount: settings.minimum_withdrawal_amount ?? 5,
     })
   } catch (error) {
     console.error("[FEES-API] Error:", error)
@@ -44,6 +50,9 @@ export async function GET() {
       {
         paystack_fee_percentage: 3.0,
         wallet_topup_fee_percentage: 0,
+        withdrawal_fee_percentage: 0,
+        withdrawal_fee_minimum: 0,
+        minimum_withdrawal_amount: 5,
       },
       { status: 500 }
     )
