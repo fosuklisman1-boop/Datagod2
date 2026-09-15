@@ -33,7 +33,10 @@ export async function fulfillUssdAfaOrder(orderId: string): Promise<{ success: b
 
   const provider = await getAfaProviderSelection()
 
-  await supabase
+  // Atomic claim — only a row still at "unfulfilled" or "failed" can be
+  // claimed here, so two near-simultaneous calls for the same order can't
+  // both proceed to submit to the provider.
+  const { data: claimed, error: claimError } = await supabase
     .from("ussd_afa_orders")
     .update({
       order_status: "processing",
@@ -42,6 +45,16 @@ export async function fulfillUssdAfaOrder(orderId: string): Promise<{ success: b
       updated_at: new Date().toISOString(),
     })
     .eq("id", orderId)
+    .in("fulfillment_status", ["unfulfilled", "failed"])
+    .select("id")
+
+  if (claimError) {
+    console.error("[USSD-AFA-FULFILL] Error claiming order for fulfillment:", orderId, claimError)
+    return { success: false, message: "Failed to claim order for fulfillment" }
+  }
+  if (!claimed || claimed.length === 0) {
+    return { success: false, message: "Order already submitted, completed, or cancelled" }
+  }
 
   if (provider === "apexprime") {
     let result: { success: boolean; registrationId?: string | number; message: string }
@@ -59,7 +72,7 @@ export async function fulfillUssdAfaOrder(orderId: string): Promise<{ success: b
     }
 
     if (result.success) {
-      await supabase
+      const { error: refWriteError } = await supabase
         .from("ussd_afa_orders")
         .update({
           fulfillment_ref: String(result.registrationId),
@@ -67,11 +80,14 @@ export async function fulfillUssdAfaOrder(orderId: string): Promise<{ success: b
           updated_at: new Date().toISOString(),
         })
         .eq("id", orderId)
+      if (refWriteError) {
+        console.error("[USSD-AFA-FULFILL] CRITICAL: Apex Prime accepted the registration but failed to save fulfillment_ref — order will be invisible to the sync cron:", orderId, result.registrationId, refWriteError)
+      }
       console.log("[USSD-AFA-FULFILL] Submitted to Apex Prime, awaiting confirmation:", orderId, result.registrationId)
       return { success: true, message: "AFA registration submitted, awaiting confirmation" }
     }
 
-    await supabase
+    const { error: failWriteError } = await supabase
       .from("ussd_afa_orders")
       .update({
         fulfillment_status: "failed",
@@ -79,6 +95,9 @@ export async function fulfillUssdAfaOrder(orderId: string): Promise<{ success: b
         updated_at: new Date().toISOString(),
       })
       .eq("id", orderId)
+    if (failWriteError) {
+      console.error("[USSD-AFA-FULFILL] Error saving Apex Prime failure status:", orderId, failWriteError)
+    }
     console.error("[USSD-AFA-FULFILL] Apex Prime submission failed:", orderId, result.message)
     return { success: false, message: result.message || "Apex Prime submission failed" }
   }

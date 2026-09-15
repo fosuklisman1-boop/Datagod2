@@ -74,7 +74,7 @@ async function fulfillAfaViaApexPrime(
   }
 
   if (result.success) {
-    await supabase
+    const { error: refWriteError } = await supabase
       .from("afa_orders")
       .update({
         fulfillment_ref: String(result.registrationId),
@@ -82,12 +82,15 @@ async function fulfillAfaViaApexPrime(
         updated_at: new Date().toISOString(),
       })
       .eq("id", orderId)
+    if (refWriteError) {
+      console.error("[AFA-FULFILL] CRITICAL: Apex Prime accepted the registration but failed to save fulfillment_ref — order will be invisible to the sync cron:", orderId, result.registrationId, refWriteError)
+    }
 
     console.log("[AFA-FULFILL] Submitted to Apex Prime, awaiting confirmation:", orderId, result.registrationId)
     return { success: true, message: result.message, fulfillmentRef: String(result.registrationId) }
   }
 
-  await supabase
+  const { error: failWriteError } = await supabase
     .from("afa_orders")
     .update({
       fulfillment_status: "failed",
@@ -95,6 +98,9 @@ async function fulfillAfaViaApexPrime(
       updated_at: new Date().toISOString(),
     })
     .eq("id", orderId)
+  if (failWriteError) {
+    console.error("[AFA-FULFILL] Error saving Apex Prime failure status:", orderId, failWriteError)
+  }
 
   console.error("[AFA-FULFILL] Apex Prime submission failed:", orderId, result.message)
   return { success: false, message: result.message || "Apex Prime submission failed" }
@@ -144,8 +150,12 @@ export async function fulfillAfaOrder(orderId: string): Promise<FulfillResult> {
   // 3. Resolve provider (frozen onto the row now)
   const provider = await getAfaProviderSelection()
 
-  // 4. Mark as in-flight — status → processing, fulfillment_status → pending
-  await supabase
+  // 4. Mark as in-flight — status → processing, fulfillment_status → pending.
+  // The .in(...) clause makes this the atomic claim: only a row still at
+  // "unfulfilled" or "failed" (the only states below besides "pending"/
+  // "fulfilled") can be claimed, so two near-simultaneous calls for the same
+  // order can't both proceed to submit to the provider.
+  const { data: claimed, error: claimError } = await supabase
     .from("afa_orders")
     .update({
       fulfillment_status: "pending",
@@ -155,6 +165,16 @@ export async function fulfillAfaOrder(orderId: string): Promise<FulfillResult> {
       updated_at: new Date().toISOString(),
     })
     .eq("id", orderId)
+    .in("fulfillment_status", ["unfulfilled", "failed"])
+    .select("id")
+
+  if (claimError) {
+    console.error("[AFA-FULFILL] Error claiming order for fulfillment:", orderId, claimError)
+    return { success: false, message: "Failed to claim order for fulfillment" }
+  }
+  if (!claimed || claimed.length === 0) {
+    return { success: false, message: "Order already submitted, completed, or cancelled" }
+  }
 
   if (provider === "apexprime") {
     return fulfillAfaViaApexPrime(orderId, order)
