@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { supabaseAdmin as supabase } from "@/lib/supabase"
-
-const VALID_PROVIDERS = ["sykes", "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft", "agentportalgh", "apexprime"]
+import { isValidMtnProviderName } from "@/lib/mtn-providers/factory"
 
 export async function GET(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
@@ -29,7 +28,7 @@ export async function POST(request: NextRequest) {
   const body = await request.json()
   const { enabled, providers } = body as { enabled: boolean; providers: string[] }
 
-  if (!Array.isArray(providers) || providers.some(p => !VALID_PROVIDERS.includes(p))) {
+  if (!Array.isArray(providers) || providers.some(p => !isValidMtnProviderName(p))) {
     return NextResponse.json({ error: "providers must be an array of valid provider names" }, { status: 400 })
   }
 

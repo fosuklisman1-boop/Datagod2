@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { supabaseAdmin as supabase } from "@/lib/supabase"
+import { VALID_PROVIDERS, isValidMtnProviderName } from "@/lib/mtn-providers/factory"
 
 /**
  * GET /api/admin/settings/mtn-provider
@@ -61,9 +62,9 @@ export async function POST(request: NextRequest) {
         const { provider } = body
 
         // Validate provider
-        if (!["sykes", "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft", "agentportalgh", "apexprime"].includes(provider)) {
+        if (!isValidMtnProviderName(provider)) {
             return NextResponse.json(
-                { error: "Invalid provider. Must be one of: sykes, datakazina, xpress, eazyghdata, bisdel, codecraft, agentportalgh, apexprime" },
+                { error: `Invalid provider. Must be one of: ${VALID_PROVIDERS.join(", ")}` },
                 { status: 400 }
             )
         }

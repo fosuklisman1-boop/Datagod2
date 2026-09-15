@@ -48,7 +48,16 @@ async function getSelectedProvider(): Promise<MTNProviderName> {
     }
 }
 
-const VALID_PROVIDERS: MTNProviderName[] = ["sykes", "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft", "agentportalgh", "apexprime", "bundleportal"]
+/**
+ * Every genuinely MTN-capable provider name — the single source of truth for
+ * "is this provider selectable for MTN" (primary, retry sequence, disabled
+ * toggle). Exported so admin API routes validate against this instead of
+ * each keeping their own hardcoded copy — four separate routes independently
+ * drifted out of sync the last two times a provider was added (Apex Prime,
+ * then Bundle Portal), each rejecting the new provider with no indication
+ * why. Add a provider here once; every consumer picks it up automatically.
+ */
+export const VALID_PROVIDERS: MTNProviderName[] = ["sykes", "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft", "agentportalgh", "apexprime", "bundleportal"]
 
 /** True only for a genuinely MTN-capable provider name (never "spfastit" or any other non-MTN-only provider). */
 export function isValidMtnProviderName(name: string): name is MTNProviderName {

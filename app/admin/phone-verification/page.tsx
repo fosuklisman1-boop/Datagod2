@@ -24,6 +24,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   codecraft: "CodeCraft",
   agentportalgh: "AgentPortalGH",
   apexprime: "Apex Prime",
+  bundleportal: "Bundle Portal",
 }
 
 interface Progress {
