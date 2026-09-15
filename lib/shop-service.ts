@@ -615,6 +615,57 @@ export const withdrawalService = {
       throw new Error("Invalid withdrawal amount")
     }
 
+    // Fetch withdrawal fee percentage from settings. app_settings is locked to
+    // service_role (it mixes in sensitive keys), so a BROWSER read returns 42501
+    // as `anon` — when that happened the old code silently fell back to 0% and
+    // shipped fee-free withdrawals. This now FAILS CLOSED: callers must pass a
+    // service-role `db` (the create API route does), and any read error aborts
+    // the request instead of waiving the fee.
+    //
+    // Moved to run immediately after the positive-amount check (rather than
+    // after cooling-off/in-flight/balance checks) so a below-minimum request
+    // always gets the clear "minimum withdrawal amount" error first, instead
+    // of being masked by an unrelated cooling-off/in-flight/balance rejection
+    // that happens to fire first for an unlucky shop.
+    let withdrawalFeePercentage = 0
+    const { data: settings, error: settingsError } = await db
+      .from("app_settings")
+      .select("withdrawal_fee_percentage, withdrawal_fee_minimum, minimum_withdrawal_amount")
+      .is("key", null)
+      .maybeSingle()
+    if (settingsError) {
+      console.error(`[WITHDRAWAL-CREATE] Fee settings read failed (${settingsError.code}): ${settingsError.message}`)
+      throw new Error("Could not determine the withdrawal fee right now. Please try again in a moment.")
+    }
+    if (settings?.withdrawal_fee_percentage) {
+      withdrawalFeePercentage = settings.withdrawal_fee_percentage / 100
+    }
+    const withdrawalFeeMinimum = settings?.withdrawal_fee_minimum ?? 0
+    const minimumWithdrawalAmount = Number(settings?.minimum_withdrawal_amount ?? 5)
+
+    if (withdrawalData.amount < minimumWithdrawalAmount) {
+      throw new Error(`Minimum withdrawal amount is GHS ${minimumWithdrawalAmount.toFixed(2)}`)
+    }
+
+    // Calculate fee and net amount
+    const percentageFee = Math.round(withdrawalData.amount * withdrawalFeePercentage * 100) / 100
+    const feeAmount = Math.max(percentageFee, withdrawalFeeMinimum)
+    const netAmount = withdrawalData.amount - feeAmount
+
+    // Guard against an admin-misconfigured fee floor (withdrawal_fee_minimum
+    // set higher than minimum_withdrawal_amount) producing a negative net
+    // amount — without this, such a request would insert a row that can never
+    // successfully transfer, permanently stuck until someone notices and
+    // fixes it manually.
+    if (feeAmount >= withdrawalData.amount) {
+      throw new Error("Withdrawal fee configuration error — the fee would exceed the withdrawal amount. Please contact support.")
+    }
+
+    console.log(`[WITHDRAWAL-CREATE] Fee Calculation:`)
+    console.log(`  Requested Amount: GHS ${withdrawalData.amount}`)
+    console.log(`  Withdrawal Fee (${withdrawalFeePercentage * 100}%): GHS ${feeAmount}`)
+    console.log(`  Net Amount (Shop Receives): GHS ${netAmount}`)
+
     // Cooling-off period: 7 days after first payment for first withdrawal,
     // 24h between subsequent withdrawals. Defends against chargeback fraud
     // (most card chargebacks land 7-30 days post-payment).
@@ -678,46 +729,6 @@ export const withdrawalService = {
       // Log other errors but allow withdrawal creation if balance check fails
       console.warn(`[WITHDRAWAL-CREATE] Warning checking balance:`, error)
     }
-
-    // Fetch withdrawal fee percentage from settings. app_settings is locked to
-    // service_role (it mixes in sensitive keys), so a BROWSER read returns 42501
-    // as `anon` — when that happened the old code silently fell back to 0% and
-    // shipped fee-free withdrawals. This now FAILS CLOSED: callers must pass a
-    // service-role `db` (the create API route does), and any read error aborts
-    // the request instead of waiving the fee.
-    let withdrawalFeePercentage = 0
-    const { data: settings, error: settingsError } = await db
-      .from("app_settings")
-      .select("withdrawal_fee_percentage, withdrawal_fee_minimum, minimum_withdrawal_amount")
-      .is("key", null)
-      .maybeSingle()
-    if (settingsError) {
-      console.error(`[WITHDRAWAL-CREATE] Fee settings read failed (${settingsError.code}): ${settingsError.message}`)
-      throw new Error("Could not determine the withdrawal fee right now. Please try again in a moment.")
-    }
-    if (settings?.withdrawal_fee_percentage) {
-      withdrawalFeePercentage = settings.withdrawal_fee_percentage / 100
-    }
-    const withdrawalFeeMinimum = settings?.withdrawal_fee_minimum ?? 0
-    const minimumWithdrawalAmount = settings?.minimum_withdrawal_amount ?? 5
-
-    // Validate minimum withdrawal amount — moved here (was a hardcoded `< 5`
-    // check earlier in this function) so a settings-read failure above blocks
-    // the whole request instead of silently falling back to a stale minimum,
-    // matching the fee percentage's existing fail-closed guarantee.
-    if (withdrawalData.amount < minimumWithdrawalAmount) {
-      throw new Error(`Minimum withdrawal amount is GHS ${minimumWithdrawalAmount.toFixed(2)}`)
-    }
-
-    // Calculate fee and net amount
-    const percentageFee = Math.round(withdrawalData.amount * withdrawalFeePercentage * 100) / 100
-    const feeAmount = Math.max(percentageFee, withdrawalFeeMinimum)
-    const netAmount = withdrawalData.amount - feeAmount
-
-    console.log(`[WITHDRAWAL-CREATE] Fee Calculation:`)
-    console.log(`  Requested Amount: GHS ${withdrawalData.amount}`)
-    console.log(`  Withdrawal Fee (${withdrawalFeePercentage * 100}%): GHS ${feeAmount}`)
-    console.log(`  Net Amount (Shop Receives): GHS ${netAmount}`)
 
     const balanceBefore = (withdrawalData as any)._balanceBefore
     const { _balanceBefore, ...cleanWithdrawalData } = withdrawalData as any
