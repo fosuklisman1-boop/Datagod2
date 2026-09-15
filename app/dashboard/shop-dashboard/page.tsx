@@ -53,6 +53,8 @@ export default function ShopDashboardPage() {
   const [banks, setBanks] = useState<{ name: string; sublistid: string }[]>([])
   const [loadingBanks, setLoadingBanks] = useState(false)
   const [withdrawalFeePercentage, setWithdrawalFeePercentage] = useState(0)
+  const [withdrawalFeeMinimum, setWithdrawalFeeMinimum] = useState(0)
+  const [minimumWithdrawalAmount, setMinimumWithdrawalAmount] = useState(5)
   const [orderStats, setOrderStats] = useState({ total: 0, completed: 0, pending: 0, failed: 0, totalRevenue: 0 })
   const [searchPhoneNumber, setSearchPhoneNumber] = useState("")
   const [selectedComplaintOrder, setSelectedComplaintOrder] = useState<any>(null)
@@ -70,6 +72,12 @@ export default function ShopDashboardPage() {
       const data = await response.json()
       if (data.withdrawal_fee_percentage !== undefined) {
         setWithdrawalFeePercentage(data.withdrawal_fee_percentage)
+      }
+      if (data.withdrawal_fee_minimum !== undefined) {
+        setWithdrawalFeeMinimum(data.withdrawal_fee_minimum)
+      }
+      if (data.minimum_withdrawal_amount !== undefined) {
+        setMinimumWithdrawalAmount(data.minimum_withdrawal_amount)
       }
     } catch (error) {
       console.warn("Failed to fetch withdrawal fee:", error)
@@ -282,8 +290,8 @@ export default function ShopDashboardPage() {
       return
     }
 
-    if (amount < 5) {
-      toast.error("Minimum withdrawal amount is GHS 5.00")
+    if (amount < minimumWithdrawalAmount) {
+      toast.error(`Minimum withdrawal amount is GHS ${minimumWithdrawalAmount.toFixed(2)}`)
       return
     }
 
@@ -601,12 +609,12 @@ export default function ShopDashboardPage() {
                   value={withdrawalForm.amount}
                   onChange={(e) => setWithdrawalForm({ ...withdrawalForm, amount: e.target.value })}
                   placeholder="0.00"
-                  min="5"
+                  min={minimumWithdrawalAmount}
                   max={balance}
                   className="mt-1"
                 />
                 <p className="text-xs text-muted-foreground mt-1">
-                  Available: GHS {(balance || 0).toFixed(2)} | Minimum: GHS 5.00
+                  Available: GHS {(balance || 0).toFixed(2)} | Minimum: GHS {minimumWithdrawalAmount.toFixed(2)}
                 </p>
               </div>
 
@@ -775,15 +783,15 @@ export default function ShopDashboardPage() {
                       <span className="text-warning">Requested amount:</span>
                       <span className="font-medium text-warning">GHS {parseFloat(withdrawalForm.amount).toFixed(2)}</span>
                     </div>
-                    {withdrawalFeePercentage > 0 && (
+                    {(withdrawalFeePercentage > 0 || withdrawalFeeMinimum > 0) && (
                       <>
                         <div className="flex justify-between">
                           <span className="text-warning">Withdrawal fee ({withdrawalFeePercentage}%):</span>
-                          <span className="font-medium text-warning">-GHS {(parseFloat(withdrawalForm.amount) * withdrawalFeePercentage / 100).toFixed(2)}</span>
+                          <span className="font-medium text-warning">-GHS {Math.max(parseFloat(withdrawalForm.amount) * withdrawalFeePercentage / 100, withdrawalFeeMinimum).toFixed(2)}</span>
                         </div>
                         <div className="border-t border-border pt-1 flex justify-between">
                           <span className="text-warning font-semibold">You will receive:</span>
-                          <span className="font-bold text-success">GHS {(parseFloat(withdrawalForm.amount) - (parseFloat(withdrawalForm.amount) * withdrawalFeePercentage / 100)).toFixed(2)}</span>
+                          <span className="font-bold text-success">GHS {(parseFloat(withdrawalForm.amount) - Math.max(parseFloat(withdrawalForm.amount) * withdrawalFeePercentage / 100, withdrawalFeeMinimum)).toFixed(2)}</span>
                         </div>
                       </>
                     )}
