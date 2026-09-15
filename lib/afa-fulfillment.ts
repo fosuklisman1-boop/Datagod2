@@ -1,7 +1,7 @@
 /**
  * AFA Fulfillment Helper
  *
- * Shared logic for fulfilling a single AFA order via the Sykes API.
+ * Shared logic for fulfilling a single AFA order via Sykes or Apex Prime.
  * Imported by both the submit route (auto-fulfillment) and the admin
  * fulfillment endpoint (manual / bulk trigger).
  */
@@ -23,11 +23,76 @@ export interface FulfillResult {
 }
 
 /**
+ * Which provider handles new AFA registrations right now. Read once per
+ * order at submission time and frozen onto that row's fulfillment_provider
+ * column — never re-derived later, so a later admin_settings change never
+ * reinterprets an already-in-flight order under a different provider.
+ */
+export async function getAfaProviderSelection(): Promise<"sykes" | "apexprime"> {
+  const supabase = getSupabase()
+  const { data } = await supabase
+    .from("admin_settings")
+    .select("value")
+    .eq("key", "afa_provider_selection")
+    .maybeSingle()
+  return data?.value?.provider === "apexprime" ? "apexprime" : "sykes"
+}
+
+/**
+ * Submit an AFA order to Apex Prime. Unlike Sykes, this is genuinely async —
+ * a successful submission leaves the order at fulfillment_status "pending" /
+ * status "processing"; the sync-afa-status/apexprime cron confirms the real
+ * outcome later via /status, once MTN approves or rejects the registration.
+ */
+async function fulfillAfaViaApexPrime(
+  orderId: string,
+  order: { full_name: string; gh_card_number: string; phone_number: string; location: string }
+): Promise<FulfillResult> {
+  const supabase = getSupabase()
+  const { ApexPrimeProvider } = await import("@/lib/mtn-providers/apexprime-provider")
+  const result = await new ApexPrimeProvider().registerAfa({
+    fullName: order.full_name || "",
+    phoneNumber: order.phone_number || "",
+    ghanaCardNumber: order.gh_card_number || "",
+    location: order.location || "",
+  })
+
+  if (result.success) {
+    await supabase
+      .from("afa_orders")
+      .update({
+        fulfillment_ref: String(result.registrationId),
+        fulfillment_error: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", orderId)
+
+    console.log("[AFA-FULFILL] Submitted to Apex Prime, awaiting confirmation:", orderId, result.registrationId)
+    return { success: true, message: result.message, fulfillmentRef: String(result.registrationId) }
+  }
+
+  await supabase
+    .from("afa_orders")
+    .update({
+      fulfillment_status: "failed",
+      fulfillment_error: result.message || "Unknown error",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", orderId)
+
+  console.error("[AFA-FULFILL] Apex Prime submission failed:", orderId, result.message)
+  return { success: false, message: result.message || "Apex Prime submission failed" }
+}
+
+/**
  * Fulfill a single AFA order by ID.
  * - Fetches order data from DB
- * - Calls Sykes /api/afa/register
+ * - Resolves the active provider (sykes or apexprime) and freezes it onto the row
+ * - Calls that provider's registration API
  * - Updates afa_orders.fulfillment_status and related columns
- * - Sets afa_orders.status = "completed" on success
+ * - Sykes: sets afa_orders.status = "completed" on success (synchronous)
+ * - Apex Prime: leaves status = "processing" on success (async — the sync
+ *   cron confirms the real outcome later)
  */
 export async function fulfillAfaOrder(orderId: string): Promise<FulfillResult> {
   const supabase = getSupabase()
@@ -57,18 +122,26 @@ export async function fulfillAfaOrder(orderId: string): Promise<FulfillResult> {
     return { success: false, message: "Cannot fulfill a cancelled order" }
   }
 
-  // 3. Mark as in-flight — status → processing, fulfillment_status → pending
+  // 3. Resolve provider (frozen onto the row now)
+  const provider = await getAfaProviderSelection()
+
+  // 4. Mark as in-flight — status → processing, fulfillment_status → pending
   await supabase
     .from("afa_orders")
     .update({
       fulfillment_status: "pending",
       status: "processing",
       fulfillment_attempts: (order.fulfillment_attempts || 0) + 1,
+      fulfillment_provider: provider,
       updated_at: new Date().toISOString(),
     })
     .eq("id", orderId)
 
-  // 4. Call Sykes API
+  if (provider === "apexprime") {
+    return fulfillAfaViaApexPrime(orderId, order)
+  }
+
+  // 5. Call Sykes API
   const result = await registerAfaViaSykes({
     Full_Name: order.full_name || "",
     Ghana_Card_Number: order.gh_card_number || "",
@@ -77,7 +150,7 @@ export async function fulfillAfaOrder(orderId: string): Promise<FulfillResult> {
     Location: order.location || "",
   })
 
-  // 5. Update DB based on result
+  // 6. Update DB based on result
   if (result.success) {
     await supabase
       .from("afa_orders")
