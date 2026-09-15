@@ -24,6 +24,9 @@ export async function fulfillUssdAfaOrder(orderId: string): Promise<{ success: b
   if (order.fulfillment_status === "fulfilled") {
     return { success: false, message: "Already fulfilled" }
   }
+  if (order.fulfillment_status === "pending") {
+    return { success: false, message: "Order already submitted, awaiting provider confirmation" }
+  }
   if (order.order_status === "completed") {
     return { success: false, message: "Already completed" }
   }
@@ -41,13 +44,19 @@ export async function fulfillUssdAfaOrder(orderId: string): Promise<{ success: b
     .eq("id", orderId)
 
   if (provider === "apexprime") {
-    const { ApexPrimeProvider } = await import("@/lib/mtn-providers/apexprime-provider")
-    const result = await new ApexPrimeProvider().registerAfa({
-      fullName: order.full_name,
-      phoneNumber: order.dialing_phone,
-      ghanaCardNumber: order.gh_card_number,
-      location: order.location,
-    })
+    let result: { success: boolean; registrationId?: string | number; message: string }
+    try {
+      const { ApexPrimeProvider } = await import("@/lib/mtn-providers/apexprime-provider")
+      result = await new ApexPrimeProvider().registerAfa({
+        fullName: order.full_name,
+        phoneNumber: order.dialing_phone,
+        ghanaCardNumber: order.gh_card_number,
+        location: order.location,
+      })
+    } catch (err) {
+      console.error("[USSD-AFA-FULFILL] Apex Prime threw an exception:", err)
+      result = { success: false, message: err instanceof Error ? err.message : "Apex Prime API error (exception)" }
+    }
 
     if (result.success) {
       await supabase

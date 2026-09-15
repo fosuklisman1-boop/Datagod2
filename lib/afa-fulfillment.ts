@@ -29,13 +29,22 @@ export interface FulfillResult {
  * reinterprets an already-in-flight order under a different provider.
  */
 export async function getAfaProviderSelection(): Promise<"sykes" | "apexprime"> {
-  const supabase = getSupabase()
-  const { data } = await supabase
-    .from("admin_settings")
-    .select("value")
-    .eq("key", "afa_provider_selection")
-    .maybeSingle()
-  return data?.value?.provider === "apexprime" ? "apexprime" : "sykes"
+  try {
+    const supabase = getSupabase()
+    const { data, error } = await supabase
+      .from("admin_settings")
+      .select("value")
+      .eq("key", "afa_provider_selection")
+      .maybeSingle()
+    if (error) {
+      console.warn("[AFA-FULFILL] Error fetching provider setting:", error)
+      return "sykes"
+    }
+    return data?.value?.provider === "apexprime" ? "apexprime" : "sykes"
+  } catch (error) {
+    console.error("[AFA-FULFILL] Error in getAfaProviderSelection:", error)
+    return "sykes"
+  }
 }
 
 /**
@@ -49,13 +58,20 @@ async function fulfillAfaViaApexPrime(
   order: { full_name: string; gh_card_number: string; phone_number: string; location: string }
 ): Promise<FulfillResult> {
   const supabase = getSupabase()
-  const { ApexPrimeProvider } = await import("@/lib/mtn-providers/apexprime-provider")
-  const result = await new ApexPrimeProvider().registerAfa({
-    fullName: order.full_name || "",
-    phoneNumber: order.phone_number || "",
-    ghanaCardNumber: order.gh_card_number || "",
-    location: order.location || "",
-  })
+
+  let result: { success: boolean; registrationId?: string | number; message: string }
+  try {
+    const { ApexPrimeProvider } = await import("@/lib/mtn-providers/apexprime-provider")
+    result = await new ApexPrimeProvider().registerAfa({
+      fullName: order.full_name || "",
+      phoneNumber: order.phone_number || "",
+      ghanaCardNumber: order.gh_card_number || "",
+      location: order.location || "",
+    })
+  } catch (err) {
+    console.error("[AFA-FULFILL] Apex Prime threw an exception:", err)
+    result = { success: false, message: err instanceof Error ? err.message : "Apex Prime API error (exception)" }
+  }
 
   if (result.success) {
     await supabase
@@ -114,6 +130,9 @@ export async function fulfillAfaOrder(orderId: string): Promise<FulfillResult> {
   // 2. Guard: skip already-fulfilled, completed, or cancelled orders
   if (order.fulfillment_status === "fulfilled") {
     return { success: false, message: "Order already fulfilled" }
+  }
+  if (order.fulfillment_status === "pending") {
+    return { success: false, message: "Order already submitted, awaiting provider confirmation" }
   }
   if (order.status === "completed") {
     return { success: false, message: "Order is already completed" }
