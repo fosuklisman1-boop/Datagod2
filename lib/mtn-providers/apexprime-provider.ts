@@ -121,6 +121,19 @@ export function parseTrackingId(id: string): { kind: "bundle" | "store"; rawId: 
   return null
 }
 
+export interface AfaRegisterPayload {
+  fullName: string
+  phoneNumber: string
+  ghanaCardNumber: string
+  location: string
+}
+
+export interface AfaRegisterResult {
+  success: boolean
+  registrationId?: string | number
+  message: string
+}
+
 // ── Provider class ───────────────────────────────────────────────────────────
 
 export class ApexPrimeProvider implements MTNProvider {
@@ -274,6 +287,77 @@ export class ApexPrimeProvider implements MTNProvider {
 
   // ── Admin / auxiliary methods ──────────────────────────────────────────────
   // Not part of MTNProvider — used by the admin API route (Task 6).
+
+  /**
+   * Submit an AFA (MTN AFA 4.0) registration. Always pays from the Main
+   * Wallet — the same balance already used for, and already monitored for,
+   * Apex Prime data-bundle fulfillment. Unlike bundle/store orders, this is
+   * genuinely async: a success response here means "accepted", not "MTN
+   * approved" — the caller must poll checkAfaStatus() for the real outcome.
+   */
+  async registerAfa(payload: AfaRegisterPayload): Promise<AfaRegisterResult> {
+    let res: Response
+    try {
+      res = await apiFetch("/afa-registration", {
+        method: "POST",
+        body: JSON.stringify({
+          full_name: payload.fullName,
+          phone_number: normalizePhoneNumber(payload.phoneNumber),
+          gha_number: payload.ghanaCardNumber,
+          location: payload.location,
+          payment_method: "wallet",
+        }),
+      })
+    } catch (err) {
+      return { success: false, message: err instanceof Error ? err.message : "Network error" }
+    }
+
+    let json: any
+    try { json = await res.json() } catch {
+      return { success: false, message: `HTTP ${res.status} (non-JSON response)` }
+    }
+
+    if (!res.ok || json.success !== true) {
+      return { success: false, message: json?.message ?? `API error ${res.status}` }
+    }
+
+    if (json.registration_id == null) {
+      return { success: false, message: "Apex Prime returned no registration_id" }
+    }
+
+    return { success: true, registrationId: json.registration_id, message: json.message ?? "AFA registration initiated" }
+  }
+
+  /**
+   * Check an AFA registration's real status. Uses the same shared /status
+   * endpoint as bundle/store orders (type: "afa" instead of "bundle"/"store"),
+   * and the same normalizeApexStatus() normalization — this assumes Apex
+   * Prime's status vocabulary is consistent across bundle/store/AFA, which is
+   * unverified for AFA specifically but safe: an unrecognized string always
+   * defaults to "processing", never wrongly to "completed".
+   */
+  async checkAfaStatus(registrationId: string | number): Promise<MTNOrderStatusResponse> {
+    let res: Response
+    try {
+      res = await apiFetch("/status", {
+        method: "POST",
+        body: JSON.stringify({ type: "afa", order_id: registrationId }),
+      })
+    } catch (err) {
+      return { success: false, message: err instanceof Error ? err.message : "Network error" }
+    }
+
+    let json: any
+    try { json = await res.json() } catch {
+      return { success: false, message: `HTTP ${res.status} (non-JSON response)` }
+    }
+
+    if (!res.ok || json.success !== true) {
+      return { success: false, message: json?.message ?? `API error ${res.status}` }
+    }
+
+    return { success: true, status: normalizeApexStatus(json.status, json.message), message: json.message ?? "Status retrieved", order: json }
+  }
 
   async getWalletSummary(): Promise<any> {
     const res = await apiFetch("/wallet", { method: "POST" })
