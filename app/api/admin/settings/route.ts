@@ -144,6 +144,8 @@ export async function PUT(request: NextRequest) {
       'paystack_fee_percentage',
       'wallet_topup_fee_percentage',
       'withdrawal_fee_percentage',
+      'withdrawal_fee_minimum',
+      'minimum_withdrawal_amount',
       'price_adjustment_mtn',
       'price_adjustment_telecel',
       'price_adjustment_at_ishare',
@@ -183,6 +185,8 @@ export async function PUT(request: NextRequest) {
       paystack_fee_percentage,
       wallet_topup_fee_percentage,
       withdrawal_fee_percentage,
+      withdrawal_fee_minimum,
+      minimum_withdrawal_amount,
       join_community_link
     } = updates
 
@@ -203,6 +207,20 @@ export async function PUT(request: NextRequest) {
     if (withdrawal_fee_percentage !== undefined && (withdrawal_fee_percentage < 0 || withdrawal_fee_percentage > 100)) {
       return NextResponse.json(
         { error: "withdrawal_fee_percentage must be between 0 and 100" },
+        { status: 400 }
+      )
+    }
+
+    if (withdrawal_fee_minimum !== undefined && withdrawal_fee_minimum < 0) {
+      return NextResponse.json(
+        { error: "withdrawal_fee_minimum must be >= 0" },
+        { status: 400 }
+      )
+    }
+
+    if (minimum_withdrawal_amount !== undefined && minimum_withdrawal_amount < 0) {
+      return NextResponse.json(
+        { error: "minimum_withdrawal_amount must be >= 0" },
         { status: 400 }
       )
     }
