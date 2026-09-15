@@ -43,7 +43,11 @@ async function buildDataBundles(isDealer: boolean): Promise<ProductsCatalogRespo
     .select("network, size, price, dealer_price")
     .eq("is_available", true)
 
-  if (error || !data) return []
+  if (error) {
+    console.error("[PRODUCTS-CATALOG] Failed to fetch packages:", error)
+    return []
+  }
+  if (!data) return []
 
   return data.map((row: any) => ({
     network: row.network,
@@ -78,13 +82,17 @@ async function buildResultsChecker(): Promise<ProductsCatalogResponse["results_c
 }
 
 async function buildAfa(): Promise<ProductsCatalogResponse["afa"]> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("afa_registration_prices")
     .select("price")
     .eq("is_active", true)
     .eq("name", "default")
     .maybeSingle()
 
+  if (error) {
+    console.error("[PRODUCTS-CATALOG] Failed to fetch AFA price:", error)
+    return { enabled: false, price: null }
+  }
   if (!data) return { enabled: false, price: null }
   return { enabled: true, price: parseFloat(data.price) }
 }
