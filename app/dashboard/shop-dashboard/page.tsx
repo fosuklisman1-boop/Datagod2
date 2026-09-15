@@ -415,6 +415,9 @@ export default function ShopDashboardPage() {
   const pendingWithdrawals = withdrawals.filter(w => w.status === "pending" || w.status === "processing")
   const completedWithdrawals = withdrawals.filter(w => w.status === "completed")
 
+  const requestedAmount = parseFloat(withdrawalForm.amount)
+  const computedFee = Math.max(requestedAmount * withdrawalFeePercentage / 100, withdrawalFeeMinimum)
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -784,16 +787,22 @@ export default function ShopDashboardPage() {
                       <span className="font-medium text-warning">GHS {parseFloat(withdrawalForm.amount).toFixed(2)}</span>
                     </div>
                     {(withdrawalFeePercentage > 0 || withdrawalFeeMinimum > 0) && (
-                      <>
-                        <div className="flex justify-between">
-                          <span className="text-warning">Withdrawal fee ({withdrawalFeePercentage}%):</span>
-                          <span className="font-medium text-warning">-GHS {Math.max(parseFloat(withdrawalForm.amount) * withdrawalFeePercentage / 100, withdrawalFeeMinimum).toFixed(2)}</span>
+                      computedFee >= requestedAmount ? (
+                        <div className="border-t border-border pt-1 text-destructive text-xs">
+                          Withdrawal fee configuration issue — the fee would exceed this amount. Please contact support or try a larger amount.
                         </div>
-                        <div className="border-t border-border pt-1 flex justify-between">
-                          <span className="text-warning font-semibold">You will receive:</span>
-                          <span className="font-bold text-success">GHS {(parseFloat(withdrawalForm.amount) - Math.max(parseFloat(withdrawalForm.amount) * withdrawalFeePercentage / 100, withdrawalFeeMinimum)).toFixed(2)}</span>
-                        </div>
-                      </>
+                      ) : (
+                        <>
+                          <div className="flex justify-between">
+                            <span className="text-warning">Withdrawal fee ({withdrawalFeePercentage}%):</span>
+                            <span className="font-medium text-warning">-GHS {computedFee.toFixed(2)}</span>
+                          </div>
+                          <div className="border-t border-border pt-1 flex justify-between">
+                            <span className="text-warning font-semibold">You will receive:</span>
+                            <span className="font-bold text-success">GHS {(requestedAmount - computedFee).toFixed(2)}</span>
+                          </div>
+                        </>
+                      )
                     )}
                   </div>
                 </div>
@@ -809,7 +818,7 @@ export default function ShopDashboardPage() {
               <div className="flex gap-2">
                 <Button
                   onClick={handleWithdrawal}
-                  disabled={isSubmitting || isFetchingName || isFetchingBankName || (withdrawalForm.method === "mobile_money" && !nameVerified) || (withdrawalForm.method === "bank_transfer" && !bankVerified)}
+                  disabled={isSubmitting || isFetchingName || isFetchingBankName || (withdrawalForm.method === "mobile_money" && !nameVerified) || (withdrawalForm.method === "bank_transfer" && !bankVerified) || computedFee >= requestedAmount}
                   className="flex-1 bg-primary hover:bg-primary"
                 >
                   {isSubmitting ? (
