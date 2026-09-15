@@ -2,7 +2,7 @@
 
 ## Why
 
-Datagod already has a working `X-API-Key`-authenticated public API (`app/api/v1/balance`, `app/api/v1/orders`) and a backend for generating/revoking keys (`app/api/user/keys`), but no self-service UI for it — the only existing page (`/admin/api-keys`) is an *admin* control panel for managing everyone's keys and audit logs, not a place where a dealer or user can see their own key or read integration docs. This spec adds that missing self-service developer page, modeled on a reference screenshot of a competitor's ("Apex Prime") developer API docs page, and expands the v1 API surface to cover the other purchasable services (airtime, AFA, results-checker vouchers, SMS) so the new docs page has something complete to document.
+Datagod already has a working `X-API-Key`-authenticated public API (`app/api/v1/balance`, `app/api/v1/orders`) and a backend for generating/revoking keys (`app/api/user/keys`). It also already has a self-service key-management widget — `components/developer/ApiKeysManager.tsx` — but it's buried inside the Profile page behind an `isDealer || role === 'admin'` gate, built with raw CSS-in-JS instead of the app's shadcn/`DashboardLayout` system, and its embedded docs only cover the 2 existing endpoints. The only *dedicated* page today (`/admin/api-keys`) is an admin control panel for managing everyone's keys and audit logs, not a self-service integration page. This spec pulls the key-management functionality out of Profile into a proper dedicated page — modeled on a reference screenshot of a competitor's ("Apex Prime") developer API docs page — rebuilt on the app's real design system, opened up to all users, and expands the v1 API surface to cover the other purchasable services (airtime, AFA, results-checker vouchers, SMS) so the new page has something complete to document.
 
 ## Access model
 
@@ -44,7 +44,7 @@ Status/lookup-by-reference for the new resources is a `GET` handler on each reso
 
 ## `/dashboard/developer` page
 
-New page, visible in the sidebar to **all** logged-in roles (`user`, `sub_agent`, `dealer`, `admin`), styled with the app's existing dark/emerald "Compute Network" design tokens and `DashboardLayout` wrapper (not a literal copy of the reference screenshot's blue theme).
+New page, visible in the sidebar to **all** logged-in roles (`user`, `sub_agent`, `dealer`, `admin`), styled with the app's existing dark/emerald "Compute Network" design tokens and `DashboardLayout` wrapper (not a literal copy of the reference screenshot's blue theme). This **replaces** `components/developer/ApiKeysManager.tsx`: that component is deleted, its call site in `app/dashboard/profile/page.tsx` (the `{(isDealer || profile.role === 'admin') && <Card>...<ApiKeysManager /></Card>}` block) is removed rather than left as a second, now-stale copy of key management. The new page's key section reuses the same backend (`/api/user/keys`) and the same one-time-reveal UX, rebuilt with shadcn components.
 
 **Your API Keys** card — full self-service key management against the existing `/api/user/keys` endpoints (no backend contract change needed there beyond removing the role restriction noted above):
 - List: name, key prefix, active/revoked status badge, last used, created date.
