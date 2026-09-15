@@ -69,6 +69,8 @@ export default function AdminSettingsPage() {
   const [paystackFeePercentage, setPaystackFeePercentage] = useState(3.0)
   const [walletTopupFeePercentage, setWalletTopupFeePercentage] = useState(0)
   const [withdrawalFeePercentage, setWithdrawalFeePercentage] = useState(0)
+  const [withdrawalFeeMinimum, setWithdrawalFeeMinimum] = useState(0)
+  const [minimumWithdrawalAmount, setMinimumWithdrawalAmount] = useState(5)
 
   // Price adjustment settings (per network)
   const [priceAdjustmentMtn, setPriceAdjustmentMtn] = useState(0)
@@ -201,6 +203,12 @@ export default function AdminSettingsPage() {
         }
         if (data.withdrawal_fee_percentage !== undefined) {
           setWithdrawalFeePercentage(data.withdrawal_fee_percentage)
+        }
+        if (data.withdrawal_fee_minimum !== undefined) {
+          setWithdrawalFeeMinimum(data.withdrawal_fee_minimum)
+        }
+        if (data.minimum_withdrawal_amount !== undefined) {
+          setMinimumWithdrawalAmount(data.minimum_withdrawal_amount)
         }
 
         // Load terms content
@@ -848,6 +856,8 @@ export default function AdminSettingsPage() {
           paystack_fee_percentage: paystackFeePercentage,
           wallet_topup_fee_percentage: walletTopupFeePercentage,
           withdrawal_fee_percentage: withdrawalFeePercentage,
+          withdrawal_fee_minimum: withdrawalFeeMinimum,
+          minimum_withdrawal_amount: minimumWithdrawalAmount,
           price_adjustment_mtn: priceAdjustmentMtn,
           price_adjustment_telecel: priceAdjustmentTelecel,
           price_adjustment_at_ishare: priceAdjustmentAtIshare,
@@ -1516,6 +1526,50 @@ export default function AdminSettingsPage() {
               </div>
             </div>
 
+            <div>
+              <Label htmlFor="withdrawalFeeMinimum" className="text-sm font-medium">
+                Withdrawal Fee Minimum (GHS)
+              </Label>
+              <p className="text-xs text-muted-foreground mt-1 mb-2">
+                The fee never goes below this amount, even if the percentage above would compute less. Set to 0 for no floor.
+              </p>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-muted-foreground">GHS</span>
+                <Input
+                  id="withdrawalFeeMinimum"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={withdrawalFeeMinimum}
+                  onChange={(e) => setWithdrawalFeeMinimum(parseFloat(e.target.value))}
+                  className="flex-1"
+                  placeholder="0"
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label htmlFor="minimumWithdrawalAmount" className="text-sm font-medium">
+                Minimum Withdrawal Amount (GHS)
+              </Label>
+              <p className="text-xs text-muted-foreground mt-1 mb-2">
+                The smallest amount a shop owner may request to withdraw.
+              </p>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-muted-foreground">GHS</span>
+                <Input
+                  id="minimumWithdrawalAmount"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={minimumWithdrawalAmount}
+                  onChange={(e) => setMinimumWithdrawalAmount(parseFloat(e.target.value))}
+                  className="flex-1"
+                  placeholder="5"
+                />
+              </div>
+            </div>
+
             <div className="bg-primary/5 border border-primary/20 rounded-lg p-4 space-y-3">
               <div>
                 <h4 className="font-semibold text-sm text-primary mb-2">Top-up Preview (GHS 100)</h4>
@@ -1558,16 +1612,16 @@ export default function AdminSettingsPage() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-primary">
-                      Withdrawal fee ({withdrawalFeePercentage}%):
+                      Withdrawal fee (max of {withdrawalFeePercentage}% or GHS {withdrawalFeeMinimum.toFixed(2)}):
                     </span>
                     <span className="font-medium text-warning">
-                      -GHS {(100 * withdrawalFeePercentage / 100).toFixed(2)}
+                      -GHS {Math.max(100 * withdrawalFeePercentage / 100, withdrawalFeeMinimum).toFixed(2)}
                     </span>
                   </div>
                   <div className="border-t border-primary/20 pt-1 flex justify-between">
                     <span className="text-primary font-semibold">Shop receives:</span>
                     <span className="font-bold text-success">
-                      GHS {(100 - (100 * withdrawalFeePercentage / 100)).toFixed(2)}
+                      GHS {(100 - Math.max(100 * withdrawalFeePercentage / 100, withdrawalFeeMinimum)).toFixed(2)}
                     </span>
                   </div>
                 </div>
