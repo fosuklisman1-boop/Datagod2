@@ -1541,7 +1541,7 @@ export default function AdminSettingsPage() {
                   min="0"
                   step="0.01"
                   value={withdrawalFeeMinimum}
-                  onChange={(e) => setWithdrawalFeeMinimum(parseFloat(e.target.value))}
+                  onChange={(e) => { const v = parseFloat(e.target.value); setWithdrawalFeeMinimum(Number.isNaN(v) ? 0 : v) }}
                   className="flex-1"
                   placeholder="0"
                 />
@@ -1563,7 +1563,7 @@ export default function AdminSettingsPage() {
                   min="0"
                   step="0.01"
                   value={minimumWithdrawalAmount}
-                  onChange={(e) => setMinimumWithdrawalAmount(parseFloat(e.target.value))}
+                  onChange={(e) => { const v = parseFloat(e.target.value); setMinimumWithdrawalAmount(Number.isNaN(v) ? 0 : v) }}
                   className="flex-1"
                   placeholder="5"
                 />

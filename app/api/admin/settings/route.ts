@@ -211,16 +211,16 @@ export async function PUT(request: NextRequest) {
       )
     }
 
-    if (withdrawal_fee_minimum !== undefined && withdrawal_fee_minimum < 0) {
+    if (withdrawal_fee_minimum !== undefined && (typeof withdrawal_fee_minimum !== "number" || !Number.isFinite(withdrawal_fee_minimum) || withdrawal_fee_minimum < 0)) {
       return NextResponse.json(
-        { error: "withdrawal_fee_minimum must be >= 0" },
+        { error: "withdrawal_fee_minimum must be a number >= 0" },
         { status: 400 }
       )
     }
 
-    if (minimum_withdrawal_amount !== undefined && minimum_withdrawal_amount < 0) {
+    if (minimum_withdrawal_amount !== undefined && (typeof minimum_withdrawal_amount !== "number" || !Number.isFinite(minimum_withdrawal_amount) || minimum_withdrawal_amount < 0)) {
       return NextResponse.json(
-        { error: "minimum_withdrawal_amount must be >= 0" },
+        { error: "minimum_withdrawal_amount must be a number >= 0" },
         { status: 400 }
       )
     }
