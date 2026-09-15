@@ -38,6 +38,7 @@ import { useAdminProtected } from "@/hooks/use-admin"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import Link from "next/link"
+import { PROVIDER_DISPLAY, getProviderDisplay } from "@/lib/mtn-providers/provider-display"
 
 interface MTNLog {
   id: string
@@ -456,9 +457,9 @@ export default function MTNFulfillmentLogsPage() {
                 <DropdownMenuContent align="end">
                   <DropdownMenuLabel>Sync by provider</DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  {["sykes", "codecraft", "eazyghdata", "xpress", "datakazina", "bisdel", "agentportalgh", "apexprime"].map(p => (
+                  {Object.keys(PROVIDER_DISPLAY).map(p => (
                     <DropdownMenuItem key={p} onClick={() => handleSyncAllPending(p)}>
-                      {p.charAt(0).toUpperCase() + p.slice(1)}
+                      {getProviderDisplay(p).label}
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>
@@ -573,23 +574,10 @@ export default function MTNFulfillmentLogsPage() {
                               </Badge>
                             </TableCell>
                             <TableCell>
-                              {log.provider === "datakazina" ? (
-                                <Badge className="bg-success/15 text-success border-border">DataKazina</Badge>
-                              ) : log.provider === "xpress" ? (
-                                <Badge className="bg-primary/10 text-primary border-border">Xpress</Badge>
-                              ) : log.provider === "eazyghdata" ? (
-                                <Badge className="bg-primary/10 text-primary border-border">EazyGhData</Badge>
-                              ) : log.provider === "bisdel" ? (
-                                <Badge className="bg-primary/10 text-primary border-border">Bisdel</Badge>
-                              ) : log.provider === "codecraft" ? (
-                                <Badge className="bg-violet-100 text-violet-800 border-border">CodeCraft</Badge>
-                              ) : log.provider === "agentportalgh" ? (
-                                <Badge className="bg-amber-100 text-amber-800 border-border">AgentPortalGH</Badge>
-                              ) : log.provider === "apexprime" ? (
-                                <Badge className="bg-cyan-100 text-cyan-800 border-border">Apex Prime</Badge>
-                              ) : (
-                                <Badge className="bg-primary/10 text-primary border-primary/20">Sykes</Badge>
-                              )}
+                              {(() => {
+                                const display = getProviderDisplay(log.provider)
+                                return <Badge className={display.badgeClassName}>{display.label}</Badge>
+                              })()}
                             </TableCell>
                             <TableCell>
                               {log.mtn_order_id ? (
