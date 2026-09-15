@@ -14,9 +14,9 @@ export const supportSettingsService = {
       console.error("Error fetching support settings:", error)
       // Return defaults on error
       return {
-        support_whatsapp: "233501234567",
-        support_email: "support@datagod.com",
-        support_phone: "0501234567"
+        support_whatsapp: "233559919037",
+        support_email: "datagod.store@gmail.com",
+        support_phone: "0559919037"
       }
     }
   },

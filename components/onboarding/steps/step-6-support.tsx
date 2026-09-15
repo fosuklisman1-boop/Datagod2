@@ -36,7 +36,7 @@ export function Step6Support() {
               className="mt-3 text-success border-success/30 hover:bg-success/10"
               asChild
             >
-              <a href="https://wa.me/233546961942" target="_blank" rel="noopener noreferrer">
+              <a href="https://wa.me/233559919037" target="_blank" rel="noopener noreferrer">
                 Open WhatsApp
               </a>
             </Button>
@@ -53,7 +53,7 @@ export function Step6Support() {
             <p className="text-sm text-muted-foreground mt-1">
               Send detailed queries via email. We respond within 24 hours.
             </p>
-            <p className="text-sm font-mono text-primary mt-2">support@datagod.com</p>
+            <p className="text-sm font-mono text-primary mt-2">datagod.store@gmail.com</p>
           </div>
         </div>
 

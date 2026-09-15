@@ -8,9 +8,9 @@ interface SupportConfig {
 }
 
 const DEFAULT_CONFIG: SupportConfig = {
-  email: "support@datagod.com",
-  phone: "+233 XXX XXX XXXX",
-  whatsapp: "https://wa.me/233XXXXXXXXX",
+  email: "datagod.store@gmail.com",
+  phone: "0559919037",
+  whatsapp: "https://wa.me/233559919037",
   website: "https://www.datagod.store",
 }
 

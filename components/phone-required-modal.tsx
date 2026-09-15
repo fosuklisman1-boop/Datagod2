@@ -13,7 +13,7 @@ interface PhoneRequiredModalProps {
   onPhoneSaved: (phone: string) => void
 }
 
-const SUPPORT_WHATSAPP = "233559717923"
+const SUPPORT_WHATSAPP = "233559919037"
 
 export function PhoneRequiredModal({ open, onPhoneSaved }: PhoneRequiredModalProps) {
   const [phone, setPhone] = useState("")

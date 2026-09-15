@@ -27,9 +27,9 @@ export async function GET() {
       console.error("[SUPPORT-CONFIG] Error fetching support settings:", error)
       // Still return defaults on error instead of 500
       return NextResponse.json({
-        email: "support@datagod.com",
-        phone: "+233 XXX XXX XXXX",
-        whatsapp: "https://wa.me/233XXXXXXXXX",
+        email: "datagod.store@gmail.com",
+        phone: "0559919037",
+        whatsapp: "https://wa.me/233559919037",
         website: "https://www.datagod.store",
       })
     }
@@ -38,26 +38,26 @@ export async function GET() {
     if (!settings) {
       console.log("[SUPPORT-CONFIG] No settings found, using defaults")
       return NextResponse.json({
-        email: "support@datagod.com",
-        phone: "+233 XXX XXX XXXX",
-        whatsapp: "https://wa.me/233XXXXXXXXX",
-        website: "https://datagod.com",
+        email: "datagod.store@gmail.com",
+        phone: "0559919037",
+        whatsapp: "https://wa.me/233559919037",
+        website: "https://www.datagod.store",
       })
     }
 
     console.log("[SUPPORT-CONFIG] Using database settings:", settings)
 
     // Format WhatsApp URL if it's just the number
-    let whatsappUrl = settings.support_whatsapp || "https://wa.me/233XXXXXXXXX"
+    let whatsappUrl = settings.support_whatsapp || "https://wa.me/233559919037"
     if (whatsappUrl && !whatsappUrl.startsWith("http")) {
       whatsappUrl = `https://wa.me/${whatsappUrl}`
     }
 
     return NextResponse.json({
-      email: settings.support_email || "support@datagod.com",
-      phone: settings.support_phone || "+233 XXX XXX XXXX",
+      email: settings.support_email || "datagod.store@gmail.com",
+      phone: settings.support_phone || "0559919037",
       whatsapp: whatsappUrl,
-      website: "https://datagod.com",
+      website: "https://www.datagod.store",
       guestPurchaseUrl: settings.guest_purchase_url || null,
       guestPurchaseButtonText: settings.guest_purchase_button_text || 'Buy as Guest',
     })

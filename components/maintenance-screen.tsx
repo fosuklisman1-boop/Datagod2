@@ -28,10 +28,10 @@ export function MaintenanceScreen() {
         <div className="rounded-xl border border-border bg-card/60 p-4 text-sm text-muted-foreground">
           Need urgent help? Reach us at{" "}
           <a
-            href="mailto:support@datagod.com"
+            href="mailto:datagod.store@gmail.com"
             className="font-semibold text-primary hover:text-primary"
           >
-            support@datagod.com
+            datagod.store@gmail.com
           </a>
         </div>
       </div>

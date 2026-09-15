@@ -24,9 +24,9 @@ export async function GET() {
     // If no data found, create default support_settings row
     if (!data) {
       const defaultSettings = {
-        support_whatsapp: "233501234567",
-        support_email: "support@datagod.com",
-        support_phone: "0501234567"
+        support_whatsapp: "233559919037",
+        support_email: "datagod.store@gmail.com",
+        support_phone: "0559919037"
       }
 
       const { data: newSettings, error: insertError } = await supabase
