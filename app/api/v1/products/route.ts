@@ -24,7 +24,27 @@ export async function GET(request: NextRequest) {
     )
   }
 
-  const catalog = await buildProductsCatalog(user.role)
+  let catalog
+  try {
+    catalog = await buildProductsCatalog(user.role)
+  } catch (err) {
+    console.error("[API v1] Failed to build products catalog:", err)
+    const durationMs = Date.now() - start
+
+    logApiRequest({
+      userId: user.id,
+      apiKeyId: user.api_key_id,
+      method: "GET",
+      endpoint: "/api/v1/products",
+      statusCode: 500,
+      request,
+      durationMs,
+      responsePayload: { error: "Failed to fetch product catalog" },
+    }).catch(() => {})
+
+    return NextResponse.json({ success: false, error: "Failed to fetch product catalog" }, { status: 500 })
+  }
+
   const durationMs = Date.now() - start
 
   logApiRequest({
