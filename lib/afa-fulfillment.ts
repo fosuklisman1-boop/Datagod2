@@ -8,6 +8,8 @@
 
 import { createClient } from "@supabase/supabase-js"
 import { registerAfaViaSykes } from "@/lib/sykes-afa-provider"
+import { sendSMS, SMSTemplates } from "@/lib/sms-service"
+import { secureString } from "@/lib/secure-random"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -125,4 +127,126 @@ export async function isAfaAutoFulfillmentEnabled(): Promise<boolean> {
     .maybeSingle()
 
   return data?.value?.enabled === true
+}
+
+export interface SubmitAfaOrderParams {
+  userId: string
+  fullName: string
+  phoneNumber: string
+  ghCardNumber: string
+  location: string
+  region: string
+  occupation?: string
+}
+
+export interface SubmitAfaOrderResult {
+  order: Record<string, any>
+}
+
+/**
+ * Create and pay for an AFA registration order, then fire-and-forget the
+ * Sykes registration if auto-fulfillment is on. Extracted from
+ * app/api/afa/submit/route.ts so the dashboard route and the v1 API route
+ * share one implementation. Always charges the server-side price from
+ * afa_registration_prices — never a client-supplied amount.
+ */
+export async function submitAfaOrder(params: SubmitAfaOrderParams): Promise<SubmitAfaOrderResult> {
+  const supabase = getSupabase()
+  const { userId, fullName, phoneNumber, ghCardNumber, location, region, occupation } = params
+
+  const { data: priceRow } = await supabase
+    .from("afa_registration_prices")
+    .select("price")
+    .eq("is_active", true)
+    .eq("name", "default")
+    .maybeSingle()
+  const afaPrice = priceRow?.price != null ? parseFloat(priceRow.price) : NaN
+  if (!Number.isFinite(afaPrice) || afaPrice <= 0) {
+    const err: any = new Error("AFA price unavailable, try again later")
+    err.code = "PRICE_UNAVAILABLE"
+    throw err
+  }
+
+  const { data: deductResult, error: deductError } = await supabase.rpc("deduct_wallet", {
+    p_user_id: userId,
+    p_amount: afaPrice,
+  })
+  if (deductError) {
+    console.error("[AFA-FULFILL] Wallet deduction RPC error:", deductError)
+    const err: any = new Error("Failed to process payment")
+    err.code = "PAYMENT_FAILED"
+    throw err
+  }
+  if (!deductResult || deductResult.length === 0) {
+    const err: any = new Error("Insufficient balance")
+    err.code = "INSUFFICIENT_BALANCE"
+    err.required = afaPrice
+    throw err
+  }
+  const { new_balance: newBalance, old_balance: balanceBefore } = deductResult[0]
+
+  const orderCode = `AFA-${Date.now().toString().slice(-7)}`
+  const transactionCode = secureString(10)
+
+  const { data: afaOrder, error: afaError } = await supabase
+    .from("afa_orders")
+    .insert({
+      user_id: userId,
+      order_code: orderCode,
+      transaction_code: transactionCode,
+      full_name: fullName,
+      phone_number: phoneNumber,
+      gh_card_number: ghCardNumber,
+      location,
+      region,
+      occupation,
+      amount: afaPrice,
+      status: "pending",
+      created_at: new Date().toISOString(),
+    })
+    .select()
+    .single()
+
+  if (afaError) {
+    console.error("[AFA-FULFILL] Order creation failed, refunding wallet:", afaError)
+    await supabase
+      .from("wallets")
+      .update({ balance: balanceBefore, total_spent: deductResult[0].new_total_spent - afaPrice, updated_at: new Date().toISOString() })
+      .eq("user_id", userId)
+    const err: any = new Error("Failed to create AFA order")
+    err.code = "ORDER_CREATE_FAILED"
+    throw err
+  }
+
+  try {
+    await sendSMS({ phone: phoneNumber, message: SMSTemplates.afaRegistration(fullName, orderCode, afaPrice.toString()), type: "afa_registration" })
+  } catch (smsError) {
+    console.warn("[AFA-FULFILL] Failed to send confirmation SMS:", smsError)
+  }
+
+  await supabase.from("transactions").insert({
+    user_id: userId,
+    type: "debit",
+    amount: afaPrice,
+    description: `AFA Registration - ${fullName}`,
+    reference_id: transactionCode,
+    source: "afa_registration",
+    status: "completed",
+    balance_before: balanceBefore,
+    balance_after: newBalance,
+    created_at: new Date().toISOString(),
+  })
+
+  try {
+    const autoFulfill = await isAfaAutoFulfillmentEnabled()
+    if (autoFulfill) {
+      fulfillAfaOrder(afaOrder.id).catch((err) => {
+        console.error("[AFA-FULFILL] Auto-fulfillment error for order", afaOrder.id, err)
+      })
+    }
+  } catch (autoFulfillCheckError) {
+    console.error("[AFA-FULFILL] Error checking auto-fulfillment setting:", autoFulfillCheckError)
+  }
+
+  return { order: afaOrder }
 }
