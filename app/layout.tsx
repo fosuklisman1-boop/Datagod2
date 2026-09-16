@@ -15,7 +15,7 @@ import { BackgroundSyncRegister } from "@/components/background-sync-register";
 import { PushNotificationRegister } from "@/components/push-notification-register";
 import { PushOptInBanner } from "@/components/push-opt-in-banner";
 import { MaintenanceScreen } from "@/components/maintenance-screen";
-import { generateOrganizationSchema, generateHomepageSchema, generateLocalBusinessSchema } from "@/lib/structured-data";
+import { generateOrganizationSchema, generateHomepageSchema, generateLocalBusinessSchema, generateSiteNavigationSchema } from "@/lib/structured-data";
 
 // Per design spec: Inter = display/headings, DM Sans = body, JetBrains Mono = labels/metadata.
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
@@ -163,6 +163,12 @@ export default async function RootLayout({
           nonce={nonce}
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(generateLocalBusinessSchema()) }}
+        />
+        {/* SiteNavigationElement Schema — a best-effort signal for sitelinks selection, not a guarantee */}
+        <script
+          nonce={nonce}
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(generateSiteNavigationSchema()) }}
         />
         {/* iOS splash screens — auto-generated for all current Apple device sizes */}
         <link rel="apple-touch-startup-image" href="/splash/apple-splash-2048-2732.jpg" media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />

@@ -101,6 +101,33 @@ export const generateFAQSchema = (
   })),
 });
 
+// One of the few real signals Google says it *may* use when choosing sitelinks
+// for a branded search result — not a guarantee, and there's no Search Console
+// control for this (the old sitelinks-demotion tool was retired years ago).
+// Lists only stable first-party URLs — deliberately excludes "Guest Purchase"
+// since that button redirects to an admin-configured external shop URL, not a
+// real page on this domain.
+export const generateSiteNavigationSchema = () => ([
+  {
+    "@context": "https://schema.org",
+    "@type": "SiteNavigationElement",
+    name: "Sign In",
+    url: "https://www.datagod.store/auth/login",
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "SiteNavigationElement",
+    name: "Sign Up",
+    url: "https://www.datagod.store/auth/signup",
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "SiteNavigationElement",
+    name: "Become an Agent",
+    url: "https://www.datagod.store/join",
+  },
+])
+
 export const generateLocalBusinessSchema = () => ({
   "@context": "https://schema.org",
   "@type": "LocalBusiness",

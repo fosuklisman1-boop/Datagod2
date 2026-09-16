@@ -349,8 +349,13 @@ export default function HomePage() {
           <h1 className="text-lg sm:text-xl font-display font-semibold text-foreground tracking-tight">{domainBranding.siteName || "DATAGOD"}</h1>
         </div>
         <div className="hidden md:flex items-center gap-6">
-          {["Networks", "Services", "How it works", "Shops"].map((l) => (
-            <a key={l} href="#how-it-works" className="font-mono text-xs uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors">{l}</a>
+          {[
+            ["Networks", "#networks"],
+            ["Services", "#services"],
+            ["How it works", "#how-it-works"],
+            ["Shops", "/join"],
+          ].map(([l, href]) => (
+            <a key={l} href={href} className="font-mono text-xs uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors">{l}</a>
           ))}
         </div>
         <div className="flex items-center gap-2 sm:gap-3">
@@ -428,7 +433,7 @@ export default function HomePage() {
         </div>
 
         {/* Network strip */}
-        <div className="mt-10 flex flex-wrap items-center justify-center gap-3 sm:mt-14">
+        <div id="networks" className="mt-10 flex flex-wrap items-center justify-center gap-3 sm:mt-14">
           <span className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-bold text-foreground"><span className="grid h-5 w-5 place-items-center rounded bg-mtn text-mtn-foreground text-[10px] font-black">M</span> MTN</span>
           <span className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-bold text-foreground"><span className="grid h-5 w-5 place-items-center rounded bg-telecel text-telecel-foreground text-[10px] font-black">T</span> Telecel</span>
           <span className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-bold text-foreground"><span className="grid h-5 w-5 place-items-center rounded bg-at text-at-foreground text-[10px] font-black">A</span> AT iShare</span>
@@ -436,7 +441,7 @@ export default function HomePage() {
         </div>
 
         {/* Services showcase */}
-        <div className="mt-14 sm:mt-20">
+        <div id="services" className="mt-14 sm:mt-20">
           {([
             ["Buy & use", [
               [Database, "Data Bundles", "MTN, Telecel, AT-iShare & AT-BigTime — in seconds.", null],
