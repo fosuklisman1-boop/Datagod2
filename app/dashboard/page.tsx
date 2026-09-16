@@ -11,7 +11,6 @@ import { PhoneVerifyModal } from "@/components/phone-verify-modal"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { TrendingUp, ShoppingCart, CheckCircle, AlertCircle, Clock, Loader2, type LucideIcon } from "lucide-react"
-import { BulkOrdersForm } from "@/components/bulk-orders-form"
 import { supabase } from "@/lib/supabase"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 import { getServicePrimaryPath, type DomainService } from "@/lib/custom-domains"
@@ -429,6 +428,11 @@ export default function DashboardPage() {
                 Create Shop
               </Button>
             )}
+            {(!domainBranding.services || domainBranding.services.includes("data_bundles")) && (
+              <Button variant="outline" onClick={() => router.push("/dashboard/bulk-orders")} className="font-semibold">
+                Bulk Order
+              </Button>
+            )}
             <Button variant="outline" onClick={() => router.push("/dashboard/my-orders")} className="font-semibold">
               View My Orders
             </Button>
@@ -437,9 +441,6 @@ export default function DashboardPage() {
             </Button>
           </CardContent>
         </Card>
-
-        {/* Bulk Orders Section */}
-        <BulkOrdersForm />
 
         {/* Recent Activity */}
         <Card>
