@@ -92,7 +92,7 @@ export const apiDocsRegistry: ApiDocSection[] = [
         params: [
           { name: "network", type: "string", required: true, description: "MTN, AirtelTigo, or Telecel" },
           { name: "recipient", type: "string", required: true, description: "10-digit recipient phone number" },
-          { name: "amount", type: "number", required: true, description: "GHS amount, up to 1000" },
+          { name: "amount", type: "number", required: true, description: "GHS amount (subject to the admin-configured min/max — check GET /api/v1/products for current limits)" },
           { name: "pay_separately", type: "boolean", required: false, description: "If true, the fee is added on top instead of deducted from amount" },
         ],
         curl: `curl -X POST ${BASE_URL}/api/v1/airtime \\\n  -H "X-API-Key: dg_live_your_key_here" \\\n  -H "Content-Type: application/json" \\\n  -d '{ "network": "MTN", "recipient": "0541234567", "amount": 5 }'`,
@@ -130,7 +130,10 @@ export const apiDocsRegistry: ApiDocSection[] = [
         ],
         curl: `curl -X POST ${BASE_URL}/api/v1/afa \\\n  -H "X-API-Key: dg_live_your_key_here" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "full_name": "Jane Doe",\n    "phone_number": "0541234567",\n    "gh_card_number": "GHA-123456789-0",\n    "location": "Accra",\n    "region": "Greater Accra"\n  }'`,
         successExample: `{ "success": true, "order": { "reference": "AFA-1234567", "status": "pending" } }`,
-        errorExamples: [{ status: 402, body: `{ "success": false, "error": "Insufficient balance", "required": 50 }` }],
+        errorExamples: [
+          { status: 402, body: `{ "success": false, "error": "Insufficient balance", "required": 50 }` },
+          { status: 403, body: `{ "success": false, "error": "Please verify your phone number to continue. Visit your dashboard to complete verification." }` },
+        ],
       },
       {
         method: "GET",
@@ -158,7 +161,10 @@ export const apiDocsRegistry: ApiDocSection[] = [
         successExample: `{\n  "success": true,\n  "order": { "reference": "RC-XXX-YYY", "status": "completed" },\n  "vouchers": [{ "pin": "1234-5678-90", "serial_number": "WA0001234" }],\n  "new_balance": 30\n}`,
         errorExamples: [
           { status: 402, body: `{ "success": false, "error": "Insufficient wallet balance", "required": 15 }` },
+          { status: 403, body: `{ "success": false, "error": "Please verify your phone number to continue. Visit your dashboard to complete verification." }` },
+          { status: 503, body: `{ "success": false, "error": "WASSCE vouchers are currently unavailable" }` },
           { status: 503, body: `{ "success": false, "error": "Insufficient voucher inventory" }` },
+          { status: 409, body: `{ "success": false, "error": "Duplicate request detected. Please wait before trying again.", "reference": "RC-XXX-YYY" }` },
         ],
       },
       {
