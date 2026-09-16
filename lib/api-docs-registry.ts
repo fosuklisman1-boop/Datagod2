@@ -23,7 +23,7 @@ export interface ApiDocSection {
   operations: ApiOperation[]
 }
 
-const BASE_URL = "https://datagod.store"
+export const BASE_URL = "https://www.datagod.store"
 
 export const apiDocsRegistry: ApiDocSection[] = [
   {
