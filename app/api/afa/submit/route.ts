@@ -1,223 +1,57 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import { sendSMS, SMSTemplates } from "@/lib/sms-service"
-import { fulfillAfaOrder, isAfaAutoFulfillmentEnabled } from "@/lib/afa-fulfillment"
-import { secureString } from "@/lib/secure-random"
 import { checkPhoneVerified } from "@/lib/phone-verify-guard"
+import { submitAfaOrder } from "@/lib/afa-fulfillment"
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-const supabase = createClient(supabaseUrl, serviceRoleKey)
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
 
-// AFA Order Submission API Endpoint
 export async function POST(request: NextRequest) {
   try {
-    console.log("[AFA-SUBMIT] Request received")
-
-    // Get auth header
     const authHeader = request.headers.get("authorization")
     if (!authHeader?.startsWith("Bearer ")) {
-      console.log("[AFA-SUBMIT] No auth header")
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
-
     const token = authHeader.substring(7)
-    console.log("[AFA-SUBMIT] Token extracted")
-
-    // Verify token and get user
     const { data: { user }, error: userError } = await supabase.auth.getUser(token)
     if (userError || !user) {
-      console.log("[AFA-SUBMIT] User verification failed:", userError)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    console.log("[AFA-SUBMIT] User verified:", user.id)
-
-    // Phone gate — AFA registration debits the user's wallet.
     const phoneGuard = await checkPhoneVerified(supabase, user.id)
     if (!phoneGuard.allowed) {
       return NextResponse.json({ error: phoneGuard.error }, { status: 403 })
     }
 
-    // Parse request body
     const body = await request.json()
-    const { fullName, phoneNumber, ghCardNumber, location, region, occupation, amount, userId } = body
-    console.log("[AFA-SUBMIT] Body parsed:", { region, amount, userId })
+    const { fullName, phoneNumber, ghCardNumber, location, region, occupation, userId } = body
 
-    // Validate inputs
-    if (!fullName || !phoneNumber || !ghCardNumber || !location || !region || !amount || !userId) {
-      console.log("[AFA-SUBMIT] Missing required fields")
-      return NextResponse.json(
-        { error: "Missing required fields" },
-        { status: 400 }
-      )
+    if (!fullName || !phoneNumber || !ghCardNumber || !location || !region || !userId) {
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
-
     if (userId !== user.id) {
-      console.log("[AFA-SUBMIT] User ID mismatch")
-      return NextResponse.json(
-        { error: "User ID mismatch" },
-        { status: 401 }
-      )
+      return NextResponse.json({ error: "User ID mismatch" }, { status: 401 })
     }
 
-    // NEVER trust the client-supplied `amount`: a negative value would mint
-    // balance via deduct_wallet (also blocked in-DB now) and a tiny value
-    // underpays the AFA fee. Charge the AUTHORITATIVE server price (same source
-    // as GET /api/afa/price).
-    let afaPrice = 50.0
-    {
-      const { data: priceRow } = await supabase
-        .from("afa_registration_prices")
-        .select("price")
-        .eq("is_active", true)
-        .eq("name", "default")
-        .maybeSingle()
-      if (priceRow?.price != null) afaPrice = parseFloat(priceRow.price)
+    const result = await submitAfaOrder({ userId: user.id, fullName, phoneNumber, ghCardNumber, location, region, occupation })
+
+    console.log(`[AFA-SUBMIT] ✓ Order created: ${result.order.order_code} for user ${user.id}`)
+    return NextResponse.json({ success: true, order: result.order, message: "AFA registration submitted successfully" }, { status: 200 })
+  } catch (error: any) {
+    if (error?.code === "PRICE_UNAVAILABLE") {
+      console.error("[AFA-SUBMIT] AFA price unavailable — check afa_registration_prices:", error.message)
+      return NextResponse.json({ error: error.message }, { status: 503 })
     }
-    if (!Number.isFinite(afaPrice) || afaPrice <= 0) {
-      console.error("[AFA-SUBMIT] Invalid server AFA price:", afaPrice)
-      return NextResponse.json({ error: "AFA price unavailable, try again later" }, { status: 503 })
+    if (error?.code === "INSUFFICIENT_BALANCE") {
+      return NextResponse.json({ error: error.message }, { status: 400 })
     }
-
-    // Atomic wallet deduction — prevents double-spend race condition
-    console.log("[AFA-SUBMIT] Attempting atomic wallet deduction")
-    const { data: deductResult, error: deductError } = await supabase
-      .rpc('deduct_wallet', {
-        p_user_id: user.id,
-        p_amount: afaPrice,
-      })
-
-    if (deductError) {
-      console.error("[AFA-SUBMIT] Wallet deduction RPC error:", deductError)
-      return NextResponse.json(
-        { error: "Failed to process payment", details: deductError.message },
-        { status: 500 }
-      )
+    if (error?.code === "PAYMENT_FAILED" || error?.code === "ORDER_CREATE_FAILED") {
+      console.error("[AFA-SUBMIT] Order/payment error:", error)
+      return NextResponse.json({ error: error.message, details: error.message }, { status: 500 })
     }
-
-    if (!deductResult || deductResult.length === 0) {
-      console.log("[AFA-SUBMIT] Insufficient balance")
-      return NextResponse.json(
-        { error: "Insufficient balance" },
-        { status: 400 }
-      )
-    }
-
-    const { new_balance: newBalance, old_balance: balanceBefore } = deductResult[0]
-    console.log("[AFA-SUBMIT] Wallet deducted successfully")
-
-    // Generate order code and transaction code
-    const orderCode = `AFA-${Date.now().toString().slice(-7)}`
-    const transactionCode = secureString(10)
-    console.log("[AFA-SUBMIT] Generated codes:", { orderCode, transactionCode })
-
-    // Create AFA order
-    console.log("[AFA-SUBMIT] Attempting to create AFA order")
-    const { data: afaOrder, error: afaError } = await supabase
-      .from("afa_orders")
-      .insert({
-        user_id: user.id,
-        order_code: orderCode,
-        transaction_code: transactionCode,
-        full_name: fullName,
-        phone_number: phoneNumber,
-        gh_card_number: ghCardNumber,
-        location: location,
-        region: region,
-        occupation: occupation,
-        amount: afaPrice,
-        status: "pending",
-        created_at: new Date().toISOString(),
-      })
-      .select()
-      .single()
-
-    if (afaError) {
-      console.error("[AFA-SUBMIT] Error creating AFA order, refunding wallet:", afaError)
-      // Refund: wallet was already deducted
-      await supabase
-        .from("wallets")
-        .update({
-          balance: balanceBefore,
-          total_spent: deductResult[0].new_total_spent - amount,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("user_id", user.id)
-      return NextResponse.json(
-        { error: "Failed to create AFA order", details: afaError.message },
-        { status: 500 }
-      )
-    }
-
-    console.log("[AFA-SUBMIT] AFA order created:", afaOrder.id)
-
-    // Send SMS confirmation to registrant's phone number
-    try {
-      await sendSMS({
-        phone: phoneNumber,
-        message: SMSTemplates.afaRegistration(fullName, orderCode, amount.toString()),
-        type: "afa_registration",
-      })
-      console.log("[AFA-SUBMIT] Confirmation SMS sent to:", phoneNumber)
-    } catch (smsError) {
-      console.warn("[AFA-SUBMIT] Failed to send confirmation SMS:", smsError)
-      // Non-blocking — don't fail the response
-    }
-
-    // Create transaction record
-    console.log("[AFA-SUBMIT] Creating transaction record")
-    const { error: transError } = await supabase
-      .from("transactions")
-      .insert({
-        user_id: user.id,
-        type: "debit",
-        amount,
-        description: `AFA Registration - ${fullName}`,
-        reference_id: transactionCode,
-        source: "afa_registration",
-        status: "completed",
-        balance_before: balanceBefore,
-        balance_after: newBalance,
-        created_at: new Date().toISOString(),
-      })
-
-    if (transError) {
-      console.error("[AFA-SUBMIT] Error creating transaction record:", transError)
-      // Don't fail the response, the order was already created
-    } else {
-      console.log("[AFA-SUBMIT] Transaction record created")
-    }
-
-    // Auto-fulfillment: fire-and-forget so user gets response immediately
-    try {
-      const autoFulfill = await isAfaAutoFulfillmentEnabled()
-      if (autoFulfill) {
-        console.log("[AFA-SUBMIT] Auto-fulfillment enabled — triggering Sykes registration")
-        fulfillAfaOrder(afaOrder.id).catch((err) => {
-          console.error("[AFA-SUBMIT] Auto-fulfillment error for order", afaOrder.id, err)
-        })
-      }
-    } catch (autoFulfillCheckError) {
-      console.error("[AFA-SUBMIT] Error checking auto-fulfillment setting:", autoFulfillCheckError)
-      // Non-blocking — order is still created successfully
-    }
-
-    console.log("[AFA-SUBMIT] Success - AFA order completed")
-    return NextResponse.json(
-      {
-        success: true,
-        order: afaOrder,
-        message: "AFA registration submitted successfully",
-      },
-      { status: 200 }
-    )
-  } catch (error) {
     console.error("[AFA-SUBMIT] Unexpected error:", error)
-    const errorMessage = "Failed to submit order. Please try again."
-    return NextResponse.json(
-      { error: "Internal server error", details: errorMessage },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: "Internal server error", details: "Failed to submit order. Please try again." }, { status: 500 })
   }
 }

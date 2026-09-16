@@ -8,7 +8,6 @@ import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { User, Mail, Phone, Briefcase, Key, LogOut, Loader2, CheckCircle2, ShieldAlert, Monitor } from "lucide-react"
 import { PhoneVerifyModal } from "@/components/phone-verify-modal"
-import ApiKeysManager from "@/components/developer/ApiKeysManager"
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
@@ -684,16 +683,6 @@ export default function ProfilePage() {
             </div>
           </CardContent>
         </Card>
-
-        {/* API Keys */}
-        {(isDealer || profile.role === 'admin') && (
-          <Card>
-            <CardContent className="pt-6">
-              <ApiKeysManager />
-            </CardContent>
-          </Card>
-        )}
-
 
         {/* Security */}
         <Card>

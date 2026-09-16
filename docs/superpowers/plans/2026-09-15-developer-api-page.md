@@ -878,6 +878,8 @@ const ALLOWED_NETWORKS = ["MTN", "AirtelTigo", "Telecel"]
  * GET /api/v1/airtime?reference=<ref>
  */
 export async function GET(request: NextRequest) {
+  const start = Date.now()
+
   const user = await authenticateApiKey(request)
   if (!user) {
     return NextResponse.json({ success: false, error: "Invalid or missing API key" }, { status: 401 })
@@ -901,6 +903,14 @@ export async function GET(request: NextRequest) {
     .eq("reference_code", reference)
     .eq("user_id", user.id)
     .single()
+
+  const statusCode = order ? 200 : 404
+  logApiRequest({
+    userId: user.id, apiKeyId: user.api_key_id, method: "GET", endpoint: "/api/v1/airtime",
+    statusCode, request, durationMs: Date.now() - start,
+    requestPayload: { reference },
+    responsePayload: order ? { reference: order.reference_code, status: order.status } : { error: "Order not found" },
+  }).catch(() => {})
 
   if (!order) {
     return NextResponse.json({ success: false, error: "Order not found" }, { status: 404 })
@@ -981,22 +991,33 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, order: result.order, new_balance: result.newBalance }, { status: 201 })
   } catch (error: any) {
+    // Only surface error.message for the known, deliberately-worded business
+    // errors purchaseAirtime() throws. Any other exception (e.g. a raw Supabase
+    // internal error) must NOT leak its message to a third-party API consumer —
+    // fall back to a generic message instead.
+    const knownCodes = ["NETWORK_DISABLED", "INVALID_AMOUNT", "DUPLICATE_REQUEST", "INSUFFICIENT_BALANCE", "PAYMENT_FAILED", "ORDER_CREATE_FAILED"]
     const status =
       error?.code === "NETWORK_DISABLED" ? 503 :
       error?.code === "INVALID_AMOUNT" ? 400 :
       error?.code === "DUPLICATE_REQUEST" ? 409 :
       error?.code === "INSUFFICIENT_BALANCE" ? 402 :
+      knownCodes.includes(error?.code) ? 500 :
       500
+    const publicMessage = knownCodes.includes(error?.code) ? error.message : "Failed to purchase airtime"
+
+    if (!knownCodes.includes(error?.code)) {
+      console.error("[V1-AIRTIME] Unexpected error:", error)
+    }
 
     logApiRequest({
       userId: user.id, apiKeyId: user.api_key_id, method: "POST", endpoint: "/api/v1/airtime",
       statusCode: status, request, durationMs: Date.now() - start,
       requestPayload: { network, recipient: cleanPhone, amount: numericAmount },
-      responsePayload: { error: error.message },
+      responsePayload: { error: publicMessage },
     }).catch(() => {})
 
     return NextResponse.json(
-      { success: false, error: error.message ?? "Failed to purchase airtime", required: error?.required },
+      { success: false, error: publicMessage, required: error?.required, reference: error?.reference },
       { status }
     )
   }
@@ -1359,6 +1380,8 @@ const supabase = createClient(
  * GET /api/v1/afa?reference=<order_code>
  */
 export async function GET(request: NextRequest) {
+  const start = Date.now()
+
   const user = await authenticateApiKey(request)
   if (!user) {
     return NextResponse.json({ success: false, error: "Invalid or missing API key" }, { status: 401 })
@@ -1382,6 +1405,14 @@ export async function GET(request: NextRequest) {
     .eq("order_code", reference)
     .eq("user_id", user.id)
     .single()
+
+  const statusCode = order ? 200 : 404
+  logApiRequest({
+    userId: user.id, apiKeyId: user.api_key_id, method: "GET", endpoint: "/api/v1/afa",
+    statusCode, request, durationMs: Date.now() - start,
+    requestPayload: { reference },
+    responsePayload: order ? { reference: order.order_code, status: order.status } : { error: "Order not found" },
+  }).catch(() => {})
 
   if (!order) {
     return NextResponse.json({ success: false, error: "Order not found" }, { status: 404 })
@@ -1464,19 +1495,28 @@ export async function POST(request: NextRequest) {
       },
     }, { status: 201 })
   } catch (error: any) {
+    // Only surface error.message for the known, deliberately-worded business
+    // errors submitAfaOrder() throws — anything else must not leak internals
+    // to a third-party API consumer.
+    const knownCodes = ["PRICE_UNAVAILABLE", "INSUFFICIENT_BALANCE", "PAYMENT_FAILED", "ORDER_CREATE_FAILED"]
     const status =
       error?.code === "PRICE_UNAVAILABLE" ? 503 :
       error?.code === "INSUFFICIENT_BALANCE" ? 402 :
       500
+    const publicMessage = knownCodes.includes(error?.code) ? error.message : "Failed to submit AFA order"
+
+    if (!knownCodes.includes(error?.code)) {
+      console.error("[V1-AFA] Unexpected error:", error)
+    }
 
     logApiRequest({
       userId: user.id, apiKeyId: user.api_key_id, method: "POST", endpoint: "/api/v1/afa",
       statusCode: status, request, durationMs: Date.now() - start,
       requestPayload: { full_name, phone_number, region },
-      responsePayload: { error: error.message },
+      responsePayload: { error: publicMessage },
     }).catch(() => {})
 
-    return NextResponse.json({ success: false, error: error.message ?? "Failed to submit AFA order", required: error?.required }, { status })
+    return NextResponse.json({ success: false, error: publicMessage, required: error?.required }, { status })
   }
 }
 ```
@@ -1500,6 +1540,190 @@ git commit -m "feat(v1-api): add POST/GET /api/v1/afa"
 
 ---
 
+### Task 8.5: Extract a shared `classifyServiceError()` helper and refactor the two existing v1 routes to use it
+
+Task 5's and Task 8's code reviews both independently flagged the same thing: each v1 POST route repeats a small "known error code → HTTP status, else generic 500 message" pattern (a `knownCodes` array plus a status ternary), and Task 9 (next) is about to write a third copy of it verbatim. Both reviewers recommended extracting the shared logic now — the third shape is already known (not speculative), and the pattern already drifted once (a dead ternary branch born in Task 4, carried into Task 5, independently avoided in Task 8). This task does that extraction and retrofits it into the two already-shipped routes, purely as a restructuring — no change to any status code, message, or logging behavior.
+
+**Files:**
+- Create: `lib/api-v1-errors.ts`
+- Test: `lib/api-v1-errors.test.ts`
+- Modify: `app/api/v1/airtime/route.ts`
+- Modify: `app/api/v1/afa/route.ts`
+
+- [ ] **Step 1: Write the failing test**
+
+```typescript
+// lib/api-v1-errors.test.ts
+import { describe, it, expect } from "vitest"
+import { classifyServiceError } from "./api-v1-errors"
+
+describe("classifyServiceError", () => {
+  it("returns the error's own message and mapped status for a known code", () => {
+    const err = Object.assign(new Error("Insufficient wallet balance"), { code: "INSUFFICIENT_BALANCE" })
+    const result = classifyServiceError(err, { INSUFFICIENT_BALANCE: 402, NETWORK_DISABLED: 503 }, "fallback")
+    expect(result).toEqual({ status: 402, publicMessage: "Insufficient wallet balance", isKnown: true })
+  })
+
+  it("returns the fallback message and 500 for an unrecognized code", () => {
+    const err = Object.assign(new Error("relation \"foo\" does not exist"), { code: "42P01" })
+    const result = classifyServiceError(err, { INSUFFICIENT_BALANCE: 402 }, "Failed to purchase airtime")
+    expect(result).toEqual({ status: 500, publicMessage: "Failed to purchase airtime", isKnown: false })
+  })
+
+  it("returns the fallback message and 500 for an error with no code at all", () => {
+    const err = new Error("boom")
+    const result = classifyServiceError(err, { INSUFFICIENT_BALANCE: 402 }, "fallback")
+    expect(result).toEqual({ status: 500, publicMessage: "fallback", isKnown: false })
+  })
+
+  it("supports a known code that itself maps to 500 (message still surfaced)", () => {
+    const err = Object.assign(new Error("Failed to create order. Wallet refunded."), { code: "ORDER_CREATE_FAILED" })
+    const result = classifyServiceError(err, { ORDER_CREATE_FAILED: 500, INSUFFICIENT_BALANCE: 402 }, "fallback")
+    expect(result).toEqual({ status: 500, publicMessage: "Failed to create order. Wallet refunded.", isKnown: true })
+  })
+})
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npm test -- lib/api-v1-errors.test.ts --run`
+Expected: FAIL — module doesn't exist yet
+
+- [ ] **Step 3: Write the implementation**
+
+```typescript
+// lib/api-v1-errors.ts
+
+export interface ServiceErrorClassification {
+  status: number
+  publicMessage: string
+  isKnown: boolean
+}
+
+/**
+ * Classify a thrown service-layer error for a v1 API response. A "known"
+ * business error (one of the codes in statusByCode, e.g. INSUFFICIENT_BALANCE)
+ * surfaces its own deliberately-worded message at its mapped status. Anything
+ * else — a bug, a raw Supabase/Postgres error, any exception the service layer
+ * didn't anticipate — must NOT leak its message to a third-party API consumer,
+ * so it gets the route's generic fallback message at 500.
+ *
+ * A known code that itself represents a 500-level failure (e.g.
+ * ORDER_CREATE_FAILED) should still be listed in statusByCode mapped to 500 —
+ * that's what makes it "known" (message surfaced) rather than "unknown"
+ * (message suppressed), even though the HTTP status is the same either way.
+ */
+export function classifyServiceError(
+  error: unknown,
+  statusByCode: Record<string, number>,
+  defaultMessage: string
+): ServiceErrorClassification {
+  const code = (error as { code?: unknown })?.code
+  const isKnown = typeof code === "string" && Object.prototype.hasOwnProperty.call(statusByCode, code)
+
+  if (isKnown) {
+    return {
+      status: statusByCode[code as string],
+      publicMessage: (error as Error).message,
+      isKnown: true,
+    }
+  }
+  return { status: 500, publicMessage: defaultMessage, isKnown: false }
+}
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `npm test -- lib/api-v1-errors.test.ts --run`
+Expected: PASS (4 tests)
+
+- [ ] **Step 5: Commit the new helper**
+
+```bash
+git add lib/api-v1-errors.ts lib/api-v1-errors.test.ts
+git commit -m "feat(v1-api): add shared classifyServiceError() helper"
+```
+
+- [ ] **Step 6: Refactor `app/api/v1/airtime/route.ts`'s POST catch block to use it**
+
+Replace the entire `catch (error: any) { ... }` block in the `POST` handler with:
+
+```typescript
+  } catch (error: any) {
+    const { status, publicMessage, isKnown } = classifyServiceError(error, {
+      NETWORK_DISABLED: 503,
+      INVALID_AMOUNT: 400,
+      DUPLICATE_REQUEST: 409,
+      INSUFFICIENT_BALANCE: 402,
+      PAYMENT_FAILED: 500,
+      ORDER_CREATE_FAILED: 500,
+    }, "Failed to purchase airtime")
+
+    if (!isKnown) {
+      console.error("[V1-AIRTIME] Unexpected error:", error)
+    }
+
+    logApiRequest({
+      userId: user.id, apiKeyId: user.api_key_id, method: "POST", endpoint: "/api/v1/airtime",
+      statusCode: status, request, durationMs: Date.now() - start,
+      requestPayload: { network, recipient: cleanPhone, amount: numericAmount },
+      responsePayload: { error: publicMessage },
+    }).catch(() => {})
+
+    return NextResponse.json(
+      { success: false, error: publicMessage, required: error?.required, reference: error?.reference },
+      { status }
+    )
+  }
+}
+```
+
+Add `import { classifyServiceError } from "@/lib/api-v1-errors"` to the top of the file alongside the other imports.
+
+- [ ] **Step 7: Refactor `app/api/v1/afa/route.ts`'s POST catch block to use it**
+
+Replace the entire `catch (error: any) { ... }` block in the `POST` handler with:
+
+```typescript
+  } catch (error: any) {
+    const { status, publicMessage, isKnown } = classifyServiceError(error, {
+      PRICE_UNAVAILABLE: 503,
+      INSUFFICIENT_BALANCE: 402,
+      PAYMENT_FAILED: 500,
+      ORDER_CREATE_FAILED: 500,
+    }, "Failed to submit AFA order")
+
+    if (!isKnown) {
+      console.error("[V1-AFA] Unexpected error:", error)
+    }
+
+    logApiRequest({
+      userId: user.id, apiKeyId: user.api_key_id, method: "POST", endpoint: "/api/v1/afa",
+      statusCode: status, request, durationMs: Date.now() - start,
+      requestPayload: { full_name, phone_number, region },
+      responsePayload: { error: publicMessage },
+    }).catch(() => {})
+
+    return NextResponse.json({ success: false, error: publicMessage, required: error?.required }, { status })
+  }
+}
+```
+
+Add `import { classifyServiceError } from "@/lib/api-v1-errors"` to the top of the file alongside the other imports.
+
+- [ ] **Step 8: Verify no behavior changed**
+
+Run: `npx tsc --noEmit` (clean) and `npm test -- --run` (full suite green, same count as before this task). Manually re-derive, for both routes, that every status code and every message text a caller could observe is IDENTICAL before and after this refactor (this is a pure restructuring — diff the old catch block against the new one's effective behavior code path by code path, don't just trust that it compiles).
+
+- [ ] **Step 9: Commit the two route refactors**
+
+```bash
+git add app/api/v1/airtime/route.ts app/api/v1/afa/route.ts
+git commit -m "refactor(v1-api): use classifyServiceError() in airtime and afa routes"
+```
+
+---
+
 ## Phase 4: Results-checker v1 endpoint
 
 ### Task 9: `POST`/`GET /api/v1/results-checker`
@@ -1519,6 +1743,7 @@ import { authenticateApiKey, logApiRequest } from "@/lib/api-auth"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 import { purchaseResultsCheckerVouchers, isValidExamBoard } from "@/lib/results-checker-service"
+import { classifyServiceError } from "@/lib/api-v1-errors"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -1529,6 +1754,8 @@ const supabase = createClient(
  * GET /api/v1/results-checker?reference=<reference_code>
  */
 export async function GET(request: NextRequest) {
+  const start = Date.now()
+
   const user = await authenticateApiKey(request)
   if (!user) {
     return NextResponse.json({ success: false, error: "Invalid or missing API key" }, { status: 401 })
@@ -1552,6 +1779,14 @@ export async function GET(request: NextRequest) {
     .eq("reference_code", reference)
     .eq("user_id", user.id)
     .single()
+
+  const statusCode = order ? 200 : 404
+  logApiRequest({
+    userId: user.id, apiKeyId: user.api_key_id, method: "GET", endpoint: "/api/v1/results-checker",
+    statusCode, request, durationMs: Date.now() - start,
+    requestPayload: { reference },
+    responsePayload: order ? { reference: order.reference_code, status: order.status } : { error: "Order not found" },
+  }).catch(() => {})
 
   if (!order) {
     return NextResponse.json({ success: false, error: "Order not found" }, { status: 404 })
@@ -1634,19 +1869,23 @@ export async function POST(request: NextRequest) {
       new_balance: result.newBalance,
     }, { status: 201 })
   } catch (error: any) {
-    const status =
-      error?.code === "INSUFFICIENT_BALANCE" ? 402 :
-      error?.code === "INSUFFICIENT_INVENTORY" ? 503 :
-      500
+    const { status, publicMessage, isKnown } = classifyServiceError(error, {
+      INSUFFICIENT_BALANCE: 402,
+      INSUFFICIENT_INVENTORY: 503,
+    }, "Failed to purchase vouchers")
+
+    if (!isKnown) {
+      console.error("[V1-RESULTS-CHECKER] Unexpected error:", error)
+    }
 
     logApiRequest({
       userId: user.id, apiKeyId: user.api_key_id, method: "POST", endpoint: "/api/v1/results-checker",
       statusCode: status, request, durationMs: Date.now() - start,
       requestPayload: { exam_board, quantity: qty },
-      responsePayload: { error: error.message },
+      responsePayload: { error: publicMessage },
     }).catch(() => {})
 
-    return NextResponse.json({ success: false, error: error.message ?? "Failed to purchase vouchers", required: error?.required }, { status })
+    return NextResponse.json({ success: false, error: publicMessage, required: error?.required }, { status })
   }
 }
 ```
