@@ -37,9 +37,11 @@ export async function POST(request: NextRequest) {
 
     const result = await submitAfaOrder({ userId: user.id, fullName, phoneNumber, ghCardNumber, location, region, occupation })
 
+    console.log(`[AFA-SUBMIT] ✓ Order created: ${result.order.order_code} for user ${user.id}`)
     return NextResponse.json({ success: true, order: result.order, message: "AFA registration submitted successfully" }, { status: 200 })
   } catch (error: any) {
     if (error?.code === "PRICE_UNAVAILABLE") {
+      console.error("[AFA-SUBMIT] AFA price unavailable — check afa_registration_prices:", error.message)
       return NextResponse.json({ error: error.message }, { status: 503 })
     }
     if (error?.code === "INSUFFICIENT_BALANCE") {
