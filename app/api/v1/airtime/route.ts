@@ -4,6 +4,7 @@ import { authenticateApiKey, logApiRequest } from "@/lib/api-auth"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 import { purchaseAirtime } from "@/lib/airtime-service"
+import { classifyServiceError } from "@/lib/api-v1-errors"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -129,21 +130,16 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, order: result.order, new_balance: result.newBalance }, { status: 201 })
   } catch (error: any) {
-    // Only surface error.message for the known, deliberately-worded business
-    // errors purchaseAirtime() throws. Any other exception (e.g. a raw Supabase
-    // internal error) must NOT leak its message to a third-party API consumer —
-    // fall back to a generic message instead.
-    const knownCodes = ["NETWORK_DISABLED", "INVALID_AMOUNT", "DUPLICATE_REQUEST", "INSUFFICIENT_BALANCE", "PAYMENT_FAILED", "ORDER_CREATE_FAILED"]
-    const status =
-      error?.code === "NETWORK_DISABLED" ? 503 :
-      error?.code === "INVALID_AMOUNT" ? 400 :
-      error?.code === "DUPLICATE_REQUEST" ? 409 :
-      error?.code === "INSUFFICIENT_BALANCE" ? 402 :
-      knownCodes.includes(error?.code) ? 500 :
-      500
-    const publicMessage = knownCodes.includes(error?.code) ? error.message : "Failed to purchase airtime"
+    const { status, publicMessage, isKnown } = classifyServiceError(error, {
+      NETWORK_DISABLED: 503,
+      INVALID_AMOUNT: 400,
+      DUPLICATE_REQUEST: 409,
+      INSUFFICIENT_BALANCE: 402,
+      PAYMENT_FAILED: 500,
+      ORDER_CREATE_FAILED: 500,
+    }, "Failed to purchase airtime")
 
-    if (!knownCodes.includes(error?.code)) {
+    if (!isKnown) {
       console.error("[V1-AIRTIME] Unexpected error:", error)
     }
 

@@ -5,6 +5,7 @@ import { authenticateApiKey, logApiRequest } from "@/lib/api-auth"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 import { submitAfaOrder } from "@/lib/afa-fulfillment"
+import { classifyServiceError } from "@/lib/api-v1-errors"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -130,17 +131,14 @@ export async function POST(request: NextRequest) {
       },
     }, { status: 201 })
   } catch (error: any) {
-    // Only surface error.message for the known, deliberately-worded business
-    // errors submitAfaOrder() throws — anything else must not leak internals
-    // to a third-party API consumer.
-    const knownCodes = ["PRICE_UNAVAILABLE", "INSUFFICIENT_BALANCE", "PAYMENT_FAILED", "ORDER_CREATE_FAILED"]
-    const status =
-      error?.code === "PRICE_UNAVAILABLE" ? 503 :
-      error?.code === "INSUFFICIENT_BALANCE" ? 402 :
-      500
-    const publicMessage = knownCodes.includes(error?.code) ? error.message : "Failed to submit AFA order"
+    const { status, publicMessage, isKnown } = classifyServiceError(error, {
+      PRICE_UNAVAILABLE: 503,
+      INSUFFICIENT_BALANCE: 402,
+      PAYMENT_FAILED: 500,
+      ORDER_CREATE_FAILED: 500,
+    }, "Failed to submit AFA order")
 
-    if (!knownCodes.includes(error?.code)) {
+    if (!isKnown) {
       console.error("[V1-AFA] Unexpected error:", error)
     }
 
