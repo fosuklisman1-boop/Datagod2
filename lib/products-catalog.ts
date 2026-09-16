@@ -8,7 +8,10 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const AIRTIME_NETWORKS = ["MTN", "Telecel", "AT"] as const
+// Must match the network vocabulary POST /api/v1/airtime (and purchaseAirtime())
+// actually accept — "AirtelTigo", not "AT" — so an integrator who reads this
+// catalog and passes the network straight through doesn't get rejected.
+const AIRTIME_NETWORKS = ["MTN", "Telecel", "AirtelTigo"] as const
 const EXAM_BOARDS: ExamBoard[] = ["WASSCE", "BECE", "NOVDEC"]
 
 export interface ProductsCatalogResponse {
