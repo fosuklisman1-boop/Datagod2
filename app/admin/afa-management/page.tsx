@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import Link from "next/link"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -69,6 +70,10 @@ export default function AFAManagementPage() {
   const [loadingToggle, setLoadingToggle] = useState(true)
   const [togglingAutoFulfill, setTogglingAutoFulfill] = useState(false)
 
+  // Which provider (Sykes or Apex Prime) actually handles new registrations —
+  // read-only here; changed on /admin/afa-settings.
+  const [activeProvider, setActiveProvider] = useState<"sykes" | "apexprime">("sykes")
+
   // Per-row and bulk fulfillment state
   const [fulfillingId, setFulfillingId] = useState<string | null>(null)
   const [bulkFulfilling, setBulkFulfilling] = useState(false)
@@ -78,6 +83,7 @@ export default function AFAManagementPage() {
       loadSettings()
       loadSubmissions()
       loadAutoFulfillSetting()
+      loadActiveProvider()
     }
   }, [isAdmin, adminLoading])
 
@@ -102,6 +108,20 @@ export default function AFAManagementPage() {
     } catch (error) {
       console.error("Error loading settings:", error)
       toast.error(error instanceof Error ? error.message : "Failed to load AFA settings")
+    }
+  }
+
+  const loadActiveProvider = async () => {
+    try {
+      const headers = await getAuthHeader()
+      const response = await fetch("/api/admin/settings/afa-provider", { headers })
+      if (!response.ok) throw new Error("Failed to fetch provider setting")
+      const data = await response.json()
+      setActiveProvider(data.provider === "apexprime" ? "apexprime" : "sykes")
+    } catch (error) {
+      console.error("Error loading AFA provider setting:", error)
+      // Fail open to the default this page has always assumed — never block
+      // the rest of the page over a settings-read error.
     }
   }
 
@@ -334,6 +354,8 @@ Occupation: ${submission.occupation || "N/A"}`
     }
   }
 
+  const providerLabel = activeProvider === "apexprime" ? "Apex Prime" : "Sykes"
+
   const unfulfilled = submissions.filter(
     (s) => (!s.fulfillment_status || s.fulfillment_status === "unfulfilled" || s.fulfillment_status === "failed") && s.status !== "cancelled"
   ).length
@@ -366,11 +388,19 @@ Occupation: ${submission.occupation || "N/A"}`
     <DashboardLayout>
       <div className="space-y-6">
         {/* Page Header */}
-        <div>
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary via-primary to-primary bg-clip-text text-transparent">
-            AFA Management
-          </h1>
-          <p className="text-muted-foreground mt-1 font-medium">Configure pricing, manage and fulfill AFA registrations</p>
+        <div className="flex items-start justify-between flex-wrap gap-3">
+          <div>
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary via-primary to-primary bg-clip-text text-transparent">
+              AFA Management
+            </h1>
+            <p className="text-muted-foreground mt-1 font-medium">Configure pricing, manage and fulfill AFA registrations</p>
+          </div>
+          <Link href="/admin/afa-settings">
+            <Button variant="outline" size="sm">
+              <Settings className="h-4 w-4 mr-2" />
+              Provider Settings ({providerLabel})
+            </Button>
+          </Link>
         </div>
 
         {/* Auto-Fulfillment Toggle Card */}
@@ -383,7 +413,7 @@ Occupation: ${submission.occupation || "N/A"}`
               <div>
                 <CardTitle>Auto-Fulfillment</CardTitle>
                 <CardDescription>
-                  When enabled, new AFA orders are automatically submitted to the Sykes API on placement
+                  When enabled, new AFA orders are automatically submitted to {providerLabel} on placement
                 </CardDescription>
               </div>
             </div>
@@ -403,7 +433,7 @@ Occupation: ${submission.occupation || "N/A"}`
                     </p>
                     <p className="text-sm text-muted-foreground">
                       {autoFulfillEnabled
-                        ? "Orders are sent to Sykes API automatically on submission"
+                        ? `Orders are sent to ${providerLabel} automatically on submission`
                         : "Orders wait in the queue for manual fulfillment below"}
                     </p>
                   </div>
@@ -421,7 +451,7 @@ Occupation: ${submission.occupation || "N/A"}`
                   <div className="p-3 bg-primary/10 rounded-lg border border-border">
                     <p className="font-medium text-primary mb-1">🟢 When Enabled</p>
                     <ul className="text-xs space-y-1 text-primary">
-                      <li>✓ Sykes API called on every new order</li>
+                      <li>✓ {providerLabel} called on every new order</li>
                       <li>✓ Faster customer registration</li>
                       <li>✓ fulfillment_status tracked automatically</li>
                     </ul>
@@ -430,7 +460,7 @@ Occupation: ${submission.occupation || "N/A"}`
                     <p className="font-medium text-warning mb-1">⚪ When Disabled</p>
                     <ul className="text-xs space-y-1 text-warning">
                       <li>✓ Orders queue here for manual trigger</li>
-                      <li>✓ Admin reviews before sending to Sykes</li>
+                      <li>✓ Admin reviews before sending to {providerLabel}</li>
                       <li>✓ Use "Fulfill Now" or "Fulfill All" below</li>
                     </ul>
                   </div>
@@ -445,7 +475,7 @@ Occupation: ${submission.occupation || "N/A"}`
           <CardHeader>
             <CardTitle className="text-base">Bulk Fulfillment</CardTitle>
             <CardDescription>
-              Manually trigger Sykes registration for all unfulfilled / failed orders at once
+              Manually trigger {providerLabel} registration for all unfulfilled / failed orders at once
             </CardDescription>
           </CardHeader>
           <CardContent>
