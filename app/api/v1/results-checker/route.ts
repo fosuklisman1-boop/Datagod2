@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js"
 import { authenticateApiKey, logApiRequest } from "@/lib/api-auth"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { checkPhoneVerified } from "@/lib/phone-verify-guard"
-import { purchaseResultsCheckerVouchers, isValidExamBoard } from "@/lib/results-checker-service"
+import { purchaseResultsCheckerVouchers, isValidExamBoard, isExamBoardEnabled, getMaxQuantity } from "@/lib/results-checker-service"
 import { classifyServiceError } from "@/lib/api-v1-errors"
 
 const supabase = createClient(
@@ -103,9 +103,35 @@ export async function POST(request: NextRequest) {
   if (!exam_board || !isValidExamBoard(exam_board)) {
     return NextResponse.json({ success: false, error: "exam_board must be one of WASSCE, BECE, NOVDEC" }, { status: 400 })
   }
+  const maxQty = await getMaxQuantity()
   const qty = Number(quantity)
-  if (!Number.isInteger(qty) || qty <= 0 || qty > 50) {
-    return NextResponse.json({ success: false, error: "quantity must be a positive integer up to 50" }, { status: 400 })
+  if (!Number.isInteger(qty) || qty <= 0 || qty > maxQty) {
+    return NextResponse.json({ success: false, error: `quantity must be a positive integer up to ${maxQty}` }, { status: 400 })
+  }
+
+  const boardEnabled = await isExamBoardEnabled(exam_board)
+  if (!boardEnabled) {
+    return NextResponse.json({ success: false, error: `${exam_board} vouchers are currently unavailable` }, { status: 503 })
+  }
+
+  // 30-second idempotency guard — mirrors app/api/results-checker/purchase/route.ts,
+  // so a client retry (e.g. after a timeout) can't double-charge and double-issue PINs.
+  const thirtySecondsAgo = new Date(Date.now() - 30_000).toISOString()
+  const { data: recentOrder } = await supabase
+    .from("results_checker_orders")
+    .select("id, reference_code")
+    .eq("user_id", user.id)
+    .eq("exam_board", exam_board)
+    .eq("quantity", qty)
+    .eq("status", "pending")
+    .gte("created_at", thirtySecondsAgo)
+    .maybeSingle()
+
+  if (recentOrder) {
+    return NextResponse.json(
+      { success: false, error: "Duplicate request detected. Please wait before trying again.", reference: recentOrder.reference_code },
+      { status: 409 }
+    )
   }
 
   try {
