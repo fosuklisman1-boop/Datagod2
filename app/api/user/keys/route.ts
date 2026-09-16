@@ -65,20 +65,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Too many key generations from this network. Please slow down." }, { status: 429 })
   }
 
-  // Check user role (only dealers and admins can generate keys)
-  const { data: profile } = await supabase
-    .from("users")
-    .select("role")
-    .eq("id", sessionUser.id)
-    .single()
-
-  if (!profile || !["dealer", "admin"].includes(profile.role)) {
-    return NextResponse.json(
-      { error: "Only dealers and admins can generate API keys" },
-      { status: 403 }
-    )
-  }
-
   // Limit to 5 active keys per user
   const { count } = await supabase
     .from("user_api_keys")
