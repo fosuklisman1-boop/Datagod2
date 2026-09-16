@@ -56,7 +56,7 @@ export function DeveloperKeysCard() {
   const activeCount = keys.filter((k) => k.is_active).length
 
   const generateKey = async () => {
-    if (!newKeyName.trim()) return
+    if (generating || !newKeyName.trim()) return
     setGenerating(true)
     try {
       const res = await fetch("/api/user/keys", {
@@ -94,11 +94,15 @@ export function DeveloperKeysCard() {
     }
   }
 
-  const copyKey = () => {
+  const copyKey = async () => {
     if (!generatedKey) return
-    navigator.clipboard.writeText(generatedKey)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
+    try {
+      await navigator.clipboard.writeText(generatedKey)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      toast.error("Failed to copy — please select and copy the key manually")
+    }
   }
 
   return (
@@ -109,7 +113,7 @@ export function DeveloperKeysCard() {
             <CardTitle className="flex items-center gap-2"><KeyRound className="w-4 h-4" /> Your API Keys</CardTitle>
             <CardDescription>Generate keys to authenticate requests to the Datagod API ({activeCount}/{MAX_ACTIVE_KEYS} active).</CardDescription>
           </div>
-          <Button variant="outline" size="sm" onClick={fetchKeys}>
+          <Button variant="outline" size="sm" onClick={fetchKeys} disabled={loading}>
             <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} />
             Refresh
           </Button>
@@ -117,7 +121,7 @@ export function DeveloperKeysCard() {
       </CardHeader>
       <CardContent className="space-y-4">
         {generatedKey && (
-          <div className="rounded-lg border border-success/30 bg-success/5 p-4 space-y-2">
+          <div role="status" className="rounded-lg border border-success/30 bg-success/5 p-4 space-y-2">
             <p className="text-sm font-semibold text-success">Copy your new key now — it won't be shown again.</p>
             <div className="flex items-center gap-2">
               <code className="flex-1 text-xs bg-background rounded px-3 py-2 border font-mono break-all">{generatedKey}</code>
@@ -136,7 +140,7 @@ export function DeveloperKeysCard() {
             value={newKeyName}
             onChange={(e) => setNewKeyName(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && generateKey()}
-            disabled={activeCount >= MAX_ACTIVE_KEYS}
+            disabled={generating || activeCount >= MAX_ACTIVE_KEYS}
           />
           <Button onClick={generateKey} disabled={generating || !newKeyName.trim() || activeCount >= MAX_ACTIVE_KEYS}>
             <Plus className="w-4 h-4 mr-1.5" />
