@@ -224,7 +224,7 @@ export async function submitAfaOrder(params: SubmitAfaOrderParams): Promise<Subm
     console.warn("[AFA-FULFILL] Failed to send confirmation SMS:", smsError)
   }
 
-  await supabase.from("transactions").insert({
+  const { error: transError } = await supabase.from("transactions").insert({
     user_id: userId,
     type: "debit",
     amount: afaPrice,
@@ -236,6 +236,9 @@ export async function submitAfaOrder(params: SubmitAfaOrderParams): Promise<Subm
     balance_after: newBalance,
     created_at: new Date().toISOString(),
   })
+  if (transError) {
+    console.error("[AFA-FULFILL] Error creating transaction record:", transError)
+  }
 
   try {
     const autoFulfill = await isAfaAutoFulfillmentEnabled()

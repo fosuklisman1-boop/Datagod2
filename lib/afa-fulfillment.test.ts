@@ -3,10 +3,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 const h = vi.hoisted(() => {
   const state = {
     priceRow: { price: "50.00" } as { price: string } | null,
+    deductError: null as null | string,
     deductResult: [{ new_balance: 40, old_balance: 90, new_total_spent: 50 }] as any,
     insertedOrder: { id: "afa-1", order_code: "AFA-1234567" } as any,
     insertError: null as any,
     autoFulfillEnabled: false,
+    calls: [] as Array<{ table: string; patch: any }>,
   }
   const fake = {
     from: (table: string) => {
@@ -18,7 +20,18 @@ const h = vi.hoisted(() => {
           insert: () => ({ select: () => ({ single: () => Promise.resolve(state.insertError ? { data: null, error: state.insertError } : { data: state.insertedOrder, error: null }) }) }),
         }
       }
-      if (table === "transactions" || table === "wallets") {
+      if (table === "wallets") {
+        return {
+          insert: () => Promise.resolve({ data: null, error: null }),
+          update: (patch: any) => ({
+            eq: () => {
+              state.calls.push({ table: "wallets", patch })
+              return Promise.resolve({ data: null, error: null })
+            },
+          }),
+        }
+      }
+      if (table === "transactions") {
         return { insert: () => Promise.resolve({ data: null, error: null }), update: () => ({ eq: () => Promise.resolve({ data: null, error: null }) }) }
       }
       if (table === "admin_settings") {
@@ -27,9 +40,11 @@ const h = vi.hoisted(() => {
       throw new Error(`Unexpected table: ${table}`)
     },
     rpc: () => Promise.resolve(
-      state.deductResult.length === 0
-        ? { data: [], error: null }
-        : { data: state.deductResult, error: null }
+      state.deductError
+        ? { data: null, error: { message: state.deductError } }
+        : state.deductResult.length === 0
+          ? { data: [], error: null }
+          : { data: state.deductResult, error: null }
     ),
   }
   return { state, fake }
@@ -42,10 +57,12 @@ import { submitAfaOrder } from "./afa-fulfillment"
 
 beforeEach(() => {
   h.state.priceRow = { price: "50.00" }
+  h.state.deductError = null
   h.state.deductResult = [{ new_balance: 40, old_balance: 90, new_total_spent: 50 }]
   h.state.insertedOrder = { id: "afa-1", order_code: "AFA-1234567" }
   h.state.insertError = null
   h.state.autoFulfillEnabled = false
+  h.state.calls = []
 })
 
 describe("submitAfaOrder", () => {
@@ -67,5 +84,19 @@ describe("submitAfaOrder", () => {
   it("throws INSUFFICIENT_BALANCE when deduct_wallet returns no rows", async () => {
     h.state.deductResult = []
     await expect(submitAfaOrder(baseParams)).rejects.toMatchObject({ code: "INSUFFICIENT_BALANCE" })
+  })
+
+  it("throws PAYMENT_FAILED when the deduct_wallet RPC errors", async () => {
+    h.state.deductError = "connection reset"
+    await expect(submitAfaOrder(baseParams)).rejects.toMatchObject({ code: "PAYMENT_FAILED" })
+  })
+
+  it("throws ORDER_CREATE_FAILED and refunds the wallet to its pre-deduction balance when the order insert fails", async () => {
+    h.state.insertError = { message: "insert failed" }
+    await expect(submitAfaOrder(baseParams)).rejects.toMatchObject({ code: "ORDER_CREATE_FAILED" })
+
+    const refundCall = h.state.calls.find((c) => c.table === "wallets")
+    expect(refundCall).toBeDefined()
+    expect(refundCall!.patch.balance).toBe(90) // deductResult[0].old_balance
   })
 })
