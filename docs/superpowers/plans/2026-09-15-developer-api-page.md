@@ -981,22 +981,33 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, order: result.order, new_balance: result.newBalance }, { status: 201 })
   } catch (error: any) {
+    // Only surface error.message for the known, deliberately-worded business
+    // errors purchaseAirtime() throws. Any other exception (e.g. a raw Supabase
+    // internal error) must NOT leak its message to a third-party API consumer —
+    // fall back to a generic message instead.
+    const knownCodes = ["NETWORK_DISABLED", "INVALID_AMOUNT", "DUPLICATE_REQUEST", "INSUFFICIENT_BALANCE", "PAYMENT_FAILED", "ORDER_CREATE_FAILED"]
     const status =
       error?.code === "NETWORK_DISABLED" ? 503 :
       error?.code === "INVALID_AMOUNT" ? 400 :
       error?.code === "DUPLICATE_REQUEST" ? 409 :
       error?.code === "INSUFFICIENT_BALANCE" ? 402 :
+      knownCodes.includes(error?.code) ? 500 :
       500
+    const publicMessage = knownCodes.includes(error?.code) ? error.message : "Failed to purchase airtime"
+
+    if (!knownCodes.includes(error?.code)) {
+      console.error("[V1-AIRTIME] Unexpected error:", error)
+    }
 
     logApiRequest({
       userId: user.id, apiKeyId: user.api_key_id, method: "POST", endpoint: "/api/v1/airtime",
       statusCode: status, request, durationMs: Date.now() - start,
       requestPayload: { network, recipient: cleanPhone, amount: numericAmount },
-      responsePayload: { error: error.message },
+      responsePayload: { error: publicMessage },
     }).catch(() => {})
 
     return NextResponse.json(
-      { success: false, error: error.message ?? "Failed to purchase airtime", required: error?.required },
+      { success: false, error: publicMessage, required: error?.required },
       { status }
     )
   }
@@ -1464,19 +1475,28 @@ export async function POST(request: NextRequest) {
       },
     }, { status: 201 })
   } catch (error: any) {
+    // Only surface error.message for the known, deliberately-worded business
+    // errors submitAfaOrder() throws — anything else must not leak internals
+    // to a third-party API consumer.
+    const knownCodes = ["PRICE_UNAVAILABLE", "INSUFFICIENT_BALANCE", "PAYMENT_FAILED", "ORDER_CREATE_FAILED"]
     const status =
       error?.code === "PRICE_UNAVAILABLE" ? 503 :
       error?.code === "INSUFFICIENT_BALANCE" ? 402 :
       500
+    const publicMessage = knownCodes.includes(error?.code) ? error.message : "Failed to submit AFA order"
+
+    if (!knownCodes.includes(error?.code)) {
+      console.error("[V1-AFA] Unexpected error:", error)
+    }
 
     logApiRequest({
       userId: user.id, apiKeyId: user.api_key_id, method: "POST", endpoint: "/api/v1/afa",
       statusCode: status, request, durationMs: Date.now() - start,
       requestPayload: { full_name, phone_number, region },
-      responsePayload: { error: error.message },
+      responsePayload: { error: publicMessage },
     }).catch(() => {})
 
-    return NextResponse.json({ success: false, error: error.message ?? "Failed to submit AFA order", required: error?.required }, { status })
+    return NextResponse.json({ success: false, error: publicMessage, required: error?.required }, { status })
   }
 }
 ```
@@ -1634,19 +1654,30 @@ export async function POST(request: NextRequest) {
       new_balance: result.newBalance,
     }, { status: 201 })
   } catch (error: any) {
+    // Only surface error.message for the known, deliberately-worded business
+    // errors purchaseResultsCheckerVouchers() throws — anything else (e.g. its
+    // unlabeled "Failed to process payment"/"Failed to create order..." throws,
+    // or a raw Supabase internal error) must not leak internals to a
+    // third-party API consumer.
+    const knownCodes = ["INSUFFICIENT_BALANCE", "INSUFFICIENT_INVENTORY"]
     const status =
       error?.code === "INSUFFICIENT_BALANCE" ? 402 :
       error?.code === "INSUFFICIENT_INVENTORY" ? 503 :
       500
+    const publicMessage = knownCodes.includes(error?.code) ? error.message : "Failed to purchase vouchers"
+
+    if (!knownCodes.includes(error?.code)) {
+      console.error("[V1-RESULTS-CHECKER] Unexpected error:", error)
+    }
 
     logApiRequest({
       userId: user.id, apiKeyId: user.api_key_id, method: "POST", endpoint: "/api/v1/results-checker",
       statusCode: status, request, durationMs: Date.now() - start,
       requestPayload: { exam_board, quantity: qty },
-      responsePayload: { error: error.message },
+      responsePayload: { error: publicMessage },
     }).catch(() => {})
 
-    return NextResponse.json({ success: false, error: error.message ?? "Failed to purchase vouchers", required: error?.required }, { status })
+    return NextResponse.json({ success: false, error: publicMessage, required: error?.required }, { status })
   }
 }
 ```
