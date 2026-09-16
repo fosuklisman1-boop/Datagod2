@@ -99,7 +99,7 @@ export const apiDocsRegistry: ApiDocSection[] = [
         successExample: `{\n  "success": true,\n  "order": { "reference_code": "AT-XXX-YYY", "status": "pending" },\n  "new_balance": 32.5\n}`,
         errorExamples: [
           { status: 402, body: `{ "success": false, "error": "Insufficient wallet balance", "required": 5.25 }` },
-          { status: 403, body: `{ "success": false, "error": "Please verify your phone number to continue." }` },
+          { status: 403, body: `{ "success": false, "error": "Please verify your phone number to continue. Visit your dashboard to complete verification." }` },
         ],
       },
       {
