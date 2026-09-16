@@ -878,6 +878,8 @@ const ALLOWED_NETWORKS = ["MTN", "AirtelTigo", "Telecel"]
  * GET /api/v1/airtime?reference=<ref>
  */
 export async function GET(request: NextRequest) {
+  const start = Date.now()
+
   const user = await authenticateApiKey(request)
   if (!user) {
     return NextResponse.json({ success: false, error: "Invalid or missing API key" }, { status: 401 })
@@ -901,6 +903,14 @@ export async function GET(request: NextRequest) {
     .eq("reference_code", reference)
     .eq("user_id", user.id)
     .single()
+
+  const statusCode = order ? 200 : 404
+  logApiRequest({
+    userId: user.id, apiKeyId: user.api_key_id, method: "GET", endpoint: "/api/v1/airtime",
+    statusCode, request, durationMs: Date.now() - start,
+    requestPayload: { reference },
+    responsePayload: order ? { reference: order.reference_code, status: order.status } : { error: "Order not found" },
+  }).catch(() => {})
 
   if (!order) {
     return NextResponse.json({ success: false, error: "Order not found" }, { status: 404 })
@@ -1007,7 +1017,7 @@ export async function POST(request: NextRequest) {
     }).catch(() => {})
 
     return NextResponse.json(
-      { success: false, error: publicMessage, required: error?.required },
+      { success: false, error: publicMessage, required: error?.required, reference: error?.reference },
       { status }
     )
   }
