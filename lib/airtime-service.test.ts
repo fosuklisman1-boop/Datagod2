@@ -26,6 +26,10 @@ const h = vi.hoisted(() => {
             eq: (_col: string, key: string) => ({
               single: () => Promise.resolve({ data: { value: state.settings[key] ?? null }, error: null }),
             }),
+            in: (_col: string, keys: string[]) => Promise.resolve({
+              data: keys.map((k) => ({ key: k, value: state.settings[k] ?? null })),
+              error: null,
+            }),
           }),
         }
       }
@@ -181,5 +185,19 @@ describe("purchaseAirtime", () => {
     const refundCall = h.state.calls.find((c) => c.table === "wallets")
     expect(refundCall).toBeDefined()
     expect(refundCall!.patch.balance).toBe(100) // deductResult[0].old_balance
+  })
+
+  it("throws NETWORK_MISMATCH when the phone doesn't match the claimed network", async () => {
+    await expect(
+      purchaseAirtime({ userId: "user-1", network: "MTN", beneficiaryPhone: "0201234567", airtimeAmount: 10 })
+    ).rejects.toMatchObject({ code: "NETWORK_MISMATCH" })
+  })
+
+  it("skips the prefix check when the admin has disabled it", async () => {
+    h.state.settings.network_prefix_validation_enabled = { enabled: false }
+    const result = await purchaseAirtime({
+      userId: "user-1", network: "MTN", beneficiaryPhone: "0201234567", airtimeAmount: 10,
+    })
+    expect(result.order.id).toBe("order-1")
   })
 })

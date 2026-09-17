@@ -98,6 +98,7 @@ export const apiDocsRegistry: ApiDocSection[] = [
         curl: `curl -X POST ${BASE_URL}/api/v1/airtime \\\n  -H "X-API-Key: dg_live_your_key_here" \\\n  -H "Content-Type: application/json" \\\n  -d '{ "network": "MTN", "recipient": "0541234567", "amount": 5 }'`,
         successExample: `{\n  "success": true,\n  "order": { "reference_code": "AT-XXX-YYY", "status": "pending" },\n  "new_balance": 32.5\n}`,
         errorExamples: [
+          { status: 400, body: `{ "success": false, "error": "0201234567 looks like a Telecel number - check the number or switch to Telecel." }` },
           { status: 402, body: `{ "success": false, "error": "Insufficient wallet balance", "required": 5.25 }` },
           { status: 403, body: `{ "success": false, "error": "Please verify your phone number to continue. Visit your dashboard to complete verification." }` },
         ],

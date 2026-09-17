@@ -2,6 +2,8 @@ import { createClient } from "@supabase/supabase-js"
 import { isDigiWapyEnabledForNetwork, sendAirtimeViaDigiwapy } from "@/lib/digiwapy-provider"
 import { notifyAdmins, SMSTemplates } from "@/lib/sms-service"
 import { secureReference } from "@/lib/secure-random"
+import { validateNetworkPrefix } from "@/lib/phone-format"
+import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -186,6 +188,16 @@ export async function purchaseAirtime(params: PurchaseAirtimeParams): Promise<Pu
     const err: any = new Error(`Airtime for ${network} is currently unavailable`)
     err.code = "NETWORK_DISABLED"
     throw err
+  }
+
+  const { enabled: prefixCheckEnabled, map: prefixMap } = await getPrefixValidationConfig()
+  if (prefixCheckEnabled) {
+    const prefixCheck = validateNetworkPrefix(network, cleanPhone, prefixMap)
+    if (!prefixCheck.ok) {
+      const err: any = new Error(prefixCheck.message)
+      err.code = "NETWORK_MISMATCH"
+      throw err
+    }
   }
 
   let merchantRoleFeeRate = 5
