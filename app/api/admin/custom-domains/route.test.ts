@@ -139,10 +139,10 @@ describe("POST /api/admin/custom-domains", () => {
     expect(res.status).toBe(400)
   })
 
-  it("accepts a valid linked_shop_id and defaults show_guest_purchase/show_landing_page", async () => {
+  it("accepts a valid linked_shop_id, defaults show_guest_purchase/show_landing_page, and caches the shop's subdomain", async () => {
     fromMock.mockImplementation((table: string) =>
       table === "user_shops"
-        ? makeBuilder({ data: { id: "11111111-1111-1111-1111-111111111111" }, error: null })
+        ? makeBuilder({ data: { id: "11111111-1111-1111-1111-111111111111", subdomain: "myshop" }, error: null })
         : makeBuilder({
             data: { id: "1", domain: "checkresults.com", services: ["data_bundles"], site_name: "X", logo_url: null, primary_color: null, is_active: true, linked_shop_id: "11111111-1111-1111-1111-111111111111", show_guest_purchase: false, show_landing_page: true },
             error: null,
@@ -151,7 +151,7 @@ describe("POST /api/admin/custom-domains", () => {
     const res = await POST(postRequest({ domain: "checkresults.com", services: ["data_bundles"], site_name: "X", linked_shop_id: "11111111-1111-1111-1111-111111111111" }))
     const body = await res.json()
     expect(res.status).toBe(201)
-    expect(setCacheMock).toHaveBeenCalledWith(expect.objectContaining({ show_guest_purchase: false, show_landing_page: true }))
+    expect(setCacheMock).toHaveBeenCalledWith(expect.objectContaining({ show_guest_purchase: false, show_landing_page: true, linked_shop_subdomain: "myshop" }))
   })
 })
 
@@ -182,6 +182,25 @@ describe("PATCH /api/admin/custom-domains", () => {
   it("rejects a non-boolean show_landing_page on update", async () => {
     const res = await PATCH(postRequest({ id: "1", show_landing_page: "yes" }, "PATCH"))
     expect(res.status).toBe(400)
+  })
+
+  it("re-resolves and caches the correct linked_shop_subdomain on a PATCH that doesn't touch linked_shop_id", async () => {
+    // This domain is ALREADY shop-linked (linked_shop_id present in the
+    // post-update row) even though this PATCH's body only renames site_name —
+    // the cache write must still carry the real subdomain, not null, or live
+    // shop-mode traffic on this domain gets silently misrouted for up to 5
+    // minutes (the bug this fix round addresses).
+    fromMock.mockImplementation((table: string) =>
+      table === "user_shops"
+        ? makeBuilder({ data: { subdomain: "myshop" }, error: null })
+        : makeBuilder({
+            data: { id: "1", domain: "checkresults.com", services: ["data_bundles"], site_name: "Renamed", logo_url: null, primary_color: null, is_active: true, linked_shop_id: "11111111-1111-1111-1111-111111111111", show_guest_purchase: false, show_landing_page: true },
+            error: null,
+          })
+    )
+    const res = await PATCH(postRequest({ id: "1", site_name: "Renamed" }, "PATCH"))
+    expect(res.status).toBe(200)
+    expect(setCacheMock).toHaveBeenCalledWith(expect.objectContaining({ linked_shop_subdomain: "myshop" }))
   })
 })
 

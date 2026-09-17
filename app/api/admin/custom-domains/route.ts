@@ -25,14 +25,17 @@ function parseServices(raw: unknown): { services: DomainService[] } | { error: s
 }
 
 /** Validates an optional linked_shop_id: undefined/null is fine (no shop
- * linked); a non-null value must reference an existing row in user_shops. */
-async function validateLinkedShopId(raw: unknown): Promise<{ linkedShopId: string | null } | { error: string }> {
-  if (raw === undefined || raw === null || raw === "") return { linkedShopId: null }
+ * linked); a non-null value must reference an existing row in user_shops.
+ * Also returns the shop's subdomain — callers need it to keep the
+ * write-through cache's `linked_shop_subdomain` field correct, since a
+ * cache hit never re-queries Supabase to pick it up later. */
+async function validateLinkedShopId(raw: unknown): Promise<{ linkedShopId: string | null; linkedShopSubdomain: string | null } | { error: string }> {
+  if (raw === undefined || raw === null || raw === "") return { linkedShopId: null, linkedShopSubdomain: null }
   if (typeof raw !== "string") return { error: "'linked_shop_id' must be a string or null" }
-  const { data, error } = await supabase.from("user_shops").select("id").eq("id", raw).maybeSingle()
+  const { data, error } = await supabase.from("user_shops").select("id, subdomain").eq("id", raw).maybeSingle()
   if (error) return { error: "Failed to validate linked_shop_id" }
   if (!data) return { error: `No shop found with id "${raw}"` }
-  return { linkedShopId: raw }
+  return { linkedShopId: raw, linkedShopSubdomain: data.subdomain }
 }
 
 export async function GET(request: NextRequest) {
@@ -77,7 +80,7 @@ export async function POST(request: NextRequest) {
     if ("error" in linkedShopResult) {
       return NextResponse.json({ error: linkedShopResult.error }, { status: 400 })
     }
-    const { linkedShopId } = linkedShopResult
+    const { linkedShopId, linkedShopSubdomain } = linkedShopResult
     const showGuestPurchase = typeof body.show_guest_purchase === "boolean" ? body.show_guest_purchase : false
     const showLandingPage = typeof body.show_landing_page === "boolean" ? body.show_landing_page : true
     if (isReservedDomainHost(domain, ROOT_DOMAIN)) {
@@ -102,7 +105,7 @@ export async function POST(request: NextRequest) {
 
     await setCustomDomainCache({
       domain, services, site_name: siteName, logo_url: logoUrl, primary_color: primaryColor, is_active: true,
-      linked_shop_subdomain: null, // freshly created row has no shop join result cached yet; the next read re-resolves it correctly
+      linked_shop_subdomain: linkedShopSubdomain,
       show_guest_purchase: showGuestPurchase, show_landing_page: showLandingPage,
     })
 
@@ -167,10 +170,15 @@ export async function PATCH(request: NextRequest) {
     if (!data) return NextResponse.json({ error: "Domain not found" }, { status: 404 })
 
     if (data.is_active) {
+      let linkedShopSubdomain: string | null = null
+      if (data.linked_shop_id) {
+        const { data: shopRow } = await supabase.from("user_shops").select("subdomain").eq("id", data.linked_shop_id).maybeSingle()
+        linkedShopSubdomain = shopRow?.subdomain ?? null
+      }
       await setCustomDomainCache({
         domain: data.domain, services: data.services, site_name: data.site_name,
         logo_url: data.logo_url, primary_color: data.primary_color, is_active: data.is_active,
-        linked_shop_subdomain: null, // see the POST handler's identical comment — re-resolved fresh on next read
+        linked_shop_subdomain: linkedShopSubdomain,
         show_guest_purchase: data.show_guest_purchase, show_landing_page: data.show_landing_page,
       })
     } else {
