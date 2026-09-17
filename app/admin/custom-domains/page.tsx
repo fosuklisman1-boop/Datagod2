@@ -25,8 +25,17 @@ interface CustomDomainRow {
   logo_url: string | null
   primary_color: string | null
   is_active: boolean
+  linked_shop_id: string | null
+  show_guest_purchase: boolean
+  show_landing_page: boolean
   created_at: string
   updated_at: string
+}
+
+interface ShopOption {
+  id: string
+  shop_name: string
+  subdomain: string
 }
 
 const SERVICE_LABELS: Record<DomainService, string> = {
@@ -38,7 +47,10 @@ const SERVICE_LABELS: Record<DomainService, string> = {
 
 const ALL_SERVICES = Object.keys(SERVICE_LABELS) as DomainService[]
 
-const EMPTY_FORM = { domain: "", services: [] as DomainService[], site_name: "", logo_url: "", primary_color: "" }
+const EMPTY_FORM = {
+  domain: "", services: [] as DomainService[], site_name: "", logo_url: "", primary_color: "",
+  linked_shop_id: null as string | null, show_guest_purchase: false, show_landing_page: true,
+}
 
 export default function CustomDomainsPage() {
   const [domains, setDomains] = useState<CustomDomainRow[]>([])
@@ -48,6 +60,12 @@ export default function CustomDomainsPage() {
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [uploadingLogo, setUploadingLogo] = useState(false)
+  const [shops, setShops] = useState<ShopOption[]>([])
+
+  const loadShops = async () => {
+    const { data } = await supabase.from("user_shops").select("id, shop_name, subdomain").order("shop_name")
+    setShops(data || [])
+  }
 
   const authHeader = async () => {
     const { data: { session } } = await supabase.auth.getSession()
@@ -70,6 +88,7 @@ export default function CustomDomainsPage() {
 
   useEffect(() => {
     loadDomains()
+    loadShops()
   }, [])
 
   const openCreate = () => {
@@ -86,6 +105,9 @@ export default function CustomDomainsPage() {
       site_name: row.site_name,
       logo_url: row.logo_url || "",
       primary_color: row.primary_color || "",
+      linked_shop_id: row.linked_shop_id,
+      show_guest_purchase: row.show_guest_purchase,
+      show_landing_page: row.show_landing_page,
     })
     setDialogOpen(true)
   }
@@ -128,6 +150,9 @@ export default function CustomDomainsPage() {
               site_name: form.site_name,
               logo_url: form.logo_url || null,
               primary_color: form.primary_color || null,
+              linked_shop_id: form.linked_shop_id,
+              show_guest_purchase: form.show_guest_purchase,
+              show_landing_page: form.show_landing_page,
             }),
           })
         : await fetch("/api/admin/custom-domains", {
@@ -139,6 +164,9 @@ export default function CustomDomainsPage() {
               site_name: form.site_name,
               logo_url: form.logo_url || null,
               primary_color: form.primary_color || null,
+              linked_shop_id: form.linked_shop_id,
+              show_guest_purchase: form.show_guest_purchase,
+              show_landing_page: form.show_landing_page,
             }),
           })
 
@@ -222,6 +250,22 @@ export default function CustomDomainsPage() {
                   </div>
                 </div>
                 <div className="space-y-2">
+                  <Label>Link to Shop (optional)</Label>
+                  <select
+                    value={form.linked_shop_id ?? ""}
+                    onChange={e => setForm(f => ({ ...f, linked_shop_id: e.target.value || null }))}
+                    className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="">— None (dashboard mode) —</option>
+                    {shops.map(s => (
+                      <option key={s.id} value={s.id}>{s.shop_name} ({s.subdomain})</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-muted-foreground">
+                    Linking a shop makes this domain show that shop&apos;s storefront (guest checkout) instead of the dashboard. Services above then filter which of the shop&apos;s Buy Data/Airtime/Results Vouchers tabs show.
+                  </p>
+                </div>
+                <div className="space-y-2">
                   <Label>Site Name</Label>
                   <Input value={form.site_name} onChange={e => setForm(f => ({ ...f, site_name: e.target.value }))} placeholder="CheckResults" />
                 </div>
@@ -250,6 +294,24 @@ export default function CustomDomainsPage() {
                     <Input value={form.primary_color} onChange={e => setForm(f => ({ ...f, primary_color: e.target.value }))} placeholder="#059669" />
                   </div>
                 </div>
+                {!form.linked_shop_id && (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <Label>Show Guest-Purchase Button</Label>
+                        <p className="text-xs text-muted-foreground">Shows the "Buy as Guest" link on this domain's landing page.</p>
+                      </div>
+                      <Switch checked={form.show_guest_purchase} onCheckedChange={v => setForm(f => ({ ...f, show_guest_purchase: v }))} />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <Label>Show Landing Page</Label>
+                        <p className="text-xs text-muted-foreground">When off, visiting this domain goes straight to login instead of the marketing homepage.</p>
+                      </div>
+                      <Switch checked={form.show_landing_page} onCheckedChange={v => setForm(f => ({ ...f, show_landing_page: v }))} />
+                    </div>
+                  </>
+                )}
               </div>
               <DialogFooter>
                 <Button onClick={handleSave} disabled={saving || !form.domain || !form.site_name || form.services.length === 0}>
@@ -289,7 +351,11 @@ export default function CustomDomainsPage() {
                     <TableRow key={row.id}>
                       <TableCell className="font-medium">{row.domain}</TableCell>
                       <TableCell className="space-x-1">
-                        {row.services.map(s => <Badge key={s} variant="outline">{SERVICE_LABELS[s]}</Badge>)}
+                        {row.linked_shop_id ? (
+                          <Badge>{shops.find(s => s.id === row.linked_shop_id)?.shop_name || "Linked Shop"}</Badge>
+                        ) : (
+                          row.services.map(s => <Badge key={s} variant="outline">{SERVICE_LABELS[s]}</Badge>)
+                        )}
                       </TableCell>
                       <TableCell className="flex items-center gap-2">
                         {row.logo_url && <img src={row.logo_url} alt="" className="w-5 h-5 rounded object-cover" />}
