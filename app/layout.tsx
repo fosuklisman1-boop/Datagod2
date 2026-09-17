@@ -135,6 +135,8 @@ export default async function RootLayout({
     siteName: headersList.get("x-domain-site-name"),
     logoUrl: headersList.get("x-domain-logo"),
     primaryColor: headersList.get("x-domain-color"),
+    showGuestPurchase: headersList.get("x-domain-guest-purchase") === "1",
+    showLandingPage: headersList.get("x-domain-landing-page") !== "0",
   };
 
   // Maintenance mode: a DB-free kill switch. When on, render ONLY the maintenance

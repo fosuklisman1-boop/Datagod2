@@ -8,6 +8,8 @@ export interface DomainBranding {
   siteName: string | null
   logoUrl: string | null
   primaryColor: string | null
+  showGuestPurchase: boolean
+  showLandingPage: boolean
 }
 
 const DEFAULT_BRANDING: DomainBranding = {
@@ -15,6 +17,8 @@ const DEFAULT_BRANDING: DomainBranding = {
   siteName: null,
   logoUrl: null,
   primaryColor: null,
+  showGuestPurchase: false,
+  showLandingPage: true,
 }
 
 const DomainBrandingContext = createContext<DomainBranding>(DEFAULT_BRANDING)

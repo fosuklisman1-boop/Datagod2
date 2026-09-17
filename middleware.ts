@@ -167,12 +167,16 @@ export async function middleware(request: NextRequest) {
     h.delete("x-domain-site-name")
     h.delete("x-domain-logo")
     h.delete("x-domain-color")
+    h.delete("x-domain-guest-purchase")
+    h.delete("x-domain-landing-page")
     if (customDomainConfig) {
       try {
         h.set("x-domain-services", customDomainConfig.services.join(","))
         h.set("x-domain-site-name", customDomainConfig.site_name)
         if (customDomainConfig.logo_url) h.set("x-domain-logo", customDomainConfig.logo_url)
         if (customDomainConfig.primary_color) h.set("x-domain-color", customDomainConfig.primary_color)
+        h.set("x-domain-guest-purchase", customDomainConfig.show_guest_purchase ? "1" : "0")
+        h.set("x-domain-landing-page", customDomainConfig.show_landing_page ? "1" : "0")
       } catch (e) {
         // A malformed branding value must never take down every request to this
         // domain — skip branding for this request rather than throwing out of
