@@ -851,10 +851,10 @@ export default function ShopStorefront() {
                   <button
                     key={tab.id}
                     onClick={() => {
-                      setActiveTab(tab.id)
+                      setActiveTab(tab.id === "products" ? allowedTabs[0] : tab.id)
                       setSidebarOpen(false)
                     }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all duration-200 ${activeTab === tab.id
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all duration-200 ${(tab.id === "products" ? (activeTab === "products" || activeTab === "airtime" || activeTab === "vouchers") : activeTab === tab.id)
                       ? "bg-primary/10 text-primary border-l-4 border-l-violet-600 shadow-sm"
                       : "text-foreground hover:bg-accent border-l-4 border-l-transparent"
                       }`}
