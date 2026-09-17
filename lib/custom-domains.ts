@@ -7,6 +7,12 @@ export interface CustomDomainConfig {
   logo_url: string | null
   primary_color: string | null
   is_active: boolean
+  // Non-null when this domain is linked to an existing shop — the shop's own
+  // `subdomain` (not `shop_slug`), used directly as the middleware rewrite
+  // target. Null means this domain stays in dashboard/account mode.
+  linked_shop_subdomain: string | null
+  show_guest_purchase: boolean
+  show_landing_page: boolean
 }
 
 const SERVICE_PATH_PREFIXES: Record<DomainService, string[]> = {

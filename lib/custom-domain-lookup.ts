@@ -73,7 +73,7 @@ async function lookupExact(host: string): Promise<LookupResult> {
   try {
     const { data, error } = await supabaseAdmin
       .from("custom_domains")
-      .select("domain, services, site_name, logo_url, primary_color, is_active")
+      .select("domain, services, site_name, logo_url, primary_color, is_active, show_guest_purchase, show_landing_page, linked_shop:user_shops!linked_shop_id(subdomain)")
       .eq("domain", host)
       .eq("is_active", true)
       .maybeSingle()
@@ -84,7 +84,18 @@ async function lookupExact(host: string): Promise<LookupResult> {
     }
     if (!data) return { kind: "not_found", fromNegativeCache: false }
 
-    const config = data as CustomDomainConfig
+    const row = data as typeof data & { linked_shop: { subdomain: string } | null }
+    const config: CustomDomainConfig = {
+      domain: row.domain,
+      services: row.services,
+      site_name: row.site_name,
+      logo_url: row.logo_url,
+      primary_color: row.primary_color,
+      is_active: row.is_active,
+      show_guest_purchase: row.show_guest_purchase,
+      show_landing_page: row.show_landing_page,
+      linked_shop_subdomain: row.linked_shop?.subdomain ?? null,
+    }
     cacheSetPositive(host, config)
     return { kind: "found", config }
   } catch (e) {

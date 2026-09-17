@@ -58,6 +58,21 @@ const sampleConfig: CustomDomainConfig = {
   logo_url: null,
   primary_color: "#059669",
   is_active: true,
+  linked_shop_subdomain: null,
+  show_guest_purchase: false,
+  show_landing_page: true,
+}
+
+const sampleRawRow = {
+  domain: sampleConfig.domain,
+  services: sampleConfig.services,
+  site_name: sampleConfig.site_name,
+  logo_url: sampleConfig.logo_url,
+  primary_color: sampleConfig.primary_color,
+  is_active: sampleConfig.is_active,
+  show_guest_purchase: sampleConfig.show_guest_purchase,
+  show_landing_page: sampleConfig.show_landing_page,
+  linked_shop: null as { subdomain: string } | null,
 }
 
 describe("resolveCustomDomain", () => {
@@ -73,7 +88,7 @@ describe("resolveCustomDomain", () => {
 
   it("queries Supabase and fills the cache on a Redis miss", async () => {
     redisGetMock.mockResolvedValueOnce(null)
-    maybeSingleMock.mockResolvedValueOnce({ data: sampleConfig, error: null })
+    maybeSingleMock.mockResolvedValueOnce({ data: sampleRawRow, error: null })
     const { resolveCustomDomain } = await import("./custom-domain-lookup")
 
     const result = await resolveCustomDomain("checkresults.com")
@@ -121,7 +136,7 @@ describe("resolveCustomDomain", () => {
     redisGetMock.mockResolvedValue(null) // no cache hit for either form
     maybeSingleMock
       .mockResolvedValueOnce({ data: null, error: null }) // miss for "checkresults.com"
-      .mockResolvedValueOnce({ data: sampleConfig, error: null }) // hit for "www.checkresults.com"
+      .mockResolvedValueOnce({ data: sampleRawRow, error: null }) // hit for "www.checkresults.com"
     const { resolveCustomDomain } = await import("./custom-domain-lookup")
 
     const result = await resolveCustomDomain("checkresults.com")
@@ -132,7 +147,7 @@ describe("resolveCustomDomain", () => {
 
   it("falls back to Supabase and still returns a result when Redis throws", async () => {
     redisGetMock.mockRejectedValueOnce(new Error("redis down"))
-    maybeSingleMock.mockResolvedValueOnce({ data: sampleConfig, error: null })
+    maybeSingleMock.mockResolvedValueOnce({ data: sampleRawRow, error: null })
     const { resolveCustomDomain } = await import("./custom-domain-lookup")
 
     const result = await resolveCustomDomain("checkresults.com")
@@ -148,6 +163,29 @@ describe("resolveCustomDomain", () => {
     const result = await resolveCustomDomain("checkresults.com")
 
     expect(result).toBeNull()
+  })
+
+  it("maps a joined linked_shop row to linked_shop_subdomain", async () => {
+    redisGetMock.mockResolvedValueOnce(null)
+    maybeSingleMock.mockResolvedValueOnce({
+      data: { ...sampleRawRow, linked_shop: { subdomain: "clings" } },
+      error: null,
+    })
+    const { resolveCustomDomain } = await import("./custom-domain-lookup")
+
+    const result = await resolveCustomDomain("checkresults.com")
+
+    expect(result?.linked_shop_subdomain).toBe("clings")
+  })
+
+  it("maps a null linked_shop join to a null linked_shop_subdomain", async () => {
+    redisGetMock.mockResolvedValueOnce(null)
+    maybeSingleMock.mockResolvedValueOnce({ data: sampleRawRow, error: null })
+    const { resolveCustomDomain } = await import("./custom-domain-lookup")
+
+    const result = await resolveCustomDomain("checkresults.com")
+
+    expect(result?.linked_shop_subdomain).toBeNull()
   })
 })
 
