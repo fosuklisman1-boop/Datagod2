@@ -24,13 +24,24 @@ function parseServices(raw: unknown): { services: DomainService[] } | { error: s
   return { services: Array.from(new Set(raw as DomainService[])) }
 }
 
+/** Validates an optional linked_shop_id: undefined/null is fine (no shop
+ * linked); a non-null value must reference an existing row in user_shops. */
+async function validateLinkedShopId(raw: unknown): Promise<{ linkedShopId: string | null } | { error: string }> {
+  if (raw === undefined || raw === null || raw === "") return { linkedShopId: null }
+  if (typeof raw !== "string") return { error: "'linked_shop_id' must be a string or null" }
+  const { data, error } = await supabase.from("user_shops").select("id").eq("id", raw).maybeSingle()
+  if (error) return { error: "Failed to validate linked_shop_id" }
+  if (!data) return { error: `No shop found with id "${raw}"` }
+  return { linkedShopId: raw }
+}
+
 export async function GET(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse!
 
   const { data, error } = await supabase
     .from("custom_domains")
-    .select("id, domain, services, site_name, logo_url, primary_color, is_active, created_at, updated_at")
+    .select("id, domain, services, site_name, logo_url, primary_color, is_active, linked_shop_id, show_guest_purchase, show_landing_page, created_at, updated_at")
     .order("created_at", { ascending: false })
 
   if (error) {
@@ -62,6 +73,13 @@ export async function POST(request: NextRequest) {
     if (!siteName) {
       return NextResponse.json({ error: "'site_name' is required" }, { status: 400 })
     }
+    const linkedShopResult = await validateLinkedShopId(body.linked_shop_id)
+    if ("error" in linkedShopResult) {
+      return NextResponse.json({ error: linkedShopResult.error }, { status: 400 })
+    }
+    const { linkedShopId } = linkedShopResult
+    const showGuestPurchase = typeof body.show_guest_purchase === "boolean" ? body.show_guest_purchase : false
+    const showLandingPage = typeof body.show_landing_page === "boolean" ? body.show_landing_page : true
     if (isReservedDomainHost(domain, ROOT_DOMAIN)) {
       return NextResponse.json(
         { error: `"${domain}" collides with the main app's own domain routing and can't be used as a custom domain` },
@@ -69,7 +87,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const row = { domain, services, site_name: siteName, logo_url: logoUrl, primary_color: primaryColor, is_active: true }
+    const row = {
+      domain, services, site_name: siteName, logo_url: logoUrl, primary_color: primaryColor, is_active: true,
+      linked_shop_id: linkedShopId, show_guest_purchase: showGuestPurchase, show_landing_page: showLandingPage,
+    }
     const { data, error } = await supabase.from("custom_domains").insert(row).select().single()
 
     if (error) {
@@ -81,6 +102,8 @@ export async function POST(request: NextRequest) {
 
     await setCustomDomainCache({
       domain, services, site_name: siteName, logo_url: logoUrl, primary_color: primaryColor, is_active: true,
+      linked_shop_subdomain: null, // freshly created row has no shop join result cached yet; the next read re-resolves it correctly
+      show_guest_purchase: showGuestPurchase, show_landing_page: showLandingPage,
     })
 
     return NextResponse.json({ domain: data }, { status: 201 })
@@ -118,6 +141,21 @@ export async function PATCH(request: NextRequest) {
       if (typeof body.is_active !== "boolean") return NextResponse.json({ error: "'is_active' must be a boolean" }, { status: 400 })
       updates.is_active = body.is_active
     }
+    if (body.linked_shop_id !== undefined) {
+      const linkedShopResult = await validateLinkedShopId(body.linked_shop_id)
+      if ("error" in linkedShopResult) {
+        return NextResponse.json({ error: linkedShopResult.error }, { status: 400 })
+      }
+      updates.linked_shop_id = linkedShopResult.linkedShopId
+    }
+    if (body.show_guest_purchase !== undefined) {
+      if (typeof body.show_guest_purchase !== "boolean") return NextResponse.json({ error: "'show_guest_purchase' must be a boolean" }, { status: 400 })
+      updates.show_guest_purchase = body.show_guest_purchase
+    }
+    if (body.show_landing_page !== undefined) {
+      if (typeof body.show_landing_page !== "boolean") return NextResponse.json({ error: "'show_landing_page' must be a boolean" }, { status: 400 })
+      updates.show_landing_page = body.show_landing_page
+    }
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: "No fields to update" }, { status: 400 })
@@ -132,6 +170,8 @@ export async function PATCH(request: NextRequest) {
       await setCustomDomainCache({
         domain: data.domain, services: data.services, site_name: data.site_name,
         logo_url: data.logo_url, primary_color: data.primary_color, is_active: data.is_active,
+        linked_shop_subdomain: null, // see the POST handler's identical comment — re-resolved fresh on next read
+        show_guest_purchase: data.show_guest_purchase, show_landing_page: data.show_landing_page,
       })
     } else {
       await clearCustomDomainCache(data.domain)

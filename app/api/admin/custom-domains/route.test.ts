@@ -128,6 +128,31 @@ describe("POST /api/admin/custom-domains", () => {
     const res = await POST(postRequest({ domain: "checkresults.com", services: ["results_checker"], site_name: "CheckResults" }))
     expect(res.status).toBe(409)
   })
+
+  it("rejects a linked_shop_id that doesn't exist in user_shops", async () => {
+    // Every fromMock() call in this test resolves the same way — the
+    // validation lookup finds nothing, and the route must return 400 before
+    // ever reaching a second, differently-shaped call (the custom_domains
+    // insert), so a single uniform mock is sufficient here.
+    fromMock.mockReturnValue(makeBuilder({ data: null, error: null }))
+    const res = await POST(postRequest({ domain: "checkresults.com", services: ["data_bundles"], site_name: "X", linked_shop_id: "11111111-1111-1111-1111-111111111111" }))
+    expect(res.status).toBe(400)
+  })
+
+  it("accepts a valid linked_shop_id and defaults show_guest_purchase/show_landing_page", async () => {
+    fromMock.mockImplementation((table: string) =>
+      table === "user_shops"
+        ? makeBuilder({ data: { id: "11111111-1111-1111-1111-111111111111" }, error: null })
+        : makeBuilder({
+            data: { id: "1", domain: "checkresults.com", services: ["data_bundles"], site_name: "X", logo_url: null, primary_color: null, is_active: true, linked_shop_id: "11111111-1111-1111-1111-111111111111", show_guest_purchase: false, show_landing_page: true },
+            error: null,
+          })
+    )
+    const res = await POST(postRequest({ domain: "checkresults.com", services: ["data_bundles"], site_name: "X", linked_shop_id: "11111111-1111-1111-1111-111111111111" }))
+    const body = await res.json()
+    expect(res.status).toBe(201)
+    expect(setCacheMock).toHaveBeenCalledWith(expect.objectContaining({ show_guest_purchase: false, show_landing_page: true }))
+  })
 })
 
 describe("PATCH /api/admin/custom-domains", () => {
@@ -152,6 +177,11 @@ describe("PATCH /api/admin/custom-domains", () => {
     expect(res.status).toBe(200)
     expect(clearCacheMock).toHaveBeenCalledWith("checkresults.com")
     expect(setCacheMock).not.toHaveBeenCalled()
+  })
+
+  it("rejects a non-boolean show_landing_page on update", async () => {
+    const res = await PATCH(postRequest({ id: "1", show_landing_page: "yes" }, "PATCH"))
+    expect(res.status).toBe(400)
   })
 })
 
