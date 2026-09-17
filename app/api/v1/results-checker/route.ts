@@ -159,35 +159,46 @@ export async function POST(request: NextRequest) {
     let resolvedPhone: string | null = phone_number ? String(phone_number).replace(/\s/g, "") : null
     let resolvedEmail: string | null = typeof email === "string" && email.trim() ? email.trim() : null
 
-    if (!resolvedPhone || !resolvedEmail) {
-      const { data: profile } = await supabase
-        .from("users")
-        .select("phone_number")
-        .eq("id", user.id)
-        .single()
-      if (!resolvedPhone) resolvedPhone = profile?.phone_number ?? null
+    // The purchase above already succeeded (wallet debited, vouchers assigned)
+    // — everything from here is best-effort delivery. Wrap it in its own
+    // try/catch so an unexpected throw here can't fall into the outer catch
+    // and report a purchase failure for an order that actually went through.
+    try {
+      if (!resolvedPhone) {
+        const { data: profile } = await supabase
+          .from("users")
+          .select("phone_number")
+          .eq("id", user.id)
+          .single()
+        resolvedPhone = profile?.phone_number ?? null
+      }
       if (!resolvedEmail) resolvedEmail = user.email ?? null
+
+      // Persist contact info on the order so resend (SMS/email) can find it later.
+      if (resolvedPhone || resolvedEmail) {
+        const { error: persistError } = await supabase
+          .from("results_checker_orders")
+          .update({ customer_phone: resolvedPhone, customer_email: resolvedEmail, updated_at: new Date().toISOString() })
+          .eq("id", result.order.id)
+        if (persistError) {
+          console.warn("[V1-RESULTS-CHECKER] Failed to persist contact info:", persistError)
+        }
+      }
+
+      const orderWithContact = { ...result.order, customer_phone: resolvedPhone, customer_email: resolvedEmail }
+
+      // Await delivery so the serverless function doesn't terminate before
+      // Resend/mNotify HTTP calls complete (fire-and-forget is killed on Vercel).
+      await deliverVouchers(orderWithContact, result.vouchers)
+        .catch((e) => console.warn("[V1-RESULTS-CHECKER] Delivery error:", e))
+    } catch (deliveryError) {
+      console.warn("[V1-RESULTS-CHECKER] Contact resolution/delivery error:", deliveryError)
     }
-
-    // Persist contact info on the order so resend (SMS/email) can find it later.
-    if (resolvedPhone || resolvedEmail) {
-      await supabase
-        .from("results_checker_orders")
-        .update({ customer_phone: resolvedPhone, customer_email: resolvedEmail, updated_at: new Date().toISOString() })
-        .eq("id", result.order.id)
-    }
-
-    const orderWithContact = { ...result.order, customer_phone: resolvedPhone, customer_email: resolvedEmail }
-
-    // Await delivery so the serverless function doesn't terminate before
-    // Resend/mNotify HTTP calls complete (fire-and-forget is killed on Vercel).
-    await deliverVouchers(orderWithContact, result.vouchers)
-      .catch((e) => console.warn("[V1-RESULTS-CHECKER] Delivery error:", e))
 
     logApiRequest({
       userId: user.id, apiKeyId: user.api_key_id, method: "POST", endpoint: "/api/v1/results-checker",
       statusCode: 201, request, durationMs: Date.now() - start,
-      requestPayload: { exam_board, quantity: qty },
+      requestPayload: { exam_board, quantity: qty, contact_phone: resolvedPhone, contact_email: resolvedEmail },
       responsePayload: { reference: result.order.reference_code, voucher_count: result.vouchers.length },
     }).catch(() => {})
 
