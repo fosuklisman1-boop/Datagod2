@@ -391,7 +391,9 @@ export default function HomePage() {
             </p>
             <div className="mt-5 flex flex-col sm:flex-row gap-3 justify-center lg:justify-start">
               <Link href="/auth/signup"><Button size="lg" className="gap-2 w-full sm:w-auto">Get started <ArrowRight className="w-4 h-4" /></Button></Link>
-              <GuestPurchaseButton variant="outline" className="w-full sm:w-auto" />
+              {(!domainBranding.services || domainBranding.showGuestPurchase) && (
+                <GuestPurchaseButton variant="outline" className="w-full sm:w-auto" />
+              )}
             </div>
             <div className="mt-6 flex justify-center lg:justify-start gap-8">
               <div><div className="font-display text-2xl font-bold text-foreground">3</div><div className="text-xs text-muted-foreground">networks</div></div>
@@ -697,7 +699,9 @@ When your sub-agent clicks the link, they see a branded invite page showing your
                   <ArrowRight className="w-4 h-4" />
                 </Button>
               </Link>
-              <GuestPurchaseButton variant="outline" className="w-full sm:w-auto" />
+              {(!domainBranding.services || domainBranding.showGuestPurchase) && (
+                <GuestPurchaseButton variant="outline" className="w-full sm:w-auto" />
+              )}
             </div>
           </div>
         </div>
