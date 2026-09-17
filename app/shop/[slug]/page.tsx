@@ -18,6 +18,8 @@ import { validatePhoneNumber } from "@/lib/phone-validation"
 import { DEFAULT_NETWORK_PREFIXES, type NetworkPrefixMap } from "@/lib/phone-format"
 import { redirectToPayment } from "@/lib/payment-redirect"
 import { useResendCooldown } from "@/lib/use-resend-cooldown"
+import { useDomainBranding } from "@/components/providers/domain-branding-provider"
+import type { DomainService } from "@/lib/custom-domains"
 import {
   Store,
   ShoppingCart,
@@ -59,7 +61,27 @@ export default function ShopStorefront() {
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null)
   const [networkLogos, setNetworkLogos] = useState<Record<string, string>>({})
-  const [activeTab, setActiveTab] = useState<"products" | "airtime" | "vouchers" | "about" | "track-order">("products")
+
+  const domainBranding = useDomainBranding()
+  // Maps each service to its shop sub-tab. Fail open (all three) when a
+  // shop-linked domain's services selection matches none of them — e.g. a
+  // domain scoped only to "bulk_sms", which has no shop equivalent — rather
+  // than render a button-less Products area with no valid default tab.
+  const SERVICE_TAB_MAP: Partial<Record<DomainService, "products" | "airtime" | "vouchers">> = {
+    data_bundles: "products",
+    airtime: "airtime",
+    results_checker: "vouchers",
+  }
+  const allowedTabs: Array<"products" | "airtime" | "vouchers"> = domainBranding.services
+    ? (() => {
+        const mapped = domainBranding.services
+          .map(s => SERVICE_TAB_MAP[s])
+          .filter((t): t is "products" | "airtime" | "vouchers" => Boolean(t))
+        return mapped.length > 0 ? mapped : ["products", "airtime", "vouchers"]
+      })()
+    : ["products", "airtime", "vouchers"]
+
+  const [activeTab, setActiveTab] = useState<"products" | "airtime" | "vouchers" | "about" | "track-order">(allowedTabs[0])
   const [rcTab, setRcTab] = useState<"buy" | "retrieve" | "check">("buy")
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [orderData, setOrderData] = useState({
@@ -896,36 +918,42 @@ export default function ShopStorefront() {
               <div className="space-y-8">
                 {/* Sub-tab Switcher */}
                 <div className="flex p-1.5 bg-muted rounded-2xl w-full sm:w-fit mx-auto sm:mx-0 shadow-inner">
-                  <button
-                    onClick={() => setActiveTab("products")}
-                    className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all duration-300 ${activeTab === "products"
-                        ? "bg-card text-primary shadow-md scale-[1.02]"
-                        : "text-muted-foreground hover:text-foreground hover:bg-card/50"
-                      }`}
-                  >
-                    <ShoppingCart className="w-5 h-5" />
-                    Buy Data
-                  </button>
-                  <button
-                    onClick={() => setActiveTab("airtime")}
-                    className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all duration-300 ${activeTab === "airtime"
-                        ? "bg-card text-primary shadow-md scale-[1.02]"
-                        : "text-muted-foreground hover:text-foreground hover:bg-card/50"
-                      }`}
-                  >
-                    <Zap className="w-5 h-5" />
-                    Buy Airtime
-                  </button>
-                  <button
-                    onClick={() => setActiveTab("vouchers")}
-                    className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all duration-300 ${activeTab === "vouchers"
-                        ? "bg-card text-primary shadow-md scale-[1.02]"
-                        : "text-muted-foreground hover:text-foreground hover:bg-card/50"
-                      }`}
-                  >
-                    <GraduationCap className="w-5 h-5" />
-                    Results Vouchers
-                  </button>
+                  {allowedTabs.includes("products") && (
+                    <button
+                      onClick={() => setActiveTab("products")}
+                      className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all duration-300 ${activeTab === "products"
+                          ? "bg-card text-primary shadow-md scale-[1.02]"
+                          : "text-muted-foreground hover:text-foreground hover:bg-card/50"
+                        }`}
+                    >
+                      <ShoppingCart className="w-5 h-5" />
+                      Buy Data
+                    </button>
+                  )}
+                  {allowedTabs.includes("airtime") && (
+                    <button
+                      onClick={() => setActiveTab("airtime")}
+                      className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all duration-300 ${activeTab === "airtime"
+                          ? "bg-card text-primary shadow-md scale-[1.02]"
+                          : "text-muted-foreground hover:text-foreground hover:bg-card/50"
+                        }`}
+                    >
+                      <Zap className="w-5 h-5" />
+                      Buy Airtime
+                    </button>
+                  )}
+                  {allowedTabs.includes("vouchers") && (
+                    <button
+                      onClick={() => setActiveTab("vouchers")}
+                      className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all duration-300 ${activeTab === "vouchers"
+                          ? "bg-card text-primary shadow-md scale-[1.02]"
+                          : "text-muted-foreground hover:text-foreground hover:bg-card/50"
+                        }`}
+                    >
+                      <GraduationCap className="w-5 h-5" />
+                      Results Vouchers
+                    </button>
+                  )}
                 </div>
 
                 {activeTab === "products" ? (
