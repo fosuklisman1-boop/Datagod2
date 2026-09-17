@@ -192,4 +192,12 @@ describe("purchaseAirtime", () => {
       purchaseAirtime({ userId: "user-1", network: "MTN", beneficiaryPhone: "0201234567", airtimeAmount: 10 })
     ).rejects.toMatchObject({ code: "NETWORK_MISMATCH" })
   })
+
+  it("skips the prefix check when the admin has disabled it", async () => {
+    h.state.settings.network_prefix_validation_enabled = { enabled: false }
+    const result = await purchaseAirtime({
+      userId: "user-1", network: "MTN", beneficiaryPhone: "0201234567", airtimeAmount: 10,
+    })
+    expect(result.order.id).toBe("order-1")
+  })
 })
