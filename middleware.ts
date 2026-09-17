@@ -120,6 +120,26 @@ export async function middleware(request: NextRequest) {
       : null
 
   if (customDomainConfig) {
+    // Shop mode: every path, including "/", rewrites into the linked shop's
+    // storefront — mirroring the exact rewrite getShopSubdomain's caller uses
+    // above, just triggered by a custom-domain lookup instead of subdomain
+    // parsing. A rewrite (not a redirect) keeps the browser's URL bar on the
+    // custom domain. This is mutually exclusive with everything below it —
+    // shop mode never falls through to the landing-page or service checks.
+    if (customDomainConfig.linked_shop_subdomain) {
+      const url = request.nextUrl.clone()
+      url.pathname = `/shop/${customDomainConfig.linked_shop_subdomain}${path === "/" ? "" : path}`
+      return NextResponse.rewrite(url)
+    }
+
+    // Account mode with the landing page hidden: "/" skips the marketing
+    // homepage entirely and goes straight to login.
+    if (!customDomainConfig.show_landing_page && path === "/") {
+      const url = request.nextUrl.clone()
+      url.pathname = "/auth/login"
+      return NextResponse.redirect(url)
+    }
+
     const serviceRedirectPath = getServiceRedirect(path, customDomainConfig.services)
     if (serviceRedirectPath) {
       const url = request.nextUrl.clone()
