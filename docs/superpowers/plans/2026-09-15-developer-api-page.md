@@ -1743,6 +1743,7 @@ import { authenticateApiKey, logApiRequest } from "@/lib/api-auth"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 import { purchaseResultsCheckerVouchers, isValidExamBoard } from "@/lib/results-checker-service"
+import { deliverVouchers } from "@/lib/results-checker-notification-service"
 import { classifyServiceError } from "@/lib/api-v1-errors"
 
 const supabase = createClient(
@@ -1837,7 +1838,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Invalid JSON body" }, { status: 400 })
   }
 
-  const { exam_board, quantity } = body
+  const { exam_board, quantity, phone_number, email } = body
   if (!exam_board || !isValidExamBoard(exam_board)) {
     return NextResponse.json({ success: false, error: "exam_board must be one of WASSCE, BECE, NOVDEC" }, { status: 400 })
   }
@@ -1846,8 +1847,54 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "quantity must be a positive integer up to 50" }, { status: 400 })
   }
 
+  // Optional delivery overrides — if provided, used to SMS/email the voucher
+  // PIN to a different end-customer (reselling); otherwise we fall back to
+  // the API key owner's own profile after the purchase succeeds.
+  if (phone_number !== undefined && phone_number !== null && String(phone_number).trim() !== "") {
+    const cleanPhone = String(phone_number).replace(/\s/g, "")
+    if (!/^\d{10}$/.test(cleanPhone)) {
+      return NextResponse.json({ success: false, error: "phone_number must be a 10-digit phone number" }, { status: 400 })
+    }
+  }
+  if (email !== undefined && email !== null && String(email).trim() !== "") {
+    if (typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return NextResponse.json({ success: false, error: "email must be a valid email address" }, { status: 400 })
+    }
+  }
+
   try {
     const result = await purchaseResultsCheckerVouchers({ userId: user.id, examBoard: exam_board, quantity: qty })
+
+    // Resolve delivery contact — explicit body overrides win, otherwise fall
+    // back to the API key owner's own profile (mirrors the dashboard route's
+    // default behavior at app/api/results-checker/purchase/route.ts).
+    let resolvedPhone: string | null = phone_number ? String(phone_number).replace(/\s/g, "") : null
+    let resolvedEmail: string | null = typeof email === "string" && email.trim() ? email.trim() : null
+
+    if (!resolvedPhone || !resolvedEmail) {
+      const { data: profile } = await supabase
+        .from("users")
+        .select("phone_number")
+        .eq("id", user.id)
+        .single()
+      if (!resolvedPhone) resolvedPhone = profile?.phone_number ?? null
+      if (!resolvedEmail) resolvedEmail = user.email ?? null
+    }
+
+    // Persist contact info on the order so resend (SMS/email) can find it later.
+    if (resolvedPhone || resolvedEmail) {
+      await supabase
+        .from("results_checker_orders")
+        .update({ customer_phone: resolvedPhone, customer_email: resolvedEmail, updated_at: new Date().toISOString() })
+        .eq("id", result.order.id)
+    }
+
+    const orderWithContact = { ...result.order, customer_phone: resolvedPhone, customer_email: resolvedEmail }
+
+    // Await delivery so the serverless function doesn't terminate before
+    // Resend/mNotify HTTP calls complete (fire-and-forget is killed on Vercel).
+    await deliverVouchers(orderWithContact, result.vouchers)
+      .catch((e) => console.warn("[V1-RESULTS-CHECKER] Delivery error:", e))
 
     logApiRequest({
       userId: user.id, apiKeyId: user.api_key_id, method: "POST", endpoint: "/api/v1/results-checker",

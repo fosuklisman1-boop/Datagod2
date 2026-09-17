@@ -152,10 +152,12 @@ export const apiDocsRegistry: ApiDocSection[] = [
       {
         method: "POST",
         path: "/api/v1/results-checker",
-        description: "Buy one or more WASSCE/BECE/NOVDEC results-checker voucher PINs.",
+        description: "Buy one or more WASSCE/BECE/NOVDEC results-checker voucher PINs. The voucher is returned in this response and, if a phone/email is available, also delivered via SMS/email.",
         params: [
           { name: "exam_board", type: "string", required: true, description: "WASSCE, BECE, or NOVDEC" },
           { name: "quantity", type: "integer", required: true, description: "1-50" },
+          { name: "phone_number", type: "string", required: false, description: "10-digit phone number to SMS the voucher PIN to. Defaults to your account's own registered phone number if omitted." },
+          { name: "email", type: "string", required: false, description: "Email address to send the voucher PIN to. Defaults to your account's own registered email if omitted." },
         ],
         curl: `curl -X POST ${BASE_URL}/api/v1/results-checker \\\n  -H "X-API-Key: dg_live_your_key_here" \\\n  -H "Content-Type: application/json" \\\n  -d '{ "exam_board": "WASSCE", "quantity": 1 }'`,
         successExample: `{\n  "success": true,\n  "order": { "reference": "RC-XXX-YYY", "status": "completed" },\n  "vouchers": [{ "pin": "1234-5678-90", "serial_number": "WA0001234" }],\n  "new_balance": 30\n}`,
