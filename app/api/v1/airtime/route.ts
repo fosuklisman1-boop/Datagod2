@@ -132,6 +132,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     const { status, publicMessage, isKnown } = classifyServiceError(error, {
       NETWORK_DISABLED: 503,
+      NETWORK_MISMATCH: 400,
       INVALID_AMOUNT: 400,
       DUPLICATE_REQUEST: 409,
       INSUFFICIENT_BALANCE: 402,
