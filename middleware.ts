@@ -119,19 +119,23 @@ export async function middleware(request: NextRequest) {
       ? await resolveCustomDomain(hostname)
       : null
 
-  if (customDomainConfig) {
-    // Shop mode: every path, including "/", rewrites into the linked shop's
-    // storefront — mirroring the exact rewrite getShopSubdomain's caller uses
-    // above, just triggered by a custom-domain lookup instead of subdomain
-    // parsing. A rewrite (not a redirect) keeps the browser's URL bar on the
-    // custom domain. This is mutually exclusive with everything below it —
-    // shop mode never falls through to the landing-page or service checks.
-    if (customDomainConfig.linked_shop_subdomain) {
-      const url = request.nextUrl.clone()
-      url.pathname = `/shop/${customDomainConfig.linked_shop_subdomain}${path === "/" ? "" : path}`
-      return NextResponse.rewrite(url)
-    }
+  // Shop mode: every path, including "/", rewrites into the linked shop's
+  // storefront — same guard conditions as the shop-subdomain rewrite above
+  // (excluding /shop/, /api, /_next, and any path with a file extension like
+  // /robots.txt or /sitemap.xml, which have no route under app/shop/[slug]/).
+  // This does NOT return early — like the shop-subdomain rewrite, it flows
+  // through the rest of the pipeline below so shop-mode pages still get CSP
+  // headers, the nonce, and __shop_sess.
+  const customDomainShopRewritePathname =
+    customDomainConfig?.linked_shop_subdomain &&
+    !path.startsWith("/shop/") &&
+    !path.startsWith("/api") &&
+    !path.startsWith("/_next") &&
+    !PUBLIC_FILE.test(path)
+      ? `/shop/${customDomainConfig.linked_shop_subdomain}${path === "/" ? "" : path}`
+      : null
 
+  if (customDomainConfig && !customDomainConfig.linked_shop_subdomain) {
     // Account mode with the landing page hidden: "/" skips the marketing
     // homepage entirely and goes straight to login.
     if (!customDomainConfig.show_landing_page && path === "/") {
@@ -183,9 +187,10 @@ export async function middleware(request: NextRequest) {
   // subdomain (URL bar unchanged), or a normal passthrough on the main host.
   const makeResponse = () => {
     const init = { request: { headers: buildRequestHeaders() } }
-    if (rewritePathname) {
+    const effectiveRewrite = rewritePathname ?? customDomainShopRewritePathname
+    if (effectiveRewrite) {
       const url = request.nextUrl.clone()
-      url.pathname = rewritePathname
+      url.pathname = effectiveRewrite
       return NextResponse.rewrite(url, init)
     }
     return NextResponse.next(init)
@@ -285,7 +290,7 @@ export async function middleware(request: NextRequest) {
   // harvested cookie to attack multiple shops.
   // On a shop subdomain the public path is "/", "/checkout", etc., so match against
   // the rewritten internal path ("/shop/<subdomain>/…") to bind the cookie correctly.
-  const effectivePath = rewritePathname ?? path
+  const effectivePath = rewritePathname ?? customDomainShopRewritePathname ?? path
   const shopMatch = effectivePath.match(/^\/shop\/([^/]+)/)
   if (shopMatch) {
     const slug = decodeURIComponent(shopMatch[1])
