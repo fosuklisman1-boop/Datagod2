@@ -111,4 +111,19 @@ describe("computePackagePriceUpdate — safeguards", () => {
     expect(result.old_price).toBe(20)
     expect(result.old_dealer_price).toBe(18)
   })
+
+  it("skips with non_finite_value instead of silently succeeding when value is NaN", () => {
+    const updates: BulkPriceUpdates = { price: { mode: "percentage", value: Number.NaN } }
+    const result = computePackagePriceUpdate(basePkg, updates)
+    expect(result.skip_reason).toBe("non_finite_value")
+  })
+
+  it("skips a price-only update as dealer_price_exceeds_price when the untouched dealer_price newly exceeds the lowered price", () => {
+    const pkg: PackagePriceInput = { ...basePkg, price: 20, dealer_price: 18 }
+    const updates: BulkPriceUpdates = { price: { mode: "percentage", value: -50 } } // 20 -> 10, dealer stays 18
+    const result = computePackagePriceUpdate(pkg, updates)
+    expect(result.new_price).toBe(10)
+    expect(result.new_dealer_price).toBe(18)
+    expect(result.skip_reason).toBe("dealer_price_exceeds_price")
+  })
 })

@@ -28,6 +28,7 @@ export type SkipReason =
   | "non_positive_price"
   | "non_positive_dealer_price"
   | "dealer_price_exceeds_price"
+  | "non_finite_value"
 
 export interface PackagePriceResult {
   id: string
@@ -49,10 +50,10 @@ function applyMode(mode: PriceMode, value: number, currentValue: number, sizeGb:
 
 /**
  * Computes the new price/dealer_price for one package given a bulk update
- * request. Never throws — an invalid result (<=0, or dealer > price) comes
- * back with a `skip_reason` instead, so the caller (UI preview or API route)
- * can decide what to do with it, and both sides make the same decision
- * because they call the same function.
+ * request. Never throws — an invalid result (non-finite, <=0, or dealer >
+ * price) comes back with a `skip_reason` instead, so the caller (UI preview
+ * or API route) can decide what to do with it, and both sides make the same
+ * decision because they call the same function.
  */
 export function computePackagePriceUpdate(
   pkg: PackagePriceInput,
@@ -74,7 +75,9 @@ export function computePackagePriceUpdate(
     : pkg.dealer_price
 
   let skip_reason: SkipReason | null = null
-  if (newPrice <= 0) {
+  if (!Number.isFinite(newPrice) || (newDealerPrice !== null && !Number.isFinite(newDealerPrice))) {
+    skip_reason = "non_finite_value"
+  } else if (newPrice <= 0) {
     skip_reason = "non_positive_price"
   } else if (newDealerPrice !== null && newDealerPrice <= 0) {
     skip_reason = "non_positive_dealer_price"
