@@ -112,6 +112,43 @@ export const adminPackageService = {
       throw error
     }
   },
+
+  // Bulk update price and/or dealer_price for many packages at once
+  async bulkUpdatePrices(
+    packageIds: string[],
+    updates: import("./bulk-package-pricing").BulkPriceUpdates
+  ) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        throw new Error("No authentication token available")
+      }
+
+      const response = await fetch("/api/admin/packages/bulk-update-price", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ packageIds, updates }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to bulk update prices")
+      }
+
+      return data as {
+        updated: import("./bulk-package-pricing").PackagePriceResult[]
+        skipped: import("./bulk-package-pricing").PackagePriceResult[]
+      }
+    } catch (error: any) {
+      console.error("Error bulk updating package prices:", error)
+      throw error
+    }
+  },
 }
 
 // Admin User Management
