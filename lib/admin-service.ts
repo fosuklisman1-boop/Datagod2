@@ -142,7 +142,10 @@ export const adminPackageService = {
 
       return data as {
         updated: import("./bulk-package-pricing").PackagePriceResult[]
-        skipped: import("./bulk-package-pricing").PackagePriceResult[]
+        skipped: (Omit<import("./bulk-package-pricing").PackagePriceResult, "skip_reason"> & {
+          skip_reason: import("./bulk-package-pricing").SkipReason | "write_failed"
+        })[]
+        not_found: string[]
       }
     } catch (error: any) {
       console.error("Error bulk updating package prices:", error)
