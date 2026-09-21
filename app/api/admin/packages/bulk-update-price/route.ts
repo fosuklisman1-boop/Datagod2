@@ -5,9 +5,22 @@ import {
   computePackagePriceUpdate,
   type BulkPriceUpdates,
   type PackagePriceInput,
+  type PackagePriceResult,
   type FieldUpdate,
   type PriceMode,
+  type SkipReason,
 } from "@/lib/bulk-package-pricing"
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// Route-level skip reason: everything computePackagePriceUpdate can report,
+// plus "write_failed" for a package that passed the pure calculation but
+// whose DB write itself errored. lib/bulk-package-pricing.ts doesn't need to
+// know about DB write failures — that's bookkeeping local to this route.
+type RouteSkipReason = SkipReason | "write_failed"
+interface SkippedResult extends Omit<PackagePriceResult, "skip_reason"> {
+  skip_reason: RouteSkipReason
+}
 
 // Loops one .update() per package — package catalogs are small (dozens, not
 // thousands) so this is simpler and safe without the multi-chunk machinery
@@ -60,6 +73,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "packageIds must be a non-empty array of strings" }, { status: 400 })
   }
 
+  if (!packageIds.every((id) => UUID_REGEX.test(id))) {
+    return NextResponse.json({ error: "packageIds must all be valid UUIDs" }, { status: 400 })
+  }
+
   if (!updates || typeof updates !== "object" || (!updates.price && !updates.dealer_price)) {
     return NextResponse.json({ error: "updates must include price and/or dealer_price" }, { status: 400 })
   }
@@ -90,21 +107,49 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Failed to fetch packages" }, { status: 500 })
   }
 
-  const results = rows.map((pkg) => computePackagePriceUpdate(pkg, safeUpdates))
-  const updated = results.filter((r) => r.skip_reason === null)
-  const skipped = results.filter((r) => r.skip_reason !== null)
+  const foundIds = new Set(rows.map((r) => r.id))
+  const not_found = packageIds.filter((id) => !foundIds.has(id))
 
-  await Promise.all(
-    updated.map((r) => {
+  const results = rows.map((pkg) => computePackagePriceUpdate(pkg, safeUpdates))
+  const passed = results.filter((r) => r.skip_reason === null)
+  const preSkipped: SkippedResult[] = results
+    .filter((r): r is PackagePriceResult & { skip_reason: SkipReason } => r.skip_reason !== null)
+    .map((r) => ({ ...r, skip_reason: r.skip_reason }))
+
+  // Capture each write's own result — a Promise.all that discards `error`
+  // would report a package as "updated" (and bake that into the audit log)
+  // even when its .update() failed (constraint violation, transient error,
+  // row deleted between SELECT and UPDATE, etc). Never trust "attempted" as
+  // "succeeded" for a bulk write; see lib/bulk-package-pricing.ts callers.
+  const writeResults = await Promise.all(
+    passed.map(async (r) => {
       const data: Record<string, number> = {}
       if (safeUpdates.price) data.price = r.new_price
       if (safeUpdates.dealer_price && r.new_dealer_price !== null) data.dealer_price = r.new_dealer_price
-      return adminClient.from("packages").update(data).eq("id", r.id)
+      const { error } = await adminClient.from("packages").update(data).eq("id", r.id)
+      return { result: r, error }
     })
   )
 
+  const updated = writeResults.filter((w) => !w.error).map((w) => w.result)
+  const failedWrites: SkippedResult[] = writeResults
+    .filter((w) => w.error)
+    .map((w) => ({ ...w.result, skip_reason: "write_failed" as const }))
+
+  if (failedWrites.length > 0) {
+    console.error(
+      "[BULK-PRICE-UPDATE] write failed for package(s):",
+      failedWrites.map((f) => f.id),
+      writeResults.filter((w) => w.error).map((w) => w.error?.message)
+    )
+  }
+
+  const skipped: SkippedResult[] = [...preSkipped, ...failedWrites]
+
   // Best-effort audit trail — never blocks the response on failure (same
   // fire-and-forget pattern as app/api/admin/update-balance/route.ts).
+  // Reflects the same corrected updated/skipped split as the HTTP response,
+  // never what was merely attempted.
   adminClient
     .from("admin_audit_log")
     .insert([
@@ -113,7 +158,7 @@ export async function POST(req: NextRequest) {
         action: "bulk_price_update",
         target_user_id: null,
         old_value: { package_ids: packageIds, updates: safeUpdates },
-        new_value: { updated, skipped },
+        new_value: { updated, skipped, not_found },
         created_at: new Date().toISOString(),
       },
     ])
@@ -121,5 +166,5 @@ export async function POST(req: NextRequest) {
       if (error) console.warn("[ADMIN-AUDIT] bulk_price_update log insert failed:", error.message)
     })
 
-  return NextResponse.json({ updated, skipped })
+  return NextResponse.json({ updated, skipped, not_found })
 }
