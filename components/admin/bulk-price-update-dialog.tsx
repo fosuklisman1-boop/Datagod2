@@ -16,6 +16,7 @@ import {
   type BulkPriceUpdates,
   type PriceMode,
   type PackagePriceResult,
+  type SkipReason,
 } from "@/lib/bulk-package-pricing"
 
 interface SelectedPackage {
@@ -33,10 +34,11 @@ interface BulkPriceUpdateDialogProps {
   onApplied: () => void
 }
 
-const SKIP_REASON_LABEL: Record<string, string> = {
+const SKIP_REASON_LABEL: Record<SkipReason | "write_failed", string> = {
   non_positive_price: "New price would be zero or negative",
   non_positive_dealer_price: "New dealer price would be zero or negative",
   dealer_price_exceeds_price: "New dealer price would exceed the new price",
+  non_finite_value: "Entered value is not a valid number",
   write_failed: "Database write failed — the price change may not have been saved",
 }
 
@@ -113,14 +115,14 @@ export function BulkPriceUpdateDialog({ open, onOpenChange, selectedPackages, on
   const validPreviewCount = preview?.filter((r) => r.skip_reason === null).length ?? 0
   const packageById = new Map(selectedPackages.map((p) => [p.id, p]))
 
+  const handleOpenChange = (next: boolean) => {
+    if (!next && applying) return
+    if (!next) reset()
+    onOpenChange(next)
+  }
+
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        if (!next) reset()
-        onOpenChange(next)
-      }}
-    >
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Bulk Update Prices</DialogTitle>
@@ -146,24 +148,38 @@ export function BulkPriceUpdateDialog({ open, onOpenChange, selectedPackages, on
                   <div key={r.id} className="p-2 rounded-lg text-xs border border-destructive/20 bg-destructive/5">
                     <span className="font-semibold">{packageById.get(r.id)?.network} {packageById.get(r.id)?.size}GB</span>
                     {" — "}
-                    {SKIP_REASON_LABEL[r.skip_reason ?? ""] ?? r.skip_reason}
+                    {SKIP_REASON_LABEL[r.skip_reason] ?? r.skip_reason}
                   </div>
                 ))}
               </div>
             )}
-            <Button onClick={() => onOpenChange(false)} className="w-full">Close</Button>
+            <Button onClick={() => handleOpenChange(false)} className="w-full">Close</Button>
           </div>
         ) : (
           <div className="space-y-4">
             {/* Price field */}
             <div className="border border-border rounded-lg p-3 space-y-3">
               <div className="flex items-center gap-2">
-                <Checkbox checked={updatePrice} onCheckedChange={(v) => setUpdatePrice(v === true)} />
-                <Label>Update user price</Label>
+                <Checkbox
+                  id="update-price-checkbox"
+                  checked={updatePrice}
+                  onCheckedChange={(v) => {
+                    setUpdatePrice(v === true)
+                    setPreview(null)
+                  }}
+                />
+                <Label htmlFor="update-price-checkbox">Update user price</Label>
               </div>
               {updatePrice && (
                 <div className="pl-6 space-y-2">
-                  <RadioGroup value={priceMode} onValueChange={(v) => setPriceMode(v as PriceMode)} className="flex gap-4">
+                  <RadioGroup
+                    value={priceMode}
+                    onValueChange={(v) => {
+                      setPriceMode(v as PriceMode)
+                      setPreview(null)
+                    }}
+                    className="flex gap-4"
+                  >
                     <div className="flex items-center gap-2">
                       <RadioGroupItem value="percentage" id="price-mode-pct" />
                       <Label htmlFor="price-mode-pct">Percentage adjustment</Label>
@@ -178,7 +194,10 @@ export function BulkPriceUpdateDialog({ open, onOpenChange, selectedPackages, on
                     step="0.01"
                     placeholder={priceMode === "percentage" ? "e.g. 10 or -5" : "e.g. 4.50"}
                     value={priceValue}
-                    onChange={(e) => setPriceValue(e.target.value)}
+                    onChange={(e) => {
+                      setPriceValue(e.target.value)
+                      setPreview(null)
+                    }}
                   />
                 </div>
               )}
@@ -187,12 +206,26 @@ export function BulkPriceUpdateDialog({ open, onOpenChange, selectedPackages, on
             {/* Dealer price field */}
             <div className="border border-border rounded-lg p-3 space-y-3">
               <div className="flex items-center gap-2">
-                <Checkbox checked={updateDealerPrice} onCheckedChange={(v) => setUpdateDealerPrice(v === true)} />
-                <Label>Update dealer price</Label>
+                <Checkbox
+                  id="update-dealer-price-checkbox"
+                  checked={updateDealerPrice}
+                  onCheckedChange={(v) => {
+                    setUpdateDealerPrice(v === true)
+                    setPreview(null)
+                  }}
+                />
+                <Label htmlFor="update-dealer-price-checkbox">Update dealer price</Label>
               </div>
               {updateDealerPrice && (
                 <div className="pl-6 space-y-2">
-                  <RadioGroup value={dealerMode} onValueChange={(v) => setDealerMode(v as PriceMode)} className="flex gap-4">
+                  <RadioGroup
+                    value={dealerMode}
+                    onValueChange={(v) => {
+                      setDealerMode(v as PriceMode)
+                      setPreview(null)
+                    }}
+                    className="flex gap-4"
+                  >
                     <div className="flex items-center gap-2">
                       <RadioGroupItem value="percentage" id="dealer-mode-pct" />
                       <Label htmlFor="dealer-mode-pct">Percentage adjustment</Label>
@@ -207,7 +240,10 @@ export function BulkPriceUpdateDialog({ open, onOpenChange, selectedPackages, on
                     step="0.01"
                     placeholder={dealerMode === "percentage" ? "e.g. 10 or -5" : "e.g. 4.00"}
                     value={dealerValue}
-                    onChange={(e) => setDealerValue(e.target.value)}
+                    onChange={(e) => {
+                      setDealerValue(e.target.value)
+                      setPreview(null)
+                    }}
                   />
                 </div>
               )}
@@ -252,14 +288,14 @@ export function BulkPriceUpdateDialog({ open, onOpenChange, selectedPackages, on
                 </div>
                 {preview.some((r) => r.skip_reason) && (
                   <p className="text-xs text-muted-foreground">
-                    Rows marked "skipped" will not be changed — hover reason shown in results after applying.
+                    Rows marked "skipped" will not be changed — reasons are shown after you apply.
                   </p>
                 )}
               </div>
             )}
 
             <DialogFooter>
-              <Button variant="outline" onClick={() => onOpenChange(false)} disabled={applying}>Cancel</Button>
+              <Button variant="outline" onClick={() => handleOpenChange(false)} disabled={applying}>Cancel</Button>
               <Button onClick={handleApply} disabled={!preview || validPreviewCount === 0 || applying}>
                 {applying ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Applying...</> : `Confirm & Apply (${validPreviewCount})`}
               </Button>
