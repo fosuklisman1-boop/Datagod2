@@ -69,6 +69,13 @@ describe("computePackagePriceUpdate — dealer_price handling", () => {
     expect(result.new_dealer_price).toBe(22) // 20 (price) * 1.1, not 0 * 1.1
   })
 
+  it("falls back to price as the dealer_price base when dealer_price is 0 (not just null)", () => {
+    const pkg: PackagePriceInput = { ...basePkg, dealer_price: 0 }
+    const updates: BulkPriceUpdates = { dealer_price: { mode: "percentage", value: 10 } }
+    const result = computePackagePriceUpdate(pkg, updates)
+    expect(result.new_dealer_price).toBe(22) // 20 (price) * 1.1, not 0 * 1.1
+  })
+
   it("can update both price and dealer_price in one call with different modes", () => {
     const updates: BulkPriceUpdates = {
       price: { mode: "per_gb", value: 5 },

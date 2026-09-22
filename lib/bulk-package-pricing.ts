@@ -69,7 +69,14 @@ export function computePackagePriceUpdate(
   // the rest of the app already treats a null dealer_price (see
   // lib/products-catalog.ts) — a dealer discount is meaningless without a
   // base to discount from.
-  const dealerBase = pkg.dealer_price ?? pkg.price
+  //
+  // Deliberately `||`, not `??`: the rest of the codebase treats
+  // dealer_price === 0 identically to null/undefined ("unset"), not as a
+  // real zero price (see lib/products-catalog.ts's `> 0` check). `??` would
+  // only fall through on null/undefined, leaving a stored 0 as the base —
+  // any percentage-mode update on it then computes 0 * (1 + pct/100) = 0
+  // and always trips the non_positive_dealer_price safeguard.
+  const dealerBase = pkg.dealer_price || pkg.price
   const newDealerPrice = updates.dealer_price
     ? round2(applyMode(updates.dealer_price.mode, updates.dealer_price.value, dealerBase, sizeGb))
     : pkg.dealer_price
