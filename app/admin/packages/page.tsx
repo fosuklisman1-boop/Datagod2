@@ -66,6 +66,11 @@ export default function AdminPackagesPage() {
     try {
       const data = await adminPackageService.getAllPackages()
       setPackages(data || [])
+      setSelectedIds((prev) => {
+        const validIds = new Set((data || []).map((p) => p.id))
+        const next = new Set([...prev].filter((id) => validIds.has(id)))
+        return next.size === prev.size ? prev : next
+      })
     } catch (error) {
       console.error("Error loading packages:", error)
       const errorMessage = error instanceof Error ? error.message : "Failed to load packages"
