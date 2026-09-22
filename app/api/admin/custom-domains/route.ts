@@ -32,9 +32,15 @@ function parseServices(raw: unknown): { services: DomainService[] } | { error: s
 async function validateLinkedShopId(raw: unknown): Promise<{ linkedShopId: string | null; linkedShopSubdomain: string | null } | { error: string }> {
   if (raw === undefined || raw === null || raw === "") return { linkedShopId: null, linkedShopSubdomain: null }
   if (typeof raw !== "string") return { error: "'linked_shop_id' must be a string or null" }
-  const { data, error } = await supabase.from("user_shops").select("id, subdomain").eq("id", raw).maybeSingle()
-  if (error) return { error: "Failed to validate linked_shop_id" }
+  const { data, error } = await supabase.from("user_shops").select("id, subdomain, is_active, is_blocked").eq("id", raw).maybeSingle()
+  if (error) {
+    console.error("[CUSTOM-DOMAINS] Failed to validate linked_shop_id:", error)
+    return { error: "Failed to validate linked_shop_id" }
+  }
   if (!data) return { error: `No shop found with id "${raw}"` }
+  if (!data.is_active || data.is_blocked) {
+    return { error: `Shop "${raw}" is not active and cannot be linked to a domain` }
+  }
   return { linkedShopId: raw, linkedShopSubdomain: data.subdomain }
 }
 
@@ -76,19 +82,25 @@ export async function POST(request: NextRequest) {
     if (!siteName) {
       return NextResponse.json({ error: "'site_name' is required" }, { status: 400 })
     }
-    const linkedShopResult = await validateLinkedShopId(body.linked_shop_id)
-    if ("error" in linkedShopResult) {
-      return NextResponse.json({ error: linkedShopResult.error }, { status: 400 })
-    }
-    const { linkedShopId, linkedShopSubdomain } = linkedShopResult
-    const showGuestPurchase = typeof body.show_guest_purchase === "boolean" ? body.show_guest_purchase : false
-    const showLandingPage = typeof body.show_landing_page === "boolean" ? body.show_landing_page : true
     if (isReservedDomainHost(domain, ROOT_DOMAIN)) {
       return NextResponse.json(
         { error: `"${domain}" collides with the main app's own domain routing and can't be used as a custom domain` },
         { status: 400 }
       )
     }
+    const linkedShopResult = await validateLinkedShopId(body.linked_shop_id)
+    if ("error" in linkedShopResult) {
+      return NextResponse.json({ error: linkedShopResult.error }, { status: 400 })
+    }
+    const { linkedShopId, linkedShopSubdomain } = linkedShopResult
+    if (body.show_guest_purchase !== undefined && typeof body.show_guest_purchase !== "boolean") {
+      return NextResponse.json({ error: "'show_guest_purchase' must be a boolean" }, { status: 400 })
+    }
+    if (body.show_landing_page !== undefined && typeof body.show_landing_page !== "boolean") {
+      return NextResponse.json({ error: "'show_landing_page' must be a boolean" }, { status: 400 })
+    }
+    const showGuestPurchase = body.show_guest_purchase === true
+    const showLandingPage = body.show_landing_page !== false
 
     const row = {
       domain, services, site_name: siteName, logo_url: logoUrl, primary_color: primaryColor, is_active: true,
@@ -171,16 +183,29 @@ export async function PATCH(request: NextRequest) {
 
     if (data.is_active) {
       let linkedShopSubdomain: string | null = null
+      let shopLookupFailed = false
       if (data.linked_shop_id) {
-        const { data: shopRow } = await supabase.from("user_shops").select("subdomain").eq("id", data.linked_shop_id).maybeSingle()
-        linkedShopSubdomain = shopRow?.subdomain ?? null
+        const { data: shopRow, error: shopLookupError } = await supabase.from("user_shops").select("subdomain").eq("id", data.linked_shop_id).maybeSingle()
+        if (shopLookupError) {
+          console.error("[CUSTOM-DOMAINS] PATCH: failed to resolve linked shop's subdomain for cache write:", shopLookupError)
+          shopLookupFailed = true
+        } else {
+          linkedShopSubdomain = shopRow?.subdomain ?? null
+        }
       }
-      await setCustomDomainCache({
-        domain: data.domain, services: data.services, site_name: data.site_name,
-        logo_url: data.logo_url, primary_color: data.primary_color, is_active: data.is_active,
-        linked_shop_subdomain: linkedShopSubdomain,
-        show_guest_purchase: data.show_guest_purchase, show_landing_page: data.show_landing_page,
-      })
+      if (shopLookupFailed) {
+        // Don't write a config we know may have the wrong linked_shop_subdomain —
+        // clear the cache instead so the next request re-resolves it fresh from
+        // Supabase, rather than caching a guessed value for up to 5 minutes.
+        await clearCustomDomainCache(data.domain)
+      } else {
+        await setCustomDomainCache({
+          domain: data.domain, services: data.services, site_name: data.site_name,
+          logo_url: data.logo_url, primary_color: data.primary_color, is_active: data.is_active,
+          linked_shop_subdomain: linkedShopSubdomain,
+          show_guest_purchase: data.show_guest_purchase, show_landing_page: data.show_landing_page,
+        })
+      }
     } else {
       await clearCustomDomainCache(data.domain)
     }

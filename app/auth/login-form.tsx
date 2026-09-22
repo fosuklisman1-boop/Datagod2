@@ -12,6 +12,7 @@ import { getAuthErrorMessage } from "@/lib/auth-errors"
 import { supabase } from "@/lib/supabase"
 import GuestPurchaseButton from "@/components/GuestPurchaseButton"
 import GoogleAuthButton from "@/components/GoogleAuthButton"
+import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 import { useCommunityLink } from "@/hooks/use-community-link"
 import { MessageCircle, Mail, Lock, Eye, EyeOff, Check } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -20,6 +21,7 @@ export default function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { communityLink, loading: communityLoading } = useCommunityLink()
+  const domainBranding = useDomainBranding()
   const [isLoading, setIsLoading] = useState(false)
   const [redirectTo, setRedirectTo] = useState("/dashboard")
   const [formData, setFormData] = useState({
@@ -205,9 +207,11 @@ export default function LoginForm() {
             <Link href="/auth/signup" className="font-medium text-primary hover:underline">Create an account</Link>
           </p>
 
-          <div className="mt-4">
-            <GuestPurchaseButton variant="secondary" className="w-full" />
-          </div>
+          {(!domainBranding.services || domainBranding.showGuestPurchase) && (
+            <div className="mt-4">
+              <GuestPurchaseButton variant="secondary" className="w-full" />
+            </div>
+          )}
 
           {communityLoading ? (
             <Skeleton className="mt-3 h-10 w-full rounded-md" />

@@ -119,10 +119,14 @@ export async function middleware(request: NextRequest) {
       ? await resolveCustomDomain(hostname)
       : null
 
-  // Shop mode: every path, including "/", rewrites into the linked shop's
-  // storefront — same guard conditions as the shop-subdomain rewrite above
-  // (excluding /shop/, /api, /_next, and any path with a file extension like
-  // /robots.txt or /sitemap.xml, which have no route under app/shop/[slug]/).
+  // Shop mode: every OTHER path, including "/", rewrites into the linked
+  // shop's storefront — same guard conditions as the shop-subdomain rewrite
+  // above (excluding /shop/, /api, /_next, any path with a file extension
+  // like /robots.txt or /sitemap.xml which have no route under
+  // app/shop/[slug]/, and /auth, /dashboard, /admin — the shared
+  // account-system routes, which have no shop-scoped equivalent and must
+  // keep rendering normally on this host rather than 404ing via a rewrite
+  // into a nonexistent /shop/<sub>/auth/... path).
   // This does NOT return early — like the shop-subdomain rewrite, it flows
   // through the rest of the pipeline below so shop-mode pages still get CSP
   // headers, the nonce, and __shop_sess.
@@ -131,6 +135,9 @@ export async function middleware(request: NextRequest) {
     !path.startsWith("/shop/") &&
     !path.startsWith("/api") &&
     !path.startsWith("/_next") &&
+    !path.startsWith("/auth") &&
+    !path.startsWith("/dashboard") &&
+    !path.startsWith("/admin") &&
     !PUBLIC_FILE.test(path)
       ? `/shop/${customDomainConfig.linked_shop_subdomain}${path === "/" ? "" : path}`
       : null

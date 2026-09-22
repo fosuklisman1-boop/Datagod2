@@ -350,7 +350,7 @@ export default function CustomDomainsPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Domain</TableHead>
-                    <TableHead>Services</TableHead>
+                    <TableHead>Services / Shop</TableHead>
                     <TableHead>Site Name</TableHead>
                     <TableHead>Active</TableHead>
                     <TableHead className="text-right">Actions</TableHead>

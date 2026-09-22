@@ -142,7 +142,7 @@ describe("POST /api/admin/custom-domains", () => {
   it("accepts a valid linked_shop_id, defaults show_guest_purchase/show_landing_page, and caches the shop's subdomain", async () => {
     fromMock.mockImplementation((table: string) =>
       table === "user_shops"
-        ? makeBuilder({ data: { id: "11111111-1111-1111-1111-111111111111", subdomain: "myshop" }, error: null })
+        ? makeBuilder({ data: { id: "11111111-1111-1111-1111-111111111111", subdomain: "myshop", is_active: true, is_blocked: false }, error: null })
         : makeBuilder({
             data: { id: "1", domain: "checkresults.com", services: ["data_bundles"], site_name: "X", logo_url: null, primary_color: null, is_active: true, linked_shop_id: "11111111-1111-1111-1111-111111111111", show_guest_purchase: false, show_landing_page: true },
             error: null,

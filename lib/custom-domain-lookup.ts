@@ -64,7 +64,24 @@ async function lookupExact(host: string): Promise<LookupResult> {
     try {
       const cached = await redis.get<CustomDomainConfig | typeof NOT_FOUND_MARKER>(cacheKey(host))
       if (cached === NOT_FOUND_MARKER) return { kind: "not_found", fromNegativeCache: true }
-      if (cached) return { kind: "found", config: cached }
+      if (cached) {
+        // A cache entry written by pre-this-feature code has no
+        // show_guest_purchase/show_landing_page/linked_shop_subdomain keys.
+        // Without this normalization, show_landing_page reads as `undefined`
+        // (falsy) here, and middleware treats that identically to an explicit
+        // `false` — silently redirecting every already-cached domain's
+        // homepage to /auth/login for up to CACHE_TTL_SECONDS after this
+        // feature deploys. Normalize on read so a stale entry behaves exactly
+        // like it did before this feature existed, until it naturally expires
+        // or is refreshed by an admin save.
+        const normalized: CustomDomainConfig = {
+          ...cached,
+          linked_shop_subdomain: cached.linked_shop_subdomain ?? null,
+          show_guest_purchase: cached.show_guest_purchase ?? false,
+          show_landing_page: cached.show_landing_page ?? true,
+        }
+        return { kind: "found", config: normalized }
+      }
     } catch (e) {
       console.error("[CUSTOM-DOMAIN-LOOKUP] Redis read failed, falling back to Supabase:", e instanceof Error ? e.message : e)
     }

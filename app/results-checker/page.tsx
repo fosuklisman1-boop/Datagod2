@@ -1,4 +1,5 @@
 import type { Metadata } from "next"
+import { headers } from "next/headers"
 import Link from "next/link"
 import { FileCheck2, Search, Zap, ArrowRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -54,6 +55,9 @@ async function getBoardPricing() {
 
 export default async function ResultsCheckerPage() {
   const { serviceEnabled, boards } = await getBoardPricing()
+  const headersList = await headers()
+  const isCustomDomain = !!headersList.get("x-domain-services")
+  const showGuestPurchase = headersList.get("x-domain-guest-purchase") === "1"
 
   return (
     <div className="min-h-screen bg-background">
@@ -69,7 +73,9 @@ export default async function ResultsCheckerPage() {
             Buy a voucher PIN instantly, or if you don't have one, let DATAGOD check your results for you.
           </p>
           <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
-            <GuestPurchaseButton variant="primary" className="w-full sm:w-auto" />
+            {(!isCustomDomain || showGuestPurchase) && (
+              <GuestPurchaseButton variant="primary" className="w-full sm:w-auto" />
+            )}
             <Link href="/vouchers">
               <Button size="lg" variant="outline" className="gap-2 w-full sm:w-auto">
                 Retrieve a voucher <ArrowRight className="w-4 h-4" />
