@@ -63,8 +63,18 @@ export default function CustomDomainsPage() {
   const [shops, setShops] = useState<ShopOption[]>([])
 
   const loadShops = async () => {
-    const { data } = await supabase.from("user_shops").select("id, shop_name, subdomain").order("shop_name")
-    setShops(data || [])
+    try {
+      const res = await fetch("/api/admin/shops?status=active&limit=1000", { headers: await authHeader() })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.error || "Failed to load shops")
+      const list: ShopOption[] = (body.data || []).map((s: { id: string; shop_name: string; subdomain: string }) => ({
+        id: s.id, shop_name: s.shop_name, subdomain: s.subdomain,
+      }))
+      setShops(list.sort((a, b) => a.shop_name.localeCompare(b.shop_name)))
+    } catch (e) {
+      console.error("Failed to load shops for picker:", e)
+      toast.error(e instanceof Error ? e.message : "Failed to load shops")
+    }
   }
 
   const authHeader = async () => {
