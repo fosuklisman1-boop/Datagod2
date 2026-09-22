@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { shopHandleOrFilter } from "@/lib/shop-handle"
+import { normalizeWhatsAppLink } from "@/lib/whatsapp-link"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -134,6 +135,17 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       }
     }
 
+    // Store a normalized, always-absolute URL — a bare phone number or a
+    // malformed scheme (e.g. "0598781315", "https.wa.me 0249489229") saved
+    // as-is would later be rendered as an <a href>, get resolved by the
+    // browser as a RELATIVE path under the storefront's own /shop/[slug]
+    // route, and break as "shop not found" (confirmed live on ~half of all
+    // shops before this fix — see lib/whatsapp-link.ts).
+    const normalizedWhatsappLink =
+      whatsapp_link !== undefined && whatsapp_link !== null
+        ? normalizeWhatsAppLink(whatsapp_link) ?? ""
+        : whatsapp_link
+
     if (announcement_title !== undefined && typeof announcement_title === "string" && announcement_title.length > 200) {
       return NextResponse.json({ error: "announcement_title must be 200 characters or fewer" }, { status: 400 })
     }
@@ -156,7 +168,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       const { data, error } = await supabase
         .from("shop_settings")
         .update({
-          whatsapp_link: whatsapp_link !== undefined ? whatsapp_link : existingSettings?.whatsapp_link,
+          whatsapp_link: whatsapp_link !== undefined ? normalizedWhatsappLink : existingSettings?.whatsapp_link,
           announcement_enabled: announcement_enabled !== undefined ? announcement_enabled : existingSettings?.announcement_enabled,
           announcement_title: announcement_title !== undefined ? announcement_title : existingSettings?.announcement_title,
           announcement_message: announcement_message !== undefined ? announcement_message : existingSettings?.announcement_message,
@@ -178,7 +190,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         .insert([
           {
             shop_id: shopId,
-            whatsapp_link: whatsapp_link || "",
+            whatsapp_link: normalizedWhatsappLink || "",
             announcement_enabled: announcement_enabled || false,
             announcement_title: announcement_title || "",
             announcement_message: announcement_message || "",

@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { shopOrderService } from "@/lib/shop-service"
 import { useShopBasePath } from "@/lib/shop-url"
+import { normalizeWhatsAppLink } from "@/lib/whatsapp-link"
 import { CheckCircle, Copy, ArrowRight, MessageCircle } from "lucide-react"
 import Link from "next/link"
 import { toast } from "sonner"
@@ -202,9 +203,9 @@ export default function OrderConfirmation() {
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
             <p>If you encounter any issues with your order, contact <strong>{shopName ?? "the shop"}</strong>:</p>
-            {shopWhatsapp ? (
+            {normalizeWhatsAppLink(shopWhatsapp) ? (
               <a
-                href={shopWhatsapp.startsWith("http") ? shopWhatsapp : `https://wa.me/${shopWhatsapp.replace(/\D/g, "")}`}
+                href={normalizeWhatsAppLink(shopWhatsapp)!}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="mt-2 inline-flex items-center gap-2 font-semibold text-success hover:text-success/80"

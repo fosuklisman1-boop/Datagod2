@@ -16,6 +16,7 @@ import { supabase } from "@/lib/supabase"
 import { useShopSettings } from "@/hooks/use-shop-settings"
 import { validatePhoneNumber } from "@/lib/phone-validation"
 import { DEFAULT_NETWORK_PREFIXES, type NetworkPrefixMap } from "@/lib/phone-format"
+import { normalizeWhatsAppLink } from "@/lib/whatsapp-link"
 import { redirectToPayment } from "@/lib/payment-redirect"
 import { useResendCooldown } from "@/lib/use-resend-cooldown"
 import {
@@ -862,9 +863,9 @@ export default function ShopStorefront() {
         <div className="py-8 mb-8 text-center px-2">
           <p className="text-muted-foreground break-words text-sm sm:text-base md:text-lg">{shop.description || "Welcome to our store"}</p>
           <div className="flex flex-wrap gap-3 mt-4 justify-center">
-            {shopSettings?.whatsapp_link && (
+            {normalizeWhatsAppLink(shopSettings?.whatsapp_link) && (
               <a
-                href={shopSettings.whatsapp_link}
+                href={normalizeWhatsAppLink(shopSettings?.whatsapp_link)!}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-4 py-2 bg-success hover:bg-success/90 text-primary-foreground rounded-lg font-semibold transition-colors"
@@ -1493,9 +1494,9 @@ export default function ShopStorefront() {
 
       {/* Floating WhatsApp Icon */}
       {
-        shopSettings?.whatsapp_link && (
+        normalizeWhatsAppLink(shopSettings?.whatsapp_link) && (
           <a
-            href={shopSettings.whatsapp_link}
+            href={normalizeWhatsAppLink(shopSettings?.whatsapp_link)!}
             target="_blank"
             rel="noopener noreferrer"
             className="fixed bottom-24 right-6 p-4 bg-green-500 hover:bg-green-600 text-white rounded-full shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-110 z-50 flex items-center justify-center"
