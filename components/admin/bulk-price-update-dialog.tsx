@@ -54,6 +54,9 @@ export function BulkPriceUpdateDialog({ open, onOpenChange, selectedPackages, on
   const [preview, setPreview] = useState<PackagePriceResult[] | null>(null)
   const [applying, setApplying] = useState(false)
   const [results, setResults] = useState<Awaited<ReturnType<typeof adminPackageService.bulkUpdatePrices>> | null>(null)
+  // Snapshot of selectedPackages taken at the moment apply succeeds, so the
+  // results view can still label packages after the parent clears selection.
+  const [resultsPackages, setResultsPackages] = useState<SelectedPackage[]>([])
 
   const reset = () => {
     setUpdatePrice(true)
@@ -64,6 +67,7 @@ export function BulkPriceUpdateDialog({ open, onOpenChange, selectedPackages, on
     setDealerValue("")
     setPreview(null)
     setResults(null)
+    setResultsPackages([])
   }
 
   const buildUpdates = (): BulkPriceUpdates | null => {
@@ -103,6 +107,10 @@ export function BulkPriceUpdateDialog({ open, onOpenChange, selectedPackages, on
     setApplying(true)
     try {
       const data = await adminPackageService.bulkUpdatePrices(selectedPackages.map((p) => p.id), updates)
+      // Snapshot BEFORE onApplied() — the parent's onApplied deselects
+      // packages in the same React batch that makes the results view render,
+      // so the live selectedPackages prop can't be trusted for labels below.
+      setResultsPackages(selectedPackages)
       setResults(data)
       onApplied()
     } catch (error: any) {
@@ -114,6 +122,9 @@ export function BulkPriceUpdateDialog({ open, onOpenChange, selectedPackages, on
 
   const validPreviewCount = preview?.filter((r) => r.skip_reason === null).length ?? 0
   const packageById = new Map(selectedPackages.map((p) => [p.id, p]))
+  // Results view must use the snapshot, not the live selectedPackages prop —
+  // by the time it renders, the parent may have already cleared selection.
+  const resultsPackageById = new Map(resultsPackages.map((p) => [p.id, p]))
 
   const handleOpenChange = (next: boolean) => {
     if (!next && applying) return
@@ -146,7 +157,7 @@ export function BulkPriceUpdateDialog({ open, onOpenChange, selectedPackages, on
               <div className="space-y-2">
                 {results.skipped.map((r) => (
                   <div key={r.id} className="p-2 rounded-lg text-xs border border-destructive/20 bg-destructive/5">
-                    <span className="font-semibold">{packageById.get(r.id)?.network} {packageById.get(r.id)?.size}GB</span>
+                    <span className="font-semibold">{resultsPackageById.get(r.id)?.network} {resultsPackageById.get(r.id)?.size}GB</span>
                     {" — "}
                     {SKIP_REASON_LABEL[r.skip_reason] ?? r.skip_reason}
                   </div>
