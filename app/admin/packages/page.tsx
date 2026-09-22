@@ -12,6 +12,8 @@ import { adminPackageService } from "@/lib/admin-service"
 import { supabase } from "@/lib/supabase"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { toast } from "sonner"
+import { Checkbox } from "@/components/ui/checkbox"
+import { BulkPriceUpdateDialog } from "@/components/admin/bulk-price-update-dialog"
 
 // Format large numbers with K/M suffix
 const formatCount = (num: number): string => {
@@ -35,12 +37,7 @@ interface Package {
   created_at?: string
 }
 
-const AVAILABLE_NETWORKS = [
-  "MTN",
-  "Telecel",
-  "AT - iShare",
-  "AT - BigTime",
-]
+const AVAILABLE_NETWORKS = ["MTN", "AirtelTigo", "Telecel"]
 
 export default function AdminPackagesPage() {
   const { isAdmin } = useAdminProtected()
@@ -57,6 +54,9 @@ export default function AdminPackagesPage() {
     dealer_price: "",
     description: "",
   })
+  const [networkFilter, setNetworkFilter] = useState<string>("all")
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [showBulkDialog, setShowBulkDialog] = useState(false)
 
   useEffect(() => {
     if (isAdmin) loadPackages()
@@ -66,6 +66,11 @@ export default function AdminPackagesPage() {
     try {
       const data = await adminPackageService.getAllPackages()
       setPackages(data || [])
+      setSelectedIds((prev) => {
+        const validIds = new Set((data || []).map((p) => p.id))
+        const next = new Set([...prev].filter((id) => validIds.has(id)))
+        return next.size === prev.size ? prev : next
+      })
     } catch (error) {
       console.error("Error loading packages:", error)
       const errorMessage = error instanceof Error ? error.message : "Failed to load packages"
@@ -74,6 +79,26 @@ export default function AdminPackagesPage() {
       setLoading(false)
     }
   }
+
+  const filteredPackages = networkFilter === "all"
+    ? packages
+    : packages.filter((p) => p.network === networkFilter)
+
+  const toggleSelection = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const selectAllVisible = () => setSelectedIds(new Set(filteredPackages.map((p) => p.id)))
+  const deselectAll = () => setSelectedIds(new Set())
+
+  useEffect(() => {
+    setSelectedIds(new Set())
+  }, [networkFilter])
 
   const handleSubmit = async () => {
     if (!formData.network || !formData.size || !formData.price) {
@@ -202,6 +227,50 @@ export default function AdminPackagesPage() {
           </Button>
         </div>
 
+        {/* Network Filter */}
+        <div className="flex flex-wrap gap-2">
+          {["all", ...AVAILABLE_NETWORKS].map((net) => (
+            <Button
+              key={net}
+              size="sm"
+              variant={networkFilter === net ? "default" : "outline"}
+              onClick={() => setNetworkFilter(net)}
+              className={networkFilter === net ? "bg-primary hover:bg-primary" : ""}
+            >
+              {net === "all" ? "All Networks" : net}
+            </Button>
+          ))}
+        </div>
+
+        {/* Bulk Action Toolbar */}
+        {filteredPackages.length > 0 && (
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={selectedIds.size === filteredPackages.length ? deselectAll : selectAllVisible}
+              className="text-xs border-border"
+            >
+              {selectedIds.size === filteredPackages.length ? "Deselect All" : `Select All (${filteredPackages.length})`}
+            </Button>
+            {selectedIds.size > 0 && (
+              <div className="flex items-center gap-2 p-2 bg-primary/5 border border-primary/20 rounded-lg">
+                <span className="text-xs font-medium text-foreground">{selectedIds.size} selected</span>
+                <Button
+                  size="sm"
+                  onClick={() => setShowBulkDialog(true)}
+                  className="h-7 px-3 text-xs bg-primary hover:bg-primary/90 text-primary-foreground"
+                >
+                  Bulk Update Prices
+                </Button>
+                <Button size="sm" variant="ghost" onClick={deselectAll} className="h-7 px-2 text-xs text-muted-foreground">
+                  ✕ Clear
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Add/Edit Form */}
         {showForm && (
           <Card className="border-2 border-border bg-card backdrop-blur-xl">
@@ -317,6 +386,7 @@ export default function AdminPackagesPage() {
               <table className="w-full">
                 <thead className="bg-card backdrop-blur border-b border-primary/20">
                   <tr>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-foreground w-10"></th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Network</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Size</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Price</th>
@@ -327,8 +397,14 @@ export default function AdminPackagesPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-blue-100/40">
-                  {packages.map((pkg) => (
+                  {filteredPackages.map((pkg) => (
                     <tr key={pkg.id} className="hover:bg-primary/10 backdrop-blur transition-colors">
+                      <td className="px-6 py-4">
+                        <Checkbox
+                          checked={selectedIds.has(pkg.id)}
+                          onCheckedChange={() => toggleSelection(pkg.id)}
+                        />
+                      </td>
                       <td className="px-6 py-4 font-medium text-foreground">{pkg.network}</td>
                       <td className="px-6 py-4 text-foreground">{pkg.size}</td>
                       <td className="px-6 py-4 font-semibold text-primary">GHS {(pkg.price || 0).toFixed(2)}</td>
@@ -377,6 +453,16 @@ export default function AdminPackagesPage() {
             </div>
           </CardContent>
         </Card>
+
+        <BulkPriceUpdateDialog
+          open={showBulkDialog}
+          onOpenChange={setShowBulkDialog}
+          selectedPackages={packages.filter((p) => selectedIds.has(p.id))}
+          onApplied={() => {
+            deselectAll()
+            loadPackages()
+          }}
+        />
       </div>
     </DashboardLayout>
   )
