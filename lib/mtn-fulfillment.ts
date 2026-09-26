@@ -1238,7 +1238,9 @@ export async function updateDataKazinaOrderFromPayload(
 
     if (["completed", "success", "successful", "delivered", "done"].includes(apiStatus)) {
       newStatus = "completed"
-    } else if (["failed", "error", "cancelled", "rejected"].includes(apiStatus)) {
+    } else if (["failed", "error", "cancelled", "rejected", "waiting"].includes(apiStatus)) {
+      // "waiting" reads like an in-flight state but DataKazina uses it to mean
+      // the order failed — confirmed directly by DataKazina.
       newStatus = "failed"
     } else if (["processing", "in_progress", "queued", "pending_delivery"].includes(apiStatus)) {
       newStatus = "processing"
