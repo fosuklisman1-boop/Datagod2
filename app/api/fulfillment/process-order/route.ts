@@ -349,35 +349,28 @@ async function handleMTNAutoFulfillment(
         }).catch(() => {})
       }).catch(() => {})
 
-      // Send error Email
+      // Notify admins by email too (SMS + push already sent above). This is an
+      // internal diagnostic alert (raw mtnResponse.message, "View in Admin"
+      // button) — it must never go to the customer: the order isn't actually
+      // failed yet, just reset to "pending" for the automatic retry loop, and
+      // the customer already isn't notified via the SMS/push above for the
+      // same reason. A customer-facing "Order Failed" email only belongs on a
+      // genuinely terminal outcome, sent by the webhook/cron path once retries
+      // are exhausted — not here, and never with the raw provider message.
       try {
-        const { data: so } = await supabase.from('shop_orders').select('customer_email').eq('id', shopOrderId).single();
-        if (so?.customer_email) {
-          import("@/lib/email-service").then(({ sendEmail, EmailTemplates, notifyAdmins }) => {
-            const payload = EmailTemplates.fulfillmentFailed(
-              shopOrderId.substring(0, 8),
-              phoneNumber,
-              network,
-              volumeGb.toString(),
-              mtnResponse.message || "Order could not be processed"
-            );
-
-            // Send to customer
-            sendEmail({
-              to: [{ email: so.customer_email, name: customerName || "Customer" }],
-              subject: payload.subject,
-              htmlContent: payload.html,
-              referenceId: shopOrderId,
-              type: 'fulfillment_failed'
-            }).catch(err => console.error("[FULFILLMENT] Failed to send error Email:", err));
-
-            // Notify admins
-            notifyAdmins(payload.subject, payload.html)
-              .catch(err => console.error("[FULFILLMENT] Failed to notify admins:", err));
-          });
-        }
+        import("@/lib/email-service").then(({ EmailTemplates, notifyAdmins }) => {
+          const payload = EmailTemplates.fulfillmentFailed(
+            shopOrderId.substring(0, 8),
+            phoneNumber,
+            network,
+            volumeGb.toString(),
+            mtnResponse.message || "Order could not be processed"
+          );
+          notifyAdmins(payload.subject, payload.html)
+            .catch(err => console.error("[FULFILLMENT] Failed to notify admins:", err));
+        });
       } catch (emailError) {
-        console.error("[FULFILLMENT] Error preparing error Email:", emailError);
+        console.error("[FULFILLMENT] Error preparing admin alert email:", emailError);
       }
 
       return NextResponse.json(
