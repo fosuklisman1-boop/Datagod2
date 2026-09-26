@@ -27,7 +27,7 @@ vi.mock("@/lib/supabase", () => ({
   },
 }))
 
-import { mapNetworkToBundlePortal, mapBundlePortalStatus, isRetryableErrorCode, getActiveMtnRoute, BundlePortalProvider } from "./bundleportal-provider"
+import { mapNetworkToBundlePortal, mapBundlePortalStatus, isRetryableErrorCode, extractRetryAfterSeconds, getActiveMtnRoute, BundlePortalProvider } from "./bundleportal-provider"
 
 beforeEach(() => {
   fakeSettings.current = { bundleportal_mtn_route: { route: "mtn_2" } }
@@ -81,6 +81,22 @@ describe("isRetryableErrorCode", () => {
     expect(isRetryableErrorCode("unknown_bundle")).toBe(false)
     expect(isRetryableErrorCode("not_allowlisted")).toBe(false)
     expect(isRetryableErrorCode(undefined)).toBe(false)
+  })
+})
+
+describe("extractRetryAfterSeconds", () => {
+  it("prefers the Retry-After header when present and numeric", () => {
+    expect(extractRetryAfterSeconds("30", 45)).toBe(30)
+  })
+  it("falls back to the JSON body's retry_after when the header is absent", () => {
+    expect(extractRetryAfterSeconds(null, 45)).toBe(45)
+  })
+  it("falls back to the JSON body when the header is present but not numeric", () => {
+    expect(extractRetryAfterSeconds("not-a-number", 45)).toBe(45)
+  })
+  it("returns null when neither signal is available", () => {
+    expect(extractRetryAfterSeconds(null, undefined)).toBeNull()
+    expect(extractRetryAfterSeconds(null, "not-a-number")).toBeNull()
   })
 })
 

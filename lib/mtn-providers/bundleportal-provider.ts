@@ -71,6 +71,26 @@ export function isRetryableErrorCode(code: string | undefined): boolean {
   return code === "pending_order" || code === "network_locked" || code === "rate_limit" || code === "read_rate_limited" || code === "server_error" || code === "order_capacity_busy" || code === "balance_changed"
 }
 
+/**
+ * Extract Bundle Portal's documented 429 retry-after signal. Per their docs,
+ * a 429 always carries both a `Retry-After` header and a `retry_after`
+ * field in the JSON body — the header is the standard HTTP mechanism, so it
+ * wins if both are present; the body field is a fallback for a caller that
+ * only has the parsed JSON (no access to response headers).
+ */
+export function extractRetryAfterSeconds(headerValue: string | null, jsonRetryAfter: unknown): number | null {
+  if (headerValue != null) {
+    const fromHeader = Number(headerValue)
+    if (!Number.isNaN(fromHeader)) return fromHeader
+  }
+  return typeof jsonRetryAfter === "number" ? jsonRetryAfter : null
+}
+
+/** Appends a "(retry after Ns)" suffix to a message when a 429 retry-after value is known. */
+function withRetryAfterSuffix(message: string, retryAfterSeconds: number | null): string {
+  return retryAfterSeconds != null ? `${message} (retry after ${retryAfterSeconds}s)` : message
+}
+
 // ── Provider class ───────────────────────────────────────────────────────────
 
 export class BundlePortalProvider implements MTNProvider {
@@ -117,7 +137,9 @@ export class BundlePortalProvider implements MTNProvider {
 
     if (json.success !== true) {
       const errorType = isRetryableErrorCode(json.code) ? "RETRYABLE" : "API_ERROR"
-      return { success: false, message: json.message ?? `API error (status ${res.status})`, error_type: errorType }
+      const baseMessage = json.message ?? `API error (status ${res.status})`
+      const retryAfter = res.status === 429 ? extractRetryAfterSeconds(res.headers.get("retry-after"), json.retry_after) : null
+      return { success: false, message: withRetryAfterSuffix(baseMessage, retryAfter), error_type: errorType }
     }
 
     // json.data.duplicate === true means this order_id was already submitted —
@@ -161,7 +183,17 @@ export class BundlePortalProvider implements MTNProvider {
 
   async verifyNumber(phone: string, network: string): Promise<any> {
     const res = await apiCall({ action: "verify_number", network, recipient: normalizePhoneNumber(phone) })
-    if (!res.ok) throw new Error(`Bundle Portal verify_number API error ${res.status}`)
+    if (!res.ok) {
+      if (res.status === 429) {
+        // Reads (verify_number, get_bundles, check_balance) have their own
+        // separate rate-limit allowance from order placement, per the docs.
+        let json: any = null
+        try { json = await res.json() } catch { /* body may be absent/non-JSON */ }
+        const retryAfter = extractRetryAfterSeconds(res.headers.get("retry-after"), json?.retry_after)
+        throw new Error(withRetryAfterSuffix("Bundle Portal verify_number read-rate-limited", retryAfter))
+      }
+      throw new Error(`Bundle Portal verify_number API error ${res.status}`)
+    }
     return res.json()
   }
 
