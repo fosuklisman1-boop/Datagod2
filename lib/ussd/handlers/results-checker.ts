@@ -21,6 +21,7 @@ import {
   isExamBoardEnabled, getAvailableCount, getMaxQuantity, calculateRCPrice,
   purchaseResultsCheckerVouchers, getRCBulkHint, type ExamBoard,
 } from "../../results-checker-service"
+import { getUssdServiceVisibility } from "../../ussd-service-visibility"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -54,7 +55,13 @@ export async function handleRcSelectBoard(
 ): Promise<UzoResponse> {
   if (input.trim() === "0") {
     await setSession(sessionId, { step: "MAIN", dialingPhone: session.dialingPhone })
-    return cont(mainMenu())
+    const visibility = await getUssdServiceVisibility(supabase)
+    return cont(mainMenu({
+      data: visibility.data,
+      afa: visibility.afa,
+      airtime: visibility.airtime,
+      resultsChecker: visibility.resultsChecker,
+    }))
   }
 
   const options = session.rcBoardOptions ?? []
@@ -348,9 +355,16 @@ export async function handleRcMenu(
       await setSession(sessionId, { ...session, step: 'RC_CHECK_BOARD', rcCheckChannel: 'ussd' })
       return cont(rcCheckBoardMenu())
     }
-    case '0':
+    case '0': {
       await setSession(sessionId, { step: 'MAIN', dialingPhone: session.dialingPhone })
-      return cont(mainMenu())
+      const visibility = await getUssdServiceVisibility(supabase)
+      return cont(mainMenu({
+        data: visibility.data,
+        afa: visibility.afa,
+        airtime: visibility.airtime,
+        resultsChecker: visibility.resultsChecker,
+      }))
+    }
     default:
       return cont(rcMenu())
   }

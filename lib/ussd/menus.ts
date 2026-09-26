@@ -1,4 +1,5 @@
 import { UzoResponse, BundleOption } from "./types"
+import { MenuItemDef, resolveMenuItems, renderMenuText } from "./menu-items"
 
 const PAGE_SIZE = 5
 const SCREEN_LIMIT = 160 // safe character limit per USSD screen
@@ -15,11 +16,36 @@ function truncate(msg: string): string {
   return msg.length > SCREEN_LIMIT ? msg.slice(0, SCREEN_LIMIT - 3) + '...' : msg
 }
 
-export function mainMenu(showData = true): string {
-  if (showData) {
-    return 'Welcome to Datagod\n1. Buy Data Bundle\n2. AFA Registration\n3. Buy Airtime\n4. Results Checker\n0. Exit'
-  }
-  return 'Welcome to Datagod\n1. AFA Registration\n2. Buy Airtime\n3. Results Checker\n0. Exit'
+// ── Main menu ─────────────────────────────────────────────────────────────────
+// Numbering is derived from resolveMenuItems() — the render side (mainMenu)
+// and the parse side (handleMain's keyForDigit call) both call resolveMainMenu()
+// with the same visibility input, so they can never drift out of sync. See
+// lib/ussd/menu-items.ts for why hand-numbering a second switch is unsafe here.
+
+export type MainMenuKey = "data" | "afa" | "airtime" | "resultsChecker"
+
+const MAIN_MENU_ITEMS: MenuItemDef<MainMenuKey>[] = [
+  { key: "data", label: "Buy Data Bundle" },
+  { key: "afa", label: "AFA Registration" },
+  { key: "airtime", label: "Buy Airtime" },
+  { key: "resultsChecker", label: "Results Checker" },
+]
+
+export function resolveMainMenu(visible: Partial<Record<MainMenuKey, boolean>> = {}) {
+  const full: Record<MainMenuKey, boolean> = { data: true, afa: true, airtime: true, resultsChecker: true, ...visible }
+  return resolveMenuItems(MAIN_MENU_ITEMS, full)
+}
+
+/**
+ * Renders the main menu. `visible` defaults to `{}`, which resolves every
+ * key to true — so `mainMenu()` with no arguments is IDENTICAL to today's
+ * full 4-item menu. This is required for backward compatibility: the
+ * WhatsApp bot (lib/whatsapp-bot/router.ts, out of scope for this feature)
+ * and the AI ordering tool (lib/ai-tools.ts) both call `mainMenu()` with no
+ * arguments and must keep seeing the unabridged menu.
+ */
+export function mainMenu(visible: Partial<Record<MainMenuKey, boolean>> = {}): string {
+  return renderMenuText("Welcome to Datagod", resolveMainMenu(visible), "0. Exit")
 }
 
 // ── Airtime ───────────────────────────────────────────────────────────────────

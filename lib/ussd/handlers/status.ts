@@ -3,6 +3,7 @@ import { UzoResponse, USSDSession } from "../types"
 import { cont, end } from "../menus"
 import { setSession, deleteSession } from "../session"
 import { mainMenu } from "../menus"
+import { getUssdServiceVisibility } from "../../ussd-service-visibility"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -16,7 +17,13 @@ export async function handleStatus(
 ): Promise<UzoResponse> {
   if (input.trim() === '0') {
     await setSession(sessionId, { step: 'MAIN', dialingPhone: session.dialingPhone })
-    return cont(mainMenu())
+    const visibility = await getUssdServiceVisibility(supabase)
+    return cont(mainMenu({
+      data: visibility.data,
+      afa: visibility.afa,
+      airtime: visibility.airtime,
+      resultsChecker: visibility.resultsChecker,
+    }))
   }
 
   const orderId = input.trim()

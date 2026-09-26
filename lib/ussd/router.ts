@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js"
 import { UzoRequest, UzoResponse } from "./types"
 import { getSession, setSession, deleteSession } from "./session"
 import { cont, end, mainMenu } from "./menus"
+import { getUssdServiceVisibility } from "../ussd-service-visibility"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -89,7 +90,13 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
     }
 
     await setSession(sessionID, { step: 'MAIN', dialingPhone: msisdn, dataBlocked })
-    return cont(mainMenu(!dataBlocked))
+    const visibility = await getUssdServiceVisibility(supabase)
+    return cont(mainMenu({
+      data: !dataBlocked && visibility.data,
+      afa: visibility.afa,
+      airtime: visibility.airtime,
+      resultsChecker: visibility.resultsChecker,
+    }))
   }
 
   // Continuing request — route by current session step
@@ -98,7 +105,13 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
   if (!session) {
     // Session expired or missing — restart (no whitelist re-check; show full menu, user re-dials)
     await setSession(sessionID, { step: 'MAIN', dialingPhone: msisdn })
-    return cont('Time limit exceeded.\n\n' + mainMenu())
+    const visibility = await getUssdServiceVisibility(supabase)
+    return cont('Time limit exceeded.\n\n' + mainMenu({
+      data: visibility.data,
+      afa: visibility.afa,
+      airtime: visibility.airtime,
+      resultsChecker: visibility.resultsChecker,
+    }))
   }
 
   const input = ussdString ?? ''
@@ -216,8 +229,15 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
     case 'AFA_CONFIRM_AFA':
       return handleAfaConfirm(input, sessionID, session)
 
-    default:
+    default: {
       await setSession(sessionID, { step: 'MAIN', dialingPhone: msisdn })
-      return cont(mainMenu())
+      const visibility = await getUssdServiceVisibility(supabase)
+      return cont(mainMenu({
+        data: visibility.data,
+        afa: visibility.afa,
+        airtime: visibility.airtime,
+        resultsChecker: visibility.resultsChecker,
+      }))
+    }
   }
 }
