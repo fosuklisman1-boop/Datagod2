@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import {
     updateDataKazinaOrderFromPayload,
-    extractOrderIdFromReference,
+    extractOrderIdCandidatesFromReference,
     DataKazinaWebhookPayload,
 } from "@/lib/mtn-fulfillment"
 import {
@@ -155,14 +155,17 @@ export async function POST(request: NextRequest) {
                 .maybeSingle()
 
             if (!tracking) {
-                const decodedOrderId = extractOrderIdFromReference(payload.reference)
-                if (decodedOrderId) {
+                const candidateIds = extractOrderIdCandidatesFromReference(payload.reference)
+                if (candidateIds.length > 0) {
+                    const orClause = candidateIds
+                        .flatMap((id) => [`shop_order_id.eq.${id}`, `order_id.eq.${id}`, `api_order_id.eq.${id}`])
+                        .join(",")
                     const { data: byReference } = await supabase
                         .from("mtn_fulfillment_tracking")
                         .select(notifyColumns)
-                        .or(`shop_order_id.eq.${decodedOrderId},order_id.eq.${decodedOrderId},api_order_id.eq.${decodedOrderId}`)
-                        .maybeSingle()
-                    if (byReference) tracking = byReference
+                        .or(orClause)
+                        .limit(1)
+                    if (byReference && byReference.length > 0) tracking = byReference[0]
                 }
             }
 

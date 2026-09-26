@@ -1192,21 +1192,28 @@ export async function updateMTNOrderFromWebhook(
 /**
  * Decode the order UUID hidden inside DataKazina's webhook `reference` field.
  *
- * DataKazina embeds the `incoming_api_ref` we sent at order time, but disguised:
- *   "498" prefix + <our UUID, dashes stripped (32 hex)> + <10-digit suffix>
- * and the whole 45-char hex string is re-dashed as 11-4-4-4-22 (NOT standard UUID).
+ * DataKazina embeds the `incoming_api_ref` we sent at order time, disguised as:
+ *   <variable-length numeric prefix> + <our UUID, dashes stripped (32 hex)> + <suffix>
+ * and the whole string is re-dashed in a non-standard pattern. The prefix length
+ * varies per order (seen as 3 chars "498" in one sample, 2 chars "62" in another) —
+ * it is NOT a fixed-width tag — so a fixed-offset skip silently mismatches for any
+ * order whose prefix length differs from whatever sample it was calibrated against.
  *
- * Stripping all dashes, skipping the 3-char prefix, and taking the next 32 hex
- * chars recovers our original UUID. Returns null if the value isn't in this shape.
+ * Instead, this slides a 32-hex-char window across every possible offset and
+ * returns every resulting candidate UUID; the caller matches candidates against
+ * real order ids in the DB rather than trusting a single guessed offset.
  */
-export function extractOrderIdFromReference(value: unknown): string | null {
-  if (!value) return null
+export function extractOrderIdCandidatesFromReference(value: unknown): string[] {
+  if (!value) return []
   const hexOnly = String(value).replace(/-/g, "").toLowerCase()
-  // Skip DataKazina's 3-char "498" prefix, then take the next 32 hex chars.
-  const m = hexOnly.match(/^.{3}([0-9a-f]{32})/)
-  if (!m) return null
-  const h = m[1]
-  return `${h.substring(0, 8)}-${h.substring(8, 12)}-${h.substring(12, 16)}-${h.substring(16, 20)}-${h.substring(20, 32)}`
+  if (!/^[0-9a-f]+$/.test(hexOnly) || hexOnly.length < 32) return []
+
+  const candidates: string[] = []
+  for (let start = 0; start <= hexOnly.length - 32; start++) {
+    const h = hexOnly.slice(start, start + 32)
+    candidates.push(`${h.substring(0, 8)}-${h.substring(8, 12)}-${h.substring(12, 16)}-${h.substring(16, 20)}-${h.substring(20, 32)}`)
+  }
+  return candidates
 }
 
 /**
@@ -1267,20 +1274,23 @@ export async function updateDataKazinaOrderFromPayload(
     // Fallback path: decode the disguised order UUID out of DataKazina's
     // `reference` field and match it against the order-id columns (the UUID we
     // sent as incoming_api_ref is the order id, not the stored mtn_order_id).
+    // The prefix DataKazina wraps it in is variable-length, so we try every
+    // candidate offset rather than trusting one guessed prefix width.
     if (!tracking) {
-      const decodedOrderId = extractOrderIdFromReference(payload.reference)
-      if (decodedOrderId) {
+      const candidateIds = extractOrderIdCandidatesFromReference(payload.reference)
+      if (candidateIds.length > 0) {
+        const orClause = candidateIds
+          .flatMap((id) => [`shop_order_id.eq.${id}`, `order_id.eq.${id}`, `api_order_id.eq.${id}`])
+          .join(",")
         const { data: byReference } = await supabase
           .from("mtn_fulfillment_tracking")
           .select(trackingColumns)
-          .or(
-            `shop_order_id.eq.${decodedOrderId},order_id.eq.${decodedOrderId},api_order_id.eq.${decodedOrderId}`
-          )
-          .maybeSingle()
-        if (byReference) {
-          tracking = byReference
+          .or(orClause)
+          .limit(1)
+        if (byReference && byReference.length > 0) {
+          tracking = byReference[0]
           console.log(
-            `[MTN-DK] Matched order via decoded reference: ${payload.reference} -> ${decodedOrderId}`
+            `[MTN-DK] Matched order via decoded reference: ${payload.reference} -> ${tracking.order_id || tracking.shop_order_id || tracking.api_order_id}`
           )
         }
       }

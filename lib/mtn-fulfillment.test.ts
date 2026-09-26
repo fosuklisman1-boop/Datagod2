@@ -62,7 +62,7 @@ import {
   isValidPhoneFormat,
   getNetworkFromPhone,
   validatePhoneNetworkMatch,
-  extractOrderIdFromReference,
+  extractOrderIdCandidatesFromReference,
   createMTNOrder,
 } from "@/lib/mtn-fulfillment"
 import { getProviderByName, getMTNProvider, getRetrySequence } from "@/lib/mtn-providers/factory"
@@ -169,26 +169,34 @@ describe("MTN Fulfillment Service", () => {
     })
   })
 
-  describe("extractOrderIdFromReference", () => {
-    it("should decode the order UUID from a DataKazina webhook reference", () => {
+  describe("extractOrderIdCandidatesFromReference", () => {
+    it("should include the order UUID among candidates for a 3-char-prefixed reference", () => {
       // "498" prefix + UUID (dashes stripped) + 10-digit suffix, re-dashed 11-4-4-4-22
       expect(
-        extractOrderIdFromReference("49892a44c02-47f4-47bb-9785-86dee73e89c20558395818")
-      ).toBe("92a44c02-47f4-47bb-9785-86dee73e89c2")
+        extractOrderIdCandidatesFromReference("49892a44c02-47f4-47bb-9785-86dee73e89c20558395818")
+      ).toContain("92a44c02-47f4-47bb-9785-86dee73e89c2")
+    })
+
+    it("should include the order UUID among candidates for a 2-char-prefixed reference (prefix length varies per order)", () => {
+      // "62" prefix + UUID (dashes stripped) + 10-digit phone suffix — a real,
+      // shorter prefix seen live, proving the prefix isn't a fixed width.
+      expect(
+        extractOrderIdCandidatesFromReference("62d7042b79-3106-4dbf-a96d-576d33a8a9410546422027")
+      ).toContain("d7042b79-3106-4dbf-a96d-576d33a8a941")
     })
 
     it("should be insensitive to dashing and casing", () => {
       expect(
-        extractOrderIdFromReference("49892A44C0247F447BB978586DEE73E89C20558395818")
-      ).toBe("92a44c02-47f4-47bb-9785-86dee73e89c2")
+        extractOrderIdCandidatesFromReference("49892A44C0247F447BB978586DEE73E89C20558395818")
+      ).toContain("92a44c02-47f4-47bb-9785-86dee73e89c2")
     })
 
-    it("should return null for empty or non-matching values", () => {
-      expect(extractOrderIdFromReference(null)).toBe(null)
-      expect(extractOrderIdFromReference(undefined)).toBe(null)
-      expect(extractOrderIdFromReference("")).toBe(null)
-      expect(extractOrderIdFromReference("ORDER-758918")).toBe(null)
-      expect(extractOrderIdFromReference("498abc")).toBe(null) // too short
+    it("should return no candidates for empty, non-hex, or too-short values", () => {
+      expect(extractOrderIdCandidatesFromReference(null)).toEqual([])
+      expect(extractOrderIdCandidatesFromReference(undefined)).toEqual([])
+      expect(extractOrderIdCandidatesFromReference("")).toEqual([])
+      expect(extractOrderIdCandidatesFromReference("ORDER-758918")).toEqual([])
+      expect(extractOrderIdCandidatesFromReference("498abc")).toEqual([]) // too short
     })
   })
 
