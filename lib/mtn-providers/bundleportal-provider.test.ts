@@ -43,10 +43,10 @@ describe("mapNetworkToBundlePortal", () => {
     expect(mapNetworkToBundlePortal("Telecel", false, "mtn")).toBe("telecel")
     expect(mapNetworkToBundlePortal("Telecel", true, "mtn_3")).toBe("telecel")
   })
-  it("maps AirtelTigo to bigtime only when isBigTime is true", () => {
-    expect(mapNetworkToBundlePortal("AirtelTigo", true, "mtn")).toBe("bigtime")
-    expect(mapNetworkToBundlePortal("AirtelTigo", false, "mtn")).toBe("airteltigo")
-    expect(mapNetworkToBundlePortal("AirtelTigo", undefined, "mtn")).toBe("airteltigo")
+  it("maps AirtelTigo to airteltigo (BigTime) or ishare (regular) — airteltigo/ishare are distinct products, not synonyms, per Bundle Portal's direct confirmation", () => {
+    expect(mapNetworkToBundlePortal("AirtelTigo", true, "mtn")).toBe("airteltigo")
+    expect(mapNetworkToBundlePortal("AirtelTigo", false, "mtn")).toBe("ishare")
+    expect(mapNetworkToBundlePortal("AirtelTigo", undefined, "mtn")).toBe("ishare")
   })
 })
 
