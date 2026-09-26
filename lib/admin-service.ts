@@ -215,6 +215,71 @@ export const adminPackageService = {
   },
 }
 
+// Admin USSD Menu Service Visibility
+export const adminUssdService = {
+  // Get the current top-level USSD menu service visibility map
+  async getServiceVisibility(): Promise<import("./ussd-service-visibility").UssdServiceVisibility> {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        throw new Error("No authentication token available")
+      }
+
+      const response = await fetch("/api/admin/ussd/service-visibility", {
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to fetch USSD service visibility")
+      }
+
+      return data.status
+    } catch (error: any) {
+      console.error("Error fetching USSD service visibility:", error)
+      throw error
+    }
+  },
+
+  // Flip one service's visibility on the top-level USSD menu (main + shop storefront)
+  async setServiceVisibility(
+    service: string,
+    visible: boolean
+  ): Promise<{ success: boolean; status: import("./ussd-service-visibility").UssdServiceVisibility }> {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        throw new Error("No authentication token available")
+      }
+
+      const response = await fetch("/api/admin/ussd/service-visibility", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ service, visible }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to update USSD service visibility")
+      }
+
+      return data
+    } catch (error: any) {
+      console.error("Error updating USSD service visibility:", error)
+      throw error
+    }
+  },
+}
+
 // Admin User Management
 export const adminUserService = {
   // Get all users with their shop and balance info

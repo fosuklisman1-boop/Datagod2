@@ -1,4 +1,5 @@
 import { UzoResponse, ShopBundleOption } from "./types"
+import { MenuItemDef, resolveMenuItems, renderMenuText } from "../ussd/menu-items"
 
 const PAGE_SIZE = 5
 const SCREEN_LIMIT = 160
@@ -23,11 +24,27 @@ export function invalidCodeMenu(reason: string): string {
   return `${reason}\n\nEnter shop code:\n\n0. Exit`
 }
 
-export function productMenu(shopName: string, showData = true): string {
-  if (showData) {
-    return `${gsm7(shopName)}\nWhat to buy?\n1. Data Bundle\n2. Airtime\n3. Results Checker\n0. Exit`
-  }
-  return `${gsm7(shopName)}\nWhat to buy?\n1. Airtime\n2. Results Checker\n0. Exit`
+// Numbering is derived from resolveMenuItems() — the render side (productMenu)
+// and the parse side (handleSelectProduct's keyForDigit call) both call
+// resolveProductMenu() with the same visibility input, so they can never
+// drift out of sync. See lib/ussd/menu-items.ts for why hand-numbering a
+// second switch is unsafe here.
+
+export type ProductMenuKey = "data" | "airtime" | "resultsChecker"
+
+const PRODUCT_MENU_ITEMS: MenuItemDef<ProductMenuKey>[] = [
+  { key: "data", label: "Data Bundle" },
+  { key: "airtime", label: "Airtime" },
+  { key: "resultsChecker", label: "Results Checker" },
+]
+
+export function resolveProductMenu(visible: Partial<Record<ProductMenuKey, boolean>> = {}) {
+  const full: Record<ProductMenuKey, boolean> = { data: true, airtime: true, resultsChecker: true, ...visible }
+  return resolveMenuItems(PRODUCT_MENU_ITEMS, full)
+}
+
+export function productMenu(shopName: string, visible: Partial<Record<ProductMenuKey, boolean>> = {}): string {
+  return renderMenuText(`${gsm7(shopName)}\nWhat to buy?`, resolveProductMenu(visible), "0. Exit")
 }
 
 // ── Shop Airtime ──────────────────────────────────────────────────────────────

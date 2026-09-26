@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { supabase } from "@/lib/supabase"
+import { UssdServiceVisibilityCard } from "@/components/admin/ussd-service-visibility-card"
 import { toast } from "sonner"
 import { Plus, Coins, CheckCircle, PauseCircle, Trash2, RefreshCw, Hash, Settings2, Save, ShieldCheck, Activity, Banknote, Database, MessageCircle } from "lucide-react"
 
@@ -482,6 +483,11 @@ export default function AdminUssdShopsPage() {
 
           </CardContent>
         </Card>
+
+        {/* USSD Menu Service Visibility */}
+        <div className="mb-6">
+          <UssdServiceVisibilityCard />
+        </div>
 
         {/* Stats Overview */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">

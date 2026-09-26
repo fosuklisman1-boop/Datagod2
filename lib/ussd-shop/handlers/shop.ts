@@ -1,10 +1,12 @@
 import { createClient } from "@supabase/supabase-js"
 import { UzoResponse, USSDShopSession } from "../types"
-import { cont, end, enterShopCodeMenu, invalidCodeMenu, networkMenu, sortNetworks, productMenu, shopAirtimeRecipientPrompt, shopRcBoardMenu } from "../menus"
+import { cont, end, enterShopCodeMenu, invalidCodeMenu, networkMenu, sortNetworks, productMenu, resolveProductMenu, type ProductMenuKey, shopAirtimeRecipientPrompt, shopRcBoardMenu } from "../menus"
 import { setSession } from "../session"
 import { sendPushToUser } from "../../push-service"
 import { buildRcBoardOptions } from "../../ussd/handlers/results-checker"
 import { resolveShopCode } from "@/lib/shop-commerce/shop-code"
+import { getUssdServiceVisibility } from "../../ussd-service-visibility"
+import { keyForDigit } from "../../ussd/menu-items"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -148,10 +150,21 @@ export async function handleEnterShopCode(
     dataBlocked,
   })
 
-  return cont(productMenu(shopName, !dataBlocked))
+  const adminVisibility = await getUssdServiceVisibility(supabase)
+  const effective: Partial<Record<ProductMenuKey, boolean>> = {
+    data: !dataBlocked && adminVisibility.data,
+    airtime: adminVisibility.airtime,
+    resultsChecker: adminVisibility.resultsChecker,
+  }
+  return cont(productMenu(shopName, effective))
 }
 
 // ── SELECT_PRODUCT ────────────────────────────────────────────────────────────
+// Numbering is derived from resolveProductMenu() — the render side
+// (productMenu, above) and the parse side (keyForDigit below) both call it
+// with the same visibility input, so they can never drift out of sync. See
+// lib/ussd/menu-items.ts for why hand-numbering a second switch is unsafe
+// here — this menu routes real payment flows.
 export async function handleSelectProduct(
   input: string,
   sessionId: string,
@@ -160,44 +173,38 @@ export async function handleSelectProduct(
   const shopName = session.shopName ?? 'Shop'
   const dataBlocked = session.dataBlocked === true
 
-  if (dataBlocked) {
-    // Renumbered menu: 1=Airtime, 2=RC
-    switch (input.trim()) {
-      case '1':
-        await setSession(sessionId, { ...session, step: 'SHOP_AIRTIME_ENTER_RECIPIENT' })
-        return cont(shopAirtimeRecipientPrompt(shopName))
-      case '2': {
-        const boards = await buildRcBoardOptions()
-        if (boards.length === 0) return cont('Results Checker\nunavailable.\n\n' + productMenu(shopName, false))
-        await setSession(sessionId, { ...session, step: 'SHOP_RC_SELECT_BOARD', rcBoardOptions: boards })
-        return cont(shopRcBoardMenu(shopName, boards))
-      }
-      case '0':
-        return end('Goodbye.')
-      default:
-        return cont(productMenu(shopName, false))
-    }
-  }
+  if (input.trim() === '0') return end('Goodbye.')
 
-  switch (input.trim()) {
-    case '1': {
+  // Combine the per-caller whitelist gate (existing, unrelated to this
+  // feature) with the admin's global service-visibility toggle — data
+  // bundle only shows if BOTH allow it. Airtime/Results Checker are gated
+  // only by the admin toggle.
+  const adminVisibility = await getUssdServiceVisibility(supabase)
+  const effective: Partial<Record<ProductMenuKey, boolean>> = {
+    data: !dataBlocked && adminVisibility.data,
+    airtime: adminVisibility.airtime,
+    resultsChecker: adminVisibility.resultsChecker,
+  }
+  const resolved = resolveProductMenu(effective)
+  const matchedKey = keyForDigit(resolved, input)
+
+  switch (matchedKey) {
+    case 'data': {
       const networks = session.networks ?? []
-      if (networks.length === 0) return cont('No bundles available.\n\n' + productMenu(shopName))
+      if (networks.length === 0) return cont('No bundles available.\n\n' + productMenu(shopName, effective))
       await setSession(sessionId, { ...session, step: 'SELECT_NETWORK' })
       return cont(networkMenu(shopName, networks))
     }
-    case '2':
+    case 'airtime':
       await setSession(sessionId, { ...session, step: 'SHOP_AIRTIME_ENTER_RECIPIENT' })
       return cont(shopAirtimeRecipientPrompt(shopName))
-    case '3': {
+    case 'resultsChecker': {
       const boards = await buildRcBoardOptions()
-      if (boards.length === 0) return cont('Results Checker\nunavailable.\n\n' + productMenu(shopName))
+      if (boards.length === 0) return cont('Results Checker\nunavailable.\n\n' + productMenu(shopName, effective))
       await setSession(sessionId, { ...session, step: 'SHOP_RC_SELECT_BOARD', rcBoardOptions: boards })
       return cont(shopRcBoardMenu(shopName, boards))
     }
-    case '0':
-      return end('Goodbye.')
     default:
-      return cont(productMenu(shopName))
+      return cont(productMenu(shopName, effective))
   }
 }
