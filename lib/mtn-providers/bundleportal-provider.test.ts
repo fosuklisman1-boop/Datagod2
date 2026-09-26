@@ -27,7 +27,7 @@ vi.mock("@/lib/supabase", () => ({
   },
 }))
 
-import { mapNetworkToBundlePortal, mapBundlePortalStatus, isRetryableErrorCode, getActiveMtnRoute } from "./bundleportal-provider"
+import { mapNetworkToBundlePortal, mapBundlePortalStatus, isRetryableErrorCode, getActiveMtnRoute, BundlePortalProvider } from "./bundleportal-provider"
 
 beforeEach(() => {
   fakeSettings.current = { bundleportal_mtn_route: { route: "mtn_2" } }
@@ -81,6 +81,25 @@ describe("isRetryableErrorCode", () => {
     expect(isRetryableErrorCode("unknown_bundle")).toBe(false)
     expect(isRetryableErrorCode("not_allowlisted")).toBe(false)
     expect(isRetryableErrorCode(undefined)).toBe(false)
+  })
+})
+
+describe("checkOrderStatus", () => {
+  it("short-circuits without calling the API — v2 permanently removed status polling", async () => {
+    const fetchSpy = vi.spyOn(global, "fetch")
+    const result = await new BundlePortalProvider().checkOrderStatus("some-order-id")
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(result.success).toBe(false)
+    expect(result.message).toMatch(/no status polling/i)
+    fetchSpy.mockRestore()
+  })
+
+  it("still recognizes a locally-failed order without calling the API", async () => {
+    const fetchSpy = vi.spyOn(global, "fetch")
+    const result = await new BundlePortalProvider().checkOrderStatus("FAILED_INIT_12345")
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(result).toEqual({ success: true, status: "failed", message: "Order was never submitted to Bundle Portal (local failure)" })
+    fetchSpy.mockRestore()
   })
 })
 

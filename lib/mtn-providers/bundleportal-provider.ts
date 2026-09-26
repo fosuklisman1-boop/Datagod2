@@ -3,7 +3,7 @@ import type { MTNProvider, MTNOrderRequest, MTNOrderResponse, MTNOrderStatusResp
 import { normalizePhoneNumber, isValidPhoneFormat, validatePhoneNetworkMatch } from "@/lib/mtn-fulfillment"
 import { supabaseAdmin as supabase } from "@/lib/supabase"
 
-const BASE_URL = process.env.BUNDLEPORTAL_BASE_URL ?? "https://api.bundleportal.com/v1"
+const BASE_URL = process.env.BUNDLEPORTAL_BASE_URL ?? "https://api.bundleportal.com/v2"
 const TIMEOUT = 30_000
 
 function apiKey(): string {
@@ -132,27 +132,14 @@ export class BundlePortalProvider implements MTNProvider {
       return { success: true, status: "failed", message: "Order was never submitted to Bundle Portal (local failure)" }
     }
 
-    let res: Response
-    try {
-      res = await apiCall({ action: "check_status", order_reference: id })
-    } catch (err) {
-      return { success: false, message: err instanceof Error ? err.message : "Network error" }
-    }
-
-    let json: any
-    try { json = await res.json() } catch {
-      return { success: false, message: `HTTP ${res.status} (non-JSON response)` }
-    }
-
-    if (json.success !== true) {
-      return { success: false, message: json.message ?? `API error (status ${res.status})` }
-    }
-
+    // Bundle Portal's v2 API permanently removed status polling — check_status
+    // now always returns HTTP 410 { code: "polling_disabled" }, confirmed in
+    // their current docs. Short-circuit rather than making a network call
+    // that can never succeed; webhooks (app/api/webhooks/mtn/bundleportal/
+    // route.ts) are the only channel this provider reports outcomes on now.
     return {
-      success: true,
-      status: mapBundlePortalStatus(json.data?.status),
-      message: json.data?.failure_reason ?? "Status retrieved",
-      order: json.data,
+      success: false,
+      message: "Bundle Portal v2 has no status polling — order outcomes arrive only via webhook.",
     }
   }
 
