@@ -14,6 +14,7 @@ import { useAdminProtected } from "@/hooks/use-admin"
 import { toast } from "sonner"
 import { Checkbox } from "@/components/ui/checkbox"
 import { BulkPriceUpdateDialog } from "@/components/admin/bulk-price-update-dialog"
+import { NetworkStockCard } from "@/components/admin/network-stock-card"
 
 // Format large numbers with K/M suffix
 const formatCount = (num: number): string => {
@@ -226,6 +227,8 @@ export default function AdminPackagesPage() {
             {showForm ? "Cancel" : "Add Package"}
           </Button>
         </div>
+
+        <NetworkStockCard onChanged={loadPackages} />
 
         {/* Network Filter */}
         <div className="flex flex-wrap gap-2">

@@ -152,6 +152,67 @@ export const adminPackageService = {
       throw error
     }
   },
+
+  // Get the current per-network out-of-stock status map
+  async getNetworkStock(): Promise<import("./network-stock-service").NetworkStockMap> {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        throw new Error("No authentication token available")
+      }
+
+      const response = await fetch("/api/admin/packages/network-stock", {
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to fetch network stock status")
+      }
+
+      return data.status
+    } catch (error: any) {
+      console.error("Error fetching network stock status:", error)
+      throw error
+    }
+  },
+
+  // Mark a network out of stock (disables all its currently-available
+  // packages) or restock it (re-enables exactly the packages that were
+  // disabled by the last out-of-stock toggle)
+  async setNetworkStock(network: string, outOfStock: boolean): Promise<{ success: boolean; affected: number }> {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        throw new Error("No authentication token available")
+      }
+
+      const response = await fetch("/api/admin/packages/network-stock", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ network, outOfStock }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to update network stock status")
+      }
+
+      return data
+    } catch (error: any) {
+      console.error("Error updating network stock status:", error)
+      throw error
+    }
+  },
 }
 
 // Admin User Management
