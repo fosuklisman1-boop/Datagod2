@@ -31,7 +31,7 @@ This is a **visual-language adaptation, not a literal clone.** We are not portin
 | Status-color semantics | Kept correct (credit=green, fail=red) — not copied from Apex Prime's inconsistent choices |
 | Scope split | Foundation (tokens + shared components) lands once; rollout is **phased by surface**: Admin (this spec) → Customer storefront → Dealer → Shop storefronts |
 | Dealer identity | Stays visually distinct (currently a purple "Bold Telco" gradient skin) — same new layout/component language, different accent token set, not the same navy/blue as admin |
-| Dark mode | **Kept.** Content area (cards/tables/forms) still respects the existing light/dark toggle. The navy sidebar/header chrome is permanent — like Apex Prime's — regardless of theme |
+| Dark mode | **Kept.** Content area (cards/tables/forms) still respects the existing light/dark toggle. The navy sidebar/header **color** doesn't follow the light/dark toggle (stays navy in both themes) — but it keeps its existing collapse/expand toggle button, same as Apex Prime's own sidebar and same as Datagod's today. "Theme-independent color," not "unable to collapse" |
 | Radius / surfaces | Rounded-xl cards, soft shadows, light blue-gray page canvas (light mode); dark-mode card surfaces follow existing dark-mode contrast rules |
 
 ## 4. Design language
@@ -43,7 +43,7 @@ Only brand-identity tokens change. `--success` / `--warning` / `--destructive`, 
 | Token | Light | Dark | Used for |
 |---|---|---|---|
 | `--primary` | `217 91% 35%` (~#1e3a8a→#2563eb, expressed as a gradient utility, not a flat fill) | same hue, adjusted lightness for dark-mode contrast | Page-header banner gradient, primary buttons, wallet/balance chip |
-| `--sidebar` (NEW: permanent, not `.dark`-gated) | `222 47% 8%` (~#0f1420 navy) | same | Admin nav rail background, in both themes |
+| `--sidebar` (NEW: color fixed, not `.dark`-gated) | `222 47% 8%` (~#0f1420 navy) | same | Admin nav rail background, in both themes |
 | `--sidebar-foreground` | near-white | near-white | Nav rail text/icons |
 | `--accent-amber` (NEW) | `38 92% 58%` (~#f5a623) | same | Segmented-toggle active state, highlight badges |
 | `--accent-orange` (NEW) | `25 95% 53%` (~#f97316) | same | Secondary CTA buttons |
@@ -59,7 +59,7 @@ Built once in `components/ui/` or `components/admin/`, then reused across every 
 - **Segmented pill toggle** — rounded pill switcher, amber active state. Replaces plain tabs for binary/small choices (e.g. provider path toggles, filter switches).
 - **Status/health card** — icon + colored latency/progress bar + status line. First real use: the MTN provider health/status views on the admin Overview and provider-settings pages (currently plain tables — see [project-fulfillment-providers.md](../../../../.claude/projects/c--Users-User2--gemini-antigravity-ide-scratch-Datagod2/memory/project-fulfillment-providers.md) for what's tracked today).
 - **Pill status badges** — rounded colored labels for order/transaction/provider states, correct semantics enforced (not Apex Prime's literal color choices).
-- **Sidebar nav rail** — permanent dark-navy sidebar, grouped sections (icon + label, collapsible groups), replacing the current token-driven (theme-following) sidebar for admin only.
+- **Sidebar nav rail** — fixed dark-navy color (not theme-following), grouped sections (icon + label, collapsible nav-item groups). Keeps Datagod's existing collapse/expand toggle button ([components/layout/sidebar.tsx:326](components/layout/sidebar.tsx#L326)) exactly as it works today — this restyles the sidebar's color/content, not its collapse mechanics.
 
 ### 4.3 Mobile
 
@@ -99,4 +99,4 @@ Each phase gets its own spec → plan → implementation cycle, reusing this spe
 ## 9. Open questions
 
 - Exact gradient stops for the page-header banner (navy start/blue end) — tune during build against real admin pages in both light and dark mode.
-- Whether the admin sidebar's permanent-navy chrome reads acceptably against dark-mode content (near-black background) or needs a slightly lighter navy for separation — verify on the design-preview mockup.
+- Whether the admin sidebar's fixed-navy chrome reads acceptably against dark-mode content (near-black background) or needs a slightly lighter navy for separation — verify on the design-preview mockup.
