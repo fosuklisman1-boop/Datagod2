@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -50,8 +51,10 @@ export default function AdminDashboardPage() {
       checkScheduledOrders()
       // Cleanup old notifications (older than 72 hours)
       cleanupOldNotifications()
-      // Cleanup old completed download batches (older than 14 days)
-      cleanupOldBatches()
+      // Auto-cleanup of old completed download batches (older than 14 days)
+      // disabled on request — cleanupOldBatches() / /api/admin/batches/cleanup
+      // left in place to re-enable by uncommenting this call.
+      // cleanupOldBatches()
     }
   }, [isAdmin, adminLoading])
 
@@ -133,10 +136,25 @@ export default function AdminDashboardPage() {
     <DashboardLayout>
       <div className="space-y-6">
         {/* Page Header */}
-        <div>
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-600 via-primary to-pink-600 bg-clip-text text-transparent">Admin Dashboard</h1>
-          <p className="text-muted-foreground mt-1 font-medium">Manage packages, users, and shop approvals</p>
-        </div>
+        <AdminPageHeaderBanner
+          title="Admin Dashboard"
+          subtitle="Manage packages, users, and shop approvals"
+        >
+          <div className="flex flex-wrap gap-3">
+            <div className="flex-1 min-w-[140px] rounded-xl bg-white/10 p-3">
+              <div className="font-display text-2xl font-bold text-white">{formatCount(stats?.totalOrders ?? 0)}</div>
+              <div className="mt-0.5 text-[11px] uppercase tracking-wide text-white/75">Total Orders</div>
+            </div>
+            <div className="flex-1 min-w-[140px] rounded-xl bg-white/10 p-3">
+              <div className="font-display text-2xl font-bold text-white">GHS {(stats?.totalRevenue ?? 0).toFixed(2)}</div>
+              <div className="mt-0.5 text-[11px] uppercase tracking-wide text-white/75">Total Revenue</div>
+            </div>
+            <div className="flex-1 min-w-[140px] rounded-xl bg-white/10 p-3">
+              <div className="font-display text-2xl font-bold text-white">{formatCount(stats?.totalUsers ?? 0)}</div>
+              <div className="mt-0.5 text-[11px] uppercase tracking-wide text-white/75">Total Users</div>
+            </div>
+          </div>
+        </AdminPageHeaderBanner>
 
         {/* Stats Cards */}
         {stats && (
