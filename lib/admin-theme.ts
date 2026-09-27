@@ -18,3 +18,22 @@ export function segmentedPillItemClasses(isActive: boolean): string {
     ? 'bg-admin-amber text-slate-900 font-bold'
     : 'bg-transparent text-current font-medium hover:bg-white/10'
 }
+
+export type GatewayStatus = 'optimal' | 'degraded' | 'down'
+
+export function gatewayStatus(uptimePct: number): GatewayStatus {
+  if (uptimePct >= 99) return 'optimal'
+  if (uptimePct >= 90) return 'degraded'
+  return 'down'
+}
+
+export function gatewayBarColorClass(status: GatewayStatus): string {
+  switch (status) {
+    case 'optimal':
+      return 'bg-success'
+    case 'degraded':
+      return 'bg-warning'
+    case 'down':
+      return 'bg-destructive'
+  }
+}
