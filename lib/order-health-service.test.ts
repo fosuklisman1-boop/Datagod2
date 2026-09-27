@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { getLatestCompletedOrder, getNetworkHealth, HEALTH_NETWORKS } from "./order-health-service"
+import { getLatestCompletedMtnOrder, getNetworkHealth, HEALTH_NETWORKS } from "./order-health-service"
 
 interface FakeOrder {
   id: string
@@ -56,6 +56,11 @@ function makeOrdersQuery(rows: FakeOrder[]) {
     },
     limit: (n: number) => {
       filtered = filtered.slice(0, n)
+      return builder
+    },
+    ilike: (col: string, val: string) => {
+      const pattern = val.toLowerCase()
+      filtered = filtered.filter((r: any) => String(r[col] ?? "").toLowerCase() === pattern)
       return builder
     },
     maybeSingle: () => Promise.resolve({ data: filtered[0] ?? null, error: null }),
@@ -120,10 +125,10 @@ function tracking(overrides: Partial<FakeTrackingRow> & { order_id?: string; sho
   } as FakeTrackingRow
 }
 
-describe("getLatestCompletedOrder", () => {
+describe("getLatestCompletedMtnOrder", () => {
   it("returns null when there are no completed orders anywhere on the platform", async () => {
     const supabase = createFakeSupabase({ orders: [order({ id: "o1", status: "pending" })] })
-    const result = await getLatestCompletedOrder(supabase)
+    const result = await getLatestCompletedMtnOrder(supabase)
     expect(result).toBeNull()
   })
 
@@ -133,7 +138,7 @@ describe("getLatestCompletedOrder", () => {
       order({ id: "latest", created_at: "2026-09-27T10:00:00.000Z", updated_at: "2026-09-27T10:20:00.000Z" }),
     ]
     const supabase = createFakeSupabase({ orders: rows }) // no tracking rows at all
-    const result = await getLatestCompletedOrder(supabase)
+    const result = await getLatestCompletedMtnOrder(supabase)
     expect(result).not.toBeNull()
     expect(result!.durationMinutes).toBe(20) // placed 10:00 -> completed 10:20, no dispatch row to override
     expect(result!.network).toBe("MTN")
@@ -146,7 +151,7 @@ describe("getLatestCompletedOrder", () => {
     // not placed(10:00)->completed(10:20) = 20m.
     const track = [tracking({ order_id: "latest", created_at: "2026-09-27T10:15:00.000Z" })]
     const supabase = createFakeSupabase({ orders: rows }, track)
-    const result = await getLatestCompletedOrder(supabase)
+    const result = await getLatestCompletedMtnOrder(supabase)
     expect(result!.durationMinutes).toBe(5)
   })
 
@@ -158,7 +163,7 @@ describe("getLatestCompletedOrder", () => {
       tracking({ order_id: "latest", status: "completed", created_at: "2026-09-27T10:10:00.000Z" }), // the live, successful attempt
     ]
     const supabase = createFakeSupabase({ orders: rows }, track)
-    const result = await getLatestCompletedOrder(supabase)
+    const result = await getLatestCompletedMtnOrder(supabase)
     // dispatch(10:10) -> completed(10:30) = 20m, not from the dead rows at 10:01/10:05
     expect(result!.durationMinutes).toBe(20)
   })
@@ -169,19 +174,19 @@ describe("getLatestCompletedOrder", () => {
       order({ id: "held-1", status: "held_registration" }),
     ]
     const supabase = createFakeSupabase({ orders: rows })
-    const result = await getLatestCompletedOrder(supabase)
+    const result = await getLatestCompletedMtnOrder(supabase)
     expect(result!.hasHeldOrder).toBe(true)
   })
 
   it("reports hasHeldOrder false when no table has a held_registration row", async () => {
     const supabase = createFakeSupabase({ orders: [order({ id: "completed-1" })] })
-    const result = await getLatestCompletedOrder(supabase)
+    const result = await getLatestCompletedMtnOrder(supabase)
     expect(result!.hasHeldOrder).toBe(false)
   })
 
   it("omits avgNetworkDurationMinutes when this order is the only same-network completed order in the window", async () => {
     const supabase = createFakeSupabase({ orders: [order({ id: "only-one" })] })
-    const result = await getLatestCompletedOrder(supabase)
+    const result = await getLatestCompletedMtnOrder(supabase)
     expect(result!.avgNetworkDurationMinutes).toBeNull()
   })
 
@@ -192,21 +197,44 @@ describe("getLatestCompletedOrder", () => {
     ]
     const track = [tracking({ order_id: "o-2", created_at: "2026-09-27T09:05:00.000Z" })]
     const supabase = createFakeSupabase({ orders: rows }, track)
-    const result = await getLatestCompletedOrder(supabase)
+    const result = await getLatestCompletedMtnOrder(supabase)
     // average of 20 (o-1, no tracking) and 5 (o-2, dispatch-based) = 12.5 -> rounds to 13
     expect(result!.avgNetworkDurationMinutes).toBe(13)
   })
 
   it("masks the recipient phone number before returning it — this order may belong to any customer", async () => {
     const supabase = createFakeSupabase({ orders: [order({ id: "o1", phone_number: "0541234567" })] })
-    const result = await getLatestCompletedOrder(supabase)
+    const result = await getLatestCompletedMtnOrder(supabase)
     expect(result!.recipientPhone).toBe("054****67")
+  })
+
+  it("only considers MTN orders — a more recently placed completed order on another network must not win", async () => {
+    // This is the exact bug this pinning fixes: without a network filter, an
+    // AT-iShare order placed after the latest MTN order would win the pick
+    // and the card would show "Latest AT - iShare Successful Order" instead,
+    // flipping networks on every refresh for no meaningful reason.
+    const supabase = createFakeSupabase({
+      orders: [
+        order({ id: "mtn-1", network: "MTN", created_at: "2026-09-27T08:00:00.000Z", updated_at: "2026-09-27T08:20:00.000Z" }),
+        order({ id: "ishare-1", network: "AT - iShare", created_at: "2026-09-27T12:00:00.000Z", updated_at: "2026-09-27T12:05:00.000Z" }),
+      ],
+    })
+    const result = await getLatestCompletedMtnOrder(supabase)
+    expect(result!.createdAt).toBe("2026-09-27T08:00:00.000Z")
+    expect(result!.network).toBe("MTN")
+  })
+
+  it("matches MTN case-insensitively, mirroring combined_orders_view.sql's LOWER(network) = 'mtn'", async () => {
+    const supabase = createFakeSupabase({ orders: [order({ id: "o1", network: "mtn" })] })
+    const result = await getLatestCompletedMtnOrder(supabase)
+    expect(result).not.toBeNull()
+    expect(result!.network).toBe("MTN")
   })
 
   // --- Platform-wide, not account-scoped (the "why should it be based on the
   // account viewing it" correction) — the single most recently PLACED
-  // completed order wins regardless of which of the 5 order tables, or which
-  // account (if any — shop/ussd customers have none), it came from. ---
+  // completed MTN order wins regardless of which of the 5 order tables, or
+  // which account (if any — shop/ussd customers have none), it came from. ---
 
   it("picks the single most recent completed order platform-wide, from api_orders, over an older orders-table row", async () => {
     const supabase = createFakeSupabase({
@@ -219,7 +247,7 @@ describe("getLatestCompletedOrder", () => {
         }),
       ],
     })
-    const result = await getLatestCompletedOrder(supabase)
+    const result = await getLatestCompletedMtnOrder(supabase)
     expect(result!.createdAt).toBe("2026-09-27T10:00:00.000Z")
     expect(result!.volumeGb).toBe("10")
     expect(result!.recipientPhone).toBe("055****43")
@@ -239,7 +267,7 @@ describe("getLatestCompletedOrder", () => {
       },
       [tracking({ api_order_id: "api-1", order_type: "api", created_at: "2026-09-27T10:15:00.000Z" })]
     )
-    const result = await getLatestCompletedOrder(supabase)
+    const result = await getLatestCompletedMtnOrder(supabase)
     expect(result!.durationMinutes).toBe(5) // dispatch(10:15) -> completed(10:20), NOT placed(10:00)
   })
 
@@ -256,7 +284,7 @@ describe("getLatestCompletedOrder", () => {
         }),
       ],
     })
-    const result = await getLatestCompletedOrder(supabase)
+    const result = await getLatestCompletedMtnOrder(supabase)
     expect(result!.createdAt).toBe("2026-09-27T12:00:00.000Z")
     expect(result!.volumeGb).toBe("3")
     expect(result!.durationMinutes).toBe(5)
@@ -269,7 +297,7 @@ describe("getLatestCompletedOrder", () => {
       ],
       orders: [order({ id: "real-1", created_at: "2026-09-27T08:00:00.000Z", updated_at: "2026-09-27T08:20:00.000Z" })],
     })
-    const result = await getLatestCompletedOrder(supabase)
+    const result = await getLatestCompletedMtnOrder(supabase)
     expect(result!.createdAt).toBe("2026-09-27T08:00:00.000Z") // the abandoned shop checkout is invisible, despite its later timestamp
   })
 
@@ -278,7 +306,7 @@ describe("getLatestCompletedOrder", () => {
       orders: [order({ id: "completed-1" })],
       shop_orders: [order({ id: "held-shop-1", status: undefined, order_status: "held_registration" })],
     })
-    const result = await getLatestCompletedOrder(supabase)
+    const result = await getLatestCompletedMtnOrder(supabase)
     expect(result!.hasHeldOrder).toBe(true)
   })
 })

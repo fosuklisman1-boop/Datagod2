@@ -1,13 +1,17 @@
 //
 // Real, computed data for two customer-facing dashboard widgets: the
-// platform's latest completed order and "network health" (uptime/avg-delivery
-// per network). Both are platform-wide signals, not scoped to the viewing
-// account — deliberately: an individual dealer may go hours between their own
-// completed orders, which made the "latest order" card look stale/wrong even
-// though the platform itself was actively fulfilling other customers' orders
-// the whole time. Personally-identifying fields (the recipient phone) are
-// masked before leaving this module, since this data is now shown to every
-// logged-in dashboard viewer, not just the order's own buyer.
+// platform's latest completed MTN order and "network health" (uptime/
+// avg-delivery per network). Both are platform-wide signals, not scoped to
+// the viewing account — deliberately: an individual dealer may go hours
+// between their own completed orders, which made the "latest order" card
+// look stale/wrong even though the platform itself was actively fulfilling
+// other customers' orders the whole time. The latest-order card is pinned to
+// MTN specifically (not "whichever network happened to complete last") —
+// showing a different network on every refresh, purely because that
+// network's last order happened to land a few minutes later, was confusing
+// rather than reassuring. Personally-identifying fields (the recipient
+// phone) are masked before leaving this module, since this data is now shown
+// to every logged-in dashboard viewer, not just the order's own buyer.
 //
 // This is a financial app — every number here must trace back to real order
 // rows. No fabricated percentages, no hardcoded "1-2 hours" estimates, no
@@ -251,16 +255,18 @@ async function computeNetworkAverageDuration(
 }
 
 /**
- * The platform's single most recently completed order — across all 5 order
- * tables, regardless of which account (if any) placed it — with real (not
- * hardcoded) delivery-time context. This is intentionally NOT scoped to the
- * viewing account: a dashboard viewer's own purchase history can go hours
- * between completions while the platform itself is actively fulfilling other
- * customers' orders the whole time, which made a per-account version of this
- * card look stale/wrong. Returns null only when there are no completed orders
+ * The platform's single most recently completed MTN order — across all 5
+ * order tables, regardless of which account (if any) placed it — with real
+ * (not hardcoded) delivery-time context. Pinned to MTN specifically: this is
+ * platform-wide (not scoped to the viewing account — a dashboard viewer's own
+ * purchase history can go hours between completions while the platform is
+ * actively fulfilling other customers' orders the whole time), but NOT
+ * cross-network — showing whichever of the 4 tracked networks happened to
+ * complete an order last made the card flip networks on every refresh for no
+ * meaningful reason. Returns null only when there are no completed MTN orders
  * anywhere yet.
  */
-export async function getLatestCompletedOrder(
+export async function getLatestCompletedMtnOrder(
   supabase: SupabaseClient
 ): Promise<LatestOrderSummary | null> {
   const candidates = await Promise.all(
@@ -269,7 +275,11 @@ export async function getLatestCompletedOrder(
         ? `id, network, payment_status, ${source.sizeCol}, ${source.phoneCol}, created_at, updated_at`
         : `id, network, ${source.sizeCol}, ${source.phoneCol}, created_at, updated_at`
 
-      let query: any = supabase.from(source.table).select(selectCols).eq(source.statusColumn, "completed")
+      let query: any = supabase
+        .from(source.table)
+        .select(selectCols)
+        .eq(source.statusColumn, "completed")
+        .ilike("network", "mtn") // case-insensitive — matches combined_orders_view.sql's LOWER(network) = 'mtn'
       if (source.paymentStatusFilter) query = query.eq("payment_status", source.paymentStatusFilter)
 
       const { data, error } = await query.order("created_at", { ascending: false }).limit(1).maybeSingle()
@@ -299,12 +309,10 @@ export async function getLatestCompletedOrder(
   const ownStartTime = resolveStartTime(latest.id, latest.createdAt, ownDispatchMap)
   const durationMinutes = minutesBetween(ownStartTime, latest.updatedAt)
 
-  // Real, computed estimate: average dispatch->completed time for this same
-  // network across the whole platform in the last 24h — matches
-  // getNetworkHealth's own aggregation scope, so this card and the Network
-  // Health widget never disagree about the same network's average. Omitted
-  // (null) when the network doesn't normalize to one of the 4 tracked ones,
-  // or when there's fewer than 2 samples.
+  // Real, computed estimate: average dispatch->completed time for MTN across
+  // the whole platform in the last 24h — matches getNetworkHealth's own
+  // aggregation scope, so this card and the Network Health widget never
+  // disagree about MTN's average. Null when there's fewer than 2 samples.
   const normalizedForAvg = normalizeNetwork(latest.network)
   const avgNetworkDurationMinutes = normalizedForAvg
     ? await computeNetworkAverageDuration(supabase, normalizedForAvg, 24)
