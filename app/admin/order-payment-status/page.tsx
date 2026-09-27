@@ -48,7 +48,9 @@ function getNetworkColor(network: string): string {
 // (business decision — neither provider's API distinguishes AT-iShare from AT-BigTime,
 // so this exclusion is enforced here rather than by the provider itself), spfastit
 // offered only for AT-iShare (it's AirtelTigo-only — not capable for Telecel or MTN,
-// per NON_MTN_CAPABLE.at_ishare_provider_selection in factory.ts), and bundleportal
+// per NON_MTN_CAPABLE.at_ishare_provider_selection in factory.ts), spfastit_telecel
+// offered only for plain Telecel (a separate account/API from spfastit, Telecel-only —
+// per NON_MTN_CAPABLE.telecel_provider_selection in factory.ts), and bundleportal
 // offered on every branch, including AT-BigTime — it's a full member capable on all
 // networks (see NON_MTN_CAPABLE.at_bigtime_provider_selection in factory.ts).
 function getProviderOptionsForNetwork(network: string): { value: string; label: string }[] {
@@ -76,6 +78,7 @@ function getProviderOptionsForNetwork(network: string): { value: string; label: 
     { value: "eazyghdata", label: "EazyGhData" },
     ...(isBigTime ? [] : [{ value: "agentportalgh", label: "AgentPortalGH" }, { value: "apexprime", label: "Apex Prime" }]),
     ...(isIshare ? [{ value: "spfastit", label: "SPFastIT" }] : []),
+    ...(isBigTime || isIshare ? [] : [{ value: "spfastit_telecel", label: "SPFastIT (Telecel)" }]),
     { value: "bundleportal", label: "Bundle Portal" },
   ]
 }

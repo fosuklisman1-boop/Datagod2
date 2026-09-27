@@ -151,7 +151,7 @@ export default function MTNSettingsPage() {
   const [disabledProviders, setDisabledProviders] = useState<MTNProviderName[]>([])
   const [togglingDisabled, setTogglingDisabled] = useState<MTNProviderName | null>(null)
 
-  type NonMTNProvider = "datakazina" | "xpress" | "eazyghdata" | "codecraft" | "agentportalgh" | "apexprime" | "spfastit" | "bundleportal"
+  type NonMTNProvider = "datakazina" | "xpress" | "eazyghdata" | "codecraft" | "agentportalgh" | "apexprime" | "spfastit" | "bundleportal" | "spfastit_telecel"
   const [telecelProvider, setTelecelProvider] = useState<NonMTNProvider>("codecraft")
   const [atIshareProvider, setAtIshareProvider] = useState<NonMTNProvider>("codecraft")
   const [atBigtimeProvider, setAtBigtimeProvider] = useState<NonMTNProvider>("codecraft")
@@ -1510,8 +1510,12 @@ export default function MTNSettingsPage() {
                 ...nonBigTimeProviders,
                 { value: "spfastit", label: "SPFastIT", sub: "AirtelTigo-only" },
               ]
+              const telecelProviders: { value: NonMTNProvider; label: string; sub: string }[] = [
+                ...nonBigTimeProviders,
+                { value: "spfastit_telecel", label: "SPFastIT (Telecel)", sub: "Separate account, Telecel-only" },
+              ]
               const providers: { value: NonMTNProvider; label: string; sub: string }[] =
-                netKey === "at_bigtime" ? baseProviders : netKey === "at_ishare" ? ishareProviders : nonBigTimeProviders
+                netKey === "at_bigtime" ? baseProviders : netKey === "at_ishare" ? ishareProviders : telecelProviders
               return (
                 <Card key={netKey} className="border-2">
                   <CardHeader>
