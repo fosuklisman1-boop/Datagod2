@@ -12,6 +12,13 @@ interface FakeOrder {
   updated_at: string
 }
 
+interface FakeTrackingRow {
+  order_id: string
+  order_type: string
+  status: string
+  created_at: string
+}
+
 // Generic chainable fake query builder for the `orders` table. Supports the
 // specific combination of .select/.eq/.gte/.order/.limit/.maybeSingle used by
 // lib/order-health-service.ts, and is itself thenable so a bare `await`
@@ -49,10 +56,30 @@ function makeOrdersQuery(rows: FakeOrder[]) {
   return builder
 }
 
-function createFakeSupabase(rows: FakeOrder[]) {
+// Fake builder for mtn_fulfillment_tracking, supporting .select/.eq/.in used
+// by getDispatchTimestamps().
+function makeTrackingQuery(rows: FakeTrackingRow[]) {
+  let filtered = rows.slice()
+  const builder: any = {
+    select: () => builder,
+    eq: (col: string, val: any) => {
+      filtered = filtered.filter((r: any) => r[col] === val)
+      return builder
+    },
+    in: (col: string, vals: string[]) => {
+      filtered = filtered.filter((r: any) => vals.includes(r[col]))
+      return builder
+    },
+    then: (resolve: any, reject: any) => Promise.resolve({ data: filtered, error: null }).then(resolve, reject),
+  }
+  return builder
+}
+
+function createFakeSupabase(orders: FakeOrder[], tracking: FakeTrackingRow[] = []) {
   return {
     from(table: string) {
-      if (table === "orders") return makeOrdersQuery(rows)
+      if (table === "orders") return makeOrdersQuery(orders)
+      if (table === "mtn_fulfillment_tracking") return makeTrackingQuery(tracking)
       throw new Error(`Unexpected table: ${table}`)
     },
   } as any
@@ -71,6 +98,15 @@ function order(overrides: Partial<FakeOrder> & { id: string }): FakeOrder {
   }
 }
 
+function tracking(overrides: Partial<FakeTrackingRow> & { order_id: string }): FakeTrackingRow {
+  return {
+    order_type: "bulk",
+    status: "completed",
+    created_at: "2026-09-27T10:05:00.000Z",
+    ...overrides,
+  }
+}
+
 describe("getLatestCompletedOrder", () => {
   it("returns null when the user has no completed orders", async () => {
     const supabase = createFakeSupabase([order({ id: "o1", user_id: "other-user" })])
@@ -78,16 +114,40 @@ describe("getLatestCompletedOrder", () => {
     expect(result).toBeNull()
   })
 
-  it("returns the user's most recent completed order with correct duration", async () => {
+  it("falls back to placed-time duration when no tracking row exists", async () => {
     const rows = [
       order({ id: "older", created_at: "2026-09-27T08:00:00.000Z", updated_at: "2026-09-27T08:20:00.000Z" }),
       order({ id: "latest", created_at: "2026-09-27T10:00:00.000Z", updated_at: "2026-09-27T10:20:00.000Z" }),
     ]
-    const supabase = createFakeSupabase(rows)
+    const supabase = createFakeSupabase(rows) // no tracking rows at all
     const result = await getLatestCompletedOrder(supabase, "user-1")
     expect(result).not.toBeNull()
-    expect(result!.durationMinutes).toBe(20)
+    expect(result!.durationMinutes).toBe(20) // placed 10:00 -> completed 10:20, no dispatch row to override
     expect(result!.network).toBe("MTN")
+  })
+
+  it("measures duration from dispatch time (tracking row), not placement time, when a tracking row exists", async () => {
+    const rows = [order({ id: "latest", created_at: "2026-09-27T10:00:00.000Z", updated_at: "2026-09-27T10:20:00.000Z" })]
+    // Placed at 10:00, but only actually pushed to the supplier at 10:15 (internal
+    // queueing delay) — duration should be dispatch(10:15)->completed(10:20) = 5m,
+    // not placed(10:00)->completed(10:20) = 20m.
+    const track = [tracking({ order_id: "latest", created_at: "2026-09-27T10:15:00.000Z" })]
+    const supabase = createFakeSupabase(rows, track)
+    const result = await getLatestCompletedOrder(supabase, "user-1")
+    expect(result!.durationMinutes).toBe(5)
+  })
+
+  it("ignores dead tracking rows (failed/abandoned) and picks the most recent live one", async () => {
+    const rows = [order({ id: "latest", created_at: "2026-09-27T10:00:00.000Z", updated_at: "2026-09-27T10:30:00.000Z" })]
+    const track = [
+      tracking({ order_id: "latest", status: "abandoned", created_at: "2026-09-27T10:01:00.000Z" }), // dead — ignored
+      tracking({ order_id: "latest", status: "failed", created_at: "2026-09-27T10:05:00.000Z" }), // dead — ignored (a retry attempt that failed)
+      tracking({ order_id: "latest", status: "completed", created_at: "2026-09-27T10:10:00.000Z" }), // the live, successful attempt
+    ]
+    const supabase = createFakeSupabase(rows, track)
+    const result = await getLatestCompletedOrder(supabase, "user-1")
+    // dispatch(10:10) -> completed(10:30) = 20m, not from the dead rows at 10:01/10:05
+    expect(result!.durationMinutes).toBe(20)
   })
 
   it("reports hasHeldOrder true when the user has a held_registration row", async () => {
@@ -112,15 +172,16 @@ describe("getLatestCompletedOrder", () => {
     expect(result!.avgNetworkDurationMinutes).toBeNull()
   })
 
-  it("computes avgNetworkDurationMinutes across other same-network completed orders in the window", async () => {
+  it("computes avgNetworkDurationMinutes using dispatch time across other same-network completed orders", async () => {
     const rows = [
-      order({ id: "mine", user_id: "user-1", created_at: "2026-09-27T10:00:00.000Z", updated_at: "2026-09-27T10:20:00.000Z" }), // 20 min
-      order({ id: "someone-elses-1", user_id: "user-2", created_at: "2026-09-27T09:00:00.000Z", updated_at: "2026-09-27T09:10:00.000Z" }), // 10 min
+      order({ id: "mine", user_id: "user-1", created_at: "2026-09-27T10:00:00.000Z", updated_at: "2026-09-27T10:20:00.000Z" }), // no tracking row -> placed->completed = 20 min
+      order({ id: "someone-elses-1", user_id: "user-2", created_at: "2026-09-27T09:00:00.000Z", updated_at: "2026-09-27T09:10:00.000Z" }), // dispatch overrides to 5 min
     ]
-    const supabase = createFakeSupabase(rows)
+    const track = [tracking({ order_id: "someone-elses-1", created_at: "2026-09-27T09:05:00.000Z" })]
+    const supabase = createFakeSupabase(rows, track)
     const result = await getLatestCompletedOrder(supabase, "user-1")
-    // average of 20 and 10 = 15
-    expect(result!.avgNetworkDurationMinutes).toBe(15)
+    // average of 20 (mine, no tracking) and 5 (someone-elses-1, dispatch-based) = 12.5 -> rounds to 13
+    expect(result!.avgNetworkDurationMinutes).toBe(13)
   })
 })
 
@@ -137,7 +198,7 @@ describe("getNetworkHealth", () => {
     }
   })
 
-  it("reports optimal with correct avg delivery when all orders for a network completed", async () => {
+  it("reports optimal with correct avg delivery (placed-time fallback) when all orders for a network completed with no tracking rows", async () => {
     const rows = [
       order({ id: "m1", network: "MTN", status: "completed", created_at: "2026-09-27T10:00:00.000Z", updated_at: "2026-09-27T10:10:00.000Z" }),
       order({ id: "m2", network: "MTN", status: "completed", created_at: "2026-09-27T10:00:00.000Z", updated_at: "2026-09-27T10:20:00.000Z" }),
@@ -149,6 +210,19 @@ describe("getNetworkHealth", () => {
     expect(mtn.uptimePercent).toBe(100)
     expect(mtn.avgDeliveryMinutes).toBe(15) // avg of 10 and 20
     expect(mtn.sampleSize).toBe(2)
+  })
+
+  it("uses dispatch time (not placement) for avgDeliveryMinutes when tracking rows exist", async () => {
+    const rows = [
+      order({ id: "m1", network: "MTN", status: "completed", created_at: "2026-09-27T10:00:00.000Z", updated_at: "2026-09-27T10:30:00.000Z" }),
+    ]
+    // Placed at 10:00, dispatched at 10:20 -> real delivery time is 10m, not the
+    // 30m that placed->completed would suggest.
+    const track = [tracking({ order_id: "m1", created_at: "2026-09-27T10:20:00.000Z" })]
+    const supabase = createFakeSupabase(rows, track)
+    const result = await getNetworkHealth(supabase)
+    const mtn = result.find((r) => r.network === "MTN")!
+    expect(mtn.avgDeliveryMinutes).toBe(10)
   })
 
   it("computes correct uptime percent from a mix of completed/failed, excluding pending from the denominator", async () => {
