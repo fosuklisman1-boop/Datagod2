@@ -84,7 +84,7 @@ export function LatestOrderCard({ order, loading, onRefresh }: LatestOrderCardPr
               <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/5 p-3 text-xs text-warning-foreground">
                 <Info className="w-4 h-4 mt-0.5 shrink-0 text-warning" />
                 <span>
-                  One of your orders is currently pending an MTN number-validation check. This can add extra time before it completes.
+                  An order is currently pending an MTN number-validation check. This can add extra time before it completes.
                 </span>
               </div>
             )}

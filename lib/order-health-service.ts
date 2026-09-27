@@ -1,6 +1,13 @@
 //
-// Real, computed data for two customer-facing dashboard widgets: "your latest
-// completed order" and "network health" (uptime/avg-delivery per network).
+// Real, computed data for two customer-facing dashboard widgets: the
+// platform's latest completed order and "network health" (uptime/avg-delivery
+// per network). Both are platform-wide signals, not scoped to the viewing
+// account — deliberately: an individual dealer may go hours between their own
+// completed orders, which made the "latest order" card look stale/wrong even
+// though the platform itself was actively fulfilling other customers' orders
+// the whole time. Personally-identifying fields (the recipient phone) are
+// masked before leaving this module, since this data is now shown to every
+// logged-in dashboard viewer, not just the order's own buyer.
 //
 // This is a financial app — every number here must trace back to real order
 // rows. No fabricated percentages, no hardcoded "1-2 hours" estimates, no
@@ -24,6 +31,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { HOLD_STATUS } from "@/lib/mtn-hold"
+import { maskPhone } from "@/lib/security-log"
 
 export const HEALTH_NETWORKS = ["MTN", "Telecel", "AT - iShare", "AT - BigTime"] as const
 export type HealthNetwork = (typeof HEALTH_NETWORKS)[number]
@@ -31,6 +39,7 @@ export type HealthNetwork = (typeof HEALTH_NETWORKS)[number]
 export interface LatestOrderSummary {
   network: string
   volumeGb: string
+  /** Masked (see maskPhone) — this order may belong to any customer. */
   recipientPhone: string
   createdAt: string
   completedAt: string | null
@@ -148,14 +157,19 @@ interface OrderSourceConfig {
   paymentStatusFilter?: string
   trackingOrderType: string
   trackingIdColumn: TrackingIdColumn
+  /** Column names differ per table (combined_orders_view.sql is the reference
+   *  mapping) — needed only by getLatestCompletedOrder, which surfaces these
+   *  two fields; fetchResolvedOrderRows/getNetworkHealth never select them. */
+  sizeCol: string
+  phoneCol: string
 }
 
 const ORDER_SOURCES: OrderSourceConfig[] = [
-  { table: "orders", statusColumn: "status", trackingOrderType: "bulk", trackingIdColumn: "order_id" },
-  { table: "api_orders", statusColumn: "status", trackingOrderType: "api", trackingIdColumn: "api_order_id" },
-  { table: "shop_orders", statusColumn: "order_status", paymentStatusFilter: "completed", trackingOrderType: "shop", trackingIdColumn: "shop_order_id" },
-  { table: "ussd_orders", statusColumn: "order_status", paymentStatusFilter: "completed", trackingOrderType: "ussd", trackingIdColumn: "order_id" },
-  { table: "ussd_shop_orders", statusColumn: "order_status", paymentStatusFilter: "completed", trackingOrderType: "ussd_shop", trackingIdColumn: "order_id" },
+  { table: "orders", statusColumn: "status", trackingOrderType: "bulk", trackingIdColumn: "order_id", sizeCol: "size", phoneCol: "phone_number" },
+  { table: "api_orders", statusColumn: "status", trackingOrderType: "api", trackingIdColumn: "api_order_id", sizeCol: "volume_gb", phoneCol: "recipient_phone" },
+  { table: "shop_orders", statusColumn: "order_status", paymentStatusFilter: "completed", trackingOrderType: "shop", trackingIdColumn: "shop_order_id", sizeCol: "volume_gb", phoneCol: "customer_phone" },
+  { table: "ussd_orders", statusColumn: "order_status", paymentStatusFilter: "completed", trackingOrderType: "ussd", trackingIdColumn: "order_id", sizeCol: "package_size", phoneCol: "recipient_phone" },
+  { table: "ussd_shop_orders", statusColumn: "order_status", paymentStatusFilter: "completed", trackingOrderType: "ussd_shop", trackingIdColumn: "order_id", sizeCol: "package_size", phoneCol: "recipient_phone" },
 ]
 
 interface ResolvedOrderRow {
@@ -236,47 +250,29 @@ async function computeNetworkAverageDuration(
   return Math.round(durations.reduce((a, b) => a + b, 0) / durations.length)
 }
 
-// Tables where a genuinely logged-in Datagod account is the identifiable
-// buyer. shop_orders/ussd_orders/ussd_shop_orders are phone/guest checkouts
-// with no buyer user_id at all — their only "owner" column identifies the
-// SHOP owner, not the customer — so they're intentionally excluded here
-// (unlike computeNetworkAverageDuration's platform-wide scope, which doesn't
-// need buyer identity). Column names differ between the two tables
-// (orders.size/phone_number vs api_orders.volume_gb/recipient_phone).
-interface UserOwnedSource {
-  table: "orders" | "api_orders"
-  sizeCol: string
-  phoneCol: string
-  trackingOrderType: string
-  trackingIdColumn: TrackingIdColumn
-}
-
-const USER_OWNED_SOURCES: UserOwnedSource[] = [
-  { table: "orders", sizeCol: "size", phoneCol: "phone_number", trackingOrderType: "bulk", trackingIdColumn: "order_id" },
-  { table: "api_orders", sizeCol: "volume_gb", phoneCol: "recipient_phone", trackingOrderType: "api", trackingIdColumn: "api_order_id" },
-]
-
 /**
- * The current user's own most recently completed order — across every order
- * table that can actually identify this account as the buyer (orders,
- * api_orders) — with real (not hardcoded) delivery-time context. Returns
- * null when the user has no completed orders yet in either table — a normal
- * state, not an error.
+ * The platform's single most recently completed order — across all 5 order
+ * tables, regardless of which account (if any) placed it — with real (not
+ * hardcoded) delivery-time context. This is intentionally NOT scoped to the
+ * viewing account: a dashboard viewer's own purchase history can go hours
+ * between completions while the platform itself is actively fulfilling other
+ * customers' orders the whole time, which made a per-account version of this
+ * card look stale/wrong. Returns null only when there are no completed orders
+ * anywhere yet.
  */
 export async function getLatestCompletedOrder(
-  supabase: SupabaseClient,
-  userId: string
+  supabase: SupabaseClient
 ): Promise<LatestOrderSummary | null> {
   const candidates = await Promise.all(
-    USER_OWNED_SOURCES.map(async (source) => {
-      const { data, error } = await supabase
-        .from(source.table)
-        .select(`id, network, ${source.sizeCol}, ${source.phoneCol}, created_at, updated_at`)
-        .eq("user_id", userId)
-        .eq("status", "completed")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle()
+    ORDER_SOURCES.map(async (source) => {
+      const selectCols = source.paymentStatusFilter
+        ? `id, network, payment_status, ${source.sizeCol}, ${source.phoneCol}, created_at, updated_at`
+        : `id, network, ${source.sizeCol}, ${source.phoneCol}, created_at, updated_at`
+
+      let query: any = supabase.from(source.table).select(selectCols).eq(source.statusColumn, "completed")
+      if (source.paymentStatusFilter) query = query.eq("payment_status", source.paymentStatusFilter)
+
+      const { data, error } = await query.order("created_at", { ascending: false }).limit(1).maybeSingle()
       if (error) throw error
       if (!data) return null
       const row = data as Record<string, any>
@@ -304,19 +300,22 @@ export async function getLatestCompletedOrder(
   const durationMinutes = minutesBetween(ownStartTime, latest.updatedAt)
 
   // Real, computed estimate: average dispatch->completed time for this same
-  // network across the WHOLE PLATFORM (every order source, every user) in
-  // the last 24h — matches getNetworkHealth's own aggregation scope, so this
-  // card and the Network Health widget never disagree about the same
-  // network's average. Omitted (null) when the network doesn't normalize to
-  // one of the 4 tracked ones, or when there's fewer than 2 samples.
+  // network across the whole platform in the last 24h — matches
+  // getNetworkHealth's own aggregation scope, so this card and the Network
+  // Health widget never disagree about the same network's average. Omitted
+  // (null) when the network doesn't normalize to one of the 4 tracked ones,
+  // or when there's fewer than 2 samples.
   const normalizedForAvg = normalizeNetwork(latest.network)
   const avgNetworkDurationMinutes = normalizedForAvg
     ? await computeNetworkAverageDuration(supabase, normalizedForAvg, 24)
     : null
 
+  // Platform-wide: is ANY order (any table, any customer) currently sitting
+  // in an MTN number-validation hold? Shown as a general "deliveries may be
+  // delayed" notice, not a claim about the specific order above.
   const heldRows = await Promise.all(
-    USER_OWNED_SOURCES.map((source) =>
-      supabase.from(source.table).select("id").eq("user_id", userId).eq("status", HOLD_STATUS).limit(1).maybeSingle()
+    ORDER_SOURCES.map((source) =>
+      supabase.from(source.table).select("id").eq(source.statusColumn, HOLD_STATUS).limit(1).maybeSingle()
     )
   )
   const hasHeldOrder = heldRows.some((r) => !!r.data)
@@ -324,7 +323,9 @@ export async function getLatestCompletedOrder(
   return {
     network: normalized,
     volumeGb: latest.volumeGb,
-    recipientPhone: latest.phone,
+    // Masked — this order may belong to any customer on the platform, not the
+    // dashboard viewer, so the full number is never sent to the client.
+    recipientPhone: maskPhone(latest.phone),
     createdAt: latest.createdAt,
     completedAt: latest.updatedAt,
     durationMinutes,

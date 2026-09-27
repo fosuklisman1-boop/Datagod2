@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const order = await getLatestCompletedOrder(supabase, user.id)
+    const order = await getLatestCompletedOrder(supabase)
     return NextResponse.json({ success: true, order })
   } catch (error) {
     console.error("[LATEST-ORDER] Error:", error)

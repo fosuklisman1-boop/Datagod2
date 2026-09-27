@@ -121,9 +121,9 @@ function tracking(overrides: Partial<FakeTrackingRow> & { order_id?: string; sho
 }
 
 describe("getLatestCompletedOrder", () => {
-  it("returns null when the user has no completed orders", async () => {
-    const supabase = createFakeSupabase({ orders: [order({ id: "o1", user_id: "other-user" })] })
-    const result = await getLatestCompletedOrder(supabase, "user-1")
+  it("returns null when there are no completed orders anywhere on the platform", async () => {
+    const supabase = createFakeSupabase({ orders: [order({ id: "o1", status: "pending" })] })
+    const result = await getLatestCompletedOrder(supabase)
     expect(result).toBeNull()
   })
 
@@ -133,7 +133,7 @@ describe("getLatestCompletedOrder", () => {
       order({ id: "latest", created_at: "2026-09-27T10:00:00.000Z", updated_at: "2026-09-27T10:20:00.000Z" }),
     ]
     const supabase = createFakeSupabase({ orders: rows }) // no tracking rows at all
-    const result = await getLatestCompletedOrder(supabase, "user-1")
+    const result = await getLatestCompletedOrder(supabase)
     expect(result).not.toBeNull()
     expect(result!.durationMinutes).toBe(20) // placed 10:00 -> completed 10:20, no dispatch row to override
     expect(result!.network).toBe("MTN")
@@ -146,7 +146,7 @@ describe("getLatestCompletedOrder", () => {
     // not placed(10:00)->completed(10:20) = 20m.
     const track = [tracking({ order_id: "latest", created_at: "2026-09-27T10:15:00.000Z" })]
     const supabase = createFakeSupabase({ orders: rows }, track)
-    const result = await getLatestCompletedOrder(supabase, "user-1")
+    const result = await getLatestCompletedOrder(supabase)
     expect(result!.durationMinutes).toBe(5)
   })
 
@@ -158,51 +158,57 @@ describe("getLatestCompletedOrder", () => {
       tracking({ order_id: "latest", status: "completed", created_at: "2026-09-27T10:10:00.000Z" }), // the live, successful attempt
     ]
     const supabase = createFakeSupabase({ orders: rows }, track)
-    const result = await getLatestCompletedOrder(supabase, "user-1")
+    const result = await getLatestCompletedOrder(supabase)
     // dispatch(10:10) -> completed(10:30) = 20m, not from the dead rows at 10:01/10:05
     expect(result!.durationMinutes).toBe(20)
   })
 
-  it("reports hasHeldOrder true when the user has a held_registration row", async () => {
+  it("reports hasHeldOrder true when any table, anywhere on the platform, has a held_registration row", async () => {
     const rows = [
       order({ id: "completed-1" }),
       order({ id: "held-1", status: "held_registration" }),
     ]
     const supabase = createFakeSupabase({ orders: rows })
-    const result = await getLatestCompletedOrder(supabase, "user-1")
+    const result = await getLatestCompletedOrder(supabase)
     expect(result!.hasHeldOrder).toBe(true)
   })
 
-  it("reports hasHeldOrder false when the user has no held_registration row", async () => {
+  it("reports hasHeldOrder false when no table has a held_registration row", async () => {
     const supabase = createFakeSupabase({ orders: [order({ id: "completed-1" })] })
-    const result = await getLatestCompletedOrder(supabase, "user-1")
+    const result = await getLatestCompletedOrder(supabase)
     expect(result!.hasHeldOrder).toBe(false)
   })
 
   it("omits avgNetworkDurationMinutes when this order is the only same-network completed order in the window", async () => {
     const supabase = createFakeSupabase({ orders: [order({ id: "only-one" })] })
-    const result = await getLatestCompletedOrder(supabase, "user-1")
+    const result = await getLatestCompletedOrder(supabase)
     expect(result!.avgNetworkDurationMinutes).toBeNull()
   })
 
   it("computes avgNetworkDurationMinutes using dispatch time across other same-network completed orders", async () => {
     const rows = [
-      order({ id: "mine", user_id: "user-1", created_at: "2026-09-27T10:00:00.000Z", updated_at: "2026-09-27T10:20:00.000Z" }), // no tracking row -> placed->completed = 20 min
-      order({ id: "someone-elses-1", user_id: "user-2", created_at: "2026-09-27T09:00:00.000Z", updated_at: "2026-09-27T09:10:00.000Z" }), // dispatch overrides to 5 min
+      order({ id: "o-1", created_at: "2026-09-27T10:00:00.000Z", updated_at: "2026-09-27T10:20:00.000Z" }), // no tracking row -> placed->completed = 20 min
+      order({ id: "o-2", created_at: "2026-09-27T09:00:00.000Z", updated_at: "2026-09-27T09:10:00.000Z" }), // dispatch overrides to 5 min
     ]
-    const track = [tracking({ order_id: "someone-elses-1", created_at: "2026-09-27T09:05:00.000Z" })]
+    const track = [tracking({ order_id: "o-2", created_at: "2026-09-27T09:05:00.000Z" })]
     const supabase = createFakeSupabase({ orders: rows }, track)
-    const result = await getLatestCompletedOrder(supabase, "user-1")
-    // average of 20 (mine, no tracking) and 5 (someone-elses-1, dispatch-based) = 12.5 -> rounds to 13
+    const result = await getLatestCompletedOrder(supabase)
+    // average of 20 (o-1, no tracking) and 5 (o-2, dispatch-based) = 12.5 -> rounds to 13
     expect(result!.avgNetworkDurationMinutes).toBe(13)
   })
 
-  // --- Widened to api_orders (the "mimic the AT-iShare fix" ask) ---
-  // orders/api_orders both have a real user_id identifying the buyer, so
-  // "this account's own latest order" can honestly widen to both. shop/ussd/
-  // ussd_shop orders cannot (no buyer user_id at all — see module comment).
+  it("masks the recipient phone number before returning it — this order may belong to any customer", async () => {
+    const supabase = createFakeSupabase({ orders: [order({ id: "o1", phone_number: "0541234567" })] })
+    const result = await getLatestCompletedOrder(supabase)
+    expect(result!.recipientPhone).toBe("054****67")
+  })
 
-  it("picks the user's latest order from api_orders when it's more recent than their orders-table order", async () => {
+  // --- Platform-wide, not account-scoped (the "why should it be based on the
+  // account viewing it" correction) — the single most recently PLACED
+  // completed order wins regardless of which of the 5 order tables, or which
+  // account (if any — shop/ussd customers have none), it came from. ---
+
+  it("picks the single most recent completed order platform-wide, from api_orders, over an older orders-table row", async () => {
     const supabase = createFakeSupabase({
       orders: [order({ id: "dashboard-1", created_at: "2026-09-27T08:00:00.000Z", updated_at: "2026-09-27T08:20:00.000Z" })],
       api_orders: [
@@ -213,10 +219,10 @@ describe("getLatestCompletedOrder", () => {
         }),
       ],
     })
-    const result = await getLatestCompletedOrder(supabase, "user-1")
+    const result = await getLatestCompletedOrder(supabase)
     expect(result!.createdAt).toBe("2026-09-27T10:00:00.000Z")
     expect(result!.volumeGb).toBe("10")
-    expect(result!.recipientPhone).toBe("0559876543")
+    expect(result!.recipientPhone).toBe("055****43")
     expect(result!.durationMinutes).toBe(15) // 10:00 -> 10:15, no tracking row
   })
 
@@ -233,30 +239,47 @@ describe("getLatestCompletedOrder", () => {
       },
       [tracking({ api_order_id: "api-1", order_type: "api", created_at: "2026-09-27T10:15:00.000Z" })]
     )
-    const result = await getLatestCompletedOrder(supabase, "user-1")
+    const result = await getLatestCompletedOrder(supabase)
     expect(result!.durationMinutes).toBe(5) // dispatch(10:15) -> completed(10:20), NOT placed(10:00)
   })
 
-  it("reports hasHeldOrder true for a held_registration row sitting in api_orders", async () => {
+  it("picks a shop_orders row as the latest order when it's the most recently placed completed+paid order platform-wide", async () => {
+    // shop_orders has no buyer user_id at all, unlike orders/api_orders — that
+    // no longer matters, since this lookup is platform-wide, not per-account.
     const supabase = createFakeSupabase({
-      orders: [order({ id: "completed-1" })],
-      api_orders: [order({ id: "held-api-1", status: "held_registration" })],
-    })
-    const result = await getLatestCompletedOrder(supabase, "user-1")
-    expect(result!.hasHeldOrder).toBe(true)
-  })
-
-  it("never attributes a shop_orders row to a user's own latest order (no buyer user_id exists on that table)", async () => {
-    // Even if a shop_orders row happens to carry the same user_id value (it
-    // shouldn't in reality — shop_orders has no such column at all — but this
-    // proves the query never reads shop_orders for this purpose regardless).
-    const supabase = createFakeSupabase({
+      orders: [order({ id: "dashboard-1", created_at: "2026-09-27T08:00:00.000Z", updated_at: "2026-09-27T08:20:00.000Z" })],
       shop_orders: [
-        order({ id: "shop-1", user_id: "user-1", order_status: "completed", payment_status: "completed", status: undefined, created_at: "2026-09-27T12:00:00.000Z", updated_at: "2026-09-27T12:05:00.000Z" }),
+        order({
+          id: "shop-1", status: undefined, order_status: "completed", payment_status: "completed",
+          size: undefined, phone_number: undefined, volume_gb: "3", recipient_phone: "0201112222",
+          created_at: "2026-09-27T12:00:00.000Z", updated_at: "2026-09-27T12:05:00.000Z",
+        }),
       ],
     })
-    const result = await getLatestCompletedOrder(supabase, "user-1")
-    expect(result).toBeNull() // shop_orders is never queried for "own latest order"
+    const result = await getLatestCompletedOrder(supabase)
+    expect(result!.createdAt).toBe("2026-09-27T12:00:00.000Z")
+    expect(result!.volumeGb).toBe("3")
+    expect(result!.durationMinutes).toBe(5)
+  })
+
+  it("never picks a shop_orders row whose payment_status isn't completed, even if order_status says completed", async () => {
+    const supabase = createFakeSupabase({
+      shop_orders: [
+        order({ id: "abandoned-1", status: undefined, order_status: "completed", payment_status: "pending", created_at: "2026-09-28T00:00:00.000Z" }),
+      ],
+      orders: [order({ id: "real-1", created_at: "2026-09-27T08:00:00.000Z", updated_at: "2026-09-27T08:20:00.000Z" })],
+    })
+    const result = await getLatestCompletedOrder(supabase)
+    expect(result!.createdAt).toBe("2026-09-27T08:00:00.000Z") // the abandoned shop checkout is invisible, despite its later timestamp
+  })
+
+  it("reports hasHeldOrder true for a held_registration row sitting in a table with no completed orders at all", async () => {
+    const supabase = createFakeSupabase({
+      orders: [order({ id: "completed-1" })],
+      shop_orders: [order({ id: "held-shop-1", status: undefined, order_status: "held_registration" })],
+    })
+    const result = await getLatestCompletedOrder(supabase)
+    expect(result!.hasHeldOrder).toBe(true)
   })
 })
 
