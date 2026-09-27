@@ -43,13 +43,17 @@ export function LatestOrderCard({ order, loading, onRefresh }: LatestOrderCardPr
         ) : !order ? (
           <div className="p-4 text-center text-sm text-muted-foreground">No completed orders yet</div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               {order.durationMinutes !== null && (
-                <Badge variant="secondary">Took {formatDuration(order.durationMinutes)}</Badge>
+                <Badge variant="secondary" title="Time from when this order was sent to the network provider to when it completed — not from when you placed it.">
+                  Delivered in {formatDuration(order.durationMinutes)}
+                </Badge>
               )}
               {order.avgNetworkDurationMinutes !== null && (
-                <Badge variant="outline">Est: ~{formatDuration(order.avgNetworkDurationMinutes)}</Badge>
+                <Badge variant="outline" title={`Average delivery time across other recent ${order.network} orders on the platform in the last 24h — not specific to this order.`}>
+                  {order.network} network avg: ~{formatDuration(order.avgNetworkDurationMinutes)}
+                </Badge>
               )}
               {order.isNight && (
                 <Badge variant="outline" className="flex items-center gap-1">
@@ -57,8 +61,13 @@ export function LatestOrderCard({ order, loading, onRefresh }: LatestOrderCardPr
                 </Badge>
               )}
             </div>
+            {order.durationMinutes !== null && (
+              <p className="text-[11px] text-muted-foreground">
+                Delivery time is measured from provider dispatch, not from when you placed the order — the gap below reflects our own processing time.
+              </p>
+            )}
 
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground pt-1">
               <Clock className="w-3.5 h-3.5" />
               <span>Placed: {formatTimestamp(order.createdAt)}</span>
               {order.completedAt && (
