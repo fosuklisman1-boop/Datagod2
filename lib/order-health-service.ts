@@ -129,85 +129,15 @@ function resolveStartTime(orderId: string, placedAt: string, dispatchMap: Map<st
   return dispatchMap.get(orderId) ?? placedAt
 }
 
-/**
- * The current user's own most recently completed order (dashboard/bulk
- * purchases only — the `orders` table), with real (not hardcoded)
- * delivery-time context. Returns null when the user has no completed orders
- * yet — a normal state, not an error.
- */
-export async function getLatestCompletedOrder(
-  supabase: SupabaseClient,
-  userId: string
-): Promise<LatestOrderSummary | null> {
-  const { data: latest, error } = await supabase
-    .from("orders")
-    .select("id, network, size, phone_number, created_at, updated_at")
-    .eq("user_id", userId)
-    .eq("status", "completed")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle()
-  if (error) throw error
-  if (!latest) return null
-
-  const normalized = normalizeNetwork(latest.network) ?? latest.network
-
-  const ownDispatchMap = await getDispatchTimestamps(supabase, "bulk", "order_id", [latest.id])
-  const ownStartTime = resolveStartTime(latest.id, latest.created_at, ownDispatchMap)
-  const durationMinutes = minutesBetween(ownStartTime, latest.updated_at)
-
-  // Real, computed estimate: average dispatch->completed time for this same
-  // network across the whole platform in the last 24h. A single-sample
-  // average (just this order itself) isn't a meaningful estimate, so it's
-  // omitted rather than shown.
-  let avgNetworkDurationMinutes: number | null = null
-  const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
-  const { data: networkOrders, error: networkError } = await supabase
-    .from("orders")
-    .select("id, created_at, updated_at")
-    .eq("network", latest.network)
-    .eq("status", "completed")
-    .gte("created_at", dayAgo)
-  if (networkError) throw networkError
-  const networkRows = (networkOrders ?? []) as { id: string; created_at: string; updated_at: string }[]
-  const networkDispatchMap = await getDispatchTimestamps(supabase, "bulk", "order_id", networkRows.map((o) => o.id))
-  const durations = networkRows.map((o) =>
-    minutesBetween(resolveStartTime(o.id, o.created_at, networkDispatchMap), o.updated_at)
-  )
-  if (durations.length > 1) {
-    avgNetworkDurationMinutes = Math.round(durations.reduce((a, b) => a + b, 0) / durations.length)
-  }
-
-  const { data: heldRow, error: heldError } = await supabase
-    .from("orders")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("status", HOLD_STATUS)
-    .limit(1)
-    .maybeSingle()
-  if (heldError) throw heldError
-
-  return {
-    network: normalized,
-    volumeGb: String(latest.size ?? ""),
-    recipientPhone: latest.phone_number ?? "",
-    createdAt: latest.created_at,
-    completedAt: latest.updated_at,
-    durationMinutes,
-    avgNetworkDurationMinutes,
-    isNight: isNightTime(latest.created_at),
-    hasHeldOrder: !!heldRow,
-  }
-}
-
 const RESOLVED_STATUSES = new Set(["completed", "failed", "reversed"])
 
 /**
  * Per-source-table config for the 5 tables real orders can land in (mirrors
  * migrations/combined_orders_view.sql, minus that view's UI-only fields).
- * Network Health is a platform-wide signal, not a single-channel one — a
- * customer buying MTN through the web dashboard and one buying AT-iShare
- * through a USSD shop are both real traffic this widget should reflect.
+ * Network Health (and the network-wide average shown on the Latest Order
+ * card) is a platform-wide signal, not a single-channel one — a customer
+ * buying MTN through the web dashboard and one buying AT-iShare through a
+ * USSD shop are both real traffic these should reflect.
  */
 interface OrderSourceConfig {
   table: string
@@ -227,6 +157,182 @@ const ORDER_SOURCES: OrderSourceConfig[] = [
   { table: "ussd_orders", statusColumn: "order_status", paymentStatusFilter: "completed", trackingOrderType: "ussd", trackingIdColumn: "order_id" },
   { table: "ussd_shop_orders", statusColumn: "order_status", paymentStatusFilter: "completed", trackingOrderType: "ussd_shop", trackingIdColumn: "order_id" },
 ]
+
+interface ResolvedOrderRow {
+  network: HealthNetwork
+  status: "completed" | "failed" | "reversed"
+  /** Dispatch->completed minutes; only set for a "completed" row that has an
+   *  end timestamp. Null for failed/reversed rows (no successful delivery to
+   *  time) or a completed row missing updated_at. */
+  durationMinutes: number | null
+}
+
+/**
+ * Fetches every resolved (completed/failed/reversed) order across all 5
+ * order tables in the last `windowHours`, normalized to one flat shape.
+ * Shared by getNetworkHealth (buckets by all 4 networks at once) and
+ * computeNetworkAverageDuration (filters to one named network) so the
+ * per-table fetch/filter/dispatch-lookup logic exists in exactly one place.
+ */
+async function fetchResolvedOrderRows(supabase: SupabaseClient, windowHours: number): Promise<ResolvedOrderRow[]> {
+  const windowStart = new Date(Date.now() - windowHours * 60 * 60 * 1000).toISOString()
+  const results: ResolvedOrderRow[] = []
+
+  for (const source of ORDER_SOURCES) {
+    const selectCols = source.paymentStatusFilter
+      ? `id, network, ${source.statusColumn}, payment_status, created_at, updated_at`
+      : `id, network, ${source.statusColumn}, created_at, updated_at`
+
+    const { data, error } = await supabase
+      .from(source.table)
+      .select(selectCols)
+      .gte("created_at", windowStart)
+      .limit(5000) // sane per-table bound; if any of these tables ever outgrows
+      // client-side aggregation, move this to a Postgres RPC/view instead.
+    if (error) throw error
+
+    const rows = (data ?? []) as Record<string, any>[]
+    const eligible = source.paymentStatusFilter
+      ? rows.filter((r) => r.payment_status === source.paymentStatusFilter)
+      : rows
+
+    const completedIds = eligible.filter((r) => r[source.statusColumn] === "completed").map((r) => r.id as string)
+    const dispatchMap = await getDispatchTimestamps(supabase, source.trackingOrderType, source.trackingIdColumn, completedIds)
+
+    for (const row of eligible) {
+      const network = normalizeNetwork(row.network)
+      if (!network) continue // doesn't belong to any tracked network — drop, don't force-fit
+      const status = row[source.statusColumn] as string
+      if (!RESOLVED_STATUSES.has(status)) continue // in-flight — not yet resolved
+
+      let durationMinutes: number | null = null
+      if (status === "completed" && row.updated_at) {
+        const startTime = resolveStartTime(row.id, row.created_at, dispatchMap)
+        durationMinutes = minutesBetween(startTime, row.updated_at)
+      }
+      results.push({ network, status: status as ResolvedOrderRow["status"], durationMinutes })
+    }
+  }
+
+  return results
+}
+
+/**
+ * Average completed-order delivery time (dispatch->completed) for one
+ * network across all 5 order tables, platform-wide — matches
+ * getNetworkHealth's own aggregation scope. Returns null for fewer than 2
+ * samples — a single data point isn't a meaningful estimate.
+ */
+async function computeNetworkAverageDuration(
+  supabase: SupabaseClient,
+  network: HealthNetwork,
+  windowHours: number
+): Promise<number | null> {
+  const rows = await fetchResolvedOrderRows(supabase, windowHours)
+  const durations = rows
+    .filter((r) => r.network === network && r.status === "completed" && r.durationMinutes !== null)
+    .map((r) => r.durationMinutes as number)
+  if (durations.length <= 1) return null
+  return Math.round(durations.reduce((a, b) => a + b, 0) / durations.length)
+}
+
+// Tables where a genuinely logged-in Datagod account is the identifiable
+// buyer. shop_orders/ussd_orders/ussd_shop_orders are phone/guest checkouts
+// with no buyer user_id at all — their only "owner" column identifies the
+// SHOP owner, not the customer — so they're intentionally excluded here
+// (unlike computeNetworkAverageDuration's platform-wide scope, which doesn't
+// need buyer identity). Column names differ between the two tables
+// (orders.size/phone_number vs api_orders.volume_gb/recipient_phone).
+interface UserOwnedSource {
+  table: "orders" | "api_orders"
+  sizeCol: string
+  phoneCol: string
+  trackingOrderType: string
+  trackingIdColumn: TrackingIdColumn
+}
+
+const USER_OWNED_SOURCES: UserOwnedSource[] = [
+  { table: "orders", sizeCol: "size", phoneCol: "phone_number", trackingOrderType: "bulk", trackingIdColumn: "order_id" },
+  { table: "api_orders", sizeCol: "volume_gb", phoneCol: "recipient_phone", trackingOrderType: "api", trackingIdColumn: "api_order_id" },
+]
+
+/**
+ * The current user's own most recently completed order — across every order
+ * table that can actually identify this account as the buyer (orders,
+ * api_orders) — with real (not hardcoded) delivery-time context. Returns
+ * null when the user has no completed orders yet in either table — a normal
+ * state, not an error.
+ */
+export async function getLatestCompletedOrder(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<LatestOrderSummary | null> {
+  const candidates = await Promise.all(
+    USER_OWNED_SOURCES.map(async (source) => {
+      const { data, error } = await supabase
+        .from(source.table)
+        .select(`id, network, ${source.sizeCol}, ${source.phoneCol}, created_at, updated_at`)
+        .eq("user_id", userId)
+        .eq("status", "completed")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (error) throw error
+      if (!data) return null
+      const row = data as Record<string, any>
+      return {
+        source,
+        id: row.id as string,
+        network: row.network as string,
+        volumeGb: row[source.sizeCol] != null ? String(row[source.sizeCol]) : "",
+        phone: (row[source.phoneCol] as string) ?? "",
+        createdAt: row.created_at as string,
+        updatedAt: row.updated_at as string,
+      }
+    })
+  )
+
+  const found = candidates.filter((c): c is NonNullable<(typeof candidates)[number]> => c !== null)
+  if (found.length === 0) return null
+  found.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+  const latest = found[0]
+
+  const normalized = normalizeNetwork(latest.network) ?? latest.network
+
+  const ownDispatchMap = await getDispatchTimestamps(supabase, latest.source.trackingOrderType, latest.source.trackingIdColumn, [latest.id])
+  const ownStartTime = resolveStartTime(latest.id, latest.createdAt, ownDispatchMap)
+  const durationMinutes = minutesBetween(ownStartTime, latest.updatedAt)
+
+  // Real, computed estimate: average dispatch->completed time for this same
+  // network across the WHOLE PLATFORM (every order source, every user) in
+  // the last 24h — matches getNetworkHealth's own aggregation scope, so this
+  // card and the Network Health widget never disagree about the same
+  // network's average. Omitted (null) when the network doesn't normalize to
+  // one of the 4 tracked ones, or when there's fewer than 2 samples.
+  const normalizedForAvg = normalizeNetwork(latest.network)
+  const avgNetworkDurationMinutes = normalizedForAvg
+    ? await computeNetworkAverageDuration(supabase, normalizedForAvg, 24)
+    : null
+
+  const heldRows = await Promise.all(
+    USER_OWNED_SOURCES.map((source) =>
+      supabase.from(source.table).select("id").eq("user_id", userId).eq("status", HOLD_STATUS).limit(1).maybeSingle()
+    )
+  )
+  const hasHeldOrder = heldRows.some((r) => !!r.data)
+
+  return {
+    network: normalized,
+    volumeGb: latest.volumeGb,
+    recipientPhone: latest.phone,
+    createdAt: latest.createdAt,
+    completedAt: latest.updatedAt,
+    durationMinutes,
+    avgNetworkDurationMinutes,
+    isNight: isNightTime(latest.createdAt),
+    hasHeldOrder,
+  }
+}
 
 interface NetworkBucket {
   completed: number
@@ -256,49 +362,19 @@ export async function getNetworkHealth(
   supabase: SupabaseClient,
   windowHours = 24
 ): Promise<NetworkHealthStat[]> {
-  const windowStart = new Date(Date.now() - windowHours * 60 * 60 * 1000).toISOString()
+  const rows = await fetchResolvedOrderRows(supabase, windowHours)
 
   const buckets = new Map<HealthNetwork, NetworkBucket>()
   for (const network of HEALTH_NETWORKS) {
     buckets.set(network, { completed: 0, resolved: 0, completedDurations: [] })
   }
 
-  for (const source of ORDER_SOURCES) {
-    const selectCols = source.paymentStatusFilter
-      ? `id, network, ${source.statusColumn}, payment_status, created_at, updated_at`
-      : `id, network, ${source.statusColumn}, created_at, updated_at`
-
-    const { data, error } = await supabase
-      .from(source.table)
-      .select(selectCols)
-      .gte("created_at", windowStart)
-      .limit(5000) // sane per-table bound; if any of these tables ever outgrows
-      // client-side aggregation, move this to a Postgres RPC/view instead.
-    if (error) throw error
-
-    const rows = (data ?? []) as Record<string, any>[]
-    const eligible = source.paymentStatusFilter
-      ? rows.filter((r) => r.payment_status === source.paymentStatusFilter)
-      : rows
-
-    const completedIds = eligible.filter((r) => r[source.statusColumn] === "completed").map((r) => r.id as string)
-    const dispatchMap = await getDispatchTimestamps(supabase, source.trackingOrderType, source.trackingIdColumn, completedIds)
-
-    for (const row of eligible) {
-      const bucketKey = normalizeNetwork(row.network)
-      if (!bucketKey) continue // doesn't belong to any tracked network — drop, don't force-fit
-      const status = row[source.statusColumn]
-      if (!RESOLVED_STATUSES.has(status)) continue // in-flight — not yet resolved
-
-      const bucket = buckets.get(bucketKey)!
-      bucket.resolved++
-      if (status === "completed") {
-        bucket.completed++
-        if (row.updated_at) {
-          const startTime = resolveStartTime(row.id, row.created_at, dispatchMap)
-          bucket.completedDurations.push(minutesBetween(startTime, row.updated_at))
-        }
-      }
+  for (const row of rows) {
+    const bucket = buckets.get(row.network)!
+    bucket.resolved++
+    if (row.status === "completed") {
+      bucket.completed++
+      if (row.durationMinutes !== null) bucket.completedDurations.push(row.durationMinutes)
     }
   }
 

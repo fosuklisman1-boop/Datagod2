@@ -8,8 +8,10 @@ interface FakeOrder {
   status?: string // "orders"/"api_orders"
   order_status?: string // "shop_orders"/"ussd_orders"/"ussd_shop_orders"
   payment_status?: string
-  size?: string
-  phone_number?: string
+  size?: string // "orders"
+  phone_number?: string // "orders"
+  volume_gb?: string // "api_orders"
+  recipient_phone?: string // "api_orders"
   created_at: string
   updated_at?: string | null
 }
@@ -101,6 +103,8 @@ function order(overrides: Partial<FakeOrder> & { id: string }): FakeOrder {
     status: "completed",
     size: "5",
     phone_number: "0541234567",
+    volume_gb: "5",
+    recipient_phone: "0541234567",
     created_at: "2026-09-27T10:00:00.000Z",
     updated_at: "2026-09-27T10:20:00.000Z",
     ...overrides,
@@ -191,6 +195,68 @@ describe("getLatestCompletedOrder", () => {
     const result = await getLatestCompletedOrder(supabase, "user-1")
     // average of 20 (mine, no tracking) and 5 (someone-elses-1, dispatch-based) = 12.5 -> rounds to 13
     expect(result!.avgNetworkDurationMinutes).toBe(13)
+  })
+
+  // --- Widened to api_orders (the "mimic the AT-iShare fix" ask) ---
+  // orders/api_orders both have a real user_id identifying the buyer, so
+  // "this account's own latest order" can honestly widen to both. shop/ussd/
+  // ussd_shop orders cannot (no buyer user_id at all — see module comment).
+
+  it("picks the user's latest order from api_orders when it's more recent than their orders-table order", async () => {
+    const supabase = createFakeSupabase({
+      orders: [order({ id: "dashboard-1", created_at: "2026-09-27T08:00:00.000Z", updated_at: "2026-09-27T08:20:00.000Z" })],
+      api_orders: [
+        order({
+          id: "api-1", status: "completed", size: undefined, phone_number: undefined,
+          volume_gb: "10", recipient_phone: "0559876543",
+          created_at: "2026-09-27T10:00:00.000Z", updated_at: "2026-09-27T10:15:00.000Z",
+        }),
+      ],
+    })
+    const result = await getLatestCompletedOrder(supabase, "user-1")
+    expect(result!.createdAt).toBe("2026-09-27T10:00:00.000Z")
+    expect(result!.volumeGb).toBe("10")
+    expect(result!.recipientPhone).toBe("0559876543")
+    expect(result!.durationMinutes).toBe(15) // 10:00 -> 10:15, no tracking row
+  })
+
+  it("resolves dispatch time for an api_orders-sourced latest order using the api_order_id tracking column", async () => {
+    const supabase = createFakeSupabase(
+      {
+        api_orders: [
+          order({
+            id: "api-1", status: "completed", size: undefined, phone_number: undefined,
+            volume_gb: "10", recipient_phone: "0559876543",
+            created_at: "2026-09-27T10:00:00.000Z", updated_at: "2026-09-27T10:20:00.000Z",
+          }),
+        ],
+      },
+      [tracking({ api_order_id: "api-1", order_type: "api", created_at: "2026-09-27T10:15:00.000Z" })]
+    )
+    const result = await getLatestCompletedOrder(supabase, "user-1")
+    expect(result!.durationMinutes).toBe(5) // dispatch(10:15) -> completed(10:20), NOT placed(10:00)
+  })
+
+  it("reports hasHeldOrder true for a held_registration row sitting in api_orders", async () => {
+    const supabase = createFakeSupabase({
+      orders: [order({ id: "completed-1" })],
+      api_orders: [order({ id: "held-api-1", status: "held_registration" })],
+    })
+    const result = await getLatestCompletedOrder(supabase, "user-1")
+    expect(result!.hasHeldOrder).toBe(true)
+  })
+
+  it("never attributes a shop_orders row to a user's own latest order (no buyer user_id exists on that table)", async () => {
+    // Even if a shop_orders row happens to carry the same user_id value (it
+    // shouldn't in reality — shop_orders has no such column at all — but this
+    // proves the query never reads shop_orders for this purpose regardless).
+    const supabase = createFakeSupabase({
+      shop_orders: [
+        order({ id: "shop-1", user_id: "user-1", order_status: "completed", payment_status: "completed", status: undefined, created_at: "2026-09-27T12:00:00.000Z", updated_at: "2026-09-27T12:05:00.000Z" }),
+      ],
+    })
+    const result = await getLatestCompletedOrder(supabase, "user-1")
+    expect(result).toBeNull() // shop_orders is never queried for "own latest order"
   })
 })
 
