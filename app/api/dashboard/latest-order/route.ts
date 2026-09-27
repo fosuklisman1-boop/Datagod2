@@ -6,6 +6,10 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
+// Always reflects the latest order at request time — never served from a
+// cached build/edge response.
+export const dynamic = "force-dynamic"
+
 export async function GET(request: NextRequest) {
   try {
     const authHeader = request.headers.get("Authorization")

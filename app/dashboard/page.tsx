@@ -182,7 +182,7 @@ export default function DashboardPage() {
   const fetchLatestOrder = async (token: string) => {
     setLatestOrderLoading(true)
     try {
-      const res = await fetch("/api/dashboard/latest-order", { headers: { Authorization: `Bearer ${token}` } })
+      const res = await fetch("/api/dashboard/latest-order", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" })
       const d = res.ok ? await res.json() : null
       if (d?.success) setLatestOrder(d.order)
     } catch { /* silent — card shows its own empty state */ }
@@ -192,7 +192,7 @@ export default function DashboardPage() {
   const fetchNetworkHealth = async (token: string) => {
     setNetworkHealthLoading(true)
     try {
-      const res = await fetch("/api/dashboard/network-health", { headers: { Authorization: `Bearer ${token}` } })
+      const res = await fetch("/api/dashboard/network-health", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" })
       const d = res.ok ? await res.json() : null
       if (d?.success) setNetworkHealth(d.networks || [])
     } catch { /* silent — card shows its own empty state */ }
@@ -203,6 +203,34 @@ export default function DashboardPage() {
     const { data: { session } } = await supabase.auth.getSession()
     if (session?.access_token) await fetcher(session.access_token)
   }
+
+  // Keep the order-health cards live without requiring a manual refresh or
+  // full page reload: refetch when the tab regains focus/visibility (the
+  // common case — place an order elsewhere, come back to an already-open
+  // dashboard tab) and on a periodic interval while the tab stays visible.
+  useEffect(() => {
+    if (!user) return
+
+    const refreshOrderHealth = () => {
+      refreshWithFreshToken(fetchLatestOrder)
+      refreshWithFreshToken(fetchNetworkHealth)
+    }
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") refreshOrderHealth()
+    }
+    document.addEventListener("visibilitychange", onVisibilityChange)
+    window.addEventListener("focus", refreshOrderHealth)
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") refreshOrderHealth()
+    }, 60_000)
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+      window.removeEventListener("focus", refreshOrderHealth)
+      clearInterval(interval)
+    }
+  }, [user])
 
   const loadDashboardData = async () => {
     try {
