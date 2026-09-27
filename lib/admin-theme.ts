@@ -1,3 +1,5 @@
+// Pure Tailwind class-name mappings backing the admin reskin's presentational components.
+
 export type StatusPillVariant = 'success' | 'warning' | 'danger'
 
 export function statusPillClasses(variant: StatusPillVariant): string {
@@ -9,4 +11,10 @@ export function statusPillClasses(variant: StatusPillVariant): string {
     case 'danger':
       return 'bg-destructive/10 text-destructive border border-destructive/30'
   }
+}
+
+export function segmentedPillItemClasses(isActive: boolean): string {
+  return isActive
+    ? 'bg-admin-amber text-slate-900 font-bold'
+    : 'bg-transparent text-current font-medium hover:bg-white/10'
 }
