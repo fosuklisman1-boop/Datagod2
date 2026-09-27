@@ -14,6 +14,9 @@ import { TrendingUp, ShoppingCart, CheckCircle, AlertCircle, Clock, Loader2, typ
 import { supabase } from "@/lib/supabase"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 import { getServicePrimaryPath, type DomainService } from "@/lib/custom-domains"
+import { LatestOrderCard } from "@/components/dashboard/latest-order-card"
+import { NetworkHealthCard } from "@/components/dashboard/network-health-card"
+import type { LatestOrderSummary, NetworkHealthStat } from "@/lib/order-health-service"
 
 // Short, quick-action-appropriate labels for each service, used when a custom
 // domain is scoped to one or more services and the primary CTAs are repointed
@@ -111,6 +114,10 @@ export default function DashboardPage() {
   const [showPhoneVerify, setShowPhoneVerify] = useState(false)
   const [currentPhone, setCurrentPhone] = useState("")
   const [phoneVerifyDeadline, setPhoneVerifyDeadline] = useState<string | null>(null)
+  const [latestOrder, setLatestOrder] = useState<LatestOrderSummary | null>(null)
+  const [latestOrderLoading, setLatestOrderLoading] = useState(true)
+  const [networkHealth, setNetworkHealth] = useState<NetworkHealthStat[]>([])
+  const [networkHealthLoading, setNetworkHealthLoading] = useState(true)
 
   // Check if user is a sub-agent and redirect immediately.
   // Timeout after 5s so a slow/hanging Supabase query never permanently
@@ -171,6 +178,31 @@ export default function DashboardPage() {
       } catch { /* silent — background task */ }
     })()
   }, [user])
+
+  const fetchLatestOrder = async (token: string) => {
+    setLatestOrderLoading(true)
+    try {
+      const res = await fetch("/api/dashboard/latest-order", { headers: { Authorization: `Bearer ${token}` } })
+      const d = res.ok ? await res.json() : null
+      if (d?.success) setLatestOrder(d.order)
+    } catch { /* silent — card shows its own empty state */ }
+    finally { setLatestOrderLoading(false) }
+  }
+
+  const fetchNetworkHealth = async (token: string) => {
+    setNetworkHealthLoading(true)
+    try {
+      const res = await fetch("/api/dashboard/network-health", { headers: { Authorization: `Bearer ${token}` } })
+      const d = res.ok ? await res.json() : null
+      if (d?.success) setNetworkHealth(d.networks || [])
+    } catch { /* silent — card shows its own empty state */ }
+    finally { setNetworkHealthLoading(false) }
+  }
+
+  const refreshWithFreshToken = async (fetcher: (token: string) => Promise<void>) => {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (session?.access_token) await fetcher(session.access_token)
+  }
 
   const loadDashboardData = async () => {
     try {
@@ -264,6 +296,16 @@ export default function DashboardPage() {
               .then(d => setWalletBalance(d.balance ?? 0))
               .catch(() => setWalletBalance(0))
           : Promise.resolve(),
+
+        // Latest completed order (real order-history trust widget)
+        token
+          ? fetchLatestOrder(token)
+          : Promise.resolve(setLatestOrderLoading(false)),
+
+        // Platform-wide network health (real, computed from order history)
+        token
+          ? fetchNetworkHealth(token)
+          : Promise.resolve(setNetworkHealthLoading(false)),
       ])
     } catch {
       // silent — individual settled results handle their own errors
@@ -441,6 +483,18 @@ export default function DashboardPage() {
             </Button>
           </CardContent>
         </Card>
+
+        {/* Order health: real, computed trust widgets — no fabricated numbers */}
+        <LatestOrderCard
+          order={latestOrder}
+          loading={latestOrderLoading}
+          onRefresh={() => refreshWithFreshToken(fetchLatestOrder)}
+        />
+        <NetworkHealthCard
+          networks={networkHealth}
+          loading={networkHealthLoading}
+          onRefresh={() => refreshWithFreshToken(fetchNetworkHealth)}
+        />
 
         {/* Recent Activity */}
         <Card>
