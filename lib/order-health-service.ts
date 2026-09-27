@@ -15,8 +15,8 @@
 // saveMTNTracking and lib/non-mtn-fulfillment.ts's createNonMTNOrder, both of
 // which write this table regardless of network). Orders with no tracking row
 // (historical orders routed through CodeCraft, now fully retired) fall back
-// to orders.created_at — there's nothing else to measure dispatch from for
-// those.
+// to that order's own created_at — there's nothing else to measure dispatch
+// from for those.
 //
 // Caller owns the Supabase client (passed in, never created here), matching
 // lib/network-stock-service.ts's convention — testable with a plain fake
@@ -49,13 +49,15 @@ export interface NetworkHealthStat {
 }
 
 /**
- * Normalizes a raw orders.network value into one of HEALTH_NETWORKS, or null
- * if it doesn't belong to any of them. Ported verbatim (case-insensitivity
- * aside) from migrations/combined_orders_view.sql's CASE statement — that is
- * the authoritative mapping for this table's historically inconsistent
- * network spelling/casing. Plain "AT" (no iShare/BigTime qualifier) does NOT
- * map to either bucket — it's a distinct, ambiguous historical value, not a
- * BigTime default.
+ * Normalizes a raw network value (as stored on any of the 5 order tables)
+ * into one of HEALTH_NETWORKS, or null if it doesn't belong to any of them.
+ * Ported (case-insensitivity aside) from combined_orders_view.sql's several
+ * per-table CASE statements — the authoritative mapping for this app's
+ * historically inconsistent network spelling/casing across tables. Plain
+ * "AT" or bare "AirtelTigo" (no iShare/BigTime qualifier — the USSD tables'
+ * own network menu treats "AirtelTigo" as a THIRD, distinct choice from
+ * "AT-iShare") does NOT map to either AT bucket; it's dropped rather than
+ * force-fit into iShare or BigTime.
  */
 function normalizeNetwork(raw: string | null | undefined): HealthNetwork | null {
   const n = (raw || "").toLowerCase().trim()
@@ -85,31 +87,39 @@ function isNightTime(iso: string): boolean {
 // path), so an order can have several rows and only the live one should count.
 const DEAD_TRACKING_STATUSES = new Set(["failed", "error", "abandoned"])
 
+type TrackingIdColumn = "order_id" | "shop_order_id" | "api_order_id"
+
 /**
- * Looks up, for each given orders.id, the timestamp it was actually pushed to
+ * Looks up, for each given order id, the timestamp it was actually pushed to
  * a supplier — mtn_fulfillment_tracking.created_at for the most recent
- * non-dead row on that order. Orders absent from the returned map have no
- * tracking row at all; callers should fall back to orders.created_at for
- * those (see module doc comment).
+ * non-dead row on that order. `orderType`/`idColumn` select which of the
+ * table's three possible id columns and which order_type value to match
+ * (saveMTNTracking uses a different id column per source table — see
+ * lib/mtn-fulfillment.ts). Orders absent from the returned map have no
+ * tracking row at all; callers should fall back to that order's own
+ * created_at for those.
  */
 async function getDispatchTimestamps(
   supabase: SupabaseClient,
+  orderType: string,
+  idColumn: TrackingIdColumn,
   orderIds: string[]
 ): Promise<Map<string, string>> {
   if (orderIds.length === 0) return new Map()
   const { data, error } = await supabase
     .from("mtn_fulfillment_tracking")
-    .select("order_id, created_at, status")
-    .eq("order_type", "bulk")
-    .in("order_id", orderIds)
+    .select(`${idColumn}, created_at, status`)
+    .eq("order_type", orderType)
+    .in(idColumn, orderIds)
   if (error) throw error
 
   const map = new Map<string, string>()
-  for (const row of (data ?? []) as { order_id: string; created_at: string; status: string }[]) {
+  for (const row of (data ?? []) as Record<string, any>[]) {
     if (DEAD_TRACKING_STATUSES.has(row.status)) continue
-    const existing = map.get(row.order_id)
+    const orderId = row[idColumn] as string
+    const existing = map.get(orderId)
     if (!existing || new Date(row.created_at).getTime() > new Date(existing).getTime()) {
-      map.set(row.order_id, row.created_at)
+      map.set(orderId, row.created_at)
     }
   }
   return map
@@ -120,9 +130,10 @@ function resolveStartTime(orderId: string, placedAt: string, dispatchMap: Map<st
 }
 
 /**
- * The current user's own most recently completed order, with real (not
- * hardcoded) delivery-time context. Returns null when the user has no
- * completed orders yet — a normal state, not an error.
+ * The current user's own most recently completed order (dashboard/bulk
+ * purchases only — the `orders` table), with real (not hardcoded)
+ * delivery-time context. Returns null when the user has no completed orders
+ * yet — a normal state, not an error.
  */
 export async function getLatestCompletedOrder(
   supabase: SupabaseClient,
@@ -141,7 +152,7 @@ export async function getLatestCompletedOrder(
 
   const normalized = normalizeNetwork(latest.network) ?? latest.network
 
-  const ownDispatchMap = await getDispatchTimestamps(supabase, [latest.id])
+  const ownDispatchMap = await getDispatchTimestamps(supabase, "bulk", "order_id", [latest.id])
   const ownStartTime = resolveStartTime(latest.id, latest.created_at, ownDispatchMap)
   const durationMinutes = minutesBetween(ownStartTime, latest.updated_at)
 
@@ -159,7 +170,7 @@ export async function getLatestCompletedOrder(
     .gte("created_at", dayAgo)
   if (networkError) throw networkError
   const networkRows = (networkOrders ?? []) as { id: string; created_at: string; updated_at: string }[]
-  const networkDispatchMap = await getDispatchTimestamps(supabase, networkRows.map((o) => o.id))
+  const networkDispatchMap = await getDispatchTimestamps(supabase, "bulk", "order_id", networkRows.map((o) => o.id))
   const durations = networkRows.map((o) =>
     minutesBetween(resolveStartTime(o.id, o.created_at, networkDispatchMap), o.updated_at)
   )
@@ -192,48 +203,102 @@ export async function getLatestCompletedOrder(
 const RESOLVED_STATUSES = new Set(["completed", "failed", "reversed"])
 
 /**
- * Platform-wide per-network health over a rolling window. Each network's
- * uptime is computed from orders whose outcome has actually resolved
+ * Per-source-table config for the 5 tables real orders can land in (mirrors
+ * migrations/combined_orders_view.sql, minus that view's UI-only fields).
+ * Network Health is a platform-wide signal, not a single-channel one — a
+ * customer buying MTN through the web dashboard and one buying AT-iShare
+ * through a USSD shop are both real traffic this widget should reflect.
+ */
+interface OrderSourceConfig {
+  table: string
+  statusColumn: "status" | "order_status"
+  /** Only rows whose payment_status equals this are real, attempted orders —
+   *  matches combined_orders_view's own WHERE clause for these tables (an
+   *  abandoned/unpaid checkout is not the supplier's failure to fulfill). */
+  paymentStatusFilter?: string
+  trackingOrderType: string
+  trackingIdColumn: TrackingIdColumn
+}
+
+const ORDER_SOURCES: OrderSourceConfig[] = [
+  { table: "orders", statusColumn: "status", trackingOrderType: "bulk", trackingIdColumn: "order_id" },
+  { table: "api_orders", statusColumn: "status", trackingOrderType: "api", trackingIdColumn: "api_order_id" },
+  { table: "shop_orders", statusColumn: "order_status", paymentStatusFilter: "completed", trackingOrderType: "shop", trackingIdColumn: "shop_order_id" },
+  { table: "ussd_orders", statusColumn: "order_status", paymentStatusFilter: "completed", trackingOrderType: "ussd", trackingIdColumn: "order_id" },
+  { table: "ussd_shop_orders", statusColumn: "order_status", paymentStatusFilter: "completed", trackingOrderType: "ussd_shop", trackingIdColumn: "order_id" },
+]
+
+interface NetworkBucket {
+  completed: number
+  resolved: number
+  completedDurations: number[]
+}
+
+/**
+ * Platform-wide per-network health over a rolling window, aggregated across
+ * all 5 order tables (see ORDER_SOURCES) — not just the web dashboard's own
+ * `orders` table. Restricting to one channel under-reports networks whose
+ * volume skews toward USSD/shop traffic (AT-iShare, AT-BigTime), which is
+ * exactly what caused those two rows to wrongly show "no data": there was
+ * real recent traffic, just not through the one table originally queried.
+ *
+ * Uptime is computed from orders whose outcome has actually resolved
  * (completed/failed/reversed) — in-flight statuses (pending/processing/
  * held_registration/...) are excluded from both the numerator and
  * denominator, since they haven't finished yet. avgDeliveryMinutes measures
  * dispatch-to-completed (see module doc comment), computed only over the
- * completed subset. A network with zero resolved orders in the window gets
- * "no_data" with null stats, never a fabricated percentage.
+ * completed subset, and only over rows that actually have both a start and
+ * end timestamp (a row missing updated_at still counts toward uptime, just
+ * not toward the average). A network with zero resolved orders in the window
+ * gets "no_data" with null stats, never a fabricated percentage.
  */
 export async function getNetworkHealth(
   supabase: SupabaseClient,
   windowHours = 24
 ): Promise<NetworkHealthStat[]> {
   const windowStart = new Date(Date.now() - windowHours * 60 * 60 * 1000).toISOString()
-  const { data: rows, error } = await supabase
-    .from("orders")
-    .select("id, network, status, created_at, updated_at")
-    .gte("created_at", windowStart)
-    .limit(5000) // sane bound; if this table's volume ever outgrows client-side
-    // aggregation, move this to a Postgres RPC/view instead of raw-row pulls.
-  if (error) throw error
 
-  const allRows = (rows ?? []) as { id: string; network: string; status: string; created_at: string; updated_at: string }[]
-  const completedIds = allRows.filter((r) => r.status === "completed").map((r) => r.id)
-  const dispatchMap = await getDispatchTimestamps(supabase, completedIds)
-
-  const buckets = new Map<HealthNetwork, { completed: number; resolved: number; completedDurations: number[] }>()
+  const buckets = new Map<HealthNetwork, NetworkBucket>()
   for (const network of HEALTH_NETWORKS) {
     buckets.set(network, { completed: 0, resolved: 0, completedDurations: [] })
   }
 
-  for (const row of allRows) {
-    const bucketKey = normalizeNetwork(row.network)
-    if (!bucketKey) continue // doesn't belong to any tracked network — drop, don't force-fit
-    if (!RESOLVED_STATUSES.has(row.status)) continue // in-flight — not yet resolved
+  for (const source of ORDER_SOURCES) {
+    const selectCols = source.paymentStatusFilter
+      ? `id, network, ${source.statusColumn}, payment_status, created_at, updated_at`
+      : `id, network, ${source.statusColumn}, created_at, updated_at`
 
-    const bucket = buckets.get(bucketKey)!
-    bucket.resolved++
-    if (row.status === "completed") {
-      bucket.completed++
-      const startTime = resolveStartTime(row.id, row.created_at, dispatchMap)
-      bucket.completedDurations.push(minutesBetween(startTime, row.updated_at))
+    const { data, error } = await supabase
+      .from(source.table)
+      .select(selectCols)
+      .gte("created_at", windowStart)
+      .limit(5000) // sane per-table bound; if any of these tables ever outgrows
+      // client-side aggregation, move this to a Postgres RPC/view instead.
+    if (error) throw error
+
+    const rows = (data ?? []) as Record<string, any>[]
+    const eligible = source.paymentStatusFilter
+      ? rows.filter((r) => r.payment_status === source.paymentStatusFilter)
+      : rows
+
+    const completedIds = eligible.filter((r) => r[source.statusColumn] === "completed").map((r) => r.id as string)
+    const dispatchMap = await getDispatchTimestamps(supabase, source.trackingOrderType, source.trackingIdColumn, completedIds)
+
+    for (const row of eligible) {
+      const bucketKey = normalizeNetwork(row.network)
+      if (!bucketKey) continue // doesn't belong to any tracked network — drop, don't force-fit
+      const status = row[source.statusColumn]
+      if (!RESOLVED_STATUSES.has(status)) continue // in-flight — not yet resolved
+
+      const bucket = buckets.get(bucketKey)!
+      bucket.resolved++
+      if (status === "completed") {
+        bucket.completed++
+        if (row.updated_at) {
+          const startTime = resolveStartTime(row.id, row.created_at, dispatchMap)
+          bucket.completedDurations.push(minutesBetween(startTime, row.updated_at))
+        }
+      }
     }
   }
 
