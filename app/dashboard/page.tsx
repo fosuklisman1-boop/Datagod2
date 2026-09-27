@@ -429,6 +429,13 @@ export default function DashboardPage() {
           </Card>
         </div>
 
+        {/* Latest completed order: real, computed trust widget — no fabricated numbers */}
+        <LatestOrderCard
+          order={latestOrder}
+          loading={latestOrderLoading}
+          onRefresh={() => refreshWithFreshToken(fetchLatestOrder)}
+        />
+
         {/* Stats strip */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           <StatCard label="Total Orders" value={formatCount(stats.totalOrders)} hint="All time" tone="primary" icon={ShoppingCart} />
@@ -484,12 +491,7 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Order health: real, computed trust widgets — no fabricated numbers */}
-        <LatestOrderCard
-          order={latestOrder}
-          loading={latestOrderLoading}
-          onRefresh={() => refreshWithFreshToken(fetchLatestOrder)}
-        />
+        {/* Network health: real, computed — no fabricated numbers */}
         <NetworkHealthCard
           networks={networkHealth}
           loading={networkHealthLoading}
