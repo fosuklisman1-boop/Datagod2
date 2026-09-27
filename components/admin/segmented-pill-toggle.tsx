@@ -25,6 +25,7 @@ export function SegmentedPillToggle({
         <button
           key={option.value}
           type="button"
+          aria-pressed={option.value === value}
           onClick={() => onChange(option.value)}
           className={cn(
             'rounded-full px-4 py-1.5 text-sm transition-colors',
