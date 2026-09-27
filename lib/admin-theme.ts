@@ -1,4 +1,4 @@
-// Pure Tailwind class-name mappings backing the admin reskin's presentational components.
+// Class-name mappings and small status-derivation helpers backing the admin reskin's presentational components.
 
 export type StatusPillVariant = 'success' | 'warning' | 'danger'
 
@@ -36,4 +36,16 @@ export function gatewayBarColorClass(status: GatewayStatus): string {
     case 'down':
       return 'bg-destructive'
   }
+}
+
+export type GatewayNetwork = 'mtn' | 'telecel' | 'at'
+
+const NETWORK_BADGE_CLASSES: Record<GatewayNetwork, string> = {
+  mtn: 'bg-mtn text-mtn-foreground',
+  telecel: 'bg-telecel text-telecel-foreground',
+  at: 'bg-at text-at-foreground',
+}
+
+export function networkBadgeClasses(network: GatewayNetwork): string {
+  return NETWORK_BADGE_CLASSES[network]
 }

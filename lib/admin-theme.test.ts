@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { statusPillClasses, segmentedPillItemClasses, gatewayStatus, gatewayBarColorClass } from './admin-theme'
+import { statusPillClasses, segmentedPillItemClasses, gatewayStatus, gatewayBarColorClass, networkBadgeClasses } from './admin-theme'
 
 describe('statusPillClasses', () => {
   it('returns success-token classes for "success"', () => {
@@ -48,5 +48,19 @@ describe('gatewayBarColorClass', () => {
     expect(gatewayBarColorClass('optimal')).toBe('bg-success')
     expect(gatewayBarColorClass('degraded')).toBe('bg-warning')
     expect(gatewayBarColorClass('down')).toBe('bg-destructive')
+  })
+})
+
+describe('networkBadgeClasses', () => {
+  it('returns mtn badge classes for "mtn"', () => {
+    expect(networkBadgeClasses('mtn')).toBe('bg-mtn text-mtn-foreground')
+  })
+
+  it('returns telecel badge classes for "telecel"', () => {
+    expect(networkBadgeClasses('telecel')).toBe('bg-telecel text-telecel-foreground')
+  })
+
+  it('returns at badge classes for "at"', () => {
+    expect(networkBadgeClasses('at')).toBe('bg-at text-at-foreground')
   })
 })
