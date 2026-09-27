@@ -2,7 +2,7 @@
 
 - **Date:** 2026-09-27
 - **Branch:** main
-- **Status:** Draft for review
+- **Status:** Phase 1a (foundation + dashboard-hub pilot) shipped; remaining admin pages + sidebar recolor pending follow-up plans
 - **Scope:** New app-wide design language (tokens + shared components) inspired by the UI/UX of Apex Prime's dashboard (apexprime.club — one of Datagod's MTN fulfillment providers), landed as its own foundation, then rolled out to the **admin panel** (`/admin/*`) as Phase 1. Customer storefront, dealer portal, and shop storefronts are out of scope here — they get their own follow-up specs (Phase 2–4), reusing this same foundation.
 
 ---
