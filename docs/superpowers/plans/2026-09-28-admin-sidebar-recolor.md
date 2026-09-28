@@ -471,7 +471,9 @@ Expected: no errors. (The ~31 nav-link ternaries are untouched until Task 4 — 
 
 - [ ] **Step 11: See it locally**
 
-With the dev server running, open `http://localhost:3000/dashboard` logged in as a plain (non-admin, non-dealer) user. Confirm the sidebar looks **completely unchanged** from before this task (container/borders/text colors are byte-identical `default` values). If you have a dealer test account, check `/dashboard` as a dealer too — also unchanged. There's no way to see the new `admin` values yet (nav links, the biggest visual surface, aren't wired until Task 4) — this step is purely a no-regression check on the 9 structural pieces.
+With the dev server running, open `http://localhost:3000/dashboard` logged in as a plain (non-admin, non-dealer) user. Confirm the sidebar looks **completely unchanged** from before this task (container/borders/text colors are byte-identical `default` values). If you have a dealer test account, check `/dashboard` as a dealer too — also unchanged.
+
+**Correction (caught by code review, worth knowing even though this plan proceeds straight to Task 4 next):** unlike this step originally claimed, an *admin* user WOULD see a real, visible change right now — a half-navy/half-default sidebar. 7 of the 9 fields wired in this task (`container`, `logoSectionBorder`, `userIdentityText`, `collapseButtonHover`, `sectionBorder`, `sectionLabelText`, `logoutText`) already branch on `isAdmin`, but the ~31 nav-link ternaries (still untouched until Task 4) only branch on `userRole === 'dealer'` — so an admin gets the new navy container/borders with the OLD light-themed nav-link colors on top, a broken-looking intermediate state. This is safe only because Task 4 lands in the same uninterrupted session before anything is pushed — do not push/deploy after Task 3 alone.
 
 - [ ] **Step 12: Commit**
 
