@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { packageId, network, size, price, phoneNumber } = body
+    const { packageId, network, size, price, phoneNumber, sendSmsConfirmation = true } = body
 
     console.log("[PURCHASE] ========== NEW ORDER REQUEST ==========")
     console.log("[PURCHASE] Package ID:", packageId)
@@ -517,19 +517,23 @@ export async function POST(request: NextRequest) {
       // Don't fail the purchase if notification fails
     }
 
-    // Send SMS about successful purchase
-    try {
-      const smsMessage = `You have successfully placed an order of ${network} ${verifiedSize}GB to ${phoneNumber}. If delayed over 2 hours, contact support.`
+    // Send SMS about successful purchase — the caller (e.g. the data-packages
+    // page's "Order SMS confirmation" toggle) can opt the beneficiary out;
+    // defaults to on for every other existing caller of this route.
+    if (sendSmsConfirmation !== false) {
+      try {
+        const smsMessage = `You have successfully placed an order of ${network} ${verifiedSize}GB to ${phoneNumber}. If delayed over 2 hours, contact support.`
 
-      await sendSMS({
-        phone: phoneNumber,
-        message: smsMessage,
-        type: 'data_purchase_success',
-        reference: order[0].id,
-      }).catch(err => console.error("[SMS] SMS error:", err))
-    } catch (smsError) {
-      console.warn("[SMS] Failed to send purchase SMS:", smsError)
-      // Don't fail the purchase if SMS fails
+        await sendSMS({
+          phone: phoneNumber,
+          message: smsMessage,
+          type: 'data_purchase_success',
+          reference: order[0].id,
+        }).catch(err => console.error("[SMS] SMS error:", err))
+      } catch (smsError) {
+        console.warn("[SMS] Failed to send purchase SMS:", smsError)
+        // Don't fail the purchase if SMS fails
+      }
     }
 
     // Send Email about successful purchase

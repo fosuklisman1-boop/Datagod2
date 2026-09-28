@@ -535,7 +535,7 @@ export default function DashboardPage() {
                 </Button>
               )}
               {(!domainBranding.services || domainBranding.services.includes("data_bundles")) && (
-                <Button onClick={() => router.push("/dashboard/bulk-orders")} className="bg-white/15 text-white hover:bg-white/25 border-0 font-semibold">
+                <Button onClick={() => router.push("/dashboard/data-packages?mode=bulk")} className="bg-white/15 text-white hover:bg-white/25 border-0 font-semibold">
                   Bulk Order
                 </Button>
               )}
