@@ -2,7 +2,7 @@
 
 - **Date:** 2026-09-28
 - **Branch:** main
-- **Status:** Draft for review
+- **Status:** Shipped
 - **Scope:** Give admin users a fixed-navy sidebar (matching the Apex Prime-inspired identity from Phase 1a), while leaving the plain-user and dealer sidebar skins pixel-identical to today. Follow-up to [docs/superpowers/specs/2026-09-27-apexprime-inspired-reskin-phase1-admin-design.md](2026-09-27-apexprime-inspired-reskin-phase1-admin-design.md), which explicitly deferred this work as its own subsystem.
 
 ---
