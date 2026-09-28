@@ -4,22 +4,27 @@ import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { supabase } from "@/lib/supabase"
+import { Phone, CheckCircle2, Circle, RefreshCw, ArrowRight, Clock, History as HistoryIcon } from "lucide-react"
 
 const NETWORKS = ["MTN", "Telecel", "AT"]
-const NETWORK_COLORS: Record<string, string> = {
-  MTN: "from-yellow-400 to-yellow-600",
-  Telecel: "from-red-500 to-red-700",
-  AT: "from-primary to-primary/80",
+// AT/AirtelTigo gets a literal orange here (its own real brand color, and
+// this reference's chosen color for it) rather than reusing bg-at, which
+// elsewhere in this app means "AT - iShare" specifically (a different,
+// blue-branded product line on the data side).
+const NETWORK_META: Record<string, { label: string; className: string; border: string }> = {
+  MTN: { label: "MTN", className: "bg-mtn text-mtn-foreground", border: "border-mtn" },
+  Telecel: { label: "Telecel", className: "bg-telecel text-telecel-foreground", border: "border-telecel" },
+  AT: { label: "AirtelTigo", className: "bg-[#F0752B] text-white", border: "border-[#F0752B]" },
 }
 const NETWORK_PREFIXES: Record<string, string[]> = {
   MTN:     ["024", "054", "055", "059", "025"],
   Telecel: ["050", "020"],
   AT:      ["027", "057", "026", "028"],
 }
+const QUICK_AMOUNTS = [1, 2, 5, 10, 20, 50]
 
 function detectNetworkFromPhone(phone: string): string | null {
-  const local = phone.startsWith("0") ? phone : phone
-  const prefix = local.substring(0, 3)
+  const prefix = phone.substring(0, 3)
   for (const [net, prefixes] of Object.entries(NETWORK_PREFIXES)) {
     if (prefixes.includes(prefix)) return net
   }
@@ -47,18 +52,22 @@ const STATUS_CLASSES: Record<string, string> = {
 
 export default function AirtimePage() {
   const router = useRouter()
+  const [tab, setTab] = useState<"buy" | "history">("buy")
 
   // Form state
   const [network, setNetwork]           = useState("MTN")
   const [phone, setPhone]               = useState("")
   const [amount, setAmount]             = useState("")
-  const [paySeparately, setPaySeparately] = useState(false)
+  const [paySeparately, setPaySeparately] = useState(true)
 
-  // Derived
+  // Derived / settings
   const [feeRate, setFeeRate]           = useState(5)
+  const [minAmount, setMinAmount]       = useState(1)
+  const [maxAmount, setMaxAmount]       = useState(500)
   const [userRole, setUserRole]         = useState("user")
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
   const [phoneError, setPhoneError]     = useState("")
+  const [settingsLoading, setSettingsLoading] = useState(false)
 
   // Orders
   const [orders, setOrders]             = useState<AirtimeOrder[]>([])
@@ -80,14 +89,16 @@ export default function AirtimePage() {
     ? numAmount
     : parseFloat((numAmount - feeAmount).toFixed(2))
 
+  const amountOutOfRange = numAmount > 0 && (numAmount < minAmount || numAmount > maxAmount)
+
   const [availableNetworks, setAvailableNetworks] = useState<string[]>(["MTN", "Telecel", "AT"])
 
-  // ----- Load wallet balance & fee from settings -----
+  // ----- Load wallet balance & fee/limit settings -----
   const loadSettings = useCallback(async () => {
+    setSettingsLoading(true)
     const { data: { session } } = await supabase.auth.getSession()
     if (!session) { router.push("/auth/login"); return }
 
-    // Fetch basic user context
     const [walletRes, roleRes] = await Promise.all([
       supabase.from("wallets").select("balance").eq("user_id", session.user.id).single(),
       supabase.from("users").select("role").eq("id", session.user.id).single(),
@@ -97,8 +108,11 @@ export default function AirtimePage() {
     setUserRole(role)
     const isDealer = role === "dealer" || role === "sub_agent"
 
-    // Fetch availability settings via curated public-config (admin_settings is
-    // service-role only). cfg.admin_settings is a key→value map of airtime_* keys.
+    // Fetch availability/fee/limit settings via curated public-config
+    // (admin_settings is service-role only). Same real airtime_min_amount /
+    // airtime_max_amount the USSD/WhatsApp/AI purchase flows already read
+    // via lib/airtime-pricing.ts -- this page previously had no min/max UI
+    // at all, so those numbers were invisible here.
     let airtimeSettings: Record<string, any> = {}
     try {
       const res = await fetch("/api/public/config")
@@ -108,28 +122,26 @@ export default function AirtimePage() {
       }
     } catch (e) {
       console.warn("Could not load airtime config:", e)
+    } finally {
+      setSettingsLoading(false)
     }
 
-    // Filter networks
     const enabledNets = ["MTN", "Telecel", "AT"].filter(n => {
       const setting = airtimeSettings[`airtime_enabled_${n.toLowerCase()}`]
       return setting?.enabled !== false
     })
-
     setAvailableNetworks(enabledNets)
-    
-    // Auto-switch network if current is disabled
     if (enabledNets.length > 0 && !enabledNets.includes(network)) {
       setNetwork(enabledNets[0])
     }
 
-    // Set specific fee for current network
     const netKey = network.toLowerCase()
     const feeSetting = airtimeSettings[`airtime_fee_${netKey}_${isDealer ? 'dealer' : 'customer'}`]
     setFeeRate(feeSetting?.rate ?? 5)
+    setMinAmount(airtimeSettings["airtime_min_amount"]?.amount ?? 1)
+    setMaxAmount(airtimeSettings["airtime_max_amount"]?.amount ?? 500)
   }, [network, router])
 
-  // ----- Load order history -----
   const loadOrders = useCallback(async () => {
     setLoadingOrders(true)
     const { data: { session } } = await supabase.auth.getSession()
@@ -147,7 +159,6 @@ export default function AirtimePage() {
   useEffect(() => { loadSettings(); loadOrders() }, [loadSettings, loadOrders])
   useEffect(() => { loadSettings() }, [network])
 
-  // ----- Phone validation -----
   const handlePhoneChange = (val: string) => {
     setPhone(val)
     setPhoneError("")
@@ -161,10 +172,9 @@ export default function AirtimePage() {
     }
   }
 
-  // ----- Submit -----
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (phoneError) return
+    if (phoneError || amountOutOfRange) return
     setSubmitting(true)
     setMessage(null)
     try {
@@ -198,155 +208,218 @@ export default function AirtimePage() {
 
   return (
     <DashboardLayout>
-      <div className="max-w-2xl mx-auto space-y-8">
+      <div className="max-w-2xl mx-auto space-y-5">
+        <p className="text-sm text-muted-foreground">
+          Wallet balance:{" "}
+          <span className="font-semibold text-foreground">
+            {walletBalance !== null ? `GHS ${Math.max(0, walletBalance).toFixed(2)}` : "Loading…"}
+          </span>
+        </p>
 
-        {/* Header */}
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Buy Airtime</h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            Wallet balance:{" "}
-            <span className="font-semibold text-foreground">
-              {walletBalance !== null ? `GHS ${Math.max(0, walletBalance).toFixed(2)}` : "Loading…"}
-            </span>
-          </p>
+        {/* Tabs */}
+        <div className="inline-flex w-full rounded-2xl bg-muted p-1">
+          <button
+            onClick={() => setTab("buy")}
+            className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-bold transition ${tab === "buy" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
+          >
+            <Phone className="h-4 w-4" /> Buy airtime
+          </button>
+          <button
+            onClick={() => setTab("history")}
+            className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-bold transition ${tab === "history" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
+          >
+            <HistoryIcon className="h-4 w-4" /> History
+          </button>
         </div>
 
-        {/* Network Selector */}
-        <div className="space-y-3">
-          <div className="grid grid-cols-3 gap-2 sm:gap-3">
-            {availableNetworks.map((n) => (
-              <button
-                key={n}
-                onClick={() => setNetwork(n)}
-                className={`py-3 rounded-xl font-semibold text-white bg-gradient-to-br transition-all shadow-sm
-                  ${NETWORK_COLORS[n]}
-                  ${network === n ? "ring-2 ring-offset-2 ring-gray-800 scale-105" : "opacity-70 hover:opacity-100"}`}
-              >
-                {n}
-              </button>
-            ))}
-          </div>
-          {availableNetworks.length === 0 && !loadingOrders && (
-            <div className="bg-destructive/10 text-destructive p-4 rounded-xl border border-border text-center font-medium">
-              Airtime services are temporarily unavailable. Please check back later.
-            </div>
-          )}
-        </div>
-
-        {/* Purchase Form */}
-        <form onSubmit={handleSubmit} className="bg-card rounded-2xl shadow-sm border border-border p-6 space-y-5">
-
-          {/* Phone */}
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Beneficiary Phone Number</label>
-            <input
-              type="tel"
-              inputMode="numeric"
-              maxLength={10}
-              value={phone}
-              onChange={(e) => handlePhoneChange(e.target.value.replace(/\D/g, ""))}
-              placeholder="e.g. 0244123456"
-              required
-              className="w-full border border-border rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-            {phoneError && <p className="text-xs text-warning mt-1">{phoneError}</p>}
-          </div>
-
-          {/* Amount */}
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Airtime Amount (GHS)</label>
-            <input
-              type="number"
-              min="1"
-              step="0.01"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="e.g. 10"
-              required
-              className="w-full border border-border rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-          </div>
-
-          {/* Pay Separately Toggle */}
-          <div className="flex items-start gap-3 p-4 bg-primary/10 rounded-xl">
-            <input
-              id="pay-sep"
-              type="checkbox"
-              checked={paySeparately}
-              onChange={(e) => setPaySeparately(e.target.checked)}
-              className="mt-0.5 h-4 w-4 accent-primary cursor-pointer"
-            />
-            <label htmlFor="pay-sep" className="text-sm cursor-pointer">
-              <span className="font-semibold text-primary">Pay fee separately</span>
-              <br />
-              <span className="text-primary">
-                {paySeparately
-                  ? `Recipient gets the full amount you enter; service fee is added on top.`
-                  : `Service fee is deducted from the amount before delivery.`}
-              </span>
-            </label>
-          </div>
-
-          {/* Fee breakdown */}
-          {numAmount > 0 && (
-            <div className="bg-muted/40 rounded-xl p-4 space-y-2 text-sm">
-              <div className="flex justify-between text-muted-foreground">
-                <span>Recipient gets</span>
-                <span className="font-semibold text-foreground">GHS {airtimeToRecipient.toFixed(2)}</span>
+        {tab === "buy" ? (
+          <form onSubmit={handleSubmit} className="space-y-5">
+            {/* Network */}
+            <div className="space-y-2">
+              <p className="text-sm font-bold text-foreground">Network</p>
+              <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                {NETWORKS.map((n) => {
+                  const meta = NETWORK_META[n]
+                  const isSelected = network === n
+                  const isAvailable = availableNetworks.includes(n)
+                  return (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setNetwork(n)}
+                      disabled={!isAvailable}
+                      className={`flex flex-col items-center gap-2 rounded-2xl border-2 bg-card p-3 sm:p-4 transition disabled:opacity-40 ${
+                        isSelected ? `${meta.border} shadow-sm` : "border-border hover:border-primary/30"
+                      }`}
+                    >
+                      <span className={`flex h-10 w-10 items-center justify-center rounded-full text-xs font-extrabold ${meta.className}`}>
+                        {n === "AT" ? "AT" : n.slice(0, 3).toUpperCase()}
+                      </span>
+                      <span className="text-xs sm:text-sm font-bold text-foreground">{meta.label}</span>
+                    </button>
+                  )
+                })}
               </div>
-              <p className="text-xs text-muted-foreground flex justify-between">
-                <span>Network Fee ({(userRole === 'dealer' || userRole === 'sub_agent') ? 'Dealer/Sub-Agent' : 'Standard'}):</span>
-                <span className="font-medium text-foreground">{feeRate}%</span>
-              </p>
-              <div className="flex justify-between text-muted-foreground">
-                <span>Service fee ({feeRate}%)</span>
-                <span>GHS {feeAmount.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between font-bold text-foreground border-t border-border pt-2">
-                <span>You pay</span>
-                <span>GHS {totalPaid.toFixed(2)}</span>
-              </div>
-              {walletBalance !== null && totalPaid > walletBalance && (
-                <p className="text-destructive text-xs font-medium">⚠ Insufficient wallet balance</p>
+              {availableNetworks.length === 0 && !settingsLoading && (
+                <div className="bg-destructive/10 text-destructive p-4 rounded-xl border border-border text-center font-medium text-sm">
+                  Airtime services are temporarily unavailable. Please check back later.
+                </div>
               )}
             </div>
-          )}
 
-          {/* Feedback message */}
-          {message && (
-            <div className={`text-sm rounded-lg px-4 py-3 font-medium ${
-              message.type === "success" ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"
-            }`}>
-              {message.text}
+            {/* Phone */}
+            <div className="space-y-2">
+              <p className="text-sm font-bold text-foreground">Beneficiary phone number</p>
+              <div className="relative">
+                <Phone className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  maxLength={10}
+                  value={phone}
+                  onChange={(e) => handlePhoneChange(e.target.value.replace(/\D/g, ""))}
+                  placeholder="0XXXXXXXXX"
+                  required
+                  className="w-full rounded-2xl border border-border bg-card py-3.5 pl-11 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+              {phoneError && <p className="text-xs text-warning">{phoneError}</p>}
             </div>
-          )}
 
-          <button
-            type="submit"
-            disabled={submitting || !!phoneError || !phone || !amount || (walletBalance !== null && totalPaid > walletBalance)}
-            className="w-full bg-primary hover:bg-primary disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-xl transition-colors"
-          >
-            {submitting ? "Processing…" : `Buy Airtime — GHS ${totalPaid > 0 ? totalPaid.toFixed(2) : "0.00"}`}
-          </button>
-        </form>
-
-        {/* Order History */}
-        <div>
-          <h2 className="text-lg font-bold text-foreground mb-3">Order History</h2>
-          {loadingOrders ? (
-            <div className="text-center text-muted-foreground py-8">Loading…</div>
-          ) : orders.length === 0 ? (
-            <div className="text-center text-muted-foreground py-8 bg-card rounded-2xl border border-border">
-              No airtime orders yet.
+            {/* Quick amount */}
+            <div className="space-y-2">
+              <p className="text-sm font-bold text-foreground">Quick amount (GHS)</p>
+              <div className="flex flex-wrap items-center gap-2">
+                {QUICK_AMOUNTS.map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setAmount(String(v))}
+                    className={`rounded-full border px-4 py-2 text-sm font-bold transition ${
+                      amount === String(v) ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-foreground hover:border-primary/30"
+                    }`}
+                  >
+                    {v}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  aria-label="Reload settings"
+                  onClick={loadSettings}
+                  disabled={settingsLoading}
+                  className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-sm disabled:opacity-50"
+                >
+                  <RefreshCw className={`h-4 w-4 ${settingsLoading ? "animate-spin" : ""}`} />
+                </button>
+              </div>
             </div>
-          ) : (
-            <div className="space-y-3">
-              {orders.map((o) => (
-                <div key={o.id} className="bg-card rounded-xl border border-border p-4 flex items-start justify-between gap-4">
+
+            {/* Custom amount */}
+            <div className="space-y-2">
+              <div className="flex items-baseline justify-between">
+                <p className="text-sm font-bold text-foreground">Custom amount (GHS)</p>
+                <p className="text-xs text-muted-foreground">Min {minAmount} · Max {maxAmount}</p>
+              </div>
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground">GHS</span>
+                <input
+                  type="number"
+                  min={minAmount}
+                  max={maxAmount}
+                  step="0.01"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="0.00"
+                  required
+                  className="w-full rounded-2xl border border-border bg-card py-3.5 pl-14 pr-4 text-lg font-semibold focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+              {amountOutOfRange && (
+                <p className="text-xs text-destructive">Amount must be between GHS {minAmount} and GHS {maxAmount}.</p>
+              )}
+            </div>
+
+            {/* Pay fee separately -- real toggle, real different fee math */}
+            <button
+              type="button"
+              onClick={() => setPaySeparately(!paySeparately)}
+              className={`flex w-full items-start gap-3 rounded-2xl border p-4 text-left transition ${
+                paySeparately ? "border-[#75beab]/40 bg-[#e9f4f1]" : "border-border bg-card"
+              }`}
+            >
+              {paySeparately ? (
+                <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-[#0f7a4d]" />
+              ) : (
+                <Circle className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+              )}
+              <span>
+                <span className={`block text-sm font-bold ${paySeparately ? "text-[#0f7a4d]" : "text-foreground"}`}>
+                  Pay processing fee separately
+                </span>
+                <span className={`mt-0.5 block text-xs ${paySeparately ? "text-[#0f7a4d]/80" : "text-muted-foreground"}`}>
+                  {paySeparately
+                    ? "Beneficiary receives exactly the amount you type. The service fee is added to your total."
+                    : "The service fee is deducted from the amount you type before it's delivered."}
+                </span>
+              </span>
+            </button>
+
+            {/* Fee breakdown */}
+            {numAmount > 0 && (
+              <div className="rounded-2xl border border-border bg-card p-4 space-y-2 text-sm">
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Recipient gets</span>
+                  <span className="font-semibold text-foreground">GHS {airtimeToRecipient.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Service fee ({feeRate}%{(userRole === 'dealer' || userRole === 'sub_agent') ? ", dealer rate" : ""})</span>
+                  <span>GHS {feeAmount.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between border-t border-border pt-2 font-bold text-foreground">
+                  <span>You pay</span>
+                  <span>GHS {totalPaid.toFixed(2)}</span>
+                </div>
+                {walletBalance !== null && totalPaid > walletBalance && (
+                  <p className="text-xs font-medium text-destructive">⚠ Insufficient wallet balance</p>
+                )}
+              </div>
+            )}
+
+            {message && (
+              <div className={`rounded-2xl px-4 py-3 text-sm font-medium ${message.type === "success" ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
+                {message.text}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={submitting || !!phoneError || !phone || !amount || amountOutOfRange || (walletBalance !== null && totalPaid > walletBalance)}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#75beab] py-4 text-base font-bold text-white transition hover:bg-[#68ad9b] disabled:opacity-50"
+            >
+              {submitting ? "Processing…" : (
+                <>
+                  Proceed to payment <ArrowRight className="h-4 w-4" />
+                </>
+              )}
+            </button>
+          </form>
+        ) : (
+          <div className="space-y-3">
+            {loadingOrders ? (
+              <div className="text-center text-muted-foreground py-8">Loading…</div>
+            ) : orders.length === 0 ? (
+              <div className="text-center text-muted-foreground py-8 bg-card rounded-2xl border border-border">
+                No airtime orders yet.
+              </div>
+            ) : (
+              orders.map((o) => (
+                <div key={o.id} className="bg-card rounded-2xl border border-border p-4 flex items-start justify-between gap-4">
                   <div className="space-y-0.5">
                     <p className="font-semibold text-sm text-foreground">{o.reference_code}</p>
                     <p className="text-xs text-muted-foreground">{o.network} → {o.beneficiary_phone}</p>
-                    <p className="text-xs text-muted-foreground">{new Date(o.created_at).toLocaleString()}</p>
+                    <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Clock className="h-3 w-3" /> {new Date(o.created_at).toLocaleString()}
+                    </p>
                   </div>
                   <div className="text-right shrink-0">
                     <p className="font-bold text-foreground">GHS {o.airtime_amount.toFixed(2)}</p>
@@ -356,11 +429,10 @@ export default function AirtimePage() {
                     </span>
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-
+              ))
+            )}
+          </div>
+        )}
       </div>
     </DashboardLayout>
   )
