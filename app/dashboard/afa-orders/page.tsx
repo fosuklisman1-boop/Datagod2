@@ -5,11 +5,11 @@ import { useRouter } from "next/navigation"
 import { useAuth } from "@/hooks/use-auth"
 import { supabase } from "@/lib/supabase"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Star, Clock, CheckCircle, AlertCircle, XCircle, Loader2, Plus } from "lucide-react"
-import { AFASubmissionModal } from "@/components/afa-submission-modal"
+import {
+  Wallet, Zap, ShieldCheck, Loader2, User, ClipboardPaste, X, Send,
+} from "lucide-react"
 import { toast } from "sonner"
 
 interface AFAOrder {
@@ -33,30 +33,97 @@ interface Stats {
   processing: number
   completed: number
   cancelled: number
+  totalSpent: number
+}
+
+const REGIONS = [
+  "Greater Accra", "Ashanti", "Central", "Eastern", "Northern", "Oti", "Savanna",
+  "Upper East", "Upper West", "Volta", "Western", "Western North", "North East",
+]
+
+const STATUS_TILES: { key: keyof Stats; label: string; bg: string; fg: string }[] = [
+  { key: "total", label: "Total Registered", bg: "bg-primary/10", fg: "text-primary" },
+  { key: "pending", label: "Pending", bg: "bg-warning/10", fg: "text-warning" },
+  { key: "processing", label: "Processing", bg: "bg-primary/10", fg: "text-primary" },
+  { key: "completed", label: "Completed", bg: "bg-success/10", fg: "text-success" },
+  { key: "cancelled", label: "Cancelled", bg: "bg-destructive/10", fg: "text-destructive" },
+]
+
+const STATUS_BADGE: Record<string, string> = {
+  completed: "bg-success/15 text-success",
+  pending: "bg-warning/10 text-warning",
+  processing: "bg-primary/10 text-primary",
+  cancelled: "bg-destructive/15 text-destructive",
+}
+
+// Standard Ghana Card format: 3 letters + 9 digits + 1 check digit, e.g.
+// GHA-123456789-0. Inserts the dashes as the person types instead of just
+// showing the shape as a placeholder.
+function formatGhanaCard(raw: string): string {
+  const clean = raw.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 13)
+  const letters = clean.slice(0, 3)
+  const digits = clean.slice(3)
+  if (!digits) return letters
+  const firstGroup = digits.slice(0, 9)
+  const lastDigit = digits.slice(9, 10)
+  return lastDigit ? `${letters}-${firstGroup}-${lastDigit}` : `${letters}-${firstGroup}`
 }
 
 export default function AFAOrdersPage() {
   const router = useRouter()
   const { user, loading: authLoading } = useAuth()
-  const [showSubmissionModal, setShowSubmissionModal] = useState(false)
   const [orders, setOrders] = useState<AFAOrder[]>([])
-  const [stats, setStats] = useState<Stats>({ total: 0, pending: 0, processing: 0, completed: 0, cancelled: 0 })
+  const [stats, setStats] = useState<Stats>({ total: 0, pending: 0, processing: 0, completed: 0, cancelled: 0, totalSpent: 0 })
   const [loading, setLoading] = useState(true)
 
-  // Auth protection
+  // Form
+  const [fullName, setFullName] = useState("")
+  const [phoneNumber, setPhoneNumber] = useState("")
+  const [ghCardNumber, setGhCardNumber] = useState("")
+  const [location, setLocation] = useState("")
+  const [region, setRegion] = useState("")
+  const [myPhone, setMyPhone] = useState<string | null>(null)
+  const [walletBalance, setWalletBalance] = useState(0)
+  const [afaPrice, setAfaPrice] = useState(50)
+  const [submitting, setSubmitting] = useState(false)
+
   useEffect(() => {
     if (!authLoading && !user) {
-      console.log("[AFA-ORDERS] User not authenticated, redirecting to login")
       router.push("/auth/login")
     }
   }, [user, authLoading, router])
 
-  // Fetch AFA orders
   useEffect(() => {
     if (user && !authLoading) {
       loadOrders()
+      loadFormContext()
     }
   }, [user, authLoading])
+
+  const loadFormContext = async () => {
+    if (!user) return
+    try {
+      const [{ data: profile }, priceRes, { data: { session } }] = await Promise.all([
+        supabase.from("users").select("phone_number").eq("id", user.id).single(),
+        fetch("/api/afa/price"),
+        supabase.auth.getSession(),
+      ])
+      if (profile?.phone_number) setMyPhone(profile.phone_number)
+      if (priceRes.ok) {
+        const priceData = await priceRes.json()
+        setAfaPrice(priceData.price || 50)
+      }
+      if (session?.access_token) {
+        const balRes = await fetch("/api/wallet/balance", { headers: { Authorization: `Bearer ${session.access_token}` } })
+        if (balRes.ok) {
+          const balData = await balRes.json()
+          setWalletBalance(balData.balance || 0)
+        }
+      }
+    } catch (error) {
+      console.error("[AFA-ORDERS] Error loading form context:", error)
+    }
+  }
 
   const loadOrders = async () => {
     try {
@@ -66,26 +133,73 @@ export default function AFAOrdersPage() {
         toast.error("Authentication required")
         return
       }
-
-      const response = await fetch("/api/user/afa-orders", {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      })
-
-      if (!response.ok) {
-        throw new Error("Failed to fetch orders")
-      }
-
+      const response = await fetch("/api/user/afa-orders", { headers: { Authorization: `Bearer ${session.access_token}` } })
+      if (!response.ok) throw new Error("Failed to fetch orders")
       const data = await response.json()
       setOrders(data.orders || [])
-      setStats(data.stats || { total: 0, pending: 0, processing: 0, completed: 0, cancelled: 0 })
+      setStats(data.stats || { total: 0, pending: 0, processing: 0, completed: 0, cancelled: 0, totalSpent: 0 })
     } catch (error) {
       console.error("[AFA-ORDERS] Error loading orders:", error)
-      const errorMessage = error instanceof Error ? error.message : "Failed to load AFA orders"
-      toast.error(errorMessage)
+      toast.error(error instanceof Error ? error.message : "Failed to load AFA orders")
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handlePaste = async () => {
+    try {
+      const text = await navigator.clipboard.readText()
+      setPhoneNumber(text.replace(/\D/g, "").slice(0, 10))
+    } catch {
+      toast.error("Couldn't read clipboard — paste manually instead")
+    }
+  }
+
+  const hasSufficientBalance = walletBalance >= afaPrice
+  const isFormValid = fullName.trim() && phoneNumber.trim() && ghCardNumber.trim() && location.trim() && region.trim()
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!isFormValid) {
+      toast.error("Please fill in every field")
+      return
+    }
+    if (!hasSufficientBalance) {
+      toast.error(`Insufficient balance. Required: GHS ${afaPrice.toFixed(2)}, Available: GHS ${walletBalance.toFixed(2)}`)
+      return
+    }
+    setSubmitting(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) throw new Error("No session")
+
+      const response = await fetch("/api/afa/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({
+          fullName: fullName.trim(),
+          phoneNumber: phoneNumber.trim(),
+          ghCardNumber: ghCardNumber.trim(),
+          location: location.trim(),
+          region: region.trim(),
+          occupation: "Farmer", // fixed value -- was already a disabled, non-editable field
+          amount: afaPrice,
+          userId: user!.id,
+        }),
+      })
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.message || "Failed to submit AFA order")
+      }
+      toast.success("AFA registration submitted successfully!")
+      setFullName(""); setPhoneNumber(""); setGhCardNumber(""); setLocation(""); setRegion("")
+      loadOrders()
+      loadFormContext()
+    } catch (error) {
+      console.error("[AFA-ORDERS] Submit error:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to submit AFA order")
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -93,7 +207,7 @@ export default function AFAOrdersPage() {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center h-screen">
-          <Loader2 className="w-8 h-8 animate-spin" />
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
         </div>
       </DashboardLayout>
     )
@@ -101,166 +215,181 @@ export default function AFAOrdersPage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
-        {/* Page Header */}
-        <div className="flex justify-between items-center">
-          <div>
-            <h1 className="text-3xl font-bold text-foreground">My AFA Orders</h1>
-            <p className="text-muted-foreground mt-1">Manage and track your MTN AFA registrations</p>
+      <div className="max-w-2xl mx-auto space-y-5">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">MTN AFA Registration</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Register a beneficiary for the MTN AFA package.</p>
+        </div>
+
+        {/* Wallet Cash -- real fee + real balance, "Auto-Deduct" is accurate:
+            payment is deducted from the wallet server-side on submit. */}
+        <div className="rounded-2xl border-2 border-primary bg-primary/5 p-4">
+          <div className="flex items-center justify-between">
+            <span className="flex items-center gap-2 text-sm font-bold text-primary">
+              <Wallet className="h-4 w-4" /> Wallet Cash
+            </span>
+            <span className="flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-bold text-primary">
+              <Zap className="h-3 w-3" /> Auto-Deduct
+            </span>
           </div>
-          <Button
-            onClick={() => setShowSubmissionModal(true)}
-            className="bg-primary hover:bg-primary/90"
-            size="lg"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            New Registration
-          </Button>
+          <p className="mt-2 text-2xl font-black text-foreground">GHS {afaPrice.toFixed(2)}</p>
+          <p className="text-xs text-muted-foreground">Bal: GHS {walletBalance.toFixed(2)}</p>
+          {!hasSufficientBalance && (
+            <p className="mt-1 text-xs font-medium text-destructive">Insufficient balance — top up your wallet to register.</p>
+          )}
         </div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Orders</CardTitle>
-              <Star className="h-4 w-4 text-primary" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.total}</div>
-              <p className="text-xs text-muted-foreground">All time</p>
-            </CardContent>
-          </Card>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-1.5">
+            <p className="text-sm font-bold text-foreground">Full Name</p>
+            <Input
+              placeholder="E.g. John Doe"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              disabled={submitting}
+              className="rounded-2xl border-border bg-muted/40 py-5"
+            />
+          </div>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Pending</CardTitle>
-              <Clock className="h-4 w-4 text-warning" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.pending}</div>
-              <p className="text-xs text-muted-foreground">Waiting</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Processing</CardTitle>
-              <Clock className="h-4 w-4 text-warning" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.processing}</div>
-              <p className="text-xs text-muted-foreground">In progress</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Delivered</CardTitle>
-              <CheckCircle className="h-4 w-4 text-success" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.completed}</div>
-              <p className="text-xs text-muted-foreground">Completed</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Cancelled</CardTitle>
-              <XCircle className="h-4 w-4 text-destructive" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.cancelled}</div>
-              <p className="text-xs text-muted-foreground">Cancelled</p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* AFA Orders Table */}
-        <Card>
-          <CardHeader>
-            <CardTitle>AFA Orders List</CardTitle>
-            <CardDescription>Your MTN AFA registration orders</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {orders.length === 0 ? (
-              <div className="text-center py-12">
-                <p className="text-muted-foreground mb-4">No AFA orders yet</p>
-                <Button
-                  onClick={() => setShowSubmissionModal(true)}
-                  className="bg-primary hover:bg-primary/90"
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-bold text-foreground">Phone Number (10 digits)</p>
+              <p className="text-xs text-muted-foreground">MTN Preferred</p>
+            </div>
+            <Input
+              placeholder="E.g. 0241234567"
+              value={phoneNumber}
+              onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, "").slice(0, 10))}
+              disabled={submitting}
+              className="rounded-2xl border-border bg-muted/40 py-5 font-mono"
+            />
+            <div className="flex flex-wrap gap-2">
+              {myPhone && (
+                <button
+                  type="button"
+                  onClick={() => setPhoneNumber(myPhone.replace(/\D/g, "").slice(0, 10))}
+                  className="flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-accent"
                 >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Create Your First AFA Order
-                </Button>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-muted/40 border-b">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Order Code</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Transaction Code</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Date</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Status</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Amount</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Beneficiary</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Phone</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {orders.map((order) => (
-                      <tr key={order.id} className="hover:bg-accent">
-                        <td className="px-6 py-4 text-sm font-semibold">{order.order_code}</td>
-                        <td className="px-6 py-4 text-sm">{order.transaction_code || "-"}</td>
-                        <td className="px-6 py-4 text-sm">
-                          {new Date(order.created_at).toLocaleDateString()}
-                        </td>
-                        <td className="px-6 py-4 text-sm">
-                          <Badge
-                            className={
-                              order.status === "completed"
-                                ? "bg-success/15 text-success"
-                                : order.status === "pending"
-                                ? "bg-warning/10 text-warning"
-                                : order.status === "processing"
-                                ? "bg-primary/10 text-primary"
-                                : "bg-destructive/15 text-destructive"
-                            }
-                          >
-                            {order.status.toUpperCase()}
-                          </Badge>
-                        </td>
-                        <td className="px-6 py-4 text-sm">GHS {order.amount}</td>
-                        <td className="px-6 py-4 text-sm">{order.full_name || "-"}</td>
-                        <td className="px-6 py-4 text-sm">{order.phone_number || "-"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            {orders.length > 0 && (
-              <div className="mt-4 flex justify-between items-center">
-                <p className="text-sm text-muted-foreground">Showing {orders.length} of {stats.total} results</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+                  <User className="h-3.5 w-3.5" /> My Number ({myPhone})
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handlePaste}
+                className="flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/15"
+              >
+                <ClipboardPaste className="h-3.5 w-3.5" /> Paste
+              </button>
+              <button
+                type="button"
+                onClick={() => setPhoneNumber("")}
+                className="flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-accent"
+              >
+                <X className="h-3.5 w-3.5" /> Clear
+              </button>
+            </div>
+          </div>
 
-      {/* AFA Submission Modal */}
-      <AFASubmissionModal
-        isOpen={showSubmissionModal}
-        onClose={() => setShowSubmissionModal(false)}
-        userId={user.id}
-        onSubmitSuccess={() => {
-          // Reload orders after successful submission
-          loadOrders()
-          setShowSubmissionModal(false)
-          toast.success("AFA order submitted successfully!")
-        }}
-      />
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-bold text-foreground">Ghana Card ID</p>
+              <span className="flex items-center gap-1 text-xs font-semibold text-success">
+                <ShieldCheck className="h-3.5 w-3.5" /> Auto-Formatted
+              </span>
+            </div>
+            <Input
+              placeholder="GHA-123456789-0"
+              value={ghCardNumber}
+              onChange={(e) => setGhCardNumber(formatGhanaCard(e.target.value))}
+              disabled={submitting}
+              className="rounded-2xl border-border bg-muted/40 py-5 font-mono"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <p className="text-sm font-bold text-foreground">Location</p>
+              <Input
+                placeholder="E.g. Accra, Kumasi, Takoradi"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                disabled={submitting}
+                className="rounded-2xl border-border bg-muted/40 py-5"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-sm font-bold text-foreground">Region</p>
+              <select
+                value={region}
+                onChange={(e) => setRegion(e.target.value)}
+                disabled={submitting}
+                className="h-[46px] w-full rounded-2xl border border-border bg-muted/40 px-3 text-sm text-foreground"
+              >
+                <option value="">Select</option>
+                {REGIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={submitting || !isFormValid || !hasSufficientBalance}
+            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#c2660a] py-4 text-base font-bold text-white transition hover:bg-[#a8560a] disabled:opacity-50"
+          >
+            {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Submitting...</> : <><Send className="h-4 w-4" /> Submit Registration</>}
+          </button>
+        </form>
+
+        {/* Stats */}
+        <div className="grid grid-cols-2 gap-3">
+          {STATUS_TILES.map(({ key, label, bg, fg }) => (
+            <div key={key} className="rounded-2xl border border-border bg-card p-4">
+              <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${bg} ${fg}`}>
+                <ShieldCheck className="h-4 w-4" />
+              </span>
+              <p className="mt-2 text-xl font-black text-foreground">{stats[key] as number}</p>
+              <p className="text-xs text-muted-foreground">{label}</p>
+            </div>
+          ))}
+          <div className="rounded-2xl border border-border bg-card p-4">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#c2660a]/10 text-[#c2660a]">
+              <ShieldCheck className="h-4 w-4" />
+            </span>
+            <p className="mt-2 text-xl font-black text-[#c2660a]">GHS {stats.totalSpent.toFixed(2)}</p>
+            <p className="text-xs text-muted-foreground">Total GHS Spent</p>
+          </div>
+        </div>
+
+        {/* Order history -- real, pre-existing functionality; not pictured
+            in the reference but not something to drop. */}
+        <div className="space-y-2">
+          <p className="text-sm font-bold text-foreground">Registration History</p>
+          {orders.length === 0 ? (
+            <div className="rounded-2xl border border-border bg-card py-12 text-center text-sm text-muted-foreground">
+              No AFA registrations yet
+            </div>
+          ) : (
+            orders.map((order) => (
+              <div key={order.id} className="rounded-2xl border border-border bg-card p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-bold text-foreground">{order.full_name || order.order_code}</p>
+                    <p className="text-xs text-muted-foreground">{order.phone_number || "-"}</p>
+                    <p className="mt-1 font-mono text-xs text-muted-foreground">{order.order_code}</p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="font-bold text-foreground">GHS {Number(order.amount).toFixed(2)}</p>
+                    <Badge className={`mt-1 ${STATUS_BADGE[order.status] ?? "bg-muted text-muted-foreground"}`}>{order.status}</Badge>
+                  </div>
+                </div>
+                <p className="mt-2 border-t border-border pt-2 text-xs text-muted-foreground">
+                  {new Date(order.created_at).toLocaleString()}
+                </p>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
     </DashboardLayout>
   )
 }
