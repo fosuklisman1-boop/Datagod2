@@ -8,6 +8,11 @@ export interface SegmentedPillOption {
   value: string
 }
 
+/**
+ * Assumes it sits on a fixed-dark surface (e.g. the admin banner) -- its
+ * inactive state is a raw `bg-white/10` overlay, not a theme-following
+ * token, so it won't read correctly dropped onto a light-mode content card.
+ */
 export function SegmentedPillToggle({
   options,
   value,

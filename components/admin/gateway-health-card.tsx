@@ -23,7 +23,7 @@ export function GatewayHealthCard({
   const barWidth = Math.max(0, Math.min(100, uptimePct))
   const badgeClasses = network
     ? networkBadgeClasses(network)
-    : badgeClassName ?? 'bg-admin-accent text-admin-accent-soft'
+    : badgeClassName ?? 'bg-admin-accent text-white'
 
   return (
     <div className={cn('flex-1 rounded-xl border border-border p-3.5', className)}>
