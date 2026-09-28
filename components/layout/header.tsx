@@ -24,7 +24,7 @@ import { cn } from "@/lib/utils"
 
 export function Header() {
   const { user, logout } = useAuth()
-  const { isDealer, isAdmin } = useUserRole()
+  const { isDealer } = useUserRole()
   const { config: dynamicConfig } = useSupportConfig()
   const [isMobile, setIsMobile] = useState(false)
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
@@ -41,11 +41,10 @@ export function Header() {
     return () => window.removeEventListener("resize", handleResize)
   }, [])
 
-  // Wallet balance isn't an admin concept, so it's only fetched/shown for
-  // regular accounts. Refetches on focus so a top-up made elsewhere (e.g. the
-  // wallet page in another tab) shows up here without a full reload.
+  // Refetches on focus so a top-up made elsewhere (e.g. the wallet page in
+  // another tab) shows up here without a full reload.
   useEffect(() => {
-    if (!user || isAdmin) return
+    if (!user) return
 
     const fetchBalance = async () => {
       try {
@@ -53,16 +52,20 @@ export function Header() {
         if (!session?.access_token) return
         const res = await fetch("/api/wallet/balance", { headers: { Authorization: `Bearer ${session.access_token}` } })
         const d = await res.json()
+        if (!res.ok) {
+          console.error("[HEADER] Wallet balance fetch failed:", d)
+          return
+        }
         setWalletBalance(d.balance ?? 0)
-      } catch {
-        // silent — pill just stays hidden until a fetch succeeds
+      } catch (err) {
+        console.error("[HEADER] Wallet balance fetch error:", err)
       }
     }
 
     fetchBalance()
     window.addEventListener("focus", fetchBalance)
     return () => window.removeEventListener("focus", fetchBalance)
-  }, [user, isAdmin])
+  }, [user])
 
   const handleLogout = async (e: React.MouseEvent) => {
     e.preventDefault()
@@ -88,7 +91,7 @@ export function Header() {
 
       {/* Middle - wallet balance */}
       <div className="flex justify-center">
-        {!isAdmin && walletBalance !== null && (
+        {walletBalance !== null && (
           <button
             type="button"
             onClick={() => (window.location.href = "/dashboard/wallet")}
