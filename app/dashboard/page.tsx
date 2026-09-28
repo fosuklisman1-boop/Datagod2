@@ -18,7 +18,7 @@ import {
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 import { supabase } from "@/lib/supabase"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
-import { getServicePrimaryPath, type DomainService } from "@/lib/custom-domains"
+import { getServicePrimaryPath } from "@/lib/custom-domains"
 import { LatestOrderCard } from "@/components/dashboard/latest-order-card"
 import { NetworkHealthCard, NETWORK_BADGE } from "@/components/dashboard/network-health-card"
 // Type-only: order-health-service.ts pulls in mtn-hold.ts -> sms-service.ts
@@ -28,17 +28,6 @@ import { NetworkHealthCard, NETWORK_BADGE } from "@/components/dashboard/network
 // resolve 'net'"), so the network list below is instead derived from
 // NETWORK_BADGE's keys, which lives in the client-safe network-health-card.
 import type { LatestOrderSummary, NetworkHealthStat, HealthNetwork } from "@/lib/order-health-service"
-
-// Short, quick-action-appropriate labels for each service, used when a custom
-// domain is scoped to one or more services and the primary CTAs are repointed
-// to the domain's own first selected service instead of the hardcoded
-// data-packages target.
-const SERVICE_QUICK_LABELS: Record<DomainService, string> = {
-  data_bundles: "Buy Data",
-  airtime: "Buy Airtime",
-  results_checker: "Check Results",
-  bulk_sms: "Buy SMS",
-}
 
 // Real Datagod services (not Apex Prime's Academic Writing / Apple Music /
 // Merchant SIM tiles, which don't apply to this platform), one card shown at
@@ -118,7 +107,6 @@ export default function DashboardPage() {
   const [firstName, setFirstName] = useState("")
   const [userEmail, setUserEmail] = useState("")
   const [joinDate, setJoinDate] = useState("")
-  const [walletBalance, setWalletBalance] = useState(0)
   const [userRole, setUserRole] = useState<string | null>(null)
   const [isSubAgent, setIsSubAgent] = useState<boolean | null>(null) // null = checking, true/false = checked
   const [stats, setStats] = useState<DashboardStats>({
@@ -355,14 +343,6 @@ export default function DashboardPage() {
               })
           : Promise.resolve(),
 
-        // Wallet balance
-        token
-          ? fetch("/api/wallet/balance", { headers: { Authorization: `Bearer ${token}` } })
-              .then(r => r.json())
-              .then(d => setWalletBalance(d.balance ?? 0))
-              .catch(() => setWalletBalance(0))
-          : Promise.resolve(),
-
         // Latest completed order (real order-history trust widget)
         token
           ? fetchLatestOrder(token)
@@ -464,16 +444,46 @@ export default function DashboardPage() {
             <BannerStat icon={AlertCircle} value={formatCount(stats.failed)} label="Failed" />
           </div>
 
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Button onClick={() => router.push("/dashboard/wallet")} className="bg-white text-[#1b388b] hover:bg-white/90 font-semibold">
-              ＋ Top Up
-            </Button>
-            <Button onClick={() => router.push(primaryService ? getServicePrimaryPath(primaryService) : "/dashboard/data-packages")} className="bg-white/15 text-white hover:bg-white/25 border-0">
-              {primaryService ? SERVICE_QUICK_LABELS[primaryService] : "Buy Data"}
-            </Button>
-            <Button onClick={() => router.push("/dashboard/my-orders")} className="bg-white/15 text-white hover:bg-white/25 border-0">
-              My Orders
-            </Button>
+          <div className="mt-4 border-t border-white/15 pt-4">
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-white/60">Quick Actions</p>
+            <div className="flex flex-wrap gap-2">
+              {(!domainBranding.services || domainBranding.services.includes("data_bundles")) && (
+                <Button onClick={() => router.push("/dashboard/data-packages")} className="bg-white text-[#1b388b] hover:bg-white/90 font-semibold">
+                  Buy Data Package
+                </Button>
+              )}
+              {(!domainBranding.services || domainBranding.services.includes("airtime")) && (
+                <Button onClick={() => router.push("/dashboard/airtime")} className="bg-white/15 text-white hover:bg-white/25 border-0 font-semibold">
+                  Buy Airtime
+                </Button>
+              )}
+              {domainBranding.services?.includes("results_checker") && (
+                <Button onClick={() => router.push("/dashboard/results-checker")} className="bg-white/15 text-white hover:bg-white/25 border-0 font-semibold">
+                  Check Results
+                </Button>
+              )}
+              {domainBranding.services?.includes("bulk_sms") && (
+                <Button onClick={() => router.push("/dashboard/sms")} className="bg-white/15 text-white hover:bg-white/25 border-0 font-semibold">
+                  Buy SMS
+                </Button>
+              )}
+              {!domainBranding.services && (
+                <Button onClick={() => router.push("/dashboard/my-shop")} className="bg-white/15 text-white hover:bg-white/25 border-0 font-semibold">
+                  Create Shop
+                </Button>
+              )}
+              {(!domainBranding.services || domainBranding.services.includes("data_bundles")) && (
+                <Button onClick={() => router.push("/dashboard/bulk-orders")} className="bg-white/15 text-white hover:bg-white/25 border-0 font-semibold">
+                  Bulk Order
+                </Button>
+              )}
+              <Button onClick={() => router.push("/dashboard/my-orders")} className="bg-white/15 text-white hover:bg-white/25 border-0 font-semibold">
+                My Orders
+              </Button>
+              <Button onClick={() => router.push("/dashboard/wallet")} className="bg-white/15 text-white hover:bg-white/25 border-0 font-semibold">
+                ＋ Top Up
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -589,52 +599,6 @@ export default function DashboardPage() {
             )}
           </div>
         </div>
-
-        {/* Quick Actions */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-foreground">Quick Actions</CardTitle>
-            <CardDescription>Get started with common tasks</CardDescription>
-          </CardHeader>
-          <CardContent className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            {(!domainBranding.services || domainBranding.services.includes("data_bundles")) && (
-              <Button onClick={() => router.push("/dashboard/data-packages")} className="font-semibold">
-                Buy Data Package
-              </Button>
-            )}
-            {(!domainBranding.services || domainBranding.services.includes("airtime")) && (
-              <Button variant="outline" onClick={() => router.push("/dashboard/airtime")} className="font-semibold">
-                Buy Airtime
-              </Button>
-            )}
-            {domainBranding.services?.includes("results_checker") && (
-              <Button variant="outline" onClick={() => router.push("/dashboard/results-checker")} className="font-semibold">
-                Check Results
-              </Button>
-            )}
-            {domainBranding.services?.includes("bulk_sms") && (
-              <Button variant="outline" onClick={() => router.push("/dashboard/sms")} className="font-semibold">
-                Buy SMS
-              </Button>
-            )}
-            {!domainBranding.services && (
-              <Button variant="outline" onClick={() => router.push("/dashboard/my-shop")} className="font-semibold">
-                Create Shop
-              </Button>
-            )}
-            {(!domainBranding.services || domainBranding.services.includes("data_bundles")) && (
-              <Button variant="outline" onClick={() => router.push("/dashboard/bulk-orders")} className="font-semibold">
-                Bulk Order
-              </Button>
-            )}
-            <Button variant="outline" onClick={() => router.push("/dashboard/my-orders")} className="font-semibold">
-              View My Orders
-            </Button>
-            <Button variant="outline" onClick={() => router.push("/dashboard/wallet")} className="font-semibold">
-              Top Up Wallet
-            </Button>
-          </CardContent>
-        </Card>
 
         {/* Recent Activity */}
         <Card>

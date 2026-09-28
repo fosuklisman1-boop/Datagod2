@@ -1,6 +1,6 @@
 "use client"
 
-import { ShoppingCart, User, LogOut, Headphones, Mail, Phone, MessageCircle, Crown } from "lucide-react"
+import { ShoppingCart, User, LogOut, Headphones, Mail, Phone, MessageCircle, Crown, Wallet } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { NotificationCenter } from "@/components/notification-center"
@@ -17,15 +17,17 @@ import { useAuth } from "@/hooks/use-auth"
 import { useUserRole } from "@/hooks/use-user-role"
 import { useSupportConfig } from "@/hooks/use-support-config"
 import { supportConfig } from "@/lib/support-config"
+import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import { useState, useEffect } from "react"
 import { cn } from "@/lib/utils"
 
 export function Header() {
   const { user, logout } = useAuth()
-  const { isDealer } = useUserRole()
+  const { isDealer, isAdmin } = useUserRole()
   const { config: dynamicConfig } = useSupportConfig()
   const [isMobile, setIsMobile] = useState(false)
+  const [walletBalance, setWalletBalance] = useState<number | null>(null)
   // Use dynamic config if available, otherwise fall back to static config
   const supportInfo = dynamicConfig || supportConfig
 
@@ -38,6 +40,29 @@ export function Header() {
     window.addEventListener("resize", handleResize)
     return () => window.removeEventListener("resize", handleResize)
   }, [])
+
+  // Wallet balance isn't an admin concept, so it's only fetched/shown for
+  // regular accounts. Refetches on focus so a top-up made elsewhere (e.g. the
+  // wallet page in another tab) shows up here without a full reload.
+  useEffect(() => {
+    if (!user || isAdmin) return
+
+    const fetchBalance = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session?.access_token) return
+        const res = await fetch("/api/wallet/balance", { headers: { Authorization: `Bearer ${session.access_token}` } })
+        const d = await res.json()
+        setWalletBalance(d.balance ?? 0)
+      } catch {
+        // silent — pill just stays hidden until a fetch succeeds
+      }
+    }
+
+    fetchBalance()
+    window.addEventListener("focus", fetchBalance)
+    return () => window.removeEventListener("focus", fetchBalance)
+  }, [user, isAdmin])
 
   const handleLogout = async (e: React.MouseEvent) => {
     e.preventDefault()
@@ -57,12 +82,26 @@ export function Header() {
       className={`fixed right-0 left-0 top-0 z-30 transition-all duration-300 w-full border-b border-border bg-card/95 backdrop-blur`}
       style={{ paddingTop: "env(safe-area-inset-top)" }}
     >
-      <div className="h-14 md:h-16 flex items-center justify-between px-2 sm:px-3 md:px-4 lg:px-6">
+      <div className="h-14 md:h-16 grid grid-cols-[1fr_auto_1fr] items-center px-2 sm:px-3 md:px-4 lg:px-6">
       {/* Left side - empty for now */}
       <div></div>
 
+      {/* Middle - wallet balance */}
+      <div className="flex justify-center">
+        {!isAdmin && walletBalance !== null && (
+          <button
+            type="button"
+            onClick={() => (window.location.href = "/dashboard/wallet")}
+            className="flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1.5 text-xs sm:text-sm font-bold text-primary hover:bg-primary/15"
+          >
+            <Wallet className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            GHS {walletBalance.toFixed(2)}
+          </button>
+        )}
+      </div>
+
       {/* Right side - icons and user menu */}
-      <div className="flex items-center gap-1 sm:gap-2 md:gap-4">
+      <div className="flex items-center justify-end gap-1 sm:gap-2 md:gap-4">
         {/* PWA install — Android shows native prompt; iOS shows step-by-step guide */}
         <PwaInstallButton />
 
