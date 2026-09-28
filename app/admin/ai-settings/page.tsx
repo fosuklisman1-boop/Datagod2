@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from "react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { Eye, EyeOff, Save, Bot, RefreshCw } from "lucide-react"
+import { Eye, EyeOff, Save, RefreshCw } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import { ProviderName, PROVIDER_MODELS } from "@/lib/ai-provider-config"
@@ -206,14 +207,12 @@ export default function AISettingsPage() {
     <DashboardLayout>
       <div className="max-w-2xl mx-auto py-8 px-4 space-y-6">
         <div className="flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-primary">
-            <Bot size={22} className="text-primary-foreground" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-foreground">AI Provider Settings</h1>
-            <p className="text-sm text-muted-foreground">Configure API keys and assign models to each chat widget</p>
-          </div>
-          <button onClick={fetchConfig} className="ml-auto text-muted-foreground hover:text-muted-foreground">
+          <AdminPageHeaderBanner
+            title="AI Provider Settings"
+            subtitle="Configure API keys and assign models to each chat widget"
+            className="flex-1"
+          />
+          <button onClick={fetchConfig} className="text-muted-foreground hover:text-muted-foreground">
             <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
           </button>
         </div>

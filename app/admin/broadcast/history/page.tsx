@@ -3,12 +3,12 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
-    History,
     ChevronLeft,
     Send,
     Mail,
@@ -147,8 +147,8 @@ export default function MessagingHistoryPage() {
     return (
         <DashboardLayout>
             <div className="max-w-6xl mx-auto space-y-6">
-                <header className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
+                <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="flex items-center gap-4 flex-1">
                         <Button
                             variant="ghost"
                             size="icon"
@@ -157,13 +157,11 @@ export default function MessagingHistoryPage() {
                         >
                             <ChevronLeft className="w-6 h-6" />
                         </Button>
-                        <div>
-                            <div className="flex items-center gap-2 mb-1">
-                                <History className="w-5 h-5 text-muted-foreground" />
-                                <h1 className="text-2xl font-bold">Messaging History</h1>
-                            </div>
-                            <p className="text-muted-foreground text-sm">Track your communication delivery and logs</p>
-                        </div>
+                        <AdminPageHeaderBanner
+                            title="Messaging History"
+                            subtitle="Track your communication delivery and logs"
+                            className="flex-1"
+                        />
                     </div>
                     <Button onClick={loadData} variant="outline" size="sm">
                         Refresh Data

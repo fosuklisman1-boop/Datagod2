@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/hooks/use-auth"
 import { useIsAdmin } from "@/hooks/use-admin"
+import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -177,10 +178,10 @@ export default function AFARegistrationsAdminPage() {
     <div className="min-h-screen bg-muted/40 p-4 md:p-8">
       <div className="max-w-7xl mx-auto space-y-6">
         {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">AFA Registrations</h1>
-          <p className="text-muted-foreground mt-1">Manage MTN AFA registration submissions</p>
-        </div>
+        <AdminPageHeaderBanner
+          title="AFA Registrations"
+          subtitle="Manage MTN AFA registration submissions"
+        />
 
         {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

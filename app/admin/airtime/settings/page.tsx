@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
 import { Save, AlertCircle, CheckCircle } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 
@@ -77,15 +78,16 @@ export default function AirtimeSettingsPage() {
   return (
     <DashboardLayout>
       <div className="max-w-4xl mx-auto space-y-8">
-        <header className="flex justify-between items-center bg-card p-6 rounded-2xl shadow-sm border border-border">
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">Airtime Management Settings</h1>
-            <p className="text-sm text-muted-foreground">Configure network fees and service availability.</p>
-          </div>
+        <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <AdminPageHeaderBanner
+            title="Airtime Management Settings"
+            subtitle="Configure network fees and service availability."
+            className="flex-1"
+          />
           <button
             onClick={saveSettings}
             disabled={saving}
-            className="flex items-center gap-2 bg-primary text-primary-foreground px-6 py-2.5 rounded-xl font-semibold shadow-lg shadow-primary hover:bg-primary transition-all disabled:opacity-50"
+            className="flex items-center gap-2 bg-primary text-primary-foreground px-6 py-2.5 rounded-xl font-semibold shadow-lg shadow-primary hover:bg-primary transition-all disabled:opacity-50 self-start sm:self-auto"
           >
             {saving ? <div className="h-4 w-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" /> : <Save className="h-4 w-4" />}
             {saving ? "Saving…" : "Save Changes"}
