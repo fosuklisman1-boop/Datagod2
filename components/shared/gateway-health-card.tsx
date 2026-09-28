@@ -1,12 +1,12 @@
 import { cn } from '@/lib/utils'
-import { gatewayStatus, gatewayBarColorClass, networkBadgeClasses, type GatewayNetwork } from '@/lib/admin-theme'
+import { gatewayStatus, gatewayBarColorClass, networkBadgeClasses, type GatewayNetwork } from '@/lib/network-status-theme'
 
 export function GatewayHealthCard({
   label,
   badgeText,
   network,
   badgeClassName,
-  latencyMs,
+  metricLabel,
   uptimePct,
   className,
 }: {
@@ -14,7 +14,11 @@ export function GatewayHealthCard({
   badgeText: string
   network?: GatewayNetwork
   badgeClassName?: string
-  latencyMs: number
+  /** Pre-formatted by the caller (e.g. "112ms" for a real ping, "3m" for a
+   *  delivery-time average) -- kept as a caller-formatted string rather than
+   *  a typed number so this component never implies a unit the caller didn't
+   *  actually measure. */
+  metricLabel: string
   uptimePct: number
   className?: string
 }) {
@@ -34,7 +38,7 @@ export function GatewayHealthCard({
           </div>
           <span className="text-sm font-semibold text-foreground">{label}</span>
         </div>
-        <span className="text-xs text-muted-foreground">{latencyMs}ms</span>
+        <span className="text-xs text-muted-foreground">{metricLabel}</span>
       </div>
       <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-border">
         <div className={cn('h-full rounded-full', barClass)} style={{ width: `${barWidth}%` }} />
