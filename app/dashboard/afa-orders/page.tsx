@@ -8,7 +8,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import {
-  Wallet, Zap, ShieldCheck, Loader2, User, ClipboardPaste, X, Send,
+  Wallet, Zap, ShieldCheck, Loader2, User, ClipboardPaste, X, Send, BarChart3, UserPlus, History as HistoryIcon,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -69,9 +69,16 @@ function formatGhanaCard(raw: string): string {
   return lastDigit ? `${letters}-${firstGroup}-${lastDigit}` : `${letters}-${firstGroup}`
 }
 
+const TABS = [
+  { id: "stats", label: "Stats", icon: BarChart3 },
+  { id: "new", label: "New", icon: UserPlus },
+  { id: "history", label: "History", icon: HistoryIcon },
+] as const
+
 export default function AFAOrdersPage() {
   const router = useRouter()
   const { user, loading: authLoading } = useAuth()
+  const [tab, setTab] = useState<"stats" | "new" | "history">("new")
   const [orders, setOrders] = useState<AFAOrder[]>([])
   const [stats, setStats] = useState<Stats>({ total: 0, pending: 0, processing: 0, completed: 0, cancelled: 0, totalSpent: 0 })
   const [loading, setLoading] = useState(true)
@@ -221,6 +228,23 @@ export default function AFAOrdersPage() {
           <p className="mt-1 text-sm text-muted-foreground">Register a beneficiary for the MTN AFA package.</p>
         </div>
 
+        {/* Tabs */}
+        <div className="inline-flex w-full rounded-2xl bg-muted p-1">
+          {TABS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-bold transition ${
+                tab === id ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"
+              }`}
+            >
+              <Icon className="h-4 w-4" /> {label}
+            </button>
+          ))}
+        </div>
+
+        {tab === "new" && (
+        <>
         {/* Wallet Cash -- real fee + real balance, "Auto-Deduct" is accurate:
             payment is deducted from the wallet server-side on submit. */}
         <div className="rounded-2xl border-2 border-primary bg-primary/5 p-4">
@@ -339,56 +363,58 @@ export default function AFAOrdersPage() {
             {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Submitting...</> : <><Send className="h-4 w-4" /> Submit Registration</>}
           </button>
         </form>
+        </>
+        )}
 
-        {/* Stats */}
-        <div className="grid grid-cols-2 gap-3">
-          {STATUS_TILES.map(({ key, label, bg, fg }) => (
-            <div key={key} className="rounded-2xl border border-border bg-card p-4">
-              <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${bg} ${fg}`}>
+        {tab === "stats" && (
+          <div className="grid grid-cols-2 gap-3">
+            {STATUS_TILES.map(({ key, label, bg, fg }) => (
+              <div key={key} className="rounded-2xl border border-border bg-card p-4">
+                <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${bg} ${fg}`}>
+                  <ShieldCheck className="h-4 w-4" />
+                </span>
+                <p className="mt-2 text-xl font-black text-foreground">{stats[key] as number}</p>
+                <p className="text-xs text-muted-foreground">{label}</p>
+              </div>
+            ))}
+            <div className="rounded-2xl border border-border bg-card p-4">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#c2660a]/10 text-[#c2660a]">
                 <ShieldCheck className="h-4 w-4" />
               </span>
-              <p className="mt-2 text-xl font-black text-foreground">{stats[key] as number}</p>
-              <p className="text-xs text-muted-foreground">{label}</p>
+              <p className="mt-2 text-xl font-black text-[#c2660a]">GHS {stats.totalSpent.toFixed(2)}</p>
+              <p className="text-xs text-muted-foreground">Total GHS Spent</p>
             </div>
-          ))}
-          <div className="rounded-2xl border border-border bg-card p-4">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#c2660a]/10 text-[#c2660a]">
-              <ShieldCheck className="h-4 w-4" />
-            </span>
-            <p className="mt-2 text-xl font-black text-[#c2660a]">GHS {stats.totalSpent.toFixed(2)}</p>
-            <p className="text-xs text-muted-foreground">Total GHS Spent</p>
           </div>
-        </div>
+        )}
 
-        {/* Order history -- real, pre-existing functionality; not pictured
-            in the reference but not something to drop. */}
-        <div className="space-y-2">
-          <p className="text-sm font-bold text-foreground">Registration History</p>
-          {orders.length === 0 ? (
-            <div className="rounded-2xl border border-border bg-card py-12 text-center text-sm text-muted-foreground">
-              No AFA registrations yet
-            </div>
-          ) : (
-            orders.map((order) => (
-              <div key={order.id} className="rounded-2xl border border-border bg-card p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="font-bold text-foreground">{order.full_name || order.order_code}</p>
-                    <p className="text-xs text-muted-foreground">{order.phone_number || "-"}</p>
-                    <p className="mt-1 font-mono text-xs text-muted-foreground">{order.order_code}</p>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <p className="font-bold text-foreground">GHS {Number(order.amount).toFixed(2)}</p>
-                    <Badge className={`mt-1 ${STATUS_BADGE[order.status] ?? "bg-muted text-muted-foreground"}`}>{order.status}</Badge>
-                  </div>
-                </div>
-                <p className="mt-2 border-t border-border pt-2 text-xs text-muted-foreground">
-                  {new Date(order.created_at).toLocaleString()}
-                </p>
+        {tab === "history" && (
+          <div className="space-y-2">
+            {orders.length === 0 ? (
+              <div className="rounded-2xl border border-border bg-card py-12 text-center text-sm text-muted-foreground">
+                No AFA registrations yet
               </div>
-            ))
-          )}
-        </div>
+            ) : (
+              orders.map((order) => (
+                <div key={order.id} className="rounded-2xl border border-border bg-card p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-bold text-foreground">{order.full_name || order.order_code}</p>
+                      <p className="text-xs text-muted-foreground">{order.phone_number || "-"}</p>
+                      <p className="mt-1 font-mono text-xs text-muted-foreground">{order.order_code}</p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="font-bold text-foreground">GHS {Number(order.amount).toFixed(2)}</p>
+                      <Badge className={`mt-1 ${STATUS_BADGE[order.status] ?? "bg-muted text-muted-foreground"}`}>{order.status}</Badge>
+                    </div>
+                  </div>
+                  <p className="mt-2 border-t border-border pt-2 text-xs text-muted-foreground">
+                    {new Date(order.created_at).toLocaleString()}
+                  </p>
+                </div>
+              ))
+            )}
+          </div>
+        )}
       </div>
     </DashboardLayout>
   )
