@@ -42,7 +42,14 @@ interface ValidationResult {
   }>
 }
 
-export function BulkOrdersForm() {
+interface BulkOrdersFormProps {
+  /** Real network label (e.g. "MTN", "AT - iShare"), driven by an external
+   *  network picker. When set, the form's own network dropdown is hidden
+   *  and locked to this network instead. */
+  presetNetwork?: string
+}
+
+export function BulkOrdersForm({ presetNetwork }: BulkOrdersFormProps = {}) {
   const [activeTab, setActiveTab] = useState<"excel" | "text">("text")
   const [selectedNetwork, setSelectedNetwork] = useState("")
   const [textInput, setTextInput] = useState("")
@@ -64,7 +71,28 @@ export function BulkOrdersForm() {
   // Load packages from database on mount
   useEffect(() => {
     loadPackages()
+    loadWalletBalance()
   }, [])
+
+  const loadWalletBalance = async () => {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.user?.id) return
+    const { data } = await supabase.from("wallets").select("balance").eq("user_id", session.user.id).maybeSingle()
+    setWalletBalance(data?.balance ?? 0)
+  }
+
+  // Lock the internal network selection to the externally-picked network
+  // once its matching entry has loaded, and drop any validation run against
+  // a previously-picked network so stale results can't be submitted.
+  useEffect(() => {
+    if (!presetNetwork) return
+    const match = networks.find((n) => n.label === presetNetwork)
+    if (!match || match.id === selectedNetwork) return
+    setSelectedNetwork(match.id)
+    setTextInput("")
+    setValidationResults(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presetNetwork, networks])
 
   const loadPackages = async () => {
     try {
@@ -573,56 +601,75 @@ export function BulkOrdersForm() {
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
-        {/* Network Selection */}
-        <div className="space-y-2">
-          <Label htmlFor="network">Select Network</Label>
-          <Select value={selectedNetwork} onValueChange={setSelectedNetwork} disabled={loading}>
-            <SelectTrigger id="network">
-              <SelectValue placeholder={loading ? "Loading networks..." : "Choose network"} />
-            </SelectTrigger>
-            <SelectContent>
-              {networks.map((network) => (
-                <SelectItem key={network.id} value={network.id}>
-                  {network.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {/* Network Selection -- hidden when an external picker (the network
+            cards on the data-packages page) already drives this. */}
+        {presetNetwork ? (
+          <p className="text-sm text-muted-foreground">
+            Network: <span className="font-semibold text-foreground">{presetNetwork}</span>
+          </p>
+        ) : (
+          <div className="space-y-2">
+            <Label htmlFor="network">Select Network</Label>
+            <Select value={selectedNetwork} onValueChange={setSelectedNetwork} disabled={loading}>
+              <SelectTrigger id="network">
+                <SelectValue placeholder={loading ? "Loading networks..." : "Choose network"} />
+              </SelectTrigger>
+              <SelectContent>
+                {networks.map((network) => (
+                  <SelectItem key={network.id} value={network.id}>
+                    {network.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
 
-        {/* Tab Buttons */}
-        <div className="flex gap-2">
-          <Button
-            variant={activeTab === "text" ? "default" : "outline"}
+        {/* Tabs -- underline style */}
+        <div className="flex border-b border-border">
+          <button
             onClick={() => setActiveTab("text")}
-            className={activeTab === "text" ? "bg-gradient-to-r from-primary to-primary text-white" : "hover:border-primary hover:text-primary bg-primary/30 border-border text-foreground"}
+            className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-semibold transition ${
+              activeTab === "text" ? "border-foreground text-foreground" : "border-transparent text-muted-foreground"
+            }`}
           >
-            Text Input
-          </Button>
-          <Button
-            variant={activeTab === "excel" ? "default" : "outline"}
+            Text
+          </button>
+          <button
             onClick={() => setActiveTab("excel")}
-            className={activeTab === "excel" ? "bg-gradient-to-r from-primary to-primary text-white" : "hover:border-primary hover:text-primary bg-primary/30 border-border text-foreground"}
+            className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-semibold transition ${
+              activeTab === "excel" ? "border-foreground text-foreground" : "border-transparent text-muted-foreground"
+            }`}
           >
-            Excel Upload
-          </Button>
+            Excel / CSV
+          </button>
         </div>
 
         {/* Text Input Tab */}
         {activeTab === "text" && (
           <div className="space-y-2">
-            <Label htmlFor="text-input">Paste numbers and volumes (e.g. 0551053716 1)</Label>
-            <Textarea
-              id="text-input"
-              placeholder="One per line, e.g. 0551053716 1"
-              value={textInput}
-              onChange={(e) => setTextInput(e.target.value)}
-              rows={6}
-              className="font-mono text-sm bg-card/70 backdrop-blur border-border focus:border-primary focus:ring-2 focus:ring-primary/50"
-            />
             <p className="text-xs text-muted-foreground">
-              Format: Phone number followed by space and volume in GB
+              One per line · up to 500 items · e.g. <span className="font-mono font-semibold text-foreground">0241234567 5</span> or <span className="font-mono font-semibold text-foreground">0551234567 10</span>
             </p>
+            <div className="relative">
+              <Textarea
+                id="text-input"
+                placeholder={"0241234567 5\n0551234567 10"}
+                value={textInput}
+                onChange={(e) => setTextInput(e.target.value)}
+                rows={6}
+                className="font-mono text-sm bg-card/70 backdrop-blur border-border focus:border-primary focus:ring-2 focus:ring-primary/50"
+              />
+              <button
+                type="button"
+                aria-label="Reload package prices"
+                onClick={loadPackages}
+                disabled={loading}
+                className="absolute bottom-3 right-3 flex h-11 w-11 items-center justify-center rounded-full bg-card text-foreground shadow-md border border-border disabled:opacity-50"
+              >
+                <span className={loading ? "animate-spin" : ""}>↻</span>
+              </button>
+            </div>
           </div>
         )}
 
@@ -654,138 +701,83 @@ export function BulkOrdersForm() {
         <Button
           onClick={handleValidate}
           disabled={isValidating || !selectedNetwork || loading}
-          className="w-full bg-gradient-to-r from-primary via-primary to-primary hover:from-primary hover:via-primary hover:to-primary shadow-lg hover:shadow-xl transition-all duration-300 text-white font-semibold"
+          variant="outline"
+          className="w-full font-semibold"
         >
           {loading ? "Loading..." : isValidating ? "Validating..." : "Validate"}
         </Button>
 
-        {/* Validation Results */}
+        {/* Validation Results -- compact list, not a table. Keeps the
+            invalid-row reason (why it failed) even though the reference's
+            compact style doesn't show one. */}
         {validationResults && (
-          <div className="space-y-4 border-t pt-4">
-            {/* Header with Clear Buttons */}
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Validation Results</h3>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    if (validationResults) {
-                      // Keep only valid orders
+          <div className="space-y-3">
+            <div className="flex items-center justify-between rounded-2xl border border-border bg-card p-3">
+              <p className="text-sm font-bold">
+                <span className="text-success">{validationResults.valid} valid</span>
+                {validationResults.invalid > 0 && (
+                  <span className="text-destructive"> · {validationResults.invalid} invalid</span>
+                )}
+              </p>
+              <div className="flex items-center gap-3 text-xs font-semibold">
+                {validationResults.invalid > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
                       const validOrders = validationResults.orders.filter(o => o.status === "valid")
-                      setValidationResults({
-                        ...validationResults,
-                        orders: validOrders,
-                        invalid: 0,
-                      })
-                      // Update text input to only show valid phone/volume pairs
-                      const validLines = validOrders.map(o => `${o.phone} ${o.volume}`).join("\n")
-                      setTextInput(validLines)
-                    }
-                  }}
-                  className="text-warning border-border hover:bg-warning/10"
+                      setValidationResults({ ...validationResults, orders: validOrders, invalid: 0 })
+                      setTextInput(validOrders.map(o => `${o.phone} ${o.volume}`).join("\n"))
+                    }}
+                    className="text-warning hover:underline"
+                  >
+                    Clear invalid
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => { setValidationResults(null); setTextInput("") }}
+                  className="text-destructive hover:underline"
                 >
-                  🗑️ Clear Invalid
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setValidationResults(null)
-                    setTextInput("")
-                  }}
-                  className="text-destructive border-border hover:bg-destructive/10"
-                >
-                  ✕ Clear All
-                </Button>
+                  Clear all
+                </button>
               </div>
             </div>
 
-            {/* Results Table */}
-            <div className="overflow-x-auto border rounded-lg bg-card backdrop-blur border-primary/20">
-              <table className="w-full text-sm">
-                <thead className="bg-card backdrop-blur border-b border-primary/20">
-                  <tr>
-                    <th className="px-4 py-2 text-left font-semibold text-foreground">#</th>
-                    <th className="px-4 py-2 text-left font-semibold text-foreground">Phone Number</th>
-                    <th className="px-4 py-2 text-left font-semibold text-foreground">Volume (GB)</th>
-                    <th className="px-4 py-2 text-left font-semibold text-foreground">Package Price</th>
-                    <th className="px-4 py-2 text-left font-semibold text-foreground">Status</th>
-                    <th className="px-4 py-2 text-left font-semibold text-foreground">Reason</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {validationResults.orders.map((order, idx) => (
-                    <tr
-                      key={idx}
-                      className={order.status === "valid" ? "bg-success/10 hover:bg-success/15" : "bg-destructive/10 hover:bg-destructive/15"}
-                    >
-                      <td className="px-4 py-2">{order.id}</td>
-                      <td
-                        className={`px-4 py-2 ${order.status === "invalid" ? "text-destructive" : ""
-                          }`}
-                      >
-                        {order.phone}
-                      </td>
-                      <td className={`px-4 py-2 ${order.status === "invalid" ? "text-red-600" : ""
-                        }`}>
-                        {order.volume > 0 ? `${order.volume} GB` : "N/A"}
-                      </td>
-                      <td className={`px-4 py-2 ${order.status === "invalid" ? "text-red-600" : ""
-                        }`}>
-                        {order.price > 0 ? `GHS ${order.price.toFixed(2)}` : "N/A"}
-                      </td>
-                      <td className="px-4 py-2">
-                        <span
-                          className={`px-2 py-1 rounded text-xs font-semibold ${order.status === "valid"
-                              ? "bg-card text-success border border-border"
-                              : "bg-card text-destructive border border-border"
-                            }`}
-                        >
-                          {order.status === "valid" ? "✓ Valid" : "✕ Invalid"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-2 text-muted-foreground">{order.reason}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="max-h-80 space-y-1 overflow-y-auto rounded-2xl border border-border bg-card p-2">
+              {validationResults.orders.map((order) => (
+                <div
+                  key={order.id}
+                  className={`flex items-center gap-3 rounded-xl px-2 py-2 ${order.status === "invalid" ? "bg-destructive/5" : ""}`}
+                >
+                  <span className={`h-2 w-2 shrink-0 rounded-full ${order.status === "valid" ? "bg-success" : "bg-destructive"}`} />
+                  <span className="min-w-0 flex-1 truncate font-mono text-sm">{order.phone}</span>
+                  {order.status === "valid" ? (
+                    <>
+                      <span className="shrink-0 text-sm text-muted-foreground">{order.volume}GB</span>
+                      <span className="shrink-0 text-sm font-bold">GHS{order.price.toFixed(2)}</span>
+                    </>
+                  ) : (
+                    <span className="shrink-0 max-w-[55%] truncate text-xs text-destructive" title={order.reason}>{order.reason}</span>
+                  )}
+                </div>
+              ))}
             </div>
 
-            {/* Summary Statistics */}
-            <div className="bg-card backdrop-blur-xl p-4 rounded-lg border border-border">
-              <div className="flex items-center justify-between">
-                <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">
-                    Total: <span className="font-semibold">{validationResults.total}</span> |{" "}
-                    <span className="text-success">
-                      Valid: <span className="font-semibold">{validationResults.valid}</span>
-                    </span>{" "}
-                    |{" "}
-                    <span className="text-destructive">
-                      Invalid: <span className="font-semibold">{validationResults.invalid}</span>
-                    </span>
-                  </p>
-                  <p className="text-lg font-bold">
-                    Total Cost:{" "}
-                    <span className="bg-gradient-to-r from-primary via-primary to-primary bg-clip-text text-transparent">
-                      GHS{" "}
-                      {validationResults.orders
-                        .filter((o) => o.status === "valid")
-                        .reduce((sum, o) => sum + o.price, 0)
-                        .toFixed(2)}
-                    </span>
-                  </p>
-                </div>
-                {validationResults.invalid === 0 && (
-                  <Button
-                    onClick={handleSubmitOrders}
-                    disabled={isSubmitting}
-                    className="bg-gradient-to-r from-primary via-primary to-primary hover:from-primary hover:via-primary hover:to-primary px-6 shadow-lg hover:shadow-xl transition-all text-white font-semibold"
-                  >
-                    {isSubmitting ? "Submitting..." : "✓ SUBMIT ORDER"}
-                  </Button>
-                )}
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-border bg-card p-3">
+              <p className="text-xs text-muted-foreground">
+                {validationResults.valid} valid rows · Wallet: GHS {(walletBalance ?? 0).toFixed(2)}
+              </p>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={handleSubmitOrders} disabled={isSubmitting || validationResults.invalid > 0}>
+                  Preview price
+                </Button>
+                <Button
+                  onClick={handleSubmitOrders}
+                  disabled={isSubmitting || validationResults.invalid > 0}
+                  className="bg-foreground text-background hover:bg-foreground/90"
+                >
+                  {isSubmitting ? "Submitting..." : "Place order"}
+                </Button>
               </div>
             </div>
           </div>

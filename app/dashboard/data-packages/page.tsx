@@ -33,11 +33,14 @@ interface Package {
 // Real brand tokens (same ones used on the dashboard's Send Data Bundles
 // row and Network Health card) -- not arbitrary per-page colors. BigTime
 // has no dedicated token (single-usage accent), so it stays a plain violet.
-const NETWORK_META: Record<string, { label: string; avatar: string; badge: string; className: string }> = {
-  MTN: { label: "MTN", avatar: "M", badge: "MTN", className: "bg-mtn text-mtn-foreground" },
-  Telecel: { label: "Telecel", avatar: "T", badge: "Telecel", className: "bg-telecel text-telecel-foreground" },
-  "AT-iShare": { label: "AT iShare", avatar: "A", badge: "AT-iS", className: "bg-at text-at-foreground" },
-  "AT-BigTime": { label: "AT BigTime", avatar: "A", badge: "AT-BT", className: "bg-violet-600 text-white" },
+// Keys match the real packages.network values exactly (verified against the
+// live DB: "AT - iShare" / "AT - BigTime", WITH spaces around the hyphen --
+// not "AT-iShare"/"AT-BigTime", which silently matched zero rows).
+const NETWORK_META: Record<string, { label: string; avatar: string; badge: string; className: string; border: string }> = {
+  MTN: { label: "MTN", avatar: "M", badge: "MTN", className: "bg-mtn text-mtn-foreground", border: "border-mtn" },
+  Telecel: { label: "Telecel", avatar: "T", badge: "Telecel", className: "bg-telecel text-telecel-foreground", border: "border-telecel" },
+  "AT - iShare": { label: "AT iShare", avatar: "A", badge: "AT-iS", className: "bg-at text-at-foreground", border: "border-at" },
+  "AT - BigTime": { label: "AT BigTime", avatar: "A", badge: "AT-BT", className: "bg-violet-600 text-white", border: "border-violet-600" },
 }
 const NETWORK_ORDER = Object.keys(NETWORK_META)
 
@@ -404,7 +407,7 @@ function DataPackagesPageInner() {
                 key={net}
                 onClick={() => setSelectedNetwork(net)}
                 className={`relative flex flex-col items-center gap-1.5 rounded-2xl border-2 bg-card p-2.5 sm:p-4 transition ${
-                  isSelected ? "border-primary shadow-sm" : "border-border hover:border-primary/30"
+                  isSelected ? `${m.border} shadow-sm` : "border-border hover:border-primary/30"
                 }`}
               >
                 {isSelected && (
@@ -462,7 +465,7 @@ function DataPackagesPageInner() {
         </div>
 
         {orderMode === "bulk" ? (
-          <BulkOrdersForm />
+          <BulkOrdersForm presetNetwork={selectedNetwork} />
         ) : (
           <>
             {/* Order SMS confirmation — real existing behavior (the purchase
