@@ -10,13 +10,20 @@ import { WalletOnboardingModal } from "@/components/onboarding/wallet-onboarding
 import { PhoneVerifyModal } from "@/components/phone-verify-modal"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { TrendingUp, ShoppingCart, CheckCircle, AlertCircle, Clock, Loader2, type LucideIcon } from "lucide-react"
+import {
+  TrendingUp, ShoppingCart, CheckCircle, AlertCircle, Clock, Loader2,
+  Store, Users, Send, IdCard, Wallet as WalletIcon, Smartphone,
+  type LucideIcon,
+} from "lucide-react"
 import { supabase } from "@/lib/supabase"
+import { cn } from "@/lib/utils"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 import { getServicePrimaryPath, type DomainService } from "@/lib/custom-domains"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { LatestOrderCard } from "@/components/dashboard/latest-order-card"
-import { NetworkHealthCard } from "@/components/dashboard/network-health-card"
-import type { LatestOrderSummary, NetworkHealthStat } from "@/lib/order-health-service"
+import { NetworkHealthCard, NETWORK_BADGE } from "@/components/dashboard/network-health-card"
+import { HEALTH_NETWORKS, type LatestOrderSummary, type NetworkHealthStat } from "@/lib/order-health-service"
+import { networkBadgeClasses } from "@/lib/network-status-theme"
 
 // Short, quick-action-appropriate labels for each service, used when a custom
 // domain is scoped to one or more services and the primary CTAs are repointed
@@ -29,6 +36,17 @@ const SERVICE_QUICK_LABELS: Record<DomainService, string> = {
   bulk_sms: "Buy SMS",
 }
 
+// Real Datagod services (not Apex Prime's Academic Writing / Apple Music /
+// Merchant SIM tiles, which don't apply to this platform).
+const PROMO_SERVICES: { title: string; description: string; href: string; icon: LucideIcon }[] = [
+  { title: "Own Shop", description: "Launch your white-label storefront", href: "/dashboard/my-shop", icon: Store },
+  { title: "USSD / WhatsApp Bot", description: "Sell through your own bot", href: "/dashboard/ussd-shop", icon: Smartphone },
+  { title: "Sub-Agents", description: "Recruit sellers, earn on every sale", href: "/dashboard/sub-agents", icon: Users },
+  { title: "Bulk SMS", description: "Send SMS campaigns at scale", href: "/dashboard/sms", icon: Send },
+  { title: "AFA Registration", description: "Register and manage AFA orders", href: "/dashboard/afa-orders", icon: IdCard },
+  { title: "Wallet Top Up", description: "Fund your wallet instantly", href: "/dashboard/wallet", icon: WalletIcon },
+]
+
 // Format large numbers with K/M suffix
 const formatCount = (num: number | string): string => {
   const n = typeof num === 'string' ? parseInt(num, 10) : num
@@ -40,6 +58,15 @@ const formatCount = (num: number | string): string => {
     return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'K'
   }
   return n.toLocaleString()
+}
+
+function BannerStat({ value, label }: { value: string; label: string }) {
+  return (
+    <div className="rounded-xl bg-white/10 p-3 text-center">
+      <p className="text-lg font-extrabold text-white tabular-nums">{value}</p>
+      <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/70">{label}</p>
+    </div>
+  )
 }
 
 // Clean Fintech stat card: neutral surface, one accent chip, flat number.
@@ -390,71 +417,101 @@ export default function DashboardPage() {
         onDismiss={() => setShowPhoneVerify(false)}
       />
       <div className="space-y-5">
-        {/* Greeting */}
-        <div className="flex items-end justify-between gap-3 flex-wrap">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
-              {getGreeting()}, {firstName}! {getGreetingEmoji()}
-            </h1>
-            <p className="text-muted-foreground mt-1 text-sm">
-              {new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })} • {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })}
-            </p>
+        {/* Greeting hero: banner + 3 real stat tiles.
+            Reference shows Orders Placed/Amount Spent/Data Dispatched — this
+            platform doesn't track per-user spend or data dispatched, so those
+            are substituted with Orders Placed / Wallet Balance / Success Rate,
+            all backed by real /api/dashboard/stats + /api/wallet/balance data. */}
+        <PageHeaderBanner
+          title={`${getGreeting()}, ${firstName}! ${getGreetingEmoji()}`}
+          subtitle={new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
+        >
+          <div className="grid grid-cols-3 gap-3">
+            <BannerStat value={formatCount(stats.totalOrders)} label="Orders Placed" />
+            <BannerStat value={`GHS ${Math.max(0, walletBalance || 0).toFixed(2)}`} label="Wallet Balance" />
+            <BannerStat value={stats.successRate} label="Success Rate" />
           </div>
-          <Button onClick={() => router.push(primaryService ? getServicePrimaryPath(primaryService) : "/dashboard/data-packages")} className="font-semibold">
-            + {primaryService ? SERVICE_QUICK_LABELS[primaryService] : "Buy Data"}
-          </Button>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button onClick={() => router.push("/dashboard/wallet")} className="bg-white text-primary hover:bg-white/90 font-semibold">
+              ＋ Top Up
+            </Button>
+            <Button onClick={() => router.push(primaryService ? getServicePrimaryPath(primaryService) : "/dashboard/data-packages")} className="bg-white/15 text-white hover:bg-white/25 border-0">
+              {primaryService ? SERVICE_QUICK_LABELS[primaryService] : "Buy Data"}
+            </Button>
+            <Button onClick={() => router.push("/dashboard/my-orders")} className="bg-white/15 text-white hover:bg-white/25 border-0">
+              My Orders
+            </Button>
+          </div>
+        </PageHeaderBanner>
+
+        {/* Account meta */}
+        <Card>
+          <CardContent className="flex flex-wrap items-center justify-between gap-4 p-4 sm:p-5">
+            <div>
+              <p className="text-xs font-medium text-muted-foreground">Role</p>
+              <p className="text-sm font-semibold text-foreground">{isDealer ? "Authorized Dealer" : "Premium Agent"}</p>
+            </div>
+            <div className="h-8 w-px bg-border" />
+            <div>
+              <p className="text-xs font-medium text-muted-foreground">Status</p>
+              <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-success">
+                <span className="w-2 h-2 rounded-full bg-success" />Active
+              </span>
+            </div>
+            <div className="h-8 w-px bg-border" />
+            <div>
+              <p className="text-xs font-medium text-muted-foreground">Member Since</p>
+              <p className="text-sm font-semibold text-foreground">{joinDate || "Recently"}</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Network quick shortcuts — network + name only, no fabricated
+            per-network order volumes. Uses the same badge styling as the
+            Network Health section below for visual consistency. */}
+        <div>
+          <p className="mb-2 text-sm font-semibold text-foreground">Order by Network</p>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {HEALTH_NETWORKS.map((net) => {
+              const badge = NETWORK_BADGE[net]
+              return (
+                <button
+                  key={net}
+                  onClick={() => router.push(primaryService ? getServicePrimaryPath(primaryService) : "/dashboard/data-packages")}
+                  className="flex flex-col items-center gap-2 rounded-2xl border border-border bg-card p-4 text-center transition hover:border-primary/40 hover:shadow-sm"
+                >
+                  <span className={cn("flex h-10 w-10 items-center justify-center rounded-full text-xs font-extrabold", networkBadgeClasses(badge.network))}>
+                    {badge.badgeText}
+                  </span>
+                  <span className="text-xs font-semibold text-foreground">{net}</span>
+                </button>
+              )
+            })}
+          </div>
         </div>
 
-        {/* Wallet hero + account meta */}
-        <div className="grid gap-4 lg:grid-cols-3">
-          <Card
-            data-tour="wallet-balance"
-            className={`lg:col-span-2 border-0 text-primary-foreground relative overflow-hidden ${isDealer
-              ? "bg-gradient-to-br from-primary to-brand-accent"
-              : "bg-gradient-to-br from-primary to-primary"
-              }`}
-          >
-            <div className="absolute -right-10 -top-12 w-48 h-48 rounded-full bg-card/10" />
-            <CardContent className="p-6 relative">
-              <p className="text-sm font-medium text-white/85">Wallet Balance</p>
-              <p className="text-4xl font-extrabold tracking-tight tabular-nums mt-2">
-                GHS {Math.max(0, walletBalance || 0).toFixed(2)}
-              </p>
-              <p className="text-xs text-white/75 mt-1">Available funds</p>
-              <div className="flex flex-wrap gap-2 mt-5">
-                <Button onClick={() => router.push("/dashboard/wallet")} className="bg-card text-primary hover:bg-card/90 font-semibold">
-                  ＋ Top Up
-                </Button>
-                <Button onClick={() => router.push(primaryService ? getServicePrimaryPath(primaryService) : "/dashboard/data-packages")} className="bg-card/15 text-white hover:bg-card/25 border-0">
-                  {primaryService ? SERVICE_QUICK_LABELS[primaryService] : "Buy Data"}
-                </Button>
-                <Button onClick={() => router.push("/dashboard/my-orders")} className="bg-card/15 text-white hover:bg-card/25 border-0">
-                  My Orders
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-muted-foreground">Role</span>
-                <span className="text-sm font-semibold text-foreground">{isDealer ? "Authorized Dealer" : "Premium Agent"}</span>
-              </div>
-              <div className="h-px bg-border" />
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-muted-foreground">Status</span>
-                <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-success">
-                  <span className="w-2 h-2 rounded-full bg-success" />Active
+        {/* Promo carousel — Datagod's real services, not Apex Prime's
+            irrelevant tiles (Academic Writing, Apple Music/iCloud, Merchant
+            SIM Onboarding). */}
+        <div>
+          <p className="mb-2 text-sm font-semibold text-foreground">Grow With Datagod</p>
+          <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1 snap-x scrollbar-thin">
+            {PROMO_SERVICES.map((svc) => (
+              <button
+                key={svc.title}
+                onClick={() => router.push(svc.href)}
+                className="flex min-w-[230px] shrink-0 snap-start items-start gap-3 rounded-2xl border border-border bg-card p-4 text-left transition hover:border-primary/40 hover:shadow-sm"
+              >
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                  <svc.icon className="h-5 w-5" />
                 </span>
-              </div>
-              <div className="h-px bg-border" />
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-muted-foreground">Member Since</span>
-                <span className="text-sm font-semibold text-foreground">{joinDate || "Recently"}</span>
-              </div>
-            </CardContent>
-          </Card>
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold text-foreground">{svc.title}</span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">{svc.description}</span>
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Latest completed order: real, computed trust widget — no fabricated numbers */}
@@ -464,12 +521,12 @@ export default function DashboardPage() {
           onRefresh={() => refreshWithFreshToken(fetchLatestOrder)}
         />
 
-        {/* Stats strip */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <StatCard label="Total Orders" value={formatCount(stats.totalOrders)} hint="All time" tone="primary" icon={ShoppingCart} />
-          <StatCard label="Completed" value={formatCount(stats.completed)} hint={`${stats.successRate} success rate`} tone="success" icon={CheckCircle} />
-          <StatCard label="Processing" value={formatCount(stats.processing)} hint="In progress" tone="warning" icon={TrendingUp} />
+        {/* Order status — Pending/Processing/Completed/Failed (Total Orders and
+            Success Rate already surfaced in the banner above). */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <StatCard label="Pending" value={formatCount(stats.pending)} hint="Awaiting processing" tone="warning" icon={Clock} />
+          <StatCard label="Processing" value={formatCount(stats.processing)} hint="In progress" tone="warning" icon={TrendingUp} />
+          <StatCard label="Completed" value={formatCount(stats.completed)} hint={`${stats.successRate} success rate`} tone="success" icon={CheckCircle} />
           <StatCard label="Failed" value={formatCount(stats.failed)} hint="Refunded if charged" tone="danger" icon={AlertCircle} />
         </div>
 

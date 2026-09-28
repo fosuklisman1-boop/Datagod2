@@ -28,8 +28,10 @@ export function LatestOrderCard({ order, loading, onRefresh }: LatestOrderCardPr
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <CheckCircle2 className="w-4 h-4 text-success" />
+          <CardTitle className="flex items-center gap-2.5 text-base">
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-success/10 text-success">
+              <CheckCircle2 className="w-4.5 h-4.5" />
+            </span>
             {order ? `Latest ${order.network} Successful Order` : "Latest Successful Order"}
           </CardTitle>
           <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Refresh" onClick={onRefresh} disabled={loading}>
@@ -43,41 +45,47 @@ export function LatestOrderCard({ order, loading, onRefresh }: LatestOrderCardPr
         ) : !order ? (
           <div className="p-4 text-center text-sm text-muted-foreground">No completed orders yet</div>
         ) : (
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
+          <div className="space-y-3">
+            <div className="rounded-xl border border-success/20 bg-success/5 p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                {order.durationMinutes !== null && (
+                  <Badge
+                    variant="secondary"
+                    className="bg-success/15 text-success hover:bg-success/15"
+                    title="Time from when this order was sent to the network provider to when it completed — not from when you placed it."
+                  >
+                    Delivered in {formatDuration(order.durationMinutes)}
+                  </Badge>
+                )}
+                {order.avgNetworkDurationMinutes !== null && (
+                  <Badge variant="outline" title={`Average delivery time across other recent ${order.network} orders on the platform in the last 24h — not specific to this order.`}>
+                    {order.network} network avg: ~{formatDuration(order.avgNetworkDurationMinutes)}
+                  </Badge>
+                )}
+                {order.isNight && (
+                  <Badge variant="outline" className="flex items-center gap-1">
+                    <Moon className="w-3 h-3" /> Night
+                  </Badge>
+                )}
+              </div>
               {order.durationMinutes !== null && (
-                <Badge variant="secondary" title="Time from when this order was sent to the network provider to when it completed — not from when you placed it.">
-                  Delivered in {formatDuration(order.durationMinutes)}
-                </Badge>
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  Delivery time is measured from provider dispatch, not from when you placed the order — the gap below reflects our own processing time.
+                </p>
               )}
-              {order.avgNetworkDurationMinutes !== null && (
-                <Badge variant="outline" title={`Average delivery time across other recent ${order.network} orders on the platform in the last 24h — not specific to this order.`}>
-                  {order.network} network avg: ~{formatDuration(order.avgNetworkDurationMinutes)}
-                </Badge>
-              )}
-              {order.isNight && (
-                <Badge variant="outline" className="flex items-center gap-1">
-                  <Moon className="w-3 h-3" /> Night
-                </Badge>
-              )}
-            </div>
-            {order.durationMinutes !== null && (
-              <p className="text-[11px] text-muted-foreground">
-                Delivery time is measured from provider dispatch, not from when you placed the order — the gap below reflects our own processing time.
-              </p>
-            )}
 
-            <div className="flex items-center gap-2 text-xs text-muted-foreground pt-1">
-              <Clock className="w-3.5 h-3.5" />
-              <span>Placed: {formatTimestamp(order.createdAt)}</span>
-              {order.completedAt && (
-                <>
-                  <span>•</span>
-                  <span className="flex items-center gap-1">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-success" /> Completed: {formatTimestamp(order.completedAt)}
-                  </span>
-                </>
-              )}
+              <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+                <Clock className="w-3.5 h-3.5" />
+                <span>Placed: {formatTimestamp(order.createdAt)}</span>
+                {order.completedAt && (
+                  <>
+                    <span>•</span>
+                    <span className="flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-success" /> Completed: {formatTimestamp(order.completedAt)}
+                    </span>
+                  </>
+                )}
+              </div>
             </div>
 
             {order.hasHeldOrder && (

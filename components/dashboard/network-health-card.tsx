@@ -1,10 +1,11 @@
 "use client"
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Activity, RefreshCw } from "lucide-react"
-import type { NetworkHealthStat } from "@/lib/order-health-service"
+import type { NetworkHealthStat, HealthNetwork } from "@/lib/order-health-service"
+import { GatewayHealthCard } from "@/components/shared/gateway-health-card"
+import type { GatewayNetwork } from "@/lib/network-status-theme"
 
 interface NetworkHealthCardProps {
   networks: NetworkHealthStat[]
@@ -12,25 +13,14 @@ interface NetworkHealthCardProps {
   onRefresh: () => void
 }
 
-const STATUS_LABEL: Record<NetworkHealthStat["status"], string> = {
-  optimal: "Optimal",
-  degraded: "Degraded",
-  down: "Down",
-  no_data: "No data yet",
-}
-
-const STATUS_BADGE_CLASS: Record<NetworkHealthStat["status"], string> = {
-  optimal: "bg-success/15 text-success border-border",
-  degraded: "bg-warning/15 text-warning border-border",
-  down: "bg-destructive/15 text-destructive border-border",
-  no_data: "bg-muted text-muted-foreground border-border",
-}
-
-const STATUS_BAR_CLASS: Record<NetworkHealthStat["status"], string> = {
-  optimal: "bg-success",
-  degraded: "bg-warning",
-  down: "bg-destructive",
-  no_data: "bg-muted",
+// Maps this app's real network names to GatewayHealthCard's badge shape.
+// Exported so other dashboard sections (e.g. the network quick-shortcuts row)
+// reuse the exact same badge styling instead of redefining it.
+export const NETWORK_BADGE: Record<HealthNetwork, { network: GatewayNetwork; badgeText: string }> = {
+  MTN: { network: "mtn", badgeText: "MTN" },
+  Telecel: { network: "telecel", badgeText: "TEL" },
+  "AT - iShare": { network: "at", badgeText: "iS" },
+  "AT - BigTime": { network: "bigtime", badgeText: "BT" },
 }
 
 function formatMinutes(minutes: number): string {
@@ -70,29 +60,35 @@ export function NetworkHealthCard({ networks, loading, onRefresh }: NetworkHealt
         {loading && networks.length === 0 ? (
           <div className="p-4 text-center text-sm text-muted-foreground">Loading...</div>
         ) : (
-          <div className="space-y-4">
-            {networks.map((stat) => (
-              <div key={stat.network} className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">{stat.network}</span>
-                  <Badge variant="outline" className={STATUS_BADGE_CLASS[stat.status]}>
-                    {STATUS_LABEL[stat.status]}
-                  </Badge>
-                </div>
-                <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
-                  <div
-                    className={`h-full rounded-full ${STATUS_BAR_CLASS[stat.status]}`}
-                    style={{ width: stat.uptimePercent !== null ? `${stat.uptimePercent}%` : "0%" }}
-                  />
-                </div>
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>
-                    {stat.avgDeliveryMinutes !== null ? `Avg delivery: ${formatMinutes(stat.avgDeliveryMinutes)}` : "No data yet"}
-                  </span>
-                  <span>{stat.uptimePercent !== null ? `Uptime: ${stat.uptimePercent}%` : "No data yet"}</span>
-                </div>
-              </div>
-            ))}
+          <div className="grid gap-3 sm:grid-cols-2">
+            {networks.map((stat) => {
+              const badge = NETWORK_BADGE[stat.network]
+              if (stat.status === "no_data" || stat.uptimePercent === null) {
+                // No fabricated 0% -- 0% would claim "completely down", which
+                // is a different, false claim from "we have no data yet".
+                return (
+                  <div key={stat.network} className="flex-1 rounded-xl border border-border p-3.5">
+                    <div className="flex items-center gap-2">
+                      <div className="flex h-6 w-6 items-center justify-center rounded-md bg-muted text-[8px] font-extrabold text-muted-foreground">
+                        {badge.badgeText}
+                      </div>
+                      <span className="text-sm font-semibold text-foreground">{stat.network}</span>
+                    </div>
+                    <p className="mt-3 text-[11px] text-muted-foreground">No recent data</p>
+                  </div>
+                )
+              }
+              return (
+                <GatewayHealthCard
+                  key={stat.network}
+                  label={stat.network}
+                  badgeText={badge.badgeText}
+                  network={badge.network}
+                  metricLabel={stat.avgDeliveryMinutes !== null ? `Avg ${formatMinutes(stat.avgDeliveryMinutes)}` : "No data"}
+                  uptimePct={stat.uptimePercent}
+                />
+              )
+            })}
           </div>
         )}
       </CardContent>
