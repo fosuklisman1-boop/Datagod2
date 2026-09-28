@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Wallet, Plus, TrendingUp, TrendingDown, AlertCircle, Loader2, CheckCircle, LayoutGrid, History as HistoryIcon } from "lucide-react"
+import { Wallet, Plus, TrendingUp, TrendingDown, AlertCircle, Loader2, CheckCircle, LayoutGrid, Wifi, GraduationCap, Phone, IdCard, MoreHorizontal } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
 import { WalletTopUp } from "@/components/wallet-top-up"
 import { SuccessModal } from "@/components/success-modal"
@@ -30,6 +30,24 @@ interface Transaction {
   amount: number
   description: string
   reference: string
+  source?: string
+}
+
+// Real `source` column on the `transactions` table (already filtered on in
+// app/api/admin/transactions/route.ts) bucketed into the categories the
+// customer-facing history is split into. Anything unrecognized -- admin
+// operations, debt recovery, whitelist checks, null sources, etc -- falls
+// into "misc" rather than being silently dropped.
+type TxCategory = "topup" | "data" | "results" | "airtime" | "afa" | "misc"
+
+function categorizeTransaction(source?: string | null): TxCategory {
+  const s = (source || "").toLowerCase()
+  if (s.includes("topup") || s.includes("top_up")) return "topup"
+  if (s.includes("results_check")) return "results"
+  if (s.includes("airtime")) return "airtime"
+  if (s.includes("afa")) return "afa"
+  if (s.includes("data") || s.includes("bulk_order")) return "data"
+  return "misc"
 }
 
 interface PendingPayment {
@@ -41,17 +59,60 @@ interface PendingPayment {
 }
 
 const TABS = [
-  { id: "overview", label: "Overview", icon: LayoutGrid },
-  { id: "topup", label: "Top Up", icon: Plus },
-  { id: "history", label: "History", icon: HistoryIcon },
+  { id: "stats", label: "Stats", icon: LayoutGrid },
+  { id: "topup", label: "Top Ups", icon: Plus },
+  { id: "data", label: "Data", icon: Wifi },
+  { id: "results", label: "Results Checker", icon: GraduationCap },
+  { id: "airtime", label: "Airtime", icon: Phone },
+  { id: "afa", label: "AFA", icon: IdCard },
+  { id: "misc", label: "Misc", icon: MoreHorizontal },
 ] as const
+
+type TabId = (typeof TABS)[number]["id"]
+
+function TransactionList({ transactions, emptyMessage }: { transactions: Transaction[]; emptyMessage: string }) {
+  if (transactions.length === 0) {
+    return (
+      <Alert>
+        <AlertCircle className="h-4 w-4" />
+        <AlertDescription>{emptyMessage}</AlertDescription>
+      </Alert>
+    )
+  }
+
+  return (
+    <div className="space-y-2">
+      {transactions.map((transaction) => {
+        const credit = transaction.type.includes("credit")
+        return (
+          <div key={transaction.id} className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className={`grid h-9 w-9 flex-shrink-0 place-items-center rounded-xl ${credit ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
+                {credit ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+              </span>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-foreground">{transaction.description}</p>
+                <p className="text-xs text-muted-foreground">
+                  {new Date(transaction.created_at).toLocaleDateString()} · {transaction.reference?.slice(-8) || "—"}
+                </p>
+              </div>
+            </div>
+            <p className={`whitespace-nowrap font-semibold tabular-nums ${credit ? "text-success" : "text-destructive"}`}>
+              {credit ? "+" : "-"}GHS {(transaction.amount || 0).toFixed(2)}
+            </p>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
 
 export default function WalletPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { user, loading: authLoading } = useAuth()
   const { isDealer } = useUserRole()
-  const [tab, setTab] = useState<"overview" | "topup" | "history">("overview")
+  const [tab, setTab] = useState<TabId>("stats")
   const [userId, setUserId] = useState<string | null>(null)
   const [walletData, setWalletData] = useState<WalletData>({
     balance: 0,
@@ -193,7 +254,10 @@ export default function WalletPage() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token) throw new Error("No session token")
 
-      const response = await fetch("/api/wallet/transactions?limit=10", {
+      // Fetch a larger window than the old flat history list needed --
+      // splitting into category tabs means each one only shows a slice of
+      // this set, so a 10-row page would starve most categories.
+      const response = await fetch("/api/wallet/transactions?limit=200", {
         headers: {
           "Authorization": `Bearer ${session.access_token}`,
         },
@@ -329,7 +393,7 @@ export default function WalletPage() {
 
   const handleTopUpSuccess = async (amount: number) => {
     console.log("[WALLET-PAGE] Top up successful, amount:", amount)
-    setTab("overview")
+    setTab("stats")
 
     // Show success modal
     setSuccessModal({
@@ -379,22 +443,25 @@ export default function WalletPage() {
           <p className="mt-1 text-sm text-muted-foreground">Manage your account balance and funds</p>
         </div>
 
-        {/* Tabs */}
-        <div className="inline-flex w-full rounded-2xl bg-muted p-1">
-          {TABS.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              onClick={() => setTab(id)}
-              className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-bold transition ${
-                tab === id ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"
-              }`}
-            >
-              <Icon className="h-4 w-4" /> {label}
-            </button>
-          ))}
+        {/* Tabs -- 7 categories don't fit an equal-width pill row, so this
+            scrolls horizontally instead of wrapping or shrinking text. */}
+        <div className="-mx-2 overflow-x-auto px-2 sm:mx-0 sm:px-0">
+          <div className="inline-flex min-w-full gap-1 rounded-2xl bg-muted p-1 sm:min-w-0">
+            {TABS.map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                onClick={() => setTab(id)}
+                className={`flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-4 py-2.5 text-sm font-bold transition ${
+                  tab === id ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"
+                }`}
+              >
+                <Icon className="h-4 w-4" /> {label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {tab === "overview" && (
+        {tab === "stats" && (
         <>
         {/* Balance hero -- same navy-gradient language as the rest of this
             rebuild (dashboard banner, etc.), dealer keeps its own amber
@@ -501,46 +568,57 @@ export default function WalletPage() {
         )}
 
         {tab === "topup" && (
-          walletTopupsEnabled || isDealer ? (
-            <WalletTopUp onSuccess={handleTopUpSuccess} />
-          ) : (
-            <div className="rounded-2xl border border-border bg-card p-4 text-sm text-muted-foreground">
-              ⚠️ Wallet top-ups are currently temporarily disabled for maintenance.
+          <div className="space-y-5">
+            {walletTopupsEnabled || isDealer ? (
+              <WalletTopUp onSuccess={handleTopUpSuccess} />
+            ) : (
+              <div className="rounded-2xl border border-border bg-card p-4 text-sm text-muted-foreground">
+                ⚠️ Wallet top-ups are currently temporarily disabled for maintenance.
+              </div>
+            )}
+            <div>
+              <p className="mb-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">Top-up history</p>
+              <TransactionList
+                transactions={transactions.filter((t) => categorizeTransaction(t.source) === "topup")}
+                emptyMessage="No top-ups yet."
+              />
             </div>
-          )
+          </div>
         )}
 
-        {tab === "history" && (
-          <div className="space-y-2">
-            {transactions.length === 0 ? (
-              <Alert>
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>No transactions found. Start by adding funds to your wallet.</AlertDescription>
-              </Alert>
-            ) : (
-              transactions.map((transaction) => {
-                const credit = transaction.type.includes("credit")
-                return (
-                  <div key={transaction.id} className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <span className={`grid h-9 w-9 flex-shrink-0 place-items-center rounded-xl ${credit ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
-                        {credit ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
-                      </span>
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-foreground">{transaction.description}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {new Date(transaction.created_at).toLocaleDateString()} · {transaction.reference?.slice(-8) || "—"}
-                        </p>
-                      </div>
-                    </div>
-                    <p className={`whitespace-nowrap font-semibold tabular-nums ${credit ? "text-success" : "text-destructive"}`}>
-                      {credit ? "+" : "-"}GHS {(transaction.amount || 0).toFixed(2)}
-                    </p>
-                  </div>
-                )
-              })
-            )}
-          </div>
+        {tab === "data" && (
+          <TransactionList
+            transactions={transactions.filter((t) => categorizeTransaction(t.source) === "data")}
+            emptyMessage="No data purchase transactions found."
+          />
+        )}
+
+        {tab === "results" && (
+          <TransactionList
+            transactions={transactions.filter((t) => categorizeTransaction(t.source) === "results")}
+            emptyMessage="No results checker/checking transactions found."
+          />
+        )}
+
+        {tab === "airtime" && (
+          <TransactionList
+            transactions={transactions.filter((t) => categorizeTransaction(t.source) === "airtime")}
+            emptyMessage="No airtime transactions found."
+          />
+        )}
+
+        {tab === "afa" && (
+          <TransactionList
+            transactions={transactions.filter((t) => categorizeTransaction(t.source) === "afa")}
+            emptyMessage="No AFA registration transactions found."
+          />
+        )}
+
+        {tab === "misc" && (
+          <TransactionList
+            transactions={transactions.filter((t) => categorizeTransaction(t.source) === "misc")}
+            emptyMessage="No miscellaneous transactions found."
+          />
         )}
       </div>
 
