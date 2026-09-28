@@ -114,7 +114,7 @@ export function Sidebar() {
   })
   const [dealerHasSubscription, setDealerHasSubscription] = useState(false)
   const [roleLoading, setRoleLoading] = useState(true)
-  const skin: SidebarSkin = userRole === 'dealer' ? 'dealer' : isAdmin ? 'admin' : 'default'
+  const skin: SidebarSkin = userRole === 'dealer' ? 'dealer' : (isAdmin || userRole === 'admin') ? 'admin' : 'default'
   const c = sidebarSkinClasses(skin)
 
   const handleLogout = async () => {
@@ -352,7 +352,7 @@ export function Sidebar() {
             // Show loading skeleton while fetching role
             <div className="space-y-2">
               {[1, 2, 3, 4, 5].map((i) => (
-                <div key={i} className="h-10 bg-muted rounded animate-pulse" />
+                <div key={i} className={cn("h-10 rounded animate-pulse", skin === 'admin' ? "bg-white/10" : "bg-muted")} />
               ))}
             </div>
           ) : (
