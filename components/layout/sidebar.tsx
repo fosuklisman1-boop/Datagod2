@@ -9,6 +9,7 @@ import { isPathAllowedForService } from "@/lib/custom-domains"
 import { useIsAdmin } from "@/hooks/use-admin"
 import { useAppSettings } from "@/hooks/use-app-settings"
 import { useAuth } from "@/hooks/use-auth"
+import { sidebarSkinClasses, type SidebarSkin } from "@/lib/sidebar-theme"
 import {
   Layers,
   Package,
@@ -113,6 +114,8 @@ export function Sidebar() {
   })
   const [dealerHasSubscription, setDealerHasSubscription] = useState(false)
   const [roleLoading, setRoleLoading] = useState(true)
+  const skin: SidebarSkin = userRole === 'dealer' ? 'dealer' : isAdmin ? 'admin' : 'default'
+  const c = sidebarSkinClasses(skin)
 
   const handleLogout = async () => {
     await logout()
@@ -286,9 +289,7 @@ export function Sidebar() {
       <div
         className={cn(
           "h-screen flex flex-col fixed left-0 top-0 z-40 transition-all duration-300 ease-in-out",
-          userRole === 'dealer'
-            ? "bg-sidebar text-sidebar-foreground border-r border-sidebar-border"
-            : "bg-sidebar text-sidebar-foreground border-r border-sidebar-border",
+          c.container,
           isOpen ? "w-64" : "w-20",
           isMobile && !isOpen && "-translate-x-full"
         )}
@@ -296,7 +297,7 @@ export function Sidebar() {
         {/* Logo Section */}
         <div className={cn(
           "p-6 border-b",
-          userRole === 'dealer' ? "border-white/10" : "border-sidebar-border"
+          c.logoSectionBorder
         )}>
           <Link href="/dashboard" className="flex items-center gap-3">
             <div className="bg-card p-2 rounded-lg flex-shrink-0 relative">
@@ -316,7 +317,7 @@ export function Sidebar() {
                 <h1 className="text-xl font-bold">{domainBranding.siteName || "DATAGOD"}</h1>
                 <p className={cn(
                   "text-xs",
-                  userRole === 'dealer' ? "text-primary" : "text-muted-foreground"
+                  c.userIdentityText
                 )}>{user?.email || "User"}</p>
               </div>
             )}
@@ -332,7 +333,7 @@ export function Sidebar() {
               size="icon"
               className={cn(
                 "w-full flex justify-center",
-                userRole === 'dealer' ? "text-sidebar-foreground hover:bg-sidebar-accent" : "text-sidebar-foreground hover:bg-accent"
+                c.collapseButtonHover
               )}
               title={isOpen ? "Collapse sidebar" : "Expand sidebar"}
             >
@@ -409,12 +410,12 @@ export function Sidebar() {
           {!roleLoading && (
             <div className={cn(
               "pt-4 mt-4 border-t",
-              userRole === 'dealer' ? "border-white/10" : "border-sidebar-border"
+              c.sectionBorder
             )}>
               {isOpen && (
                 <p className={cn(
                   "text-xs font-semibold px-3 mb-2",
-                  userRole === 'dealer' ? "text-primary/80" : "text-muted-foreground"
+                  c.sectionLabelText
                 )}>SHOP</p>
               )}
               {shopItems.filter(item => userRole && item.roles.includes(userRole) && isPathAllowedForService(item.href, domainBranding.services)).map((item) => {
@@ -453,12 +454,12 @@ export function Sidebar() {
           {isAdmin && (
             <div className={cn(
               "pt-4 mt-4 border-t",
-              userRole === 'dealer' ? "border-white/10" : "border-sidebar-border"
+              c.sectionBorder
             )}>
               {isOpen && (
                 <p className={cn(
                   "text-xs font-semibold px-3 mb-2",
-                  userRole === 'dealer' ? "text-primary/80" : "text-muted-foreground"
+                  c.sectionLabelText
                 )}>ADMIN</p>
               )}
               <Link href="/admin" onClick={() => handleNavigation("/admin")}>
@@ -1140,7 +1141,7 @@ export function Sidebar() {
         < div className={
           cn(
             "p-4 pb-24 md:pb-4 border-t space-y-2",
-            userRole === 'dealer' ? "border-white/10" : "border-sidebar-border"
+            c.sectionBorder
           )
         }>
           {joinCommunityLink && (
@@ -1163,7 +1164,7 @@ export function Sidebar() {
             variant="ghost"
             className={cn(
               "w-full justify-start gap-3",
-              userRole === 'dealer' ? "text-sidebar-foreground hover:bg-destructive/10 hover:text-destructive" : "text-sidebar-foreground hover:bg-destructive/10 hover:text-destructive",
+              c.logoutText,
               !isOpen && "justify-center"
             )}
             onClick={handleLogout}
