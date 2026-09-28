@@ -12,7 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import {
   TrendingUp, CheckCircle, AlertCircle, Clock, Loader2,
-  Store, Users, Send, IdCard, Wallet as WalletIcon, Smartphone, ArrowRight, Grid3x3, BarChart3,
+  Store, Users, Send, IdCard, Wallet as WalletIcon, Smartphone, ArrowRight, ChevronLeft, ChevronRight, Grid3x3, BarChart3,
   type LucideIcon,
 } from "lucide-react"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
@@ -30,15 +30,56 @@ import { NetworkHealthCard, NETWORK_BADGE } from "@/components/dashboard/network
 import type { LatestOrderSummary, NetworkHealthStat, HealthNetwork } from "@/lib/order-health-service"
 
 // Real Datagod services (not Apex Prime's Academic Writing / Apple Music /
-// Merchant SIM tiles, which don't apply to this platform), one card shown at
-// a time to match the reference's single-card, dot-paginated carousel.
-const PROMO_SERVICES: { badge: string; title: string; description: string; href: string; icon: LucideIcon }[] = [
-  { badge: "STOREFRONT", title: "Own Shop", description: "Launch your white-label storefront and sell under your own brand.", href: "/dashboard/my-shop", icon: Store },
-  { badge: "BOT", title: "USSD / WhatsApp Bot", description: "Sell data, airtime and results checks through your own automated bot.", href: "/dashboard/ussd-shop", icon: Smartphone },
-  { badge: "NETWORK", title: "Sub-Agents", description: "Recruit sellers under you and earn on every sale they make.", href: "/dashboard/sub-agents", icon: Users },
-  { badge: "MESSAGING", title: "Bulk SMS", description: "Send SMS campaigns to your customers at scale.", href: "/dashboard/sms", icon: Send },
-  { badge: "EDUCATION", title: "AFA Registration", description: "Register and manage AFA orders for your customers.", href: "/dashboard/afa-orders", icon: IdCard },
-  { badge: "WALLET", title: "Wallet Top Up", description: "Fund your wallet instantly to keep buying without delay.", href: "/dashboard/wallet", icon: WalletIcon },
+// Merchant SIM tiles, which don't apply to this platform). Each service gets
+// its own gradient + accent color, matching the reference (a navy card for
+// "Website & App Development", a green one for "Result Checkers" -- every
+// service has its own colour, not one shared card color).
+const PROMO_SERVICES: {
+  badge: string
+  title: string
+  description: string
+  cta: string
+  href: string
+  icon: LucideIcon
+  gradient: string
+  textColor: string
+}[] = [
+  {
+    badge: "STOREFRONT", title: "Own Shop", cta: "Launch Shop",
+    description: "Launch your white-label storefront and sell under your own brand.",
+    href: "/dashboard/my-shop", icon: Store,
+    gradient: "from-[#3b0764] to-[#7c3aed]", textColor: "text-[#6d28d9]",
+  },
+  {
+    badge: "BOT", title: "USSD / WhatsApp Bot", cta: "Set Up Bot",
+    description: "Sell data, airtime and results checks through your own automated bot.",
+    href: "/dashboard/ussd-shop", icon: Smartphone,
+    gradient: "from-[#042f2e] to-[#0d9488]", textColor: "text-[#0f766e]",
+  },
+  {
+    badge: "NETWORK", title: "Sub-Agents", cta: "Recruit Agents",
+    description: "Recruit sellers under you and earn on every sale they make.",
+    href: "/dashboard/sub-agents", icon: Users,
+    gradient: "from-[#431407] to-[#d97706]", textColor: "text-[#b45309]",
+  },
+  {
+    badge: "MESSAGING", title: "Bulk SMS", cta: "Send SMS",
+    description: "Send SMS campaigns to your customers at scale.",
+    href: "/dashboard/sms", icon: Send,
+    gradient: "from-[#0f172a] to-[#2563eb]", textColor: "text-[#1d4ed8]",
+  },
+  {
+    badge: "EDUCATION", title: "AFA Registration", cta: "Register Now",
+    description: "Register and manage AFA orders for your customers.",
+    href: "/dashboard/afa-orders", icon: IdCard,
+    gradient: "from-[#052e16] to-[#059669]", textColor: "text-[#047857]",
+  },
+  {
+    badge: "WALLET", title: "Wallet Top Up", cta: "Top Up Now",
+    description: "Fund your wallet instantly to keep buying without delay.",
+    href: "/dashboard/wallet", icon: WalletIcon,
+    gradient: "from-[#1e1b4b] to-[#4f46e5]", textColor: "text-[#4338ca]",
+  },
 ]
 
 // Bar colors for the 7-Day Send Activity chart, matching this app's real
@@ -510,37 +551,58 @@ export default function DashboardPage() {
 
         {/* Promo carousel — Datagod's real services, not Apex Prime's
             irrelevant tiles (Academic Writing, Apple Music/iCloud, Merchant
-            SIM Onboarding). A real horizontally-scrollable, swipeable track
-            (scroll-snap) rather than a single card whose content got swapped
-            in place -- dragging it by hand and the auto-advance timer both
-            play the same sliding motion. */}
-        <div
-          ref={promoScrollRef}
-          onScroll={handlePromoScroll}
-          className="flex overflow-x-auto snap-x snap-mandatory scroll-smooth rounded-2xl [&::-webkit-scrollbar]:hidden"
-          style={{ scrollbarWidth: "none" }}
-        >
-          {PROMO_SERVICES.map((svc) => (
-            <button
-              key={svc.title}
-              onClick={() => router.push(svc.href)}
-              className="block w-full shrink-0 snap-start rounded-2xl bg-gradient-to-br from-[#121c33] to-[#235cd4] p-5 text-left"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <span className="inline-flex items-center rounded-full bg-white/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white/80">
-                  {svc.badge}
+            SIM Onboarding). Every service gets its own gradient (the
+            reference uses a different color per card, not one shared blue),
+            plus decorative glow circles and left/right arrow buttons on top
+            of the real horizontally-scrollable, swipeable track. */}
+        <div className="relative">
+          <div
+            ref={promoScrollRef}
+            onScroll={handlePromoScroll}
+            className="flex overflow-x-auto snap-x snap-mandatory scroll-smooth rounded-2xl [&::-webkit-scrollbar]:hidden"
+            style={{ scrollbarWidth: "none" }}
+          >
+            {PROMO_SERVICES.map((svc) => (
+              <button
+                key={svc.title}
+                onClick={() => router.push(svc.href)}
+                className={`relative block w-full shrink-0 snap-start overflow-hidden rounded-2xl bg-gradient-to-br ${svc.gradient} p-5 text-left`}
+              >
+                <span className="pointer-events-none absolute -right-8 -top-10 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
+                <span className="pointer-events-none absolute -bottom-10 left-16 h-28 w-28 rounded-full bg-white/5 blur-xl" />
+                <div className="relative flex items-start justify-between gap-3">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                    <svc.icon className="h-3.5 w-3.5" /> {svc.badge}
+                  </span>
+                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/20 bg-white/15 text-white">
+                    <svc.icon className="h-5 w-5" />
+                  </span>
+                </div>
+                <p className="relative mt-4 text-lg font-bold text-white">{svc.title}</p>
+                <p className="relative mt-1 max-w-md text-sm text-white/80">{svc.description}</p>
+                <span className={`relative mt-4 inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-sm font-bold ${svc.textColor}`}>
+                  {svc.cta} <ArrowRight className="h-3.5 w-3.5" />
                 </span>
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-white">
-                  <svc.icon className="h-5 w-5" />
-                </span>
-              </div>
-              <p className="mt-4 text-lg font-bold text-white">{svc.title}</p>
-              <p className="mt-1 max-w-md text-sm text-white/70">{svc.description}</p>
-              <span className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-sm font-bold text-[#121c33]">
-                Explore <ArrowRight className="h-3.5 w-3.5" />
-              </span>
-            </button>
-          ))}
+              </button>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            aria-label="Previous service"
+            onClick={() => scrollPromoTo((promoIndex - 1 + PROMO_SERVICES.length) % PROMO_SERVICES.length)}
+            className="absolute left-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/25 text-white hover:bg-black/40"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            aria-label="Next service"
+            onClick={() => scrollPromoTo((promoIndex + 1) % PROMO_SERVICES.length)}
+            className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/25 text-white hover:bg-black/40"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
         </div>
         <div className="-mt-3 flex justify-center gap-1.5">
           {PROMO_SERVICES.map((svc, i) => (
