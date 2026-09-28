@@ -15,6 +15,7 @@ import { toast } from "sonner"
 import { Checkbox } from "@/components/ui/checkbox"
 import { BulkPriceUpdateDialog } from "@/components/admin/bulk-price-update-dialog"
 import { NetworkStockCard } from "@/components/admin/network-stock-card"
+import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
 
 // Format large numbers with K/M suffix
 const formatCount = (num: number): string => {
@@ -214,11 +215,12 @@ export default function AdminPackagesPage() {
     <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary to-primary bg-clip-text text-transparent">Package Management</h1>
-            <p className="text-muted-foreground mt-1">Create, edit, and delete data packages</p>
-          </div>
+        <div className="flex items-center justify-between gap-4">
+          <AdminPageHeaderBanner
+            className="flex-1"
+            title="Package Management"
+            subtitle="Create, edit, and delete data packages"
+          />
           <Button
             onClick={() => !showForm ? setShowForm(true) : resetForm()}
             className="bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary"

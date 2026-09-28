@@ -12,6 +12,7 @@ import { useAdminProtected } from "@/hooks/use-admin"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
+import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 
@@ -749,12 +750,11 @@ export default function OrderPaymentStatusPage() {
         {/* Page Header */}
         <div>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary via-primary to-pink-600 bg-clip-text text-transparent">
-                Order Payment Status
-              </h1>
-              <p className="text-muted-foreground mt-1 font-medium">View and search all orders by payment reference or phone number</p>
-            </div>
+            <AdminPageHeaderBanner
+              className="flex-1"
+              title="Order Payment Status"
+              subtitle="View and search all orders by payment reference or phone number"
+            />
             {autoFulfillmentEnabled && pendingMTNOrders.length > 0 && (
               <Button
                 onClick={handleBulkManualFulfill}

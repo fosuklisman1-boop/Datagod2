@@ -16,6 +16,7 @@ import { useAdminProtected } from "@/hooks/use-admin"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import Link from "next/link"
+import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
 
 interface MTNSettings {
   enabled: boolean
@@ -1242,10 +1243,10 @@ export default function MTNSettingsPage() {
   return (
     <DashboardLayout>
       <div className="max-w-5xl mx-auto space-y-6 p-6">
-        <div className="flex items-center gap-2 mb-2">
-          <Settings className="h-6 w-6" />
-          <h1 className="text-3xl font-bold">MTN Fulfillment Settings</h1>
-        </div>
+        <AdminPageHeaderBanner
+          title="MTN Fulfillment Settings"
+          subtitle="Configure MTN data fulfillment providers, routing, and delivery settings."
+        />
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="overflow-x-auto pb-1">

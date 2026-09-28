@@ -39,6 +39,7 @@ import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import Link from "next/link"
 import { PROVIDER_DISPLAY, getProviderDisplay } from "@/lib/mtn-providers/provider-display"
+import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
 
 interface MTNLog {
   id: string
@@ -403,17 +404,18 @@ export default function MTNFulfillmentLogsPage() {
       <div className="max-w-7xl mx-auto px-2 sm:px-4 py-4">
         {/* Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4 flex-1">
             <Link href="/admin/settings/mtn">
               <Button variant="ghost" size="sm" className="w-full sm:w-auto">
                 <ArrowLeft className="w-4 h-4 mr-2" />
                 Back to MTN Settings
               </Button>
             </Link>
-            <div>
-              <h1 className="text-xl sm:text-2xl font-bold">MTN Fulfillment Logs</h1>
-              <p className="text-muted-foreground text-sm">Track MTN API orders and their status</p>
-            </div>
+            <AdminPageHeaderBanner
+              className="flex-1"
+              title="MTN Fulfillment Logs"
+              subtitle="Track MTN API orders and their status"
+            />
           </div>
           <div className="flex flex-col gap-2 w-full sm:w-auto sm:flex-row sm:items-center sm:gap-2">
             <Button
