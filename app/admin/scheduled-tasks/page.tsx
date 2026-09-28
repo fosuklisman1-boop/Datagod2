@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { supabase } from "@/lib/supabase"
+import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
 import { toast } from "sonner"
 import { Calendar, RefreshCw, Trash2, Loader2, ToggleLeft, ToggleRight, Clock, CheckCircle, XCircle } from "lucide-react"
 
@@ -156,13 +157,12 @@ export default function ScheduledTasksPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Scheduled Tasks</h1>
-            <p className="text-muted-foreground text-sm mt-1">
-              AI tasks created via the admin chat. Tasks run automatically and notify the owner on completion.
-            </p>
-          </div>
+        <div className="flex items-center justify-between gap-4">
+          <AdminPageHeaderBanner
+            className="flex-1"
+            title="Scheduled Tasks"
+            subtitle="AI tasks created via the admin chat. Tasks run automatically and notify the owner on completion."
+          />
           <Button variant="outline" onClick={loadTasks} disabled={loading}>
             <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
             Refresh

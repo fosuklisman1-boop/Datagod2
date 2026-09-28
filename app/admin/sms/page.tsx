@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from "react"
 import { supabase } from "@/lib/supabase"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
 
 type Tab = "overview" | "moderation"
 
@@ -197,7 +198,10 @@ export default function AdminSmsPage() {
   return (
     <DashboardLayout>
     <div className="p-6 space-y-4">
-      <h1 className="text-2xl font-bold">SMS Admin</h1>
+      <AdminPageHeaderBanner
+        title="SMS Admin"
+        subtitle="Manage SMS supply, pricing, sender IDs, and tenant moderation."
+      />
 
       {/* Tab bar */}
       <div className="flex gap-2 border-b pb-1">

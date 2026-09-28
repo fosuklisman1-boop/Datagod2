@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { useAdminProtected } from "@/hooks/use-admin"
+import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import { Shield, RefreshCw, Trash2, Loader2, Search } from "lucide-react"
@@ -97,16 +98,12 @@ export default function RateLimitsPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6 p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-              <Shield className="w-6 h-6 text-destructive" />
-              Rate Limit Blocks
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Recent requests blocked by rate limiting. Reset a limit to immediately unblock a user or IP.
-            </p>
-          </div>
+        <div className="flex items-center justify-between gap-4">
+          <AdminPageHeaderBanner
+            className="flex-1"
+            title="Rate Limit Blocks"
+            subtitle="Recent requests blocked by rate limiting. Reset a limit to immediately unblock a user or IP."
+          />
           <Button variant="outline" onClick={fetchBlocks} disabled={loading}>
             <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} />
             Refresh
