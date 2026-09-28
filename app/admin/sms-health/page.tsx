@@ -5,7 +5,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { supabase } from "@/lib/supabase"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { Button } from "@/components/ui/button"
 import { Loader2, RefreshCw, MessageSquare, CheckCircle2, XCircle, Clock, AlertCircle } from "lucide-react"
 
@@ -58,7 +58,7 @@ export default function SmsHealthPage() {
       <div className="p-6 max-w-6xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <AdminPageHeaderBanner
+          <PageHeaderBanner
             className="flex-1"
             title="SMS Health"
             subtitle="Real delivery outcomes (delivered vs failed), not just gateway acceptance."

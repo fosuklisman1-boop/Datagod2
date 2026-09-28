@@ -3,7 +3,7 @@
 import type { ChangeEvent } from "react"
 import { useState, useEffect, useCallback } from "react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -240,7 +240,7 @@ export default function PaymentAttemptsPage() {
     <DashboardLayout>
       <div className="container mx-auto py-6 space-y-6">
         <div className="flex justify-between items-center gap-4">
-          <AdminPageHeaderBanner
+          <PageHeaderBanner
             className="flex-1"
             title="Payment Attempts"
             subtitle="Track all payment attempts including pending and abandoned"

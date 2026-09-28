@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { useAdminProtected } from "@/hooks/use-admin"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import { Shield, RefreshCw, Trash2, Loader2, Search } from "lucide-react"
@@ -99,7 +99,7 @@ export default function RateLimitsPage() {
     <DashboardLayout>
       <div className="space-y-6 p-6">
         <div className="flex items-center justify-between gap-4">
-          <AdminPageHeaderBanner
+          <PageHeaderBanner
             className="flex-1"
             title="Rate Limit Blocks"
             subtitle="Recent requests blocked by rate limiting. Reset a limit to immediately unblock a user or IP."

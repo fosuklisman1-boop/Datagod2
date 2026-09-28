@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { supabase } from "@/lib/supabase"
 import { UssdServiceVisibilityCard } from "@/components/admin/ussd-service-visibility-card"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { toast } from "sonner"
 import { Plus, Coins, CheckCircle, PauseCircle, Trash2, RefreshCw, Hash, Settings2, Save, ShieldCheck, Activity, Banknote, Database, MessageCircle } from "lucide-react"
 
@@ -354,7 +354,7 @@ export default function AdminUssdShopsPage() {
     <DashboardLayout>
       <div className="p-6 max-w-7xl mx-auto">
         <div className="flex items-center justify-between gap-4 mb-6">
-          <AdminPageHeaderBanner
+          <PageHeaderBanner
             className="flex-1"
             title="USSD Shops"
             subtitle="Manage shop codes, tokens, and orders for the shop-code USSD storefront"

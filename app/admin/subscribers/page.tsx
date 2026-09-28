@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import {
     Users,
     Calendar,
@@ -149,7 +149,7 @@ export default function AdminSubscribersPage() {
         <DashboardLayout>
             <div className="p-6 max-w-7xl mx-auto">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-                    <AdminPageHeaderBanner
+                    <PageHeaderBanner
                         className="flex-1"
                         title="Dealer Subscriptions"
                         subtitle="Monitor and manage all dealer memberships"

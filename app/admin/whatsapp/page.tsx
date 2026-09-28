@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import { Loader2, Send, Search, UserCheck, Bot, AlertTriangle, X, ChevronRight, Check, CheckCheck, Paperclip, FileText, Hand } from "lucide-react"
@@ -440,7 +440,7 @@ export default function WhatsAppInboxPage() {
   return (
     <>
       <DashboardLayout>
-        <AdminPageHeaderBanner
+        <PageHeaderBanner
           className="mb-4"
           title="WhatsApp Inbox"
           subtitle="View bot conversations and take over to reply manually."

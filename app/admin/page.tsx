@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -136,7 +136,7 @@ export default function AdminDashboardPage() {
     <DashboardLayout>
       <div className="space-y-6">
         {/* Page Header */}
-        <AdminPageHeaderBanner
+        <PageHeaderBanner
           title="Admin Dashboard"
           subtitle="Manage packages, users, and shop approvals"
         >
@@ -154,7 +154,7 @@ export default function AdminDashboardPage() {
               <div className="mt-0.5 text-[11px] uppercase tracking-wide text-white/75">Total Users</div>
             </div>
           </div>
-        </AdminPageHeaderBanner>
+        </PageHeaderBanner>
 
         {/* Stats Cards */}
         {stats && (

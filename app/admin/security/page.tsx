@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useAdminProtected } from "@/hooks/use-admin"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import { Loader2, CheckCircle2, RefreshCw } from "lucide-react"
@@ -124,7 +124,7 @@ export default function AdminSecurityPage() {
     <DashboardLayout>
       <div className="space-y-6">
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <AdminPageHeaderBanner
+          <PageHeaderBanner
             className="flex-1"
             title="Security Alerts"
             subtitle={

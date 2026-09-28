@@ -12,7 +12,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { CheckCircle, XCircle, Clock, Copy, Loader2, AlertTriangle, Wallet, ShieldCheck, ShieldX } from "lucide-react"
 import { useAdminProtected } from "@/hooks/use-admin"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
@@ -376,7 +376,7 @@ export default function WithdrawalsPage() {
     <DashboardLayout>
       <div className="space-y-6">
         {/* Page Header */}
-        <AdminPageHeaderBanner
+        <PageHeaderBanner
           title="Withdrawal Approvals"
           subtitle="Manage shop withdrawal requests"
         />

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { useAdminProtected } from "@/hooks/use-admin"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { toast } from "sonner"
 import {
   AlertTriangle, CheckCircle2, XCircle, RefreshCw, Loader2,
@@ -135,7 +135,7 @@ export default function XpressRecoveryPage() {
     <DashboardLayout>
       <div className="max-w-3xl mx-auto space-y-6 p-6">
 
-        <AdminPageHeaderBanner
+        <PageHeaderBanner
           title="Xpress Order Reconciliation"
           subtitle="Fetches all Xpress orders from a chosen time window, checks each against the live Xpress API, and corrects any status mismatches — regardless of what status they currently sit at in our system."
         />

@@ -18,7 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import PhoneBlacklistManager from "@/components/admin/phone-blacklist-manager"
 import AirtimeSettingsCard from "@/components/admin/airtime-settings-card"
 import NetworkPrefixSettingsCard from "@/components/admin/network-prefix-settings-card"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 
 export default function AdminSettingsPage() {
   const { isAdmin, loading: adminLoading } = useAdminProtected()
@@ -909,7 +909,7 @@ export default function AdminSettingsPage() {
       <div className="bg-muted/40 p-4 md:p-8">
         <div className="max-w-2xl mx-auto">
         <div className="mb-8">
-          <AdminPageHeaderBanner
+          <PageHeaderBanner
             title="App Settings"
             subtitle="Configure application-wide settings and community links"
           />

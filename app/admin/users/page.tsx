@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Trash2, Eye, Shield, Download, Loader2, Wallet, ShoppingCart, Store, ArrowDownCircle, TrendingUp, Clock, CheckCircle, XCircle, AlertCircle, Filter } from "lucide-react"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { adminUserService } from "@/lib/admin-service"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
@@ -480,7 +480,7 @@ export default function AdminUsersPage() {
       <div className="space-y-6 px-2 sm:px-4">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <AdminPageHeaderBanner
+          <PageHeaderBanner
             className="flex-1"
             title="User Management"
             subtitle="Manage user roles, balances, and account status"

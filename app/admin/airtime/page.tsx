@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Download, CheckCircle, Clock, AlertCircle, Check, Loader2, Search, RefreshCw, Copy, ExternalLink, FileText, Zap, Wallet, RotateCcw } from "lucide-react"
 import { toast } from "sonner"
 import { useAdminProtected } from "@/hooks/use-admin"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { supabase } from "@/lib/supabase"
 
 interface AirtimeOrder {
@@ -442,7 +442,7 @@ export default function AdminAirtimePage() {
     <DashboardLayout>
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-          <AdminPageHeaderBanner
+          <PageHeaderBanner
             className="flex-1"
             title="Airtime Management"
             subtitle="Download and manage pending airtime orders"

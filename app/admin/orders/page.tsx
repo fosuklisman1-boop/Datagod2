@@ -13,7 +13,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { Input } from "@/components/ui/input"
 import { Download, CheckCircle, Clock, AlertCircle, Check, Loader2, Zap, ToggleLeft, ToggleRight, RefreshCw, Search, Send, ChevronDown, ShieldCheck, XCircle, Trash2 } from "lucide-react"
 import { useAdminProtected } from "@/hooks/use-admin"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
 
@@ -1048,7 +1048,7 @@ export default function AdminOrdersPage() {
       <div className="space-y-6">
         {/* Page Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <AdminPageHeaderBanner
+          <PageHeaderBanner
             className="flex-1"
             title="Order Management"
             subtitle="Download and manage pending orders"

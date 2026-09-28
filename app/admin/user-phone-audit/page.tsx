@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
@@ -152,7 +152,7 @@ export default function UserPhoneAuditPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <AdminPageHeaderBanner
+        <PageHeaderBanner
           title="User Phone Audit"
           subtitle="Accounts with no phone, an invalid (non-Ghana) number, or an unverified number. Deleting is permanent and cascades all of the account's data."
         />

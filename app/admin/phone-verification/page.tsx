@@ -9,7 +9,7 @@ import { useAdminProtected } from "@/hooks/use-admin"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import { Loader2, Upload, Download, CheckCircle, XCircle, Eye, Phone, ClipboardList, Copy, CircleMinus, ShieldCheck } from "lucide-react"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 
 type Tab = "upload" | "history"
 type VerifyState = "idle" | "uploading" | "processing" | "completed" | "error"
@@ -375,7 +375,7 @@ export default function PhoneVerificationPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <AdminPageHeaderBanner
+        <PageHeaderBanner
           title="Phone Number Verification"
           subtitle={isWhitelistView
             ? "Bulk-check Ghana numbers against MTN whitelist-capable providers (Xpress/CodeCraft/AgentPortalGH) to see which can currently receive an MTN data order."
