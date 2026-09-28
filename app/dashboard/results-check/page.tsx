@@ -404,23 +404,17 @@ export default function DashboardResultsCheckPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 space-y-6 max-w-3xl mx-auto">
-        {/* Header */}
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-              <ClipboardCheck className="w-6 h-6 text-violet-600" />
-              Results Check Service
-            </h1>
-            <p className="text-muted-foreground text-sm mt-1">
-              We check a candidate&apos;s WASSCE, BECE or NOVDEC results on your behalf and deliver them to a WhatsApp number.
-            </p>
-          </div>
+      <div className="max-w-2xl mx-auto space-y-5">
+        {/* Header -- compact, same convention as the other rebuilt pages
+            (page identity already carried by the sidebar nav item). */}
+        <div>
+          <p className="text-sm text-muted-foreground">
+            We check a candidate&apos;s WASSCE, BECE or NOVDEC results on your behalf and deliver them to a WhatsApp number.
+          </p>
           {walletBalance !== null && (
-            <div className="text-right flex-shrink-0">
-              <p className="text-xs text-muted-foreground">Wallet Balance</p>
-              <p className="text-xl font-bold text-foreground">GHS {walletBalance.toFixed(2)}</p>
-            </div>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Wallet balance: <span className="font-semibold text-foreground">GHS {walletBalance.toFixed(2)}</span>
+            </p>
           )}
         </div>
 
@@ -429,67 +423,66 @@ export default function DashboardResultsCheckPage() {
             <Loader2 className="w-6 h-6 animate-spin text-violet-600" />
           </div>
         ) : !serviceEnabled ? (
-          <Card>
-            <CardContent className="py-12 text-center space-y-2">
-              <ClipboardCheck className="w-10 h-10 text-muted-foreground mx-auto" />
-              <h3 className="font-bold text-foreground">Service unavailable</h3>
-              <p className="text-sm text-muted-foreground">The Results Check Service is temporarily unavailable. Please check back later.</p>
-            </CardContent>
-          </Card>
+          <div className="rounded-2xl border border-border bg-card py-12 text-center space-y-2">
+            <ClipboardCheck className="w-10 h-10 text-muted-foreground mx-auto" />
+            <h3 className="font-bold text-foreground">Service unavailable</h3>
+            <p className="text-sm text-muted-foreground">The Results Check Service is temporarily unavailable. Please check back later.</p>
+          </div>
         ) : success ? (
           /* ── Success screen ─────────────────────────────────────────────── */
-          <Card>
-            <CardContent className="py-10 text-center space-y-4">
-              <div className="mx-auto w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
-                <CheckCircle2 className="w-9 h-9 text-green-600" />
-              </div>
-              <div>
-                <h2 className="text-lg font-bold text-green-700">Submitted!</h2>
-                <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
-                  We&apos;ll check the results and send them to{" "}
-                  <span className="font-semibold text-foreground">{success.whatsappNumber}</span> on WhatsApp shortly.
-                </p>
-              </div>
-              <div className="text-left max-w-sm mx-auto p-4 rounded-xl bg-muted/40 border border-border space-y-1.5 text-sm">
-                <div className="flex justify-between"><span className="text-muted-foreground">Exam board</span><span className="font-medium">{success.examBoard}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Type</span><span className="font-medium">{success.mode === "combo" ? "Voucher + check" : "Own voucher"}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Paid via</span><span className="font-medium">{success.paidVia === "wallet" ? "Wallet" : "Mobile Money"}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="font-bold">GHS {success.total.toFixed(2)}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Reference</span><span className="font-mono text-xs">{success.reference}</span></div>
-              </div>
-              <Button onClick={resetForm} className="w-full max-w-sm mx-auto h-12">Check another candidate</Button>
-            </CardContent>
-          </Card>
+          <div className="rounded-2xl border border-border bg-card py-10 text-center space-y-4">
+            <div className="mx-auto w-16 h-16 rounded-full bg-success/10 flex items-center justify-center">
+              <CheckCircle2 className="w-9 h-9 text-success" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-success">Submitted!</h2>
+              <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto px-4">
+                We&apos;ll check the results and send them to{" "}
+                <span className="font-semibold text-foreground">{success.whatsappNumber}</span> on WhatsApp shortly.
+              </p>
+            </div>
+            <div className="text-left max-w-sm mx-auto p-4 rounded-2xl bg-muted/40 border border-border space-y-1.5 text-sm">
+              <div className="flex justify-between"><span className="text-muted-foreground">Exam board</span><span className="font-medium">{success.examBoard}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Type</span><span className="font-medium">{success.mode === "combo" ? "Voucher + check" : "Own voucher"}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Paid via</span><span className="font-medium">{success.paidVia === "wallet" ? "Wallet" : "Mobile Money"}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="font-bold">GHS {success.total.toFixed(2)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Reference</span><span className="font-mono text-xs">{success.reference}</span></div>
+            </div>
+            <button onClick={resetForm} className="w-full max-w-sm mx-4 sm:mx-auto rounded-2xl bg-primary py-3.5 text-base font-bold text-primary-foreground">
+              Check another candidate
+            </button>
+          </div>
         ) : (
           /* ── Form ───────────────────────────────────────────────────────── */
           <div className="space-y-6">
             {/* Board selection */}
-            <div>
-              <Label className="text-sm font-semibold text-foreground">Exam Board</Label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-2">
+            <div className="space-y-2">
+              <p className="text-sm font-bold text-foreground">Exam Board</p>
+              <div className="grid grid-cols-3 gap-2 sm:gap-3">
                 {EXAM_BOARDS.map(board => {
                   const info = boardInfo[board]
                   if (!info) return null
+                  const isSelected = selectedBoard === board
                   return (
                     <button
                       key={board}
                       type="button"
                       onClick={() => selectBoard(board)}
                       disabled={!info.enabled}
-                      className={`relative flex flex-col items-center p-4 rounded-xl border-2 transition-all font-semibold text-sm disabled:opacity-40 disabled:cursor-not-allowed ${
-                        selectedBoard === board
-                          ? "border-violet-600 bg-violet-50 text-violet-700"
-                          : "border-border hover:border-violet-300 text-foreground"
+                      className={`relative flex flex-col items-center gap-2 rounded-2xl border-2 bg-card p-3 sm:p-4 transition disabled:opacity-40 disabled:cursor-not-allowed ${
+                        isSelected ? "border-violet-600 shadow-sm" : "border-border hover:border-violet-300"
                       }`}
                     >
-                      <GraduationCap className="w-6 h-6 mb-1" />
-                      {board}
-                      <span className="text-xs font-normal text-muted-foreground mt-1">
-                        from GHS {info.checkFee.toFixed(2)}
+                      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-violet-600 text-white">
+                        <GraduationCap className="h-5 w-5" />
                       </span>
-                      {!info.enabled && <span className="text-xs text-red-500 mt-1 font-medium">Unavailable</span>}
-                      {selectedBoard === board && (
-                        <span className="absolute top-2 right-2"><CheckCircle2 className="w-4 h-4 text-violet-600" /></span>
+                      <span className="text-xs sm:text-sm font-bold text-foreground">{board}</span>
+                      <span className="text-[11px] font-medium text-muted-foreground">from GHS {info.checkFee.toFixed(2)}</span>
+                      {!info.enabled && <span className="text-[11px] font-medium text-destructive">Unavailable</span>}
+                      {isSelected && (
+                        <span className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-success text-white">
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                        </span>
                       )}
                     </button>
                   )
@@ -508,7 +501,7 @@ export default function DashboardResultsCheckPage() {
                         key={ct}
                         type="button"
                         onClick={() => setCandidateType(ct)}
-                        className={`p-4 rounded-xl border-2 font-semibold transition-colors ${
+                        className={`p-4 rounded-2xl border-2 font-semibold transition-colors ${
                           candidateType === ct
                             ? "border-violet-600 bg-violet-50 text-violet-700"
                             : "border-border text-foreground hover:border-violet-300"
@@ -528,7 +521,7 @@ export default function DashboardResultsCheckPage() {
                       <button
                         type="button"
                         onClick={() => setMode("own_voucher")}
-                        className={`text-left p-4 rounded-xl border-2 transition-all ${
+                        className={`text-left p-4 rounded-2xl border-2 transition-all ${
                           mode === "own_voucher" ? "border-violet-600 ring-2 ring-violet-200 bg-violet-50/50" : "border-border hover:border-violet-300"
                         }`}
                       >
@@ -540,7 +533,7 @@ export default function DashboardResultsCheckPage() {
                         type="button"
                         onClick={() => { if (activeBoardInfo.availableCount > 0) setMode("combo") }}
                         disabled={activeBoardInfo.availableCount === 0}
-                        className={`text-left p-4 rounded-xl border-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                        className={`text-left p-4 rounded-2xl border-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                           mode === "combo" ? "border-violet-600 ring-2 ring-violet-200 bg-violet-50/50" : "border-border hover:border-violet-300"
                         }`}
                       >
@@ -668,7 +661,7 @@ export default function DashboardResultsCheckPage() {
                         <button
                           type="button"
                           onClick={() => setPayFrom("wallet")}
-                          className={`flex items-center gap-2 p-4 rounded-xl border-2 font-semibold transition-colors ${
+                          className={`flex items-center gap-2 p-4 rounded-2xl border-2 font-semibold transition-colors ${
                             payFrom === "wallet"
                               ? "border-violet-600 bg-violet-50 text-violet-700"
                               : "border-border text-foreground hover:border-violet-300"
@@ -683,7 +676,7 @@ export default function DashboardResultsCheckPage() {
                         <button
                           type="button"
                           onClick={() => setPayFrom("momo")}
-                          className={`flex items-center gap-2 p-4 rounded-xl border-2 font-semibold transition-colors ${
+                          className={`flex items-center gap-2 p-4 rounded-2xl border-2 font-semibold transition-colors ${
                             payFrom === "momo"
                               ? "border-violet-600 bg-violet-50 text-violet-700"
                               : "border-border text-foreground hover:border-violet-300"
@@ -713,7 +706,7 @@ export default function DashboardResultsCheckPage() {
                     </div>
 
                     {/* Price summary */}
-                    <div className="bg-violet-50 rounded-xl p-4 space-y-2 text-sm border border-border">
+                    <div className="rounded-2xl border border-border bg-violet-50 p-4 space-y-2 text-sm">
                       <div className="flex justify-between text-muted-foreground">
                         <span>{selectedBoard} results check{mode === "combo" ? " + voucher" : ""}</span>
                         <span>GHS {totalPrice.toFixed(2)}</span>
@@ -723,13 +716,13 @@ export default function DashboardResultsCheckPage() {
                         <span>GHS {totalPrice.toFixed(2)}</span>
                       </div>
                       {insufficient && (
-                        <p className="text-red-600 text-xs font-medium flex items-center gap-1">
+                        <p className="text-destructive text-xs font-medium flex items-center gap-1">
                           <AlertCircle className="w-3 h-3" />Insufficient wallet balance. Top up first or pay with Mobile Money.
                         </p>
                       )}
                     </div>
 
-                    <Button
+                    <button
                       onClick={handleSubmit}
                       disabled={
                         submitting ||
@@ -737,7 +730,7 @@ export default function DashboardResultsCheckPage() {
                         !enabledBoards.includes(selectedBoard) ||
                         (payFrom === "momo" && !/^0?\d{9}$/.test(formData.paymentPhone.replace(/\D/g, "")))
                       }
-                      className="w-full h-14 font-black rounded-xl text-base"
+                      className="flex w-full items-center justify-center rounded-2xl bg-primary py-4 text-base font-bold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
                     >
                       {submitting
                         ? <><Loader2 className="w-5 h-5 mr-2 animate-spin" />Processing…</>
@@ -745,7 +738,7 @@ export default function DashboardResultsCheckPage() {
                           ? `Pay GHS ${totalPrice.toFixed(2)} from wallet`
                           : `Pay GHS ${totalPrice.toFixed(2)} with Mobile Money`
                       }
-                    </Button>
+                    </button>
 
                     <p className="text-xs text-center text-muted-foreground flex items-center justify-center gap-1">
                       <AlertCircle className="w-3 h-3" />
