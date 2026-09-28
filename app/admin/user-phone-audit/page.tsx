@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
@@ -151,15 +152,10 @@ export default function UserPhoneAuditPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <PhoneOff className="w-6 h-6" /> User Phone Audit
-          </h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            Accounts with no phone, an invalid (non-Ghana) number, or an unverified number.
-            Deleting is permanent and cascades all of the account&apos;s data.
-          </p>
-        </div>
+        <AdminPageHeaderBanner
+          title="User Phone Audit"
+          subtitle="Accounts with no phone, an invalid (non-Ghana) number, or an unverified number. Deleting is permanent and cascades all of the account's data."
+        />
 
         {/* Bucket tabs */}
         <div className="flex gap-0 border-b border-border flex-wrap">

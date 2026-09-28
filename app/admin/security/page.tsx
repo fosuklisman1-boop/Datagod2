@@ -6,9 +6,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useAdminProtected } from "@/hooks/use-admin"
+import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
-import { ShieldAlert, Loader2, CheckCircle2, RefreshCw } from "lucide-react"
+import { Loader2, CheckCircle2, RefreshCw } from "lucide-react"
 
 interface SecurityAlert {
   id: string
@@ -123,15 +124,15 @@ export default function AdminSecurityPage() {
     <DashboardLayout>
       <div className="space-y-6">
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-              <ShieldAlert className="w-6 h-6 text-destructive" /> Security Alerts
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Real-time database-level attack detection.{" "}
-              {criticalUnacked > 0 && <span className="text-red-600 font-medium">{criticalUnacked} critical unacknowledged</span>}
-            </p>
-          </div>
+          <AdminPageHeaderBanner
+            className="flex-1"
+            title="Security Alerts"
+            subtitle={
+              criticalUnacked > 0
+                ? `Real-time database-level attack detection. ${criticalUnacked} critical unacknowledged.`
+                : "Real-time database-level attack detection."
+            }
+          />
           <Button variant="outline" size="sm" onClick={load} disabled={loading}>
             <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} /> Refresh
           </Button>

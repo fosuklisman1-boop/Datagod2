@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Trash2, Eye, Shield, Download, Loader2, Wallet, ShoppingCart, Store, ArrowDownCircle, TrendingUp, Clock, CheckCircle, XCircle, AlertCircle, Filter } from "lucide-react"
+import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
 import { adminUserService } from "@/lib/admin-service"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
@@ -479,10 +480,11 @@ export default function AdminUsersPage() {
       <div className="space-y-6 px-2 sm:px-4">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-primary">User Management</h1>
-            <p className="text-muted-foreground mt-1">Manage user roles, balances, and account status</p>
-          </div>
+          <AdminPageHeaderBanner
+            className="flex-1"
+            title="User Management"
+            subtitle="Manage user roles, balances, and account status"
+          />
           <div className="flex flex-col gap-2 w-full sm:w-auto sm:flex-row items-stretch sm:items-center">
             {/* Role Filter for Downloads */}
             <div className="flex items-center gap-2">

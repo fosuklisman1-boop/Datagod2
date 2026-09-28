@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
 import { supabase } from "@/lib/supabase"
 import {
     Users,
@@ -131,12 +132,10 @@ export default function SubAgentProfitsPage() {
         <DashboardLayout>
             <div className="space-y-6">
                 {/* Header */}
-                <div>
-                    <h1 className="text-3xl font-bold text-foreground">Sub-Agent Profits</h1>
-                    <p className="text-muted-foreground mt-1">
-                        View parent shops and the profits they earn from their sub-agents
-                    </p>
-                </div>
+                <AdminPageHeaderBanner
+                    title="Sub-Agent Profits"
+                    subtitle="View parent shops and the profits they earn from their sub-agents"
+                />
 
                 {/* Stats Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

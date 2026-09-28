@@ -26,6 +26,7 @@ import {
 import { Search, ArrowUpCircle, ArrowDownCircle, Clock, XCircle, RefreshCw, Download, ChevronLeft, ChevronRight, TrendingUp, TrendingDown, AlertTriangle, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { useAdminProtected } from "@/hooks/use-admin"
+import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
 import { supabase } from "@/lib/supabase"
 
 // Format currency helper - handles null/undefined
@@ -258,10 +259,11 @@ export default function AdminTransactionsPage() {
     <DashboardLayout>
       <div className="container mx-auto py-4 sm:py-6 px-2 sm:px-4 space-y-4 sm:space-y-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold">All Transactions</h1>
-            <p className="text-sm sm:text-base text-muted-foreground">View and manage all user transactions</p>
-          </div>
+          <AdminPageHeaderBanner
+            className="flex-1"
+            title="All Transactions"
+            subtitle="View and manage all user transactions"
+          />
           <div className="flex gap-2 w-full sm:w-auto">
             <Button variant="outline" onClick={() => fetchTransactions()} disabled={loading} className="flex-1 sm:flex-none">
               <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} />
