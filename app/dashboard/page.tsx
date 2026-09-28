@@ -11,7 +11,7 @@ import { PhoneVerifyModal } from "@/components/phone-verify-modal"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import {
-  TrendingUp, ShoppingCart, CheckCircle, AlertCircle, Clock, Loader2,
+  TrendingUp, CheckCircle, AlertCircle, Clock, Loader2,
   Store, Users, Send, IdCard, Wallet as WalletIcon, Smartphone, ArrowRight, Grid3x3, BarChart3,
   type LucideIcon,
 } from "lucide-react"
@@ -85,39 +85,6 @@ function BannerStat({ icon: Icon, value, label }: { icon: LucideIcon; value: str
   )
 }
 
-// Clean Fintech stat card: neutral surface, one accent chip, flat number.
-// Kept on the app's existing semantic tokens (unlike the sections above,
-// nothing in the reference pictures shows this — it's pre-existing real
-// functionality, not something being matched to an image).
-const STAT_TONES: Record<string, string> = {
-  primary: "bg-primary/10 text-primary",
-  success: "bg-success/10 text-success",
-  warning: "bg-warning/15 text-warning",
-  danger: "bg-destructive/10 text-destructive",
-}
-function StatCard({
-  label, value, hint, tone = "primary", icon: Icon, ...rest
-}: {
-  label: string
-  value: string
-  hint?: string
-  tone?: keyof typeof STAT_TONES
-  icon: LucideIcon
-} & React.ComponentProps<typeof Card>) {
-  return (
-    <Card className="transition-shadow hover:shadow-md" {...rest}>
-      <CardContent className="p-4 sm:p-5">
-        <div className={`w-9 h-9 rounded-xl grid place-items-center ${STAT_TONES[tone]}`}>
-          <Icon className="h-4 w-4" />
-        </div>
-        <p className="text-xs font-medium text-muted-foreground mt-3">{label}</p>
-        <p className="text-2xl font-bold tracking-tight tabular-nums mt-0.5 text-foreground">{value}</p>
-        {hint && <p className="text-[11px] text-muted-foreground mt-0.5">{hint}</p>}
-      </CardContent>
-    </Card>
-  )
-}
-
 interface DashboardStats {
   totalOrders: number
   completed: number
@@ -150,6 +117,7 @@ export default function DashboardPage() {
   const primaryService = domainBranding.services?.[0] ?? null
   const [firstName, setFirstName] = useState("")
   const [userEmail, setUserEmail] = useState("")
+  const [joinDate, setJoinDate] = useState("")
   const [walletBalance, setWalletBalance] = useState(0)
   const [userRole, setUserRole] = useState<string | null>(null)
   const [isSubAgent, setIsSubAgent] = useState<boolean | null>(null) // null = checking, true/false = checked
@@ -353,6 +321,15 @@ export default function DashboardPage() {
               setShowPhoneVerify(true)
             }
           } catch { /* columns not yet migrated — skip */ }
+
+          if (authUser.created_at) {
+            const diffDays = Math.ceil(Math.abs(Date.now() - new Date(authUser.created_at).getTime()) / 86400000)
+            if (diffDays < 1) setJoinDate("Today")
+            else if (diffDays < 7) setJoinDate(`${diffDays} days ago`)
+            else if (diffDays < 30) setJoinDate(`${Math.floor(diffDays / 7)} week${Math.floor(diffDays / 7) > 1 ? "s" : ""} ago`)
+            else if (diffDays < 365) setJoinDate(`${Math.floor(diffDays / 30)} month${Math.floor(diffDays / 30) > 1 ? "s" : ""} ago`)
+            else setJoinDate(`${Math.floor(diffDays / 365)} year${Math.floor(diffDays / 365) > 1 ? "s" : ""} ago`)
+          }
         })(),
 
         // Dashboard stats
@@ -428,6 +405,13 @@ export default function DashboardPage() {
     )
   }
 
+  const getGreeting = () => {
+    const hour = new Date().getHours()
+    if (hour < 12) return "Good Morning"
+    if (hour < 18) return "Good Afternoon"
+    return "Good Evening"
+  }
+
   const promo = PROMO_SERVICES[promoIndex]
   const chartData = sendActivity.map((d) => ({ label: d.label, ...d.counts }))
   const activeNetworks = (Object.keys(NETWORK_BADGE) as HealthNetwork[]).filter((n) =>
@@ -449,20 +433,37 @@ export default function DashboardPage() {
         onDismiss={() => setShowPhoneVerify(false)}
       />
       <div className="space-y-5">
-        <h1 className="text-2xl font-bold text-[#1e2537]">Your insight, {firstName}</h1>
+        <div>
+          <h1 className="text-2xl font-bold text-[#1e2537]">{getGreeting()}, {firstName}</h1>
+          <p className="mt-0.5 text-sm text-[#6b7280]">
+            {new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
+          </p>
+        </div>
 
-        {/* Stat banner. Reference shows Orders Placed/Amount Spent/Data
-            Dispatched — this platform doesn't track per-user spend or data
-            dispatched, so those are substituted with Orders Placed / Wallet
-            Balance / Success Rate, backed by real /api/dashboard/stats and
-            /api/wallet/balance data. Colors match the reference's own navy
-            gradient rather than this app's --primary token. */}
+        {/* First card: account meta (Role / Member Since) plus a live
+            Pending/Processing/Completed/Failed order-status grid — colors
+            match the reference's own navy gradient rather than this app's
+            --primary token. */}
         <div className="rounded-2xl bg-gradient-to-br from-[#1b388b] to-[#2a5ce8] p-5">
-          <div className="grid grid-cols-3 gap-3">
-            <BannerStat icon={ShoppingCart} value={formatCount(stats.totalOrders)} label="Orders Placed" />
-            <BannerStat icon={WalletIcon} value={`GHS ${Math.max(0, walletBalance || 0).toFixed(2)}`} label="Wallet Balance" />
-            <BannerStat icon={CheckCircle} value={stats.successRate} label="Success Rate" />
+          <div className="flex items-center justify-between gap-4 border-b border-white/15 pb-4">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-white/60">Role</p>
+              <p className="mt-0.5 text-sm font-bold text-white">{isDealer ? "Authorized Dealer" : "Premium Agent"}</p>
+            </div>
+            <div className="h-8 w-px bg-white/15" />
+            <div className="text-right">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-white/60">Member Since</p>
+              <p className="mt-0.5 text-sm font-bold text-white">{joinDate || "Recently"}</p>
+            </div>
           </div>
+
+          <div className="mt-4 grid grid-cols-4 gap-2.5">
+            <BannerStat icon={Clock} value={formatCount(stats.pending)} label="Pending" />
+            <BannerStat icon={TrendingUp} value={formatCount(stats.processing)} label="Processing" />
+            <BannerStat icon={CheckCircle} value={formatCount(stats.completed)} label="Completed" />
+            <BannerStat icon={AlertCircle} value={formatCount(stats.failed)} label="Failed" />
+          </div>
+
           <div className="mt-4 flex flex-wrap gap-2">
             <Button onClick={() => router.push("/dashboard/wallet")} className="bg-white text-[#1b388b] hover:bg-white/90 font-semibold">
               ＋ Top Up
@@ -587,15 +588,6 @@ export default function DashboardPage() {
               </ResponsiveContainer>
             )}
           </div>
-        </div>
-
-        {/* Order status — pre-existing functionality (not pictured in the
-            reference, which doesn't show this page's full scroll depth). */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <StatCard label="Pending" value={formatCount(stats.pending)} hint="Awaiting processing" tone="warning" icon={Clock} />
-          <StatCard label="Processing" value={formatCount(stats.processing)} hint="In progress" tone="warning" icon={TrendingUp} />
-          <StatCard label="Completed" value={formatCount(stats.completed)} hint={`${stats.successRate} success rate`} tone="success" icon={CheckCircle} />
-          <StatCard label="Failed" value={formatCount(stats.failed)} hint="Refunded if charged" tone="danger" icon={AlertCircle} />
         </div>
 
         {/* Quick Actions */}
