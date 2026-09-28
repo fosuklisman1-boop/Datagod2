@@ -2,7 +2,7 @@
 
 - **Date:** 2026-09-27
 - **Branch:** main
-- **Status:** Phase 1a (foundation + dashboard-hub pilot) shipped; remaining admin pages + sidebar recolor pending follow-up plans
+- **Status:** Shipped in full. Foundation, sidebar recolor ([2026-09-28-admin-sidebar-recolor-design.md](2026-09-28-admin-sidebar-recolor-design.md)), and the page-header banner are now live on all 45 of 46 admin pages (the one exception, `app/admin/sub-agent-profits/[shopId]/page.tsx`, has a data-rich Card header incompatible with a title-only banner — deliberately left as-is). Phase 1 (admin) complete; Phases 2-4 (customer storefront, dealer, shop storefronts) remain as separate future specs per §6.
 - **Scope:** New app-wide design language (tokens + shared components) inspired by the UI/UX of Apex Prime's dashboard (apexprime.club — one of Datagod's MTN fulfillment providers), landed as its own foundation, then rolled out to the **admin panel** (`/admin/*`) as Phase 1. Customer storefront, dealer portal, and shop storefronts are out of scope here — they get their own follow-up specs (Phase 2–4), reusing this same foundation.
 
 ---
