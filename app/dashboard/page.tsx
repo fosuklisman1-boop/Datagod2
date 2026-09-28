@@ -566,18 +566,20 @@ export default function DashboardPage() {
               <button
                 key={svc.title}
                 onClick={() => router.push(svc.href)}
-                className={`relative block w-full shrink-0 snap-start overflow-hidden rounded-2xl bg-gradient-to-br ${svc.gradient} p-5 text-left`}
+                className={`relative block w-full shrink-0 snap-start overflow-hidden rounded-2xl bg-gradient-to-br ${svc.gradient} p-5 pr-28 text-left sm:pr-36`}
               >
                 <span className="pointer-events-none absolute -right-8 -top-10 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
                 <span className="pointer-events-none absolute -bottom-10 left-16 h-28 w-28 rounded-full bg-white/5 blur-xl" />
-                <div className="relative flex items-start justify-between gap-3">
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-white">
-                    <svc.icon className="h-3.5 w-3.5" /> {svc.badge}
-                  </span>
-                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/20 bg-white/15 text-white">
-                    <svc.icon className="h-5 w-5" />
-                  </span>
-                </div>
+                {/* Large, vertically-centered accent icon -- not a small
+                    top-corner badge; matches the reference's proportions.
+                    Inset far enough right that it never overlaps the
+                    left/right nav arrows below. */}
+                <span className="absolute right-12 top-1/2 flex h-16 w-16 -translate-y-1/2 items-center justify-center rounded-2xl border border-white/20 bg-white/15 text-white sm:right-16 sm:h-20 sm:w-20">
+                  <svc.icon className="h-7 w-7 sm:h-9 sm:w-9" />
+                </span>
+                <span className="relative inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                  <svc.icon className="h-3.5 w-3.5" /> {svc.badge}
+                </span>
                 <p className="relative mt-4 text-lg font-bold text-white">{svc.title}</p>
                 <p className="relative mt-1 max-w-md text-sm text-white/80">{svc.description}</p>
                 <span className={`relative mt-4 inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-sm font-bold ${svc.textColor}`}>
