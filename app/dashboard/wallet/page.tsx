@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Wallet, Plus, Minus, TrendingUp, TrendingDown, AlertCircle, Loader2, RefreshCw, CheckCircle } from "lucide-react"
+import { Wallet, Plus, TrendingUp, TrendingDown, AlertCircle, Loader2, CheckCircle, LayoutGrid, History as HistoryIcon } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
 import { WalletTopUp } from "@/components/wallet-top-up"
 import { SuccessModal } from "@/components/success-modal"
@@ -40,11 +40,18 @@ interface PendingPayment {
   status: string
 }
 
+const TABS = [
+  { id: "overview", label: "Overview", icon: LayoutGrid },
+  { id: "topup", label: "Top Up", icon: Plus },
+  { id: "history", label: "History", icon: HistoryIcon },
+] as const
+
 export default function WalletPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { user, loading: authLoading } = useAuth()
   const { isDealer } = useUserRole()
+  const [tab, setTab] = useState<"overview" | "topup" | "history">("overview")
   const [userId, setUserId] = useState<string | null>(null)
   const [walletData, setWalletData] = useState<WalletData>({
     balance: 0,
@@ -55,7 +62,6 @@ export default function WalletPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [pendingPayments, setPendingPayments] = useState<PendingPayment[]>([])
   const [loading, setLoading] = useState(true)
-  const [showTopUp, setShowTopUp] = useState(false)
   const [paymentVerifying, setPaymentVerifying] = useState(false)
   const [verifyingId, setVerifyingId] = useState<string | null>(null)
   const [successModal, setSuccessModal] = useState<{
@@ -323,7 +329,7 @@ export default function WalletPage() {
 
   const handleTopUpSuccess = async (amount: number) => {
     console.log("[WALLET-PAGE] Top up successful, amount:", amount)
-    setShowTopUp(false)
+    setTab("overview")
 
     // Show success modal
     setSuccessModal({
@@ -366,54 +372,56 @@ export default function WalletPage() {
   }
   return (
     <DashboardLayout>
-      <div className="space-y-6 px-2 sm:px-4">
+      <div className="max-w-2xl mx-auto space-y-5">
         {/* Page Header */}
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Wallet</h1>
-          <p className="text-muted-foreground mt-1 text-sm sm:text-base">Manage your account balance and funds</p>
+          <h1 className="text-2xl font-bold text-foreground">Wallet</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Manage your account balance and funds</p>
         </div>
 
-        {/* Balance Card */}
-        <Card className={`text-white border-0 ${isDealer
-          ? "bg-warning"
-          : "bg-gradient-to-r from-primary to-primary"
-          }`}>
-          <CardHeader>
-            <CardTitle className="text-white">Current Balance</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className={`${isDealer ? "text-amber-100" : "text-primary-foreground/80"} text-sm`}>Available Balance</p>
-                <p className="text-2xl sm:text-3xl md:text-4xl font-bold">GHS {Math.max(0, walletData.balance).toFixed(2)}</p>
-              </div>
-              <Wallet className={`w-16 h-16 opacity-50 ${isDealer ? "text-amber-100" : "text-primary-foreground/80"}`} />
-            </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:gap-4">
-              {walletTopupsEnabled || isDealer ? (
-                <Button
-                  onClick={() => setShowTopUp(!showTopUp)}
-                  className={`bg-card hover:bg-accent w-full sm:w-auto ${isDealer ? "text-amber-600" : "text-primary"
-                    }`}
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Funds
-                </Button>
-              ) : (
-                <div className="bg-card/10 backdrop-blur-sm border border-white/20 rounded-lg p-3 w-full text-sm text-white/90">
-                  ⚠️ Wallet top-ups are currently temporarily disabled for maintenance.
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+        {/* Tabs */}
+        <div className="inline-flex w-full rounded-2xl bg-muted p-1">
+          {TABS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-bold transition ${
+                tab === id ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"
+              }`}
+            >
+              <Icon className="h-4 w-4" /> {label}
+            </button>
+          ))}
+        </div>
 
-        {/* Top Up Form */}
-        {(showTopUp && (walletTopupsEnabled || isDealer)) && (
-          <div className="animate-in fade-in slide-in-from-top-2">
-            <WalletTopUp onSuccess={handleTopUpSuccess} />
+        {tab === "overview" && (
+        <>
+        {/* Balance hero -- same navy-gradient language as the rest of this
+            rebuild (dashboard banner, etc.), dealer keeps its own amber
+            identity like everywhere else in this app. */}
+        <div className={`rounded-2xl p-5 text-white ${isDealer ? "bg-warning" : "bg-gradient-to-br from-[#1b388b] to-[#2a5ce8]"}`}>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className={`text-sm ${isDealer ? "text-amber-100" : "text-white/70"}`}>Available Balance</p>
+              <p className="mt-1 text-3xl font-black">GHS {Math.max(0, walletData.balance).toFixed(2)}</p>
+            </div>
+            <Wallet className={`h-12 w-12 opacity-40 ${isDealer ? "text-amber-100" : "text-white"}`} />
           </div>
-        )}
+          <div className="mt-4">
+            {walletTopupsEnabled || isDealer ? (
+              <button
+                onClick={() => setTab("topup")}
+                className={`flex items-center gap-2 rounded-2xl bg-white px-4 py-2.5 text-sm font-bold hover:bg-white/90 ${isDealer ? "text-amber-600" : "text-[#1b388b]"}`}
+              >
+                <Plus className="h-4 w-4" /> Add Funds
+              </button>
+            ) : (
+              <div className="rounded-2xl border border-white/20 bg-white/10 p-3 text-sm text-white/90 backdrop-blur-sm">
+                ⚠️ Wallet top-ups are currently temporarily disabled for maintenance.
+              </div>
+            )}
+          </div>
+        </div>
 
         {/* Pending Payments Alert */}
         {pendingPayments.length > 0 && (
@@ -431,7 +439,7 @@ export default function WalletPage() {
               {pendingPayments.map((payment) => (
                 <div
                   key={payment.id}
-                  className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 rounded-lg bg-card border border-warning/30"
+                  className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 rounded-2xl border border-warning/30 bg-card p-3"
                 >
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
@@ -450,7 +458,7 @@ export default function WalletPage() {
                     size="sm"
                     onClick={() => verifyPendingPayment(payment)}
                     disabled={verifyingId === payment.id}
-                    className="bg-warning text-warning-foreground hover:bg-warning/90 w-full sm:w-auto"
+                    className="w-full rounded-full bg-warning text-warning-foreground hover:bg-warning/90 sm:w-auto"
                   >
                     {verifyingId === payment.id ? (
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -465,88 +473,75 @@ export default function WalletPage() {
           </Card>
         )}
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <Card>
-            <CardContent className="p-5">
-              <div className="w-9 h-9 rounded-xl grid place-items-center bg-success/10 text-success">
-                <TrendingUp className="h-4 w-4" />
-              </div>
-              <p className="text-xs font-medium text-muted-foreground mt-3">Total Credited</p>
-              <p className="text-2xl font-bold tracking-tight tabular-nums mt-0.5 text-foreground">GHS {walletData.totalCredited.toFixed(2)}</p>
-              <p className="text-[11px] text-muted-foreground mt-0.5">All deposits</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-5">
-              <div className="w-9 h-9 rounded-xl grid place-items-center bg-destructive/10 text-destructive">
-                <TrendingDown className="h-4 w-4" />
-              </div>
-              <p className="text-xs font-medium text-muted-foreground mt-3">Total Spent</p>
-              <p className="text-2xl font-bold tracking-tight tabular-nums mt-0.5 text-foreground">GHS {walletData.totalDebited.toFixed(2)}</p>
-              <p className="text-[11px] text-muted-foreground mt-0.5">All purchases</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-5">
-              <div className="w-9 h-9 rounded-xl grid place-items-center bg-primary/10 text-primary">
-                <Wallet className="h-4 w-4" />
-              </div>
-              <p className="text-xs font-medium text-muted-foreground mt-3">Available Balance</p>
-              <p className="text-2xl font-bold tracking-tight tabular-nums mt-0.5 text-foreground">GHS {Math.max(0, walletData.balance).toFixed(2)}</p>
-              <p className="text-[11px] text-muted-foreground mt-0.5">Ready to use</p>
-            </CardContent>
-          </Card>
+        {/* Stats */}
+        <div className="grid grid-cols-3 gap-2 sm:gap-3">
+          <div className="rounded-2xl border border-border bg-card p-4">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-success/10 text-success">
+              <TrendingUp className="h-4 w-4" />
+            </span>
+            <p className="mt-2 text-lg font-black text-foreground">GHS {walletData.totalCredited.toFixed(2)}</p>
+            <p className="text-xs text-muted-foreground">Total Credited</p>
+          </div>
+          <div className="rounded-2xl border border-border bg-card p-4">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
+              <TrendingDown className="h-4 w-4" />
+            </span>
+            <p className="mt-2 text-lg font-black text-foreground">GHS {walletData.totalDebited.toFixed(2)}</p>
+            <p className="text-xs text-muted-foreground">Total Spent</p>
+          </div>
+          <div className="rounded-2xl border border-border bg-card p-4">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <Wallet className="h-4 w-4" />
+            </span>
+            <p className="mt-2 text-lg font-black text-foreground">GHS {Math.max(0, walletData.balance).toFixed(2)}</p>
+            <p className="text-xs text-muted-foreground">Available</p>
+          </div>
         </div>
+        </>
+        )}
 
-        {/* Transaction History */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Transaction History</CardTitle>
-            <CardDescription>
-              {transactions.length === 0 ? "No transactions yet" : `Your recent ${transactions.length} transactions`}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+        {tab === "topup" && (
+          walletTopupsEnabled || isDealer ? (
+            <WalletTopUp onSuccess={handleTopUpSuccess} />
+          ) : (
+            <div className="rounded-2xl border border-border bg-card p-4 text-sm text-muted-foreground">
+              ⚠️ Wallet top-ups are currently temporarily disabled for maintenance.
+            </div>
+          )
+        )}
+
+        {tab === "history" && (
+          <div className="space-y-2">
             {transactions.length === 0 ? (
               <Alert>
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>No transactions found. Start by adding funds to your wallet.</AlertDescription>
               </Alert>
             ) : (
-              <>
-                <div className="divide-y divide-border">
-                  {transactions.map((transaction) => {
-                    const credit = transaction.type.includes("credit")
-                    return (
-                      <div key={transaction.id} className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
-                        <div className="flex min-w-0 items-center gap-3">
-                          <span className={`grid h-9 w-9 flex-shrink-0 place-items-center rounded-xl ${credit ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
-                            {credit ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
-                          </span>
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-medium text-foreground">{transaction.description}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {new Date(transaction.created_at).toLocaleDateString()} · {transaction.reference?.slice(-8) || "—"}
-                            </p>
-                          </div>
-                        </div>
-                        <p className={`whitespace-nowrap font-semibold tabular-nums ${credit ? "text-success" : "text-destructive"}`}>
-                          {credit ? "+" : "-"}GHS {(transaction.amount || 0).toFixed(2)}
+              transactions.map((transaction) => {
+                const credit = transaction.type.includes("credit")
+                return (
+                  <div key={transaction.id} className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className={`grid h-9 w-9 flex-shrink-0 place-items-center rounded-xl ${credit ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
+                        {credit ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-foreground">{transaction.description}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {new Date(transaction.created_at).toLocaleDateString()} · {transaction.reference?.slice(-8) || "—"}
                         </p>
                       </div>
-                    )
-                  })}
-                </div>
-                <div className="mt-4">
-                  <p className="text-sm text-muted-foreground">Showing {transactions.length} transaction(s)</p>
-                </div>
-              </>
+                    </div>
+                    <p className={`whitespace-nowrap font-semibold tabular-nums ${credit ? "text-success" : "text-destructive"}`}>
+                      {credit ? "+" : "-"}GHS {(transaction.amount || 0).toFixed(2)}
+                    </p>
+                  </div>
+                )
+              })
             )}
-          </CardContent>
-        </Card>
+          </div>
+        )}
       </div>
 
       {/* Success Modal */}
