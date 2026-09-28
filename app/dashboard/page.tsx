@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useAuth } from "@/hooks/use-auth"
 import { useOnboarding } from "@/hooks/use-onboarding"
 import { useUserRole } from "@/hooks/use-user-role"
@@ -127,6 +127,7 @@ export default function DashboardPage() {
   const [networkHealthLoading, setNetworkHealthLoading] = useState(true)
   const [sendActivity, setSendActivity] = useState<SendActivityDay[]>([])
   const [promoIndex, setPromoIndex] = useState(0)
+  const promoScrollRef = useRef<HTMLDivElement>(null)
 
   // Check if user is a sub-agent and redirect immediately.
   // Timeout after 5s so a slow/hanging Supabase query never permanently
@@ -188,14 +189,35 @@ export default function DashboardPage() {
     })()
   }, [user])
 
-  // Advance the promo carousel automatically, matching a real swipeable
-  // carousel; dots below still let the person jump to a card directly.
+  // Scrolls the carousel track to a given card with a smooth-scroll
+  // animation, used by the dot buttons below.
+  const scrollPromoTo = (index: number) => {
+    const el = promoScrollRef.current
+    if (el) el.scrollTo({ left: index * el.clientWidth, behavior: "smooth" })
+    setPromoIndex(index)
+  }
+
+  // Advance the promo carousel automatically with the same smooth-scroll
+  // animation, not a content swap — swiping the track manually (see
+  // handlePromoScroll below) keeps promoIndex in sync either way.
   useEffect(() => {
     const interval = setInterval(() => {
-      setPromoIndex((i) => (i + 1) % PROMO_SERVICES.length)
+      setPromoIndex((i) => {
+        const next = (i + 1) % PROMO_SERVICES.length
+        const el = promoScrollRef.current
+        if (el) el.scrollTo({ left: next * el.clientWidth, behavior: "smooth" })
+        return next
+      })
     }, 5000)
     return () => clearInterval(interval)
   }, [])
+
+  // Keeps the active dot in sync when the person swipes/drags the track by hand.
+  const handlePromoScroll = () => {
+    const el = promoScrollRef.current
+    if (!el || el.clientWidth === 0) return
+    setPromoIndex(Math.round(el.scrollLeft / el.clientWidth))
+  }
 
   const fetchLatestOrder = async (token: string) => {
     setLatestOrderLoading(true)
@@ -392,7 +414,6 @@ export default function DashboardPage() {
     return "Good Evening"
   }
 
-  const promo = PROMO_SERVICES[promoIndex]
   const chartData = sendActivity.map((d) => ({ label: d.label, ...d.counts }))
   const activeNetworks = (Object.keys(NETWORK_BADGE) as HealthNetwork[]).filter((n) =>
     sendActivity.some((d) => d.counts[n] > 0)
@@ -489,32 +510,44 @@ export default function DashboardPage() {
 
         {/* Promo carousel — Datagod's real services, not Apex Prime's
             irrelevant tiles (Academic Writing, Apple Music/iCloud, Merchant
-            SIM Onboarding). One card at a time with dot pagination, matching
-            the reference's carousel instead of a multi-card scroll strip. */}
-        <button
-          onClick={() => router.push(promo.href)}
-          className="block w-full rounded-2xl bg-gradient-to-br from-[#121c33] to-[#235cd4] p-5 text-left"
+            SIM Onboarding). A real horizontally-scrollable, swipeable track
+            (scroll-snap) rather than a single card whose content got swapped
+            in place -- dragging it by hand and the auto-advance timer both
+            play the same sliding motion. */}
+        <div
+          ref={promoScrollRef}
+          onScroll={handlePromoScroll}
+          className="flex overflow-x-auto snap-x snap-mandatory scroll-smooth rounded-2xl [&::-webkit-scrollbar]:hidden"
+          style={{ scrollbarWidth: "none" }}
         >
-          <div className="flex items-start justify-between gap-3">
-            <span className="inline-flex items-center rounded-full bg-white/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white/80">
-              {promo.badge}
-            </span>
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-white">
-              <promo.icon className="h-5 w-5" />
-            </span>
-          </div>
-          <p className="mt-4 text-lg font-bold text-white">{promo.title}</p>
-          <p className="mt-1 max-w-md text-sm text-white/70">{promo.description}</p>
-          <span className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-sm font-bold text-[#121c33]">
-            Explore <ArrowRight className="h-3.5 w-3.5" />
-          </span>
-        </button>
+          {PROMO_SERVICES.map((svc) => (
+            <button
+              key={svc.title}
+              onClick={() => router.push(svc.href)}
+              className="block w-full shrink-0 snap-start rounded-2xl bg-gradient-to-br from-[#121c33] to-[#235cd4] p-5 text-left"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <span className="inline-flex items-center rounded-full bg-white/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white/80">
+                  {svc.badge}
+                </span>
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-white">
+                  <svc.icon className="h-5 w-5" />
+                </span>
+              </div>
+              <p className="mt-4 text-lg font-bold text-white">{svc.title}</p>
+              <p className="mt-1 max-w-md text-sm text-white/70">{svc.description}</p>
+              <span className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-sm font-bold text-[#121c33]">
+                Explore <ArrowRight className="h-3.5 w-3.5" />
+              </span>
+            </button>
+          ))}
+        </div>
         <div className="-mt-3 flex justify-center gap-1.5">
           {PROMO_SERVICES.map((svc, i) => (
             <button
               key={svc.title}
               aria-label={`Show ${svc.title}`}
-              onClick={() => setPromoIndex(i)}
+              onClick={() => scrollPromoTo(i)}
               className={`h-1.5 rounded-full transition-all ${i === promoIndex ? "w-5 bg-[#235cd4]" : "w-1.5 bg-[#d1d5db]"}`}
             />
           ))}
