@@ -22,7 +22,13 @@ import { getServicePrimaryPath, type DomainService } from "@/lib/custom-domains"
 import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { LatestOrderCard } from "@/components/dashboard/latest-order-card"
 import { NetworkHealthCard, NETWORK_BADGE } from "@/components/dashboard/network-health-card"
-import { HEALTH_NETWORKS, type LatestOrderSummary, type NetworkHealthStat } from "@/lib/order-health-service"
+// Type-only: order-health-service.ts pulls in mtn-hold.ts -> sms-service.ts
+// -> push-service.ts -> web-push (raw Node net/tls sockets) at runtime. A
+// value import (e.g. its HEALTH_NETWORKS const) would drag that whole chain
+// into this client bundle and fail the build ("Module not found: Can't
+// resolve 'net'"), so the network list below is instead derived from
+// NETWORK_BADGE's keys, which lives in the client-safe network-health-card.
+import type { LatestOrderSummary, NetworkHealthStat, HealthNetwork } from "@/lib/order-health-service"
 import { networkBadgeClasses } from "@/lib/network-status-theme"
 
 // Short, quick-action-appropriate labels for each service, used when a custom
@@ -472,7 +478,7 @@ export default function DashboardPage() {
         <div>
           <p className="mb-2 text-sm font-semibold text-foreground">Order by Network</p>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {HEALTH_NETWORKS.map((net) => {
+            {(Object.keys(NETWORK_BADGE) as HealthNetwork[]).map((net) => {
               const badge = NETWORK_BADGE[net]
               return (
                 <button
