@@ -12,14 +12,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import {
   TrendingUp, ShoppingCart, CheckCircle, AlertCircle, Clock, Loader2,
-  Store, Users, Send, IdCard, Wallet as WalletIcon, Smartphone,
+  Store, Users, Send, IdCard, Wallet as WalletIcon, Smartphone, ArrowRight, Grid3x3, BarChart3,
   type LucideIcon,
 } from "lucide-react"
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 import { supabase } from "@/lib/supabase"
-import { cn } from "@/lib/utils"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 import { getServicePrimaryPath, type DomainService } from "@/lib/custom-domains"
-import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { LatestOrderCard } from "@/components/dashboard/latest-order-card"
 import { NetworkHealthCard, NETWORK_BADGE } from "@/components/dashboard/network-health-card"
 // Type-only: order-health-service.ts pulls in mtn-hold.ts -> sms-service.ts
@@ -29,7 +28,6 @@ import { NetworkHealthCard, NETWORK_BADGE } from "@/components/dashboard/network
 // resolve 'net'"), so the network list below is instead derived from
 // NETWORK_BADGE's keys, which lives in the client-safe network-health-card.
 import type { LatestOrderSummary, NetworkHealthStat, HealthNetwork } from "@/lib/order-health-service"
-import { networkBadgeClasses } from "@/lib/network-status-theme"
 
 // Short, quick-action-appropriate labels for each service, used when a custom
 // domain is scoped to one or more services and the primary CTAs are repointed
@@ -43,15 +41,26 @@ const SERVICE_QUICK_LABELS: Record<DomainService, string> = {
 }
 
 // Real Datagod services (not Apex Prime's Academic Writing / Apple Music /
-// Merchant SIM tiles, which don't apply to this platform).
-const PROMO_SERVICES: { title: string; description: string; href: string; icon: LucideIcon }[] = [
-  { title: "Own Shop", description: "Launch your white-label storefront", href: "/dashboard/my-shop", icon: Store },
-  { title: "USSD / WhatsApp Bot", description: "Sell through your own bot", href: "/dashboard/ussd-shop", icon: Smartphone },
-  { title: "Sub-Agents", description: "Recruit sellers, earn on every sale", href: "/dashboard/sub-agents", icon: Users },
-  { title: "Bulk SMS", description: "Send SMS campaigns at scale", href: "/dashboard/sms", icon: Send },
-  { title: "AFA Registration", description: "Register and manage AFA orders", href: "/dashboard/afa-orders", icon: IdCard },
-  { title: "Wallet Top Up", description: "Fund your wallet instantly", href: "/dashboard/wallet", icon: WalletIcon },
+// Merchant SIM tiles, which don't apply to this platform), one card shown at
+// a time to match the reference's single-card, dot-paginated carousel.
+const PROMO_SERVICES: { badge: string; title: string; description: string; href: string; icon: LucideIcon }[] = [
+  { badge: "STOREFRONT", title: "Own Shop", description: "Launch your white-label storefront and sell under your own brand.", href: "/dashboard/my-shop", icon: Store },
+  { badge: "BOT", title: "USSD / WhatsApp Bot", description: "Sell data, airtime and results checks through your own automated bot.", href: "/dashboard/ussd-shop", icon: Smartphone },
+  { badge: "NETWORK", title: "Sub-Agents", description: "Recruit sellers under you and earn on every sale they make.", href: "/dashboard/sub-agents", icon: Users },
+  { badge: "MESSAGING", title: "Bulk SMS", description: "Send SMS campaigns to your customers at scale.", href: "/dashboard/sms", icon: Send },
+  { badge: "EDUCATION", title: "AFA Registration", description: "Register and manage AFA orders for your customers.", href: "/dashboard/afa-orders", icon: IdCard },
+  { badge: "WALLET", title: "Wallet Top Up", description: "Fund your wallet instantly to keep buying without delay.", href: "/dashboard/wallet", icon: WalletIcon },
 ]
+
+// Bar colors for the 7-Day Send Activity chart, matching this app's real
+// network brand hues (same family as bg-mtn/bg-telecel/bg-at) rather than a
+// generic chart palette. Recharts needs literal color strings, not classes.
+const CHART_COLORS: Record<HealthNetwork, string> = {
+  MTN: "#FFCC00",
+  Telecel: "#E00018",
+  "AT - iShare": "#0B57D0",
+  "AT - BigTime": "#7C3AED",
+}
 
 // Format large numbers with K/M suffix
 const formatCount = (num: number | string): string => {
@@ -66,16 +75,20 @@ const formatCount = (num: number | string): string => {
   return n.toLocaleString()
 }
 
-function BannerStat({ value, label }: { value: string; label: string }) {
+function BannerStat({ icon: Icon, value, label }: { icon: LucideIcon; value: string; label: string }) {
   return (
-    <div className="rounded-xl bg-white/10 p-3 text-center">
-      <p className="text-lg font-extrabold text-white tabular-nums">{value}</p>
+    <div className="rounded-xl bg-white/12 p-3 text-center">
+      <Icon className="mx-auto h-4 w-4 text-white/80" />
+      <p className="mt-1.5 text-lg font-extrabold text-white tabular-nums">{value}</p>
       <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/70">{label}</p>
     </div>
   )
 }
 
 // Clean Fintech stat card: neutral surface, one accent chip, flat number.
+// Kept on the app's existing semantic tokens (unlike the sections above,
+// nothing in the reference pictures shows this — it's pre-existing real
+// functionality, not something being matched to an image).
 const STAT_TONES: Record<string, string> = {
   primary: "bg-primary/10 text-primary",
   success: "bg-success/10 text-success",
@@ -122,6 +135,12 @@ interface RecentActivity {
   timestamp: string
 }
 
+interface SendActivityDay {
+  date: string
+  label: string
+  counts: Record<HealthNetwork, number>
+}
+
 export default function DashboardPage() {
   const router = useRouter()
   const { user, loading: authLoading } = useAuth()
@@ -131,7 +150,6 @@ export default function DashboardPage() {
   const primaryService = domainBranding.services?.[0] ?? null
   const [firstName, setFirstName] = useState("")
   const [userEmail, setUserEmail] = useState("")
-  const [joinDate, setJoinDate] = useState("")
   const [walletBalance, setWalletBalance] = useState(0)
   const [userRole, setUserRole] = useState<string | null>(null)
   const [isSubAgent, setIsSubAgent] = useState<boolean | null>(null) // null = checking, true/false = checked
@@ -151,6 +169,8 @@ export default function DashboardPage() {
   const [latestOrderLoading, setLatestOrderLoading] = useState(true)
   const [networkHealth, setNetworkHealth] = useState<NetworkHealthStat[]>([])
   const [networkHealthLoading, setNetworkHealthLoading] = useState(true)
+  const [sendActivity, setSendActivity] = useState<SendActivityDay[]>([])
+  const [promoIndex, setPromoIndex] = useState(0)
 
   // Check if user is a sub-agent and redirect immediately.
   // Timeout after 5s so a slow/hanging Supabase query never permanently
@@ -212,6 +232,15 @@ export default function DashboardPage() {
     })()
   }, [user])
 
+  // Advance the promo carousel automatically, matching a real swipeable
+  // carousel; dots below still let the person jump to a card directly.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setPromoIndex((i) => (i + 1) % PROMO_SERVICES.length)
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [])
+
   const fetchLatestOrder = async (token: string) => {
     setLatestOrderLoading(true)
     try {
@@ -230,6 +259,14 @@ export default function DashboardPage() {
       if (d?.success) setNetworkHealth(d.networks || [])
     } catch { /* silent — card shows its own empty state */ }
     finally { setNetworkHealthLoading(false) }
+  }
+
+  const fetchSendActivity = async (token: string) => {
+    try {
+      const res = await fetch("/api/dashboard/send-activity", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" })
+      const d = res.ok ? await res.json() : null
+      if (d?.success) setSendActivity(d.days || [])
+    } catch { /* silent — chart shows its own empty state */ }
   }
 
   const refreshWithFreshToken = async (fetcher: (token: string) => Promise<void>) => {
@@ -316,15 +353,6 @@ export default function DashboardPage() {
               setShowPhoneVerify(true)
             }
           } catch { /* columns not yet migrated — skip */ }
-
-          if (authUser.created_at) {
-            const diffDays = Math.ceil(Math.abs(Date.now() - new Date(authUser.created_at).getTime()) / 86400000)
-            if (diffDays < 1) setJoinDate("Today")
-            else if (diffDays < 7) setJoinDate(`${diffDays} days ago`)
-            else if (diffDays < 30) setJoinDate(`${Math.floor(diffDays / 7)} week${Math.floor(diffDays / 7) > 1 ? "s" : ""} ago`)
-            else if (diffDays < 365) setJoinDate(`${Math.floor(diffDays / 30)} month${Math.floor(diffDays / 30) > 1 ? "s" : ""} ago`)
-            else setJoinDate(`${Math.floor(diffDays / 365)} year${Math.floor(diffDays / 365) > 1 ? "s" : ""} ago`)
-          }
         })(),
 
         // Dashboard stats
@@ -367,24 +395,15 @@ export default function DashboardPage() {
         token
           ? fetchNetworkHealth(token)
           : Promise.resolve(setNetworkHealthLoading(false)),
+
+        // This account's own last-7-days send activity by network
+        token
+          ? fetchSendActivity(token)
+          : Promise.resolve(),
       ])
     } catch {
       // silent — individual settled results handle their own errors
     }
-  }
-
-  const getGreeting = () => {
-    const hour = new Date().getHours()
-    if (hour < 12) return "Good Morning"
-    if (hour < 18) return "Good Afternoon"
-    return "Good Night"
-  }
-
-  const getGreetingEmoji = () => {
-    const hour = new Date().getHours()
-    if (hour < 12) return "☀️"
-    if (hour < 18) return "👋"
-    return "🌙"
   }
 
   // Show loading state while checking authentication or sub-agent status
@@ -409,6 +428,13 @@ export default function DashboardPage() {
     )
   }
 
+  const promo = PROMO_SERVICES[promoIndex]
+  const chartData = sendActivity.map((d) => ({ label: d.label, ...d.counts }))
+  const activeNetworks = (Object.keys(NETWORK_BADGE) as HealthNetwork[]).filter((n) =>
+    sendActivity.some((d) => d.counts[n] > 0)
+  )
+  const legendNetworks = activeNetworks.length > 0 ? activeNetworks : (Object.keys(NETWORK_BADGE) as HealthNetwork[])
+
   return (
     <DashboardLayout>
       <WalletOnboardingModal
@@ -423,22 +449,22 @@ export default function DashboardPage() {
         onDismiss={() => setShowPhoneVerify(false)}
       />
       <div className="space-y-5">
-        {/* Greeting hero: banner + 3 real stat tiles.
-            Reference shows Orders Placed/Amount Spent/Data Dispatched — this
-            platform doesn't track per-user spend or data dispatched, so those
-            are substituted with Orders Placed / Wallet Balance / Success Rate,
-            all backed by real /api/dashboard/stats + /api/wallet/balance data. */}
-        <PageHeaderBanner
-          title={`${getGreeting()}, ${firstName}! ${getGreetingEmoji()}`}
-          subtitle={new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
-        >
+        <h1 className="text-2xl font-bold text-[#1e2537]">Your insight, {firstName}</h1>
+
+        {/* Stat banner. Reference shows Orders Placed/Amount Spent/Data
+            Dispatched — this platform doesn't track per-user spend or data
+            dispatched, so those are substituted with Orders Placed / Wallet
+            Balance / Success Rate, backed by real /api/dashboard/stats and
+            /api/wallet/balance data. Colors match the reference's own navy
+            gradient rather than this app's --primary token. */}
+        <div className="rounded-2xl bg-gradient-to-br from-[#1b388b] to-[#2a5ce8] p-5">
           <div className="grid grid-cols-3 gap-3">
-            <BannerStat value={formatCount(stats.totalOrders)} label="Orders Placed" />
-            <BannerStat value={`GHS ${Math.max(0, walletBalance || 0).toFixed(2)}`} label="Wallet Balance" />
-            <BannerStat value={stats.successRate} label="Success Rate" />
+            <BannerStat icon={ShoppingCart} value={formatCount(stats.totalOrders)} label="Orders Placed" />
+            <BannerStat icon={WalletIcon} value={`GHS ${Math.max(0, walletBalance || 0).toFixed(2)}`} label="Wallet Balance" />
+            <BannerStat icon={CheckCircle} value={stats.successRate} label="Success Rate" />
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
-            <Button onClick={() => router.push("/dashboard/wallet")} className="bg-white text-primary hover:bg-white/90 font-semibold">
+            <Button onClick={() => router.push("/dashboard/wallet")} className="bg-white text-[#1b388b] hover:bg-white/90 font-semibold">
               ＋ Top Up
             </Button>
             <Button onClick={() => router.push(primaryService ? getServicePrimaryPath(primaryService) : "/dashboard/data-packages")} className="bg-white/15 text-white hover:bg-white/25 border-0">
@@ -448,35 +474,49 @@ export default function DashboardPage() {
               My Orders
             </Button>
           </div>
-        </PageHeaderBanner>
+        </div>
 
-        {/* Account meta */}
-        <Card>
-          <CardContent className="flex flex-wrap items-center justify-between gap-4 p-4 sm:p-5">
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">Role</p>
-              <p className="text-sm font-semibold text-foreground">{isDealer ? "Authorized Dealer" : "Premium Agent"}</p>
-            </div>
-            <div className="h-8 w-px bg-border" />
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">Status</p>
-              <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-success">
-                <span className="w-2 h-2 rounded-full bg-success" />Active
-              </span>
-            </div>
-            <div className="h-8 w-px bg-border" />
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">Member Since</p>
-              <p className="text-sm font-semibold text-foreground">{joinDate || "Recently"}</p>
-            </div>
-          </CardContent>
-        </Card>
+        {/* Promo carousel — Datagod's real services, not Apex Prime's
+            irrelevant tiles (Academic Writing, Apple Music/iCloud, Merchant
+            SIM Onboarding). One card at a time with dot pagination, matching
+            the reference's carousel instead of a multi-card scroll strip. */}
+        <button
+          onClick={() => router.push(promo.href)}
+          className="block w-full rounded-2xl bg-gradient-to-br from-[#121c33] to-[#235cd4] p-5 text-left"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <span className="inline-flex items-center rounded-full bg-white/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white/80">
+              {promo.badge}
+            </span>
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-white">
+              <promo.icon className="h-5 w-5" />
+            </span>
+          </div>
+          <p className="mt-4 text-lg font-bold text-white">{promo.title}</p>
+          <p className="mt-1 max-w-md text-sm text-white/70">{promo.description}</p>
+          <span className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-sm font-bold text-[#121c33]">
+            Explore <ArrowRight className="h-3.5 w-3.5" />
+          </span>
+        </button>
+        <div className="-mt-3 flex justify-center gap-1.5">
+          {PROMO_SERVICES.map((svc, i) => (
+            <button
+              key={svc.title}
+              aria-label={`Show ${svc.title}`}
+              onClick={() => setPromoIndex(i)}
+              className={`h-1.5 rounded-full transition-all ${i === promoIndex ? "w-5 bg-[#235cd4]" : "w-1.5 bg-[#d1d5db]"}`}
+            />
+          ))}
+        </div>
 
-        {/* Network quick shortcuts — network + name only, no fabricated
-            per-network order volumes. Uses the same badge styling as the
-            Network Health section below for visual consistency. */}
+        {/* SEND DATA BUNDLES — network shortcuts. Network + name only; the
+            reference's "24H VOLUME" per-network figure isn't something this
+            platform currently computes, so it's omitted rather than made up. */}
         <div>
-          <p className="mb-2 text-sm font-semibold text-foreground">Order by Network</p>
+          <div className="mb-2 flex items-center gap-2">
+            <Grid3x3 className="h-4 w-4 text-[#1e2537]" />
+            <p className="text-xs font-extrabold uppercase tracking-wide text-[#1e2537]">Send Data Bundles</p>
+          </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {(Object.keys(NETWORK_BADGE) as HealthNetwork[]).map((net) => {
               const badge = NETWORK_BADGE[net]
@@ -484,39 +524,15 @@ export default function DashboardPage() {
                 <button
                   key={net}
                   onClick={() => router.push(primaryService ? getServicePrimaryPath(primaryService) : "/dashboard/data-packages")}
-                  className="flex flex-col items-center gap-2 rounded-2xl border border-border bg-card p-4 text-center transition hover:border-primary/40 hover:shadow-sm"
+                  className="flex flex-col items-center gap-2 rounded-2xl border border-[#eef0f5] bg-white p-4 text-center transition hover:border-[#1b388b]/30 hover:shadow-sm"
                 >
-                  <span className={cn("flex h-10 w-10 items-center justify-center rounded-full text-xs font-extrabold", networkBadgeClasses(badge.network))}>
-                    {badge.badgeText}
+                  <span className={`flex h-12 w-12 items-center justify-center rounded-full text-xs font-extrabold ${badge.className}`}>
+                    {badge.text}
                   </span>
-                  <span className="text-xs font-semibold text-foreground">{net}</span>
+                  <span className="text-xs font-bold text-[#1e2537]">{net}</span>
                 </button>
               )
             })}
-          </div>
-        </div>
-
-        {/* Promo carousel — Datagod's real services, not Apex Prime's
-            irrelevant tiles (Academic Writing, Apple Music/iCloud, Merchant
-            SIM Onboarding). */}
-        <div>
-          <p className="mb-2 text-sm font-semibold text-foreground">Grow With Datagod</p>
-          <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1 snap-x scrollbar-thin">
-            {PROMO_SERVICES.map((svc) => (
-              <button
-                key={svc.title}
-                onClick={() => router.push(svc.href)}
-                className="flex min-w-[230px] shrink-0 snap-start items-start gap-3 rounded-2xl border border-border bg-card p-4 text-left transition hover:border-primary/40 hover:shadow-sm"
-              >
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                  <svc.icon className="h-5 w-5" />
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-sm font-semibold text-foreground">{svc.title}</span>
-                  <span className="mt-0.5 block text-xs text-muted-foreground">{svc.description}</span>
-                </span>
-              </button>
-            ))}
           </div>
         </div>
 
@@ -527,8 +543,54 @@ export default function DashboardPage() {
           onRefresh={() => refreshWithFreshToken(fetchLatestOrder)}
         />
 
-        {/* Order status — Pending/Processing/Completed/Failed (Total Orders and
-            Success Rate already surfaced in the banner above). */}
+        {/* Network health: real, computed — no fabricated numbers */}
+        <NetworkHealthCard
+          networks={networkHealth}
+          loading={networkHealthLoading}
+          onRefresh={() => refreshWithFreshToken(fetchNetworkHealth)}
+        />
+
+        {/* 7-Day Send Activity — this account's own completed orders per day
+            per network over the last 7 days (personal activity, unlike the
+            platform-wide Network Health section above). */}
+        <div className="rounded-2xl border border-[#e5e9f5] bg-white p-4 sm:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#eef2ff] text-[#235cd4]">
+                <BarChart3 className="h-4 w-4" />
+              </span>
+              <p className="text-[15px] font-bold text-[#1e2537]">7-Day Send Activity</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              {legendNetworks.map((n) => (
+                <span key={n} className="flex items-center gap-1.5 text-xs font-semibold text-[#4b5563]">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: CHART_COLORS[n] }} />
+                  {n}
+                </span>
+              ))}
+            </div>
+          </div>
+          <div className="mt-4 h-[220px]">
+            {chartData.length === 0 ? (
+              <div className="flex h-full items-center justify-center text-sm text-[#6b7280]">Loading...</div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData} barGap={2} barCategoryGap="24%">
+                  <CartesianGrid vertical={false} stroke="#eef0f5" />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "#6b7280" }} />
+                  <YAxis tickLine={false} axisLine={false} width={28} tick={{ fontSize: 11, fill: "#6b7280" }} allowDecimals={false} />
+                  <Tooltip cursor={{ fill: "rgba(27,56,139,0.04)" }} />
+                  {legendNetworks.map((n) => (
+                    <Bar key={n} dataKey={n} fill={CHART_COLORS[n]} radius={[3, 3, 0, 0]} maxBarSize={22} />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+
+        {/* Order status — pre-existing functionality (not pictured in the
+            reference, which doesn't show this page's full scroll depth). */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <StatCard label="Pending" value={formatCount(stats.pending)} hint="Awaiting processing" tone="warning" icon={Clock} />
           <StatCard label="Processing" value={formatCount(stats.processing)} hint="In progress" tone="warning" icon={TrendingUp} />
@@ -581,13 +643,6 @@ export default function DashboardPage() {
             </Button>
           </CardContent>
         </Card>
-
-        {/* Network health: real, computed — no fabricated numbers */}
-        <NetworkHealthCard
-          networks={networkHealth}
-          loading={networkHealthLoading}
-          onRefresh={() => refreshWithFreshToken(fetchNetworkHealth)}
-        />
 
         {/* Recent Activity */}
         <Card>
