@@ -394,7 +394,7 @@ export default function AirtimePage() {
             <button
               type="submit"
               disabled={submitting || !!phoneError || !phone || !amount || amountOutOfRange || (walletBalance !== null && totalPaid > walletBalance)}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#75beab] py-4 text-base font-bold text-white transition hover:bg-[#68ad9b] disabled:opacity-50"
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#16A34A] py-4 text-base font-bold text-white transition hover:bg-[#15803d] disabled:opacity-50"
             >
               {submitting ? "Processing…" : (
                 <>
