@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Download, Loader2, CheckCircle2, RefreshCw } from "lucide-react"
+import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
 import { useAdminProtected } from "@/hooks/use-admin"
@@ -181,12 +182,11 @@ export default function MtnRegistrationPage() {
     <DashboardLayout>
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold">MTN Registration</h1>
-            <p className="text-muted-foreground mt-1">
-              Download new numbers to hand to the provider for MTN registration.
-            </p>
-          </div>
+          <AdminPageHeaderBanner
+            className="flex-1"
+            title="MTN Registration"
+            subtitle="Download new numbers to hand to the provider for MTN registration."
+          />
           <Button onClick={handleExport} disabled={exporting || loading}>
             {exporting ? (
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />

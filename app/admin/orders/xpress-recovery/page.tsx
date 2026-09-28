@@ -7,10 +7,11 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { useAdminProtected } from "@/hooks/use-admin"
+import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
 import { toast } from "sonner"
 import {
   AlertTriangle, CheckCircle2, XCircle, RefreshCw, Loader2,
-  ShieldAlert, CheckCheck, RotateCcw, Minus,
+  CheckCheck, RotateCcw, Minus,
 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 
@@ -134,17 +135,10 @@ export default function XpressRecoveryPage() {
     <DashboardLayout>
       <div className="max-w-3xl mx-auto space-y-6 p-6">
 
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <ShieldAlert className="h-6 w-6 text-orange-500" />
-            Xpress Order Reconciliation
-          </h1>
-          <p className="text-muted-foreground mt-1 text-sm">
-            Fetches <strong>all</strong> Xpress orders from a chosen time window, checks each against
-            the live Xpress API, and corrects any status mismatches — regardless of what status they
-            currently sit at in our system.
-          </p>
-        </div>
+        <AdminPageHeaderBanner
+          title="Xpress Order Reconciliation"
+          subtitle="Fetches all Xpress orders from a chosen time window, checks each against the live Xpress API, and corrects any status mismatches — regardless of what status they currently sit at in our system."
+        />
 
         <Alert>
           <AlertTriangle className="h-4 w-4" />

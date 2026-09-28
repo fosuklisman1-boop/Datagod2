@@ -13,6 +13,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { Input } from "@/components/ui/input"
 import { Download, CheckCircle, Clock, AlertCircle, Check, Loader2, Zap, ToggleLeft, ToggleRight, RefreshCw, Search, Send, ChevronDown, ShieldCheck, XCircle, Trash2 } from "lucide-react"
 import { useAdminProtected } from "@/hooks/use-admin"
+import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
 
@@ -1047,12 +1048,11 @@ export default function AdminOrdersPage() {
       <div className="space-y-6">
         {/* Page Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-600 via-primary to-pink-600 bg-clip-text text-transparent">
-              Order Management
-            </h1>
-            <p className="text-muted-foreground mt-1 font-medium">Download and manage pending orders</p>
-          </div>
+          <AdminPageHeaderBanner
+            className="flex-1"
+            title="Order Management"
+            subtitle="Download and manage pending orders"
+          />
           <div className="flex gap-2">
             <Button variant="outline" onClick={handleExportPhoneNumbers} disabled={exporting}>
               {exporting ? (

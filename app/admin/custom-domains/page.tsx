@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Loader2, Plus, Pencil, Trash2 } from "lucide-react"
+import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
@@ -186,12 +187,11 @@ export default function CustomDomainsPage() {
     <DashboardLayout>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">Custom Domains</h1>
-            <p className="text-sm text-muted-foreground">
-              Point a domain you own at one or more services, with its own name/logo/color. Accounts, wallet, and orders stay shared with the main site.
-            </p>
-          </div>
+          <AdminPageHeaderBanner
+            className="flex-1"
+            title="Custom Domains"
+            subtitle="Point a domain you own at one or more services, with its own name/logo/color. Accounts, wallet, and orders stay shared with the main site."
+          />
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
               <Button onClick={openCreate}><Plus className="w-4 h-4 mr-2" /> Add Domain</Button>
