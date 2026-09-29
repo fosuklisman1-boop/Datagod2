@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react"
 import { supabase } from "@/lib/supabase"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -10,8 +9,9 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { Plus, Trash2, Copy, Check, RefreshCw, KeyRound } from "lucide-react"
+import { Plus, Trash2, Copy, Check, RefreshCw, KeyRound, Loader2, Zap } from "lucide-react"
 import { toast } from "sonner"
+import { BASE_URL } from "@/lib/api-docs-registry"
 
 interface ApiKey {
   id: string
@@ -31,6 +31,15 @@ export function DeveloperKeysCard() {
   const [generating, setGenerating] = useState(false)
   const [generatedKey, setGeneratedKey] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+
+  // "Try it" -- a real call to GET /api/v1/balance. We never store a key's
+  // raw secret (only its hash), so this only works with a key the user has
+  // in hand right now: either the one just generated above, or one they
+  // paste in themselves. Not a sandbox -- it hits the real live endpoint
+  // and returns the real wallet balance.
+  const [testKey, setTestKey] = useState("")
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<{ ok: boolean; body: string } | null>(null)
 
   const authHeader = async (): Promise<Record<string, string>> => {
     const { data: { session } } = await supabase.auth.getSession()
@@ -105,32 +114,59 @@ export function DeveloperKeysCard() {
     }
   }
 
+  const runBalanceTest = async (key: string) => {
+    if (!key.trim() || testing) return
+    setTesting(true)
+    setTestResult(null)
+    try {
+      const res = await fetch(`${BASE_URL}/api/v1/balance`, {
+        headers: { "X-API-Key": key.trim() },
+      })
+      const body = await res.text()
+      setTestResult({ ok: res.ok, body })
+    } catch {
+      setTestResult({ ok: false, body: '{ "success": false, "error": "Request failed — check your network connection" }' })
+    } finally {
+      setTesting(false)
+    }
+  }
+
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2"><KeyRound className="w-4 h-4" /> Your API Keys</CardTitle>
-            <CardDescription>Generate keys to authenticate requests to the Datagod API ({activeCount}/{MAX_ACTIVE_KEYS} active).</CardDescription>
-          </div>
-          <Button variant="outline" size="sm" onClick={fetchKeys} disabled={loading}>
-            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
+    <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="flex items-center gap-2 text-sm font-bold text-foreground"><KeyRound className="w-4 h-4 text-primary" /> Your API Keys</p>
+          <p className="text-xs text-muted-foreground">Generate keys to authenticate requests ({activeCount}/{MAX_ACTIVE_KEYS} active).</p>
         </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
+        <Button variant="outline" size="sm" className="rounded-full shrink-0" onClick={fetchKeys} disabled={loading}>
+          <RefreshCw className={`w-4 h-4 mr-1.5 ${loading ? "animate-spin" : ""}`} />
+          Refresh
+        </Button>
+      </div>
+
+      <div className="mt-4 space-y-4">
         {generatedKey && (
-          <div role="status" className="rounded-lg border border-success/30 bg-success/5 p-4 space-y-2">
+          <div role="status" className="rounded-2xl border border-success/30 bg-success/5 p-4 space-y-3">
             <p className="text-sm font-semibold text-success">Copy your new key now — it won't be shown again.</p>
             <div className="flex items-center gap-2">
-              <code className="flex-1 text-xs bg-background rounded px-3 py-2 border font-mono break-all">{generatedKey}</code>
-              <Button size="sm" variant="outline" onClick={copyKey}>
+              <code className="flex-1 text-xs bg-background rounded-lg px-3 py-2 border font-mono break-all">{generatedKey}</code>
+              <Button size="sm" variant="outline" className="shrink-0 rounded-full" onClick={copyKey}>
                 {copied ? <Check className="w-3.5 h-3.5 mr-1.5" /> : <Copy className="w-3.5 h-3.5 mr-1.5" />}
                 {copied ? "Copied" : "Copy"}
               </Button>
             </div>
-            <Button size="sm" variant="ghost" onClick={() => setGeneratedKey(null)}>Dismiss</Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                className="rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
+                onClick={() => { setTestKey(generatedKey); runBalanceTest(generatedKey) }}
+                disabled={testing}
+              >
+                {testing ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Zap className="w-3.5 h-3.5 mr-1.5" />}
+                Test this key now
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setGeneratedKey(null)}>Dismiss</Button>
+            </div>
           </div>
         )}
 
@@ -142,7 +178,11 @@ export function DeveloperKeysCard() {
             onKeyDown={(e) => e.key === "Enter" && generateKey()}
             disabled={generating || activeCount >= MAX_ACTIVE_KEYS}
           />
-          <Button onClick={generateKey} disabled={generating || !newKeyName.trim() || activeCount >= MAX_ACTIVE_KEYS}>
+          <Button
+            onClick={generateKey}
+            disabled={generating || !newKeyName.trim() || activeCount >= MAX_ACTIVE_KEYS}
+            className="shrink-0 rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
+          >
             <Plus className="w-4 h-4 mr-1.5" />
             {generating ? "Generating..." : "Generate"}
           </Button>
@@ -151,22 +191,22 @@ export function DeveloperKeysCard() {
           <p className="text-xs text-muted-foreground">You've reached the {MAX_ACTIVE_KEYS}-key limit — revoke one to generate another.</p>
         )}
 
-        <div className="divide-y rounded-lg border">
+        <div className="divide-y rounded-2xl border border-border overflow-hidden">
           {loading ? (
             <div className="p-6 text-center text-sm text-muted-foreground">Loading...</div>
           ) : keys.length === 0 ? (
             <div className="p-6 text-center text-sm text-muted-foreground">No API keys yet. Generate your first key above.</div>
           ) : keys.map((key) => (
-            <div key={key.id} className="flex items-center justify-between p-3">
-              <div>
-                <div className="text-sm font-medium">{key.name}</div>
+            <div key={key.id} className="flex items-center justify-between gap-3 p-3 bg-card">
+              <div className="min-w-0">
+                <div className="text-sm font-medium truncate">{key.name}</div>
                 <div className="text-xs text-muted-foreground font-mono">{key.key_prefix}••••••••••••••••</div>
                 <div className="text-xs text-muted-foreground mt-0.5">
                   Created {new Date(key.created_at).toLocaleDateString()} ·{" "}
                   {key.last_used_at ? `Last used ${new Date(key.last_used_at).toLocaleDateString()}` : "Never used"}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
                 <Badge variant={key.is_active ? "secondary" : "outline"} className={key.is_active ? "bg-success/15 text-success border-border" : ""}>
                   {key.is_active ? "Active" : "Revoked"}
                 </Badge>
@@ -197,7 +237,38 @@ export function DeveloperKeysCard() {
             </div>
           ))}
         </div>
-      </CardContent>
-    </Card>
+
+        {/* Try it -- real, live GET /api/v1/balance. We never keep a raw key
+            server-side, so this always needs one typed/pasted in, not a
+            persistent "sandbox" session. */}
+        <div className="rounded-2xl border border-border bg-muted/30 p-4">
+          <p className="flex items-center gap-2 text-sm font-bold text-foreground"><Zap className="w-4 h-4 text-primary" /> Try it</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Runs a real <code className="bg-background px-1 py-0.5 rounded border font-mono">GET /api/v1/balance</code> with one of your keys — it only reads your wallet balance, it can't place an order or spend anything.
+          </p>
+          <div className="mt-3 flex gap-2">
+            <Input
+              placeholder="Paste one of your API keys"
+              value={testKey}
+              onChange={(e) => { setTestKey(e.target.value); setTestResult(null) }}
+              className="font-mono text-xs"
+            />
+            <Button
+              variant="outline"
+              className="shrink-0 rounded-full"
+              onClick={() => runBalanceTest(testKey)}
+              disabled={testing || !testKey.trim()}
+            >
+              {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : "Run test"}
+            </Button>
+          </div>
+          {testResult && (
+            <pre className={`mt-3 rounded-lg border p-3 text-xs overflow-x-auto font-mono ${testResult.ok ? "border-success/30 bg-success/5" : "border-destructive/30 bg-destructive/5"}`}>
+              {testResult.body}
+            </pre>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }
