@@ -50,6 +50,7 @@ import { AirtimeStorefrontForm } from "@/components/shop/AirtimeStorefrontForm"
 import { ResultsCheckerStorefrontForm } from "@/components/shop/ResultsCheckerStorefrontForm"
 import { ResultsCheckServiceForm } from "@/components/shop/ResultsCheckServiceForm"
 import { VoucherLookup } from "@/components/shop/VoucherLookup"
+import { SubAgentRequestForm } from "@/components/shop/SubAgentRequestForm"
 import TurnstileWidget from "@/components/shop/TurnstileWidget"
 import HoneypotField from "@/components/shop/HoneypotField"
 import { toast } from "sonner"
@@ -1412,6 +1413,14 @@ export default function ShopStorefront() {
                         <p className="text-foreground">24/7 Support Available</p>
                       </div>
                     </div>
+                  </CardContent>
+                </Card>
+
+                {/* Become a sub-agent under this shop — customer-initiated
+                    request queue, reviewed by the shop owner in their dashboard. */}
+                <Card className="border-0 shadow-md">
+                  <CardContent className="pt-6">
+                    <SubAgentRequestForm shopSlug={shopSlug} />
                   </CardContent>
                 </Card>
 

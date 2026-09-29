@@ -47,10 +47,22 @@ interface Invite {
   expires_at: string
 }
 
+interface SubAgentRequest {
+  id: string
+  requester_name: string
+  requester_phone: string
+  requester_email: string | null
+  message: string | null
+  status: "pending" | "approved" | "rejected"
+  created_at: string
+}
+
 export default function SubAgentsPage() {
   const [loading, setLoading] = useState(true)
   const [subAgents, setSubAgents] = useState<SubAgent[]>([])
   const [invites, setInvites] = useState<Invite[]>([])
+  const [requests, setRequests] = useState<SubAgentRequest[]>([])
+  const [reviewingId, setReviewingId] = useState<string | null>(null)
   const [shopId, setShopId] = useState<string | null>(null)
   const [stats, setStats] = useState({
     totalSubAgents: 0,
@@ -122,11 +134,43 @@ export default function SubAgentsPage() {
         const data = await response.json()
         setInvites(data.invites || [])
       }
+
+      // Get sub-agent requests (customer-submitted, awaiting owner review)
+      const reqResponse = await fetch("/api/shop/sub-agent-requests", {
+        headers: { Authorization: `Bearer ${session.access_token}` }
+      })
+      if (reqResponse.ok) {
+        const data = await reqResponse.json()
+        setRequests(data.requests || [])
+      }
     } catch (error) {
       console.error("Error loading data:", error)
       toast.error("Failed to load data")
     } finally {
       setLoading(false)
+    }
+  }
+
+  const reviewRequest = async (id: string, action: "approve" | "reject") => {
+    try {
+      setReviewingId(id)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) return
+
+      const response = await fetch(`/api/shop/sub-agent-requests/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ action })
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || "Failed to review request")
+
+      toast.success(action === "approve" ? "Approved — invite sent to the requester." : "Request declined.")
+      loadData()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to review request")
+    } finally {
+      setReviewingId(null)
     }
   }
 
@@ -270,6 +314,54 @@ export default function SubAgentsPage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Pending Requests — customer-submitted from the storefront's
+            "Become a Sub-Agent" card, awaiting owner approval. */}
+        {requests.filter((r) => r.status === "pending").length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Clock className="w-5 h-5" />
+                Pending Requests
+              </CardTitle>
+              <CardDescription>People who asked to become a sub-agent from your storefront</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {requests.filter((r) => r.status === "pending").map((r) => (
+                <div key={r.id} className="border rounded-lg p-4">
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold">{r.requester_name}</p>
+                      <p className="text-sm text-muted-foreground">{r.requester_phone}{r.requester_email ? ` · ${r.requester_email}` : ""}</p>
+                      {r.message && <p className="mt-1 text-sm text-foreground">&quot;{r.message}&quot;</p>}
+                      <p className="text-xs text-muted-foreground mt-1">{new Date(r.created_at).toLocaleDateString()}</p>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <Button
+                        size="sm"
+                        onClick={() => reviewRequest(r.id, "approve")}
+                        disabled={reviewingId === r.id}
+                        className="bg-success hover:bg-success/90 text-white"
+                      >
+                        {reviewingId === r.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-1" />}
+                        Approve
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => reviewRequest(r.id, "reject")}
+                        disabled={reviewingId === r.id}
+                      >
+                        <XCircle className="w-4 h-4 mr-1" />
+                        Decline
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Sub-Agents List */}
         <Card>
