@@ -225,7 +225,7 @@ export default async function RootLayout({
         {maintenanceMode ? (
           <MaintenanceScreen />
         ) : (
-          <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} disableTransitionOnChange nonce={nonce}>
+          <ThemeProvider attribute="class" defaultTheme="light" forcedTheme="light" enableSystem={false} disableTransitionOnChange nonce={nonce}>
             <DomainBrandingProvider branding={domainBranding}>
               <AuthProvider>
                 <ServiceWorkerRegister />
