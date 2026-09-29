@@ -100,7 +100,11 @@ export default function ShopStorefront() {
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null)
   const [networkLogos, setNetworkLogos] = useState<Record<string, string>>({})
-  const [activeTab, setActiveTab] = useState<"home" | "products" | "airtime" | "vouchers" | "about" | "track-order">("home")
+  const [activeTab, setActiveTab] = useState<"home" | "about" | "track-order">("home")
+  // Which service's content shows below the persistent "Choose a Service"
+  // picker -- picking a service no longer navigates away from it (previously
+  // it did, via a separate activeTab value, which made the picker disappear).
+  const [selectedService, setSelectedService] = useState<"data" | "airtime" | "vouchers">("data")
   const [rcTab, setRcTab] = useState<"buy" | "retrieve" | "check">("buy")
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [orderData, setOrderData] = useState({
@@ -828,14 +832,15 @@ export default function ShopStorefront() {
   }
 
   // Hamburger menu — grouped by real destination. Each item maps directly onto
-  // the existing activeTab/rcTab state (no new routes/tabs): "Results Checker"
-  // and "Retrieve Voucher" both land on the real vouchers tab, just pre-set to
-  // a different rcTab sub-view. No "Mashup" entry — confirmed no real product
-  // behind it (same call as the Pricing page earlier this session).
+  // the existing activeTab/selectedService/rcTab state (no new routes/tabs):
+  // "Results Checker" and "Retrieve Voucher" both land on the real vouchers
+  // service, just pre-set to a different rcTab sub-view. No "Mashup" entry —
+  // confirmed no real product behind it (same call as the Pricing page
+  // earlier this session).
   const productItems: Array<{ label: string; icon: React.ReactNode; onClick?: () => void; href?: string; isActive: boolean }> = [
-    { label: "Data Packages", icon: <ShoppingCart className="w-4 h-4" />, onClick: () => { setActiveTab("products"); setSidebarOpen(false) }, isActive: activeTab === "products" },
-    { label: "Airtime Recharge", icon: <Zap className="w-4 h-4" />, onClick: () => { setActiveTab("airtime"); setSidebarOpen(false) }, isActive: activeTab === "airtime" },
-    { label: "Results Checker", icon: <GraduationCap className="w-4 h-4" />, onClick: () => { setActiveTab("vouchers"); setRcTab("buy"); setSidebarOpen(false) }, isActive: activeTab === "vouchers" && rcTab === "buy" },
+    { label: "Data Packages", icon: <ShoppingCart className="w-4 h-4" />, onClick: () => { setActiveTab("home"); setSelectedService("data"); setSidebarOpen(false) }, isActive: activeTab === "home" && selectedService === "data" },
+    { label: "Airtime Recharge", icon: <Zap className="w-4 h-4" />, onClick: () => { setActiveTab("home"); setSelectedService("airtime"); setSidebarOpen(false) }, isActive: activeTab === "home" && selectedService === "airtime" },
+    { label: "Results Checker", icon: <GraduationCap className="w-4 h-4" />, onClick: () => { setActiveTab("home"); setSelectedService("vouchers"); setRcTab("buy"); setSidebarOpen(false) }, isActive: activeTab === "home" && selectedService === "vouchers" && rcTab === "buy" },
     ...(shop?.afa_price != null ? [{
       label: "AFA Registration", icon: <IdCard className="w-4 h-4" />,
       href: shop.subdomain ? `${shopOrigin(shop.subdomain)}/afa` : `/shop/${shopSlug}/afa`,
@@ -844,7 +849,7 @@ export default function ShopStorefront() {
   ]
   const accountItems: Array<{ label: string; icon: React.ReactNode; onClick: () => void; isActive: boolean }> = [
     { label: "Track My Orders", icon: <Package className="w-4 h-4" />, onClick: () => { setActiveTab("track-order"); setSidebarOpen(false) }, isActive: activeTab === "track-order" },
-    { label: "Retrieve Voucher", icon: <GraduationCap className="w-4 h-4" />, onClick: () => { setActiveTab("vouchers"); setRcTab("retrieve"); setSidebarOpen(false) }, isActive: activeTab === "vouchers" && rcTab === "retrieve" },
+    { label: "Retrieve Voucher", icon: <GraduationCap className="w-4 h-4" />, onClick: () => { setActiveTab("home"); setSelectedService("vouchers"); setRcTab("retrieve"); setSidebarOpen(false) }, isActive: activeTab === "home" && selectedService === "vouchers" && rcTab === "retrieve" },
     { label: "About Shop & Terms", icon: <AlertCircle className="w-4 h-4" />, onClick: () => { setActiveTab("about"); setSidebarOpen(false) }, isActive: activeTab === "about" },
   ]
 
@@ -1036,8 +1041,11 @@ export default function ShopStorefront() {
             <p className="mt-2 text-white/90 break-words text-sm sm:text-base max-w-2xl mx-auto">{shop.description}</p>
           )}
         </div>
-        <SectionDivider style={shop.section_divider_style || "geometric-zigzag"} color={accentColor} />
       </div>
+      {/* Divider sits OUTSIDE the colored hero div, not inside it -- its own
+          background is the page's, so the shape actually cuts against the
+          hero color instead of disappearing against a same-color backdrop. */}
+      <SectionDivider style={shop.section_divider_style || "geometric-zigzag"} color={accentColor} />
 
       <div className="max-w-7xl mx-auto px-4">
         {/* Global Maintenance Alert */}
@@ -1055,7 +1063,12 @@ export default function ShopStorefront() {
         <div className="flex flex-col lg:flex-row gap-6">
           {/* Main Content */}
           <div className="flex-1 min-w-0">
-            {/* Home — service picker landing view */}
+            {/* Home — persistent service-picker page. "Choose a Service" and
+                the Need Help / community / USSD cards stay on screen at all
+                times; picking a service only changes what renders below,
+                matching the reference's single continuous-scroll layout
+                instead of the earlier tab-switch (which made the picker
+                disappear once a service was chosen). */}
             {activeTab === "home" && (
               <div className="space-y-6 animate-in fade-in duration-500">
                 {(shop.phone || normalizeWhatsAppLink(shopSettings?.whatsapp_link)) && (
@@ -1092,24 +1105,6 @@ export default function ShopStorefront() {
                     Join our community
                   </a>
                 )}
-                <div>
-                  <p className="mb-3 text-center text-xs font-bold uppercase tracking-wide text-muted-foreground">Choose a Service</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    {productItems.map((item) =>
-                      item.href ? (
-                        <a key={item.label} href={item.href} className="flex flex-col items-center gap-2 rounded-2xl border border-border bg-card p-6 text-center shadow-sm transition-shadow hover:shadow-md">
-                          <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[var(--shop-accent)]/10 text-[var(--shop-accent)]">{item.icon}</span>
-                          <span className="text-xs font-bold uppercase tracking-wide text-foreground">{item.label}</span>
-                        </a>
-                      ) : (
-                        <button key={item.label} onClick={item.onClick} className="flex flex-col items-center gap-2 rounded-2xl border border-border bg-card p-6 text-center shadow-sm transition-shadow hover:shadow-md">
-                          <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[var(--shop-accent)]/10 text-[var(--shop-accent)]">{item.icon}</span>
-                          <span className="text-xs font-bold uppercase tracking-wide text-foreground">{item.label}</span>
-                        </button>
-                      )
-                    )}
-                  </div>
-                </div>
                 {showUssdCard && ussdDialCode && shopUssdCode && (
                   <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
                     <div className="flex items-start gap-3">
@@ -1126,56 +1121,30 @@ export default function ShopStorefront() {
                     </div>
                   </div>
                 )}
-              </div>
-            )}
-
-            {/* Products Tab (Data, Airtime & Vouchers) */}
-            {(activeTab === "products" || activeTab === "airtime" || activeTab === "vouchers") && (
-              <div className="space-y-8">
-                {/* Sub-tab Switcher */}
-                <div className="flex p-1.5 bg-muted rounded-2xl w-full sm:w-fit mx-auto sm:mx-0 shadow-inner">
-                  <button
-                    onClick={() => setActiveTab("products")}
-                    className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all duration-300 ${activeTab === "products"
-                        ? "bg-card text-[var(--shop-accent)] shadow-md scale-[1.02]"
-                        : "text-muted-foreground hover:text-foreground hover:bg-card/50"
-                      }`}
-                  >
-                    <ShoppingCart className="w-5 h-5" />
-                    Buy Data
-                  </button>
-                  <button
-                    onClick={() => setActiveTab("airtime")}
-                    className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all duration-300 ${activeTab === "airtime"
-                        ? "bg-card text-[var(--shop-accent)] shadow-md scale-[1.02]"
-                        : "text-muted-foreground hover:text-foreground hover:bg-card/50"
-                      }`}
-                  >
-                    <Zap className="w-5 h-5" />
-                    Buy Airtime
-                  </button>
-                  <button
-                    onClick={() => setActiveTab("vouchers")}
-                    className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all duration-300 ${activeTab === "vouchers"
-                        ? "bg-card text-[var(--shop-accent)] shadow-md scale-[1.02]"
-                        : "text-muted-foreground hover:text-foreground hover:bg-card/50"
-                      }`}
-                  >
-                    <GraduationCap className="w-5 h-5" />
-                    Results Vouchers
-                  </button>
-                  {shop?.afa_price != null && (
-                    <a
-                      href={shop.subdomain ? `${shopOrigin(shop.subdomain)}/afa` : `/shop/${shopSlug}/afa`}
-                      className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all duration-300 text-muted-foreground hover:text-foreground hover:bg-card/50"
-                    >
-                      <IdCard className="w-5 h-5" />
-                      AFA Registration
-                    </a>
-                  )}
+                <div>
+                  <p className="mb-3 text-center text-xs font-bold uppercase tracking-wide text-muted-foreground">Choose a Service</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {productItems.map((item) =>
+                      item.href ? (
+                        <a key={item.label} href={item.href} className="flex flex-col items-center gap-2 rounded-2xl border border-border bg-card p-6 text-center shadow-sm transition-shadow hover:shadow-md">
+                          <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[var(--shop-accent)]/10 text-[var(--shop-accent)]">{item.icon}</span>
+                          <span className="text-xs font-bold uppercase tracking-wide text-foreground">{item.label}</span>
+                        </a>
+                      ) : (
+                        <button
+                          key={item.label}
+                          onClick={item.onClick}
+                          className={`flex flex-col items-center gap-2 rounded-2xl border-2 bg-card p-6 text-center shadow-sm transition-shadow hover:shadow-md ${item.isActive ? "border-[var(--shop-accent)]" : "border-border"}`}
+                        >
+                          <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[var(--shop-accent)]/10 text-[var(--shop-accent)]">{item.icon}</span>
+                          <span className="text-xs font-bold uppercase tracking-wide text-foreground">{item.label}</span>
+                        </button>
+                      )
+                    )}
+                  </div>
                 </div>
 
-                {activeTab === "products" ? (
+                {selectedService === "data" ? (
                   /* Data Packages Section */
                   <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <div>
@@ -1390,7 +1359,7 @@ export default function ShopStorefront() {
                       )}
                     </div>
                   </div>
-                ) : activeTab === "airtime" ? (
+                ) : selectedService === "airtime" ? (
                   /* Airtime Form Section */
                   <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <AirtimeStorefrontForm shop={shop} shopSlug={shopSlug} />
