@@ -165,6 +165,7 @@ export async function PUT(request: NextRequest) {
       'ussd_shop_session_price',
       'ussd_shop_min_sessions',
       'ussd_shop_max_sessions',
+      'storefront_show_ussd_card',
     ]
 
     // Auto-stamp terms_last_updated when terms_content changes

@@ -28,6 +28,7 @@ const SAFE_APP_COLUMNS = [
   "ussd_shop_min_sessions",
   "ussd_shop_max_sessions",
   "whatsapp_shop_activation_fee",
+  "storefront_show_ussd_card",
 ] as const
 
 export async function GET() {

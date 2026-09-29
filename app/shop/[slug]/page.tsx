@@ -44,7 +44,8 @@ import {
   List,
   LayoutGrid,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Smartphone
 } from "lucide-react"
 import { AirtimeStorefrontForm } from "@/components/shop/AirtimeStorefrontForm"
 import { ResultsCheckerStorefrontForm } from "@/components/shop/ResultsCheckerStorefrontForm"
@@ -136,6 +137,11 @@ export default function ShopStorefront() {
   const [momoOtpInput, setMomoOtpInput] = useState("")
   const [momoOtpSubmitting, setMomoOtpSubmitting] = useState(false)
   const [globalOrderingEnabled, setGlobalOrderingEnabled] = useState(true)
+  // USSD storefront card — admin-gated (storefront_show_ussd_card) AND only
+  // rendered once this shop's own USSD PIN is confirmed active+funded.
+  const [showUssdCard, setShowUssdCard] = useState(false)
+  const [ussdDialCode, setUssdDialCode] = useState<string | null>(null)
+  const [shopUssdCode, setShopUssdCode] = useState<string | null>(null)
   const [termsContent, setTermsContent] = useState("")
   const [termsLastUpdated, setTermsLastUpdated] = useState<string | null>(null)
   const packagesRef = useRef<HTMLDivElement>(null)
@@ -200,6 +206,22 @@ export default function ShopStorefront() {
         setDirectCharge(d.direct_charge === true)
       })
       .catch(() => { setTurnstileEnabled(true); setOtpRequired(false); setDirectCharge(false) })
+
+    // USSD card: admin toggle (platform-wide) + this shop's own active PIN
+    // (per-shop, only exposed by the API when genuinely usable right now).
+    fetch("/api/public/config")
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d?.app_settings?.storefront_show_ussd_card === true) {
+          setShowUssdCard(true)
+          setUssdDialCode(d.app_settings.ussd_shop_dial_code || null)
+        }
+      })
+      .catch(() => {})
+    fetch(`/api/public/shop-ussd-code?shopSlug=${encodeURIComponent(shopSlug)}`)
+      .then(r => r.ok ? r.json() : { active: false, code: null })
+      .then(d => setShopUssdCode(d.active ? d.code : null))
+      .catch(() => {})
   }, [shopSlug])
 
   useEffect(() => {
@@ -712,11 +734,8 @@ export default function ShopStorefront() {
       return
     }
 
-    if (!orderData.customer_email.trim()) {
-      toast.error("Please enter your email")
-      return
-    }
-
+    // Email stays optional here (the server synthesizes a guest email from
+    // the phone number when left blank -- see app/api/shop/orders/create/route.ts).
     if (!validatePhoneNumberField(orderData.customer_phone, selectedPackage.packages.network, prefixMap)) {
       toast.error("Please enter a valid phone number")
       return
@@ -1076,6 +1095,22 @@ export default function ShopStorefront() {
                     )}
                   </div>
                 </div>
+                {showUssdCard && ussdDialCode && shopUssdCode && (
+                  <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+                    <div className="flex items-start gap-3">
+                      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[var(--shop-accent)]/10 text-[var(--shop-accent)]">
+                        <Smartphone className="w-5 h-5" />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-foreground">No internet? Order by USSD</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          Dial <span className="font-mono font-bold text-foreground">{ussdDialCode}</span>, then enter shop code{" "}
+                          <span className="font-mono font-bold text-foreground">{shopUssdCode}</span> to buy Data Bundle, Airtime or a Results Checker.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1500,6 +1535,16 @@ export default function ShopStorefront() {
                       {selectedPackage.packages.network} · {selectedPackage.packages.size}GB
                     </span>
                     <span className="font-black text-black/80">GH₵{total.toFixed(2)}</span>
+                  </div>
+
+                  <div>
+                    <Label>Full name</Label>
+                    <Input
+                      value={orderData.customer_name}
+                      onChange={(e) => setOrderData({ ...orderData, customer_name: e.target.value })}
+                      placeholder="e.g. Kwame Mensah"
+                      className="mt-1 bg-card"
+                    />
                   </div>
 
                   <div>
