@@ -123,7 +123,7 @@ export default function ShopProfilePage() {
         setOrderSmsEnabled(settingsRes.order_confirmation_sms_enabled !== false)
       }
       if (smsRes?.account) setSmsAccount(smsRes.account)
-      if (walletRes?.wallet) setWalletBalance(walletRes.wallet.balance || 0)
+      if (walletRes) setWalletBalance(walletRes.balance || 0)
     } catch (error) {
       console.error("Error loading shop profile:", error)
       toast.error(error instanceof Error ? error.message : "Failed to load shop profile")

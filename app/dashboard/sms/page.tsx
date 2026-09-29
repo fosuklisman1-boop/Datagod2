@@ -324,7 +324,7 @@ export default function SmsDashboardPage() {
           : null,
       ])
       setShop(userShop)
-      if (walletRes?.wallet) setWalletBalance(walletRes.wallet.balance || 0)
+      if (walletRes) setWalletBalance(walletRes.balance || 0)
       if (userShop?.id) {
         const bal = await shopProfitService.getShopBalanceFromTable(userShop.id).catch(() => null)
         setProfitBalance(bal?.available_balance || 0)
