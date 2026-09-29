@@ -38,7 +38,11 @@ import {
   X,
   ChevronLeft,
   IdCard,
-  Users2
+  Users2,
+  ShieldCheck,
+  AlertTriangle,
+  List,
+  LayoutGrid
 } from "lucide-react"
 import { AirtimeStorefrontForm } from "@/components/shop/AirtimeStorefrontForm"
 import { ResultsCheckerStorefrontForm } from "@/components/shop/ResultsCheckerStorefrontForm"
@@ -63,7 +67,7 @@ export default function ShopStorefront() {
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null)
   const [networkLogos, setNetworkLogos] = useState<Record<string, string>>({})
-  const [activeTab, setActiveTab] = useState<"products" | "airtime" | "vouchers" | "about" | "track-order">("products")
+  const [activeTab, setActiveTab] = useState<"home" | "products" | "airtime" | "vouchers" | "about" | "track-order">("home")
   const [rcTab, setRcTab] = useState<"buy" | "retrieve" | "check">("buy")
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [orderData, setOrderData] = useState({
@@ -100,6 +104,41 @@ export default function ShopStorefront() {
   const [termsContent, setTermsContent] = useState("")
   const [termsLastUpdated, setTermsLastUpdated] = useState<string | null>(null)
   const packagesRef = useRef<HTMLDivElement>(null)
+
+  // Standalone "check your MTN number" widget — reuses the same real, already-
+  // wired /api/verify-phone-live endpoint the checkout flow calls automatically
+  // (app/api/verify-phone-live/route.ts -> checkCustomerFacingVerification()).
+  // That check returns ONE combined verified/not-verified result across
+  // whichever providers admin has configured -- there's no per-"server"
+  // breakdown to show, so this only ever reports a single yes/no.
+  const [mtnCheckPhone, setMtnCheckPhone] = useState("")
+  const [mtnCheckStatus, setMtnCheckStatus] = useState<"idle" | "checking" | "verified" | "unverified" | "error">("idle")
+
+  // Package search + view mode — client-side over the already-fetched
+  // `packages` list, no new endpoint needed.
+  const [packageSearch, setPackageSearch] = useState("")
+  const [packageViewMode, setPackageViewMode] = useState<"grid" | "list">("grid")
+
+  const handleCheckMtnNumber = async () => {
+    const digits = mtnCheckPhone.replace(/\D/g, "")
+    if (!/^0?\d{9}$/.test(digits)) {
+      setMtnCheckStatus("error")
+      return
+    }
+    setMtnCheckStatus("checking")
+    try {
+      const res = await fetch("/api/verify-phone-live", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phones: [mtnCheckPhone] }),
+      })
+      const data = await res.json().catch(() => ({}))
+      const result = data?.results?.[0]
+      setMtnCheckStatus(result?.verified ? "verified" : "unverified")
+    } catch {
+      setMtnCheckStatus("error")
+    }
+  }
 
   const [showAnnouncement, setShowAnnouncement] = useState(false)
   const [activeAnnouncement, setActiveAnnouncement] = useState<{title: string, message: string} | null>(null)
@@ -716,15 +755,35 @@ export default function ShopStorefront() {
     )
   }
 
-  // Tab navigation items
-  const tabs: Array<{ id: "products" | "about" | "track-order", label: string, icon: React.ReactNode }> = [
-    { id: "products", label: "Shop Products", icon: <ShoppingCart className="w-4 h-4" /> },
-    { id: "track-order", label: "Track Order", icon: <Package className="w-4 h-4" /> },
-    { id: "about", label: "About Shop", icon: <AlertCircle className="w-4 h-4" /> },
+  // Hamburger menu — grouped by real destination. Each item maps directly onto
+  // the existing activeTab/rcTab state (no new routes/tabs): "Results Checker"
+  // and "Retrieve Voucher" both land on the real vouchers tab, just pre-set to
+  // a different rcTab sub-view. No "Mashup" entry — confirmed no real product
+  // behind it (same call as the Pricing page earlier this session).
+  const productItems: Array<{ label: string; icon: React.ReactNode; onClick?: () => void; href?: string; isActive: boolean }> = [
+    { label: "Data Packages", icon: <ShoppingCart className="w-4 h-4" />, onClick: () => { setActiveTab("products"); setSidebarOpen(false) }, isActive: activeTab === "products" },
+    { label: "Airtime Recharge", icon: <Zap className="w-4 h-4" />, onClick: () => { setActiveTab("airtime"); setSidebarOpen(false) }, isActive: activeTab === "airtime" },
+    { label: "Results Checker", icon: <GraduationCap className="w-4 h-4" />, onClick: () => { setActiveTab("vouchers"); setRcTab("buy"); setSidebarOpen(false) }, isActive: activeTab === "vouchers" && rcTab === "buy" },
+    ...(shop?.afa_price != null ? [{
+      label: "AFA Registration", icon: <IdCard className="w-4 h-4" />,
+      href: shop.subdomain ? `${shopOrigin(shop.subdomain)}/afa` : `/shop/${shopSlug}/afa`,
+      isActive: false,
+    }] : []),
+  ]
+  const accountItems: Array<{ label: string; icon: React.ReactNode; onClick: () => void; isActive: boolean }> = [
+    { label: "Track My Orders", icon: <Package className="w-4 h-4" />, onClick: () => { setActiveTab("track-order"); setSidebarOpen(false) }, isActive: activeTab === "track-order" },
+    { label: "Retrieve Voucher", icon: <GraduationCap className="w-4 h-4" />, onClick: () => { setActiveTab("vouchers"); setRcTab("retrieve"); setSidebarOpen(false) }, isActive: activeTab === "vouchers" && rcTab === "retrieve" },
+    { label: "About Shop & Terms", icon: <AlertCircle className="w-4 h-4" />, onClick: () => { setActiveTab("about"); setSidebarOpen(false) }, isActive: activeTab === "about" },
   ]
 
+  // Every accent on this storefront (buttons, selected states, badges) follows
+  // the shop owner's own branding (Shop Profile > Branding > custom_color), not
+  // Datagod's platform navy -- this page renders a different shop's brand, not
+  // our own UI. Falls back to the platform navy only when a shop hasn't set one.
+  const accentColor = shop?.custom_color || "#1b388b"
+
   return (
-    <div className="min-h-screen bg-card">
+    <div className="min-h-screen bg-card" style={{ "--shop-accent": accentColor } as React.CSSProperties}>
       {/* Breadcrumb Schema */}
       <script
         type="application/ld+json"
@@ -784,20 +843,20 @@ export default function ShopStorefront() {
             {/* 3-Line Hamburger Button */}
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="p-2 hover:bg-primary/10 text-foreground hover:text-primary rounded-lg transition-all duration-200 hover:shadow-md"
+              className="p-2 hover:bg-[var(--shop-accent)]/10 text-foreground hover:text-[var(--shop-accent)] rounded-lg transition-all duration-200 hover:shadow-md"
               aria-label="Toggle navigation menu"
               aria-expanded={sidebarOpen}
             >
               <AlignJustify className="w-6 h-6" />
             </button>
 
-            {/* Shop Info */}
-            <div className="flex items-center gap-3">
-              <Store className="w-6 h-6 text-primary hidden sm:block" />
+            {/* Shop Info — click to return to the service-picker home view */}
+            <button onClick={() => setActiveTab("home")} className="flex items-center gap-3 min-w-0">
+              <Store className="w-6 h-6 text-[var(--shop-accent)] hidden sm:block" />
               <h1 className="text-xl sm:text-2xl font-bold text-foreground truncate">
                 {shop.shop_name || shop.name || "Store"}
               </h1>
-            </div>
+            </button>
           </div>
 
           {/* Shop Logo */}
@@ -822,33 +881,59 @@ export default function ShopStorefront() {
 
       {/* Collapsible Sidebar */}
       <aside
-        className={`fixed left-0 top-16 h-[calc(100vh-64px)] bg-card border-r border-border w-64 transform transition-all duration-300 ease-in-out z-30 shadow-lg ${sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        className={`fixed left-0 top-0 h-screen bg-card border-r border-border w-72 transform transition-all duration-300 ease-in-out z-30 shadow-lg overflow-y-auto ${sidebarOpen ? "translate-x-0" : "-translate-x-full"
           }`}
       >
-        <div className="sticky top-0 overflow-y-auto h-full">
-          <Card className="border-0 shadow-none rounded-none h-full">
-            <CardContent className="p-4">
-              <nav className="space-y-1">
-                {tabs.map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => {
-                      setActiveTab(tab.id)
-                      setSidebarOpen(false)
-                    }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all duration-200 ${activeTab === tab.id
-                      ? "bg-primary/10 text-primary border-l-4 border-l-violet-600 shadow-sm"
-                      : "text-foreground hover:bg-accent border-l-4 border-l-transparent"
-                      }`}
-                  >
-                    {tab.icon}
-                    <span>{tab.label}</span>
-                  </button>
-                ))}
-              </nav>
-            </CardContent>
-          </Card>
+        <div className="relative p-6 text-center text-white" style={{ backgroundColor: "var(--shop-accent)" }}>
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className="absolute right-3 top-3 grid h-8 w-8 place-items-center rounded-full bg-white/15 hover:bg-white/25"
+            aria-label="Close menu"
+          >
+            <X className="w-4 h-4" />
+          </button>
+          <div className="mx-auto mb-2 grid h-12 w-12 place-items-center rounded-2xl bg-white/15">
+            <ShoppingCart className="w-6 h-6" />
+          </div>
+          <p className="text-lg font-bold">{shop.shop_name || shop.name || "Store"}</p>
         </div>
+        <nav className="space-y-5 p-4">
+          <div>
+            <p className="mb-1.5 px-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Products</p>
+            <div className="space-y-1">
+              {productItems.map((item) => {
+                const className = `w-full flex items-center justify-between gap-3 px-3 py-3 rounded-xl text-sm font-semibold transition-colors ${item.isActive ? "bg-[var(--shop-accent)]/10 text-[var(--shop-accent)]" : "text-foreground hover:bg-accent"
+                  }`
+                return item.href ? (
+                  <a key={item.label} href={item.href} className={className}>
+                    <span className="flex items-center gap-3">{item.icon} {item.label}</span>
+                  </a>
+                ) : (
+                  <button key={item.label} onClick={item.onClick} className={className}>
+                    <span className="flex items-center gap-3">{item.icon} {item.label}</span>
+                    {item.isActive && <CheckCircle2 className="w-4 h-4" />}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <div className="border-t border-border pt-4">
+            <p className="mb-1.5 px-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Account</p>
+            <div className="space-y-1">
+              {accountItems.map((item) => (
+                <button
+                  key={item.label}
+                  onClick={item.onClick}
+                  className={`w-full flex items-center justify-between gap-3 px-3 py-3 rounded-xl text-sm font-semibold transition-colors ${item.isActive ? "bg-[var(--shop-accent)]/10 text-[var(--shop-accent)]" : "text-foreground hover:bg-accent"
+                    }`}
+                >
+                  <span className="flex items-center gap-3">{item.icon} {item.label}</span>
+                  {item.isActive && <CheckCircle2 className="w-4 h-4" />}
+                </button>
+              ))}
+            </div>
+          </div>
+        </nav>
       </aside>
       {shop.banner_url && (
         <div className="h-40 relative overflow-hidden">
@@ -948,6 +1033,38 @@ export default function ShopStorefront() {
         <div className="flex flex-col lg:flex-row gap-6">
           {/* Main Content */}
           <div className="flex-1 min-w-0">
+            {/* Home — service picker landing view */}
+            {activeTab === "home" && (
+              <div className="space-y-6 animate-in fade-in duration-500">
+                {shop.phone && (
+                  <div className="rounded-2xl border border-border bg-card p-4 text-center shadow-sm">
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Need Help?</p>
+                    <a href={`tel:${shop.phone}`} className="mt-1 flex items-center justify-center gap-2 text-lg font-bold text-foreground">
+                      <MessageCircle className="w-4 h-4 text-[var(--shop-accent)]" /> {shop.phone}
+                    </a>
+                  </div>
+                )}
+                <div>
+                  <p className="mb-3 text-center text-xs font-bold uppercase tracking-wide text-muted-foreground">Choose a Service</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {productItems.map((item) =>
+                      item.href ? (
+                        <a key={item.label} href={item.href} className="flex flex-col items-center gap-2 rounded-2xl border border-border bg-card p-6 text-center shadow-sm transition-shadow hover:shadow-md">
+                          <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[var(--shop-accent)]/10 text-[var(--shop-accent)]">{item.icon}</span>
+                          <span className="text-xs font-bold uppercase tracking-wide text-foreground">{item.label}</span>
+                        </a>
+                      ) : (
+                        <button key={item.label} onClick={item.onClick} className="flex flex-col items-center gap-2 rounded-2xl border border-border bg-card p-6 text-center shadow-sm transition-shadow hover:shadow-md">
+                          <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[var(--shop-accent)]/10 text-[var(--shop-accent)]">{item.icon}</span>
+                          <span className="text-xs font-bold uppercase tracking-wide text-foreground">{item.label}</span>
+                        </button>
+                      )
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Products Tab (Data, Airtime & Vouchers) */}
             {(activeTab === "products" || activeTab === "airtime" || activeTab === "vouchers") && (
               <div className="space-y-8">
@@ -956,7 +1073,7 @@ export default function ShopStorefront() {
                   <button
                     onClick={() => setActiveTab("products")}
                     className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all duration-300 ${activeTab === "products"
-                        ? "bg-card text-primary shadow-md scale-[1.02]"
+                        ? "bg-card text-[var(--shop-accent)] shadow-md scale-[1.02]"
                         : "text-muted-foreground hover:text-foreground hover:bg-card/50"
                       }`}
                   >
@@ -966,7 +1083,7 @@ export default function ShopStorefront() {
                   <button
                     onClick={() => setActiveTab("airtime")}
                     className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all duration-300 ${activeTab === "airtime"
-                        ? "bg-card text-primary shadow-md scale-[1.02]"
+                        ? "bg-card text-[var(--shop-accent)] shadow-md scale-[1.02]"
                         : "text-muted-foreground hover:text-foreground hover:bg-card/50"
                       }`}
                   >
@@ -976,7 +1093,7 @@ export default function ShopStorefront() {
                   <button
                     onClick={() => setActiveTab("vouchers")}
                     className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all duration-300 ${activeTab === "vouchers"
-                        ? "bg-card text-primary shadow-md scale-[1.02]"
+                        ? "bg-card text-[var(--shop-accent)] shadow-md scale-[1.02]"
                         : "text-muted-foreground hover:text-foreground hover:bg-card/50"
                       }`}
                   >
@@ -998,7 +1115,7 @@ export default function ShopStorefront() {
                   /* Data Packages Section */
                   <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <div>
-                      <h2 className="text-2xl font-black mb-6 text-foreground border-l-4 border-primary pl-4">Fast Data Packages</h2>
+                      <h2 className="text-2xl font-black mb-6 text-foreground border-l-4 border-[var(--shop-accent)] pl-4">Fast Data Packages</h2>
 
                       {packages.length === 0 ? (
                         <Card className="bg-card/50 border-2 border-dashed border-border backdrop-blur-sm">
@@ -1019,12 +1136,12 @@ export default function ShopStorefront() {
                                   key={network}
                                   onClick={() => setSelectedNetwork(network as string)}
                                   className={`group cursor-pointer hover:shadow-2xl transition-all duration-500 hover:-translate-y-2 overflow-hidden border-0 ${selectedNetwork === network
-                                      ? "ring-4 ring-primary shadow-xl"
+                                      ? "ring-4 ring-[var(--shop-accent)] shadow-xl"
                                       : "shadow-md bg-card/80"
                                     }`}
                                 >
                                   <div className="flex flex-col h-full relative">
-                                    <div className={`h-24 sm:h-32 w-full flex items-center justify-center relative overflow-hidden transition-colors ${selectedNetwork === network ? 'bg-primary' : 'bg-muted/40 group-hover:bg-muted'}`}>
+                                    <div className={`h-24 sm:h-32 w-full flex items-center justify-center relative overflow-hidden transition-colors ${selectedNetwork === network ? 'bg-[var(--shop-accent)]' : 'bg-muted/40 group-hover:bg-muted'}`}>
                                       <img
                                         src={getNetworkLogo(network as string)}
                                         alt={network}
@@ -1033,12 +1150,12 @@ export default function ShopStorefront() {
                                     </div>
 
                                     <div className="flex-1 p-3 text-center">
-                                      <h3 className={`text-sm sm:text-base font-black uppercase tracking-tight ${selectedNetwork === network ? 'text-primary' : 'text-foreground'}`}>{network}</h3>
+                                      <h3 className={`text-sm sm:text-base font-black uppercase tracking-tight ${selectedNetwork === network ? 'text-[var(--shop-accent)]' : 'text-foreground'}`}>{network}</h3>
                                       <p className="text-[10px] sm:text-xs text-muted-foreground font-bold mt-1 uppercase opacity-60">{availableCount} plans</p>
                                     </div>
                                     
                                     {selectedNetwork === network && (
-                                      <div className="absolute top-2 right-2 bg-primary text-white rounded-full p-1 shadow-lg">
+                                      <div className="absolute top-2 right-2 bg-[var(--shop-accent)] text-white rounded-full p-1 shadow-lg">
                                         <CheckCircle2 className="w-3 h-3 sm:w-4 sm:h-4" />
                                       </div>
                                     )}
@@ -1048,11 +1165,58 @@ export default function ShopStorefront() {
                             })}
                           </div>
 
+                          {/* Standalone MTN number checker — MTN-specific since the
+                              underlying registration/verification system only
+                              covers MTN today. */}
+                          {selectedNetwork === "MTN" && (
+                            <div className="mb-8 rounded-2xl border border-border bg-card p-5 shadow-sm">
+                              <div className="flex items-start gap-3">
+                                <span className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-xl bg-amber-500/10 text-amber-600">
+                                  <ShieldCheck className="w-4 h-4" />
+                                </span>
+                                <div className="min-w-0 flex-1">
+                                  <p className="font-bold text-foreground">Check your MTN number</p>
+                                  <p className="text-sm text-muted-foreground">Make sure it can receive data before you pay</p>
+
+                                  <div className="mt-3 flex gap-2">
+                                    <input
+                                      value={mtnCheckPhone}
+                                      onChange={(e) => { setMtnCheckPhone(e.target.value); setMtnCheckStatus("idle") }}
+                                      placeholder="024XXXXXXX"
+                                      className="min-w-0 flex-1 rounded-xl border border-border bg-background px-4 py-2.5 text-sm focus:border-[var(--shop-accent)] focus:outline-none"
+                                    />
+                                    <Button
+                                      onClick={handleCheckMtnNumber}
+                                      disabled={mtnCheckStatus === "checking"}
+                                      className="shrink-0 bg-[var(--shop-accent)] text-white hover:bg-[var(--shop-accent)]/90"
+                                    >
+                                      {mtnCheckStatus === "checking" ? <Loader2 className="w-4 h-4 animate-spin" /> : "Check"}
+                                    </Button>
+                                  </div>
+
+                                  {mtnCheckStatus === "verified" && (
+                                    <p className="mt-3 flex items-center gap-2 rounded-xl bg-success/10 p-3 text-sm font-medium text-success">
+                                      <CheckCircle2 className="w-4 h-4 flex-shrink-0" /> This number is ready to receive MTN data.
+                                    </p>
+                                  )}
+                                  {mtnCheckStatus === "unverified" && (
+                                    <p className="mt-3 flex items-center gap-2 rounded-xl bg-amber-500/10 p-3 text-sm font-medium text-amber-700">
+                                      <AlertTriangle className="w-4 h-4 flex-shrink-0" /> Not yet confirmed — you can still order, but delivery may be delayed until it's confirmed.
+                                    </p>
+                                  )}
+                                  {mtnCheckStatus === "error" && (
+                                    <p className="mt-3 text-sm text-destructive">Enter a valid MTN number to check.</p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
                           {/* Packages Grid */}
                           {selectedNetwork && (
                             <div ref={packagesRef} className="py-10 border-t border-border animate-in fade-in slide-in-from-bottom-8 duration-700">
                               <div className="flex items-center gap-4 mb-8">
-                                <div className="p-3 bg-primary rounded-2xl">
+                                <div className="p-3 bg-[var(--shop-accent)] rounded-2xl">
                                   <img src={getNetworkLogo(selectedNetwork)} className="w-8 h-8 object-contain" alt={selectedNetwork} />
                                 </div>
                                 <div>
@@ -1061,9 +1225,52 @@ export default function ShopStorefront() {
                                 </div>
                               </div>
 
-                              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                              <div className="mb-6 flex gap-2">
+                                <div className="relative flex-1">
+                                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                                  <input
+                                    value={packageSearch}
+                                    onChange={(e) => setPackageSearch(e.target.value)}
+                                    placeholder="Search packages..."
+                                    className="w-full rounded-xl border border-border bg-card py-2.5 pl-10 pr-3 text-sm focus:border-[var(--shop-accent)] focus:outline-none"
+                                  />
+                                </div>
+                                <div className="flex shrink-0 overflow-hidden rounded-xl border border-border">
+                                  <button
+                                    onClick={() => setPackageViewMode("grid")}
+                                    aria-label="Grid view"
+                                    className={`px-3 ${packageViewMode === "grid" ? "bg-foreground text-background" : "bg-card text-muted-foreground"}`}
+                                  >
+                                    <LayoutGrid className="h-4 w-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => setPackageViewMode("list")}
+                                    aria-label="List view"
+                                    className={`px-3 ${packageViewMode === "list" ? "bg-foreground text-background" : "bg-card text-muted-foreground"}`}
+                                  >
+                                    <List className="h-4 w-4" />
+                                  </button>
+                                </div>
+                              </div>
+
+                              {packages
+                                .filter(p => p.packages.network === selectedNetwork)
+                                .filter(p => {
+                                  if (!packageSearch.trim()) return true
+                                  const q = packageSearch.trim().toLowerCase()
+                                  return p.packages.size?.toLowerCase().includes(q) || p.packages.description?.toLowerCase().includes(q)
+                                }).length === 0 && (
+                                <p className="py-8 text-center text-sm text-muted-foreground">No packages match &quot;{packageSearch}&quot;.</p>
+                              )}
+
+                              <div className={packageViewMode === "grid" ? "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6" : "grid grid-cols-1 gap-3"}>
                                 {packages
                                   .filter(p => p.packages.network === selectedNetwork)
+                                  .filter(p => {
+                                    if (!packageSearch.trim()) return true
+                                    const q = packageSearch.trim().toLowerCase()
+                                    return p.packages.size?.toLowerCase().includes(q) || p.packages.description?.toLowerCase().includes(q)
+                                  })
                                   .sort((a, b) => {
                                     const toMb = (s: string) => {
                                       const m = s.trim().match(/(\d+(?:\.\d+)?)\s*(MB|GB|TB)/i)
@@ -1081,11 +1288,11 @@ export default function ShopStorefront() {
 
                                     return (
                                       <Card key={shopPkg.id} className="group hover:shadow-2xl transition-all duration-500 hover:-translate-y-2 border-0 shadow-lg bg-card overflow-hidden rounded-2xl">
-                                        <div className="h-2 bg-gradient-to-r from-primary to-primary opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                                        <div className="h-2 bg-gradient-to-r from-[var(--shop-accent)] to-[var(--shop-accent)] opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
                                         <CardHeader className="pb-2">
                                           <div className="flex items-start justify-between">
                                             <div className="flex-1">
-                                              <CardTitle className="text-2xl font-black text-foreground group-hover:text-primary transition-colors">
+                                              <CardTitle className="text-2xl font-black text-foreground group-hover:text-[var(--shop-accent)] transition-colors">
                                                 {pkg.size}GB
                                               </CardTitle>
                                               <CardDescription className="text-sm font-medium text-muted-foreground mt-1">{pkg.description}</CardDescription>
@@ -1105,8 +1312,8 @@ export default function ShopStorefront() {
                                             </div>
                                             <div className="flex flex-col items-end">
                                               <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mb-1">Status</span>
-                                              <div className="flex items-center gap-1.5 px-2.5 py-1 bg-primary/10 text-primary rounded-lg text-xs font-bold ring-1 ring-primary/50">
-                                                <Zap className="w-3 h-3 fill-primary" />
+                                              <div className="flex items-center gap-1.5 px-2.5 py-1 bg-[var(--shop-accent)]/10 text-[var(--shop-accent)] rounded-lg text-xs font-bold ring-1 ring-[var(--shop-accent)]/50">
+                                                <Zap className="w-3 h-3 fill-[var(--shop-accent)]" />
                                                 Instant
                                               </div>
                                             </div>
@@ -1115,7 +1322,7 @@ export default function ShopStorefront() {
                                           <Button
                                             onClick={() => handleBuyNow(shopPkg)}
                                             disabled={!shopPkg.is_available || !globalOrderingEnabled}
-                                            className="w-full h-14 bg-slate-900 hover:bg-primary text-white font-black rounded-xl shadow-xl transition-all duration-300 disabled:opacity-50 group-hover:scale-[1.02]"
+                                            className="w-full h-14 bg-slate-900 hover:bg-[var(--shop-accent)] text-white font-black rounded-xl shadow-xl transition-all duration-300 disabled:opacity-50 group-hover:scale-[1.02]"
                                           >
                                             <ShoppingCart className="w-5 h-5 mr-3" />
                                             Order Now
@@ -1143,19 +1350,19 @@ export default function ShopStorefront() {
                     <div className="flex p-1 bg-muted rounded-xl w-full sm:w-fit shadow-inner">
                       <button
                         onClick={() => setRcTab("buy")}
-                        className={`flex-1 sm:flex-none px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-200 ${rcTab === "buy" ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                        className={`flex-1 sm:flex-none px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-200 ${rcTab === "buy" ? "bg-card text-[var(--shop-accent)] shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
                       >
                         Buy Vouchers
                       </button>
                       <button
                         onClick={() => setRcTab("retrieve")}
-                        className={`flex-1 sm:flex-none px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-200 ${rcTab === "retrieve" ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                        className={`flex-1 sm:flex-none px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-200 ${rcTab === "retrieve" ? "bg-card text-[var(--shop-accent)] shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
                       >
                         Retrieve Vouchers
                       </button>
                       <button
                         onClick={() => setRcTab("check")}
-                        className={`flex-1 sm:flex-none px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-200 ${rcTab === "check" ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                        className={`flex-1 sm:flex-none px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-200 ${rcTab === "check" ? "bg-card text-[var(--shop-accent)] shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
                       >
                         Check My Results
                       </button>
@@ -1287,15 +1494,15 @@ export default function ShopStorefront() {
                 <div className="p-4 bg-card rounded-lg border border-border">
                   <div className="flex justify-between items-end mb-3">
                     <span className="font-semibold text-foreground">Total Amount:</span>
-                    <span className="text-2xl font-bold bg-gradient-to-r from-primary to-primary bg-clip-text text-transparent">
+                    <span className="text-2xl font-bold bg-gradient-to-r from-[var(--shop-accent)] to-[var(--shop-accent)] bg-clip-text text-transparent">
                       GHS {(selectedPackage.selling_price !== undefined ? selectedPackage.selling_price : (selectedPackage.packages.price + selectedPackage.profit_margin)).toFixed(2)}
                     </span>
                   </div>
                 </div>
 
-                <Alert className="border-border bg-primary/5">
-                  <AlertCircle className="h-4 w-4 text-primary" />
-                  <AlertDescription className="text-xs text-primary">
+                <Alert className="border-border bg-[var(--shop-accent)]/5">
+                  <AlertCircle className="h-4 w-4 text-[var(--shop-accent)]" />
+                  <AlertDescription className="text-xs text-[var(--shop-accent)]">
                     {directCharge
                       ? "A Mobile Money prompt will be sent to the number you enter below. Approve it with your PIN to complete the order."
                       : "You will be redirected to Paystack to complete your payment."}
@@ -1309,9 +1516,9 @@ export default function ShopStorefront() {
                     send/verify controls render only when OTP is required; with
                     direct charge alone the number is simply charged as typed. */}
                 {(otpRequired || directCharge) && (
-                  <div className="p-4 rounded-lg bg-primary/10 border border-border space-y-3">
+                  <div className="p-4 rounded-lg bg-[var(--shop-accent)]/10 border border-border space-y-3">
                     <div>
-                      <Label className="text-sm font-semibold text-primary">Mobile Money number to pay from *</Label>
+                      <Label className="text-sm font-semibold text-[var(--shop-accent)]">Mobile Money number to pay from *</Label>
                       <Input
                         value={paymentPhone}
                         onChange={(e) => {
@@ -1323,7 +1530,7 @@ export default function ShopStorefront() {
                         className="mt-1 bg-card"
                         disabled={otpRequired && otpVerified}
                       />
-                      <p className="text-xs text-primary mt-1">
+                      <p className="text-xs text-[var(--shop-accent)] mt-1">
                         {otpRequired
                           ? "The payment prompt is sent to this number. You verify it once."
                           : "The payment prompt is sent to this number."}
@@ -1336,7 +1543,7 @@ export default function ShopStorefront() {
                           type="button"
                           onClick={handleSendCheckoutOtp}
                           disabled={sendingOtp || otpCooldown.seconds > 0}
-                          className="w-full bg-primary hover:bg-primary text-white"
+                          className="w-full bg-[var(--shop-accent)] hover:bg-[var(--shop-accent)] text-white"
                         >
                           {sendingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code…</>) : otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Send verification code"}
                         </Button>
@@ -1355,7 +1562,7 @@ export default function ShopStorefront() {
                               type="button"
                               onClick={handleVerifyCheckoutOtp}
                               disabled={verifyingOtp || otpCode.length < 4}
-                              className="flex-1 bg-primary hover:bg-primary text-white"
+                              className="flex-1 bg-[var(--shop-accent)] hover:bg-[var(--shop-accent)] text-white"
                             >
                               {verifyingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying…</>) : "Verify"}
                             </Button>
@@ -1388,7 +1595,7 @@ export default function ShopStorefront() {
                   <Button
                     onClick={handleSubmitOrder}
                     disabled={submitting || (turnstileEnabled && !turnstileToken) || (otpRequired && !otpVerified) || (directCharge && !otpRequired && !/^0?\d{9}$/.test(paymentPhone.replace(/\D/g, "")))}
-                    className="flex-1 bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary"
+                    className="flex-1 bg-gradient-to-r from-[var(--shop-accent)] to-[var(--shop-accent)] hover:from-[var(--shop-accent)] hover:to-[var(--shop-accent)]"
                   >
                     {submitting ? (
                       <>
@@ -1454,7 +1661,7 @@ export default function ShopStorefront() {
           <Card className="w-full max-w-md bg-card">
             {momoModal.state === "awaiting" && (
               <CardContent className="pt-8 pb-6 text-center space-y-4">
-                <div className="mx-auto w-16 h-16 rounded-full bg-primary flex items-center justify-center">
+                <div className="mx-auto w-16 h-16 rounded-full bg-[var(--shop-accent)] flex items-center justify-center">
                   <Loader2 className="w-8 h-8 text-primary-foreground animate-spin" />
                 </div>
                 <div>
@@ -1474,7 +1681,7 @@ export default function ShopStorefront() {
 
             {momoModal.state === "otp" && (
               <CardContent className="pt-8 pb-6 text-center space-y-4">
-                <div className="mx-auto w-16 h-16 rounded-full bg-primary flex items-center justify-center">
+                <div className="mx-auto w-16 h-16 rounded-full bg-[var(--shop-accent)] flex items-center justify-center">
                   <svg className="w-8 h-8 text-primary-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
                 </div>
                 <div>
@@ -1498,7 +1705,7 @@ export default function ShopStorefront() {
                 <Button
                   onClick={submitMomoOtp}
                   disabled={momoOtpSubmitting || !momoOtpInput.trim()}
-                  className="w-full bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary"
+                  className="w-full bg-gradient-to-r from-[var(--shop-accent)] to-[var(--shop-accent)] hover:from-[var(--shop-accent)] hover:to-[var(--shop-accent)]"
                 >
                   {momoOtpSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Submit code"}
                 </Button>
@@ -1531,7 +1738,7 @@ export default function ShopStorefront() {
                     setPaymentPhone(""); setOtpSent(false); setOtpVerified(false); setOtpCode("")
                     setMomoOtpInput(""); setMomoOtpSubmitting(false)
                   }}
-                  className="w-full bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary"
+                  className="w-full bg-gradient-to-r from-[var(--shop-accent)] to-[var(--shop-accent)] hover:from-[var(--shop-accent)] hover:to-[var(--shop-accent)]"
                 >
                   Done
                 </Button>
@@ -1549,7 +1756,7 @@ export default function ShopStorefront() {
                 </div>
                 <div className="flex gap-2">
                   <Button variant="outline" onClick={() => { setMomoModal(null); setMomoOtpInput(""); setMomoOtpSubmitting(false) }} className="flex-1">Close</Button>
-                  <Button onClick={() => { setMomoModal(null); setMomoOtpInput(""); setMomoOtpSubmitting(false); setCheckoutOpen(true) }} className="flex-1 bg-primary hover:bg-primary text-white">Try again</Button>
+                  <Button onClick={() => { setMomoModal(null); setMomoOtpInput(""); setMomoOtpSubmitting(false); setCheckoutOpen(true) }} className="flex-1 bg-[var(--shop-accent)] hover:bg-[var(--shop-accent)] text-white">Try again</Button>
                 </div>
               </CardContent>
             )}
@@ -1632,12 +1839,12 @@ function ShopTermsSection({ termsContent, termsLastUpdated }: { termsContent: st
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2 text-base">
-            <AlignJustify className="w-4 h-4 text-primary" />
+            <AlignJustify className="w-4 h-4 text-[var(--shop-accent)]" />
             Platform Terms of Service
           </CardTitle>
           <button
             onClick={() => setExpanded(!expanded)}
-            className="text-xs text-primary hover:text-primary font-medium border border-border hover:border-primary rounded px-2 py-0.5 transition-colors"
+            className="text-xs text-[var(--shop-accent)] hover:text-[var(--shop-accent)] font-medium border border-border hover:border-[var(--shop-accent)] rounded px-2 py-0.5 transition-colors"
           >
             {expanded ? "Hide" : "Read Terms"}
           </button>
@@ -1649,7 +1856,7 @@ function ShopTermsSection({ termsContent, termsLastUpdated }: { termsContent: st
         <CardContent className="space-y-3 pt-0">
           {sections.map((s, i) => (
             <div key={i} className="p-3 bg-muted/40 rounded-lg border border-border">
-              <p className="text-xs font-bold text-primary mb-1">{s.title}</p>
+              <p className="text-xs font-bold text-[var(--shop-accent)] mb-1">{s.title}</p>
               <p className="text-xs text-foreground leading-relaxed">{s.body}</p>
             </div>
           ))}
@@ -1745,7 +1952,7 @@ function OrderStatusSearch({ shopSlug, shopName }: { shopSlug: string; shopName:
       case "completed":
         return "bg-green-100 text-green-800 border-border"
       case "processing":
-        return "bg-primary/10 text-primary border-primary/20"
+        return "bg-[var(--shop-accent)]/10 text-[var(--shop-accent)] border-[var(--shop-accent)]/20"
       case "pending":
         return "bg-yellow-100 text-yellow-800 border-border"
       case "failed":
@@ -1828,7 +2035,7 @@ function OrderStatusSearch({ shopSlug, shopName }: { shopSlug: string; shopName:
                     <div className="flex items-start justify-between">
                       <div className="space-y-1 flex-1">
                         <div className="flex items-center gap-2">
-                          <Package className="w-4 h-4 text-primary" />
+                          <Package className="w-4 h-4 text-[var(--shop-accent)]" />
                           <CardTitle className="text-base">{order.network} {order.type === 'airtime' ? 'Airtime' : 'Data'}</CardTitle>
                           <Badge className="text-xs" variant="outline">
                             {order.type === 'airtime' ? `GHS ${order.volume_gb}` : `${order.volume_gb}GB`}
