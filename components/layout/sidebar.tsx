@@ -22,7 +22,6 @@ import {
   MessageCircle,
   LogOut,
   Store,
-  TrendingUp,
   Settings,
   Download,
   ChevronLeft,
@@ -49,6 +48,8 @@ import {
   MessageSquare,
   Globe,
   Code2,
+  Tag,
+  Banknote,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
@@ -82,9 +83,14 @@ const menuItems = [
 ]
 
 const shopItems = [
-  { href: "/dashboard/my-shop", label: "My Shop", icon: Store, roles: ["user", "admin", "sub_agent", "dealer"] },
-  { href: "/dashboard/shop-dashboard", label: "Shop Dashboard", icon: TrendingUp, roles: ["user", "admin", "sub_agent", "dealer"] },
+  { href: "/dashboard/my-shop", label: "Overview", icon: Store, roles: ["user", "admin", "sub_agent", "dealer"] },
+  { href: "/dashboard/shop-orders", label: "Orders", icon: ShoppingCart, roles: ["user", "admin", "sub_agent", "dealer"] },
+  { href: "/dashboard/customers", label: "Customers", icon: Users, roles: ["user", "admin", "sub_agent", "dealer"] },
+  { href: "/dashboard/shop-profit-logs", label: "Profit Logs", icon: Activity, roles: ["user", "admin", "sub_agent", "dealer"] },
+  { href: "/dashboard/shop-pricing", label: "Pricing", icon: Tag, roles: ["user", "admin", "sub_agent", "dealer"] },
   { href: "/dashboard/sms", label: "SMS", icon: Send, roles: ["user", "admin", "sub_agent", "dealer"] },
+  { href: "/dashboard/shop-withdraw", label: "Withdraw", icon: Banknote, roles: ["user", "admin", "sub_agent", "dealer"] },
+  { href: "/dashboard/shop-profile", label: "Shop Profile", icon: Settings, roles: ["user", "admin", "sub_agent", "dealer"] },
   { href: "/dashboard/ussd-shop", label: "USSD/WhatsApp Bot", icon: Smartphone, roles: ["user", "admin", "sub_agent", "dealer"] },
   { href: "/dashboard/payment-reverify", label: "Payment Reverify", icon: Zap, roles: ["user", "admin", "sub_agent", "dealer"] },
   { href: "/dashboard/sub-agents", label: "Sub-Agents", icon: Users, roles: ["user", "admin", "dealer"] },
