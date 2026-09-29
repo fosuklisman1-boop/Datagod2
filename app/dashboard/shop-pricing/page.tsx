@@ -226,7 +226,7 @@ export default function ShopPricingPage() {
     setTogglingStock(true)
     try {
       for (const row of rows) {
-        await shopPackageService.togglePackageAvailability(row.id, !inStock)
+        await shopPackageService.togglePackageAvailability(row.id, inStock)
       }
       const refreshed = await shopPackageService.getShopPackages(shop.id)
       setShopPackages(refreshed || [])

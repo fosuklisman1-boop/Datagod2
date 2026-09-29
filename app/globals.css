@@ -155,6 +155,11 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* Mobile Safari/Chrome show a translucent gray highlight rectangle over
+       whatever was tapped, which doesn't respect a button's own border-radius
+       -- on our pill-shaped toggles/buttons it renders as a rectangular
+       artifact poking out past the rounded edges. */
+    -webkit-tap-highlight-color: transparent;
   }
 }
 
