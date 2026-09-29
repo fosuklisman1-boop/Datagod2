@@ -42,7 +42,9 @@ import {
   ShieldCheck,
   AlertTriangle,
   List,
-  LayoutGrid
+  LayoutGrid,
+  ChevronDown,
+  ChevronUp
 } from "lucide-react"
 import { AirtimeStorefrontForm } from "@/components/shop/AirtimeStorefrontForm"
 import { ResultsCheckerStorefrontForm } from "@/components/shop/ResultsCheckerStorefrontForm"
@@ -143,6 +145,7 @@ export default function ShopStorefront() {
   // That check returns ONE combined verified/not-verified result across
   // whichever providers admin has configured -- there's no per-"server"
   // breakdown to show, so this only ever reports a single yes/no.
+  const [mtnCheckExpanded, setMtnCheckExpanded] = useState(false)
   const [mtnCheckPhone, setMtnCheckPhone] = useState("")
   const [mtnCheckStatus, setMtnCheckStatus] = useState<"idle" | "checking" | "verified" | "unverified" | "error">("idle")
 
@@ -1000,34 +1003,17 @@ export default function ShopStorefront() {
           to discover in Branding; only the exact color changes. */}
       <div style={{ backgroundColor: accentColor }}>
         <div className="max-w-7xl mx-auto px-4 py-10 text-center">
+          {shop.logo_url && (
+            <img
+              src={shop.logo_url}
+              alt={shop.shop_name || "Shop"}
+              className="mx-auto mb-3 h-16 w-16 rounded-2xl border-2 border-white/30 bg-white object-cover shadow-lg sm:h-20 sm:w-20"
+            />
+          )}
           <h2 className="text-2xl sm:text-3xl font-bold text-white">{shop.shop_name || shop.name}</h2>
           {shop.description && (
             <p className="mt-2 text-white/90 break-words text-sm sm:text-base max-w-2xl mx-auto">{shop.description}</p>
           )}
-          <div className="flex flex-wrap gap-3 mt-4 justify-center">
-            {normalizeWhatsAppLink(shopSettings?.whatsapp_link) && (
-              <a
-                href={normalizeWhatsAppLink(shopSettings?.whatsapp_link)!}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 px-4 py-2 bg-white/15 hover:bg-white/25 text-white rounded-lg font-semibold transition-colors backdrop-blur-sm"
-              >
-                <MessageCircle className="w-4 h-4" />
-                Contact on WhatsApp
-              </a>
-            )}
-            {shopSettings?.community_link && (
-              <a
-                href={shopSettings.community_link}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 px-4 py-2 bg-white/15 hover:bg-white/25 text-white rounded-lg font-semibold transition-colors backdrop-blur-sm"
-              >
-                <Users2 className="w-4 h-4" />
-                Join our community
-              </a>
-            )}
-          </div>
         </div>
         <SectionDivider style={shop.section_divider_style || "asymmetrical-curve"} color={accentColor} />
       </div>
@@ -1058,6 +1044,18 @@ export default function ShopStorefront() {
                       <MessageCircle className="w-4 h-4 text-[var(--shop-accent)]" /> {shop.phone}
                     </a>
                   </div>
+                )}
+                {shopSettings?.community_link && (
+                  <a
+                    href={shopSettings.community_link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold text-white shadow-sm"
+                    style={{ backgroundColor: accentColor }}
+                  >
+                    <Users2 className="w-4 h-4" />
+                    Join our community
+                  </a>
                 )}
                 <div>
                   <p className="mb-3 text-center text-xs font-bold uppercase tracking-wide text-muted-foreground">Choose a Service</p>
@@ -1179,14 +1177,22 @@ export default function ShopStorefront() {
                               covers MTN today. */}
                           {selectedNetwork === "MTN" && (
                             <div className="mb-8 rounded-2xl border border-border bg-card p-5 shadow-sm">
-                              <div className="flex items-start gap-3">
+                              <button
+                                type="button"
+                                onClick={() => setMtnCheckExpanded((v) => !v)}
+                                className="flex w-full items-start gap-3 text-left"
+                              >
                                 <span className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-xl bg-amber-500/10 text-amber-600">
                                   <ShieldCheck className="w-4 h-4" />
                                 </span>
                                 <div className="min-w-0 flex-1">
                                   <p className="font-bold text-foreground">Check your MTN number</p>
                                   <p className="text-sm text-muted-foreground">Make sure it can receive data before you pay</p>
-
+                                </div>
+                                {mtnCheckExpanded ? <ChevronUp className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />}
+                              </button>
+                              {mtnCheckExpanded && (
+                                <div className="mt-1 pl-12">
                                   <div className="mt-3 flex gap-2">
                                     <input
                                       value={mtnCheckPhone}
@@ -1217,7 +1223,7 @@ export default function ShopStorefront() {
                                     <p className="mt-3 text-sm text-destructive">Enter a valid MTN number to check.</p>
                                   )}
                                 </div>
-                              </div>
+                              )}
                             </div>
                           )}
 
@@ -1434,6 +1440,21 @@ export default function ShopStorefront() {
           </div>
         </div>
       </div>
+
+      {/* Floating WhatsApp button — persistent across tabs, same real
+          shopSettings.whatsapp_link the hero used to bury a text button for. */}
+      {normalizeWhatsAppLink(shopSettings?.whatsapp_link) && (
+        <a
+          href={normalizeWhatsAppLink(shopSettings?.whatsapp_link)!}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="fixed bottom-5 right-5 z-40 grid h-14 w-14 place-items-center rounded-full bg-success text-white shadow-xl transition-transform hover:scale-105"
+          aria-label="Contact on WhatsApp"
+        >
+          <MessageCircle className="h-6 w-6" />
+        </a>
+      )}
+
       {
         checkoutOpen && selectedPackage && (() => {
           const netColor = networkColorFor(selectedPackage.packages.network)
