@@ -19,3 +19,12 @@ CREATE INDEX IF NOT EXISTS idx_ussd_afa_orders_shop_id ON public.ussd_afa_orders
 -- "clearing the field turns it off" behavior). A real price enables it.
 ALTER TABLE public.user_shops
   ADD COLUMN IF NOT EXISTS afa_price NUMERIC(10,2);
+
+-- This project grants SELECT per-column, not per-table -- a newly added column
+-- has NO grants until explicitly given them. Missing this broke the public
+-- storefront for every shop: getShopBySlug() runs as `anon` and its SELECT
+-- list includes afa_price, so without this grant PostgREST returned 401
+-- "permission denied for table user_shops" for EVERY shop, not just ones with
+-- AFA priced -- the whole query fails if any selected column lacks a grant.
+-- (Caught live 2026-09-29 via a broken storefront preview link.)
+GRANT SELECT (afa_price) ON public.user_shops TO anon;

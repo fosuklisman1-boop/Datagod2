@@ -9,3 +9,14 @@ ALTER TABLE user_shops
 
 ALTER TABLE shop_settings
   ADD COLUMN IF NOT EXISTS community_link TEXT;
+
+-- This project grants SELECT per-column, not per-table -- a newly added
+-- column has NO grants until explicitly given them. getShopBySlug() (the
+-- public storefront's lookup) runs as `anon` and selects custom_color +
+-- section_divider_style; without this grant the whole query 401s for every
+-- shop, not just branded ones -- PostgREST rejects the entire row if any
+-- selected column lacks a grant. shop_settings.community_link doesn't need
+-- an anon grant: it's only ever read through the service-role
+-- /api/shop/settings/[shopId] route, never a direct anon query.
+-- (Caught live 2026-09-29 via a broken storefront preview link.)
+GRANT SELECT (custom_color, section_divider_style) ON public.user_shops TO anon;
