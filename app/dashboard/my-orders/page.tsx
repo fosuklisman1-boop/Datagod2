@@ -156,7 +156,7 @@ export default function MyOrdersPage() {
   if (loading) {
     return (
       <DashboardLayout>
-        <div className="max-w-2xl mx-auto space-y-5">
+        <div className="max-w-2xl lg:max-w-4xl mx-auto space-y-5">
           <Skeleton className="h-10 w-64 mx-auto" />
           <div className="grid grid-cols-3 gap-2">
             {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-2xl" />)}
@@ -189,7 +189,7 @@ export default function MyOrdersPage() {
 
   return (
     <DashboardLayout>
-      <div className="max-w-2xl mx-auto space-y-5">
+      <div className="max-w-2xl lg:max-w-4xl mx-auto space-y-5">
         {/* Header */}
         <div className="text-center">
           <h1 className="text-3xl font-black text-foreground">My Order History</h1>
@@ -319,7 +319,7 @@ export default function MyOrdersPage() {
             <p className="mt-3 text-muted-foreground">No orders found</p>
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-2 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
             {orders.map((order) => (
               <div key={order.id} className="rounded-2xl border border-border bg-card p-4">
                 <div className="flex items-start justify-between gap-3">

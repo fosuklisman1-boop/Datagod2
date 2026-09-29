@@ -88,7 +88,7 @@ function TransactionList({ transactions, emptyMessage }: { transactions: Transac
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
       {transactions.map((transaction) => {
         const credit = isCredit(transaction.type)
         return (
@@ -187,7 +187,7 @@ export default function TransactionsPage() {
 
   return (
     <DashboardLayout>
-      <div className="max-w-2xl mx-auto space-y-5">
+      <div className="max-w-2xl lg:max-w-4xl mx-auto space-y-5">
         {/* Page Header */}
         <div>
           <h1 className="text-2xl font-bold text-foreground">Transactions</h1>

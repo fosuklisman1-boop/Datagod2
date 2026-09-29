@@ -208,7 +208,7 @@ export default function AirtimePage() {
 
   return (
     <DashboardLayout>
-      <div className="max-w-2xl mx-auto space-y-5">
+      <div className="max-w-2xl lg:max-w-4xl mx-auto space-y-5">
         <p className="text-sm text-muted-foreground">
           Wallet balance:{" "}
           <span className="font-semibold text-foreground">
@@ -404,11 +404,11 @@ export default function AirtimePage() {
             </button>
           </form>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
             {loadingOrders ? (
-              <div className="text-center text-muted-foreground py-8">Loading…</div>
+              <div className="text-center text-muted-foreground py-8 lg:col-span-2">Loading…</div>
             ) : orders.length === 0 ? (
-              <div className="text-center text-muted-foreground py-8 bg-card rounded-2xl border border-border">
+              <div className="text-center text-muted-foreground py-8 bg-card rounded-2xl border border-border lg:col-span-2">
                 No airtime orders yet.
               </div>
             ) : (

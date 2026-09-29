@@ -474,7 +474,7 @@ export default function DashboardPage() {
         onVerified={() => setShowPhoneVerify(false)}
         onDismiss={() => setShowPhoneVerify(false)}
       />
-      <div className="space-y-5">
+      <div className="mx-auto max-w-5xl space-y-5">
         <div>
           <h1 className="text-2xl font-bold text-[#1e2537]">{getGreeting()}, {firstName}</h1>
           <p className="mt-0.5 text-sm text-[#6b7280]">

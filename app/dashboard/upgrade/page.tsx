@@ -371,7 +371,7 @@ export default function UpgradePage() {
 
     return (
         <DashboardLayout>
-            <div className="max-w-2xl mx-auto space-y-5">
+            <div className="max-w-2xl lg:max-w-4xl mx-auto space-y-5">
                 {/* Page Header -- premium/dealer identity stays amber, same
                     branch as every other page's isDealer treatment. */}
                 <div className="rounded-2xl bg-gradient-to-br from-amber-500 to-amber-600 p-5 text-white">
@@ -424,15 +424,16 @@ export default function UpgradePage() {
                     </div>
                 )}
 
-                {/* Plans -- single-column stack, matches this rebuild's
-                    mobile-first card convention instead of the old 3-col grid. */}
-                <div className="space-y-3">
+                {/* Plans -- single-column stack on mobile/tablet; back to a
+                    multi-column grid at lg (restoring the original 3-col
+                    layout this session had collapsed away). */}
+                <div className="space-y-3 lg:grid lg:grid-cols-3 lg:gap-4 lg:space-y-0 lg:items-start">
                     {loading ? (
                         Array(3).fill(0).map((_, i) => (
                             <div key={i} className="animate-pulse rounded-2xl border border-border bg-card p-5 h-40" />
                         ))
                     ) : plans.length === 0 ? (
-                        <div className="rounded-2xl border-2 border-dashed border-border bg-muted/40 p-10 text-center">
+                        <div className="rounded-2xl border-2 border-dashed border-border bg-muted/40 p-10 text-center lg:col-span-3">
                             <Star className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
                             <p className="text-sm font-medium text-muted-foreground">New dealer plans coming soon!</p>
                         </div>
@@ -442,7 +443,7 @@ export default function UpgradePage() {
                                 key={plan.id}
                                 className={cn(
                                     "relative rounded-2xl border-2 bg-card p-5",
-                                    index === 1 ? "border-amber-400 shadow-sm" : "border-border"
+                                    index === 1 ? "border-amber-400 shadow-sm lg:mt-3" : "border-border"
                                 )}
                             >
                                 {index === 1 && (
@@ -450,18 +451,18 @@ export default function UpgradePage() {
                                         <Sparkles className="w-3 h-3" /> MOST POPULAR
                                     </div>
                                 )}
-                                <div className="flex items-center justify-between gap-3">
+                                <div className="flex items-center justify-between gap-3 lg:flex-col lg:items-center lg:text-center lg:gap-1">
                                     <div>
                                         <p className="text-lg font-bold text-foreground">{plan.name}</p>
                                         <p className="text-xs text-muted-foreground">{plan.duration_days} Days Access</p>
                                     </div>
-                                    <div className="text-right">
+                                    <div className="text-right lg:text-center">
                                         <p className="text-xs text-muted-foreground">GHS</p>
                                         <p className="text-3xl font-black text-foreground leading-none">{plan.price.toFixed(2)}</p>
                                     </div>
                                 </div>
 
-                                <ul className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
+                                <ul className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-x-4 gap-y-2">
                                     {features.map((feature, i) => (
                                         <li key={i} className="flex items-start gap-2">
                                             <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-success/15">

@@ -97,7 +97,7 @@ export default function ComplaintsPage() {
 
   return (
     <DashboardLayout>
-      <div className="max-w-2xl mx-auto space-y-5">
+      <div className="max-w-2xl lg:max-w-4xl mx-auto space-y-5">
         {/* Page Header */}
         <div>
           <h1 className="text-2xl font-bold text-foreground">My Complaints</h1>
@@ -161,7 +161,7 @@ export default function ComplaintsPage() {
             </p>
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-2 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0 lg:items-start">
             {filteredComplaints.map((complaint) => {
               const statusMeta = STATUS_META[complaint.status?.toLowerCase()] || { label: complaint.status || "Unknown", badge: "bg-muted text-foreground" }
               const priorityMeta = PRIORITY_META[complaint.priority?.toLowerCase()] || { label: complaint.priority || "—", badge: "bg-muted text-muted-foreground" }

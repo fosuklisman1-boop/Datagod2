@@ -386,7 +386,7 @@ function DataPackagesPageInner() {
 
   return (
     <DashboardLayout>
-      <div className="relative space-y-5 px-2 pb-16 sm:px-4 md:px-8">
+      <div className="relative mx-auto max-w-5xl space-y-5 px-2 pb-16 sm:px-4 md:px-8">
         {!globalOrderingEnabled && (
           <Alert className="border-destructive/30 bg-destructive/10 shadow-md">
             <AlertDescription className="text-destructive font-bold text-center">

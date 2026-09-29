@@ -263,7 +263,7 @@ export default function ResultsCheckerPage() {
 
   return (
     <DashboardLayout>
-      <div className="max-w-2xl mx-auto space-y-5">
+      <div className="max-w-2xl lg:max-w-4xl mx-auto space-y-5">
         {walletBalance !== null && (
           <p className="text-sm text-muted-foreground">
             Wallet balance: <span className="font-semibold text-foreground">GHS {walletBalance.toFixed(2)}</span>
@@ -433,7 +433,8 @@ export default function ResultsCheckerPage() {
                 <p className="text-muted-foreground">No vouchers purchased yet</p>
               </div>
             ) : (
-              orders.map(order => (
+              <div className="space-y-2 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0 lg:items-start">
+              {orders.map(order => (
                 <div key={order.id} className="overflow-hidden rounded-2xl border border-border bg-card">
                   <div
                     className="flex items-center justify-between gap-2 px-4 py-3 cursor-pointer hover:bg-accent"
@@ -510,7 +511,8 @@ export default function ResultsCheckerPage() {
                     </div>
                   )}
                 </div>
-              ))
+              ))}
+              </div>
             )}
           </div>
         )}

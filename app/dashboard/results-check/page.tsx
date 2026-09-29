@@ -404,7 +404,7 @@ export default function DashboardResultsCheckPage() {
 
   return (
     <DashboardLayout>
-      <div className="max-w-2xl mx-auto space-y-5">
+      <div className="max-w-2xl lg:max-w-3xl mx-auto space-y-5">
         {/* Header -- compact, same convention as the other rebuilt pages
             (page identity already carried by the sidebar nav item). */}
         <div>

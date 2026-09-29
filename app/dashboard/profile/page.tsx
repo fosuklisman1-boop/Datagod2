@@ -521,7 +521,7 @@ export default function ProfilePage() {
 
   return (
     <DashboardLayout>
-      <div className="max-w-2xl mx-auto space-y-5">
+      <div className="max-w-2xl lg:max-w-4xl mx-auto space-y-5">
         {/* Page Header */}
         <div>
           <h1 className="text-2xl font-bold text-foreground">My Profile</h1>
@@ -564,7 +564,8 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        {/* Personal Information */}
+        {/* Personal / Account Information -- side by side at lg */}
+        <div className="lg:grid lg:grid-cols-2 lg:gap-4 lg:items-start space-y-5 lg:space-y-0">
         <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
           <p className="text-sm font-bold text-foreground">Personal Information</p>
           <p className="mb-4 text-xs text-muted-foreground">Your personal details</p>
@@ -646,6 +647,7 @@ export default function ProfilePage() {
               <Input value={profile.memberSince} readOnly className="mt-1" />
             </div>
           </div>
+        </div>
         </div>
 
         {/* Statistics */}

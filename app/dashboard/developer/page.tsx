@@ -16,7 +16,7 @@ const PAGE_TABS = [
 export default function DeveloperPage() {
   return (
     <DashboardLayout>
-      <div className="max-w-3xl mx-auto space-y-5">
+      <div className="max-w-3xl lg:max-w-5xl mx-auto space-y-5">
         {/* Page Header */}
         <div>
           <h1 className="text-2xl font-bold text-foreground">Developer / API</h1>

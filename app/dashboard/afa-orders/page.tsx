@@ -222,7 +222,7 @@ export default function AFAOrdersPage() {
 
   return (
     <DashboardLayout>
-      <div className="max-w-2xl mx-auto space-y-5">
+      <div className="max-w-2xl lg:max-w-4xl mx-auto space-y-5">
         <div>
           <h1 className="text-2xl font-bold text-foreground">MTN AFA Registration</h1>
           <p className="mt-1 text-sm text-muted-foreground">Register a beneficiary for the MTN AFA package.</p>
@@ -388,7 +388,7 @@ export default function AFAOrdersPage() {
         )}
 
         {tab === "history" && (
-          <div className="space-y-2">
+          <div className="space-y-2 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
             {orders.length === 0 ? (
               <div className="rounded-2xl border border-border bg-card py-12 text-center text-sm text-muted-foreground">
                 No AFA registrations yet

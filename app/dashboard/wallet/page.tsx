@@ -372,7 +372,7 @@ export default function WalletPage() {
   }
   return (
     <DashboardLayout>
-      <div className="max-w-2xl mx-auto space-y-5">
+      <div className="max-w-2xl lg:max-w-4xl mx-auto space-y-5">
         {/* Page Header */}
         <div>
           <h1 className="text-2xl font-bold text-foreground">Wallet</h1>
@@ -511,7 +511,7 @@ export default function WalletPage() {
         )}
 
         {tab === "history" && (
-          <div className="space-y-2">
+          <div className="space-y-2 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
             {transactions.length === 0 ? (
               <Alert>
                 <AlertCircle className="h-4 w-4" />
