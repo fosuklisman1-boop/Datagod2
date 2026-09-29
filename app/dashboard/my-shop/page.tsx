@@ -1,82 +1,94 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
+import Link from "next/link"
 import { useAuth } from "@/lib/auth-context"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { shopService, shopPackageService } from "@/lib/shop-service"
+import { shopService, shopOrderService, shopProfitService } from "@/lib/shop-service"
 import { shopOrigin } from "@/lib/shop-url"
-import { packageService } from "@/lib/database"
 import { supabase } from "@/lib/supabase"
-import { AlertCircle, Copy, ExternalLink, Store, Package, Plus, MessageCircle, Megaphone, Loader2, Save, GraduationCap, ClipboardCheck } from "lucide-react"
-import Link from "next/link"
+import {
+  Store, Copy, ExternalLink, RefreshCw, AlertCircle, Smartphone,
+  ShoppingCart, Tag, Banknote, Users, Activity, Send, Settings as SettingsIcon,
+  TrendingUp, CheckCircle2, Clock, Wallet, Megaphone, MessageSquare, Loader2, ArrowRight,
+} from "lucide-react"
 import { toast } from "sonner"
 
-export default function MyShopPage() {
+const DATE_RANGES = [
+  { id: "all", label: "All" },
+  { id: "today", label: "Today" },
+  { id: "7d", label: "7D" },
+  { id: "30d", label: "30D" },
+] as const
+type DateRange = (typeof DATE_RANGES)[number]["id"]
+
+const QUICK_ACTIONS = [
+  { href: "/dashboard/shop-orders", label: "Orders", icon: ShoppingCart },
+  { href: "/dashboard/shop-pricing", label: "Pricing", icon: Tag },
+  { href: "/dashboard/shop-withdraw", label: "Withdraw", icon: Banknote },
+  { href: "/dashboard/customers", label: "Customers", icon: Users },
+  { href: "/dashboard/shop-profit-logs", label: "Profit Logs", icon: Activity },
+  { href: "/dashboard/sms", label: "SMS", icon: Send },
+  { href: "/dashboard/ussd-shop", label: "USSD", icon: Smartphone },
+  { href: "/dashboard/shop-profile", label: "Settings", icon: SettingsIcon },
+] as const
+
+function isWithinRange(dateStr: string, range: DateRange): boolean {
+  if (range === "all") return true
+  const d = new Date(dateStr).getTime()
+  const now = Date.now()
+  const days = range === "today" ? 1 : range === "7d" ? 7 : 30
+  const start = range === "today"
+    ? new Date(new Date().setHours(0, 0, 0, 0)).getTime()
+    : now - days * 24 * 60 * 60 * 1000
+  return d >= start
+}
+
+export default function ShopOverviewPage() {
   const { user } = useAuth()
   const [shop, setShop] = useState<any>(null)
-  const [packages, setPackages] = useState<any[]>([])
-  const [allPackages, setAllPackages] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [editingShop, setEditingShop] = useState(false)
-  const [formData, setFormData] = useState({
-    shop_name: "",
-    description: "",
-    logo_url: "",
-    airtime_markup_mtn: "0",
-    airtime_markup_telecel: "0",
-    airtime_markup_at: "0",
-  })
-  const [addingPackage, setAddingPackage] = useState(false)
-  const [selectedPackage, setSelectedPackage] = useState<string>("")
-  const [profitMargin, setProfitMargin] = useState<string>("")
-  const [editingShopPackage, setEditingShopPackage] = useState<any>(null)
-  const [packageAvailable, setPackageAvailable] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [dbError, setDbError] = useState<string | null>(null)
-  const [selectedNetwork, setSelectedNetwork] = useState<string>("All")
-  const [whatsappLink, setWhatsappLink] = useState("")
-  const [savingSettings, setSavingSettings] = useState(false)
-  const [announcementEnabled, setAnnouncementEnabled] = useState(false)
-  const [announcementTitle, setAnnouncementTitle] = useState("")
-  const [announcementMessage, setAnnouncementMessage] = useState("")
-  const [updatingShop, setUpdatingShop] = useState(false)
-  const [togglingPackageId, setTogglingPackageId] = useState<string | null>(null)
+  const [formData, setFormData] = useState({ shop_name: "", description: "", logo_url: "" })
   const [userRole, setUserRole] = useState<string | null>(null)
-  const [maxMarkups, setMaxMarkups] = useState<Record<string, number>>({ mtn: 5, telecel: 5, at: 5 })
-  const [rcMarkups, setRcMarkups] = useState({ waec: "0", bece: "0", novdec: "0" })
-  const [rcMaxMarkups, setRcMaxMarkups] = useState({ waec: 0, bece: 0, novdec: 0 })
-  const [savingRcMarkups, setSavingRcMarkups] = useState(false)
-  const [rcCheckMarkup, setRcCheckMarkup] = useState("0")
-  const [rcCheckMaxMarkup, setRcCheckMaxMarkup] = useState(0)
-  const [savingRcCheckMarkup, setSavingRcCheckMarkup] = useState(false)
+
+  const [balance, setBalance] = useState<{ available_balance: number; credited_profit: number; withdrawn_profit: number } | null>(null)
+  const [orders, setOrders] = useState<any[]>([])
+  const [dateRange, setDateRange] = useState<DateRange>("all")
+
+  const [ussdCode, setUssdCode] = useState<{ id: string; code: string; activation_fee_paid: boolean } | null>(null)
+  const [ussdActivationFee, setUssdActivationFee] = useState(0)
+  const [ussdDialCode, setUssdDialCode] = useState("")
+  const [activatingUssd, setActivatingUssd] = useState(false)
+
+  const [announcementMessage, setAnnouncementMessage] = useState("")
+  const [savingNotice, setSavingNotice] = useState(false)
+  const [smsToggleOn, setSmsToggleOn] = useState(true)
+  const [savingSmsToggle, setSavingSmsToggle] = useState(false)
+  const [hasActiveSender, setHasActiveSender] = useState(false)
 
   useEffect(() => {
     if (!user) return
-    loadShopData()
+    loadData()
   }, [user])
 
-  const loadShopData = async () => {
+  const loadData = async () => {
     try {
       setLoading(true)
       setDbError(null)
       if (!user?.id) return
 
-      // Fetch the user's role via /api/user/me (service_role). A direct
-      // authenticated read of public.users can silently return null under RLS,
-      // which mis-detects a dealer as a regular owner — then the higher admin base
-      // price makes their normal selling price look like a loss and DISABLES the
-      // "Add to Shop" button. Fall back to auth metadata if the endpoint is down.
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+
       try {
-        const { data: { session } } = await supabase.auth.getSession()
-        const meRes = session?.access_token
-          ? await fetch("/api/user/me", { headers: { Authorization: `Bearer ${session.access_token}` } })
-          : null
+        const meRes = token ? await fetch("/api/user/me", { headers: { Authorization: `Bearer ${token}` } }) : null
         const me = meRes?.ok ? await meRes.json() : null
         setUserRole(me?.role ?? (user?.user_metadata?.role as string | undefined) ?? null)
       } catch {
@@ -85,528 +97,146 @@ export default function MyShopPage() {
 
       const userShop = await shopService.getShop(user.id)
       setShop(userShop)
+      if (!userShop) return
 
-      if (userShop) {
-        // Get auth token for API calls
-        const { data: { session } } = await supabase.auth.getSession()
-        const token = session?.access_token
+      const [balanceData, orderList, settingsRes, ussdRow, cfgRes, senderRes] = await Promise.all([
+        shopProfitService.getShopBalanceFromTable(userShop.id).catch(() => null),
+        shopOrderService.getShopOrders(userShop.id).catch(() => []),
+        fetch(`/api/shop/settings/${userShop.id}`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+        supabase.from("ussd_shop_codes").select("id, code, activation_fee_paid").eq("shop_id", userShop.id).maybeSingle(),
+        fetch("/api/public/config").then((r) => (r.ok ? r.json() : { app_settings: {} })).catch(() => ({ app_settings: {} })),
+        token ? supabase.from("sms_accounts").select("id").eq("user_id", user.id).maybeSingle() : Promise.resolve({ data: null }),
+      ])
 
-        // For sub-agents, load from sub_agent_catalog API
-        // For regular shops, load from shop_packages
-        if (userShop.parent_shop_id && token) {
-          // Sub-agent: get own catalog from sub_agent_catalog
-          try {
-            const response = await fetch("/api/shop/sub-agent-catalog", {
-              headers: { "Authorization": `Bearer ${token}` }
-            })
-            const data = await response.json()
-            if (!response.ok) {
-              console.error("Sub-agent catalog API error:", response.status, data.error)
-              setPackages([])
-            } else if (data.catalog) {
-              // Transform to match expected format
-              const catalogItems = data.catalog.map((item: any) => ({
-                id: item.id,
-                package_id: item.package_id,
-                profit_margin: item.profit_margin || item.wholesale_margin,
-                is_available: item.is_active,
-                packages: item.package,
-                wholesale_price: item.wholesale_price
-              }))
-              setPackages(catalogItems)
-            } else {
-              setPackages([])
-            }
-          } catch (catalogError: any) {
-            console.error("Error loading sub-agent catalog:", catalogError)
-            setPackages([])
-          }
-        } else {
-          // Regular shop owner: load from shop_packages
-          try {
-            const shopPkgs = await shopPackageService.getShopPackages(userShop.id)
-            setPackages(shopPkgs || [])
-          } catch (pkgError: any) {
-            console.error("Error loading packages:", pkgError)
-            setPackages([])
-          }
-        }
+      setBalance(balanceData)
+      setOrders(orderList || [])
+      setAnnouncementMessage(settingsRes?.announcement_message || "")
+      setSmsToggleOn(settingsRes?.order_confirmation_sms_enabled !== false)
+      setUssdCode(ussdRow.data ?? null)
+      const cfg = cfgRes?.app_settings ?? {}
+      setUssdActivationFee(Number(cfg.ussd_shop_activation_fee ?? 0))
+      setUssdDialCode(cfg.ussd_shop_dial_code ?? "")
 
-        setFormData({
-          shop_name: userShop.shop_name || "",
-          description: userShop.description || "",
-          logo_url: userShop.logo_url || "",
-          airtime_markup_mtn: userShop.airtime_markup_mtn?.toString() || "0",
-          airtime_markup_telecel: userShop.airtime_markup_telecel?.toString() || "0",
-          airtime_markup_at: userShop.airtime_markup_at?.toString() || "0",
-        })
-
-        setRcMarkups({
-          waec:   (userShop.results_checker_markup_wassce ?? 0).toString(),  // local key 'waec' = the WASSCE slot
-          bece:   (userShop.results_checker_markup_bece   ?? 0).toString(),
-          novdec: (userShop.results_checker_markup_novdec ?? 0).toString(),
-        })
-        setRcCheckMarkup((userShop.results_check_markup ?? 0).toString())
-
-        // Load RC max markups via curated public-config (admin_settings is
-        // service-role only).
-        try {
-          const rcMap: Record<string, any> = {}
-          const res = await fetch("/api/public/config")
-          if (res.ok) {
-            const cfg = await res.json()
-            Object.assign(rcMap, cfg.admin_settings ?? {})
-          }
-          setRcMaxMarkups({
-            waec:   rcMap["results_checker_max_markup_wassce"]?.max ?? 0,
-            bece:   rcMap["results_checker_max_markup_bece"]?.max   ?? 0,
-            novdec: rcMap["results_checker_max_markup_novdec"]?.max ?? 0,
-          })
-          setRcCheckMaxMarkup(rcMap["results_check_max_markup"]?.max ?? 0)
-        } catch (e) {
-          console.warn("Failed to load RC max markups:", e)
-        }
-
-        // Load WhatsApp settings
-        try {
-          const settingsResponse = await fetch(`/api/shop/settings/${userShop.id}`)
-          if (settingsResponse.ok) {
-            const settingsData = await settingsResponse.json()
-            if (settingsData.whatsapp_link) {
-              setWhatsappLink(settingsData.whatsapp_link)
-            }
-            if (settingsData.announcement_enabled !== undefined) {
-              setAnnouncementEnabled(settingsData.announcement_enabled)
-              setAnnouncementTitle(settingsData.announcement_title || "")
-              setAnnouncementMessage(settingsData.announcement_message || "")
-            }
-          } else {
-            console.error("Settings API returned:", settingsResponse.status)
-          }
-        } catch (settingsError) {
-          console.error("Error loading shop settings:", settingsError)
-        }
-
-        // Load Airtime Constraints
-        try {
-          const constraintsResp = await fetch("/api/shop/airtime/constraints", {
-            headers: { "Authorization": `Bearer ${token}` }
-          })
-          if (constraintsResp.ok) {
-            const cData = await constraintsResp.json()
-            if (cData.maxMarkups) {
-              setMaxMarkups(cData.maxMarkups)
-            }
-          }
-        } catch (cErr) {
-          console.error("Error loading airtime constraints:", cErr)
-        }
-        // For regular shops, get all admin packages
-        console.log("=== MY SHOP DEBUG ===")
-        console.log("Shop ID:", userShop.id)
-        console.log("Shop Name:", userShop.shop_name)
-        console.log("Parent Shop ID:", userShop.parent_shop_id)
-        console.log("Is Sub-agent:", !!userShop.parent_shop_id)
-
-        if (userShop.parent_shop_id) {
-          // Sub-agent: get parent shop's packages via API (bypasses RLS)
-          console.log("=== LOADING PARENT PACKAGES VIA API ===")
-          try {
-            const { data: { session } } = await supabase.auth.getSession()
-            const token = session?.access_token
-
-            if (!token) {
-              console.error("No access token available")
-              setAllPackages([])
-              return
-            }
-
-            const response = await fetch("/api/shop/parent-packages", {
-              headers: {
-                "Authorization": `Bearer ${token}`
-              }
-            })
-
-            if (!response.ok) {
-              console.error("Parent packages API error:", response.status, response.statusText)
-              setAllPackages([])
-              return
-            }
-
-            const data = await response.json()
-            console.log("Parent packages API response:", data)
-
-            if (data.packages && data.packages.length > 0) {
-              setAllPackages(data.packages)
-              console.log("Set allPackages to parent's packages:", data.packages.length)
-            } else {
-              console.log("No parent packages found, sub-agent has nothing to sell yet")
-              setAllPackages([])
-            }
-          } catch (parentPkgError: any) {
-            console.error("Error loading parent packages:", parentPkgError)
-            setAllPackages([])
-          }
-        } else {
-          // Regular shop owner: get all admin packages
-          try {
-            const allPkgs = await packageService.getPackages()
-            setAllPackages(allPkgs || [])
-          } catch (allPkgError: any) {
-            console.error("Error loading all packages:", allPkgError)
-            setAllPackages([])
-          }
-        }
+      if (senderRes.data?.id) {
+        const { data: activeSender } = await supabase
+          .from("sms_sender_ids")
+          .select("id")
+          .eq("sms_account_id", senderRes.data.id)
+          .eq("local_status", "active")
+          .limit(1)
+          .maybeSingle()
+        setHasActiveSender(!!activeSender)
       } else {
-        // No shop yet, get all packages for reference
-        try {
-          const allPkgs = await packageService.getPackages()
-          setAllPackages(allPkgs || [])
-        } catch (allPkgError: any) {
-          console.error("Error loading all packages:", allPkgError)
-          setAllPackages([])
-        }
+        setHasActiveSender(false)
       }
-
-    } catch (error: any) {
-      console.error("Error loading shop:", error)
-      if (error.message?.includes("relation") || error.message?.includes("not found")) {
-        setDbError("Database tables not set up. Please run the SQL schema in Supabase.")
-      } else {
-        toast.error(error?.message || "Failed to load shop data")
-      }
+    } catch (error) {
+      console.error("Error loading shop overview:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to load shop overview")
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }
 
-  const handleUpdateShop = async () => {
-    if (!shop || !formData.shop_name.trim()) {
-      toast.error("Shop name is required")
-      return
-    }
+  const handleRefresh = () => { setRefreshing(true); loadData() }
 
-    setUpdatingShop(true)
-    try {
-      const updated = await shopService.updateShop(shop.id, {
-        shop_name: formData.shop_name,
-        description: formData.description,
-        logo_url: formData.logo_url,
-        airtime_markup_mtn: parseFloat(formData.airtime_markup_mtn || "0"),
-        airtime_markup_telecel: parseFloat(formData.airtime_markup_telecel || "0"),
-        airtime_markup_at: parseFloat(formData.airtime_markup_at || "0"),
-      })
-      setShop(updated)
-      setEditingShop(false)
-      toast.success("Shop updated successfully")
-    } catch (error) {
-      console.error("Error updating shop:", error)
-      const errorMessage = error instanceof Error ? error.message : "Failed to update shop"
-      toast.error(errorMessage)
-    } finally {
-      setUpdatingShop(false)
-    }
-  }
+  const filteredOrders = useMemo(
+    () => orders.filter((o) => isWithinRange(o.created_at, dateRange)),
+    [orders, dateRange]
+  )
 
-  const handleSaveRcMarkups = async () => {
-    if (!shop) return
-    setSavingRcMarkups(true)
-    try {
-      const waec   = Math.min(parseFloat(rcMarkups.waec   || "0"), rcMaxMarkups.waec)
-      const bece   = Math.min(parseFloat(rcMarkups.bece   || "0"), rcMaxMarkups.bece)
-      const novdec = Math.min(parseFloat(rcMarkups.novdec || "0"), rcMaxMarkups.novdec)
-      const updated = await shopService.updateShop(shop.id, {
-        results_checker_markup_wassce: waec,  // local 'waec' value = WASSCE markup
-        results_checker_markup_bece:   bece,
-        results_checker_markup_novdec: novdec,
-      })
-      setShop(updated)
-      setRcMarkups({ waec: waec.toString(), bece: bece.toString(), novdec: novdec.toString() })
-      toast.success("Results checker markups saved")
-    } catch (err: any) {
-      toast.error(err?.message ?? "Failed to save markups")
-    } finally {
-      setSavingRcMarkups(false)
-    }
-  }
+  const stats = useMemo(() => {
+    const sales = filteredOrders.reduce((s, o) => s + (Number(o.total_price) || 0), 0)
+    const profit = filteredOrders.reduce((s, o) => s + (Number(o.profit_amount) || 0), 0)
+    const completed = filteredOrders.filter((o) => o.order_status === "completed").length
+    const inProgress = filteredOrders.filter((o) => o.order_status !== "completed" && o.order_status !== "failed").length
+    return { sales, profit, completed, inProgress }
+  }, [filteredOrders])
 
-  const handleSaveRcCheckMarkup = async () => {
-    if (!shop) return
-    setSavingRcCheckMarkup(true)
-    try {
-      const markup = Math.min(parseFloat(rcCheckMarkup || "0"), rcCheckMaxMarkup)
-      const updated = await shopService.updateShop(shop.id, {
-        results_check_markup: markup,
-      })
-      setShop(updated)
-      setRcCheckMarkup(markup.toString())
-      toast.success("Results Check Service markup saved")
-    } catch (err: any) {
-      toast.error(err?.message ?? "Failed to save markup")
-    } finally {
-      setSavingRcCheckMarkup(false)
-    }
-  }
-
-  const handleSaveStorefrontSettings = async () => {
-    if (!shop) return
-
-    try {
-      setSavingSettings(true)
-
-      // Get auth token from session
-      const { data: { session } } = await supabase.auth.getSession()
-      const token = session?.access_token
-
-      if (!token) {
-        toast.error("Not authenticated")
-        return
-      }
-
-      const response = await fetch(`/api/shop/settings/${shop.id}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          whatsapp_link: whatsappLink,
-          announcement_enabled: announcementEnabled,
-          announcement_title: announcementTitle,
-          announcement_message: announcementMessage,
-        }),
-      })
-
-      const result = await response.json()
-
-      if (!response.ok) {
-        toast.error(result.error || "Failed to save settings")
-        return
-      }
-
-      toast.success("Storefront settings saved successfully!")
-    } catch (error) {
-      console.error("Error saving storefront settings:", error)
-      const errorMessage = error instanceof Error ? error.message : "Failed to save settings"
-      toast.error(errorMessage)
-    } finally {
-      setSavingSettings(false)
-    }
-  }
-
-  const handleAddPackage = async () => {
-    if (!selectedPackage || !profitMargin) {
-      toast.error("Please select package and enter selling price")
-      return
-    }
-
-    try {
-      // Get the base price from selected package
-      const pkg = getPackageDetails(selectedPackage)
-      // For sub-agents: calculate profit from PARENT PRICE (not admin price)
-      // This is the sub-agent's own profit margin
-      const isDealer = userRole === 'dealer' || userRole === 'admin' || user?.user_metadata?.role === 'dealer' || user?.user_metadata?.role === 'admin'
-      const dealerPrice = pkg?.dealer_price && pkg.dealer_price > 0 ? pkg.dealer_price : undefined
-      const basePrice = pkg?.parent_price ?? (isDealer && dealerPrice ? dealerPrice : pkg?.price) ?? 0
-      const parentPrice = basePrice
-
-      const sellingPrice = parseFloat(profitMargin || "0")
-      let subAgentProfit: number
-      // Always use parentPrice (which is correct for both sub-agents and regular shops)
-      subAgentProfit = sellingPrice - parentPrice
-
-      if (subAgentProfit < 0) {
-        toast.error("Selling price must be higher than base price")
-        return
-      }
-
-      // Get auth token
-      const { data: { session } } = await supabase.auth.getSession()
-      const token = session?.access_token
-
-      if (!token) {
-        toast.error("Not authenticated")
-        return
-      }
-
-      // Check if sub-agent
-      if (shop.parent_shop_id) {
-        // Sub-agent: use sub_agent_catalog API
-        const pkg = getPackageDetails(selectedPackage)
-        const realPackageId = pkg?.package_id || selectedPackage // Sub-agents need the package_id, not the catalog id
-
-        const existingPkg = packages.find(p => p.package_id === realPackageId)
-
-        if (existingPkg) {
-          // Update existing catalog item
-          const response = await fetch("/api/shop/sub-agent-catalog", {
-            method: "PUT",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-              catalog_id: existingPkg.id,
-              sub_agent_profit_margin: subAgentProfit
-            })
-          })
-          if (!response.ok) {
-            const data = await response.json()
-            throw new Error(data.error || "Failed to update package")
-          }
-          toast.success("Package updated successfully!")
-        } else {
-          // Add new catalog item
-          const response = await fetch("/api/shop/sub-agent-catalog", {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-              package_id: realPackageId,
-              sub_agent_profit_margin: subAgentProfit,
-              parent_price: parentPrice
-            })
-          })
-          if (!response.ok) {
-            const data = await response.json()
-            throw new Error(data.error || "Failed to add package")
-          }
-          toast.success("Package added to catalog!")
-        }
-
-        // Reload sub-agent catalog
-        const catalogResponse = await fetch("/api/shop/sub-agent-catalog", {
-          headers: { "Authorization": `Bearer ${token}` }
-        })
-        const catalogData = await catalogResponse.json()
-        if (!catalogResponse.ok) {
-          console.error("Failed to reload catalog after add:", catalogResponse.status, catalogData.error)
-        } else if (catalogData.catalog) {
-          const catalogItems = catalogData.catalog.map((item: any) => ({
-            id: item.id,
-            package_id: item.package_id,
-            profit_margin: item.profit_margin || item.wholesale_margin,
-            is_available: item.is_active,
-            packages: item.package,
-            wholesale_price: item.wholesale_price
-          }))
-          setPackages(catalogItems)
-        }
-      } else {
-        // Regular shop owner: use shop_packages
-        const existingPkg = packages.find(p => p.package_id === selectedPackage)
-
-        if (existingPkg) {
-          await shopPackageService.updatePackageProfitMargin(
-            existingPkg.id,
-            subAgentProfit
-          )
-          toast.success("Package updated successfully!")
-        } else {
-          await shopPackageService.addPackageToShop(
-            shop.id,
-            selectedPackage,
-            subAgentProfit
-          )
-          toast.success("Package added to shop!")
-        }
-
-        const updatedPkgs = await shopPackageService.getShopPackages(shop.id)
-        setPackages(updatedPkgs)
-      }
-
-      // Clear only the form, stay on the adding page
-      setSelectedPackage("")
-      setProfitMargin("")
-    } catch (error: any) {
-      console.error("Error adding/updating package:", error)
-      const errorMsg = error?.message || "Failed to add/update package"
-      toast.error(errorMsg)
-    }
-  }
+  const recentOrders = useMemo(() => orders.slice(0, 3), [orders])
 
   const copyShopLink = () => {
-    // Prefer the clean subdomain URL; fall back to the legacy path for any shop
-    // that predates the subdomain backfill.
-    const link = shop.subdomain
-      ? shopOrigin(shop.subdomain)
-      : `${window.location.origin}/shop/${shop.shop_slug}`
+    const link = shop.subdomain ? shopOrigin(shop.subdomain) : `${window.location.origin}/shop/${shop.shop_slug}`
     navigator.clipboard.writeText(link)
     toast.success("Shop link copied to clipboard")
   }
 
-  const handleToggleAvailability = async (shopPackageId: string, currentStatus: boolean) => {
-    setTogglingPackageId(shopPackageId)
+  const handleActivateUssd = async () => {
+    setActivatingUssd(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      const token = session?.access_token
-
-      if (shop.parent_shop_id && token) {
-        // Sub-agent: toggle via sub_agent_catalog API
-        const response = await fetch("/api/shop/sub-agent-catalog", {
-          method: "PUT",
-          headers: {
-            "Authorization": `Bearer ${token}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            catalog_id: shopPackageId,
-            is_active: !currentStatus
-          })
-        })
-        if (!response.ok) {
-          const data = await response.json()
-          throw new Error(data.error || "Failed to toggle availability")
-        }
-
-        // Reload catalog
-        const catalogResponse = await fetch("/api/shop/sub-agent-catalog", {
-          headers: { "Authorization": `Bearer ${token}` }
-        })
-        const catalogData = await catalogResponse.json()
-        if (catalogData.catalog) {
-          const catalogItems = catalogData.catalog.map((item: any) => ({
-            id: item.id,
-            package_id: item.package_id,
-            profit_margin: item.profit_margin || item.wholesale_margin,
-            is_available: item.is_active,
-            packages: item.package,
-            wholesale_price: item.wholesale_price
-          }))
-          setPackages(catalogItems)
-        }
-      } else {
-        // Regular shop owner
-        await shopPackageService.togglePackageAvailability(shopPackageId, !currentStatus)
-        const updatedPkgs = await shopPackageService.getShopPackages(shop.id)
-        setPackages(updatedPkgs)
-      }
-      toast.success(`Package marked as ${!currentStatus ? "available" : "unavailable"}`)
-    } catch (error: any) {
-      console.error("Error toggling availability:", error)
-      const errorMessage = error instanceof Error ? error.message : "Failed to update availability"
-      toast.error(errorMessage)
+      if (!session?.access_token) throw new Error("Your session expired. Please refresh and sign in again.")
+      const res = await fetch("/api/dashboard/ussd-shop/activate", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "Failed to activate USSD")
+      toast.success("USSD ordering is now active for your shop!")
+      loadData()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to activate USSD")
     } finally {
-      setTogglingPackageId(null)
+      setActivatingUssd(false)
     }
   }
 
-  const getPackageDetails = (packageId: string) => {
-    return allPackages.find(p => p.id === packageId)
+  const handleSaveNotice = async () => {
+    setSavingNotice(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) throw new Error("Your session expired. Please refresh and sign in again.")
+      const message = announcementMessage.trim()
+      const res = await fetch(`/api/shop/settings/${shop.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({
+          announcement_message: message,
+          // A per-shop announcement only ever renders on the storefront when
+          // it has a non-empty title (app/api/shop/public-packages/route.ts) --
+          // this UI has no title field, so default one whenever there's a
+          // real message to show, and clear it when the notice is emptied.
+          announcement_title: message ? (shop.shop_name || "Notice") : "",
+          announcement_enabled: message.length > 0,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "Failed to save notice")
+      toast.success(message ? "Storefront notice saved" : "Storefront notice cleared")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to save notice")
+    } finally {
+      setSavingNotice(false)
+    }
   }
 
-  const getShopPackageDetails = (shopPackage: any) => {
-    const pkg = getPackageDetails(shopPackage.package_id)
-    return pkg
+  const handleToggleSms = async (next: boolean) => {
+    setSmsToggleOn(next)
+    setSavingSmsToggle(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) throw new Error("Your session expired. Please refresh and sign in again.")
+      const res = await fetch(`/api/shop/settings/${shop.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ order_confirmation_sms_enabled: next }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "Failed to save")
+      toast.success(next ? "Order confirmation SMS turned on" : "Order confirmation SMS turned off")
+    } catch (error) {
+      setSmsToggleOn(!next)
+      toast.error(error instanceof Error ? error.message : "Failed to save")
+    } finally {
+      setSavingSmsToggle(false)
+    }
   }
 
   if (loading) {
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center min-h-screen">
-          <p className="text-muted-foreground">Loading shop...</p>
+        <div className="flex items-center justify-center h-screen">
+          <Loader2 className="w-8 h-8 animate-spin text-[#1b388b]" />
         </div>
       </DashboardLayout>
     )
@@ -615,923 +245,316 @@ export default function MyShopPage() {
   if (!shop) {
     return (
       <DashboardLayout>
-        <div className="space-y-6">
+        <div className="mx-auto max-w-2xl lg:max-w-4xl space-y-5">
           <div>
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary via-primary to-primary bg-clip-text text-transparent">My Shop</h1>
-            <p className="text-muted-foreground mt-1">Create your store and start reselling data packages</p>
+            <h1 className="text-2xl font-bold text-foreground">My Shop</h1>
+            <p className="mt-1 text-sm text-muted-foreground">Create your storefront to start selling.</p>
           </div>
-
-          {dbError && (
-            <Alert className="border-border bg-destructive/10">
-              <AlertCircle className="h-4 w-4 text-destructive" />
-              <AlertDescription className="text-destructive">
-                {dbError}
-                <div className="mt-2 text-xs">
-                  Run the SQL schema from <code className="bg-red-100 px-1 rounded">lib/shop-schema.sql</code> in your Supabase SQL Editor to set up tables.
-                </div>
-              </AlertDescription>
-            </Alert>
-          )}
-
-          <Card className="bg-card backdrop-blur-xl border border-border">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Store className="w-5 h-5 text-success" />
-                Create Your Shop
-              </CardTitle>
-              <CardDescription>Get started selling data packages to your customers</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <Label htmlFor="shop-name">Shop Name *</Label>
+          <div className="rounded-2xl border border-border bg-card p-4 sm:p-5 space-y-4">
+            <div>
+              <Label htmlFor="shop-name">Shop Name *</Label>
+              <Input
+                id="shop-name"
+                value={formData.shop_name}
+                onChange={(e) => setFormData({ ...formData, shop_name: e.target.value })}
+                placeholder="e.g., My Mobile Shop"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="shop-description">Description</Label>
+              <Textarea
+                id="shop-description"
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                placeholder="Tell customers about your shop..."
+                className="mt-1"
+                rows={4}
+              />
+            </div>
+            <div>
+              <Label htmlFor="shop-logo">Shop Logo</Label>
+              <div className="mt-1 flex items-center gap-3">
                 <Input
-                  id="shop-name"
-                  value={formData.shop_name}
-                  onChange={(e) => setFormData({ ...formData, shop_name: e.target.value })}
-                  placeholder="e.g., My Mobile Shop"
-                  className="mt-1"
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="shop-description">Description</Label>
-                <Textarea
-                  id="shop-description"
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Tell customers about your shop..."
-                  className="mt-1"
-                  rows={4}
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="shop-logo">Shop Logo</Label>
-                <div className="mt-1 flex items-center gap-3">
-                  <Input
-                    id="shop-logo"
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0]
-                      if (file) {
-                        const reader = new FileReader()
-                        reader.onloadend = () => {
-                          setFormData({ ...formData, logo_url: reader.result as string })
-                        }
-                        reader.readAsDataURL(file)
-                      }
-                    }}
-                    className="mt-1"
-                  />
-                  {formData.logo_url && (
-                    <img
-                      src={formData.logo_url}
-                      alt="Logo preview"
-                      className="w-12 h-12 rounded-lg object-cover border border-border"
-                    />
-                  )}
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">Upload an image file (JPG, PNG, etc.)</p>
-              </div>
-
-              <Button
-                onClick={async () => {
-                  if (!formData.shop_name.trim()) {
-                    toast.error("Shop name is required")
-                    return
-                  }
-                  try {
-                    if (!user?.id) {
-                      toast.error("User not authenticated")
-                      return
+                  id="shop-logo"
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) {
+                      const reader = new FileReader()
+                      reader.onloadend = () => setFormData({ ...formData, logo_url: reader.result as string })
+                      reader.readAsDataURL(file)
                     }
-                    // Generate shop slug from shop name with random suffix to ensure uniqueness
-                    const baseSlug = formData.shop_name
-                      .toLowerCase()
-                      .replace(/[^a-z0-9]+/g, "-")
-                      .replace(/^-+|-+$/g, "")
-
-                    // Add random suffix to prevent collisions when multiple users use the same name
-                    const randomSuffix = Math.random().toString(36).substring(2, 9)
-                    const shopSlug = `${baseSlug}-${randomSuffix}`
-
-                    const newShop = await shopService.createShop(user.id, {
-                      shop_name: formData.shop_name,
-                      shop_slug: shopSlug,
-                      description: formData.description,
-                      logo_url: formData.logo_url,
-                    })
-                    setShop(newShop)
-                    toast.success("Shop created successfully!")
-                  } catch (error: any) {
-                    console.error("Error creating shop:", error)
-                    const errorMsg = error?.message || "Failed to create shop"
-                    toast.error(errorMsg)
-                  }
-                }}
-                disabled={loading}
-                className="w-full bg-success hover:bg-success/90 font-semibold"
-              >
-                {loading ? "Creating..." : "Create Shop"}
-              </Button>
-            </CardContent>
-          </Card>
+                  }}
+                />
+                {formData.logo_url && (
+                  <img src={formData.logo_url} alt="Logo preview" className="w-12 h-12 rounded-lg object-cover border border-border" />
+                )}
+              </div>
+            </div>
+            <Button
+              onClick={async () => {
+                if (!formData.shop_name.trim()) { toast.error("Shop name is required"); return }
+                try {
+                  if (!user?.id) { toast.error("User not authenticated"); return }
+                  const baseSlug = formData.shop_name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
+                  const randomSuffix = Math.random().toString(36).substring(2, 9)
+                  const shopSlug = `${baseSlug}-${randomSuffix}`
+                  const newShop = await shopService.createShop(user.id, {
+                    shop_name: formData.shop_name, shop_slug: shopSlug,
+                    description: formData.description, logo_url: formData.logo_url,
+                  })
+                  setShop(newShop)
+                  toast.success("Shop created successfully!")
+                } catch (error: any) {
+                  toast.error(error?.message || "Failed to create shop")
+                }
+              }}
+              disabled={loading}
+              className="w-full rounded-2xl bg-[#1b388b] text-primary-foreground hover:bg-[#1b388b]/90 font-semibold"
+            >
+              Create Shop
+            </Button>
+          </div>
         </div>
       </DashboardLayout>
     )
   }
 
+  const isDealer = userRole === "dealer" || userRole === "admin"
+  const storefrontHref = shop.subdomain ? shopOrigin(shop.subdomain) : `/shop/${shop.shop_slug}`
+  const ussdNeedsActivation = !ussdCode || !ussdCode.activation_fee_paid
+
   return (
     <DashboardLayout>
-      <div className="space-y-6">
-        {/* Header */}
-        <div>
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary via-primary to-primary bg-clip-text text-transparent">My Shop</h1>
-          <p className="text-sm sm:text-base text-muted-foreground mt-1">Manage your store and resell data packages</p>
+      <div className="mx-auto max-w-2xl lg:max-w-4xl space-y-5">
+        {/* Shop header */}
+        <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#1b388b]/10 text-[#1b388b]">
+                <Store className="h-6 w-6" />
+              </span>
+              <div className="min-w-0">
+                <p className="truncate text-lg font-bold text-foreground">{shop.shop_name}</p>
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  <Badge className={shop.is_active ? "bg-success/15 text-success" : "bg-warning/15 text-warning"}>
+                    {shop.is_active ? "Active" : "Pending Approval"}
+                  </Badge>
+                  {isDealer && <Badge className="bg-[#1b388b]/10 text-[#1b388b]">Dealer</Badge>}
+                </div>
+              </div>
+            </div>
+            <Button variant="outline" size="sm" className="shrink-0 rounded-full" onClick={handleRefresh} disabled={refreshing}>
+              <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${refreshing ? "animate-spin" : ""}`} /> Refresh
+            </Button>
+          </div>
+
+          <div className="mt-4 flex items-center gap-2 rounded-2xl border border-border bg-muted/40 p-3">
+            <code className="flex-1 truncate font-mono text-xs sm:text-sm text-foreground">
+              {shop.subdomain ? shopOrigin(shop.subdomain) : `${typeof window !== "undefined" ? window.location.origin : ""}/shop/${shop.shop_slug}`}
+            </code>
+            <Button variant="outline" size="sm" className="shrink-0 rounded-full" onClick={copyShopLink}>
+              <Copy className="h-3.5 w-3.5 mr-1.5" /> Copy
+            </Button>
+            <a href={storefrontHref} target="_blank" rel="noopener noreferrer">
+              <Button size="sm" className="shrink-0 rounded-full bg-[#1b388b] text-primary-foreground hover:bg-[#1b388b]/90">
+                <ExternalLink className="h-3.5 w-3.5" />
+              </Button>
+            </a>
+          </div>
         </div>
 
-        {/* Shop Info Card */}
-        <Card className="bg-card backdrop-blur-xl border border-border hover:border-border">
-          <CardHeader className="flex flex-col sm:flex-row items-start justify-between gap-3">
-            <div className="flex items-center gap-3 sm:gap-4">
-              {shop.logo_url && (
-                <img
-                  src={shop.logo_url}
-                  alt={shop.shop_name}
-                  className="w-12 h-12 sm:w-16 sm:h-16 rounded-lg object-cover"
-                />
-              )}
-              <div>
-                <CardTitle className="text-xl sm:text-2xl">{shop.shop_name}</CardTitle>
-                <CardDescription className="mt-1 sm:mt-2 text-sm">{shop.description || "No description"}</CardDescription>
-              </div>
+        {/* USSD activation -- real per-shop activation_fee_paid flag + real
+            admin-configured fee, self-service provisioning if no code exists yet. */}
+        {ussdNeedsActivation && (
+          <div className="flex items-center justify-between gap-3 rounded-2xl border border-[#1b388b]/20 bg-[#1b388b]/5 p-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <Smartphone className="h-4 w-4 shrink-0 text-[#1b388b]" />
+              <p className="text-sm text-foreground">
+                Activate USSD — customers buy via {ussdDialCode ? <span className="font-mono font-semibold">{ussdDialCode}</span> : "USSD"}.
+                {" "}One-time {ussdActivationFee > 0 ? `GHS ${ussdActivationFee.toFixed(2)}` : "free"}.
+              </p>
             </div>
-            <Badge className="bg-success">
-              {shop.is_active ? "Active" : "Inactive"}
-            </Badge>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 p-3 bg-card/40 rounded-lg border border-white/20">
-              <code className="text-xs sm:text-sm font-mono flex-1 break-all">{shop.subdomain ? shopOrigin(shop.subdomain) : `${window.location.origin}/shop/${shop.shop_slug}`}</code>
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={copyShopLink}
-                  className="hover:bg-primary flex-1 sm:flex-none"
-                >
-                  <Copy className="w-4 h-4" />
-                </Button>
-                <Link href={shop.subdomain ? shopOrigin(shop.subdomain) : `/shop/${shop.shop_slug}`} target="_blank">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="hover:bg-primary"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                  </Button>
-                </Link>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 pt-4">
-              <div className="p-3 bg-card/40 rounded-lg border border-white/20">
-                <p className="text-xs text-muted-foreground">Total Products</p>
-                <p className="text-2xl font-bold text-primary">{packages.length}</p>
-              </div>
-              <div className="p-3 bg-card/40 rounded-lg border border-white/20">
-                <p className="text-xs text-muted-foreground">Shop Status</p>
-                <Badge className={shop?.is_active ? "bg-success" : "bg-warning"}>
-                  {shop?.is_active ? "Active" : "Pending Approval"}
-                </Badge>
-              </div>
-              <div className="p-3 bg-card/40 rounded-lg border border-white/20">
-                <p className="text-xs text-muted-foreground">Subdomain</p>
-                <p className="text-sm font-mono font-semibold">{shop.subdomain || shop.shop_slug}</p>
-              </div>
-            </div>
-
-            {!shop?.is_active && (
-              <Alert className="border-border bg-warning/10">
-                <AlertCircle className="h-4 w-4 text-warning" />
-                <AlertDescription className="text-xs text-warning">
-                  Your shop is pending admin approval. Once approved, you'll be able to accept customer orders and process payments.
-                </AlertDescription>
-              </Alert>
-            )}
-
-            {!editingShop ? (
-              <Button
-                onClick={() => setEditingShop(true)}
-                className="bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary w-full"
-              >
-                Edit Shop
-              </Button>
-            ) : (
-              <div className="space-y-4 pt-4 border-t border-white/20">
-                <div>
-                  <Label htmlFor="shop-name-display">Shop Name</Label>
-                  <div className="mt-1 p-3 bg-muted rounded-md border border-border">
-                    <p className="font-semibold text-foreground">{formData.shop_name}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Shop name cannot be changed</p>
-                  </div>
-                </div>
-                <div>
-                  <Label>Description</Label>
-                  <Textarea
-                    value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    className="mt-1"
-                    rows={3}
-                  />
-                </div>
-                <div>
-                  <Label>Shop Logo</Label>
-                  <div className="mt-1 flex items-center gap-3">
-                    <Input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0]
-                        if (file) {
-                          const reader = new FileReader()
-                          reader.onloadend = () => {
-                            setFormData({ ...formData, logo_url: reader.result as string })
-                          }
-                          reader.readAsDataURL(file)
-                        }
-                      }}
-                      className="mt-1"
-                    />
-                    {formData.logo_url && (
-                      <img
-                        src={formData.logo_url}
-                        alt="Logo preview"
-                        className="w-12 h-12 rounded-lg object-cover border border-border"
-                      />
-                    )}
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">Upload an image file (JPG, PNG, etc.)</p>
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    onClick={handleUpdateShop}
-                    disabled={updatingShop}
-                    className="flex-1 bg-success hover:bg-success/90"
-                  >
-                    {updatingShop ? (
-                      <>
-                        <span className="animate-spin mr-2">⏳</span>
-                        Saving...
-                      </>
-                    ) : (
-                      "Save Changes"
-                    )}
-                  </Button>
-                  <Button
-                    onClick={() => setEditingShop(false)}
-                    variant="outline"
-                    className="flex-1"
-                    disabled={updatingShop}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Airtime Profit Configuration Card */}
-        <Card className="bg-card backdrop-blur-xl border border-primary/20">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Megaphone className="w-5 h-5 text-primary" />
-              Airtime Profit Markups
-            </CardTitle>
-            <CardDescription>Set your custom profit percentage for airtime sales</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <Label htmlFor="markup-mtn" className="flex justify-between">
-                  <span>MTN Markup (%)</span>
-                  <span className="text-[10px] text-primary font-medium">Max: {maxMarkups.mtn}%</span>
-                </Label>
-                <Input
-                  id="markup-mtn"
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  max={maxMarkups.mtn}
-                  value={formData.airtime_markup_mtn}
-                  onChange={(e) => {
-                    const val = parseFloat(e.target.value) || 0
-                    if (val > maxMarkups.mtn) {
-                      toast.error(`MTN markup cannot exceed ${maxMarkups.mtn}%`)
-                      setFormData({ ...formData, airtime_markup_mtn: maxMarkups.mtn.toString() })
-                    } else {
-                      setFormData({ ...formData, airtime_markup_mtn: e.target.value })
-                    }
-                  }}
-                  placeholder="0.0"
-                  className="mt-1"
-                />
-              </div>
-              <div>
-                <Label htmlFor="markup-telecel" className="flex justify-between">
-                  <span>Telecel Markup (%)</span>
-                  <span className="text-[10px] text-primary font-medium">Max: {maxMarkups.telecel}%</span>
-                </Label>
-                <Input
-                  id="markup-telecel"
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  max={maxMarkups.telecel}
-                  value={formData.airtime_markup_telecel}
-                  onChange={(e) => {
-                    const val = parseFloat(e.target.value) || 0
-                    if (val > maxMarkups.telecel) {
-                      toast.error(`Telecel markup cannot exceed ${maxMarkups.telecel}%`)
-                      setFormData({ ...formData, airtime_markup_telecel: maxMarkups.telecel.toString() })
-                    } else {
-                      setFormData({ ...formData, airtime_markup_telecel: e.target.value })
-                    }
-                  }}
-                  placeholder="0.0"
-                  className="mt-1"
-                />
-              </div>
-              <div>
-                <Label htmlFor="markup-at" className="flex justify-between">
-                  <span>AT Markup (%)</span>
-                  <span className="text-[10px] text-primary font-medium">Max: {maxMarkups.at}%</span>
-                </Label>
-                <Input
-                  id="markup-at"
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  max={maxMarkups.at}
-                  value={formData.airtime_markup_at}
-                  onChange={(e) => {
-                    const val = parseFloat(e.target.value) || 0
-                    if (val > maxMarkups.at) {
-                      toast.error(`AT markup cannot exceed ${maxMarkups.at}%`)
-                      setFormData({ ...formData, airtime_markup_at: maxMarkups.at.toString() })
-                    } else {
-                      setFormData({ ...formData, airtime_markup_at: e.target.value })
-                    }
-                  }}
-                  placeholder="0.0"
-                  className="mt-1"
-                />
-              </div>
-            </div>
-            <p className="text-xs text-primary/80 bg-primary/5 p-2 rounded-lg border border-primary/20">
-              <span className="font-semibold text-primary">Dynamic Capping:</span> To protect customers, the total fee (Platform Fee + Your Markup) is limited to 10%. Your maximum markup is adjusted based on the current platform cost.
-            </p>
             <Button
-              onClick={handleUpdateShop}
-              disabled={updatingShop}
-              className="w-full bg-primary hover:bg-primary/90"
+              size="sm"
+              className="shrink-0 rounded-full bg-[#1b388b] text-primary-foreground hover:bg-[#1b388b]/90"
+              onClick={handleActivateUssd}
+              disabled={activatingUssd}
             >
-              {updatingShop ? "Saving..." : "Save Airtime Markups"}
+              {activatingUssd ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Set up"}
             </Button>
-          </CardContent>
-        </Card>
+          </div>
+        )}
 
-        {/* Results Checker Profit Markups Card */}
-        <Card className="bg-card backdrop-blur-xl border border-border">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <GraduationCap className="w-5 h-5 text-primary" />
-              Results Checker Profit Markups
-            </CardTitle>
-            <CardDescription>Set your extra charge per voucher for WASSCE, BECE &amp; NOVDEC</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {(["waec", "bece", "novdec"] as const).map(board => (
-                <div key={board}>
-                  <Label htmlFor={`rc-markup-${board}`} className="flex justify-between">
-                    <span>{board.toUpperCase()} Markup (GHS)</span>
-                    {rcMaxMarkups[board] > 0 && (
-                      <span className="text-[10px] text-primary font-medium">Max: GHS {rcMaxMarkups[board].toFixed(2)}</span>
-                    )}
-                  </Label>
-                  <Input
-                    id={`rc-markup-${board}`}
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    max={rcMaxMarkups[board] || undefined}
-                    value={rcMarkups[board]}
-                    onChange={e => {
-                      const val = parseFloat(e.target.value) || 0
-                      if (rcMaxMarkups[board] > 0 && val > rcMaxMarkups[board]) {
-                        toast.error(`${board.toUpperCase()} markup cannot exceed GHS ${rcMaxMarkups[board].toFixed(2)}`)
-                        setRcMarkups(prev => ({ ...prev, [board]: rcMaxMarkups[board].toString() }))
-                      } else {
-                        setRcMarkups(prev => ({ ...prev, [board]: e.target.value }))
-                      }
-                    }}
-                    placeholder="0.00"
-                    className="mt-1"
-                  />
+        {/* Advisory — own sender ID for order-confirmation SMS. Never blocks
+            sending (see app/api/fulfillment/process-order/route.ts). */}
+        {!hasActiveSender && (
+          <div className="flex items-start justify-between gap-3 rounded-2xl border border-warning/30 bg-warning/10 p-4">
+            <div className="flex items-start gap-3 min-w-0">
+              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-warning" />
+              <div>
+                <p className="text-sm font-bold text-foreground">Send order texts under your own name</p>
+                <p className="text-xs text-muted-foreground">Request a sender ID so customer order confirmations show your shop's name instead of the default one.</p>
+              </div>
+            </div>
+            <Link href="/dashboard/sms" className="shrink-0 flex items-center gap-1 text-xs font-semibold text-[#1b388b] hover:underline">
+              Fix in SMS <ArrowRight className="h-3 w-3" />
+            </Link>
+          </div>
+        )}
+
+        {/* Quick actions */}
+        <div className="grid grid-cols-4 gap-2 sm:gap-3">
+          {QUICK_ACTIONS.map(({ href, label, icon: Icon }) => (
+            <Link key={href} href={href} className="flex flex-col items-center gap-1.5 rounded-2xl border border-border bg-card p-3 text-center hover:border-[#1b388b]/30">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#1b388b]/10 text-[#1b388b]">
+                <Icon className="h-4 w-4" />
+              </span>
+              <span className="text-xs font-semibold text-foreground">{label}</span>
+            </Link>
+          ))}
+          <a href={storefrontHref} target="_blank" rel="noopener noreferrer" className="flex flex-col items-center gap-1.5 rounded-2xl border border-border bg-card p-3 text-center hover:border-[#1b388b]/30">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#1b388b]/10 text-[#1b388b]">
+              <ExternalLink className="h-4 w-4" />
+            </span>
+            <span className="text-xs font-semibold text-foreground">Storefront</span>
+          </a>
+        </div>
+
+        {/* Performance */}
+        <div>
+          <div className="flex items-center justify-between">
+            <p className="flex items-center gap-1.5 text-sm font-bold text-foreground"><TrendingUp className="h-4 w-4 text-[#1b388b]" /> Performance</p>
+            <div className="inline-flex gap-1 rounded-2xl bg-muted p-1">
+              {DATE_RANGES.map(({ id, label }) => (
+                <button
+                  key={id}
+                  onClick={() => setDateRange(id)}
+                  className={`rounded-xl px-3 py-1.5 text-xs font-bold transition ${dateRange === id ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:gap-3">
+            <div className="rounded-2xl border border-border bg-card p-4">
+              <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Banknote className="h-3.5 w-3.5" /> Sales</p>
+              <p className="mt-1 text-xl font-black text-foreground">GH₵{stats.sales.toFixed(2)}</p>
+            </div>
+            <div className="rounded-2xl border border-border bg-card p-4">
+              <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><TrendingUp className="h-3.5 w-3.5" /> Profit</p>
+              <p className="mt-1 text-xl font-black text-foreground">GH₵{stats.profit.toFixed(2)}</p>
+            </div>
+            <div className="rounded-2xl border border-border bg-card p-4">
+              <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><CheckCircle2 className="h-3.5 w-3.5" /> Completed</p>
+              <p className="mt-1 text-xl font-black text-foreground">{stats.completed}</p>
+            </div>
+            <div className="rounded-2xl border border-border bg-card p-4">
+              <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Clock className="h-3.5 w-3.5" /> In Progress</p>
+              <p className="mt-1 text-xl font-black text-foreground">{stats.inProgress}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Available Profit */}
+        <div className="rounded-2xl bg-gradient-to-br from-[#1b388b] to-[#2a5ce8] p-5 text-white">
+          <p className="flex items-center gap-1.5 text-sm text-white/70"><Wallet className="h-4 w-4" /> Available Profit</p>
+          <p className="mt-1 text-3xl font-black">GH₵{(balance?.available_balance || 0).toFixed(2)}</p>
+          <p className="mt-1 text-xs text-white/70">
+            Earned: GH₵{(balance?.credited_profit || 0).toFixed(2)} · Withdrawn: GH₵{(balance?.withdrawn_profit || 0).toFixed(2)}
+          </p>
+          <Link href="/dashboard/shop-withdraw">
+            <button className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-white py-3 text-sm font-bold text-[#1b388b] hover:bg-white/90">
+              Withdraw Earnings <ArrowRight className="h-4 w-4" />
+            </button>
+          </Link>
+        </div>
+
+        {/* Storefront Notice */}
+        <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+          <p className="flex items-center gap-1.5 text-sm font-bold text-foreground"><Megaphone className="h-4 w-4 text-[#1b388b]" /> Storefront Notice</p>
+          <Textarea
+            value={announcementMessage}
+            onChange={(e) => setAnnouncementMessage(e.target.value)}
+            placeholder="Enter your storefront notice here..."
+            className="mt-3"
+            rows={3}
+            maxLength={2000}
+          />
+          <Button
+            onClick={handleSaveNotice}
+            disabled={savingNotice}
+            className="mt-3 w-full rounded-2xl bg-[#1b388b] text-primary-foreground hover:bg-[#1b388b]/90"
+          >
+            {savingNotice ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+            Save Notice
+          </Button>
+        </div>
+
+        {/* Customer order SMS toggle */}
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4">
+          <div className="flex items-start gap-3 min-w-0">
+            <MessageSquare className="h-4 w-4 mt-0.5 shrink-0 text-[#1b388b]" />
+            <div>
+              <p className="text-sm font-bold text-foreground">Customer order SMS</p>
+              <p className="text-xs text-muted-foreground">Text customers a confirmation each time they order from your shop.</p>
+            </div>
+          </div>
+          <button
+            role="switch"
+            aria-checked={smsToggleOn}
+            disabled={savingSmsToggle}
+            onClick={() => handleToggleSms(!smsToggleOn)}
+            className={`relative shrink-0 h-6 w-11 rounded-full transition disabled:opacity-50 ${smsToggleOn ? "bg-[#1b388b]" : "bg-muted"}`}
+          >
+            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${smsToggleOn ? "translate-x-[22px]" : "translate-x-0.5"}`} />
+          </button>
+        </div>
+
+        {/* Recent Activity */}
+        <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-bold text-foreground">Recent Activity</p>
+            <Link href="/dashboard/shop-orders" className="flex items-center gap-1 text-xs font-semibold text-[#1b388b] hover:underline">
+              View all <ArrowRight className="h-3 w-3" />
+            </Link>
+          </div>
+          {recentOrders.length === 0 ? (
+            <p className="mt-3 text-sm text-muted-foreground">No orders yet.</p>
+          ) : (
+            <div className="mt-3 divide-y divide-border">
+              {recentOrders.map((order) => (
+                <div key={order.id} className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-success/10 text-sm font-bold text-success">
+                      {(order.network || "?").charAt(0).toUpperCase()}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-foreground">{order.network} {order.volume_gb}GB</p>
+                      <p className="truncate text-xs text-muted-foreground">{order.customer_phone}</p>
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="text-sm font-semibold text-foreground">GH₵{Number(order.total_price || 0).toFixed(2)}</p>
+                    <p className="text-xs text-success">+GH₵{Number(order.profit_amount || 0).toFixed(2)}</p>
+                  </div>
                 </div>
               ))}
             </div>
-            <p className="text-xs text-primary/80 bg-primary/50 p-2 rounded-lg border border-border">
-              This amount is added on top of the base voucher price. The maximum is set by the admin and enforced at checkout.
-            </p>
-            <Button
-              onClick={handleSaveRcMarkups}
-              disabled={savingRcMarkups}
-              className="w-full bg-primary hover:bg-primary"
-            >
-              {savingRcMarkups ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving…</> : "Save Results Checker Markups"}
-            </Button>
-          </CardContent>
-        </Card>
+          )}
+        </div>
 
-        {/* Results Check Service Markup Card */}
-        <Card className="bg-card backdrop-blur-xl border border-border">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <ClipboardCheck className="w-5 h-5 text-primary" />
-              Results Check Service Markup
-            </CardTitle>
-            <CardDescription>Set your extra charge on the &quot;Check My Results&quot; service fee</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label htmlFor="rc-check-markup" className="flex justify-between">
-                <span>Markup (GHS)</span>
-                {rcCheckMaxMarkup > 0 && (
-                  <span className="text-[10px] text-primary font-medium">Max: GHS {rcCheckMaxMarkup.toFixed(2)}</span>
-                )}
-              </Label>
-              <Input
-                id="rc-check-markup"
-                type="number"
-                step="0.01"
-                min="0"
-                max={rcCheckMaxMarkup || undefined}
-                value={rcCheckMarkup}
-                onChange={e => {
-                  const val = parseFloat(e.target.value) || 0
-                  if (rcCheckMaxMarkup > 0 && val > rcCheckMaxMarkup) {
-                    toast.error(`Markup cannot exceed GHS ${rcCheckMaxMarkup.toFixed(2)}`)
-                    setRcCheckMarkup(rcCheckMaxMarkup.toString())
-                  } else {
-                    setRcCheckMarkup(e.target.value)
-                  }
-                }}
-                placeholder="0.00"
-                className="mt-1"
-              />
-            </div>
-            <p className="text-xs text-primary/80 bg-primary/50 p-2 rounded-lg border border-border">
-              This amount is added on top of the base &quot;Check My Results&quot; fee. The maximum is set by the admin and enforced at checkout.
-            </p>
-            <Button
-              onClick={handleSaveRcCheckMarkup}
-              disabled={savingRcCheckMarkup}
-              className="w-full bg-primary hover:bg-primary"
-            >
-              {savingRcCheckMarkup ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving…</> : "Save Results Check Markup"}
-            </Button>
-          </CardContent>
-        </Card>
-
-        {/* WhatsApp Configuration Card */}
-        <Card className="bg-card backdrop-blur-xl border border-border">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <MessageCircle className="w-5 h-5 text-success" />
-              WhatsApp Link
-            </CardTitle>
-            <CardDescription>Configure WhatsApp contact link for your customers</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label htmlFor="whatsapp-link" className="text-sm font-medium">
-                WhatsApp Contact Link
-              </Label>
-              <p className="text-xs text-muted-foreground mt-1 mb-2">
-                This link will appear as a floating button on your storefront
-              </p>
-              <Input
-                id="whatsapp-link"
-                type="url"
-                placeholder="https://wa.me/1234567890"
-                value={whatsappLink}
-                onChange={(e) => setWhatsappLink(e.target.value)}
-                className="w-full"
-              />
-            </div>
-
-            <div className="p-3 bg-primary/5 border border-primary/20 rounded-lg text-sm text-primary">
-              <p className="font-semibold mb-2">How to get your WhatsApp link:</p>
-              <ol className="list-decimal list-inside space-y-1 text-xs">
-                <li>Open WhatsApp and go to your profile</li>
-                <li>Go to Settings → Business tools → Business links</li>
-                <li>Create a new link or copy existing one</li>
-                <li>Or use: https://wa.me/YOUR_PHONE_NUMBER (with country code)</li>
-              </ol>
-            </div>
-
-            {whatsappLink && (
-              <div className="p-3 bg-success/10 border border-border rounded-lg">
-                <p className="text-sm text-success">
-                  <span className="font-semibold">Preview:</span>{" "}
-                  <a
-                    href={whatsappLink}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-success hover:underline break-all"
-                  >
-                    {whatsappLink}
-                  </a>
-                </p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Storefront Announcement Card */}
-        <Card className="bg-card backdrop-blur-xl border border-border hover:border-border">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Megaphone className="w-5 h-5 text-primary" />
-              Storefront Announcement
-            </CardTitle>
-            <CardDescription>Display a pop-up message to customers on your store</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between p-3 bg-card/40 rounded-lg border border-white/20">
-              <div>
-                <Label htmlFor="announcement-enabled" className="text-sm font-medium text-foreground">
-                  Enable Announcement
-                </Label>
-                <p className="text-xs text-muted-foreground">Show modal on page load</p>
-              </div>
-              <input
-                type="checkbox"
-                id="announcement-enabled"
-                checked={announcementEnabled}
-                onChange={(e) => setAnnouncementEnabled(e.target.checked)}
-                className="w-5 h-5 rounded border-border text-primary focus:ring-primary"
-              />
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="announcement-title">Announcement Title</Label>
-                <Input
-                  id="announcement-title"
-                  placeholder="e.g. Special Holiday Promo!"
-                  value={announcementTitle}
-                  onChange={(e) => setAnnouncementTitle(e.target.value)}
-                  disabled={!announcementEnabled}
-                  className="mt-1"
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="announcement-message">Announcement Message</Label>
-                <Textarea
-                  id="announcement-message"
-                  placeholder="Enter your message here..."
-                  value={announcementMessage}
-                  onChange={(e) => setAnnouncementMessage(e.target.value)}
-                  disabled={!announcementEnabled}
-                  className="mt-1 min-h-[100px]"
-                />
-              </div>
-            </div>
-
-            <Button
-              onClick={handleSaveStorefrontSettings}
-              disabled={savingSettings}
-              className="w-full bg-primary hover:bg-primary font-semibold"
-            >
-              {savingSettings ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save className="w-4 h-4 mr-2" />
-                  Save Storefront Settings
-                </>
-              )}
-            </Button>
-          </CardContent>
-        </Card>
+        {!shop.is_active && (
+          <div className="flex items-start gap-3 rounded-2xl border border-warning/30 bg-warning/10 p-4 text-sm text-foreground">
+            <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-warning" />
+            <p>Your shop is pending admin approval. It'll go live on your storefront link once approved.</p>
+          </div>
+        )}
       </div>
-
-      {/* Packages Section */}
-      <div className="space-y-6 mt-8">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Package className="w-5 h-5 text-primary" />
-              Manage Packages
-            </CardTitle>
-            <CardDescription>Add data packages to your shop</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Products */}
-            <div>
-                <Card className="bg-card backdrop-blur-xl border border-border">
-                  <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <div>
-                      <CardTitle>Shop Products</CardTitle>
-                      <CardDescription>Manage products available in your store</CardDescription>
-                    </div>
-                    {!addingPackage && (
-                      <Button
-                        onClick={() => setAddingPackage(true)}
-                        className="bg-success hover:bg-success/90"
-                      >
-                        <Plus className="w-4 h-4 mr-2" />
-                        Add Product
-                      </Button>
-                    )}
-                  </CardHeader>
-
-                  <CardContent className="space-y-4">
-                    {/* Add Packages Grid */}
-                    {addingPackage && (
-                      <div className="mb-6">
-                        <div className="flex justify-between items-center mb-4">
-                          <h3 className="text-lg font-semibold">Available Packages</h3>
-                          <Button
-                            onClick={() => {
-                              setAddingPackage(false)
-                              setSelectedPackage("")
-                              setProfitMargin("")
-                              setSelectedNetwork("All")
-                            }}
-                            variant="outline"
-                            size="sm"
-                          >
-                            Done
-                          </Button>
-                        </div>
-
-                        {/* Network Filter */}
-                        <div className="mb-4 flex gap-2 flex-wrap">
-                          <Button
-                            onClick={() => setSelectedNetwork("All")}
-                            variant={selectedNetwork === "All" ? "default" : "outline"}
-                            size="sm"
-                            className={selectedNetwork === "All" ? "bg-primary" : ""}
-                          >
-                            All Networks
-                          </Button>
-                          {[...new Set(allPackages.map(p => p.network))].sort().map(network => (
-                            <Button
-                              key={network}
-                              onClick={() => setSelectedNetwork(network)}
-                              variant={selectedNetwork === network ? "default" : "outline"}
-                              size="sm"
-                              className={selectedNetwork === network ? "bg-primary" : ""}
-                            >
-                              {network}
-                            </Button>
-                          ))}
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                          {(() => {
-                            const filteredPackages = selectedNetwork === "All"
-                              ? allPackages
-                              : allPackages.filter(p => p.network === selectedNetwork)
-
-                            return filteredPackages
-                              .sort((a, b) => parseFloat(a.size) - parseFloat(b.size))
-                              .map((pkg) => {
-                                const isDealer = userRole === 'dealer' || user?.user_metadata?.role === 'dealer'
-                                const dealerPrice = pkg.dealer_price && pkg.dealer_price > 0 ? pkg.dealer_price : undefined
-                                const displayBasePrice = pkg.parent_price ?? (isDealer && dealerPrice ? dealerPrice : pkg.price) ?? 0
-
-                                return (
-                                  <Card key={pkg.id} className="border border-border bg-card">
-                                    <CardContent className="p-4 space-y-3">
-                                      <div>
-                                        <p className="font-semibold text-foreground">{pkg.network} - {pkg.size}GB</p>
-                                        <p className="text-sm text-muted-foreground">
-                                          {shop?.parent_shop_id ? "Your Cost (Parent Price):" : "Base Price:"} GHS {displayBasePrice.toFixed(2)}
-                                        </p>
-                                      </div>
-
-                                      {(() => {
-                                        const isAdded = packages.find(p => p.package_id === (pkg.package_id || pkg.id))
-                                        return (
-                                          <>
-                                            {isAdded && (
-                                              <div className="bg-primary/5 p-2 rounded-md text-xs border border-primary/20">
-                                                <p className="text-primary">
-                                                  <span className="font-semibold">Your Cost (Wholesale):</span> GHS {displayBasePrice.toFixed(2)}
-                                                </p>
-                                                <p className="text-primary">
-                                                  <span className="font-semibold">Current Selling Price:</span> GHS {(displayBasePrice + (isAdded.profit_margin || 0)).toFixed(2)}
-                                                </p>
-                                                <p className="text-primary">
-                                                  Your Profit: GHS {(isAdded.profit_margin || 0).toFixed(2)}
-                                                </p>
-                                              </div>
-                                            )}
-                                          </>
-                                        )
-                                      })()}
-
-                                      <div>
-                                        <Label className="text-xs">Your Selling Price (GHS)</Label>
-                                        <Input
-                                          type="number"
-                                          step="0.01"
-                                          placeholder="Enter price"
-                                          value={selectedPackage === pkg.id ? profitMargin : ""}
-                                          onChange={(e) => {
-                                            setSelectedPackage(pkg.id)
-                                            setProfitMargin(e.target.value)
-                                          }}
-                                          className="mt-1 text-sm"
-                                        />
-                                      </div>
-
-                                      {selectedPackage === pkg.id && profitMargin && (
-                                        (() => {
-                                          const isDealer = userRole === 'dealer' || user?.user_metadata?.role === 'dealer'
-                                          const dealerPrice = pkg.dealer_price && pkg.dealer_price > 0 ? pkg.dealer_price : undefined
-                                          const basePrice = pkg.parent_price ?? (isDealer && dealerPrice ? dealerPrice : pkg.price) ?? 0
-                                          const sellingPrice = parseFloat(profitMargin)
-                                          const profit = sellingPrice - basePrice
-                                          const isNegative = profit < 0
-                                          return (
-                                            <div className={`p-2 rounded-md text-xs space-y-1 ${isNegative
-                                              ? "bg-destructive/10 border border-border"
-                                              : "bg-success/10"
-                                              }`}>
-                                              <p className={isNegative ? "text-destructive" : "text-success"}>
-                                                <span className="font-semibold">Your Profit:</span> GHS {profit.toFixed(2)}
-                                              </p>
-                                              {isNegative && (
-                                                <p className="text-destructive text-xs">
-                                                  ⚠️ Selling price must be higher than base price
-                                                </p>
-                                              )}
-                                            </div>
-                                          )
-                                        })()
-                                      )}
-
-                                      {(() => {
-                                        const isAdded = packages.some(p => p.package_id === (pkg.package_id || pkg.id))
-                                        const isDealer = userRole === 'dealer' || user?.user_metadata?.role === 'dealer'
-                                        const dealerPrice = pkg.dealer_price && pkg.dealer_price > 0 ? pkg.dealer_price : undefined
-                                        const basePrice = pkg.parent_price ?? (isDealer && dealerPrice ? dealerPrice : pkg.price) ?? 0
-                                        const profit = selectedPackage === pkg.id && profitMargin ? parseFloat(profitMargin) - basePrice : 0
-                                        const hasNegativeProfit = profit < 0
-                                        return (
-                                          <Button
-                                            onClick={() => {
-                                              if (selectedPackage === pkg.id && profitMargin) {
-                                                handleAddPackage()
-                                              }
-                                            }}
-                                            disabled={selectedPackage !== pkg.id || !profitMargin || hasNegativeProfit}
-                                            size="sm"
-                                            className={`w-full ${isAdded
-                                              ? "bg-primary hover:bg-primary/90"
-                                              : "bg-success hover:bg-success/90"
-                                              } disabled:opacity-50`}
-                                          >
-                                            {isAdded ? "✓ Edit" : "Add to Shop"}
-                                          </Button>
-                                        )
-                                      })()}
-                                    </CardContent>
-                                  </Card>
-                                )
-                              })
-                          })()}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Products List */}
-                    {packages.length === 0 ? (
-                      <div className="text-center py-8">
-                        <Package className="w-12 h-12 mx-auto text-muted-foreground mb-2" />
-                        <p className="text-muted-foreground">No products yet. Add your first product!</p>
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {packages.map((shopPkg) => {
-                          const pkg = shopPkg.packages
-                          // Get the current parent price from available packages (source of truth)
-                          // Get the current parent price from available packages (source of truth)
-                          // For sub-agents, allPackages contains parent-packages where id is catalog_id and package_id is the package id
-                          // For regular users, allPackages contains packages where id is package id
-                          const availablePkg = allPackages.find(p => (p.package_id || p.id) === pkg?.id)
-                          const isDealer = userRole === 'dealer' || user?.user_metadata?.role === 'dealer'
-                          const dealerPrice = pkg?.dealer_price && pkg.dealer_price > 0 ? pkg.dealer_price : undefined
-
-                          // For dealers, prioritize dealer_price over stored parent_price
-                          const currentParentPrice = (isDealer && dealerPrice)
-                            ? dealerPrice
-                            : (availablePkg?.parent_price !== undefined
-                              ? availablePkg.parent_price
-                              : (shopPkg.parent_price !== undefined
-                                ? shopPkg.parent_price
-                                : (pkg?.price || 0)))
-                          const displayBasePrice = currentParentPrice
-                          const sellingPrice = displayBasePrice + (shopPkg.profit_margin || 0)
-                          const profit = shopPkg.profit_margin || 0
-                          return (
-                            <Card key={shopPkg.id} className="border border-border bg-card">
-                              <CardContent className="p-4 space-y-3">
-                                <div>
-                                  <p className="font-semibold text-foreground">{pkg?.network} - {pkg?.size}GB</p>
-                                  <p className="text-sm text-muted-foreground">
-                                    {shop?.parent_shop_id ? "Your Cost (Parent Price):" : "Base Price:"} GHS {displayBasePrice.toFixed(2)}
-                                  </p>
-                                </div>
-
-                                <div className="bg-primary/5 p-2 rounded-md text-xs border border-primary/20">
-                                  <p className="text-primary">
-                                    <span className="font-semibold">Your Cost (Wholesale):</span> GHS {displayBasePrice.toFixed(2)}
-                                  </p>
-                                  <p className="text-primary">
-                                    <span className="font-semibold">Current Selling Price:</span> GHS {sellingPrice.toFixed(2)}
-                                  </p>
-                                  <p className="text-primary">
-                                    Your Profit: GHS {profit.toFixed(2)}
-                                  </p>
-                                </div>
-
-                                <div className="flex items-center gap-2 pt-2">
-                                  {shopPkg.is_available ? (
-                                    <Badge className="bg-success/15 text-success">Available</Badge>
-                                  ) : (
-                                    <Badge className="bg-muted text-foreground">Unavailable</Badge>
-                                  )}
-                                  {availablePkg && !availablePkg.active && (
-                                    <Badge className="bg-destructive/15 text-destructive text-xs">Parent Disabled</Badge>
-                                  )}
-                                </div>
-
-                                <div className="flex gap-2 pt-2">
-                                  <Button
-                                    onClick={() => {
-                                      setEditingShopPackage(shopPkg)
-                                      // Find matching package in allPackages to get the correct ID (catalog ID for sub-agents)
-                                      const availablePkg = allPackages.find(p => (p.package_id || p.id) === shopPkg.package_id)
-                                      setSelectedPackage(availablePkg ? availablePkg.id : shopPkg.package_id)
-                                      setProfitMargin(sellingPrice.toFixed(2))
-                                      setPackageAvailable(shopPkg.is_available)
-                                      setAddingPackage(true)
-                                    }}
-                                    size="sm"
-                                    className="flex-1 bg-primary hover:bg-primary/90"
-                                  >
-                                    ✎ Edit
-                                  </Button>
-                                  <Button
-                                    onClick={() => handleToggleAvailability(shopPkg.id, shopPkg.is_available)}
-                                    disabled={togglingPackageId === shopPkg.id}
-                                    variant="outline"
-                                    size="sm"
-                                    className="flex-1"
-                                  >
-                                    {togglingPackageId === shopPkg.id ? (
-                                      <span className="animate-spin">⏳</span>
-                                    ) : (
-                                      shopPkg.is_available ? "Hide" : "Show"
-                                    )}
-                                  </Button>
-                                </div>
-                              </CardContent>
-                            </Card>
-                          )
-                        })}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
-          </CardContent>
-        </Card>
-      </div>
-
     </DashboardLayout>
   )
 }

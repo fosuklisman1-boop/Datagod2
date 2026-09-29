@@ -30,7 +30,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     const { data: settings, error } = await supabase
       .from("shop_settings")
-      .select("id, shop_id, whatsapp_link, announcement_enabled, announcement_title, announcement_message, created_at, updated_at")
+      .select("id, shop_id, whatsapp_link, announcement_enabled, announcement_title, announcement_message, order_confirmation_sms_enabled, created_at, updated_at")
       .eq("shop_id", shopId)
       .single()
 
@@ -46,9 +46,17 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         announcement_enabled: false,
         announcement_title: "",
         announcement_message: "",
+        // No row yet == never explicitly turned off, so this stays true.
+        order_confirmation_sms_enabled: true,
         created_at: null,
         updated_at: null,
       })
+    }
+
+    // A row can predate this column (NULL) -- treat that the same as "never
+    // explicitly turned off" rather than surfacing NULL to the UI.
+    if (settings.order_confirmation_sms_enabled === null) {
+      settings.order_confirmation_sms_enabled = true
     }
 
     return NextResponse.json(settings)
@@ -115,8 +123,13 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       whatsapp_link,
       announcement_enabled,
       announcement_title,
-      announcement_message
+      announcement_message,
+      order_confirmation_sms_enabled
     } = body
+
+    if (order_confirmation_sms_enabled !== undefined && typeof order_confirmation_sms_enabled !== "boolean") {
+      return NextResponse.json({ error: "order_confirmation_sms_enabled must be a boolean" }, { status: 400 })
+    }
 
     console.log(`[SHOP-SETTINGS] Received whatsapp_link: ${whatsapp_link}`)
 
@@ -172,6 +185,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
           announcement_enabled: announcement_enabled !== undefined ? announcement_enabled : existingSettings?.announcement_enabled,
           announcement_title: announcement_title !== undefined ? announcement_title : existingSettings?.announcement_title,
           announcement_message: announcement_message !== undefined ? announcement_message : existingSettings?.announcement_message,
+          order_confirmation_sms_enabled: order_confirmation_sms_enabled !== undefined ? order_confirmation_sms_enabled : existingSettings?.order_confirmation_sms_enabled,
           updated_at: new Date().toISOString(),
         })
         .eq("id", existingSettings.id)
@@ -194,6 +208,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
             announcement_enabled: announcement_enabled || false,
             announcement_title: announcement_title || "",
             announcement_message: announcement_message || "",
+            order_confirmation_sms_enabled: order_confirmation_sms_enabled !== undefined ? order_confirmation_sms_enabled : true,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           },
