@@ -36,7 +36,8 @@ import {
   Search,
   Menu,
   X,
-  ChevronLeft
+  ChevronLeft,
+  IdCard
 } from "lucide-react"
 import { AirtimeStorefrontForm } from "@/components/shop/AirtimeStorefrontForm"
 import { ResultsCheckerStorefrontForm } from "@/components/shop/ResultsCheckerStorefrontForm"
@@ -927,6 +928,15 @@ export default function ShopStorefront() {
                     <GraduationCap className="w-5 h-5" />
                     Results Vouchers
                   </button>
+                  {shop?.afa_price != null && (
+                    <a
+                      href={shop.subdomain ? `${shopOrigin(shop.subdomain)}/afa` : `/shop/${shopSlug}/afa`}
+                      className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all duration-300 text-muted-foreground hover:text-foreground hover:bg-card/50"
+                    >
+                      <IdCard className="w-5 h-5" />
+                      AFA Registration
+                    </a>
+                  )}
                 </div>
 
                 {activeTab === "products" ? (

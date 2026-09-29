@@ -413,7 +413,7 @@ export async function POST(request: NextRequest) {
       // Handle USSD AFA orders (no wallet_payments record; reference IS the order UUID)
       const { data: ussdAfaOrder } = await supabase
         .from("ussd_afa_orders")
-        .select("id, amount, payment_status, dialing_phone")
+        .select("id, amount, payment_status, dialing_phone, shop_id, merchant_commission")
         .eq("id", reference)
         .maybeSingle()
 
@@ -447,6 +447,36 @@ export async function POST(request: NextRequest) {
           }
         } catch (fErr) {
           console.error("[WEBHOOK] Failed to trigger USSD AFA fulfillment:", fErr)
+        }
+
+        // Shop-scoped order (came from a shop's storefront, not the USSD
+        // channel) — credit shop profit and track the customer. Non-blocking.
+        if (ussdAfaOrder.shop_id) {
+          if (Number(ussdAfaOrder.merchant_commission) > 0) {
+            const { error: profitErr } = await supabase.from("shop_profits").insert([{
+              shop_id: ussdAfaOrder.shop_id,
+              profit_amount: ussdAfaOrder.merchant_commission,
+              status: "credited",
+              created_at: new Date().toISOString(),
+            }])
+            if (profitErr && profitErr.code !== "23505") {
+              console.error("[WEBHOOK] Failed to credit shop AFA profit:", profitErr)
+            }
+          }
+          try {
+            const { customerTrackingService } = await import("@/lib/customer-tracking-service")
+            await customerTrackingService.trackCustomer({
+              shopId: ussdAfaOrder.shop_id,
+              phoneNumber: ussdAfaOrder.dialing_phone,
+              email: "",
+              customerName: "Customer",
+              totalPrice: Number(ussdAfaOrder.amount) || 0,
+              slug: "storefront",
+              orderId: ussdAfaOrder.id,
+            })
+          } catch (trackErr) {
+            console.error("[WEBHOOK] Customer tracking failed for shop AFA order (non-fatal):", trackErr)
+          }
         }
 
         // SMS to payer confirming registration received

@@ -29,6 +29,7 @@ const EDITABLE_SHOP_FIELDS = new Set([
   "results_checker_markup_bece",
   "results_checker_markup_novdec",
   "results_check_markup",
+  "afa_price",
 ])
 
 const isFiniteNumber = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v)
@@ -95,6 +96,11 @@ export async function POST(request: NextRequest) {
         if (!isFiniteNumber(value) || value < 0) {
           return NextResponse.json({ error: `Invalid value for ${key}` }, { status: 400 })
         }
+      }
+      // afa_price: null/undefined turns AFA off for the storefront (see
+      // app/shop/[slug]/afa/page.tsx); a set value must be a non-negative number.
+      if (key === "afa_price" && value !== null && !(isFiniteNumber(value) && value >= 0)) {
+        return NextResponse.json({ error: "Invalid value for afa_price" }, { status: 400 })
       }
       clean[key] = value
     }
