@@ -55,6 +55,34 @@ import { AnnouncementModal } from "@/components/announcement-modal"
 import { AIChatWidget } from "@/components/shop/AIChatWidget"
 import { SectionDivider } from "@/components/shop/section-divider"
 
+// Real public brand colors for the 3 Ghana MoMo providers -- used to tint the
+// checkout sheet by the package's data network, not the shop's own branding.
+const NETWORK_BRAND_COLOR: Record<string, string> = {
+  MTN: "#FFCC00",
+  Telecel: "#E4002B",
+  "AT - iShare": "#0066CC",
+  "AT - BigTime": "#0066CC",
+}
+function networkColorFor(network: string | undefined): string {
+  return NETWORK_BRAND_COLOR[network || ""] || "#1b388b"
+}
+
+// Mirrors lib/paystack.ts's MOMO_PREFIX exactly -- used client-side purely to
+// auto-select/confirm which MoMo provider pill matches the typed number. The
+// server (app/api/payments/initialize) re-derives the real provider from the
+// phone itself; this is a confirmation aid, never an override sent to it.
+const MOMO_PREFIX_CLIENT: Record<string, "mtn" | "vod" | "tgo"> = {
+  "024": "mtn", "025": "mtn", "053": "mtn", "054": "mtn", "055": "mtn", "059": "mtn",
+  "020": "vod", "050": "vod",
+  "026": "tgo", "027": "tgo", "056": "tgo", "057": "tgo",
+}
+function detectMomoProviderClient(phone: string): "mtn" | "vod" | "tgo" | null {
+  const d = (phone || "").replace(/\D/g, "")
+  const local = d.startsWith("233") ? "0" + d.slice(3) : d.startsWith("0") ? d : "0" + d
+  return MOMO_PREFIX_CLIENT[local.slice(0, 3)] ?? null
+}
+const MOMO_NETWORK_LABEL: Record<"mtn" | "vod" | "tgo", string> = { mtn: "MTN", vod: "Telecel", tgo: "AirtelTigo" }
+
 export default function ShopStorefront() {
   const params = useParams()
   const router = useRouter()
@@ -90,6 +118,10 @@ export default function ShopStorefront() {
   // hosted Paystack redirect — regardless of whether OTP is required.
   const [directCharge, setDirectCharge] = useState<boolean>(false)
   const [paymentPhone, setPaymentPhone] = useState("")
+  // Default on: most buyers pay with the same number they're buying for.
+  const [sameAsMomo, setSameAsMomo] = useState(true)
+  // User's explicit MoMo-provider pill choice; null = just follow auto-detection.
+  const [momoNetworkChoice, setMomoNetworkChoice] = useState<"mtn" | "vod" | "tgo" | null>(null)
   const otpCooldown = useResendCooldown(paymentPhone.replace(/\D/g, ""))
   const [otpSent, setOtpSent] = useState(false)
   const [otpCode, setOtpCode] = useState("")
@@ -201,6 +233,16 @@ export default function ShopStorefront() {
     return () => clearTimeout(t)
   }, [paymentPhone, otpRequired, otpVerified])
 
+  // "Use this number for Mobile Money payment" — mirrors the beneficiary
+  // number into the payment number while checked; unchecking lets the buyer
+  // type a different payer number.
+  useEffect(() => {
+    if (!sameAsMomo) return
+    if (paymentPhone === orderData.customer_phone) return
+    setPaymentPhone(orderData.customer_phone)
+    if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode("") }
+  }, [sameAsMomo, orderData.customer_phone])
+
   const loadShopData = async () => {
     try {
       setLoading(true)
@@ -295,6 +337,12 @@ export default function ShopStorefront() {
   const handleBuyNow = (pkg: any) => {
     setSelectedPackage(pkg)
     setCheckoutOpen(true)
+    setSameAsMomo(true)
+    setMomoNetworkChoice(null)
+    setPaymentPhone("")
+    setOtpSent(false)
+    setOtpVerified(false)
+    setOtpCode("")
   }
 
   const getNetworkLogo = (network: string): string => {
@@ -946,78 +994,45 @@ export default function ShopStorefront() {
         </div>
       )}
 
-      {/* Colored Brand Hero — only renders when the shop owner has set a custom
-          color (Shop Profile > Branding). Shops without one keep the plain
-          description block below, unchanged. */}
-      {shop.custom_color && (
-        <div style={{ backgroundColor: shop.custom_color }}>
-          <div className="max-w-7xl mx-auto px-4 py-10 text-center">
-            <h2 className="text-2xl sm:text-3xl font-bold text-white">{shop.shop_name || shop.name}</h2>
-            {shop.description && (
-              <p className="mt-2 text-white/90 break-words text-sm sm:text-base max-w-2xl mx-auto">{shop.description}</p>
+      {/* Colored Brand Hero — always renders, using the shop's custom_color when
+          set or the platform navy fallback (accentColor) otherwise. This is the
+          default storefront look for every shop, not an opt-in a shop owner has
+          to discover in Branding; only the exact color changes. */}
+      <div style={{ backgroundColor: accentColor }}>
+        <div className="max-w-7xl mx-auto px-4 py-10 text-center">
+          <h2 className="text-2xl sm:text-3xl font-bold text-white">{shop.shop_name || shop.name}</h2>
+          {shop.description && (
+            <p className="mt-2 text-white/90 break-words text-sm sm:text-base max-w-2xl mx-auto">{shop.description}</p>
+          )}
+          <div className="flex flex-wrap gap-3 mt-4 justify-center">
+            {normalizeWhatsAppLink(shopSettings?.whatsapp_link) && (
+              <a
+                href={normalizeWhatsAppLink(shopSettings?.whatsapp_link)!}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-white/15 hover:bg-white/25 text-white rounded-lg font-semibold transition-colors backdrop-blur-sm"
+              >
+                <MessageCircle className="w-4 h-4" />
+                Contact on WhatsApp
+              </a>
             )}
-            <div className="flex flex-wrap gap-3 mt-4 justify-center">
-              {normalizeWhatsAppLink(shopSettings?.whatsapp_link) && (
-                <a
-                  href={normalizeWhatsAppLink(shopSettings?.whatsapp_link)!}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-white/15 hover:bg-white/25 text-white rounded-lg font-semibold transition-colors backdrop-blur-sm"
-                >
-                  <MessageCircle className="w-4 h-4" />
-                  Contact on WhatsApp
-                </a>
-              )}
-              {shopSettings?.community_link && (
-                <a
-                  href={shopSettings.community_link}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-white/15 hover:bg-white/25 text-white rounded-lg font-semibold transition-colors backdrop-blur-sm"
-                >
-                  <Users2 className="w-4 h-4" />
-                  Join our community
-                </a>
-              )}
-            </div>
+            {shopSettings?.community_link && (
+              <a
+                href={shopSettings.community_link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-white/15 hover:bg-white/25 text-white rounded-lg font-semibold transition-colors backdrop-blur-sm"
+              >
+                <Users2 className="w-4 h-4" />
+                Join our community
+              </a>
+            )}
           </div>
-          <SectionDivider style={shop.section_divider_style} color={shop.custom_color} />
         </div>
-      )}
+        <SectionDivider style={shop.section_divider_style || "asymmetrical-curve"} color={accentColor} />
+      </div>
 
       <div className="max-w-7xl mx-auto px-4">
-        {/* Shop Description Section — hidden once the colored hero above already
-            shows the name/description/links, to avoid showing them twice. */}
-        {!shop.custom_color && (
-          <div className="py-8 mb-8 text-center px-2">
-            <p className="text-muted-foreground break-words text-sm sm:text-base md:text-lg">{shop.description || "Welcome to our store"}</p>
-            <div className="flex flex-wrap gap-3 mt-4 justify-center">
-              {normalizeWhatsAppLink(shopSettings?.whatsapp_link) && (
-                <a
-                  href={normalizeWhatsAppLink(shopSettings?.whatsapp_link)!}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-success hover:bg-success/90 text-primary-foreground rounded-lg font-semibold transition-colors"
-                >
-                  <MessageCircle className="w-4 h-4" />
-                  Contact on WhatsApp
-                </a>
-              )}
-              {shopSettings?.community_link && (
-                <a
-                  href={shopSettings.community_link}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent/80 text-foreground rounded-lg font-semibold transition-colors border border-border"
-                >
-                  <Users2 className="w-4 h-4" />
-                  Join our community
-                </a>
-              )}
-            </div>
-          </div>
-        )}
-
         {/* Global Maintenance Alert */}
         {!globalOrderingEnabled && (
           <Alert className="mb-8 border-red-500 bg-red-50 shadow-md">
@@ -1440,162 +1455,184 @@ export default function ShopStorefront() {
         </div>
       </div>
       {
-        checkoutOpen && selectedPackage && (
-          <div className="fixed inset-0 bg-background/50 flex items-center justify-center p-4 z-50">
-            <Card className="w-full max-w-md bg-card max-h-[90vh] flex flex-col">
-              <CardHeader className="border-b border-border shrink-0">
-                <CardTitle>Checkout</CardTitle>
-                <CardDescription>
-                  {selectedPackage.packages.network} - {selectedPackage.packages.size}GB
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="pt-6 space-y-4 overflow-y-auto flex-1 min-h-0">
-                <div>
-                  <Label>Full Name *</Label>
-                  <Input
-                    value={orderData.customer_name}
-                    onChange={(e) => setOrderData({ ...orderData, customer_name: e.target.value })}
-                    placeholder="John Doe"
-                    className="mt-1"
-                  />
+        checkoutOpen && selectedPackage && (() => {
+          const netColor = networkColorFor(selectedPackage.packages.network)
+          const detectedProvider = detectMomoProviderClient(paymentPhone)
+          const chosenProvider = momoNetworkChoice ?? detectedProvider
+          const providerMismatch = momoNetworkChoice && detectedProvider && momoNetworkChoice !== detectedProvider
+          const total = selectedPackage.selling_price !== undefined ? selectedPackage.selling_price : (selectedPackage.packages.price + selectedPackage.profit_margin)
+          return (
+            <div
+              className="fixed inset-0 z-50 flex items-end justify-center bg-black/50"
+              onClick={() => { setCheckoutOpen(false); setOrderData({ customer_name: "", customer_email: "", customer_phone: "" }) }}
+            >
+              <div
+                className="flex max-h-[92vh] w-full max-w-md flex-col rounded-t-3xl bg-card"
+                style={{ backgroundColor: `${netColor}0d` }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Drag handle + close */}
+                <div className="relative flex shrink-0 justify-center pt-3 pb-1">
+                  <div className="h-1 w-10 rounded-full bg-border" />
+                  <button
+                    onClick={() => { setCheckoutOpen(false); setOrderData({ customer_name: "", customer_email: "", customer_phone: "" }) }}
+                    className="absolute right-4 top-2 grid h-8 w-8 place-items-center rounded-full bg-muted text-foreground"
+                    aria-label="Close"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
                 </div>
 
-                <div>
-                  <Label>Email Address *</Label>
-                  <Input
-                    type="email"
-                    value={orderData.customer_email}
-                    onChange={(e) => setOrderData({ ...orderData, customer_email: e.target.value })}
-                    placeholder="john@example.com"
-                    className="mt-1"
-                  />
-                </div>
-
-                <div>
-                  <Label>Phone Number (MTN, Telecel, AT) *</Label>
-                  <Input
-                    value={orderData.customer_phone}
-                    onChange={(e) => {
-                      setOrderData({ ...orderData, customer_phone: e.target.value })
-                      // changing phone invalidates any prior OTP verification
-                      if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode("") }
-                    }}
-                    placeholder="0201234567 or 0551234567"
-                    className="mt-1"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {selectedPackage?.packages?.network
-                      ? `Must be a ${selectedPackage.packages.network} number — the prefix is checked at checkout.`
-                      : "Format: 10 digits starting with 02 or 05 (e.g., 0201234567)"}
-                  </p>
-                </div>
-
-                {/* Order Summary */}
-                <div className="p-4 bg-card rounded-lg border border-border">
-                  <div className="flex justify-between items-end mb-3">
-                    <span className="font-semibold text-foreground">Total Amount:</span>
-                    <span className="text-2xl font-bold bg-gradient-to-r from-[var(--shop-accent)] to-[var(--shop-accent)] bg-clip-text text-transparent">
-                      GHS {(selectedPackage.selling_price !== undefined ? selectedPackage.selling_price : (selectedPackage.packages.price + selectedPackage.profit_margin)).toFixed(2)}
+                <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 pb-2">
+                  {/* Network · size · price pill */}
+                  <div className="flex items-center justify-between rounded-2xl px-4 py-3" style={{ backgroundColor: netColor }}>
+                    <span className="flex items-center gap-2 font-bold text-black/80">
+                      <img src={getNetworkLogo(selectedPackage.packages.network)} alt="" className="h-5 w-5 object-contain" />
+                      {selectedPackage.packages.network} · {selectedPackage.packages.size}GB
                     </span>
+                    <span className="font-black text-black/80">GH₵{total.toFixed(2)}</span>
+                  </div>
+
+                  <div>
+                    <Label>Beneficiary number <span className="font-normal text-muted-foreground">(gets the data)</span></Label>
+                    <Input
+                      value={orderData.customer_phone}
+                      onChange={(e) => {
+                        setOrderData({ ...orderData, customer_phone: e.target.value })
+                        if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode("") }
+                      }}
+                      placeholder="0241234567"
+                      className="mt-1 bg-card"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {selectedPackage?.packages?.network
+                        ? `Must be a ${selectedPackage.packages.network} number — the prefix is checked at checkout.`
+                        : "Format: 10 digits starting with 02 or 05 (e.g., 0201234567)"}
+                    </p>
+                  </div>
+
+                  <HoneypotField value={honeypot} onChange={setHoneypot} />
+
+                  {/* Payment-number step. Shown whenever OTP verification OR direct
+                      charge is on — both need the on-page MoMo number. Without
+                      either, the sheet stays this short and Paystack's own hosted
+                      page collects payment. */}
+                  {(otpRequired || directCharge) && (
+                    <div className="space-y-3">
+                      <label className="flex items-center gap-2 text-sm text-foreground">
+                        <input
+                          type="checkbox"
+                          checked={sameAsMomo}
+                          onChange={(e) => setSameAsMomo(e.target.checked)}
+                          className="h-4 w-4 rounded border-border"
+                        />
+                        Use this number for Mobile Money payment
+                      </label>
+
+                      {!sameAsMomo && (
+                        <div>
+                          <Label>Mobile Money number <span className="font-normal text-muted-foreground">(to pay)</span></Label>
+                          <Input
+                            value={paymentPhone}
+                            onChange={(e) => {
+                              setPaymentPhone(e.target.value)
+                              if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode(""); otpCooldown.reset() }
+                            }}
+                            placeholder="0241234567"
+                            className="mt-1 bg-card"
+                            disabled={otpRequired && otpVerified}
+                          />
+                        </div>
+                      )}
+
+                      <div>
+                        <Label>Network</Label>
+                        <div className="mt-1 grid grid-cols-3 gap-2">
+                          {(["mtn", "vod", "tgo"] as const).map((p) => (
+                            <button
+                              key={p}
+                              type="button"
+                              onClick={() => setMomoNetworkChoice(p)}
+                              className={`flex items-center justify-center gap-1.5 rounded-xl border-2 py-2.5 text-sm font-semibold ${chosenProvider === p ? "border-[var(--shop-accent)]" : "border-border"}`}
+                            >
+                              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: p === "mtn" ? NETWORK_BRAND_COLOR.MTN : p === "vod" ? NETWORK_BRAND_COLOR.Telecel : NETWORK_BRAND_COLOR["AT - iShare"] }} />
+                              {MOMO_NETWORK_LABEL[p]}
+                            </button>
+                          ))}
+                        </div>
+                        {providerMismatch && (
+                          <p className="mt-1 text-xs text-amber-600">That number doesn&apos;t look like a {MOMO_NETWORK_LABEL[momoNetworkChoice!]} number — double check before proceeding.</p>
+                        )}
+                      </div>
+
+                      {otpRequired && (!otpVerified ? (
+                        !otpSent ? (
+                          <Button
+                            type="button"
+                            onClick={handleSendCheckoutOtp}
+                            disabled={sendingOtp || otpCooldown.seconds > 0}
+                            className="w-full bg-[var(--shop-accent)] hover:bg-[var(--shop-accent)] text-white"
+                          >
+                            {sendingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code…</>) : otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Send verification code"}
+                          </Button>
+                        ) : (
+                          <div className="space-y-2">
+                            <Input
+                              inputMode="numeric"
+                              maxLength={6}
+                              placeholder="Enter 6-digit code"
+                              value={otpCode}
+                              onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                              className="text-center text-lg tracking-[0.4em] font-mono bg-card"
+                            />
+                            <div className="flex gap-2">
+                              <Button
+                                type="button"
+                                onClick={handleVerifyCheckoutOtp}
+                                disabled={verifyingOtp || otpCode.length < 4}
+                                className="flex-1 bg-[var(--shop-accent)] hover:bg-[var(--shop-accent)] text-white"
+                              >
+                                {verifyingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying…</>) : "Verify"}
+                              </Button>
+                              <Button type="button" variant="outline" onClick={handleSendCheckoutOtp} disabled={sendingOtp || otpCooldown.seconds > 0}>
+                                {otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Resend"}
+                              </Button>
+                            </div>
+                            <p className="text-xs text-muted-foreground">📩 Don&apos;t see the code? Check your phone&apos;s Spam or Blocked messages folder.</p>
+                          </div>
+                        )
+                      ) : (
+                        <div className="p-3 rounded-lg bg-green-50 border border-border flex items-center gap-2">
+                          <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                          <span className="text-sm font-medium text-green-900">Payment number verified ✓</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div>
+                    <Label>Email <span className="font-normal text-muted-foreground">(for receipt — optional)</span></Label>
+                    <Input
+                      type="email"
+                      value={orderData.customer_email}
+                      onChange={(e) => setOrderData({ ...orderData, customer_email: e.target.value })}
+                      placeholder="you@example.com"
+                      className="mt-1 bg-card"
+                    />
                   </div>
                 </div>
 
-                <Alert className="border-border bg-[var(--shop-accent)]/5">
-                  <AlertCircle className="h-4 w-4 text-[var(--shop-accent)]" />
-                  <AlertDescription className="text-xs text-[var(--shop-accent)]">
-                    {directCharge
-                      ? "A Mobile Money prompt will be sent to the number you enter below. Approve it with your PIN to complete the order."
-                      : "You will be redirected to Paystack to complete your payment."}
-                  </AlertDescription>
-                </Alert>
-
-                <HoneypotField value={honeypot} onChange={setHoneypot} />
-
-                {/* Payment-number step. Shown whenever OTP verification OR direct
-                    charge is on — both need the on-page MoMo number. The OTP
-                    send/verify controls render only when OTP is required; with
-                    direct charge alone the number is simply charged as typed. */}
-                {(otpRequired || directCharge) && (
-                  <div className="p-4 rounded-lg bg-[var(--shop-accent)]/10 border border-border space-y-3">
-                    <div>
-                      <Label className="text-sm font-semibold text-[var(--shop-accent)]">Mobile Money number to pay from *</Label>
-                      <Input
-                        value={paymentPhone}
-                        onChange={(e) => {
-                          setPaymentPhone(e.target.value)
-                          // changing the number invalidates any prior verification
-                          if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode(""); otpCooldown.reset() }
-                        }}
-                        placeholder="0241234567"
-                        className="mt-1 bg-card"
-                        disabled={otpRequired && otpVerified}
-                      />
-                      <p className="text-xs text-[var(--shop-accent)] mt-1">
-                        {otpRequired
-                          ? "The payment prompt is sent to this number. You verify it once."
-                          : "The payment prompt is sent to this number."}
-                      </p>
+                {/* Fixed action footer — stays visible while the form above scrolls */}
+                <div className="shrink-0 space-y-3 p-5">
+                  {turnstileEnabled && (
+                    <div className="flex justify-center">
+                      <TurnstileWidget onToken={setTurnstileToken} onExpire={() => setTurnstileToken("")} />
                     </div>
-
-                    {otpRequired && (!otpVerified ? (
-                      !otpSent ? (
-                        <Button
-                          type="button"
-                          onClick={handleSendCheckoutOtp}
-                          disabled={sendingOtp || otpCooldown.seconds > 0}
-                          className="w-full bg-[var(--shop-accent)] hover:bg-[var(--shop-accent)] text-white"
-                        >
-                          {sendingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code…</>) : otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Send verification code"}
-                        </Button>
-                      ) : (
-                        <div className="space-y-2">
-                          <Input
-                            inputMode="numeric"
-                            maxLength={6}
-                            placeholder="Enter 6-digit code"
-                            value={otpCode}
-                            onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                            className="text-center text-lg tracking-[0.4em] font-mono bg-card"
-                          />
-                          <div className="flex gap-2">
-                            <Button
-                              type="button"
-                              onClick={handleVerifyCheckoutOtp}
-                              disabled={verifyingOtp || otpCode.length < 4}
-                              className="flex-1 bg-[var(--shop-accent)] hover:bg-[var(--shop-accent)] text-white"
-                            >
-                              {verifyingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying…</>) : "Verify"}
-                            </Button>
-                            <Button type="button" variant="outline" onClick={handleSendCheckoutOtp} disabled={sendingOtp || otpCooldown.seconds > 0}>
-                              {otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Resend"}
-                            </Button>
-                          </div>
-                          <p className="text-xs text-muted-foreground">📩 Don&apos;t see the code? Check your phone&apos;s Spam or Blocked messages folder.</p>
-                        </div>
-                      )
-                    ) : (
-                      <div className="p-3 rounded-lg bg-green-50 border border-border flex items-center gap-2">
-                        <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                        <span className="text-sm font-medium text-green-900">Payment number verified ✓</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-              </CardContent>
-
-              {/* Fixed action footer — stays visible while the form above scrolls */}
-              <div className="border-t border-border p-4 space-y-3 shrink-0">
-                {turnstileEnabled && (
-                  <div className="flex justify-center">
-                    <TurnstileWidget onToken={setTurnstileToken} onExpire={() => setTurnstileToken("")} />
-                  </div>
-                )}
-                <div className="flex gap-2">
+                  )}
                   <Button
                     onClick={handleSubmitOrder}
                     disabled={submitting || (turnstileEnabled && !turnstileToken) || (otpRequired && !otpVerified) || (directCharge && !otpRequired && !/^0?\d{9}$/.test(paymentPhone.replace(/\D/g, "")))}
-                    className="flex-1 bg-gradient-to-r from-[var(--shop-accent)] to-[var(--shop-accent)] hover:from-[var(--shop-accent)] hover:to-[var(--shop-accent)]"
+                    className="w-full bg-success text-white hover:bg-success/90"
                   >
                     {submitting ? (
                       <>
@@ -1603,26 +1640,15 @@ export default function ShopStorefront() {
                         Processing...
                       </>
                     ) : (
-                      <>
-                        Place Order
-                        <ArrowRight className="w-4 h-4 ml-2" />
-                      </>
+                      <>Proceed to payment<ArrowRight className="w-4 h-4 ml-2" /></>
                     )}
                   </Button>
-                  <Button
-                    onClick={() => {
-                      setCheckoutOpen(false)
-                      setOrderData({ customer_name: "", customer_email: "", customer_phone: "" })
-                    }}
-                    variant="outline"
-                  >
-                    Cancel
-                  </Button>
+                  <p className="text-center text-xs text-muted-foreground">A small payment fee applies. Confirm the exact total on your phone.</p>
                 </div>
               </div>
-            </Card>
-          </div>
-        )
+            </div>
+          )
+        })()
       }
 
       {
