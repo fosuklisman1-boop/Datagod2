@@ -45,7 +45,8 @@ import {
   LayoutGrid,
   ChevronDown,
   ChevronUp,
-  Smartphone
+  Smartphone,
+  Phone
 } from "lucide-react"
 import { AirtimeStorefrontForm } from "@/components/shop/AirtimeStorefrontForm"
 import { ResultsCheckerStorefrontForm } from "@/components/shop/ResultsCheckerStorefrontForm"
@@ -1035,7 +1036,7 @@ export default function ShopStorefront() {
             <p className="mt-2 text-white/90 break-words text-sm sm:text-base max-w-2xl mx-auto">{shop.description}</p>
           )}
         </div>
-        <SectionDivider style={shop.section_divider_style || "asymmetrical-curve"} color={accentColor} />
+        <SectionDivider style={shop.section_divider_style || "geometric-zigzag"} color={accentColor} />
       </div>
 
       <div className="max-w-7xl mx-auto px-4">
@@ -1057,12 +1058,26 @@ export default function ShopStorefront() {
             {/* Home — service picker landing view */}
             {activeTab === "home" && (
               <div className="space-y-6 animate-in fade-in duration-500">
-                {shop.phone && (
+                {(shop.phone || normalizeWhatsAppLink(shopSettings?.whatsapp_link)) && (
                   <div className="rounded-2xl border border-border bg-card p-4 text-center shadow-sm">
                     <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Need Help?</p>
-                    <a href={`tel:${shop.phone}`} className="mt-1 flex items-center justify-center gap-2 text-lg font-bold text-foreground">
-                      <MessageCircle className="w-4 h-4 text-[var(--shop-accent)]" /> {shop.phone}
-                    </a>
+                    <div className="mt-1 flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
+                      {shop.phone && (
+                        <a href={`tel:${shop.phone}`} className="flex items-center gap-2 text-base font-bold text-foreground">
+                          <Phone className="w-4 h-4 text-[var(--shop-accent)]" /> {shop.phone}
+                        </a>
+                      )}
+                      {normalizeWhatsAppLink(shopSettings?.whatsapp_link) && (
+                        <a
+                          href={normalizeWhatsAppLink(shopSettings?.whatsapp_link)!}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2 text-base font-bold text-foreground"
+                        >
+                          <MessageCircle className="w-4 h-4 text-[var(--shop-accent)]" /> WhatsApp Us
+                        </a>
+                      )}
+                    </div>
                   </div>
                 )}
                 {shopSettings?.community_link && (
