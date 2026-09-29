@@ -26,6 +26,7 @@ export interface PublicShop {
   results_check_markup: number | null
   afa_price: number | null
   custom_color: string | null
+  custom_color_2: string | null
   section_divider_style: string | null
   created_at: string
 }
@@ -95,7 +96,7 @@ export const shopService = {
   async getShopBySlug(slug: string): Promise<PublicShop | null> {
     const { data, error } = await supabase
       .from("user_shops")
-      .select("shop_name, shop_slug, subdomain, description, logo_url, banner_url, is_active, is_blocked, parent_shop_id, airtime_markup_mtn, airtime_markup_telecel, airtime_markup_at, results_checker_markup_wassce, results_checker_markup_bece, results_checker_markup_novdec, results_check_markup, afa_price, custom_color, section_divider_style, created_at")
+      .select("shop_name, shop_slug, subdomain, description, logo_url, banner_url, is_active, is_blocked, parent_shop_id, airtime_markup_mtn, airtime_markup_telecel, airtime_markup_at, results_checker_markup_wassce, results_checker_markup_bece, results_checker_markup_novdec, results_check_markup, afa_price, custom_color, custom_color_2, section_divider_style, created_at")
       .or(shopHandleOrFilter(slug))
       .eq("is_active", true)
       .single()

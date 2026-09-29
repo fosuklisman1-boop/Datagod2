@@ -45,8 +45,7 @@ import {
   LayoutGrid,
   ChevronDown,
   ChevronUp,
-  Smartphone,
-  Phone
+  Smartphone
 } from "lucide-react"
 import { AirtimeStorefrontForm } from "@/components/shop/AirtimeStorefrontForm"
 import { ResultsCheckerStorefrontForm } from "@/components/shop/ResultsCheckerStorefrontForm"
@@ -58,7 +57,7 @@ import HoneypotField from "@/components/shop/HoneypotField"
 import { toast } from "sonner"
 import { AnnouncementModal } from "@/components/announcement-modal"
 import { AIChatWidget } from "@/components/shop/AIChatWidget"
-import { SectionDivider } from "@/components/shop/section-divider"
+import { StorefrontServicesCarousel, type StorefrontCarouselSlide } from "@/components/shop/StorefrontServicesCarousel"
 
 // Real public brand colors for the 3 Ghana MoMo providers -- used to tint the
 // checkout sheet by the package's data network, not the shop's own branding.
@@ -150,6 +149,14 @@ export default function ShopStorefront() {
   const [termsContent, setTermsContent] = useState("")
   const [termsLastUpdated, setTermsLastUpdated] = useState<string | null>(null)
   const packagesRef = useRef<HTMLDivElement>(null)
+  const serviceTabsRef = useRef<HTMLDivElement>(null)
+  // A carousel CTA both selects the service AND scrolls the persistent
+  // "Choose a Service" tabs into view, since the picker sits below the hero
+  // and carousel now -- without this, picking a service from the carousel
+  // wouldn't visibly change anything still on screen.
+  const scrollToServiceTabs = () => {
+    setTimeout(() => serviceTabsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50)
+  }
 
   // Standalone "check your MTN number" widget — reuses the same real, already-
   // wired /api/verify-phone-live endpoint the checkout flow calls automatically
@@ -858,6 +865,38 @@ export default function ShopStorefront() {
   // Datagod's platform navy -- this page renders a different shop's brand, not
   // our own UI. Falls back to the platform navy only when a shop hasn't set one.
   const accentColor = shop?.custom_color || "#1b388b"
+  // Hero banner is a two-color gradient card; the second stop degrades to
+  // the primary color (a solid-looking card) when the owner hasn't set one.
+  const heroColor2 = shop?.custom_color_2 || accentColor
+
+  const helpWhatsAppLink = normalizeWhatsAppLink(shopSettings?.whatsapp_link)
+  const carouselSlides: StorefrontCarouselSlide[] = [
+    {
+      key: "data", badge: "DATA", title: "Data Bundles", description: "Fast, affordable data for every network.",
+      cta: "Shop Data", icon: ShoppingCart, gradient: "from-[#0f172a] to-[#2563eb]",
+      onClick: () => { setSelectedService("data"); setActiveTab("home"); scrollToServiceTabs() },
+    },
+    {
+      key: "airtime", badge: "AIRTIME", title: "Airtime Recharge", description: "Top up any network instantly.",
+      cta: "Buy Airtime", icon: Zap, gradient: "from-[#431407] to-[#d97706]",
+      onClick: () => { setSelectedService("airtime"); setActiveTab("home"); scrollToServiceTabs() },
+    },
+    {
+      key: "vouchers", badge: "EDUCATION", title: "Results Checker", description: "Buy checker vouchers or check your results online.",
+      cta: "Get Checker", icon: GraduationCap, gradient: "from-[#052e16] to-[#059669]",
+      onClick: () => { setSelectedService("vouchers"); setRcTab("buy"); setActiveTab("home"); scrollToServiceTabs() },
+    },
+    ...(shop?.afa_price != null ? [{
+      key: "afa", badge: "AFA", title: "AFA Registration", description: "Register your line for AFA data bundles.",
+      cta: "Register Now", icon: IdCard, gradient: "from-[#3b0764] to-[#7c3aed]",
+      onClick: () => { window.location.href = shop.subdomain ? `${shopOrigin(shop.subdomain)}/afa` : `/shop/${shopSlug}/afa` },
+    }] : []),
+    ...((shop?.phone || helpWhatsAppLink) ? [{
+      key: "help", badge: "SUPPORT", title: "Need Help?", description: shop.phone ? `Call or WhatsApp us at ${shop.phone}` : "Chat with us on WhatsApp",
+      cta: "Contact Us", icon: MessageCircle, gradient: "from-[#1e1b4b] to-[#4f46e5]",
+      onClick: () => { if (helpWhatsAppLink) window.open(helpWhatsAppLink, "_blank"); else if (shop?.phone) window.location.href = `tel:${shop.phone}` },
+    }] : []),
+  ]
 
   return (
     <div className="min-h-screen bg-card" style={{ "--shop-accent": accentColor } as React.CSSProperties}>
@@ -1023,31 +1062,37 @@ export default function ShopStorefront() {
         </div>
       )}
 
-      {/* Colored Brand Hero — always renders, using the shop's custom_color when
-          set or the platform navy fallback (accentColor) otherwise. This is the
-          default storefront look for every shop, not an opt-in a shop owner has
-          to discover in Branding; only the exact color changes. */}
-      <div style={{ backgroundColor: accentColor }}>
-        <div className="max-w-7xl mx-auto px-4 py-10 text-center">
+      <div className="max-w-7xl mx-auto px-4">
+        {/* Brand hero card — a rounded two-color gradient card (owner's
+            custom_color -> custom_color_2, degrading to a solid look when the
+            second color isn't set) instead of the old full-bleed flat hero +
+            section-divider cut. Always renders; only the colors change. */}
+        <div
+          className="relative mt-4 overflow-hidden rounded-2xl px-6 py-10 text-center shadow-sm"
+          style={{ backgroundImage: `linear-gradient(135deg, ${accentColor}, ${heroColor2})` }}
+        >
+          <span className="pointer-events-none absolute -right-10 -top-12 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
+          <span className="pointer-events-none absolute -bottom-10 left-16 h-28 w-28 rounded-full bg-white/5 blur-xl" />
           {shop.logo_url && (
             <img
               src={shop.logo_url}
               alt={shop.shop_name || "Shop"}
-              className="mx-auto mb-3 h-16 w-16 rounded-2xl border-2 border-white/30 bg-white object-cover shadow-lg sm:h-20 sm:w-20"
+              className="relative mx-auto mb-3 h-16 w-16 rounded-2xl border-2 border-white/30 bg-white object-cover shadow-lg sm:h-20 sm:w-20"
             />
           )}
-          <h2 className="text-2xl sm:text-3xl font-bold text-white">{shop.shop_name || shop.name}</h2>
+          <h2 className="relative text-2xl sm:text-3xl font-bold text-white">{shop.shop_name || shop.name}</h2>
           {shop.description && (
-            <p className="mt-2 text-white/90 break-words text-sm sm:text-base max-w-2xl mx-auto">{shop.description}</p>
+            <p className="relative mt-2 text-white/90 break-words text-sm sm:text-base max-w-2xl mx-auto">{shop.description}</p>
           )}
         </div>
-      </div>
-      {/* Divider sits OUTSIDE the colored hero div, not inside it -- its own
-          background is the page's, so the shape actually cuts against the
-          hero color instead of disappearing against a same-color backdrop. */}
-      <SectionDivider style={shop.section_divider_style || "geometric-zigzag"} color={accentColor} />
 
-      <div className="max-w-7xl mx-auto px-4">
+        {/* Services carousel — real services this shop offers (+ help, if a
+            phone/WhatsApp is set), each CTA jumping straight to that service's
+            content below. Same mechanics as the dashboard's promo carousel. */}
+        <div className="mt-6">
+          <StorefrontServicesCarousel slides={carouselSlides} />
+        </div>
+
         {/* Global Maintenance Alert */}
         {!globalOrderingEnabled && (
           <Alert className="mb-8 border-red-500 bg-red-50 shadow-md">
@@ -1071,28 +1116,6 @@ export default function ShopStorefront() {
                 disappear once a service was chosen). */}
             {activeTab === "home" && (
               <div className="space-y-6 animate-in fade-in duration-500">
-                {(shop.phone || normalizeWhatsAppLink(shopSettings?.whatsapp_link)) && (
-                  <div className="rounded-2xl border border-border bg-card p-4 text-center shadow-sm">
-                    <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Need Help?</p>
-                    <div className="mt-1 flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
-                      {shop.phone && (
-                        <a href={`tel:${shop.phone}`} className="flex items-center gap-2 text-base font-bold text-foreground">
-                          <Phone className="w-4 h-4 text-[var(--shop-accent)]" /> {shop.phone}
-                        </a>
-                      )}
-                      {normalizeWhatsAppLink(shopSettings?.whatsapp_link) && (
-                        <a
-                          href={normalizeWhatsAppLink(shopSettings?.whatsapp_link)!}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-2 text-base font-bold text-foreground"
-                        >
-                          <MessageCircle className="w-4 h-4 text-[var(--shop-accent)]" /> WhatsApp Us
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                )}
                 {shopSettings?.community_link && (
                   <a
                     href={shopSettings.community_link}
@@ -1121,23 +1144,26 @@ export default function ShopStorefront() {
                     </div>
                   </div>
                 )}
-                <div>
-                  <p className="mb-3 text-center text-xs font-bold uppercase tracking-wide text-muted-foreground">Choose a Service</p>
-                  <div className="grid grid-cols-2 gap-3">
+                <div ref={serviceTabsRef}>
+                  <p className="mb-2 text-center text-xs font-bold uppercase tracking-wide text-muted-foreground">Choose a Service</p>
+                  <div className="flex gap-1.5 overflow-x-auto rounded-2xl bg-muted/60 p-1.5 [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: "none" }}>
                     {productItems.map((item) =>
                       item.href ? (
-                        <a key={item.label} href={item.href} className="flex flex-col items-center gap-2 rounded-2xl border border-border bg-card p-6 text-center shadow-sm transition-shadow hover:shadow-md">
-                          <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[var(--shop-accent)]/10 text-[var(--shop-accent)]">{item.icon}</span>
-                          <span className="text-xs font-bold uppercase tracking-wide text-foreground">{item.label}</span>
+                        <a
+                          key={item.label}
+                          href={item.href}
+                          className="shrink-0 rounded-full px-4 py-2 text-sm font-bold text-muted-foreground transition-colors hover:text-foreground"
+                        >
+                          {item.label}
                         </a>
                       ) : (
                         <button
                           key={item.label}
                           onClick={item.onClick}
-                          className={`flex flex-col items-center gap-2 rounded-2xl border-2 bg-card p-6 text-center shadow-sm transition-shadow hover:shadow-md ${item.isActive ? "border-[var(--shop-accent)]" : "border-border"}`}
+                          className={`shrink-0 rounded-full px-4 py-2 text-sm font-bold transition-colors ${item.isActive ? "text-white shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                          style={item.isActive ? { backgroundColor: accentColor } : undefined}
                         >
-                          <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[var(--shop-accent)]/10 text-[var(--shop-accent)]">{item.icon}</span>
-                          <span className="text-xs font-bold uppercase tracking-wide text-foreground">{item.label}</span>
+                          {item.label}
                         </button>
                       )
                     )}

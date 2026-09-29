@@ -8,7 +8,6 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { shopService } from "@/lib/shop-service"
 import { supabase } from "@/lib/supabase"
 import { shopOrigin } from "@/lib/shop-url"
-import { DIVIDER_STYLE_OPTIONS, SectionDivider } from "@/components/shop/section-divider"
 import { PillToggle } from "@/components/shop/pill-toggle"
 import {
   ArrowLeft, Store, CheckCircle2, Loader2, Phone, Mail, Users2, Palette, MessageSquare,
@@ -64,9 +63,9 @@ export default function ShopProfilePage() {
   // Step 3: Community
   const [communityLink, setCommunityLink] = useState("")
 
-  // Step 4: Branding
+  // Step 4: Branding — storefront hero is a two-color gradient card
   const [customColor, setCustomColor] = useState("")
-  const [dividerStyle, setDividerStyle] = useState("")
+  const [customColor2, setCustomColor2] = useState("")
 
   // Step 5: SMS
   const [orderSmsEnabled, setOrderSmsEnabled] = useState(true)
@@ -109,7 +108,7 @@ export default function ShopProfilePage() {
       setDescription(userShop.description || "")
       setLogoUrl(userShop.logo_url || "")
       setCustomColor(userShop.custom_color || "")
-      setDividerStyle(userShop.section_divider_style || "")
+      setCustomColor2(userShop.custom_color_2 || "")
 
       const [settingsRes, smsRes, walletRes] = await Promise.all([
         fetch(`/api/shop/settings/${userShop.id}`).then((r) => r.json()).catch(() => null),
@@ -202,8 +201,8 @@ export default function ShopProfilePage() {
       } else if (step === 3) {
         await saveSettingsFields({ community_link: communityLink.trim() })
       } else if (step === 4) {
-        await saveShopFields({ logo_url: logoUrl || null, custom_color: customColor || null, section_divider_style: dividerStyle || null })
-        setShop((prev: any) => ({ ...prev, custom_color: customColor || null, section_divider_style: dividerStyle || null, logo_url: logoUrl || null }))
+        await saveShopFields({ logo_url: logoUrl || null, custom_color: customColor || null, custom_color_2: customColor2 || null })
+        setShop((prev: any) => ({ ...prev, custom_color: customColor || null, custom_color_2: customColor2 || null, logo_url: logoUrl || null }))
       } else if (step === 5) {
         await saveSettingsFields({ order_confirmation_sms_enabled: orderSmsEnabled })
       }
@@ -476,36 +475,30 @@ export default function ShopProfilePage() {
                 </div>
               </div>
 
-              {customColor && (
-                <div>
-                  <label className="mb-2 block text-sm font-semibold text-foreground">Section Divider Style</label>
-                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
-                    {DIVIDER_STYLE_OPTIONS.map((d) => (
-                      <button
-                        key={d.id}
-                        onClick={() => setDividerStyle(d.id)}
-                        className={`rounded-lg border-2 p-1.5 text-center ${dividerStyle === d.id ? "border-[#1b388b]" : "border-border"}`}
-                      >
-                        <div className="h-6 w-full overflow-hidden rounded bg-muted">
-                          <SectionDivider style={d.id} color={customColor} />
-                        </div>
-                        <p className="mt-1 truncate text-[9px] font-semibold text-muted-foreground">{d.label}</p>
-                      </button>
-                    ))}
-                  </div>
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-foreground">Secondary Color</label>
+                <p className="mb-2 text-xs text-muted-foreground">Your storefront's hero banner blends from the primary color into this one.</p>
+                <div className="flex items-center gap-2">
+                  <input type="color" value={customColor2 || customColor || "#1b388b"} onChange={(e) => setCustomColor2(e.target.value)} className="h-8 w-8 cursor-pointer rounded border border-border" />
+                  <span className="text-xs text-muted-foreground">{customColor2 || "not set"}</span>
+                  {customColor2 && (
+                    <button onClick={() => setCustomColor2("")} className="text-xs font-semibold text-[#1b388b] hover:underline">Clear</button>
+                  )}
                 </div>
-              )}
+              </div>
 
-              {customColor && (
+              {(customColor || customColor2) && (
                 <div>
                   <p className="mb-1.5 flex items-center gap-1 text-xs font-bold uppercase tracking-wide text-muted-foreground"><ExternalLink className="h-3 w-3" /> Preview</p>
-                  <div className="overflow-hidden rounded-xl border border-border">
-                    <div className="p-6 text-center" style={{ backgroundColor: customColor }}>
-                      <Store className="mx-auto mb-1 h-6 w-6 text-white" />
-                      <p className="font-bold text-white">{shopName || "Your Shop"}</p>
-                      <p className="text-xs text-white/80">{description || "Your shop description appears here."}</p>
-                    </div>
-                    <SectionDivider style={dividerStyle} color={customColor} />
+                  <div
+                    className="relative overflow-hidden rounded-2xl p-6 text-center"
+                    style={{ backgroundImage: `linear-gradient(135deg, ${customColor || "#1b388b"}, ${customColor2 || customColor || "#1b388b"})` }}
+                  >
+                    <span className="pointer-events-none absolute -right-8 -top-10 h-32 w-32 rounded-full bg-white/10 blur-2xl" />
+                    <span className="pointer-events-none absolute -bottom-8 left-10 h-24 w-24 rounded-full bg-white/5 blur-xl" />
+                    <Store className="relative mx-auto mb-1 h-6 w-6 text-white" />
+                    <p className="relative font-bold text-white">{shopName || "Your Shop"}</p>
+                    <p className="relative text-xs text-white/80">{description || "Your shop description appears here."}</p>
                   </div>
                 </div>
               )}
