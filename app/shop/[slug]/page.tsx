@@ -1068,7 +1068,7 @@ export default function ShopStorefront() {
             second color isn't set) instead of the old full-bleed flat hero +
             section-divider cut. Always renders; only the colors change. */}
         <div
-          className="relative mt-4 overflow-hidden rounded-2xl px-6 py-10 text-center shadow-sm"
+          className="relative mt-6 overflow-hidden rounded-2xl px-6 py-10 text-center shadow-sm"
           style={{ backgroundImage: `linear-gradient(135deg, ${accentColor}, ${heroColor2})` }}
         >
           <span className="pointer-events-none absolute -right-10 -top-12 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
@@ -1145,7 +1145,7 @@ export default function ShopStorefront() {
                   </div>
                 )}
                 <div ref={serviceTabsRef}>
-                  <p className="mb-2 text-center text-xs font-bold uppercase tracking-wide text-muted-foreground">Choose a Service</p>
+                  <p className="mb-2 text-center text-xs font-bold uppercase tracking-wide text-muted-foreground">Our Services</p>
                   <div className="flex gap-1.5 overflow-x-auto rounded-2xl bg-muted/60 p-1.5 [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: "none" }}>
                     {productItems.map((item) =>
                       item.href ? (
