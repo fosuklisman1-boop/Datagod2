@@ -10,7 +10,8 @@ const supabase = createClient(
 
 /**
  * GET /api/user/keys
- * List all API keys for the authenticated user (via session)
+ * List the authenticated user's API keys -- at most one per environment
+ * (test/live), enforced by a DB unique index.
  */
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("Authorization")
@@ -26,8 +27,9 @@ export async function GET(request: NextRequest) {
 
   const { data: keys, error } = await supabase
     .from("user_api_keys")
-    .select("id, name, key_prefix, is_active, last_used_at, created_at")
+    .select("id, name, key_prefix, is_active, environment, last_used_at, created_at")
     .eq("user_id", sessionUser.id)
+    .eq("is_active", true)
     .order("created_at", { ascending: false })
 
   if (error) {
@@ -39,7 +41,10 @@ export async function GET(request: NextRequest) {
 
 /**
  * POST /api/user/keys
- * Generate a new API key. Key is returned only once.
+ * Generate (or regenerate) the key for one environment. Since a user can
+ * have at most one active key per environment, generating a new one
+ * deactivates any existing active key for that same environment first --
+ * this IS "regenerate", there's no separate regenerate endpoint.
  */
 export async function POST(request: NextRequest) {
   const authHeader = request.headers.get("Authorization")
@@ -54,36 +59,33 @@ export async function POST(request: NextRequest) {
   }
 
   // Per-user rate limit (anti-burst on a single account)
-  const rateLimit = await applyRateLimit(request, "api_key_generate", 5, 60 * 60 * 1000, sessionUser.id)
+  const rateLimit = await applyRateLimit(request, "api_key_generate", 10, 60 * 60 * 1000, sessionUser.id)
   if (!rateLimit.allowed) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429 })
   }
-  // Per-IP rate limit (anti multi-account parallelisation — attacker can't
-  // create N accounts and generate N×5 keys from the same source).
-  const ipRateLimit = await applyRateLimit(request, "api_key_generate_ip", 10, 60 * 60 * 1000)
+  // Per-IP rate limit (anti multi-account parallelisation)
+  const ipRateLimit = await applyRateLimit(request, "api_key_generate_ip", 20, 60 * 60 * 1000)
   if (!ipRateLimit.allowed) {
     return NextResponse.json({ error: "Too many key generations from this network. Please slow down." }, { status: 429 })
   }
 
-  // Limit to 5 active keys per user
-  const { count } = await supabase
-    .from("user_api_keys")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", sessionUser.id)
-    .eq("is_active", true)
-
-  if ((count || 0) >= 5) {
-    return NextResponse.json(
-      { error: "Maximum of 5 active API keys reached" },
-      { status: 400 }
-    )
+  const body = await request.json().catch(() => ({}))
+  const environment = body.environment === "test" ? "test" : body.environment === "live" ? "live" : null
+  if (!environment) {
+    return NextResponse.json({ error: "environment must be 'test' or 'live'" }, { status: 400 })
   }
 
-  const body = await request.json()
-  const rawName = typeof body.name === "string" ? body.name.trim() : ""
-  const name = rawName.slice(0, 100) || "API Key"
+  // Deactivate any existing active key for this environment -- generating a
+  // new one always replaces the old one, since only one can be active.
+  await supabase
+    .from("user_api_keys")
+    .update({ is_active: false, updated_at: new Date().toISOString() })
+    .eq("user_id", sessionUser.id)
+    .eq("environment", environment)
+    .eq("is_active", true)
 
-  const { key, prefix, hash } = generateApiKey()
+  const { key, prefix, hash } = generateApiKey(environment)
+  const name = environment === "test" ? "Test key" : "Live key"
 
   const { data: newKey, error } = await supabase
     .from("user_api_keys")
@@ -93,8 +95,9 @@ export async function POST(request: NextRequest) {
       key_hash: hash,
       key_prefix: prefix,
       is_active: true,
+      environment,
     })
-    .select("id, name, key_prefix, created_at")
+    .select("id, name, key_prefix, environment, created_at")
     .single()
 
   if (error) {
@@ -111,7 +114,7 @@ export async function POST(request: NextRequest) {
 
 /**
  * DELETE /api/user/keys?id=<keyId>
- * Revoke an API key
+ * Revoke an API key (without generating a replacement).
  */
 export async function DELETE(request: NextRequest) {
   const authHeader = request.headers.get("Authorization")

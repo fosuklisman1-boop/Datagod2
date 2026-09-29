@@ -31,8 +31,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: `Rate limit exceeded. Your current limit is ${postLimit} requests/minute.` }, { status: 429 })
   }
 
-  const account = await getOrCreateAccountForUser(user.id)
-  if (!account) {
+  // SMS credits are a separate ledger from the wallet/test-balance system
+  // entirely (per-tenant sms_accounts, not simulated here) -- test mode
+  // skips the real account/credits requirement and never actually queues
+  // anything, rather than trying to fake a second parallel credits system.
+  const account = user.environment === "test" ? null : await getOrCreateAccountForUser(user.id)
+  if (user.environment !== "test" && !account) {
     return NextResponse.json({ success: false, error: "No SMS account for this API key's owner (requires a shop, sub-agent, or admin account)" }, { status: 403 })
   }
 
@@ -65,8 +69,29 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "sender_id must be a non-empty string" }, { status: 400 })
   }
 
-  const tokens = await getShopTokens(account)
   const uniqueRecipients = Array.from(new Set(recipients as string[]))
+
+  if (user.environment === "test") {
+    logApiRequest({
+      userId: user.id, apiKeyId: user.api_key_id, method: "POST", endpoint: "/api/v1/sms/send",
+      statusCode: 200, request, durationMs: Date.now() - start,
+      requestPayload: { recipients_count: uniqueRecipients.length, sandbox: true },
+      responsePayload: { total: uniqueRecipients.length, sandbox: true },
+    }).catch(() => {})
+    return NextResponse.json({
+      success: true,
+      total: uniqueRecipients.length,
+      batches: 1,
+      segments: 1,
+      credits_reserved: uniqueRecipients.length,
+      partial: false,
+      stopped_reason: null,
+      invalid_skipped: 0,
+      sandbox: true,
+    })
+  }
+
+  const tokens = await getShopTokens(account!)
 
   // Default to the account's own active sender ID (their brand) when the caller
   // didn't specify one, mirroring app/api/shop/sms/send/route.ts. Without this,
@@ -79,7 +104,7 @@ export async function POST(request: NextRequest) {
     const { data: activeSender } = await supabaseAdmin
       .from("sms_sender_ids")
       .select("sender_id")
-      .eq("sms_account_id", account.id)
+      .eq("sms_account_id", account!.id)
       .eq("local_status", "active")
       .order("created_at", { ascending: true })
       .limit(1)
@@ -89,7 +114,7 @@ export async function POST(request: NextRequest) {
 
   let result: Awaited<ReturnType<typeof enqueueSendBatched>>
   try {
-    result = await enqueueSendBatched(user.id, account.id, message, uniqueRecipients, tokens, effectiveSenderId)
+    result = await enqueueSendBatched(user.id, account!.id, message, uniqueRecipients, tokens, effectiveSenderId)
   } catch (e) {
     console.error("[V1-SMS-SEND] batched send threw:", e)
     logApiRequest({

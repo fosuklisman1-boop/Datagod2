@@ -6,6 +6,7 @@ import { applyRateLimit } from "@/lib/rate-limiter"
 import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 import { submitAfaOrder } from "@/lib/afa-fulfillment"
 import { classifyServiceError } from "@/lib/api-v1-errors"
+import { placeSandboxOrder, getSandboxOrder } from "@/lib/sandbox"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -33,6 +34,14 @@ export async function GET(request: NextRequest) {
   const reference = searchParams.get("reference")
   if (!reference) {
     return NextResponse.json({ success: false, error: "Reference is required" }, { status: 400 })
+  }
+
+  if (user.environment === "test") {
+    const order = await getSandboxOrder(user.id, reference)
+    if (!order) {
+      return NextResponse.json({ success: false, error: "Order not found" }, { status: 404 })
+    }
+    return NextResponse.json({ success: true, order: { ...order.response, status: order.status, sandbox: true } })
   }
 
   const { data: order } = await supabase
@@ -87,9 +96,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: `Rate limit exceeded. Your current limit is ${postLimit} requests/minute.` }, { status: 429 })
   }
 
-  const phoneGuard = await checkPhoneVerified(supabase, user.id)
-  if (!phoneGuard.allowed) {
-    return NextResponse.json({ success: false, error: phoneGuard.error }, { status: 403 })
+  if (user.environment !== "test") {
+    const phoneGuard = await checkPhoneVerified(supabase, user.id)
+    if (!phoneGuard.allowed) {
+      return NextResponse.json({ success: false, error: phoneGuard.error }, { status: 403 })
+    }
   }
 
   let body: any
@@ -105,6 +116,36 @@ export async function POST(request: NextRequest) {
       { success: false, error: "Missing required fields: full_name, phone_number, gh_card_number, location, region" },
       { status: 400 }
     )
+  }
+
+  if (user.environment === "test") {
+    // Same real, live price lookup as submitAfaOrder -- realistic sandbox
+    // pricing, but the balance it's deducted from is the fake test balance.
+    const { data: priceRow } = await supabase
+      .from("afa_registration_prices")
+      .select("price")
+      .eq("is_active", true)
+      .eq("name", "default")
+      .maybeSingle()
+    const afaPrice = priceRow?.price != null ? parseFloat(priceRow.price) : NaN
+    if (!Number.isFinite(afaPrice) || afaPrice <= 0) {
+      return NextResponse.json({ success: false, error: "AFA price unavailable, try again later" }, { status: 503 })
+    }
+
+    const reference = `AFA-${Date.now().toString().slice(-7)}`
+    const result = await placeSandboxOrder({
+      userId: user.id,
+      apiKeyId: user.api_key_id,
+      action: "afa",
+      reference,
+      request: { full_name, phone_number, region },
+      price: afaPrice,
+      orderFields: { full_name, phone_number, amount: afaPrice },
+    })
+    if (!result.success) {
+      return NextResponse.json({ success: false, error: result.error }, { status: result.status })
+    }
+    return NextResponse.json({ success: true, order: { ...result.order, sandbox: true }, new_balance: result.newBalance }, { status: 201 })
   }
 
   try {

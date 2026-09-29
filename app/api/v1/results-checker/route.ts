@@ -4,9 +4,10 @@ import { createClient } from "@supabase/supabase-js"
 import { authenticateApiKey, logApiRequest } from "@/lib/api-auth"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { checkPhoneVerified } from "@/lib/phone-verify-guard"
-import { purchaseResultsCheckerVouchers, isValidExamBoard, isExamBoardEnabled, getMaxQuantity } from "@/lib/results-checker-service"
+import { purchaseResultsCheckerVouchers, isValidExamBoard, isExamBoardEnabled, getMaxQuantity, calculateRCPrice } from "@/lib/results-checker-service"
 import { deliverVouchers } from "@/lib/results-checker-notification-service"
 import { classifyServiceError } from "@/lib/api-v1-errors"
+import { placeSandboxOrder, getSandboxOrder } from "@/lib/sandbox"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -34,6 +35,14 @@ export async function GET(request: NextRequest) {
   const reference = searchParams.get("reference")
   if (!reference) {
     return NextResponse.json({ success: false, error: "Reference is required" }, { status: 400 })
+  }
+
+  if (user.environment === "test") {
+    const order = await getSandboxOrder(user.id, reference)
+    if (!order) {
+      return NextResponse.json({ success: false, error: "Order not found" }, { status: 404 })
+    }
+    return NextResponse.json({ success: true, order: { ...order.response, status: order.status, sandbox: true } })
   }
 
   const { data: order } = await supabase
@@ -88,9 +97,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: `Rate limit exceeded. Your current limit is ${postLimit} requests/minute.` }, { status: 429 })
   }
 
-  const phoneGuard = await checkPhoneVerified(supabase, user.id)
-  if (!phoneGuard.allowed) {
-    return NextResponse.json({ success: false, error: phoneGuard.error }, { status: 403 })
+  if (user.environment !== "test") {
+    const phoneGuard = await checkPhoneVerified(supabase, user.id)
+    if (!phoneGuard.allowed) {
+      return NextResponse.json({ success: false, error: phoneGuard.error }, { status: 403 })
+    }
   }
 
   let body: any
@@ -128,6 +139,36 @@ export async function POST(request: NextRequest) {
   const boardEnabled = await isExamBoardEnabled(exam_board)
   if (!boardEnabled) {
     return NextResponse.json({ success: false, error: `${exam_board} vouchers are currently unavailable` }, { status: 503 })
+  }
+
+  if (user.environment === "test") {
+    // Real, read-only pricing calculation -- but fake PINs, never a real
+    // results_checker_inventory row, and no SMS/email actually sent.
+    const pricing = await calculateRCPrice({ examBoard: exam_board, quantity: qty })
+    const reference = `RC-SANDBOX-${Date.now().toString().slice(-8)}`
+    const vouchers = Array.from({ length: qty }, (_, i) => ({
+      pin: `TEST-${(Date.now() % 10000).toString().padStart(4, "0")}-${i.toString().padStart(4, "0")}`,
+      serial_number: `SANDBOX-${exam_board}-${(i + 1).toString().padStart(4, "0")}`,
+    }))
+    const result = await placeSandboxOrder({
+      userId: user.id,
+      apiKeyId: user.api_key_id,
+      action: "results_checker",
+      reference,
+      request: { exam_board, quantity: qty },
+      price: pricing.totalPaid,
+      orderFields: { exam_board, quantity: qty, total_paid: pricing.totalPaid },
+      instant: true,
+    })
+    if (!result.success) {
+      return NextResponse.json({ success: false, error: result.error }, { status: result.status })
+    }
+    return NextResponse.json({
+      success: true,
+      order: { ...result.order, sandbox: true },
+      vouchers,
+      new_balance: result.newBalance,
+    }, { status: 201 })
   }
 
   // 30-second idempotency guard — mirrors app/api/results-checker/purchase/route.ts,
