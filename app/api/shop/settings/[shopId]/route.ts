@@ -30,7 +30,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     const { data: settings, error } = await supabase
       .from("shop_settings")
-      .select("id, shop_id, whatsapp_link, announcement_enabled, announcement_title, announcement_message, order_confirmation_sms_enabled, created_at, updated_at")
+      .select("id, shop_id, whatsapp_link, community_link, announcement_enabled, announcement_title, announcement_message, order_confirmation_sms_enabled, created_at, updated_at")
       .eq("shop_id", shopId)
       .single()
 
@@ -43,6 +43,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         id: null,
         shop_id: shopId,
         whatsapp_link: "",
+        community_link: "",
         announcement_enabled: false,
         announcement_title: "",
         announcement_message: "",
@@ -121,6 +122,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const body = await request.json()
     const {
       whatsapp_link,
+      community_link,
       announcement_enabled,
       announcement_title,
       announcement_message,
@@ -159,6 +161,17 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         ? normalizeWhatsAppLink(whatsapp_link) ?? ""
         : whatsapp_link
 
+    if (community_link !== undefined && community_link !== null && community_link !== "") {
+      if (typeof community_link !== "string" || community_link.length > 500) {
+        return NextResponse.json({ error: "community_link must be a string of 500 characters or fewer" }, { status: 400 })
+      }
+      try {
+        new URL(community_link)
+      } catch {
+        return NextResponse.json({ error: "community_link must be a valid URL" }, { status: 400 })
+      }
+    }
+
     if (announcement_title !== undefined && typeof announcement_title === "string" && announcement_title.length > 200) {
       return NextResponse.json({ error: "announcement_title must be 200 characters or fewer" }, { status: 400 })
     }
@@ -182,6 +195,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         .from("shop_settings")
         .update({
           whatsapp_link: whatsapp_link !== undefined ? normalizedWhatsappLink : existingSettings?.whatsapp_link,
+          community_link: community_link !== undefined ? community_link : existingSettings?.community_link,
           announcement_enabled: announcement_enabled !== undefined ? announcement_enabled : existingSettings?.announcement_enabled,
           announcement_title: announcement_title !== undefined ? announcement_title : existingSettings?.announcement_title,
           announcement_message: announcement_message !== undefined ? announcement_message : existingSettings?.announcement_message,
@@ -205,6 +219,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
           {
             shop_id: shopId,
             whatsapp_link: normalizedWhatsappLink || "",
+            community_link: community_link || "",
             announcement_enabled: announcement_enabled || false,
             announcement_title: announcement_title || "",
             announcement_message: announcement_message || "",

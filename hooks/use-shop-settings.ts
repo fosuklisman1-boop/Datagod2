@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 
 interface ShopSettings {
   whatsapp_link?: string
+  community_link?: string
   id?: string
   shop_id?: string
   created_at?: string

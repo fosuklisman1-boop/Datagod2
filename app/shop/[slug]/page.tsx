@@ -37,7 +37,8 @@ import {
   Menu,
   X,
   ChevronLeft,
-  IdCard
+  IdCard,
+  Users2
 } from "lucide-react"
 import { AirtimeStorefrontForm } from "@/components/shop/AirtimeStorefrontForm"
 import { ResultsCheckerStorefrontForm } from "@/components/shop/ResultsCheckerStorefrontForm"
@@ -48,6 +49,7 @@ import HoneypotField from "@/components/shop/HoneypotField"
 import { toast } from "sonner"
 import { AnnouncementModal } from "@/components/announcement-modal"
 import { AIChatWidget } from "@/components/shop/AIChatWidget"
+import { SectionDivider } from "@/components/shop/section-divider"
 
 export default function ShopStorefront() {
   const params = useParams()
@@ -859,24 +861,77 @@ export default function ShopStorefront() {
         </div>
       )}
 
-      <div className="max-w-7xl mx-auto px-4">
-        {/* Shop Description Section */}
-        <div className="py-8 mb-8 text-center px-2">
-          <p className="text-muted-foreground break-words text-sm sm:text-base md:text-lg">{shop.description || "Welcome to our store"}</p>
-          <div className="flex flex-wrap gap-3 mt-4 justify-center">
-            {normalizeWhatsAppLink(shopSettings?.whatsapp_link) && (
-              <a
-                href={normalizeWhatsAppLink(shopSettings?.whatsapp_link)!}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 px-4 py-2 bg-success hover:bg-success/90 text-primary-foreground rounded-lg font-semibold transition-colors"
-              >
-                <MessageCircle className="w-4 h-4" />
-                Contact on WhatsApp
-              </a>
+      {/* Colored Brand Hero — only renders when the shop owner has set a custom
+          color (Shop Profile > Branding). Shops without one keep the plain
+          description block below, unchanged. */}
+      {shop.custom_color && (
+        <div style={{ backgroundColor: shop.custom_color }}>
+          <div className="max-w-7xl mx-auto px-4 py-10 text-center">
+            <h2 className="text-2xl sm:text-3xl font-bold text-white">{shop.shop_name || shop.name}</h2>
+            {shop.description && (
+              <p className="mt-2 text-white/90 break-words text-sm sm:text-base max-w-2xl mx-auto">{shop.description}</p>
             )}
+            <div className="flex flex-wrap gap-3 mt-4 justify-center">
+              {normalizeWhatsAppLink(shopSettings?.whatsapp_link) && (
+                <a
+                  href={normalizeWhatsAppLink(shopSettings?.whatsapp_link)!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-white/15 hover:bg-white/25 text-white rounded-lg font-semibold transition-colors backdrop-blur-sm"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  Contact on WhatsApp
+                </a>
+              )}
+              {shopSettings?.community_link && (
+                <a
+                  href={shopSettings.community_link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-white/15 hover:bg-white/25 text-white rounded-lg font-semibold transition-colors backdrop-blur-sm"
+                >
+                  <Users2 className="w-4 h-4" />
+                  Join our community
+                </a>
+              )}
+            </div>
           </div>
+          <SectionDivider style={shop.section_divider_style} color={shop.custom_color} />
         </div>
+      )}
+
+      <div className="max-w-7xl mx-auto px-4">
+        {/* Shop Description Section — hidden once the colored hero above already
+            shows the name/description/links, to avoid showing them twice. */}
+        {!shop.custom_color && (
+          <div className="py-8 mb-8 text-center px-2">
+            <p className="text-muted-foreground break-words text-sm sm:text-base md:text-lg">{shop.description || "Welcome to our store"}</p>
+            <div className="flex flex-wrap gap-3 mt-4 justify-center">
+              {normalizeWhatsAppLink(shopSettings?.whatsapp_link) && (
+                <a
+                  href={normalizeWhatsAppLink(shopSettings?.whatsapp_link)!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-success hover:bg-success/90 text-primary-foreground rounded-lg font-semibold transition-colors"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  Contact on WhatsApp
+                </a>
+              )}
+              {shopSettings?.community_link && (
+                <a
+                  href={shopSettings.community_link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent/80 text-foreground rounded-lg font-semibold transition-colors border border-border"
+                >
+                  <Users2 className="w-4 h-4" />
+                  Join our community
+                </a>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Global Maintenance Alert */}
         {!globalOrderingEnabled && (
