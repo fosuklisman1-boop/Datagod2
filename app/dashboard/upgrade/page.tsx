@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Crown, Check, Zap, Loader2, Sparkles, Star, PartyPopper, ShieldCheck, Users, Store as StoreIcon, AlertCircle, List, TrendingDown, Tag } from "lucide-react"
@@ -362,127 +361,121 @@ export default function UpgradePage() {
 
     const successBenefits = [
         { icon: <Crown className="w-5 h-5 text-amber-500" />, text: "Wholesale pricing on all data packages" },
-        { icon: <Users className="w-5 h-5 text-primary" />, text: "Create & manage sub-agents" },
+        { icon: <Users className="w-5 h-5 text-[#1b388b]" />, text: "Create & manage sub-agents" },
         { icon: <StoreIcon className="w-5 h-5 text-green-500" />, text: "Custom shop branding" },
-        { icon: <ShieldCheck className="w-5 h-5 text-primary" />, text: "Priority customer support" },
+        { icon: <ShieldCheck className="w-5 h-5 text-[#1b388b]" />, text: "Priority customer support" },
     ]
+
+    const upgradesBlocked = !upgradesEnabled && currentRole !== 'dealer' && currentRole !== 'admin'
+    const isActiveDealer = currentRole === 'dealer' || currentRole === 'admin'
 
     return (
         <DashboardLayout>
-            <div className="p-6 max-w-6xl mx-auto">
-                <div className="text-center mb-12">
-                    <Badge className="mb-4 bg-warning/10 text-warning hover:bg-warning/10 transition-colors py-1 px-4 border-border">
-                        PREMIUM MEMBERSHIP
-                    </Badge>
-                    <h1 className="text-4xl md:text-5xl font-extrabold mb-4 text-warning">
-                        Become a DATAGOD Dealer
-                    </h1>
-                    <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
+            <div className="max-w-2xl mx-auto space-y-5">
+                {/* Page Header -- premium/dealer identity stays amber, same
+                    branch as every other page's isDealer treatment. */}
+                <div className="rounded-2xl bg-gradient-to-br from-amber-500 to-amber-600 p-5 text-white">
+                    <div className="flex items-center gap-3">
+                        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/20">
+                            <Crown className="h-6 w-6" />
+                        </span>
+                        <div>
+                            <Badge className="bg-white/20 text-white hover:bg-white/20 mb-1 text-[10px]">PREMIUM MEMBERSHIP</Badge>
+                            <h1 className="text-xl font-black">Become a DATAGOD Dealer</h1>
+                        </div>
+                    </div>
+                    <p className="mt-3 text-sm text-amber-50">
                         Unlock wholesale rates, sub-agent management, and exclusive features to grow your business.
                     </p>
                 </div>
 
-                {!upgradesEnabled && currentRole !== 'dealer' && currentRole !== 'admin' && (
-                    <div className="mb-8 p-4 bg-destructive/10 border border-border rounded-xl text-center">
-                        <AlertCircle className="w-8 h-8 text-destructive mx-auto mb-2" />
-                        <h3 className="text-lg font-bold text-destructive">Upgrades Temporarily Disabled</h3>
-                        <p className="text-destructive">Account upgrades are currently paused for system maintenance. Please check back later!</p>
+                {upgradesBlocked && (
+                    <div className="flex items-start gap-3 rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+                        <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                        <p><span className="font-bold">Upgrades temporarily disabled.</span> Account upgrades are currently paused for system maintenance. Please check back later!</p>
                     </div>
                 )}
 
-                {(currentRole === 'dealer' || currentRole === 'admin') && (
-                    <div className="mb-12 p-6 bg-card border border-border rounded-2xl flex flex-col md:flex-row items-center justify-between gap-6">
-                        <div className="flex items-center gap-4">
-                            <div className="p-3 bg-warning rounded-full text-white shadow-lg ring-4 ring-amber-100">
-                                <Crown className="w-8 h-8" />
-                            </div>
+                {isActiveDealer && (
+                    <div className="rounded-2xl border border-border bg-card p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-amber-500 text-white">
+                                <Crown className="h-5 w-5" />
+                            </span>
                             <div>
-                                <h3 className="text-xl font-bold text-foreground">Active Dealer Access</h3>
-                                <p className="text-muted-foreground">
+                                <p className="text-sm font-bold text-foreground">Active Dealer Access</p>
+                                <p className="text-xs text-muted-foreground">
                                     {daysLeft !== null ? (
-                                        <>Your subscription expires in <span className="font-bold text-warning">{daysLeft} days</span>.</>
+                                        <>Expires in <span className="font-bold text-amber-600">{daysLeft} days</span>.</>
                                     ) : (
                                         "Enjoy your exclusive benefits and wholesale pricing."
                                     )}
                                 </p>
                             </div>
                         </div>
-                        <div className="flex gap-3">
+                        <div className="flex items-center gap-2 shrink-0">
                             {daysLeft !== null && daysLeft <= 7 && (
-                                <Badge className="bg-destructive/15 text-destructive border-border py-2 px-4 whitespace-nowrap">
-                                    EXPIRES SOON
-                                </Badge>
+                                <Badge className="bg-destructive/15 text-destructive whitespace-nowrap">EXPIRES SOON</Badge>
                             )}
-                            <Button variant="outline" className="border-border text-warning hover:bg-warning/10" onClick={() => router.push('/dashboard')}>
-                                Go to Dashboard
+                            <Button variant="outline" size="sm" className="rounded-full" onClick={() => router.push('/dashboard')}>
+                                Dashboard
                             </Button>
                         </div>
                     </div>
                 )}
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16">
+                {/* Plans -- single-column stack, matches this rebuild's
+                    mobile-first card convention instead of the old 3-col grid. */}
+                <div className="space-y-3">
                     {loading ? (
                         Array(3).fill(0).map((_, i) => (
-                            <Card key={i} className="animate-pulse border-border h-[450px]">
-                                <CardHeader className="space-y-4">
-                                    <div className="h-6 bg-muted rounded w-1/2"></div>
-                                    <div className="h-4 bg-muted rounded w-full"></div>
-                                </CardHeader>
-                                <CardContent className="space-y-6">
-                                    <div className="h-10 bg-muted rounded w-3/4 mx-auto"></div>
-                                    <div className="space-y-2">
-                                        {Array(4).fill(0).map((_, j) => (
-                                            <div key={j} className="h-3 bg-muted rounded w-full"></div>
-                                        ))}
-                                    </div>
-                                </CardContent>
-                            </Card>
+                            <div key={i} className="animate-pulse rounded-2xl border border-border bg-card p-5 h-40" />
                         ))
                     ) : plans.length === 0 ? (
-                        <div className="col-span-3 text-center py-20 bg-muted/40 rounded-3xl border-2 border-dashed border-border">
-                            <Star className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                            <p className="text-muted-foreground text-xl font-medium">New dealer plans coming soon!</p>
+                        <div className="rounded-2xl border-2 border-dashed border-border bg-muted/40 p-10 text-center">
+                            <Star className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
+                            <p className="text-sm font-medium text-muted-foreground">New dealer plans coming soon!</p>
                         </div>
                     ) : (
                         plans.map((plan, index) => (
-                            <Card
+                            <div
                                 key={plan.id}
                                 className={cn(
-                                    "relative flex flex-col transition-all duration-300 hover:scale-105 hover:shadow-2xl border-2",
-                                    index === 1 ? "border-amber-400 shadow-xl" : "border-border"
+                                    "relative rounded-2xl border-2 bg-card p-5",
+                                    index === 1 ? "border-amber-400 shadow-sm" : "border-border"
                                 )}
                             >
                                 {index === 1 && (
-                                    <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-warning text-white text-xs font-bold px-4 py-1 rounded-full shadow-lg z-10 flex items-center gap-1">
+                                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 flex items-center gap-1 rounded-full bg-amber-500 px-3 py-1 text-xs font-bold text-white shadow">
                                         <Sparkles className="w-3 h-3" /> MOST POPULAR
                                     </div>
                                 )}
-                                <CardHeader className="text-center pt-8">
-                                    <CardTitle className="text-2xl font-bold">{plan.name}</CardTitle>
-                                    <CardDescription className="text-muted-foreground mt-2">{plan.duration_days} Days Access</CardDescription>
-                                </CardHeader>
-                                <CardContent className="flex-grow flex flex-col">
-                                    <div className="text-center mb-8">
-                                        <div className="flex items-baseline justify-center gap-1">
-                                            <span className="text-muted-foreground text-lg">GHS</span>
-                                            <span className="text-5xl font-black text-foreground">{plan.price.toFixed(2)}</span>
-                                        </div>
+                                <div className="flex items-center justify-between gap-3">
+                                    <div>
+                                        <p className="text-lg font-bold text-foreground">{plan.name}</p>
+                                        <p className="text-xs text-muted-foreground">{plan.duration_days} Days Access</p>
                                     </div>
-                                    <ul className="space-y-4 mb-8">
-                                        {features.map((feature, i) => (
-                                            <li key={i} className="flex items-start gap-3">
-                                                <div className="mt-1 p-0.5 bg-success/15 rounded-full flex-shrink-0">
-                                                    <Check className="w-3 h-3 text-success" />
-                                                </div>
-                                                <span className="text-sm text-muted-foreground">{feature}</span>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </CardContent>
-                                <CardFooter className="pb-8 flex flex-col gap-3">
+                                    <div className="text-right">
+                                        <p className="text-xs text-muted-foreground">GHS</p>
+                                        <p className="text-3xl font-black text-foreground leading-none">{plan.price.toFixed(2)}</p>
+                                    </div>
+                                </div>
+
+                                <ul className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
+                                    {features.map((feature, i) => (
+                                        <li key={i} className="flex items-start gap-2">
+                                            <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-success/15">
+                                                <Check className="w-2.5 h-2.5 text-success" />
+                                            </span>
+                                            <span className="text-xs text-muted-foreground">{feature}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+
+                                <div className="mt-4 flex flex-col gap-2">
                                     <Button
                                         variant="outline"
-                                        className="w-full h-10 font-semibold border-border text-warning hover:bg-warning/10 hover:border-warning/30 transition-all"
+                                        className="w-full rounded-full border-amber-300 text-amber-700 hover:bg-amber-50 hover:border-amber-400"
                                         onClick={handleViewPriceList}
                                     >
                                         {priceListLoading ? (
@@ -494,44 +487,38 @@ export default function UpgradePage() {
                                     </Button>
                                     <Button
                                         className={cn(
-                                            "w-full h-12 text-lg font-bold transition-all duration-300",
-                                            !upgradesEnabled && currentRole !== 'dealer' && currentRole !== 'admin'
-                                                ? "bg-gray-300 text-muted-foreground cursor-not-allowed"
-                                                : index === 1
-                                                    ? "bg-warning hover:bg-warning/90 text-white shadow-lg"
-                                                    : "bg-gray-900 hover:bg-background text-white"
+                                            "w-full h-11 font-bold",
+                                            upgradesBlocked
+                                                ? "bg-muted text-muted-foreground cursor-not-allowed"
+                                                : "bg-amber-500 hover:bg-amber-600 text-white"
                                         )}
                                         onClick={() => handleUpgrade(plan)}
-                                        disabled={processingId === plan.id || (!upgradesEnabled && currentRole !== 'dealer' && currentRole !== 'admin')}
+                                        disabled={processingId === plan.id || upgradesBlocked}
                                     >
                                         {processingId === plan.id ? (
                                             <Loader2 className="w-5 h-5 animate-spin" />
-                                        ) : (!upgradesEnabled && currentRole !== 'dealer' && currentRole !== 'admin') ? (
+                                        ) : upgradesBlocked ? (
                                             "Currently Unavailable"
-                                        ) : (currentRole === 'dealer' || currentRole === 'admin') ? (
+                                        ) : isActiveDealer ? (
                                             "Renew / Extend"
                                         ) : (
                                             "Upgrade Now"
                                         )}
                                     </Button>
-                                </CardFooter>
-                            </Card>
+                                </div>
+                            </div>
                         ))
                     )}
                 </div>
 
-                <div className="bg-muted/40 rounded-3xl p-8 text-center border border-border mb-16">
-                    <h2 className="text-2xl font-bold mb-4 flex items-center justify-center gap-2">
-                        <Zap className="w-6 h-6 text-amber-500 fill-amber-500" /> Fast & Secure
-                    </h2>
-                    <p className="text-muted-foreground mb-8 max-w-xl mx-auto">
+                <div className="rounded-2xl border border-border bg-muted/40 p-5 text-center">
+                    <p className="flex items-center justify-center gap-2 text-sm font-bold text-foreground">
+                        <Zap className="w-4 h-4 text-amber-500 fill-amber-500" /> Fast & Secure
+                    </p>
+                    <p className="mt-2 text-xs text-muted-foreground">
                         Upgrade your account in seconds using card, mobile money or bank transfer via Paystack. Your benefits start immediately.
                     </p>
-                    <div className="flex flex-wrap justify-center gap-8 opacity-50 grayscale hover:grayscale-0 transition-all duration-500">
-                        <img src="/paystack-badge.png" alt="Paystack" className="h-8 object-contain" />
-                        {/* Fallback text if image not found */}
-                        <span className="text-sm font-bold text-muted-foreground">SECURE PAYMENTS BY PAYSTACK</span>
-                    </div>
+                    <p className="mt-3 text-xs font-bold text-muted-foreground">SECURE PAYMENTS BY PAYSTACK</p>
                 </div>
             </div>
 
@@ -565,8 +552,8 @@ export default function UpgradePage() {
                                                         className={cn(
                                                             "px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all",
                                                             priceListNetwork === net
-                                                                ? "bg-warning text-white shadow"
-                                                                : "bg-muted text-muted-foreground hover:bg-warning/10 hover:text-warning"
+                                                                ? "bg-amber-500 text-white shadow"
+                                                                : "bg-muted text-muted-foreground hover:bg-amber-50 hover:text-amber-700"
                                                         )}
                                                     >
                                                         {net}
@@ -581,7 +568,7 @@ export default function UpgradePage() {
                                                             <tr className="text-left">
                                                                 <th className="pb-3 font-semibold text-muted-foreground uppercase text-xs tracking-wide">Package</th>
                                                                 <th className="pb-3 font-semibold text-muted-foreground uppercase text-xs tracking-wide text-right">Regular</th>
-                                                                <th className="pb-3 font-semibold text-warning uppercase text-xs tracking-wide text-right">Dealer Price</th>
+                                                                <th className="pb-3 font-semibold text-amber-600 uppercase text-xs tracking-wide text-right">Dealer Price</th>
                                                                 <th className="pb-3 font-semibold text-success uppercase text-xs tracking-wide text-right">Savings</th>
                                                             </tr>
                                                         </thead>
@@ -602,7 +589,7 @@ export default function UpgradePage() {
                                                                 .map((pkg) => {
                                                                     const savings = pkg.regular_price - pkg.dealer_price
                                                                     return (
-                                                                        <tr key={pkg.id} className="hover:bg-warning/10 transition-colors">
+                                                                        <tr key={pkg.id} className="hover:bg-amber-50 transition-colors">
                                                                             <td className="py-3 pr-4">
                                                                                 <div className="font-bold text-foreground">{pkg.size}GB</div>
                                                                                 {pkg.description && (
@@ -638,8 +625,8 @@ export default function UpgradePage() {
                             </div>
                         )}
 
-                        <div className="px-6 py-4 border-t flex-shrink-0 bg-warning/10">
-                            <p className="text-xs text-warning text-center font-medium">
+                        <div className="px-6 py-4 border-t flex-shrink-0 bg-amber-50">
+                            <p className="text-xs text-amber-700 text-center font-medium">
                                 These prices are available exclusively to active DATAGOD Dealers.
                             </p>
                         </div>
@@ -650,7 +637,7 @@ export default function UpgradePage() {
                 <Dialog open={showSuccessModal} onOpenChange={setShowSuccessModal}>
                     <DialogContent showCloseButton={false} className="sm:max-w-md overflow-hidden p-0 border-0">
                         {/* Header Gradient */}
-                        <div className="bg-warning px-6 pt-10 pb-8 text-center relative overflow-hidden">
+                        <div className="bg-gradient-to-br from-amber-500 to-amber-600 px-6 pt-10 pb-8 text-center relative overflow-hidden">
                             {/* Decorative circles */}
                             <div className="absolute top-0 left-0 w-32 h-32 bg-card/10 rounded-full -translate-x-1/2 -translate-y-1/2" />
                             <div className="absolute bottom-0 right-0 w-24 h-24 bg-card/10 rounded-full translate-x-1/3 translate-y-1/3" />
@@ -690,7 +677,7 @@ export default function UpgradePage() {
 
                             <div className="flex flex-col gap-2 pt-2">
                                 <Button
-                                    className="w-full h-12 text-base font-bold bg-warning hover:bg-warning/90 text-white shadow-lg"
+                                    className="w-full h-12 text-base font-bold bg-amber-500 hover:bg-amber-600 text-white shadow-lg"
                                     onClick={() => {
                                         setShowSuccessModal(false)
                                         router.push('/dashboard')
@@ -726,7 +713,7 @@ export default function UpgradePage() {
                                         : "Verify the number below, then continue to Paystack to complete payment."}
                                 </p>
                                 <div>
-                                    <label className="text-sm font-semibold text-primary">Mobile Money number to pay from *</label>
+                                    <label className="text-sm font-semibold text-[#1b388b]">Mobile Money number to pay from *</label>
                                     <input
                                         type="tel"
                                         inputMode="numeric"
@@ -734,21 +721,21 @@ export default function UpgradePage() {
                                         value={paymentPhone}
                                         onChange={(e) => { setPaymentPhone(e.target.value); if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode(""); otpCooldown.reset() } }}
                                         disabled={walletOtp && otpVerified}
-                                        className="mt-1 w-full rounded-md border border-border bg-card px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                                        className="mt-1 w-full rounded-md border border-border bg-card px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-[#1b388b]"
                                     />
                                 </div>
                                 {walletOtp && (!otpVerified ? (
                                     !otpSent ? (
-                                        <Button type="button" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0} className="w-full bg-primary hover:bg-primary text-white">
+                                        <Button type="button" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0} className="w-full bg-[#1b388b] hover:bg-[#1b388b]/90 text-white">
                                             {sendingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code…</>) : otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Send verification code"}
                                         </Button>
                                     ) : (
                                         <div className="space-y-2">
                                             <input inputMode="numeric" maxLength={6} placeholder="Enter 6-digit code" value={otpCode}
                                                 onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                                                className="w-full rounded-md border bg-card px-3 py-2 text-center text-lg tracking-[0.4em] font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
+                                                className="w-full rounded-md border bg-card px-3 py-2 text-center text-lg tracking-[0.4em] font-mono focus:outline-none focus:ring-2 focus:ring-[#1b388b]" />
                                             <div className="flex gap-2">
-                                                <Button type="button" onClick={handleVerifyOtp} disabled={verifyingOtp || otpCode.length < 4} className="flex-1 bg-primary hover:bg-primary text-white">
+                                                <Button type="button" onClick={handleVerifyOtp} disabled={verifyingOtp || otpCode.length < 4} className="flex-1 bg-[#1b388b] hover:bg-[#1b388b]/90 text-white">
                                                     {verifyingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying…</>) : "Verify"}
                                                 </Button>
                                                 <Button type="button" variant="outline" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0}>{otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Resend"}</Button>
@@ -765,7 +752,7 @@ export default function UpgradePage() {
                                 <Button
                                     onClick={confirmUpgrade}
                                     disabled={(walletOtp && !otpVerified) || (walletDirect && !walletOtp && !/^0?\d{9}$/.test(paymentPhone.replace(/\D/g, ""))) || processingId === upgradeFlow.plan?.id}
-                                    className="w-full bg-warning hover:bg-warning/90 text-white"
+                                    className="w-full bg-amber-500 hover:bg-amber-600 text-white"
                                 >
                                     {processingId === upgradeFlow.plan?.id ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Starting…</>) : `Pay GHS ${Number(upgradeFlow.plan?.price || 0).toFixed(2)}`}
                                 </Button>
@@ -774,8 +761,8 @@ export default function UpgradePage() {
 
                         {upgradeFlow?.state === "awaiting" && (
                             <div className="text-center space-y-4 py-2">
-                                <div className="mx-auto w-16 h-16 rounded-full bg-primary flex items-center justify-center">
-                                    <Loader2 className="w-8 h-8 text-primary-foreground animate-spin" />
+                                <div className="mx-auto w-16 h-16 rounded-full bg-[#1b388b] flex items-center justify-center">
+                                    <Loader2 className="w-8 h-8 text-white animate-spin" />
                                 </div>
                                 <DialogHeader><DialogTitle className="text-center">Approve the prompt on your phone</DialogTitle></DialogHeader>
                                 <p className="text-sm text-muted-foreground">
@@ -792,7 +779,7 @@ export default function UpgradePage() {
                                 </div>
                                 <DialogHeader><DialogTitle className="text-center">Welcome to the Dealer Club 🎉</DialogTitle></DialogHeader>
                                 <p className="text-sm text-muted-foreground">Your upgrade is active. Enjoy wholesale pricing and dealer tools.</p>
-                                <Button onClick={() => { setUpgradeFlow(null); router.refresh() }} className="w-full bg-warning hover:bg-warning/90 text-white">Done</Button>
+                                <Button onClick={() => { setUpgradeFlow(null); router.refresh() }} className="w-full bg-amber-500 hover:bg-amber-600 text-white">Done</Button>
                             </div>
                         )}
 
