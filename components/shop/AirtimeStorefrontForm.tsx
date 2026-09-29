@@ -371,12 +371,12 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
   return (
     <>
     <Card className="border-0 shadow-2xl overflow-hidden rounded-2xl w-full max-w-xl mx-auto">
-      <div className="h-2 bg-gradient-to-r from-primary via-primary to-primary" />
+      <div className="h-2 bg-gradient-to-r from-[var(--shop-accent)] via-primary to-[var(--shop-accent)]" />
       <CardHeader className="bg-card border-b border-border">
         <div className="flex items-center justify-between">
           <div>
             <CardTitle className="text-2xl font-black text-slate-900 flex items-center gap-2">
-              <Zap className="w-6 h-6 text-primary fill-primary" />
+              <Zap className="w-6 h-6 text-[var(--shop-accent)] fill-[var(--shop-accent)]" />
               Buy Airtime
             </CardTitle>
             <CardDescription className="text-slate-500 font-medium mt-1">
@@ -395,7 +395,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
           {/* Network Selection */}
           <div className="space-y-4">
             <Label className="text-slate-900 font-bold flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-primary" />
+              <CheckCircle2 className="w-4 h-4 text-[var(--shop-accent)]" />
               1. Select Network
             </Label>
             <div className="grid grid-cols-3 gap-3">
@@ -409,7 +409,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                     onClick={() => setSelectedNetwork(net.id)}
                     className={`relative flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all duration-300 ${
                       selectedNetwork === net.id
-                        ? "border-primary bg-primary ring-4 ring-primary shadow-lg scale-[1.05]"
+                        ? "border-[var(--shop-accent)] bg-[var(--shop-accent)] ring-4 ring-[var(--shop-accent)] shadow-lg scale-[1.05]"
                         : isAvail 
                           ? "border-border bg-muted/40 hover:border-border hover:bg-muted"
                           : "border-border bg-muted/40 grayscale opacity-60 cursor-not-allowed"
@@ -427,11 +427,11 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                          <span className="font-bold text-slate-500">{net.name[0]}</span>
                       </div>
                     )}
-                    <span className={`text-xs font-black uppercase ${selectedNetwork === net.id ? "text-primary" : "text-slate-500"}`}>
+                    <span className={`text-xs font-black uppercase ${selectedNetwork === net.id ? "text-[var(--shop-accent)]" : "text-slate-500"}`}>
                       {net.name}
                     </span>
                     {selectedNetwork === net.id && (
-                      <div className="absolute -top-2 -right-2 bg-primary text-white rounded-full p-1 shadow-md">
+                      <div className="absolute -top-2 -right-2 bg-[var(--shop-accent)] text-white rounded-full p-1 shadow-md">
                         <CheckCircle2 className="w-3 h-3" />
                       </div>
                     )}
@@ -444,7 +444,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
           {/* Form Fields */}
           <div className="space-y-6">
             <Label className="text-slate-900 font-bold flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-primary" />
+              <CheckCircle2 className="w-4 h-4 text-[var(--shop-accent)]" />
               2. Order Details
             </Label>
             
@@ -454,7 +454,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                 <Input 
                   id="customerName"
                   placeholder="E.g John Doe"
-                  className="bg-muted/40 border-border focus:ring-primary focus:border-primary rounded-xl"
+                  className="bg-muted/40 border-border focus:ring-[var(--shop-accent)] focus:border-[var(--shop-accent)] rounded-xl"
                   value={formData.customerName}
                   onChange={e => setFormData({...formData, customerName: e.target.value})}
                 />
@@ -466,7 +466,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                   type="email"
                   required
                   placeholder="john@example.com"
-                  className="bg-muted/40 border-border focus:ring-primary focus:border-primary rounded-xl"
+                  className="bg-muted/40 border-border focus:ring-[var(--shop-accent)] focus:border-[var(--shop-accent)] rounded-xl"
                   value={formData.customerEmail}
                   onChange={e => setFormData({...formData, customerEmail: e.target.value})}
                 />
@@ -481,7 +481,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                   type="tel"
                   required
                   placeholder="024XXXXXXX"
-                  className="bg-muted/40 border-border focus:ring-primary focus:border-primary rounded-xl font-mono text-lg"
+                  className="bg-muted/40 border-border focus:ring-[var(--shop-accent)] focus:border-[var(--shop-accent)] rounded-xl font-mono text-lg"
                   value={formData.beneficiaryPhone}
                   onChange={e => {
                     setFormData({...formData, beneficiaryPhone: e.target.value})
@@ -497,7 +497,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                   min="1"
                   required
                   placeholder="10.00"
-                  className="bg-muted/40 border-border focus:ring-primary focus:border-primary rounded-xl font-bold text-lg"
+                  className="bg-muted/40 border-border focus:ring-[var(--shop-accent)] focus:border-[var(--shop-accent)] rounded-xl font-bold text-lg"
                   value={formData.amount}
                   onChange={e => setFormData({...formData, amount: e.target.value})}
                 />
@@ -506,17 +506,17 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
           </div>
 
           {/* Fee Toggle */}
-          <div className="p-4 bg-primary/10 rounded-2xl border border-border flex items-start gap-3 transition-all">
+          <div className="p-4 bg-[var(--shop-accent)]/10 rounded-2xl border border-border flex items-start gap-3 transition-all">
             <input
               id="pay-sep"
               type="checkbox"
               checked={paySeparately}
               onChange={(e) => setPaySeparately(e.target.checked)}
-              className="mt-1 h-5 w-5 text-primary border-border rounded focus:ring-primary cursor-pointer"
+              className="mt-1 h-5 w-5 text-[var(--shop-accent)] border-border rounded focus:ring-[var(--shop-accent)] cursor-pointer"
             />
             <label htmlFor="pay-sep" className="flex-1 cursor-pointer">
-              <span className="text-primary font-bold text-sm block">Pay fee separately</span>
-              <p className="text-primary text-xs mt-1 leading-relaxed">
+              <span className="text-[var(--shop-accent)] font-bold text-sm block">Pay fee separately</span>
+              <p className="text-[var(--shop-accent)] text-xs mt-1 leading-relaxed">
                 {paySeparately 
                   ? "Recipient gets the full amount; service fee is added to your total." 
                   : "Service fee is deducted from the amount before delivery."}
@@ -526,7 +526,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
 
           {/* Price Summary */}
           <div className="group relative">
-            <div className="absolute -inset-1 bg-gradient-to-r from-primary to-primary rounded-2xl blur opacity-25 group-hover:opacity-40 transition duration-1000"></div>
+            <div className="absolute -inset-1 bg-gradient-to-r from-[var(--shop-accent)] to-[var(--shop-accent)] rounded-2xl blur opacity-25 group-hover:opacity-40 transition duration-1000"></div>
             <div className="relative p-6 bg-muted/40 rounded-2xl border border-border">
               <div className="flex justify-between items-center mb-1">
                 <span className="text-slate-500 font-semibold">Amount to Send:</span>
@@ -549,7 +549,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
               <div className="flex justify-between items-center">
                 <span className="text-slate-900 text-lg font-black">Total to Pay:</span>
                 <div className="text-right">
-                  <span className="text-3xl font-black bg-gradient-to-r from-primary to-primary bg-clip-text text-transparent">
+                  <span className="text-3xl font-black bg-gradient-to-r from-[var(--shop-accent)] to-[var(--shop-accent)] bg-clip-text text-transparent">
                     GHS {calculateTotal().toFixed(2)}
                   </span>
                   <p className="text-[10px] text-slate-400 mt-1 uppercase tracking-wider font-bold">
@@ -566,9 +566,9 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
               on — both need the on-page MoMo number. OTP controls render only when
               OTP is required; with direct charge alone the number is charged as typed. */}
           {(otpRequired || directCharge) && (
-            <div className="p-4 rounded-2xl bg-primary/10 border border-border space-y-3">
+            <div className="p-4 rounded-2xl bg-[var(--shop-accent)]/10 border border-border space-y-3">
               <div className="space-y-2">
-                <Label className="text-sm font-semibold text-primary">Mobile Money number to pay from *</Label>
+                <Label className="text-sm font-semibold text-[var(--shop-accent)]">Mobile Money number to pay from *</Label>
                 <Input
                   type="tel"
                   inputMode="numeric"
@@ -581,14 +581,14 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                   disabled={otpRequired && otpVerified}
                   className="bg-card border-border rounded-xl font-mono"
                 />
-                <p className="text-xs text-primary">
+                <p className="text-xs text-[var(--shop-accent)]">
                   {otpRequired ? "The payment prompt is sent to this number. You verify it once." : "The payment prompt is sent to this number."}
                 </p>
               </div>
 
               {otpRequired && (!otpVerified ? (
                 !otpSent ? (
-                  <Button type="button" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0} className="w-full bg-primary hover:bg-primary text-white rounded-xl">
+                  <Button type="button" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0} className="w-full bg-[var(--shop-accent)] hover:bg-[var(--shop-accent)] text-white rounded-xl">
                     {sendingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code…</>) : otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Send verification code"}
                   </Button>
                 ) : (
@@ -597,7 +597,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                       onChange={e => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
                       className="text-center text-lg tracking-[0.4em] font-mono bg-card" />
                     <div className="flex gap-2">
-                      <Button type="button" onClick={handleVerifyOtp} disabled={verifyingOtp || otpCode.length < 4} className="flex-1 bg-primary hover:bg-primary text-white rounded-xl">
+                      <Button type="button" onClick={handleVerifyOtp} disabled={verifyingOtp || otpCode.length < 4} className="flex-1 bg-[var(--shop-accent)] hover:bg-[var(--shop-accent)] text-white rounded-xl">
                         {verifyingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying…</>) : "Verify"}
                       </Button>
                       <Button type="button" variant="outline" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0}>{otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Resend"}</Button>
@@ -623,7 +623,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
           <Button
             type="submit"
             disabled={submitting || !selectedNetwork || (turnstileEnabled && !turnstileToken) || (otpRequired && !otpVerified) || (directCharge && !otpRequired && !/^0?\d{9}$/.test(paymentPhone.replace(/\D/g, "")))}
-            className="w-full h-16 bg-gradient-to-r from-primary via-primary to-primary hover:scale-[1.02] active:scale-95 text-white text-xl font-black rounded-2xl shadow-xl shadow-primary transition-all duration-300 disabled:opacity-50 disabled:grayscale"
+            className="w-full h-16 bg-gradient-to-r from-[var(--shop-accent)] via-primary to-[var(--shop-accent)] hover:scale-[1.02] active:scale-95 text-white text-xl font-black rounded-2xl shadow-xl shadow-primary transition-all duration-300 disabled:opacity-50 disabled:grayscale"
           >
             {submitting ? (
               <div className="flex items-center gap-3">
@@ -647,7 +647,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
         <Card className="w-full max-w-md bg-card rounded-2xl">
           {momoModal.state === "awaiting" && (
             <CardContent className="pt-8 pb-6 text-center space-y-4">
-              <div className="mx-auto w-16 h-16 rounded-full bg-primary flex items-center justify-center">
+              <div className="mx-auto w-16 h-16 rounded-full bg-[var(--shop-accent)] flex items-center justify-center">
                 <Loader2 className="w-8 h-8 text-primary-foreground animate-spin" />
               </div>
               <div>
@@ -667,7 +667,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
 
           {momoModal.state === "otp" && (
             <CardContent className="pt-8 pb-6 text-center space-y-4">
-              <div className="mx-auto w-16 h-16 rounded-full bg-primary flex items-center justify-center">
+              <div className="mx-auto w-16 h-16 rounded-full bg-[var(--shop-accent)] flex items-center justify-center">
                 <Zap className="w-8 h-8 text-primary-foreground" />
               </div>
               <div>
@@ -691,7 +691,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
               <Button
                 onClick={submitMomoOtp}
                 disabled={momoOtpSubmitting || !momoOtpInput.trim()}
-                className="w-full bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary rounded-xl"
+                className="w-full bg-gradient-to-r from-[var(--shop-accent)] to-[var(--shop-accent)] hover:from-[var(--shop-accent)] hover:to-[var(--shop-accent)] rounded-xl"
               >
                 {momoOtpSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Submit code"}
               </Button>
@@ -722,7 +722,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                   setFormData({ customerName: "", customerEmail: "", beneficiaryPhone: "", amount: "10" })
                   setPaymentPhone(""); setOtpSent(false); setOtpVerified(false); setOtpCode(""); setSelectedNetwork(null)
                 }}
-                className="w-full bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary rounded-xl"
+                className="w-full bg-gradient-to-r from-[var(--shop-accent)] to-[var(--shop-accent)] hover:from-[var(--shop-accent)] hover:to-[var(--shop-accent)] rounded-xl"
               >
                 Done
               </Button>

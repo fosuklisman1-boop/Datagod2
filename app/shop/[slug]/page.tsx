@@ -1145,37 +1145,31 @@ export default function ShopStorefront() {
                             {Array.from(new Set(packages.map(p => p.packages.network))).map((network) => {
                               const networkPackages = packages.filter(p => p.packages.network === network)
                               const availableCount = networkPackages.filter(p => p.is_available).length
+                              const netColor = networkColorFor(network as string)
+                              const isSelected = selectedNetwork === network
 
                               return (
-                                <Card
+                                <button
                                   key={network}
                                   onClick={() => setSelectedNetwork(network as string)}
-                                  className={`group cursor-pointer hover:shadow-2xl transition-all duration-500 hover:-translate-y-2 overflow-hidden border-0 ${selectedNetwork === network
-                                      ? "ring-4 ring-[var(--shop-accent)] shadow-xl"
-                                      : "shadow-md bg-card/80"
-                                    }`}
+                                  className="relative flex flex-col items-center gap-2 rounded-2xl border-2 bg-card p-4 text-center shadow-sm transition-all"
+                                  style={{ borderColor: isSelected ? netColor : "transparent" }}
                                 >
-                                  <div className="flex flex-col h-full relative">
-                                    <div className={`h-24 sm:h-32 w-full flex items-center justify-center relative overflow-hidden transition-colors ${selectedNetwork === network ? 'bg-[var(--shop-accent)]' : 'bg-muted/40 group-hover:bg-muted'}`}>
-                                      <img
-                                        src={getNetworkLogo(network as string)}
-                                        alt={network}
-                                        className={`h-16 w-16 sm:h-20 sm:w-20 object-contain transition-transform duration-500 ${selectedNetwork === network ? 'scale-110' : 'group-hover:scale-110'}`}
-                                      />
-                                    </div>
-
-                                    <div className="flex-1 p-3 text-center">
-                                      <h3 className={`text-sm sm:text-base font-black uppercase tracking-tight ${selectedNetwork === network ? 'text-[var(--shop-accent)]' : 'text-foreground'}`}>{network}</h3>
-                                      <p className="text-[10px] sm:text-xs text-muted-foreground font-bold mt-1 uppercase opacity-60">{availableCount} plans</p>
-                                    </div>
-                                    
-                                    {selectedNetwork === network && (
-                                      <div className="absolute top-2 right-2 bg-[var(--shop-accent)] text-white rounded-full p-1 shadow-lg">
-                                        <CheckCircle2 className="w-3 h-3 sm:w-4 sm:h-4" />
-                                      </div>
-                                    )}
-                                  </div>
-                                </Card>
+                                  {isSelected && (
+                                    <span className="absolute right-2 top-2 grid h-5 w-5 place-items-center rounded-full bg-success text-white">
+                                      <CheckCircle2 className="h-3 w-3" />
+                                    </span>
+                                  )}
+                                  <span className="grid h-14 w-14 place-items-center rounded-full" style={{ backgroundColor: `${netColor}22` }}>
+                                    <img src={getNetworkLogo(network as string)} alt={network as string} className="h-9 w-9 object-contain" />
+                                  </span>
+                                  <p className="text-sm font-bold text-foreground">{network}</p>
+                                  {availableCount > 0 ? (
+                                    <p className="flex items-center gap-1 text-xs font-semibold text-success"><span className="h-1.5 w-1.5 rounded-full bg-success" /> Live</p>
+                                  ) : (
+                                    <p className="text-xs text-muted-foreground">No plans yet</p>
+                                  )}
+                                </button>
                               )
                             })}
                           </div>
@@ -1300,50 +1294,36 @@ export default function ShopStorefront() {
                                   .map((shopPkg) => {
                                     const pkg = shopPkg.packages
                                     const totalPrice = pkg.price + shopPkg.profit_margin
+                                    const netColor = networkColorFor(pkg.network)
+                                    const inStock = shopPkg.is_available && globalOrderingEnabled
 
                                     return (
-                                      <Card key={shopPkg.id} className="group hover:shadow-2xl transition-all duration-500 hover:-translate-y-2 border-0 shadow-lg bg-card overflow-hidden rounded-2xl">
-                                        <div className="h-2 bg-gradient-to-r from-[var(--shop-accent)] to-[var(--shop-accent)] opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-                                        <CardHeader className="pb-2">
-                                          <div className="flex items-start justify-between">
-                                            <div className="flex-1">
-                                              <CardTitle className="text-2xl font-black text-foreground group-hover:text-[var(--shop-accent)] transition-colors">
-                                                {pkg.size}GB
-                                              </CardTitle>
-                                              <CardDescription className="text-sm font-medium text-muted-foreground mt-1">{pkg.description}</CardDescription>
-                                            </div>
-                                            <Badge className={shopPkg.is_available ? "bg-green-100 text-green-700 border-border" : "bg-red-100 text-red-700 border-border"}>
-                                              {shopPkg.is_available ? "Active" : "OOS"}
-                                            </Badge>
-                                          </div>
-                                        </CardHeader>
-                                        <CardContent className="space-y-6 pt-0">
-                                          <div className="flex justify-between items-end pt-4">
-                                            <div className="flex flex-col">
-                                              <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Price</span>
-                                              <span className="text-3xl font-black text-foreground">
-                                                GHS {totalPrice.toFixed(2)}
-                                              </span>
-                                            </div>
-                                            <div className="flex flex-col items-end">
-                                              <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mb-1">Status</span>
-                                              <div className="flex items-center gap-1.5 px-2.5 py-1 bg-[var(--shop-accent)]/10 text-[var(--shop-accent)] rounded-lg text-xs font-bold ring-1 ring-[var(--shop-accent)]/50">
-                                                <Zap className="w-3 h-3 fill-[var(--shop-accent)]" />
-                                                Instant
-                                              </div>
-                                            </div>
-                                          </div>
-
-                                          <Button
-                                            onClick={() => handleBuyNow(shopPkg)}
-                                            disabled={!shopPkg.is_available || !globalOrderingEnabled}
-                                            className="w-full h-14 bg-slate-900 hover:bg-[var(--shop-accent)] text-white font-black rounded-xl shadow-xl transition-all duration-300 disabled:opacity-50 group-hover:scale-[1.02]"
-                                          >
-                                            <ShoppingCart className="w-5 h-5 mr-3" />
-                                            Order Now
-                                          </Button>
-                                        </CardContent>
-                                      </Card>
+                                      <div
+                                        key={shopPkg.id}
+                                        className={`overflow-hidden rounded-2xl shadow-md transition-all ${inStock ? "hover:shadow-xl hover:-translate-y-1" : "opacity-60 grayscale"}`}
+                                        style={{ backgroundColor: netColor }}
+                                      >
+                                        <div className="flex items-start justify-between p-4 pb-2">
+                                          <span className="grid h-8 w-8 place-items-center rounded-full bg-white/60">
+                                            <img src={getNetworkLogo(pkg.network)} alt="" className="h-5 w-5 object-contain" />
+                                          </span>
+                                          <span className="rounded-full bg-black/15 px-2.5 py-1 text-[11px] font-bold text-black/70">{pkg.network}</span>
+                                        </div>
+                                        <div className="px-4 pb-4 text-center">
+                                          <p className="text-4xl font-black text-black/85">{pkg.size}GB</p>
+                                          <p className="mt-1 text-lg font-bold text-black/70">GH₵{totalPrice.toFixed(2)}</p>
+                                          {pkg.description && <p className="mt-1 text-xs text-black/60">{pkg.description}</p>}
+                                          {!inStock && <p className="mt-1 text-xs font-semibold text-black/60">{!shopPkg.is_available ? "Out of stock" : "Ordering paused"}</p>}
+                                        </div>
+                                        <button
+                                          onClick={() => handleBuyNow(shopPkg)}
+                                          disabled={!inStock}
+                                          className="flex w-full items-center justify-center gap-2 py-3 text-sm font-bold text-black/80 disabled:cursor-not-allowed"
+                                          style={{ backgroundColor: `rgba(0,0,0,0.12)` }}
+                                        >
+                                          <ShoppingCart className="h-4 w-4" /> Buy Now
+                                        </button>
+                                      </div>
                                     )
                                   })}
                               </div>
@@ -1468,7 +1448,6 @@ export default function ShopStorefront() {
             >
               <div
                 className="flex max-h-[92vh] w-full max-w-md flex-col rounded-t-3xl bg-card"
-                style={{ backgroundColor: `${netColor}0d` }}
                 onClick={(e) => e.stopPropagation()}
               >
                 {/* Drag handle + close */}
@@ -1529,21 +1508,20 @@ export default function ShopStorefront() {
                         Use this number for Mobile Money payment
                       </label>
 
-                      {!sameAsMomo && (
-                        <div>
-                          <Label>Mobile Money number <span className="font-normal text-muted-foreground">(to pay)</span></Label>
-                          <Input
-                            value={paymentPhone}
-                            onChange={(e) => {
-                              setPaymentPhone(e.target.value)
-                              if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode(""); otpCooldown.reset() }
-                            }}
-                            placeholder="0241234567"
-                            className="mt-1 bg-card"
-                            disabled={otpRequired && otpVerified}
-                          />
-                        </div>
-                      )}
+                      <div>
+                        <Label>Mobile Money number <span className="font-normal text-muted-foreground">(to pay)</span></Label>
+                        <Input
+                          value={paymentPhone}
+                          onChange={(e) => {
+                            setPaymentPhone(e.target.value)
+                            if (sameAsMomo) setSameAsMomo(false)
+                            if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode(""); otpCooldown.reset() }
+                          }}
+                          placeholder="0241234567"
+                          className="mt-1 bg-card"
+                          disabled={otpRequired && otpVerified}
+                        />
+                      </div>
 
                       <div>
                         <Label>Network</Label>
