@@ -63,7 +63,7 @@ const DATE_PILLS = [
 // wallet refund event, so it's labeled with its actual status name.
 const STATUS_TILES: { key: keyof OrderStats; label: string; icon: typeof Clock; bg: string; fg: string }[] = [
   { key: "pending", label: "Pending", icon: Clock, bg: "bg-warning/10", fg: "text-warning" },
-  { key: "processing", label: "Processing", icon: Loader2, bg: "bg-primary/10", fg: "text-primary" },
+  { key: "processing", label: "Processing", icon: Loader2, bg: "bg-[#1b388b]/10", fg: "text-[#1b388b]" },
   { key: "completed", label: "Completed", icon: CheckCircle2, bg: "bg-success/10", fg: "text-success" },
   { key: "failed", label: "Failed", icon: XCircle, bg: "bg-destructive/10", fg: "text-destructive" },
   { key: "reversed", label: "Reversed", icon: RefreshCw, bg: "bg-violet-600/10", fg: "text-violet-600" },
@@ -173,10 +173,10 @@ export default function MyOrdersPage() {
   const getStatusBadgeColor = (status: string) => {
     switch (status) {
       case "completed": return "bg-success/15 text-success"
-      case "processing": return "bg-primary/10 text-primary"
+      case "processing": return "bg-[#1b388b]/10 text-[#1b388b]"
       case "failed": return "bg-destructive/15 text-destructive"
       case "reversed": return "bg-violet-600/10 text-violet-600"
-      case "placed": return "bg-primary/10 text-primary"
+      case "placed": return "bg-[#1b388b]/10 text-[#1b388b]"
       case "held_registration": return "bg-warning/10 text-warning"
       default: return "bg-muted text-foreground"
     }
@@ -234,7 +234,7 @@ export default function MyOrdersPage() {
               key={p.id}
               onClick={() => { setFilters(f => ({ ...f, dateRange: p.id })); setPage(1) }}
               className={`rounded-full border px-4 py-2 text-sm font-bold transition ${
-                filters.dateRange === p.id ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-foreground hover:border-primary/30"
+                filters.dateRange === p.id ? "border-[#1b388b] bg-[#1b388b] text-primary-foreground" : "border-border bg-card text-foreground hover:border-[#1b388b]/30"
               }`}
             >
               {p.label}

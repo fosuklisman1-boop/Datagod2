@@ -407,7 +407,7 @@ function DataPackagesPageInner() {
                 key={net}
                 onClick={() => setSelectedNetwork(net)}
                 className={`relative flex flex-col items-center gap-1.5 rounded-2xl border-2 bg-card p-2.5 sm:p-4 transition ${
-                  isSelected ? `${m.border} shadow-sm` : "border-border hover:border-primary/30"
+                  isSelected ? `${m.border} shadow-sm` : "border-border hover:border-[#1b388b]/30"
                 }`}
               >
                 {isSelected && (
@@ -435,7 +435,7 @@ function DataPackagesPageInner() {
         {selectedNetwork === "MTN" && (
           <button
             onClick={() => { setRegCheckOpen(true); setRegResults(null); setRegCheckInput("") }}
-            className="flex w-full items-center gap-3 rounded-2xl border border-border bg-card p-4 text-left transition hover:border-primary/30"
+            className="flex w-full items-center gap-3 rounded-2xl border border-border bg-card p-4 text-left transition hover:border-[#1b388b]/30"
           >
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-warning/15 text-warning">
               <ShieldCheck className="h-5 w-5" />
@@ -509,7 +509,7 @@ function DataPackagesPageInner() {
             {/* Packages */}
             {loading ? (
               <div className="flex justify-center py-12">
-                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                <Loader2 className="h-6 w-6 animate-spin text-[#1b388b]" />
               </div>
             ) : viewMode === "grid" ? (
               <div className="grid grid-cols-2 gap-3 sm:gap-4">
@@ -681,7 +681,7 @@ export default function DataPackagesPage() {
     <Suspense fallback={
       <DashboardLayout>
         <div className="flex h-64 items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <Loader2 className="h-8 w-8 animate-spin text-[#1b388b]" />
         </div>
       </DashboardLayout>
     }>

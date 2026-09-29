@@ -490,7 +490,7 @@ export default function WalletPage() {
             <p className="text-xs text-muted-foreground">Total Spent</p>
           </div>
           <div className="rounded-2xl border border-border bg-card p-4">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#1b388b]/10 text-[#1b388b]">
               <Wallet className="h-4 w-4" />
             </span>
             <p className="mt-2 text-lg font-black text-foreground">GHS {Math.max(0, walletData.balance).toFixed(2)}</p>

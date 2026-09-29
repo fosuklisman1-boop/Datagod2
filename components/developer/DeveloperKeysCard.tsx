@@ -196,7 +196,7 @@ export function DeveloperKeysCard() {
             {env === "test" && (
               <Button
                 size="sm"
-                className="rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
+                className="rounded-full bg-[#1b388b] text-primary-foreground hover:bg-[#1b388b]/90"
                 onClick={() => { setTestKey(revealed); runBalanceTest(revealed) }}
               >
                 <Zap className="w-3.5 h-3.5 mr-1.5" /> Test this key now
@@ -249,7 +249,7 @@ export function DeveloperKeysCard() {
             <p className="text-sm text-muted-foreground">No key yet.</p>
             <Button
               size="sm"
-              className="rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
+              className="rounded-full bg-[#1b388b] text-primary-foreground hover:bg-[#1b388b]/90"
               onClick={() => handleGenerate(env)}
               disabled={generating !== null}
             >
@@ -265,9 +265,9 @@ export function DeveloperKeysCard() {
   return (
     <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
       <div className="flex items-center justify-between gap-3">
-        <p className="flex items-center gap-2 text-sm font-bold text-foreground"><Lock className="w-4 h-4 text-primary" /> Your Keys</p>
+        <p className="flex items-center gap-2 text-sm font-bold text-foreground"><Lock className="w-4 h-4 text-[#1b388b]" /> Your Keys</p>
         <div className="flex items-center gap-2">
-          <Badge className={isDealer ? "bg-warning text-warning-foreground" : "bg-primary text-primary-foreground"}>
+          <Badge className={isDealer ? "bg-warning text-warning-foreground" : "bg-[#1b388b] text-primary-foreground"}>
             {isDealer ? "Executive Tier" : "Standard"}
           </Badge>
           <Button variant="outline" size="sm" className="rounded-full shrink-0" onClick={fetchKeys} disabled={loading}>
@@ -298,7 +298,7 @@ export function DeveloperKeysCard() {
           works (it returns real or sandbox balance depending which key you
           paste); reset-balance only works with a test key. */}
       <div className="mt-4 rounded-2xl border border-border bg-muted/30 p-4">
-        <p className="flex items-center gap-2 text-sm font-bold text-foreground"><Zap className="w-4 h-4 text-primary" /> Try it</p>
+        <p className="flex items-center gap-2 text-sm font-bold text-foreground"><Zap className="w-4 h-4 text-[#1b388b]" /> Try it</p>
         <p className="mt-1 text-xs text-muted-foreground">
           Runs a real <code className="bg-background px-1 py-0.5 rounded border font-mono">GET /api/v1/balance</code> with one of your keys.
           A test key hits the sandbox balance below; a live key returns your real wallet balance.
@@ -323,7 +323,7 @@ export function DeveloperKeysCard() {
           type="button"
           onClick={runResetBalance}
           disabled={testing || resetting || !testKey.trim()}
-          className="mt-2 text-xs font-medium text-primary hover:underline disabled:opacity-50 disabled:no-underline"
+          className="mt-2 text-xs font-medium text-[#1b388b] hover:underline disabled:opacity-50 disabled:no-underline"
         >
           {resetting ? "Resetting…" : "Reset test balance (test key only)"}
         </button>

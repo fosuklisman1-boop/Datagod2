@@ -448,7 +448,7 @@ export default function DashboardResultsCheckPage() {
               <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="font-bold">GHS {success.total.toFixed(2)}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Reference</span><span className="font-mono text-xs">{success.reference}</span></div>
             </div>
-            <button onClick={resetForm} className="w-full max-w-sm mx-4 sm:mx-auto rounded-2xl bg-primary py-3.5 text-base font-bold text-primary-foreground">
+            <button onClick={resetForm} className="w-full max-w-sm mx-4 sm:mx-auto rounded-2xl bg-[#1b388b] py-3.5 text-base font-bold text-primary-foreground">
               Check another candidate
             </button>
           </div>
@@ -730,7 +730,7 @@ export default function DashboardResultsCheckPage() {
                         !enabledBoards.includes(selectedBoard) ||
                         (payFrom === "momo" && !/^0?\d{9}$/.test(formData.paymentPhone.replace(/\D/g, "")))
                       }
-                      className="flex w-full items-center justify-center rounded-2xl bg-primary py-4 text-base font-bold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
+                      className="flex w-full items-center justify-center rounded-2xl bg-[#1b388b] py-4 text-base font-bold text-primary-foreground transition hover:bg-[#1b388b]/90 disabled:opacity-50"
                     >
                       {submitting
                         ? <><Loader2 className="w-5 h-5 mr-2 animate-spin" />Processing…</>

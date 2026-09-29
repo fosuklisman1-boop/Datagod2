@@ -583,10 +583,10 @@ export function BulkOrdersForm({ presetNetwork }: BulkOrdersFormProps = {}) {
   const totalCost = validOrders.reduce((sum, o) => sum + o.price, 0)
 
   return (
-    <Card className="bg-card backdrop-blur-xl border border-primary/20 hover:border-border hover:shadow-2xl transition-all duration-300">
+    <Card className="bg-card backdrop-blur-xl border border-[#1b388b]/20 hover:border-border hover:shadow-2xl transition-all duration-300">
       <CardHeader>
         <div className="flex items-center gap-2">
-          <Download className="h-5 w-5 text-primary" />
+          <Download className="h-5 w-5 text-[#1b388b]" />
           <div>
             <CardTitle className="text-foreground">Bulk Orders (Excel/Text)</CardTitle>
             <CardDescription>Upload multiple phone numbers at once</CardDescription>
@@ -651,7 +651,7 @@ export function BulkOrdersForm({ presetNetwork }: BulkOrdersFormProps = {}) {
                 value={textInput}
                 onChange={(e) => setTextInput(e.target.value)}
                 rows={6}
-                className="font-mono text-sm bg-card/70 backdrop-blur border-border focus:border-primary focus:ring-2 focus:ring-primary/50"
+                className="font-mono text-sm bg-card/70 backdrop-blur border-border focus:border-[#1b388b] focus:ring-2 focus:ring-[#1b388b]/50"
               />
               <button
                 type="button"
@@ -669,7 +669,7 @@ export function BulkOrdersForm({ presetNetwork }: BulkOrdersFormProps = {}) {
         {/* Excel Upload Tab */}
         {activeTab === "excel" && (
           <div className="space-y-4">
-            <div className="border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-primary transition-colors cursor-pointer">
+            <div className="border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-[#1b388b] transition-colors cursor-pointer">
               <p className="text-muted-foreground mb-2">Click to upload Excel file or drag and drop</p>
               <p className="text-xs text-muted-foreground">CSV or XLSX files only</p>
               <Input
@@ -794,7 +794,7 @@ export function BulkOrdersForm({ presetNetwork }: BulkOrdersFormProps = {}) {
               <Button
                 onClick={handlePlaceOrder}
                 disabled={isSubmitting || validationResults.invalid > 0 || validOrders.length === 0}
-                className="bg-primary text-primary-foreground hover:bg-primary/90"
+                className="bg-[#1b388b] text-primary-foreground hover:bg-[#1b388b]/90"
               >
                 {isSubmitting ? "Placing order..." : "Place order"}
               </Button>

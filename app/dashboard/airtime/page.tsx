@@ -45,7 +45,7 @@ interface AirtimeOrder {
 
 const STATUS_CLASSES: Record<string, string> = {
   pending:    "bg-warning/10 text-warning",
-  processing: "bg-primary/10 text-primary",
+  processing: "bg-[#1b388b]/10 text-[#1b388b]",
   completed:  "bg-success/15 text-success",
   failed:     "bg-destructive/15 text-destructive",
 }
@@ -249,7 +249,7 @@ export default function AirtimePage() {
                       onClick={() => setNetwork(n)}
                       disabled={!isAvailable}
                       className={`flex flex-col items-center gap-2 rounded-2xl border-2 bg-card p-3 sm:p-4 transition disabled:opacity-40 ${
-                        isSelected ? `${meta.border} shadow-sm` : "border-border hover:border-primary/30"
+                        isSelected ? `${meta.border} shadow-sm` : "border-border hover:border-[#1b388b]/30"
                       }`}
                     >
                       <span className={`flex h-10 w-10 items-center justify-center rounded-full text-xs font-extrabold ${meta.className}`}>
@@ -280,7 +280,7 @@ export default function AirtimePage() {
                   onChange={(e) => handlePhoneChange(e.target.value.replace(/\D/g, ""))}
                   placeholder="0XXXXXXXXX"
                   required
-                  className="w-full rounded-2xl border border-border bg-card py-3.5 pl-11 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  className="w-full rounded-2xl border border-border bg-card py-3.5 pl-11 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-[#1b388b]"
                 />
               </div>
               {phoneError && <p className="text-xs text-warning">{phoneError}</p>}
@@ -296,7 +296,7 @@ export default function AirtimePage() {
                     type="button"
                     onClick={() => setAmount(String(v))}
                     className={`rounded-full border px-4 py-2 text-sm font-bold transition ${
-                      amount === String(v) ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-foreground hover:border-primary/30"
+                      amount === String(v) ? "border-[#1b388b] bg-[#1b388b] text-primary-foreground" : "border-border bg-card text-foreground hover:border-[#1b388b]/30"
                     }`}
                   >
                     {v}
@@ -331,7 +331,7 @@ export default function AirtimePage() {
                   onChange={(e) => setAmount(e.target.value)}
                   placeholder="0.00"
                   required
-                  className="w-full rounded-2xl border border-border bg-card py-3.5 pl-14 pr-4 text-lg font-semibold focus:outline-none focus:ring-2 focus:ring-primary"
+                  className="w-full rounded-2xl border border-border bg-card py-3.5 pl-14 pr-4 text-lg font-semibold focus:outline-none focus:ring-2 focus:ring-[#1b388b]"
                 />
               </div>
               {amountOutOfRange && (

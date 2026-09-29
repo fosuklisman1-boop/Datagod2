@@ -513,7 +513,7 @@ export default function ProfilePage() {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center min-h-screen">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <Loader2 className="h-8 w-8 animate-spin text-[#1b388b]" />
         </div>
       </DashboardLayout>
     )
@@ -588,7 +588,7 @@ export default function ProfilePage() {
                 {!profile.phone ? (
                   <button
                     onClick={() => setShowPhoneVerifyModal(true)}
-                    className="flex items-center gap-1 text-xs text-primary font-medium shrink-0 hover:text-primary"
+                    className="flex items-center gap-1 text-xs text-[#1b388b] font-medium shrink-0 hover:text-[#1b388b]"
                   >
                     <Phone className="w-4 h-4" /> Add
                   </button>
@@ -599,7 +599,7 @@ export default function ProfilePage() {
                     </span>
                     <button
                       onClick={() => setShowPhoneVerifyModal(true)}
-                      className="text-xs text-primary font-medium shrink-0 hover:text-primary"
+                      className="text-xs text-[#1b388b] font-medium shrink-0 hover:text-[#1b388b]"
                     >
                       Change
                     </button>
@@ -661,7 +661,7 @@ export default function ProfilePage() {
               <p className="text-xs text-muted-foreground">Completed Orders</p>
             </div>
             <div className="rounded-2xl border border-border bg-card p-4">
-              <p className="text-lg font-black text-primary">{stats.successRate.toFixed(1)}%</p>
+              <p className="text-lg font-black text-[#1b388b]">{stats.successRate.toFixed(1)}%</p>
               <p className="text-xs text-muted-foreground">Success Rate</p>
             </div>
             <div className="rounded-2xl border border-border bg-card p-4">
@@ -839,7 +839,7 @@ export default function ProfilePage() {
               <Button
                 onClick={handleChangePassword}
                 disabled={isChangingPassword}
-                className="bg-primary hover:bg-primary/90"
+                className="bg-[#1b388b] hover:bg-[#1b388b]/90"
               >
                 {isChangingPassword && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                 {isChangingPassword ? "Changing..." : "Change Password"}
@@ -894,7 +894,7 @@ export default function ProfilePage() {
                 )}
               </div>
               {setPwOtp.sent && !setPwOtp.verified && (
-                <button type="button" onClick={handleSendSetPwOtp} disabled={setPwOtpLoading} className="text-xs text-primary hover:underline mt-1">
+                <button type="button" onClick={handleSendSetPwOtp} disabled={setPwOtpLoading} className="text-xs text-[#1b388b] hover:underline mt-1">
                   Resend code
                 </button>
               )}
@@ -931,7 +931,7 @@ export default function ProfilePage() {
               <Button
                 onClick={handleSetPassword}
                 disabled={setPwLoading || !setPwOtp.verified || !setPwForm.newPassword}
-                className="bg-primary hover:bg-primary/90"
+                className="bg-[#1b388b] hover:bg-[#1b388b]/90"
               >
                 {setPwLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                 {setPwLoading ? "Saving..." : "Set Password"}
@@ -998,7 +998,7 @@ export default function ProfilePage() {
               <Button
                 onClick={handleEditProfile}
                 disabled={isSavingProfile}
-                className="bg-primary hover:bg-primary/90"
+                className="bg-[#1b388b] hover:bg-[#1b388b]/90"
               >
                 {isSavingProfile && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                 {isSavingProfile ? "Saving..." : "Save Changes"}

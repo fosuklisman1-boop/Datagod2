@@ -23,8 +23,8 @@ export default function DeveloperPage() {
           <p className="mt-1 text-sm text-muted-foreground">Integrate and automate with the Datagod API.</p>
         </div>
 
-        <div className="flex items-start gap-3 rounded-2xl border border-primary/20 bg-primary/5 p-4 text-sm text-foreground">
-          <ShieldCheck className="h-4 w-4 mt-0.5 shrink-0 text-primary" />
+        <div className="flex items-start gap-3 rounded-2xl border border-[#1b388b]/20 bg-[#1b388b]/5 p-4 text-sm text-foreground">
+          <ShieldCheck className="h-4 w-4 mt-0.5 shrink-0 text-[#1b388b]" />
           <p>
             <span className="font-bold">Two keys, one account.</span> Your test key (<code className="bg-background px-1 py-0.5 rounded border font-mono text-xs">dg_test_</code>) is sandboxed
             — it spends a fake test balance and never touches real orders, inventory, or SMS credits. Your live key (<code className="bg-background px-1 py-0.5 rounded border font-mono text-xs">dg_live_</code>) is real. Going live
@@ -63,7 +63,7 @@ export default function DeveloperPage() {
                     <p className="text-sm font-semibold text-foreground">{section.label}</p>
                     {section.operations.map((op) => (
                       <p key={`${op.method}-${op.path}`} className="mt-1 text-xs text-muted-foreground">
-                        <span className="font-mono text-[11px] font-bold text-primary mr-1.5">{op.method}</span>
+                        <span className="font-mono text-[11px] font-bold text-[#1b388b] mr-1.5">{op.method}</span>
                         {op.description}
                       </p>
                     ))}
@@ -72,7 +72,7 @@ export default function DeveloperPage() {
                 <div className="p-3">
                   <p className="text-sm font-semibold text-foreground">Sandbox</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    <span className="font-mono text-[11px] font-bold text-primary mr-1.5">POST</span>
+                    <span className="font-mono text-[11px] font-bold text-[#1b388b] mr-1.5">POST</span>
                     Refill your test balance when a test suite has drained it. Test key only.
                   </p>
                 </div>

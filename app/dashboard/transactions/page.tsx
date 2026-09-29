@@ -179,7 +179,7 @@ export default function TransactionsPage() {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center min-h-screen">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <Loader2 className="h-8 w-8 animate-spin text-[#1b388b]" />
         </div>
       </DashboardLayout>
     )
@@ -215,7 +215,7 @@ export default function TransactionsPage() {
         {tab === "stats" && (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
             <div className="rounded-2xl border border-border bg-card p-4">
-              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#1b388b]/10 text-[#1b388b]">
                 <DollarSign className="h-4 w-4" />
               </span>
               <p className="mt-2 text-lg font-black text-foreground">{stats.totalTransactions.toLocaleString()}</p>

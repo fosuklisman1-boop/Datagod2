@@ -16,14 +16,14 @@ const EXAM_BOARDS = ["WASSCE", "BECE", "NOVDEC"]
 // carousel -- not literal brand colors (exam boards don't have any), just
 // distinct accents so the three cards read apart at a glance.
 const BOARD_META: Record<string, { className: string; border: string }> = {
-  WASSCE: { className: "bg-primary text-primary-foreground", border: "border-primary" },
+  WASSCE: { className: "bg-[#1b388b] text-primary-foreground", border: "border-[#1b388b]" },
   BECE: { className: "bg-violet-600 text-white", border: "border-violet-600" },
   NOVDEC: { className: "bg-[#d97706] text-white", border: "border-[#d97706]" },
 }
 
 const STATUS_CLASSES: Record<string, string> = {
   pending:         "bg-warning/10 text-warning",
-  pending_payment: "bg-primary/10 text-primary",
+  pending_payment: "bg-[#1b388b]/10 text-[#1b388b]",
   completed:       "bg-success/15 text-success",
   failed:          "bg-destructive/15 text-destructive",
 }
@@ -302,7 +302,7 @@ export default function ResultsCheckerPage() {
                       onClick={() => setExamBoard(board)}
                       disabled={!isEnabled}
                       className={`flex flex-col items-center gap-2 rounded-2xl border-2 bg-card p-3 sm:p-4 transition disabled:opacity-40 disabled:cursor-not-allowed ${
-                        isSelected ? `${meta.border} shadow-sm` : "border-border hover:border-primary/30"
+                        isSelected ? `${meta.border} shadow-sm` : "border-border hover:border-[#1b388b]/30"
                       }`}
                     >
                       <span className={`flex h-10 w-10 items-center justify-center rounded-full ${meta.className}`}>
@@ -371,7 +371,7 @@ export default function ResultsCheckerPage() {
                   }
                   if (!pricing.bulkApplied && bs?.bulkMinQty && bs?.bulkPrice) {
                     return (
-                      <p className="text-xs font-medium text-primary">
+                      <p className="text-xs font-medium text-[#1b388b]">
                         {need > 0
                           ? `Buy ${need} more to unlock bulk rate (GHS ${bs.bulkPrice.toFixed(2)}/ea)`
                           : `Buy ${bs.bulkMinQty}+ for bulk rate (GHS ${bs.bulkPrice.toFixed(2)}/ea)`}
@@ -409,7 +409,7 @@ export default function ResultsCheckerPage() {
             <button
               onClick={handlePurchase}
               disabled={purchasing || (walletBalance !== null && pricing !== null && pricing.totalPaid > walletBalance) || !enabledBoards.includes(examBoard)}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-4 text-base font-bold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#1b388b] py-4 text-base font-bold text-primary-foreground transition hover:bg-[#1b388b]/90 disabled:opacity-50"
             >
               {purchasing
                 ? <><Loader2 className="w-4 h-4 animate-spin" />Processing…</>
@@ -420,13 +420,13 @@ export default function ResultsCheckerPage() {
         ) : (
           <div className="space-y-3">
             <div className="flex items-center justify-end">
-              <button onClick={loadOrders} className="flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline">
+              <button onClick={loadOrders} className="flex items-center gap-1.5 text-xs font-semibold text-[#1b388b] hover:underline">
                 <RefreshCw className="w-3.5 h-3.5" />Refresh
               </button>
             </div>
 
             {ordersLoading ? (
-              <div className="flex items-center justify-center h-32"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+              <div className="flex items-center justify-center h-32"><Loader2 className="w-6 h-6 animate-spin text-[#1b388b]" /></div>
             ) : orders.length === 0 ? (
               <div className="rounded-2xl border border-border bg-card py-12 text-center">
                 <GraduationCap className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
@@ -460,7 +460,7 @@ export default function ResultsCheckerPage() {
                           <div className="flex justify-end">
                             <button
                               onClick={() => triggerExcelDownload(order.vouchers!, order.exam_board, order.reference_code)}
-                              className="flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+                              className="flex items-center gap-1.5 text-xs font-medium text-[#1b388b] hover:underline"
                             >
                               <Download className="w-3.5 h-3.5" />Download receipt
                             </button>
@@ -529,7 +529,7 @@ export default function ResultsCheckerPage() {
                 <div className="flex justify-end">
                   <button
                     onClick={() => triggerExcelDownload(successVouchers, successOrder.exam_board, successOrder.reference_code)}
-                    className="flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs font-medium text-primary hover:border-primary/40"
+                    className="flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs font-medium text-[#1b388b] hover:border-[#1b388b]/40"
                   >
                     <Download className="w-3.5 h-3.5" />Download receipt
                   </button>
@@ -557,7 +557,7 @@ export default function ResultsCheckerPage() {
               </div>
 
               <div className="px-6 pb-6 pt-3 flex-shrink-0">
-                <button onClick={() => setSuccessOrder(null)} className="w-full rounded-2xl bg-primary py-3.5 text-base font-bold text-primary-foreground">
+                <button onClick={() => setSuccessOrder(null)} className="w-full rounded-2xl bg-[#1b388b] py-3.5 text-base font-bold text-primary-foreground">
                   Done
                 </button>
               </div>

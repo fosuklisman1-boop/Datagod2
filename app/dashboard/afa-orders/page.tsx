@@ -42,9 +42,9 @@ const REGIONS = [
 ]
 
 const STATUS_TILES: { key: keyof Stats; label: string; bg: string; fg: string }[] = [
-  { key: "total", label: "Total Registered", bg: "bg-primary/10", fg: "text-primary" },
+  { key: "total", label: "Total Registered", bg: "bg-[#1b388b]/10", fg: "text-[#1b388b]" },
   { key: "pending", label: "Pending", bg: "bg-warning/10", fg: "text-warning" },
-  { key: "processing", label: "Processing", bg: "bg-primary/10", fg: "text-primary" },
+  { key: "processing", label: "Processing", bg: "bg-[#1b388b]/10", fg: "text-[#1b388b]" },
   { key: "completed", label: "Completed", bg: "bg-success/10", fg: "text-success" },
   { key: "cancelled", label: "Cancelled", bg: "bg-destructive/10", fg: "text-destructive" },
 ]
@@ -52,7 +52,7 @@ const STATUS_TILES: { key: keyof Stats; label: string; bg: string; fg: string }[
 const STATUS_BADGE: Record<string, string> = {
   completed: "bg-success/15 text-success",
   pending: "bg-warning/10 text-warning",
-  processing: "bg-primary/10 text-primary",
+  processing: "bg-[#1b388b]/10 text-[#1b388b]",
   cancelled: "bg-destructive/15 text-destructive",
 }
 
@@ -214,7 +214,7 @@ export default function AFAOrdersPage() {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center h-screen">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          <Loader2 className="w-8 h-8 animate-spin text-[#1b388b]" />
         </div>
       </DashboardLayout>
     )
@@ -247,12 +247,12 @@ export default function AFAOrdersPage() {
         <>
         {/* Wallet Cash -- real fee + real balance, "Auto-Deduct" is accurate:
             payment is deducted from the wallet server-side on submit. */}
-        <div className="rounded-2xl border-2 border-primary bg-primary/5 p-4">
+        <div className="rounded-2xl border-2 border-[#1b388b] bg-[#1b388b]/5 p-4">
           <div className="flex items-center justify-between">
-            <span className="flex items-center gap-2 text-sm font-bold text-primary">
+            <span className="flex items-center gap-2 text-sm font-bold text-[#1b388b]">
               <Wallet className="h-4 w-4" /> Wallet Cash
             </span>
-            <span className="flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-bold text-primary">
+            <span className="flex items-center gap-1 rounded-full bg-[#1b388b]/10 px-2.5 py-1 text-[11px] font-bold text-[#1b388b]">
               <Zap className="h-3 w-3" /> Auto-Deduct
             </span>
           </div>
@@ -300,7 +300,7 @@ export default function AFAOrdersPage() {
               <button
                 type="button"
                 onClick={handlePaste}
-                className="flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/15"
+                className="flex items-center gap-1.5 rounded-full border border-[#1b388b]/30 bg-[#1b388b]/10 px-3 py-1.5 text-xs font-semibold text-[#1b388b] hover:bg-[#1b388b]/15"
               >
                 <ClipboardPaste className="h-3.5 w-3.5" /> Paste
               </button>
