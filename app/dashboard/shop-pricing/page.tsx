@@ -9,6 +9,7 @@ import { shopService, shopPackageService } from "@/lib/shop-service"
 import { packageService } from "@/lib/database"
 import { supabase } from "@/lib/supabase"
 import { shopOrigin } from "@/lib/shop-url"
+import { PillToggle } from "@/components/shop/pill-toggle"
 import { ArrowLeft, Tag, Send, AlertCircle, Loader2, Phone, GraduationCap, IdCard, Save, PartyPopper, Copy, MessageCircle, ExternalLink } from "lucide-react"
 import { toast } from "sonner"
 
@@ -466,15 +467,7 @@ export default function ShopPricingPage() {
 
                 <div className="flex items-center justify-between rounded-2xl border border-border bg-card p-4">
                   <p className="text-sm font-semibold text-foreground">{selectedNetwork}: {networkInStock ? "In Stock" : "Out of Stock"}</p>
-                  <button
-                    role="switch"
-                    aria-checked={networkInStock}
-                    disabled={togglingStock}
-                    onClick={() => handleToggleNetworkStock(!networkInStock)}
-                    className={`relative h-6 w-11 rounded-full transition disabled:opacity-50 ${networkInStock ? "bg-[#1b388b]" : "bg-muted"}`}
-                  >
-                    <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${networkInStock ? "translate-x-[22px]" : "translate-x-0.5"}`} />
-                  </button>
+                  <PillToggle checked={networkInStock} onChange={() => handleToggleNetworkStock(!networkInStock)} disabled={togglingStock} />
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

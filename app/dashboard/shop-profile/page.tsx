@@ -9,6 +9,7 @@ import { shopService } from "@/lib/shop-service"
 import { supabase } from "@/lib/supabase"
 import { shopOrigin } from "@/lib/shop-url"
 import { DIVIDER_STYLE_OPTIONS, SectionDivider } from "@/components/shop/section-divider"
+import { PillToggle } from "@/components/shop/pill-toggle"
 import {
   ArrowLeft, Store, CheckCircle2, Loader2, Phone, Mail, Users2, Palette, MessageSquare,
   Smartphone, Upload, RefreshCw, AlertTriangle, ExternalLink, ShieldCheck,
@@ -520,12 +521,7 @@ export default function ShopProfilePage() {
                   <p className="text-sm font-semibold text-foreground">Order confirmation texts</p>
                   <p className="text-xs text-muted-foreground">Automatically text your customers when their order is confirmed. Free — no activation needed.</p>
                 </div>
-                <button
-                  onClick={() => setOrderSmsEnabled((v) => !v)}
-                  className={`h-6 w-11 flex-shrink-0 rounded-full transition ${orderSmsEnabled ? "bg-success" : "bg-muted"}`}
-                >
-                  <span className={`block h-5 w-5 translate-y-0.5 rounded-full bg-white transition-transform ${orderSmsEnabled ? "translate-x-5" : "translate-x-0.5"}`} />
-                </button>
+                <PillToggle checked={orderSmsEnabled} onChange={() => setOrderSmsEnabled((v) => !v)} activeColor="bg-success" />
               </div>
 
               <div className="rounded-2xl border border-border bg-muted/30 p-4 space-y-3">

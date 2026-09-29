@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge"
 import { shopService, shopOrderService, shopProfitService } from "@/lib/shop-service"
 import { shopOrigin } from "@/lib/shop-url"
 import { supabase } from "@/lib/supabase"
+import { PillToggle } from "@/components/shop/pill-toggle"
 import {
   Store, Copy, ExternalLink, RefreshCw, AlertCircle, Smartphone,
   ShoppingCart, Tag, Banknote, Users, Activity, Send, Settings as SettingsIcon,
@@ -504,15 +505,7 @@ export default function ShopOverviewPage() {
               <p className="text-xs text-muted-foreground">Text customers a confirmation each time they order from your shop.</p>
             </div>
           </div>
-          <button
-            role="switch"
-            aria-checked={smsToggleOn}
-            disabled={savingSmsToggle}
-            onClick={() => handleToggleSms(!smsToggleOn)}
-            className={`relative shrink-0 h-6 w-11 rounded-full transition disabled:opacity-50 ${smsToggleOn ? "bg-[#1b388b]" : "bg-muted"}`}
-          >
-            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${smsToggleOn ? "translate-x-[22px]" : "translate-x-0.5"}`} />
-          </button>
+          <PillToggle checked={smsToggleOn} onChange={() => handleToggleSms(!smsToggleOn)} disabled={savingSmsToggle} />
         </div>
 
         {/* Recent Activity */}
