@@ -1,16 +1,16 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { AlertCircle, Search, Users, Loader2, TrendingUp, DollarSign, ShoppingCart, ChevronLeft } from "lucide-react"
+import { supabase } from "@/lib/supabase"
+import { shopOrigin } from "@/lib/shop-url"
+import {
+  ArrowLeft, Users, RefreshCw, Search, Copy, Share2, QrCode, X,
+  Crown, ShoppingCart, TrendingUp, MessageSquare, Loader2, Tag,
+} from "lucide-react"
 import { toast } from "sonner"
 
 interface Customer {
@@ -23,131 +23,108 @@ interface Customer {
   total_purchases: number
   total_spent: number
   repeat_customer: boolean
-  first_source_slug?: string
-  preferred_network?: string
 }
 
-interface Order {
-  id: string
-  reference_code: string
-  network: string
-  volume_gb: number
-  total_price: number
-  order_status: string
-  payment_status: string
-  created_at: string
-}
+const SORT_TABS = [
+  { id: "recent", label: "Recent" },
+  { id: "spend", label: "Top Spenders" },
+  { id: "orders", label: "Most Orders" },
+] as const
+type SortTab = (typeof SORT_TABS)[number]["id"]
+
+const GROWTH_TIPS = [
+  "Post your link on WhatsApp status daily — consistency beats one big push.",
+  "Print the QR code and place it where your community gathers.",
+  "Reward returning customers with a small discount on bulk orders.",
+  "Use SMS broadcasts to announce promos to your customer list.",
+]
 
 export default function CustomersPage() {
   const { user } = useAuth()
   const router = useRouter()
+  const [shop, setShop] = useState<any>(null)
   const [customers, setCustomers] = useState<Customer[]>([])
+  const [analytics, setAnalytics] = useState({ total_customers: 0, repeat_customers: 0, total_revenue: 0 })
   const [loading, setLoading] = useState(true)
-  const [searching, setSearching] = useState(false)
-  const [searchTerm, setSearchTerm] = useState("")
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
-  const [customerHistory, setCustomerHistory] = useState<Order[]>([])
-  const [historyLoading, setHistoryLoading] = useState(false)
-  const [filterRepeat, setFilterRepeat] = useState(false)
-  const [sortBy, setSortBy] = useState<"last_purchase" | "total_spent" | "purchases">("last_purchase")
-  const [pagination, setPagination] = useState({ limit: 50, offset: 0 })
-  const [totalCount, setTotalCount] = useState(0)
+  const [refreshing, setRefreshing] = useState(false)
+  const [search, setSearch] = useState("")
+  const [sortTab, setSortTab] = useState<SortTab>("recent")
+  const [showQr, setShowQr] = useState(false)
 
   useEffect(() => {
-    if (user?.id) {
-      loadCustomers()
-    }
-  }, [user, filterRepeat, sortBy, pagination.offset])
+    if (user?.id) loadData()
+  }, [user])
 
-  const loadCustomers = async () => {
+  const loadData = async () => {
     try {
       setLoading(true)
-      const params = new URLSearchParams({
-        limit: pagination.limit.toString(),
-        offset: pagination.offset.toString(),
-      })
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+      if (!token) { toast.error("Your session expired. Please refresh and sign in again."); return }
 
-      const response = await fetch(`/api/admin/customers/list?${params}`, {
-        headers: {
-          Authorization: `Bearer ${user?.id}`,
-        },
-      })
+      const { data: shopRow } = await supabase.from("user_shops").select("*").eq("user_id", user!.id).maybeSingle()
+      setShop(shopRow)
 
-      if (!response.ok) {
-        throw new Error("Failed to load customers")
+      const [listRes, analyticsRes] = await Promise.all([
+        fetch(`/api/admin/customers/list?limit=100&offset=0`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`/api/admin/customers/analytics`, { headers: { Authorization: `Bearer ${token}` } }),
+      ])
+
+      if (listRes.ok) {
+        const data = await listRes.json()
+        setCustomers(data.customers || [])
       }
-
-      const data = await response.json()
-      let filteredCustomers = data.customers || []
-
-      // Filter by repeat customer if toggled
-      if (filterRepeat) {
-        filteredCustomers = filteredCustomers.filter((c: Customer) => c.repeat_customer)
+      if (analyticsRes.ok) {
+        const data = await analyticsRes.json()
+        setAnalytics({
+          total_customers: data.total_customers || 0,
+          repeat_customers: data.repeat_customers || 0,
+          total_revenue: data.total_revenue || 0,
+        })
       }
-
-      // Sort
-      filteredCustomers.sort((a: Customer, b: Customer) => {
-        switch (sortBy) {
-          case "total_spent":
-            return b.total_spent - a.total_spent
-          case "purchases":
-            return b.total_purchases - a.total_purchases
-          case "last_purchase":
-          default:
-            return new Date(b.last_purchase_at).getTime() - new Date(a.last_purchase_at).getTime()
-        }
-      })
-
-      setCustomers(filteredCustomers)
-      setTotalCount(data.total || 0)
     } catch (error) {
       console.error("Error loading customers:", error)
-      toast.error("Failed to load customers")
+      toast.error(error instanceof Error ? error.message : "Failed to load customers")
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }
 
-  const loadCustomerHistory = async (customerId: string) => {
-    try {
-      setHistoryLoading(true)
-      const response = await fetch(`/api/admin/customers/${customerId}/history`, {
-        headers: {
-          Authorization: `Bearer ${user?.id}`,
-        },
-      })
+  const handleRefresh = () => { setRefreshing(true); loadData() }
 
-      if (!response.ok) {
-        throw new Error("Failed to load history")
-      }
+  const totalOrders = useMemo(() => customers.reduce((s, c) => s + (c.total_purchases || 0), 0), [customers])
 
-      const data = await response.json()
-      setCustomerHistory(data.orders || [])
-    } catch (error) {
-      console.error("Error loading history:", error)
-      toast.error("Failed to load customer history")
-    } finally {
-      setHistoryLoading(false)
-    }
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    let list = customers.filter((c) =>
+      !q || c.customer_name?.toLowerCase().includes(q) || c.phone_number?.includes(q) || c.email?.toLowerCase().includes(q)
+    )
+    list = [...list].sort((a, b) => {
+      if (sortTab === "spend") return (b.total_spent || 0) - (a.total_spent || 0)
+      if (sortTab === "orders") return (b.total_purchases || 0) - (a.total_purchases || 0)
+      return new Date(b.last_purchase_at).getTime() - new Date(a.last_purchase_at).getTime()
+    })
+    return list
+  }, [customers, search, sortTab])
+
+  const shopLink = shop ? (shop.subdomain ? shopOrigin(shop.subdomain) : `${typeof window !== "undefined" ? window.location.origin : ""}/shop/${shop.shop_slug}`) : ""
+
+  const copyLink = () => {
+    navigator.clipboard.writeText(shopLink)
+    toast.success("Shop link copied")
   }
 
-  const handleCustomerClick = (customer: Customer) => {
-    setSelectedCustomer(customer)
-    loadCustomerHistory(customer.id)
+  const shareOnWhatsApp = () => {
+    const text = encodeURIComponent(`Check out my shop for cheap data bundles, airtime & results checker vouchers: ${shopLink}`)
+    window.open(`https://wa.me/?text=${text}`, "_blank", "noopener,noreferrer")
   }
 
-  const filteredCustomers = customers.filter(
-    (c) =>
-      c.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.phone_number.includes(searchTerm) ||
-      c.email.toLowerCase().includes(searchTerm.toLowerCase())
-  )
-
-  if (loading && customers.length === 0) {
+  if (loading) {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center h-screen">
-          <Loader2 className="w-8 h-8 animate-spin" />
+          <Loader2 className="w-8 h-8 animate-spin text-[#1b388b]" />
         </div>
       </DashboardLayout>
     )
@@ -155,369 +132,157 @@ export default function CustomersPage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6 pt-4">
-        {/* Header with Back Button */}
-        <div className="flex items-center gap-4 pb-4 border-b border-border">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => router.back()}
-            className="hover:bg-primary"
+      <div className="mx-auto max-w-2xl lg:max-w-4xl space-y-5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Link href="/dashboard/my-shop" className="text-muted-foreground hover:text-foreground"><ArrowLeft className="h-5 w-5" /></Link>
+            <div>
+              <h1 className="flex items-center gap-2 text-2xl font-bold text-foreground"><Users className="h-5 w-5 text-[#1b388b]" /> Customers</h1>
+              <p className="text-sm text-muted-foreground">Everyone who has bought from your shop — and the tools to find more.</p>
+            </div>
+          </div>
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="flex shrink-0 items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-sm font-semibold text-foreground hover:bg-accent"
           >
-            <ChevronLeft className="w-5 h-5" />
-          </Button>
-          <div>
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary via-primary to-pink-600 bg-clip-text text-transparent">
-              Customers
-            </h1>
-            <p className="text-muted-foreground mt-1">Manage and analyze your customer base</p>
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} /> Refresh
+          </button>
+        </div>
+
+        {/* Stats */}
+        <div className="grid grid-cols-2 gap-2 sm:gap-3">
+          <div className="rounded-2xl border border-border bg-card p-4">
+            <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Users className="h-3.5 w-3.5" /> Customers</p>
+            <p className="mt-1 text-xl font-black text-foreground">{analytics.total_customers}</p>
+          </div>
+          <div className="rounded-2xl border border-border bg-card p-4">
+            <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Crown className="h-3.5 w-3.5" /> Returning</p>
+            <p className="mt-1 text-xl font-black text-foreground">{analytics.repeat_customers}</p>
+          </div>
+          <div className="rounded-2xl border border-border bg-card p-4">
+            <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><ShoppingCart className="h-3.5 w-3.5" /> Total Orders</p>
+            <p className="mt-1 text-xl font-black text-foreground">{totalOrders}</p>
+          </div>
+          <div className="rounded-2xl border border-border bg-card p-4">
+            <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><TrendingUp className="h-3.5 w-3.5" /> Total Revenue</p>
+            <p className="mt-1 text-xl font-black text-foreground">GH₵{analytics.total_revenue.toFixed(2)}</p>
           </div>
         </div>
 
-        {/* Stats Cards */}
-        <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-          {/* Total Customers */}
-          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-blue-500 bg-card backdrop-blur-xl border border-primary/20">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Customers</CardTitle>
-              <Users className="h-4 w-4 text-primary" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold bg-gradient-to-r from-primary to-primary bg-clip-text text-transparent">
-                {totalCount}
-              </div>
-              <p className="text-xs text-muted-foreground">Unique customers</p>
-            </CardContent>
-          </Card>
-
-          {/* Repeat Customers */}
-          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-purple-500 bg-card backdrop-blur-xl border border-border">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Repeat Customers</CardTitle>
-              <TrendingUp className="h-4 w-4 text-primary" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold bg-gradient-to-r from-primary to-pink-600 bg-clip-text text-transparent">
-                {customers.filter((c) => c.repeat_customer).length}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {totalCount > 0
-                  ? `${((customers.filter((c) => c.repeat_customer).length / totalCount) * 100).toFixed(1)}% retention`
-                  : "No customers"}
+        {/* Grow Your Shop */}
+        <div className="rounded-2xl bg-gradient-to-br from-[#1b388b] to-[#2a5ce8] p-5 text-white">
+          <p className="flex items-center gap-1.5 text-sm font-bold"><Share2 className="h-4 w-4" /> Grow Your Shop</p>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <code className="flex-1 truncate rounded-xl bg-white/10 px-3 py-2 font-mono text-xs">{shopLink}</code>
+            <div className="flex gap-2">
+              <button onClick={copyLink} className="flex items-center gap-1.5 rounded-full bg-white px-3 py-2 text-xs font-bold text-[#1b388b] hover:bg-white/90">
+                <Copy className="h-3.5 w-3.5" /> Copy
+              </button>
+              <button onClick={shareOnWhatsApp} className="flex items-center gap-1.5 rounded-full bg-success px-3 py-2 text-xs font-bold text-white hover:bg-success/90">
+                <Share2 className="h-3.5 w-3.5" /> WhatsApp
+              </button>
+              <button onClick={() => setShowQr(true)} className="flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-2 text-xs font-bold text-white hover:bg-white/25">
+                <QrCode className="h-3.5 w-3.5" /> QR
+              </button>
+            </div>
+          </div>
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {GROWTH_TIPS.map((tip, i) => (
+              <p key={i} className="flex items-start gap-1.5 text-xs text-white/80">
+                <span className="mt-0.5">💡</span> {tip}
               </p>
-            </CardContent>
-          </Card>
-
-          {/* Avg Spend */}
-          <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-success/30 bg-card backdrop-blur-xl border border-border">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Avg Spend</CardTitle>
-              <DollarSign className="h-4 w-4 text-success" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-success">
-                GHS {customers.length > 0 ? (customers.reduce((sum, c) => sum + c.total_spent, 0) / customers.length).toFixed(2) : "0.00"}
-              </div>
-              <p className="text-xs text-muted-foreground">Per customer LTV</p>
-            </CardContent>
-          </Card>
+            ))}
+          </div>
         </div>
 
-        {/* Main Content */}
-        <Tabs defaultValue="list" className="w-full">
-          <TabsList>
-            <TabsTrigger value="list">Customer List</TabsTrigger>
-            <TabsTrigger value="details">
-              {selectedCustomer ? `${selectedCustomer.customer_name} (Details)` : "Details"}
-            </TabsTrigger>
-          </TabsList>
+        {/* Search + sort */}
+        <div className="space-y-2">
+          <div className="relative">
+            <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search phone, name or email..."
+              className="w-full rounded-2xl border border-border bg-card py-2.5 pl-10 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-[#1b388b]/30"
+            />
+          </div>
+          <div className="inline-flex w-full gap-1 rounded-2xl bg-muted p-1">
+            {SORT_TABS.map(({ id, label }) => (
+              <button
+                key={id}
+                onClick={() => setSortTab(id)}
+                className={`flex-1 rounded-xl py-2 text-xs font-bold transition ${sortTab === id ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
 
-          <TabsContent value="list" className="space-y-4">
-            {/* Search and Filters */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Search & Filter</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Search</label>
-                  <div className="relative">
-                    <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Search by name, phone, or email..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="pl-10"
-                    />
+        {/* Customer list */}
+        {filtered.length === 0 ? (
+          <div className="rounded-2xl border border-border bg-card p-8 text-center">
+            <Users className="mx-auto mb-2 h-10 w-10 text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">{customers.length === 0 ? "No customers yet." : "No customers match your search."}</p>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-border bg-card overflow-hidden">
+            {filtered.map((c, i) => (
+              <div key={c.id} className={`flex items-center justify-between gap-3 p-4 ${i !== 0 ? "border-t border-border" : ""}`}>
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold ${c.repeat_customer ? "bg-amber-100 text-amber-600" : "bg-[#1b388b]/10 text-[#1b388b]"}`}>
+                    {c.repeat_customer ? <Crown className="h-4 w-4" /> : (c.customer_name || c.phone_number || "?").charAt(0).toUpperCase()}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-foreground">{c.customer_name || c.phone_number}</p>
+                    <p className="truncate text-xs text-muted-foreground">{c.phone_number}</p>
                   </div>
                 </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  {/* Repeat Customer Filter */}
-                  <div>
-                    <label className="text-sm font-medium block mb-2">Filter</label>
-                    <Button
-                      variant={filterRepeat ? "default" : "outline"}
-                      onClick={() => {
-                        setFilterRepeat(!filterRepeat)
-                        setPagination({ ...pagination, offset: 0 })
-                      }}
-                      className="w-full"
-                      size="sm"
-                    >
-                      {filterRepeat ? "Repeat Only" : "All Customers"}
-                    </Button>
-                  </div>
-
-                  {/* Sort */}
-                  <div>
-                    <label className="text-sm font-medium block mb-2">Sort By</label>
-                    <select
-                      value={sortBy}
-                      onChange={(e) => {
-                        setSortBy(e.target.value as any)
-                        setPagination({ ...pagination, offset: 0 })
-                      }}
-                      className="w-full px-3 py-2 border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                    >
-                      <option value="last_purchase">Last Purchase</option>
-                      <option value="total_spent">Highest Spend</option>
-                      <option value="purchases">Most Orders</option>
-                    </select>
-                  </div>
-
-                  {/* Results Count */}
-                  <div className="flex items-end">
-                    <div className="text-sm text-muted-foreground">
-                      Showing {filteredCustomers.length} of {totalCount}
-                    </div>
-                  </div>
+                <div className="shrink-0 text-right">
+                  <p className="text-sm font-semibold text-foreground">GH₵{Number(c.total_spent || 0).toFixed(2)}</p>
+                  <p className="text-xs text-muted-foreground">{c.total_purchases} order{c.total_purchases === 1 ? "" : "s"}</p>
+                  <p className="text-xs text-muted-foreground">{new Date(c.last_purchase_at).toLocaleDateString()}</p>
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            ))}
+          </div>
+        )}
 
-            {/* Customers Table */}
-            {filteredCustomers.length === 0 ? (
-              <Card>
-                <CardContent className="pt-6">
-                  <Alert>
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertDescription>
-                      {customers.length === 0
-                        ? "No customers yet. They will appear here once orders are placed."
-                        : "No customers match your search criteria."}
-                    </AlertDescription>
-                  </Alert>
-                </CardContent>
-              </Card>
-            ) : (
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-muted/40 border-b">
-                        <tr>
-                          <th className="px-4 py-2 text-left font-semibold text-foreground">Name</th>
-                          <th className="px-4 py-2 text-left font-semibold text-foreground">Phone</th>
-                          <th className="px-4 py-2 text-center font-semibold text-foreground">Orders</th>
-                          <th className="px-4 py-2 text-right font-semibold text-foreground">Total Spent</th>
-                          <th className="px-4 py-2 text-center font-semibold text-foreground">Status</th>
-                          <th className="px-4 py-2 text-center font-semibold text-foreground">Last Purchase</th>
-                          <th className="px-4 py-2 text-center font-semibold text-foreground">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {filteredCustomers.map((customer) => (
-                          <tr key={customer.id} className="hover:bg-accent">
-                            <td className="px-4 py-3 font-medium text-foreground">{customer.customer_name}</td>
-                            <td className="px-4 py-3 font-mono text-sm text-muted-foreground">{customer.phone_number}</td>
-                            <td className="px-4 py-3 text-center">
-                              <Badge variant="outline">{customer.total_purchases}</Badge>
-                            </td>
-                            <td className="px-4 py-3 text-right font-semibold text-foreground">
-                              GHS {(customer.total_spent || 0).toFixed(2)}
-                            </td>
-                            <td className="px-4 py-3 text-center">
-                              {customer.repeat_customer ? (
-                                <Badge className="bg-success/15 text-success border-border">Repeat</Badge>
-                              ) : (
-                                <Badge className="bg-primary/10 text-primary border-primary/20">New</Badge>
-                              )}
-                            </td>
-                            <td className="px-4 py-3 text-center text-muted-foreground text-xs">
-                              {new Date(customer.last_purchase_at).toLocaleDateString()}
-                            </td>
-                            <td className="px-4 py-3 text-center">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleCustomerClick(customer)}
-                              >
-                                View
-                              </Button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Pagination */}
-                  <div className="flex justify-between items-center mt-4">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setPagination({ ...pagination, offset: Math.max(0, pagination.offset - pagination.limit) })}
-                      disabled={pagination.offset === 0}
-                    >
-                      Previous
-                    </Button>
-                    <span className="text-sm text-muted-foreground">
-                      Page {Math.floor(pagination.offset / pagination.limit) + 1}
-                    </span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setPagination({ ...pagination, offset: pagination.offset + pagination.limit })}
-                      disabled={pagination.offset + pagination.limit >= totalCount}
-                    >
-                      Next
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-          </TabsContent>
-
-          <TabsContent value="details" className="space-y-4">
-            {selectedCustomer ? (
-              <>
-                {/* Customer Info */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>{selectedCustomer.customer_name}</CardTitle>
-                    <CardDescription>Customer Details</CardDescription>
-                  </CardHeader>
-                  <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-1">Phone</p>
-                      <p className="font-mono text-sm font-semibold">{selectedCustomer.phone_number}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-1">Email</p>
-                      <p className="text-sm font-semibold">{selectedCustomer.email || "N/A"}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-1">Total Orders</p>
-                      <p className="text-sm font-semibold">{selectedCustomer.total_purchases}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-1">Total Spent</p>
-                      <p className="text-sm font-semibold">GHS {(selectedCustomer.total_spent || 0).toFixed(2)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-1">First Purchase</p>
-                      <p className="text-sm font-semibold">
-                        {new Date(selectedCustomer.first_purchase_at).toLocaleDateString()}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-1">Last Purchase</p>
-                      <p className="text-sm font-semibold">
-                        {new Date(selectedCustomer.last_purchase_at).toLocaleDateString()}
-                      </p>
-                    </div>
-                    {selectedCustomer.first_source_slug && (
-                      <div>
-                        <p className="text-xs text-muted-foreground mb-1">Source Slug</p>
-                        <Badge variant="outline">{selectedCustomer.first_source_slug}</Badge>
-                      </div>
-                    )}
-                    {selectedCustomer.preferred_network && (
-                      <div>
-                        <p className="text-xs text-muted-foreground mb-1">Preferred Network</p>
-                        <Badge>{selectedCustomer.preferred_network}</Badge>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-
-                {/* Purchase History */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Purchase History</CardTitle>
-                    <CardDescription>{customerHistory.length} orders</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {historyLoading ? (
-                      <div className="flex justify-center py-8">
-                        <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                      </div>
-                    ) : customerHistory.length === 0 ? (
-                      <Alert>
-                        <AlertCircle className="h-4 w-4" />
-                        <AlertDescription>No purchase history found.</AlertDescription>
-                      </Alert>
-                    ) : (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead className="bg-muted/40 border-b">
-                            <tr>
-                              <th className="px-4 py-2 text-left font-semibold text-foreground">Reference</th>
-                              <th className="px-4 py-2 text-left font-semibold text-foreground">Network</th>
-                              <th className="px-4 py-2 text-center font-semibold text-foreground">Package</th>
-                              <th className="px-4 py-2 text-right font-semibold text-foreground">Price</th>
-                              <th className="px-4 py-2 text-center font-semibold text-foreground">Status</th>
-                              <th className="px-4 py-2 text-center font-semibold text-foreground">Date</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y">
-                            {customerHistory.map((order) => (
-                              <tr key={order.id} className="hover:bg-accent">
-                                <td className="px-4 py-3 font-mono text-xs font-semibold text-foreground">
-                                  {order.reference_code}
-                                </td>
-                                <td className="px-4 py-3">{order.network}</td>
-                                <td className="px-4 py-3 text-center">{order.volume_gb}GB</td>
-                                <td className="px-4 py-3 text-right font-semibold">GHS {(order.total_price || 0).toFixed(2)}</td>
-                                <td className="px-4 py-3 text-center">
-                                  <Badge
-                                    className={
-                                      order.order_status === "completed"
-                                        ? "bg-success/15 text-success border-border"
-                                        : order.order_status === "failed"
-                                          ? "bg-destructive/15 text-destructive border-border"
-                                          : "bg-warning/10 text-warning border-border"
-                                    }
-                                  >
-                                    {order.order_status}
-                                  </Badge>
-                                </td>
-                                <td className="px-4 py-3 text-center text-muted-foreground text-xs">
-                                  {new Date(order.created_at).toLocaleDateString()}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </>
-            ) : (
-              <Card>
-                <CardContent className="pt-6">
-                  <Alert>
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertDescription>Select a customer from the list to view details.</AlertDescription>
-                  </Alert>
-                </CardContent>
-              </Card>
-            )}
-          </TabsContent>
-        </Tabs>
+        {/* Message your customers */}
+        <Link href="/dashboard/sms" className="flex items-center justify-between gap-3 rounded-2xl border border-success/30 bg-success/10 p-4 hover:bg-success/15">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-success/20 text-success"><MessageSquare className="h-4 w-4" /></span>
+            <div>
+              <p className="text-sm font-bold text-foreground">Message your customers</p>
+              <p className="text-xs text-muted-foreground">Send promos and updates by SMS to your whole customer list.</p>
+            </div>
+          </div>
+          <Tag className="h-4 w-4 shrink-0 text-success" />
+        </Link>
       </div>
+
+      {/* QR modal */}
+      {showQr && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/60 p-4" onClick={() => setShowQr(false)}>
+          <div className="rounded-2xl bg-card p-6 text-center shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-sm font-bold text-foreground">Scan to visit your shop</p>
+              <button onClick={() => setShowQr(false)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+            </div>
+            {shopLink && (
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(shopLink)}`}
+                alt="Shop link QR code"
+                className="mt-4 rounded-xl border border-border"
+                width={220}
+                height={220}
+              />
+            )}
+            <p className="mt-3 max-w-[220px] truncate text-xs text-muted-foreground">{shopLink}</p>
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   )
 }
