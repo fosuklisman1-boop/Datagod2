@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button"
 import { shopService, shopPackageService } from "@/lib/shop-service"
 import { packageService } from "@/lib/database"
 import { supabase } from "@/lib/supabase"
-import { ArrowLeft, Tag, Send, AlertCircle, Loader2, Phone, GraduationCap, IdCard, Save } from "lucide-react"
+import { shopOrigin } from "@/lib/shop-url"
+import { ArrowLeft, Tag, Send, AlertCircle, Loader2, Phone, GraduationCap, IdCard, Save, PartyPopper, Copy, MessageCircle, ExternalLink } from "lucide-react"
 import { toast } from "sonner"
 
 type Category = "data" | "airtime" | "results_checker" | "afa"
@@ -66,6 +67,12 @@ export default function ShopPricingPage() {
   const [afaMaxProfit, setAfaMaxProfit] = useState(10)
   const [savingAfa, setSavingAfa] = useState(false)
 
+  // "Go live" celebration -- shown once, the first time a shop with zero
+  // pricing anywhere saves its first price via this page.
+  const [hadPricingBefore, setHadPricingBefore] = useState<boolean | null>(null)
+  const [showGoLiveModal, setShowGoLiveModal] = useState(false)
+  const [savingAll, setSavingAll] = useState(false)
+
   useEffect(() => {
     if (!user) return
     loadAll()
@@ -96,6 +103,15 @@ export default function ShopPricingPage() {
 
       setShopPackages(shopPkgs || [])
       setAllPackages(allPkgs || [])
+
+      // Snapshot BEFORE any edits this session -- drives the one-time "go live"
+      // celebration in handleSaveAllAndGoLive (only fires shop's first-ever price).
+      setHadPricingBefore(
+        (shopPkgs?.length ?? 0) > 0 ||
+        Number(userShop.airtime_markup_mtn) > 0 || Number(userShop.airtime_markup_telecel) > 0 || Number(userShop.airtime_markup_at) > 0 ||
+        Number(userShop.results_checker_markup_wassce) > 0 || Number(userShop.results_checker_markup_bece) > 0 || Number(userShop.results_checker_markup_novdec) > 0 ||
+        userShop.afa_price != null
+      )
 
       if (constraintsRes) {
         setAirtimeMaxMarkups({ mtn: constraintsRes.mtn?.maxMarkup ?? 10, telecel: constraintsRes.telecel?.maxMarkup ?? 10, at: constraintsRes.at?.maxMarkup ?? 10 })
@@ -336,8 +352,26 @@ export default function ShopPricingPage() {
   }
 
   const handleSaveAllAndGoLive = async () => {
-    await Promise.all([handleSaveAirtime(), handleSaveRc(), handleSaveAfa()])
+    setSavingAll(true)
+    try {
+      await Promise.all([handleSaveAirtime(), handleSaveRc(), handleSaveAfa()])
+
+      const hasPricingNow =
+        shopPackages.length > 0 ||
+        Number(airtimeMarkups.mtn) > 0 || Number(airtimeMarkups.telecel) > 0 || Number(airtimeMarkups.at) > 0 ||
+        Number(rcMarkups.wassce) > 0 || Number(rcMarkups.bece) > 0 || Number(rcMarkups.novdec) > 0 ||
+        afaPriceInput.trim() !== ""
+
+      if (hadPricingBefore === false && hasPricingNow) {
+        setShowGoLiveModal(true)
+        setHadPricingBefore(true)
+      }
+    } finally {
+      setSavingAll(false)
+    }
   }
+
+  const shopLink = shop ? (shop.subdomain ? shopOrigin(shop.subdomain) : `${typeof window !== "undefined" ? window.location.origin : ""}/shop/${shop.shop_slug}`) : ""
 
   if (loading) {
     return (
@@ -370,8 +404,8 @@ export default function ShopPricingPage() {
               <p className="text-sm text-muted-foreground">Set your profit on each service. Save sections individually or everything at once.</p>
             </div>
           </div>
-          <Button onClick={handleSaveAllAndGoLive} className="shrink-0 rounded-full bg-[#1b388b] text-white hover:bg-[#1b388b]/90">
-            <Send className="h-4 w-4 mr-1.5" /> Save All & Go Live
+          <Button onClick={handleSaveAllAndGoLive} disabled={savingAll} className="shrink-0 rounded-full bg-[#1b388b] text-white hover:bg-[#1b388b]/90">
+            {savingAll ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Send className="h-4 w-4 mr-1.5" />} Save All & Go Live
           </Button>
         </div>
 
@@ -676,6 +710,75 @@ export default function ShopPricingPage() {
           </div>
         )}
       </div>
+
+      {showGoLiveModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowGoLiveModal(false)}>
+          <div className="w-full max-w-sm space-y-4 rounded-2xl bg-card p-6 text-center" onClick={(e) => e.stopPropagation()}>
+            <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-success/10">
+              <PartyPopper className="h-7 w-7 text-success" />
+            </div>
+            <div>
+              <p className="text-lg font-bold text-foreground">
+                {shop.is_active ? "Your shop is fully set up!" : "Your pricing is saved!"}
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {shop.is_active
+                  ? "Customers can now buy from your storefront. Share your link to find your first customers."
+                  : "An admin reviews new shops before they go live — once approved, customers can buy from your storefront. Your link is ready to share now."}
+              </p>
+            </div>
+
+            {shopLink && (
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(shopLink)}`}
+                alt="Shop link QR code"
+                className="mx-auto h-40 w-40 rounded-xl border border-border"
+              />
+            )}
+
+            <div className="flex items-center gap-2 rounded-xl bg-muted px-3 py-2">
+              <code className="flex-1 truncate text-left font-mono text-xs text-foreground">{shopLink}</code>
+              <button
+                onClick={() => { navigator.clipboard.writeText(shopLink); toast.success("Link copied") }}
+                className="flex shrink-0 items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-semibold text-foreground"
+              >
+                <Copy className="h-3 w-3" /> Copy Link
+              </button>
+            </div>
+
+            <a
+              href={`https://wa.me/?text=${encodeURIComponent(`Check out my shop for cheap data bundles, airtime & results checker vouchers: ${shopLink}`)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-success py-2.5 text-sm font-bold text-primary-foreground"
+            >
+              <MessageCircle className="h-4 w-4" /> Share on WhatsApp
+            </a>
+
+            <div className="rounded-xl bg-muted/50 p-3 text-left text-xs text-muted-foreground">
+              <p className="mb-1 font-bold text-foreground">How to get more customers:</p>
+              <ul className="space-y-1">
+                <li>• Share your link in WhatsApp groups and your status daily.</li>
+                <li>• Keep your prices slightly below local competitors.</li>
+                <li>• Post your storefront notice with promos for returning buyers.</li>
+                <li>• Respond fast on WhatsApp — speed builds trust and repeat sales.</li>
+              </ul>
+            </div>
+
+            <div className="flex gap-2">
+              <a
+                href={shopLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-border py-2.5 text-sm font-bold text-foreground"
+              >
+                <ExternalLink className="h-3.5 w-3.5" /> View Storefront
+              </a>
+              <button onClick={() => setShowGoLiveModal(false)} className="flex-1 rounded-xl bg-[#1b388b] py-2.5 text-sm font-bold text-white">Done</button>
+            </div>
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   )
 }
