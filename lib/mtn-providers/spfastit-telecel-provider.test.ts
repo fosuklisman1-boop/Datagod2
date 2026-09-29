@@ -7,6 +7,11 @@ describe("mapSpfastitTelecelStatus", () => {
     expect(mapSpfastitTelecelStatus("Completed")).toBe("completed")
   })
 
+  it("maps served to completed — a real value seen live, not documented", () => {
+    expect(mapSpfastitTelecelStatus("served")).toBe("completed")
+    expect(mapSpfastitTelecelStatus("Served")).toBe("completed")
+  })
+
   it("maps anything containing fail/cancel/reject/block to failed", () => {
     expect(mapSpfastitTelecelStatus("failed")).toBe("failed")
     expect(mapSpfastitTelecelStatus("cancelled")).toBe("failed")
