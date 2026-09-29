@@ -1068,18 +1068,11 @@ export default function ShopStorefront() {
             second color isn't set) instead of the old full-bleed flat hero +
             section-divider cut. Always renders; only the colors change. */}
         <div
-          className="relative mt-6 overflow-hidden rounded-2xl px-6 py-10 text-center shadow-sm"
+          className="relative mt-6 overflow-hidden rounded-b-2xl px-6 py-10 text-center shadow-sm"
           style={{ backgroundImage: `linear-gradient(135deg, ${accentColor}, ${heroColor2})` }}
         >
           <span className="pointer-events-none absolute -right-10 -top-12 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
           <span className="pointer-events-none absolute -bottom-10 left-16 h-28 w-28 rounded-full bg-white/5 blur-xl" />
-          {shop.logo_url && (
-            <img
-              src={shop.logo_url}
-              alt={shop.shop_name || "Shop"}
-              className="relative mx-auto mb-3 h-16 w-16 rounded-2xl border-2 border-white/30 bg-white object-cover shadow-lg sm:h-20 sm:w-20"
-            />
-          )}
           <h2 className="relative text-2xl sm:text-3xl font-bold text-white">{shop.shop_name || shop.name}</h2>
           {shop.description && (
             <p className="relative mt-2 text-white/90 break-words text-sm sm:text-base max-w-2xl mx-auto">{shop.description}</p>
