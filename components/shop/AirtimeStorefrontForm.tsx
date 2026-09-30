@@ -1,17 +1,19 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { CreditCard, Loader2, Zap, CheckCircle2, ShieldCheck, Copy, AlertCircle } from "lucide-react"
+import { Loader2, Zap, CheckCircle2, Circle, AlertCircle, ArrowRight } from "lucide-react"
 import { networkLogoService } from "@/lib/shop-service"
 import { validatePhoneNumber } from "@/lib/phone-validation"
 import { toast } from "sonner"
 import TurnstileWidget from "@/components/shop/TurnstileWidget"
 import HoneypotField from "@/components/shop/HoneypotField"
 import { useResendCooldown } from "@/lib/use-resend-cooldown"
+
+// Same quick-amount set as the dashboard's Buy Airtime page (app/dashboard/airtime/page.tsx)
+const QUICK_AMOUNTS = [1, 2, 5, 10, 20, 50]
 
 interface AirtimeStorefrontFormProps {
   shop: any
@@ -370,286 +372,251 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
 
   return (
     <>
-    <Card className="border-0 shadow-2xl overflow-hidden rounded-2xl w-full max-w-xl mx-auto">
-      <div className="h-2 bg-gradient-to-r from-[var(--shop-accent)] via-primary to-[var(--shop-accent)]" />
-      <CardHeader className="bg-card border-b border-border">
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="text-2xl font-black text-slate-900 flex items-center gap-2">
-              <Zap className="w-6 h-6 text-[var(--shop-accent)] fill-[var(--shop-accent)]" />
-              Buy Airtime
-            </CardTitle>
-            <CardDescription className="text-slate-500 font-medium mt-1">
-              Secure instant top-up for any network
-            </CardDescription>
+    <form onSubmit={handleSubmit} className="space-y-5">
+      {/* Network -- same card style as the dashboard's Buy Airtime picker */}
+      <div className="space-y-2">
+        <p className="text-sm font-bold text-foreground">Network</p>
+        <div className="grid grid-cols-3 gap-2 sm:gap-3">
+          {networks.map((net) => {
+            const isAvail = availability[net.id] !== false
+            const isSelected = selectedNetwork === net.id
+            return (
+              <button
+                key={net.id}
+                type="button"
+                disabled={!isAvail}
+                onClick={() => setSelectedNetwork(net.id)}
+                className={`relative flex flex-col items-center gap-1.5 sm:gap-2 rounded-2xl border-2 bg-card p-2.5 sm:p-4 transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                  isSelected ? "border-[var(--shop-accent)] shadow-sm" : "border-border hover:border-[var(--shop-accent)]/30"
+                }`}
+              >
+                {!isAvail && (
+                  <span className="absolute right-1 top-1 rounded-sm border border-border bg-destructive/15 px-1 text-[8px] font-black text-destructive">OOS</span>
+                )}
+                {isSelected && (
+                  <span className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-success text-white">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                  </span>
+                )}
+                {networkLogos[net.id] ? (
+                  net.id === "Telecel" ? (
+                    // Telecel's logo art crops badly under object-cover (zooms in
+                    // past the wordmark) -- kept inset/contain for this network only.
+                    <span className="grid h-11 w-11 sm:h-14 sm:w-14 place-items-center rounded-full bg-muted">
+                      <img src={networkLogos[net.id]} alt={net.name} className="h-8 w-8 sm:h-9 sm:w-9 object-contain" />
+                    </span>
+                  ) : (
+                    <span className="block h-11 w-11 sm:h-14 sm:w-14 overflow-hidden rounded-full bg-card">
+                      <img src={networkLogos[net.id]} alt={net.name} className="h-full w-full object-cover" />
+                    </span>
+                  )
+                ) : (
+                  <span className="flex h-11 w-11 sm:h-14 sm:w-14 items-center justify-center rounded-full bg-muted text-sm font-extrabold text-muted-foreground">
+                    {net.name[0]}
+                  </span>
+                )}
+                <span className="text-xs sm:text-sm font-bold text-foreground">{net.name}</span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Order Details */}
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <p className="text-sm font-bold text-foreground">Full Name</p>
+            <Input
+              placeholder="E.g John Doe"
+              className="rounded-2xl border-border bg-card py-3.5"
+              value={formData.customerName}
+              onChange={e => setFormData({...formData, customerName: e.target.value})}
+            />
           </div>
-          <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold border bg-success/15 text-success border-border">
-            <ShieldCheck className="w-3 h-3 mr-1" />
-            Verified
+          <div className="space-y-2">
+            <p className="text-sm font-bold text-foreground">Email Address *</p>
+            <Input
+              type="email"
+              required
+              placeholder="john@example.com"
+              className="rounded-2xl border-border bg-card py-3.5"
+              value={formData.customerEmail}
+              onChange={e => setFormData({...formData, customerEmail: e.target.value})}
+            />
           </div>
         </div>
-      </CardHeader>
 
-      <CardContent className="pt-8 bg-card">
-        <form onSubmit={handleSubmit} className="space-y-8">
-          {/* Network Selection */}
-          <div className="space-y-4">
-            <Label className="text-slate-900 font-bold flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-[var(--shop-accent)]" />
-              1. Select Network
-            </Label>
-            <div className="grid grid-cols-3 gap-3">
-              {networks.map((net) => {
-                const isAvail = availability[net.id] !== false
-                return (
-                  <button
-                    key={net.id}
-                    type="button"
-                    disabled={!isAvail}
-                    onClick={() => setSelectedNetwork(net.id)}
-                    className={`relative flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all duration-300 ${
-                      selectedNetwork === net.id
-                        ? "border-[var(--shop-accent)] bg-[var(--shop-accent)] ring-4 ring-[var(--shop-accent)] shadow-lg scale-[1.05]"
-                        : isAvail 
-                          ? "border-border bg-muted/40 hover:border-border hover:bg-muted"
-                          : "border-border bg-muted/40 grayscale opacity-60 cursor-not-allowed"
-                    }`}
-                  >
-                    {!isAvail && (
-                      <div className="absolute top-1 right-1 bg-destructive/15 text-destructive text-[8px] font-black px-1 rounded-sm border border-border">
-                        OOS
-                      </div>
-                    )}
-                    {networkLogos[net.id] ? (
-                      net.id === "Telecel" ? (
-                        // Telecel's logo art crops badly under object-cover (zooms in
-                        // past the wordmark) -- kept inset/contain for this network only.
-                        <span className="mb-2 grid h-12 w-12 place-items-center rounded-full bg-slate-100">
-                          <img src={networkLogos[net.id]} alt={net.name} className="h-9 w-9 object-contain" />
-                        </span>
-                      ) : (
-                        <span className="mb-2 block h-12 w-12 overflow-hidden rounded-full bg-white">
-                          <img src={networkLogos[net.id]} alt={net.name} className="h-full w-full object-cover" />
-                        </span>
-                      )
-                    ) : (
-                      <div className="w-12 h-12 bg-slate-200 rounded-full mb-2 flex items-center justify-center">
-                         <span className="font-bold text-slate-500">{net.name[0]}</span>
-                      </div>
-                    )}
-                    <span className={`text-xs font-black uppercase ${selectedNetwork === net.id ? "text-[var(--shop-accent)]" : "text-slate-500"}`}>
-                      {net.name}
-                    </span>
-                    {selectedNetwork === net.id && (
-                      <div className="absolute -top-2 -right-2 bg-[var(--shop-accent)] text-white rounded-full p-1 shadow-md">
-                        <CheckCircle2 className="w-3 h-3" />
-                      </div>
-                    )}
-                  </button>
-                )
-              })}
-            </div>
+        <div className="space-y-2">
+          <p className="text-sm font-bold text-foreground">Beneficiary Number *</p>
+          <Input
+            type="tel"
+            required
+            placeholder="024XXXXXXX"
+            className="rounded-2xl border-border bg-card py-3.5 font-mono text-base"
+            value={formData.beneficiaryPhone}
+            onChange={e => {
+              setFormData({...formData, beneficiaryPhone: e.target.value})
+              if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode("") }
+            }}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-sm font-bold text-foreground">Quick amount (GHS)</p>
+          <div className="flex flex-wrap items-center gap-2">
+            {QUICK_AMOUNTS.map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setFormData({...formData, amount: String(v)})}
+                className={`rounded-full border px-4 py-2 text-sm font-bold transition ${
+                  formData.amount === String(v) ? "border-[var(--shop-accent)] bg-[var(--shop-accent)] text-white" : "border-border bg-card text-foreground hover:border-[var(--shop-accent)]/30"
+                }`}
+              >
+                {v}
+              </button>
+            ))}
           </div>
+        </div>
 
-          {/* Form Fields */}
-          <div className="space-y-6">
-            <Label className="text-slate-900 font-bold flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-[var(--shop-accent)]" />
-              2. Order Details
-            </Label>
-            
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="customerName" className="text-slate-600">Full Name</Label>
-                <Input 
-                  id="customerName"
-                  placeholder="E.g John Doe"
-                  className="bg-muted/40 border-border focus:ring-[var(--shop-accent)] focus:border-[var(--shop-accent)] rounded-xl"
-                  value={formData.customerName}
-                  onChange={e => setFormData({...formData, customerName: e.target.value})}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="customerEmail" className="text-slate-600">Email Address *</Label>
-                <Input 
-                  id="customerEmail"
-                  type="email"
-                  required
-                  placeholder="john@example.com"
-                  className="bg-muted/40 border-border focus:ring-[var(--shop-accent)] focus:border-[var(--shop-accent)] rounded-xl"
-                  value={formData.customerEmail}
-                  onChange={e => setFormData({...formData, customerEmail: e.target.value})}
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="phone" className="text-slate-600">Beneficiary Number *</Label>
-                <Input 
-                  id="phone"
-                  type="tel"
-                  required
-                  placeholder="024XXXXXXX"
-                  className="bg-muted/40 border-border focus:ring-[var(--shop-accent)] focus:border-[var(--shop-accent)] rounded-xl font-mono text-lg"
-                  value={formData.beneficiaryPhone}
-                  onChange={e => {
-                    setFormData({...formData, beneficiaryPhone: e.target.value})
-                    if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode("") }
-                  }}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="amount" className="text-slate-600">Amount (GHS) *</Label>
-                <Input 
-                  id="amount"
-                  type="number"
-                  min="1"
-                  required
-                  placeholder="10.00"
-                  className="bg-muted/40 border-border focus:ring-[var(--shop-accent)] focus:border-[var(--shop-accent)] rounded-xl font-bold text-lg"
-                  value={formData.amount}
-                  onChange={e => setFormData({...formData, amount: e.target.value})}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Fee Toggle */}
-          <div className="p-4 bg-[var(--shop-accent)]/10 rounded-2xl border border-border flex items-start gap-3 transition-all">
-            <input
-              id="pay-sep"
-              type="checkbox"
-              checked={paySeparately}
-              onChange={(e) => setPaySeparately(e.target.checked)}
-              className="mt-1 h-5 w-5 text-[var(--shop-accent)] border-border rounded focus:ring-[var(--shop-accent)] cursor-pointer"
+        <div className="space-y-2">
+          <p className="text-sm font-bold text-foreground">Custom amount (GHS) *</p>
+          <div className="relative">
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground">GHS</span>
+            <Input
+              type="number"
+              min="1"
+              required
+              placeholder="0.00"
+              className="rounded-2xl border-border bg-card py-3.5 pl-14 text-lg font-semibold"
+              value={formData.amount}
+              onChange={e => setFormData({...formData, amount: e.target.value})}
             />
-            <label htmlFor="pay-sep" className="flex-1 cursor-pointer">
-              <span className="text-[var(--shop-accent)] font-bold text-sm block">Pay fee separately</span>
-              <p className="text-[var(--shop-accent)] text-xs mt-1 leading-relaxed">
-                {paySeparately 
-                  ? "Recipient gets the full amount; service fee is added to your total." 
-                  : "Service fee is deducted from the amount before delivery."}
-              </p>
-            </label>
           </div>
+        </div>
+      </div>
 
-          {/* Price Summary */}
-          <div className="group relative">
-            <div className="absolute -inset-1 bg-gradient-to-r from-[var(--shop-accent)] to-[var(--shop-accent)] rounded-2xl blur opacity-25 group-hover:opacity-40 transition duration-1000"></div>
-            <div className="relative p-6 bg-muted/40 rounded-2xl border border-border">
-              <div className="flex justify-between items-center mb-1">
-                <span className="text-slate-500 font-semibold">Amount to Send:</span>
-                <span className="text-slate-900 font-bold">GHS {parseFloat(formData.amount || "0").toFixed(2)}</span>
-              </div>
-              {constraints && (
-                <div className="flex justify-between items-center mb-1">
-                  <span className="text-slate-500 font-semibold">
-                    Service Fee {paySeparately ? "(added on top)" : "(deducted from amount)"}:
-                  </span>
-                  <span className="text-warning font-bold">GHS {calculateFeeAmount().toFixed(2)}</span>
-                </div>
-              )}
-              <div className="flex justify-between items-center mb-4 pb-4 border-b border-border">
-                <span className="text-slate-500 font-semibold">Recipient Gets:</span>
-                <span className="text-success font-black">
-                   GHS {calculateRecipientGets().toFixed(2)}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-slate-900 text-lg font-black">Total to Pay:</span>
-                <div className="text-right">
-                  <span className="text-3xl font-black bg-gradient-to-r from-[var(--shop-accent)] to-[var(--shop-accent)] bg-clip-text text-transparent">
-                    GHS {calculateTotal().toFixed(2)}
-                  </span>
-                  <p className="text-[10px] text-slate-400 mt-1 uppercase tracking-wider font-bold">
-                    {paySeparately ? "Amount + Service Fee" : "Fee Included in Amount"}
-                  </p>
-                </div>
-              </div>
-            </div>
+      {/* Pay fee separately -- same toggle card style as the dashboard */}
+      <button
+        type="button"
+        onClick={() => setPaySeparately(!paySeparately)}
+        className={`flex w-full items-start gap-3 rounded-2xl border p-4 text-left transition ${
+          paySeparately ? "border-[#75beab]/40 bg-[#e9f4f1]" : "border-border bg-card"
+        }`}
+      >
+        {paySeparately ? (
+          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-[#0f7a4d]" />
+        ) : (
+          <Circle className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+        )}
+        <span>
+          <span className={`block text-sm font-bold ${paySeparately ? "text-[#0f7a4d]" : "text-foreground"}`}>
+            Pay fee separately
+          </span>
+          <span className={`mt-0.5 block text-xs ${paySeparately ? "text-[#0f7a4d]/80" : "text-muted-foreground"}`}>
+            {paySeparately
+              ? "Recipient gets the full amount; service fee is added to your total."
+              : "Service fee is deducted from the amount before delivery."}
+          </span>
+        </span>
+      </button>
+
+      {/* Fee breakdown -- same layout as the dashboard */}
+      {parseFloat(formData.amount || "0") > 0 && (
+        <div className="space-y-2 rounded-2xl border border-border bg-card p-4 text-sm">
+          <div className="flex justify-between text-muted-foreground">
+            <span>Recipient gets</span>
+            <span className="font-semibold text-foreground">GHS {calculateRecipientGets().toFixed(2)}</span>
           </div>
-
-          <HoneypotField value={honeypot} onChange={setHoneypot} />
-
-          {/* Payment-number step. Shown when OTP verification OR direct charge is
-              on — both need the on-page MoMo number. OTP controls render only when
-              OTP is required; with direct charge alone the number is charged as typed. */}
-          {(otpRequired || directCharge) && (
-            <div className="p-4 rounded-2xl bg-[var(--shop-accent)]/10 border border-border space-y-3">
-              <div className="space-y-2">
-                <Label className="text-sm font-semibold text-[var(--shop-accent)]">Mobile Money number to pay from *</Label>
-                <Input
-                  type="tel"
-                  inputMode="numeric"
-                  placeholder="0241234567"
-                  value={paymentPhone}
-                  onChange={e => {
-                    setPaymentPhone(e.target.value)
-                    if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode(""); otpCooldown.reset() }
-                  }}
-                  disabled={otpRequired && otpVerified}
-                  className="bg-card border-border rounded-xl font-mono"
-                />
-                <p className="text-xs text-[var(--shop-accent)]">
-                  {otpRequired ? "The payment prompt is sent to this number. You verify it once." : "The payment prompt is sent to this number."}
-                </p>
-              </div>
-
-              {otpRequired && (!otpVerified ? (
-                !otpSent ? (
-                  <Button type="button" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0} className="w-full bg-[var(--shop-accent)] hover:bg-[var(--shop-accent)] text-white rounded-xl">
-                    {sendingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code…</>) : otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Send verification code"}
-                  </Button>
-                ) : (
-                  <div className="space-y-2">
-                    <Input inputMode="numeric" maxLength={6} placeholder="Enter 6-digit code" value={otpCode}
-                      onChange={e => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                      className="text-center text-lg tracking-[0.4em] font-mono bg-card" />
-                    <div className="flex gap-2">
-                      <Button type="button" onClick={handleVerifyOtp} disabled={verifyingOtp || otpCode.length < 4} className="flex-1 bg-[var(--shop-accent)] hover:bg-[var(--shop-accent)] text-white rounded-xl">
-                        {verifyingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying…</>) : "Verify"}
-                      </Button>
-                      <Button type="button" variant="outline" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0}>{otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Resend"}</Button>
-                    </div>
-                    <p className="text-xs text-muted-foreground">📩 Don&apos;t see the code? Check your phone&apos;s Spam or Blocked messages folder.</p>
-                  </div>
-                )
-              ) : (
-                <div className="p-3 rounded-xl bg-success/10 border border-border flex items-center gap-2">
-                  <CheckCircle2 className="w-5 h-5 text-success" />
-                  <span className="text-sm font-medium text-success">Payment number verified ✓</span>
-                </div>
-              ))}
+          {constraints && (
+            <div className="flex justify-between text-muted-foreground">
+              <span>Service fee {paySeparately ? "(added on top)" : "(deducted from amount)"}</span>
+              <span>GHS {calculateFeeAmount().toFixed(2)}</span>
             </div>
           )}
+          <div className="flex justify-between border-t border-border pt-2 font-bold text-foreground">
+            <span>You pay</span>
+            <span>GHS {calculateTotal().toFixed(2)}</span>
+          </div>
+        </div>
+      )}
 
-          {turnstileEnabled && (
-            <div className="flex justify-center">
-              <TurnstileWidget onToken={setTurnstileToken} onExpire={() => setTurnstileToken("")} />
-            </div>
-          )}
+      <HoneypotField value={honeypot} onChange={setHoneypot} />
 
-          <Button
-            type="submit"
-            disabled={submitting || !selectedNetwork || (turnstileEnabled && !turnstileToken) || (otpRequired && !otpVerified) || (directCharge && !otpRequired && !/^0?\d{9}$/.test(paymentPhone.replace(/\D/g, "")))}
-            className="w-full h-16 bg-gradient-to-r from-[var(--shop-accent)] via-primary to-[var(--shop-accent)] hover:scale-[1.02] active:scale-95 text-white text-xl font-black rounded-2xl shadow-xl shadow-primary transition-all duration-300 disabled:opacity-50 disabled:grayscale"
-          >
-            {submitting ? (
-              <div className="flex items-center gap-3">
-                <Loader2 className="w-6 h-6 animate-spin" />
-                <span>Processing Securely...</span>
-              </div>
+      {/* Payment-number step. Shown when OTP verification OR direct charge is
+          on — both need the on-page MoMo number. OTP controls render only when
+          OTP is required; with direct charge alone the number is charged as typed. */}
+      {(otpRequired || directCharge) && (
+        <div className="space-y-3 rounded-2xl border border-border bg-card p-4">
+          <div className="space-y-2">
+            <p className="text-sm font-bold text-foreground">Mobile Money number to pay from *</p>
+            <Input
+              type="tel"
+              inputMode="numeric"
+              placeholder="0241234567"
+              value={paymentPhone}
+              onChange={e => {
+                setPaymentPhone(e.target.value)
+                if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode(""); otpCooldown.reset() }
+              }}
+              disabled={otpRequired && otpVerified}
+              className="rounded-2xl border-border bg-card py-3.5 font-mono"
+            />
+            <p className="text-xs text-muted-foreground">
+              {otpRequired ? "The payment prompt is sent to this number. You verify it once." : "The payment prompt is sent to this number."}
+            </p>
+          </div>
+
+          {otpRequired && (!otpVerified ? (
+            !otpSent ? (
+              <Button type="button" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0} className="w-full rounded-2xl bg-[var(--shop-accent)] text-white hover:bg-[var(--shop-accent)]/90">
+                {sendingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code…</>) : otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Send verification code"}
+              </Button>
             ) : (
-              <div className="flex items-center gap-3">
-                <CreditCard className="w-6 h-6" />
-                <span>Pay GHS {calculateTotal().toFixed(2)}</span>
+              <div className="space-y-2">
+                <Input inputMode="numeric" maxLength={6} placeholder="Enter 6-digit code" value={otpCode}
+                  onChange={e => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  className="rounded-2xl bg-card text-center text-lg font-mono tracking-[0.4em]" />
+                <div className="flex gap-2">
+                  <Button type="button" onClick={handleVerifyOtp} disabled={verifyingOtp || otpCode.length < 4} className="flex-1 rounded-2xl bg-[var(--shop-accent)] text-white hover:bg-[var(--shop-accent)]/90">
+                    {verifyingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying…</>) : "Verify"}
+                  </Button>
+                  <Button type="button" variant="outline" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0} className="rounded-2xl">{otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Resend"}</Button>
+                </div>
+                <p className="text-xs text-muted-foreground">📩 Don&apos;t see the code? Check your phone&apos;s Spam or Blocked messages folder.</p>
               </div>
-            )}
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
+            )
+          ) : (
+            <div className="flex items-center gap-2 rounded-2xl border border-border bg-success/10 p-3">
+              <CheckCircle2 className="w-5 h-5 text-success" />
+              <span className="text-sm font-medium text-success">Payment number verified ✓</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {turnstileEnabled && (
+        <div className="flex justify-center">
+          <TurnstileWidget onToken={setTurnstileToken} onExpire={() => setTurnstileToken("")} />
+        </div>
+      )}
+
+      <Button
+        type="submit"
+        disabled={submitting || !selectedNetwork || (turnstileEnabled && !turnstileToken) || (otpRequired && !otpVerified) || (directCharge && !otpRequired && !/^0?\d{9}$/.test(paymentPhone.replace(/\D/g, "")))}
+        className="flex w-full items-center justify-center gap-2 rounded-2xl bg-success py-4 text-base font-bold text-white hover:bg-success/90"
+      >
+        {submitting ? (
+          <>
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Processing...
+          </>
+        ) : (
+          <>Proceed to payment <ArrowRight className="w-4 h-4" /></>
+        )}
+      </Button>
+    </form>
 
     {/* Live Mobile Money prompt modal (direct-charge flow). */}
     {momoModal && (
