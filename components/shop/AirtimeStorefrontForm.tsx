@@ -1,16 +1,16 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { Card, CardContent } from "@/components/ui/card"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Loader2, Zap, CheckCircle2, Circle, AlertCircle, ArrowRight } from "lucide-react"
+import { Loader2, CheckCircle2, Circle, ArrowRight } from "lucide-react"
 import { networkLogoService } from "@/lib/shop-service"
 import { validatePhoneNumber } from "@/lib/phone-validation"
 import { toast } from "sonner"
 import TurnstileWidget from "@/components/shop/TurnstileWidget"
 import HoneypotField from "@/components/shop/HoneypotField"
 import { useResendCooldown } from "@/lib/use-resend-cooldown"
+import { PaymentSheet } from "@/components/shop/PaymentSheet"
 
 // Same quick-amount set as the dashboard's Buy Airtime page (app/dashboard/airtime/page.tsx)
 const QUICK_AMOUNTS = [1, 2, 5, 10, 20, 50]
@@ -37,10 +37,15 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
   const [sendingOtp, setSendingOtp] = useState(false)
   const [verifyingOtp, setVerifyingOtp] = useState(false)
   const otpCooldown = useResendCooldown(paymentPhone.replace(/\D/g, ""))
-  // Live "approve the prompt" modal for the direct-charge flow
-  const [momoModal, setMomoModal] = useState<null | { state: "awaiting" | "otp" | "success" | "failed"; orderId?: string; reference?: string; summary?: any; message?: string }>(null)
+  // Live payment sheet for the direct-charge flow -- same persistent bottom
+  // sheet + state machine as the Data checkout (app/shop/[slug]/page.tsx).
+  const [momoModal, setMomoModal] = useState<null | { state: "sending" | "awaiting" | "otp" | "success" | "failed"; orderId?: string; reference?: string; summary?: any; message?: string }>(null)
   const [momoOtpInput, setMomoOtpInput] = useState("")
   const [momoOtpSubmitting, setMomoOtpSubmitting] = useState(false)
+  // Guards against in-flight order-init/charge-initialize/poll/OTP calls
+  // resolving AFTER the customer already dismissed the sheet, reopening a
+  // stale view on a sheet they already closed.
+  const paymentDismissedRef = useRef(false)
   const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null)
   const [networkLogos, setNetworkLogos] = useState<Record<string, string>>({})
   const [constraints, setConstraints] = useState<any>(null)
@@ -111,11 +116,12 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
     } catch { toast.error("Network error") } finally { setVerifyingOtp(false) }
   }
 
-  // Poll airtime order status while the live MoMo prompt modal is open.
+  // Poll airtime order status while the sheet's live MoMo view is showing.
   const pollMomoStatus = (orderId: string, summary: any) => {
     const started = Date.now()
     const TIMEOUT_MS = 4 * 60 * 1000
     const tick = async () => {
+      if (paymentDismissedRef.current) return
       if (Date.now() - started > TIMEOUT_MS) {
         setMomoModal({ state: "failed", message: "Payment timed out. If you approved the prompt, your order will still be processed — check your orders, or try again." })
         return
@@ -149,7 +155,9 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
         setMomoOtpSubmitting(false)
         return
       }
-      setMomoModal({ state: "awaiting", orderId: momoModal.orderId, reference: momoModal.reference, summary: momoModal.summary })
+      if (!paymentDismissedRef.current) {
+        setMomoModal({ state: "awaiting", orderId: momoModal.orderId, reference: momoModal.reference, summary: momoModal.summary })
+      }
       setMomoOtpInput("")
       setMomoOtpSubmitting(false)
     } catch {
@@ -276,6 +284,14 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
       return
     }
 
+    // Direct-charge orders take two sequential network round-trips (init
+    // order, then initialize the charge) before a MoMo prompt actually
+    // reaches the phone. Show the sheet's "sending" view immediately on
+    // submit instead of leaving the customer watching the button spinner.
+    if (directCharge) {
+      paymentDismissedRef.current = false
+      setMomoModal({ state: "sending" })
+    }
     try {
       setSubmitting(true)
 
@@ -330,6 +346,10 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
         if (!chargeRes.ok || !chargeData.success) {
           throw new Error(chargeData?.error || "Could not start the Mobile Money charge. Please try again.")
         }
+        // Customer already dismissed the sheet before this resolved -- the
+        // charge may still have fired (the webhook completes the order
+        // regardless), but don't reopen a view they already closed.
+        if (paymentDismissedRef.current) return
         setMomoModal({ state: chargeData.status === "send_otp" ? "otp" : "awaiting", orderId: data.orderId, reference: chargeData.reference, summary })
         pollMomoStatus(data.orderId, { ...summary, reference: chargeData.reference })
         return
@@ -358,7 +378,18 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
       }
 
     } catch (error: any) {
-      toast.error(error.message)
+      // A toast alone would be easy to miss behind the sheet's "sending"
+      // view, so surface direct-charge failures inside it instead -- unless
+      // the customer already dismissed the sheet themselves. Can't gate this
+      // on `momoModal?.state === "sending"`: that reads the binding this
+      // closure captured at call-start, which the earlier setMomoModal never
+      // updates (state setters don't mutate a running closure's locals).
+      // `directCharge` alone already implies we showed "sending" this call.
+      if (directCharge && !paymentDismissedRef.current) {
+        setMomoModal({ state: "failed", message: error.message })
+      } else if (!directCharge || !paymentDismissedRef.current) {
+        toast.error(error.message)
+      }
     } finally {
       setSubmitting(false)
     }
@@ -618,108 +649,56 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
       </Button>
     </form>
 
-    {/* Live Mobile Money prompt modal (direct-charge flow). */}
+    {/* Live Mobile Money prompt sheet (direct-charge flow) -- the same
+        persistent bottom sheet the Data checkout uses, shared via
+        components/shop/PaymentSheet.tsx. */}
     {momoModal && (
-      <div className="fixed inset-0 bg-background/60 flex items-center justify-center p-4 z-[60]">
-        <Card className="w-full max-w-md bg-card rounded-2xl">
-          {momoModal.state === "awaiting" && (
-            <CardContent className="pt-8 pb-6 text-center space-y-4">
-              <div className="mx-auto w-16 h-16 rounded-full bg-[var(--shop-accent)] flex items-center justify-center">
-                <Loader2 className="w-8 h-8 text-primary-foreground animate-spin" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-foreground">Approve the prompt on your phone</h3>
-                <p className="text-sm text-muted-foreground mt-1">
-                  We sent a Mobile Money prompt to{" "}
-                  <span className="font-semibold">{momoModal.summary?.paymentPhone}</span>. Enter your PIN to approve the payment of{" "}
-                  <span className="font-semibold">GHS {Number(momoModal.summary?.amount || 0).toFixed(2)}</span>.
-                </p>
-              </div>
-              <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-                <Loader2 className="w-3 h-3 animate-spin" /> Waiting for confirmation…
-              </div>
-              <p className="text-xs text-muted-foreground">Keep this page open. This can take up to a minute.</p>
-            </CardContent>
-          )}
-
-          {momoModal.state === "otp" && (
-            <CardContent className="pt-8 pb-6 text-center space-y-4">
-              <div className="mx-auto w-16 h-16 rounded-full bg-[var(--shop-accent)] flex items-center justify-center">
-                <Zap className="w-8 h-8 text-primary-foreground" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-foreground">Enter the code sent to your phone</h3>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Your provider sent a one-time code to{" "}
-                  <span className="font-semibold">{momoModal.summary?.paymentPhone}</span> to approve this payment.
-                </p>
-              </div>
-              <Input
-                type="text"
-                inputMode="numeric"
-                autoFocus
-                placeholder="Enter OTP"
-                value={momoOtpInput}
-                onChange={(e) => setMomoOtpInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") submitMomoOtp() }}
-                className="text-center text-lg tracking-widest"
-                disabled={momoOtpSubmitting}
-              />
-              <Button
-                onClick={submitMomoOtp}
-                disabled={momoOtpSubmitting || !momoOtpInput.trim()}
-                className="w-full bg-gradient-to-r from-[var(--shop-accent)] to-[var(--shop-accent)] hover:from-[var(--shop-accent)] hover:to-[var(--shop-accent)] rounded-xl"
-              >
-                {momoOtpSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Submit code"}
-              </Button>
-            </CardContent>
-          )}
-
-          {momoModal.state === "success" && (
-            <CardContent className="pt-8 pb-6 text-center space-y-4">
-              <div className="mx-auto w-16 h-16 rounded-full bg-success/15 flex items-center justify-center">
-                <CheckCircle2 className="w-9 h-9 text-success" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-foreground">Payment successful 🎉</h3>
-                <p className="text-sm text-muted-foreground mt-1">Your airtime order is confirmed and is being processed.</p>
-              </div>
-              <div className="text-left p-4 rounded-lg bg-muted/40 border border-border space-y-1.5 text-sm">
-                <div className="flex justify-between"><span className="text-muted-foreground">Item</span><span className="font-medium">{momoModal.summary?.packageLabel}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Recipient</span><span className="font-medium">{momoModal.summary?.beneficiary}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Paid from</span><span className="font-medium">{momoModal.summary?.paymentPhone}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="font-bold">GHS {Number(momoModal.summary?.amount || 0).toFixed(2)}</span></div>
-                {momoModal.summary?.reference && (
-                  <div className="flex justify-between"><span className="text-muted-foreground">Reference</span><span className="font-mono text-xs">{momoModal.summary.reference}</span></div>
-                )}
-              </div>
-              <Button
-                onClick={() => {
-                  setMomoModal(null)
-                  setFormData({ customerName: "", customerEmail: "", beneficiaryPhone: "", amount: "10" })
-                  setPaymentPhone(""); setOtpSent(false); setOtpVerified(false); setOtpCode(""); setSelectedNetwork(null)
-                }}
-                className="w-full bg-gradient-to-r from-[var(--shop-accent)] to-[var(--shop-accent)] hover:from-[var(--shop-accent)] hover:to-[var(--shop-accent)] rounded-xl"
-              >
-                Done
-              </Button>
-            </CardContent>
-          )}
-
-          {momoModal.state === "failed" && (
-            <CardContent className="pt-8 pb-6 text-center space-y-4">
-              <div className="mx-auto w-16 h-16 rounded-full bg-destructive/15 flex items-center justify-center">
-                <AlertCircle className="w-9 h-9 text-destructive" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-foreground">Payment not completed</h3>
-                <p className="text-sm text-muted-foreground mt-1">{momoModal.message || "The prompt was not approved. Please try again."}</p>
-              </div>
-              <Button variant="outline" onClick={() => { setMomoModal(null); setMomoOtpInput(""); setMomoOtpSubmitting(false) }} className="w-full rounded-xl">Close</Button>
-            </CardContent>
-          )}
-        </Card>
-      </div>
+      <PaymentSheet
+        modal={momoModal}
+        onCancelSending={() => { paymentDismissedRef.current = true; setMomoModal(null) }}
+        onDismiss={() => {
+          paymentDismissedRef.current = true
+          setMomoModal(null)
+          setFormData({ customerName: "", customerEmail: "", beneficiaryPhone: "", amount: "10" })
+          setPaymentPhone(""); setOtpSent(false); setOtpVerified(false); setOtpCode(""); setSelectedNetwork(null)
+          setMomoOtpInput(""); setMomoOtpSubmitting(false)
+        }}
+        onRetry={() => { setMomoModal(null); setMomoOtpInput(""); setMomoOtpSubmitting(false) }}
+        otpInput={momoOtpInput}
+        setOtpInput={setMomoOtpInput}
+        onSubmitOtp={submitMomoOtp}
+        otpSubmitting={momoOtpSubmitting}
+        renderSuccess={(modal) => (
+          <div className="px-5 pb-6 pt-2 text-center space-y-4">
+            <div className="mx-auto w-16 h-16 rounded-full bg-success/15 flex items-center justify-center">
+              <CheckCircle2 className="w-9 h-9 text-success" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-foreground">Payment successful 🎉</h3>
+              <p className="text-sm text-muted-foreground mt-1">Your airtime order is confirmed and is being processed.</p>
+            </div>
+            <div className="text-left p-4 rounded-2xl bg-muted/40 border border-border space-y-1.5 text-sm">
+              <div className="flex justify-between"><span className="text-muted-foreground">Item</span><span className="font-medium">{modal.summary?.packageLabel}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Recipient</span><span className="font-medium">{modal.summary?.beneficiary}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Paid from</span><span className="font-medium">{modal.summary?.paymentPhone}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="font-bold">GHS {Number(modal.summary?.amount || 0).toFixed(2)}</span></div>
+              {modal.summary?.reference && (
+                <div className="flex justify-between"><span className="text-muted-foreground">Reference</span><span className="font-mono text-xs">{modal.summary.reference}</span></div>
+              )}
+            </div>
+            <Button
+              onClick={() => {
+                setMomoModal(null)
+                setFormData({ customerName: "", customerEmail: "", beneficiaryPhone: "", amount: "10" })
+                setPaymentPhone(""); setOtpSent(false); setOtpVerified(false); setOtpCode(""); setSelectedNetwork(null)
+              }}
+              className="w-full rounded-2xl bg-success text-white hover:bg-success/90"
+            >
+              Done
+            </Button>
+          </div>
+        )}
+      />
     )}
     </>
   )

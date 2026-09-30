@@ -817,7 +817,12 @@ export default function ShopStorefront() {
       // miss behind it, so show the same full-screen error card the "prompt
       // declined" case uses instead, with the real failure reason. Skip it
       // if the customer already dismissed "sending" themselves.
-      if (directCharge && momoModal?.state === "sending" && !paymentDismissedRef.current) {
+      // NB: can't gate this on `momoModal?.state === "sending"` -- that reads
+      // the `momoModal` binding this async closure captured at call-start,
+      // which the `setMomoModal({ state: "sending" })` above never updates
+      // (state setters don't mutate a running closure's locals). `directCharge`
+      // alone already implies we showed "sending" for this call.
+      if (directCharge && !paymentDismissedRef.current) {
         setMomoModal({ state: "failed", message: errorMessage })
       } else if (!directCharge || !paymentDismissedRef.current) {
         toast.error(errorMessage)
