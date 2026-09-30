@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { UzoRequest, UzoResponse } from "./types"
-import { getSession, setSession, deleteSession } from "./session"
+import { getSession, setSession, deleteSession, isRedisConfigured } from "./session"
 import { cont, end, mainMenu } from "./menus"
 import { getUssdServiceVisibility } from "../ussd-service-visibility"
 
@@ -103,7 +103,14 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
   const session = await getSession(sessionID)
 
   if (!session) {
-    // Session expired or missing — restart (no whitelist re-check; show full menu, user re-dials)
+    // Session expired or missing — restart (no whitelist re-check; show full menu, user re-dials).
+    // Diagnostic log: distinguishes "Redis not configured at all" from a genuine
+    // TTL expiry or a transient Redis error (logged separately, by this same
+    // sessionID, in session.ts's getSession/setSession catch blocks).
+    console.warn(
+      "[USSD-SESSION] No session found for", sessionID,
+      "op:", ussdServiceOp, "redisConfigured:", isRedisConfigured()
+    )
     await setSession(sessionID, { step: 'MAIN', dialingPhone: msisdn })
     const visibility = await getUssdServiceVisibility(supabase)
     return cont('Time limit exceeded.\n\n' + mainMenu({
