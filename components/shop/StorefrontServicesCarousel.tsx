@@ -67,7 +67,7 @@ export function StorefrontServicesCarousel({ slides }: Props) {
             <button
               key={slide.key}
               onClick={slide.onClick}
-              className={`relative block w-full shrink-0 snap-start overflow-hidden rounded-2xl bg-gradient-to-br ${slide.gradient} p-5 pr-28 text-left sm:pr-36`}
+              className={`relative block w-full shrink-0 snap-start overflow-hidden rounded-2xl bg-gradient-to-br ${slide.gradient} p-5 pl-12 pr-28 text-left sm:pl-14 sm:pr-36`}
             >
               <span className="pointer-events-none absolute -right-8 -top-10 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
               <span className="pointer-events-none absolute -bottom-10 left-16 h-28 w-28 rounded-full bg-white/5 blur-xl" />

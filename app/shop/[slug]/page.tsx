@@ -1082,7 +1082,7 @@ export default function ShopStorefront() {
         {/* Services carousel — real services this shop offers (+ help, if a
             phone/WhatsApp is set), each CTA jumping straight to that service's
             content below. Same mechanics as the dashboard's promo carousel. */}
-        <div className="mt-6">
+        <div className="mt-6 mb-8">
           <StorefrontServicesCarousel slides={carouselSlides} />
         </div>
 
@@ -1167,8 +1167,6 @@ export default function ShopStorefront() {
                   /* Data Packages Section */
                   <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <div>
-                      <h2 className="text-2xl font-black mb-6 text-foreground border-l-4 border-[var(--shop-accent)] pl-4">Fast Data Packages</h2>
-
                       {packages.length === 0 ? (
                         <Card className="bg-card/50 border-2 border-dashed border-border backdrop-blur-sm">
                           <CardContent className="pt-12 pb-12 text-center">
