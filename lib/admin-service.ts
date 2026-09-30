@@ -739,9 +739,11 @@ export const adminDashboardService = {
     }
   },
 
-  // All-time breakdown panels (Revenue by Network, Growth & Roles, By
-  // Product, By Source, Top Packages, Top Agents) -- not range-scoped.
-  async getDashboardAnalytics() {
+  // Breakdown panels (Revenue by Network, By Product, By Source, Top
+  // Packages, Top Agents). `range` scopes those to "today" | "7d" | "30d",
+  // matching the hub's toggle. Growth & Roles is always a live snapshot,
+  // unaffected by `range`.
+  async getDashboardAnalytics(range?: "today" | "7d" | "30d") {
     try {
       const { data: { session } } = await supabase.auth.getSession()
 
@@ -749,7 +751,8 @@ export const adminDashboardService = {
         throw new Error("No authentication token available")
       }
 
-      const response = await fetch("/api/admin/dashboard-analytics", {
+      const url = range ? `/api/admin/dashboard-analytics?range=${range}` : "/api/admin/dashboard-analytics"
+      const response = await fetch(url, {
         headers: {
           Authorization: `Bearer ${session.access_token}`,
         },

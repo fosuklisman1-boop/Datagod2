@@ -2,10 +2,11 @@ import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 
-// All-time breakdown panels for the Admin Dashboard hub (Revenue by Network,
-// Growth & Roles, By Product, By Source, Top Packages, Top Agents).
-// Deliberately not range-scoped -- these are lifetime composition panels,
-// separate from get_admin_dashboard_hub_stats' Today/7D/30D toggle.
+// Breakdown panels for the Admin Dashboard hub (Revenue by Network, By
+// Product, By Source, Top Packages, Top Agents), scoped to the same
+// Today/7D/30D range as get_admin_dashboard_hub_stats. Growth & Roles
+// (new users / expiring / role mix) is always a live snapshot within
+// the RPC itself, independent of `range`.
 export async function GET(request: NextRequest) {
   try {
     const { isAdmin, errorResponse } = await verifyAdminAccess(request)
@@ -16,7 +17,9 @@ export async function GET(request: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY || ""
     )
 
-    const { data, error } = await supabase.rpc("get_admin_dashboard_analytics")
+    const rangeParam = request.nextUrl.searchParams.get("range")
+    const range = rangeParam === "today" || rangeParam === "30d" ? rangeParam : "7d"
+    const { data, error } = await supabase.rpc("get_admin_dashboard_analytics", { p_range: range })
     if (error) {
       console.error("[ADMIN-DASHBOARD-ANALYTICS] RPC failed:", error.message)
       return NextResponse.json({ error: error.message }, { status: 500 })

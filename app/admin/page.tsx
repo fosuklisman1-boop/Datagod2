@@ -134,9 +134,9 @@ export default function AdminDashboardPage() {
 
   useEffect(() => {
     if (isAdmin && !adminLoading) {
-      loadAnalytics()
+      loadAnalytics(range)
     }
-  }, [isAdmin, adminLoading])
+  }, [isAdmin, adminLoading, range])
 
   const checkScheduledOrders = async () => {
     try {
@@ -177,9 +177,9 @@ export default function AdminDashboardPage() {
     }
   }
 
-  const loadAnalytics = async () => {
+  const loadAnalytics = async (r: RangeId) => {
     try {
-      const data = await adminDashboardService.getDashboardAnalytics()
+      const data = await adminDashboardService.getDashboardAnalytics(r)
       setAnalytics(data)
     } catch (error) {
       console.error("Error loading dashboard analytics:", error)
