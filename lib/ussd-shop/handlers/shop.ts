@@ -191,7 +191,7 @@ export async function handleSelectProduct(
   switch (matchedKey) {
     case 'data': {
       const networks = session.networks ?? []
-      if (networks.length === 0) return cont('No bundles available.\n\n' + productMenu(shopName, effective))
+      if (networks.length === 0) return cont('No packages available.\n\n' + productMenu(shopName, effective))
       await setSession(sessionId, { ...session, step: 'SELECT_NETWORK' })
       return cont(networkMenu(shopName, networks))
     }

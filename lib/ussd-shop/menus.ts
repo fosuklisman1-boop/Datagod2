@@ -1,5 +1,6 @@
 import { UzoResponse, ShopBundleOption } from "./types"
 import { MenuItemDef, resolveMenuItems, renderMenuText } from "../ussd/menu-items"
+import { networkNickname } from "../ussd/network-labels"
 
 const PAGE_SIZE = 5
 const SCREEN_LIMIT = 160
@@ -33,7 +34,7 @@ export function invalidCodeMenu(reason: string): string {
 export type ProductMenuKey = "data" | "airtime" | "resultsChecker"
 
 const PRODUCT_MENU_ITEMS: MenuItemDef<ProductMenuKey>[] = [
-  { key: "data", label: "Data Bundle" },
+  { key: "data", label: "Browse Services" },
   { key: "airtime", label: "Airtime" },
   { key: "resultsChecker", label: "Results Checker" },
 ]
@@ -94,7 +95,7 @@ export function shopRcConfirmMenu(shopName: string, board: string, qty: number, 
   )
 }
 
-const NETWORK_PRIORITY: Record<string, number> = { mtn: 1, telecel: 2, airteltigo: 3, 'at-ishare': 4 }
+const NETWORK_PRIORITY: Record<string, number> = { mtn: 1, telecel: 2, airteltigo: 3, 'at-ishare': 4, 'at-bigtime': 5 }
 
 export function sortNetworks(nets: string[]): string[] {
   return [...nets].sort((a, b) => {
@@ -106,7 +107,7 @@ export function sortNetworks(nets: string[]): string[] {
 
 export function networkMenu(shopName: string, networks: string[]): string {
   const sorted = sortNetworks(networks)
-  const lines = sorted.map((n, i) => `${i + 1}. ${n}`)
+  const lines = sorted.map((n, i) => `${i + 1}. ${networkNickname(n)}`)
   lines.push('0. Back')
   return `${gsm7(shopName)}\nSelect Network:\n` + lines.join('\n')
 }
@@ -125,7 +126,7 @@ export function bundleMenu(
 ): { text: string; shown: number } {
   const offset = page * PAGE_SIZE
   const limit = 160
-  const header = `${gsm7(shopName)}\nSelect Bundle:\n`
+  const header = `${gsm7(shopName)}\nSelect Package:\n`
   const back = '0. Back'
 
   let body = ''
@@ -151,7 +152,7 @@ export function bundleMenu(
 }
 
 export function recipientPrompt(): string {
-  return 'Enter recipient number\n(who gets the data):\n\n0. Back'
+  return 'Enter recipient number:\n(who gets it):\n\n0. Back'
 }
 
 export function confirmMenu(shopName: string, network: string, size: string, price: number, recipient: string, dialingPhone: string): string {

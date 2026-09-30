@@ -2,6 +2,7 @@ import { after } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { UzoResponse, USSDShopSession } from "../types"
 import { cont, end, networkMenu, bundleMenu, recipientPrompt, confirmMenu, paymentSentMenu, otpMenu, sortNetworks } from "../menus"
+import { networkNickname } from "@/lib/ussd/network-labels"
 import { setSession } from "../session"
 import { resolveEmail } from "@/lib/ussd/resolve-email"
 import { chargeMobileMoney, submitOtp } from "@/lib/paystack"
@@ -56,13 +57,13 @@ export async function handleSelectNetwork(
   ])
   const hasPurchasedOrWhitelisted = hasPurchasedData === true
   if (whitelistRow?.value?.enabled === true && !hasPurchasedOrWhitelisted) {
-    return cont('Data bundles not available.\nSign up on our app\nto unlock this service.\n\n' + networkMenu(session.shopName!, networks))
+    return cont('Not available.\nSign up on our app\nto unlock this service.\n\n' + networkMenu(session.shopName!, networks))
   }
 
   const allBundles = await fetchShopBundles(session.shopId!, selectedNetwork, session.parentShopId)
 
   if (allBundles.length === 0) {
-    return cont(`No ${selectedNetwork} bundles available.\n\n${networkMenu(session.shopName!, networks)}`)
+    return cont(`No ${networkNickname(selectedNetwork)} packages available.\n\n${networkMenu(session.shopName!, networks)}`)
   }
 
   if (!paystackProvider) {
@@ -173,7 +174,7 @@ export async function handleEnterRecipient(
 
   return cont(confirmMenu(
     session.shopName!,
-    session.network!,
+    networkNickname(session.network!),
     session.bundleSize!,
     session.bundlePrice!,
     local,
@@ -194,7 +195,7 @@ export async function handleConfirm(
   if (input.trim() !== '1') {
     return cont(confirmMenu(
       session.shopName!,
-      session.network!,
+      networkNickname(session.network!),
       session.bundleSize!,
       session.bundlePrice!,
       session.recipientPhone!,
