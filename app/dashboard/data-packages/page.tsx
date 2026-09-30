@@ -416,7 +416,17 @@ function DataPackagesPageInner() {
                   </span>
                 )}
                 {logo ? (
-                  <img src={logo} alt={m.label} className="h-9 w-9 sm:h-10 sm:w-10 object-contain" />
+                  net === "Telecel" ? (
+                    // Telecel's logo art crops badly under object-cover (zooms in
+                    // past the wordmark) -- kept inset/contain for this one network.
+                    <span className="grid h-9 w-9 sm:h-10 sm:w-10 place-items-center rounded-full bg-muted">
+                      <img src={logo} alt={m.label} className="h-7 w-7 sm:h-8 sm:w-8 object-contain" />
+                    </span>
+                  ) : (
+                    <span className="block h-9 w-9 sm:h-10 sm:w-10 overflow-hidden rounded-full bg-card">
+                      <img src={logo} alt={m.label} className="h-full w-full object-cover" />
+                    </span>
+                  )
                 ) : (
                   <span className={`flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full text-sm font-extrabold ${m.className}`}>
                     {m.avatar}

@@ -1318,9 +1318,18 @@ export default function ShopStorefront() {
                                       <CheckCircle2 className="h-3 w-3" />
                                     </span>
                                   )}
-                                  <span className="block h-11 w-11 sm:h-14 sm:w-14 overflow-hidden rounded-full bg-card">
-                                    <img src={getNetworkLogo(network as string)} alt={network as string} className="h-full w-full object-cover" />
-                                  </span>
+                                  {network === "Telecel" ? (
+                                    // Telecel's logo art crops badly under object-cover (zooms
+                                    // in past the wordmark) -- reverted to the inset/contain
+                                    // treatment for this one network only.
+                                    <span className="grid h-11 w-11 sm:h-14 sm:w-14 place-items-center rounded-full" style={{ backgroundColor: `${netColor}22` }}>
+                                      <img src={getNetworkLogo(network as string)} alt={network as string} className="h-8 w-8 sm:h-9 sm:w-9 object-contain" />
+                                    </span>
+                                  ) : (
+                                    <span className="block h-11 w-11 sm:h-14 sm:w-14 overflow-hidden rounded-full bg-card">
+                                      <img src={getNetworkLogo(network as string)} alt={network as string} className="h-full w-full object-cover" />
+                                    </span>
+                                  )}
                                   <p className="text-xs sm:text-sm font-bold text-foreground">{network}</p>
                                   {availableCount > 0 ? (
                                     <p className="flex items-center gap-1 text-[10px] sm:text-xs font-semibold text-success"><span className="h-1.5 w-1.5 rounded-full bg-success" /> Live</p>
