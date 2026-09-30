@@ -45,7 +45,8 @@ import {
   LayoutGrid,
   ChevronDown,
   ChevronUp,
-  Smartphone
+  Smartphone,
+  UserPlus
 } from "lucide-react"
 import { AirtimeStorefrontForm } from "@/components/shop/AirtimeStorefrontForm"
 import { ResultsCheckerStorefrontForm } from "@/components/shop/ResultsCheckerStorefrontForm"
@@ -178,6 +179,15 @@ export default function ShopStorefront() {
   // wouldn't visibly change anything still on screen.
   const scrollToServiceTabs = () => {
     setTimeout(() => serviceTabsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50)
+  }
+
+  // Same idea for the carousel's "Become a sub-agent" slide -- it switches to
+  // the About tab (where SubAgentRequestForm actually lives) and scrolls
+  // straight to that card once the tab's content has mounted.
+  const subAgentCardRef = useRef<HTMLDivElement>(null)
+  const goToSubAgentForm = () => {
+    setActiveTab("about")
+    setTimeout(() => subAgentCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50)
   }
 
   // Standalone "check your MTN number" widget — reuses the same real, already-
@@ -1024,6 +1034,11 @@ export default function ShopStorefront() {
       cta: "Contact Us", icon: MessageCircle, gradient: "from-[#1e1b4b] to-[#4f46e5]",
       onClick: () => { if (helpWhatsAppLink) window.open(helpWhatsAppLink, "_blank"); else if (shop?.phone) window.location.href = `tel:${shop.phone}` },
     }] : []),
+    {
+      key: "sub-agent", badge: "PARTNER", title: "Become a Sub-Agent", description: "Start your own shop under this business and earn commission.",
+      cta: "Apply Now", icon: UserPlus, gradient: "from-[#083344] to-[#0891b2]",
+      onClick: goToSubAgentForm,
+    },
   ]
 
   return (
@@ -1591,11 +1606,13 @@ export default function ShopStorefront() {
 
                 {/* Become a sub-agent under this shop — customer-initiated
                     request queue, reviewed by the shop owner in their dashboard. */}
-                <Card className="border-0 shadow-md">
-                  <CardContent className="pt-6">
-                    <SubAgentRequestForm shopSlug={shopSlug} />
-                  </CardContent>
-                </Card>
+                <div ref={subAgentCardRef}>
+                  <Card className="border-0 shadow-md">
+                    <CardContent className="pt-6">
+                      <SubAgentRequestForm shopSlug={shopSlug} />
+                    </CardContent>
+                  </Card>
+                </div>
 
                 {/* Platform Terms of Service */}
                 <ShopTermsSection termsContent={termsContent} termsLastUpdated={termsLastUpdated} />
