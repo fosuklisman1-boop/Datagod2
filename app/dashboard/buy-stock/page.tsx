@@ -1,23 +1,23 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Wallet,
   Loader2,
   AlertCircle,
   ShoppingCart,
   Grid3x3,
-  List
+  List,
+  Search,
+  CheckCircle2,
 } from "lucide-react"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
+import { networkLogoService } from "@/lib/shop-service"
 import { PhoneNumberModal } from "@/components/phone-number-modal"
 import { SuccessModal } from "@/components/success-modal"
 
@@ -31,15 +31,30 @@ interface WholesalePackage {
   profit_margin?: number
 }
 
+// Same real brand tokens Data Packages uses (app/dashboard/data-packages/
+// page.tsx) -- not shared via a lib, each page defines its own copy, matching
+// the established pattern across this rebuild. Keys match the real
+// packages.network values exactly: "AT - iShare" / "AT - BigTime", WITH
+// spaces around the hyphen.
+const NETWORK_META: Record<string, { label: string; avatar: string; badge: string; className: string; border: string }> = {
+  MTN: { label: "MTN", avatar: "M", badge: "MTN", className: "bg-mtn text-mtn-foreground", border: "border-mtn" },
+  Telecel: { label: "Telecel", avatar: "T", badge: "Telecel", className: "bg-telecel text-telecel-foreground", border: "border-telecel" },
+  "AT - iShare": { label: "AT iShare", avatar: "A", badge: "AT-iS", className: "bg-at text-at-foreground", border: "border-at" },
+  "AT - BigTime": { label: "AT BigTime", avatar: "A", badge: "AT-BT", className: "bg-violet-600 text-white", border: "border-violet-600" },
+}
+const NETWORK_ORDER = Object.keys(NETWORK_META)
+
 export default function BuyStockPage() {
   const [loading, setLoading] = useState(true)
   const [packages, setPackages] = useState<WholesalePackage[]>([])
   const [walletBalance, setWalletBalance] = useState(0)
-  const [selectedNetwork, setSelectedNetwork] = useState<string>("all")
   const [purchasing, setPurchasing] = useState<string | null>(null)
   const [userRole, setUserRole] = useState<string | null>(null)
   const [shopId, setShopId] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid")
+  const [selectedNetwork, setSelectedNetwork] = useState("MTN")
+  const [searchTerm, setSearchTerm] = useState("")
+  const [networkLogos, setNetworkLogos] = useState<Record<string, string>>({})
 
   // Phone modal state
   const [phoneModalOpen, setPhoneModalOpen] = useState(false)
@@ -54,7 +69,30 @@ export default function BuyStockPage() {
 
   useEffect(() => {
     loadData()
+    loadNetworkLogos()
   }, [])
+
+  const loadNetworkLogos = async () => {
+    try {
+      const logos = await networkLogoService.getLogosAsObject()
+      setNetworkLogos(logos)
+    } catch (error) {
+      console.error("Error loading network logos:", error)
+    }
+  }
+
+  const getNetworkLogo = (network: string): string => {
+    if (networkLogos[network]) return networkLogos[network]
+    const normalized = network.charAt(0).toUpperCase() + network.slice(1).toLowerCase()
+    return networkLogos[normalized] || ""
+  }
+
+  const extractSizeValue = (size: string): number => {
+    const normalized = size.trim().toUpperCase()
+    const match = normalized.match(/^(\d+)(?:\D|$)/)
+    if (!match) return 0
+    return parseInt(match[1], 10)
+  }
 
   const loadData = async () => {
     try {
@@ -182,11 +220,19 @@ export default function BuyStockPage() {
     }
   }
 
-  const networks = [...new Set(packages.map(p => p.network))]
+  const packagesForSelectedNetwork = useMemo(
+    () => packages.filter((p) => p.network === selectedNetwork),
+    [packages, selectedNetwork]
+  )
 
-  const filteredPackages = selectedNetwork === "all"
-    ? packages
-    : packages.filter(p => p.network === selectedNetwork)
+  const filteredPackages = useMemo(() => {
+    const search = searchTerm.toLowerCase()
+    return packagesForSelectedNetwork
+      .filter((pkg) => !search || pkg.size.toLowerCase().includes(search))
+      .sort((a, b) => extractSizeValue(a.size) - extractSizeValue(b.size))
+  }, [packagesForSelectedNetwork, searchTerm])
+
+  const meta = NETWORK_META[selectedNetwork] || NETWORK_META.MTN
 
   const handleBuyClick = (pkg: WholesalePackage) => {
     if (walletBalance < (pkg.parent_price || 0)) {
@@ -286,8 +332,8 @@ export default function BuyStockPage() {
 
       // Close phone modal specifically before opening success modal
       setPhoneModalOpen(false)
-      
-      // Delay just slightly to avoid React state/z-index collision with closing modal 
+
+      // Delay just slightly to avoid React state/z-index collision with closing modal
       setTimeout(() => {
         setSuccessModal({
           open: true,
@@ -314,8 +360,8 @@ export default function BuyStockPage() {
   if (loading) {
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center h-64">
-          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+        <div className="flex items-center justify-center h-screen">
+          <Loader2 className="w-8 h-8 animate-spin text-[#1b388b]" />
         </div>
       </DashboardLayout>
     )
@@ -336,151 +382,179 @@ export default function BuyStockPage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
+      <div className="relative mx-auto max-w-5xl space-y-5 px-2 pb-16 sm:px-4 md:px-8">
         {!globalOrderingEnabled && (
-          <Alert className="mb-8 border-destructive/30 bg-destructive/10 shadow-md">
-            <AlertDescription className="text-destructive font-bold text-center">
-              The system is currently in maintenance mode. Data package purchases are temporarily disabled.
-            </AlertDescription>
-          </Alert>
-        )}
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-primary to-pink-600 bg-clip-text text-transparent">
-              Buy Stock
-            </h1>
-            <p className="text-muted-foreground mt-1">Purchase data packages at wholesale prices</p>
+          <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-center text-sm font-bold text-destructive shadow-md">
+            The system is currently in maintenance mode. Data package purchases are temporarily disabled.
           </div>
+        )}
 
-          {/* Wallet Balance */}
-          <Card className="w-fit">
-            <CardContent className="p-4 flex items-center gap-3">
-              <Wallet className="w-5 h-5 text-success" />
-              <div>
-                <p className="text-xs text-muted-foreground">Wallet Balance</p>
-                <p className="text-lg font-bold text-success">GHS {Math.max(0, walletBalance || 0).toFixed(2)}</p>
-              </div>
-            </CardContent>
-          </Card>
+        {/* Header */}
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h1 className="flex items-center gap-2 text-2xl font-bold text-foreground"><ShoppingCart className="h-5 w-5 text-[#1b388b]" /> Buy Data</h1>
+            <p className="mt-1 text-sm text-muted-foreground">Purchase data packages at your parent shop&apos;s wholesale prices</p>
+          </div>
+          <div className="shrink-0 rounded-2xl border border-border bg-card px-4 py-2.5 text-right">
+            <p className="flex items-center justify-end gap-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground"><Wallet className="h-3 w-3" /> Balance</p>
+            <p className="text-lg font-black text-success">GHS {Math.max(0, walletBalance || 0).toFixed(2)}</p>
+          </div>
         </div>
 
-        {/* Filters */}
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="flex items-center gap-2">
-            <Label>Network:</Label>
-            <Select value={selectedNetwork} onValueChange={setSelectedNetwork}>
-              <SelectTrigger className="w-48">
-                <SelectValue placeholder="All Networks" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Networks</SelectItem>
-                {networks.map(network => (
-                  <SelectItem key={network} value={network}>{network}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        {/* Network picker */}
+        <div className="grid grid-cols-4 gap-2 sm:gap-3">
+          {NETWORK_ORDER.map((net) => {
+            const m = NETWORK_META[net]
+            const isSelected = selectedNetwork === net
+            const isLive = packages.some((p) => p.network === net)
+            const logo = getNetworkLogo(net)
+            return (
+              <button
+                key={net}
+                onClick={() => setSelectedNetwork(net)}
+                className={`relative flex flex-col items-center gap-1.5 rounded-2xl border-2 bg-card p-2.5 sm:p-4 transition ${
+                  isSelected ? `${m.border} shadow-sm` : "border-border hover:border-[#1b388b]/30"
+                }`}
+              >
+                {isSelected && (
+                  <span className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-success text-white">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                  </span>
+                )}
+                {logo ? (
+                  net === "Telecel" ? (
+                    <span className="grid h-9 w-9 sm:h-10 sm:w-10 place-items-center rounded-full bg-muted">
+                      <img src={logo} alt={m.label} className="h-7 w-7 sm:h-8 sm:w-8 object-contain" />
+                    </span>
+                  ) : (
+                    <span className="block h-9 w-9 sm:h-10 sm:w-10 overflow-hidden rounded-full bg-card">
+                      <img src={logo} alt={m.label} className="h-full w-full object-cover" />
+                    </span>
+                  )
+                ) : (
+                  <span className={`flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full text-sm font-extrabold ${m.className}`}>
+                    {m.avatar}
+                  </span>
+                )}
+                <span className="text-xs sm:text-sm font-bold text-foreground">{m.label}</span>
+                <span className="flex items-center gap-1 text-[10px] sm:text-xs font-semibold text-success">
+                  <span className="h-1.5 w-1.5 rounded-full bg-success" /> {isLive ? "Live" : "No Packages"}
+                </span>
+              </button>
+            )
+          })}
+        </div>
 
-          {/* View Toggle */}
-          <div className="flex items-center gap-1 ml-auto">
-            <Button
-              variant={viewMode === "grid" ? "default" : "ghost"}
-              size="icon"
-              className="h-8 w-8"
+        {/* Search + view toggle */}
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search packages..."
+              className="rounded-2xl border-border bg-card pl-10"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+          <div className="flex overflow-hidden rounded-2xl bg-muted p-1">
+            <button
               onClick={() => setViewMode("grid")}
+              className={`flex items-center justify-center rounded-xl px-3 py-2 transition ${viewMode === "grid" ? "bg-foreground text-background" : "text-muted-foreground"}`}
             >
               <Grid3x3 className="h-4 w-4" />
-            </Button>
-            <Button
-              variant={viewMode === "list" ? "default" : "ghost"}
-              size="icon"
-              className="h-8 w-8"
+            </button>
+            <button
               onClick={() => setViewMode("list")}
+              className={`flex items-center justify-center rounded-xl px-3 py-2 transition ${viewMode === "list" ? "bg-foreground text-background" : "text-muted-foreground"}`}
             >
               <List className="h-4 w-4" />
-            </Button>
+            </button>
           </div>
         </div>
 
         {/* Packages */}
-        {filteredPackages.length === 0 ? (
-          <Card>
-            <CardContent className="p-8 text-center text-muted-foreground">
-              No packages available. Your parent shop needs to add packages to their catalog.
-            </CardContent>
-          </Card>
-        ) : viewMode === "grid" ? (
-          <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+        {viewMode === "grid" ? (
+          <div className="grid grid-cols-2 gap-3 sm:gap-4">
             {filteredPackages.map((pkg) => (
-              <Card key={pkg.id} className="relative hover:shadow-lg transition-shadow">
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <Badge variant="outline">{pkg.network}</Badge>
+              <div key={pkg.id} className={`overflow-hidden rounded-2xl ${meta.className}`}>
+                <div className="p-4 pb-6 sm:p-5 sm:pb-8">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-xs font-extrabold">
+                      {meta.avatar}
+                    </span>
+                    <span className="rounded-full bg-white/20 px-2.5 py-1 text-[10px] font-bold">{meta.badge}</span>
                   </div>
-                  <CardTitle className="text-lg">{pkg.size}</CardTitle>
-                  <CardDescription>{pkg.description || pkg.network}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground text-sm">Price:</span>
-                    <span className="font-bold text-lg text-primary">GHS {(pkg.parent_price || 0).toFixed(2)}</span>
-                  </div>
-
-                  <Button
-                    className="w-full"
-                    onClick={() => handleBuyClick(pkg)}
-                    disabled={purchasing === pkg.id || walletBalance < pkg.parent_price || !globalOrderingEnabled}
-                  >
-                    {purchasing === pkg.id ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Processing...
-                      </>
-                    ) : walletBalance < pkg.parent_price ? (
-                      "Insufficient Balance"
-                    ) : (
-                      <>
-                        <ShoppingCart className="w-4 h-4 mr-2" />
-                        Buy Now
-                      </>
-                    )}
-                  </Button>
-                </CardContent>
-              </Card>
+                  <p className="mt-3 text-2xl sm:text-3xl font-extrabold">
+                    {pkg.size.toString().replace(/[^0-9]/g, "")}GB
+                  </p>
+                  <p className="text-sm sm:text-base font-bold opacity-90">GHS {(pkg.parent_price || 0).toFixed(2)}</p>
+                  {pkg.description && (
+                    <p className="mt-1.5 text-[11px] opacity-80">• {pkg.description}</p>
+                  )}
+                </div>
+                <button
+                  onClick={() => handleBuyClick(pkg)}
+                  disabled={purchasing === pkg.id || walletBalance < pkg.parent_price || !globalOrderingEnabled}
+                  className="flex w-full items-center justify-center gap-2 bg-black/20 py-3 text-sm font-bold disabled:opacity-50"
+                >
+                  {purchasing === pkg.id ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <ShoppingCart className="h-4 w-4" />
+                  )}
+                  {purchasing === pkg.id ? "Processing..." : walletBalance < pkg.parent_price ? "Insufficient Balance" : "Buy Now"}
+                </button>
+              </div>
             ))}
+            {filteredPackages.length === 0 && (
+              <p className="col-span-2 py-8 text-center text-sm text-muted-foreground">
+                No {meta.label} packages available. Your parent shop needs to add packages to their catalog.
+              </p>
+            )}
           </div>
         ) : (
-          <div className="space-y-2">
-            {filteredPackages.map((pkg) => (
-              <Card key={pkg.id} className="hover:shadow-md transition-shadow">
-                <CardContent className="p-4 flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-4 flex-1">
-                    <Badge variant="outline">{pkg.network}</Badge>
-                    <span className="font-medium">{pkg.size}</span>
-                    <span className="text-muted-foreground text-sm hidden sm:block">{pkg.description}</span>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <span className="font-bold text-primary">GHS {(pkg.parent_price || 0).toFixed(2)}</span>
-                    <Button
-                      size="sm"
-                      onClick={() => handleBuyClick(pkg)}
-                      disabled={purchasing === pkg.id || walletBalance < pkg.parent_price || !globalOrderingEnabled}
-                    >
-                      {purchasing === pkg.id ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : walletBalance < pkg.parent_price ? (
-                        "Low Balance"
-                      ) : (
-                        "Buy"
-                      )}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+          <div className="overflow-x-auto rounded-2xl border border-border">
+            <table className="w-full min-w-[500px] text-sm">
+              <thead className="border-b border-border bg-muted/40">
+                <tr>
+                  <th className="px-4 py-3 text-left font-semibold text-foreground">Size</th>
+                  <th className="px-4 py-3 text-left font-semibold text-foreground">Price</th>
+                  <th className="px-4 py-3 text-left font-semibold text-foreground">Description</th>
+                  <th className="px-4 py-3 text-left font-semibold text-foreground">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {filteredPackages.map((pkg) => (
+                  <tr key={pkg.id} className="hover:bg-muted/30">
+                    <td className="px-4 py-3 font-semibold text-foreground whitespace-nowrap">{pkg.size.toString().replace(/[^0-9]/g, "")}GB</td>
+                    <td className="px-4 py-3 font-bold text-foreground whitespace-nowrap">GHS {(pkg.parent_price || 0).toFixed(2)}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{pkg.description || "-"}</td>
+                    <td className="px-4 py-3">
+                      <Button
+                        size="sm"
+                        onClick={() => handleBuyClick(pkg)}
+                        disabled={purchasing === pkg.id || walletBalance < pkg.parent_price || !globalOrderingEnabled}
+                      >
+                        {purchasing === pkg.id ? <Loader2 className="h-3 w-3 animate-spin" /> : walletBalance < pkg.parent_price ? "No Balance" : "Buy"}
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+                {filteredPackages.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                      No {meta.label} packages available. Your parent shop needs to add packages to their catalog.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         )}
+
+        <p className="text-xs text-muted-foreground">
+          Showing {filteredPackages.length} of {packagesForSelectedNetwork.length} {meta.label} packages
+        </p>
       </div>
 
       {/* Phone Number Modal */}
