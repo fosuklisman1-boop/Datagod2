@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo, Suspense } from "react"
+import { useState, useEffect, useMemo, useRef, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useAuth } from "@/hooks/use-auth"
 import { useUserRole } from "@/hooks/use-user-role"
@@ -12,8 +12,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Grid3x3, List, Search, Loader2, ShieldCheck, ExternalLink, RefreshCw, ShoppingCart, CheckCircle2, XCircle } from "lucide-react"
-import { PhoneNumberModal } from "@/components/phone-number-modal"
-import { SuccessModal } from "@/components/success-modal"
+import { PurchaseSheet, type PurchaseSheetModal } from "@/components/dashboard/PurchaseSheet"
 import { BulkOrdersForm } from "@/components/bulk-orders-form"
 import { networkLogoService } from "@/lib/shop-service"
 import { supabase } from "@/lib/supabase"
@@ -59,7 +58,10 @@ function DataPackagesPageInner() {
   const [refreshing, setRefreshing] = useState(false)
   const [purchasing, setPurchasing] = useState<string | null>(null)
   const [wallet, setWallet] = useState<{ balance: number } | null>(null)
-  const [phoneModalOpen, setPhoneModalOpen] = useState(false)
+  const [purchaseModal, setPurchaseModal] = useState<PurchaseSheetModal | null>(null)
+  // Guards the in-flight purchase POST from reopening a stale success/failed
+  // view after the customer already dismissed the sheet themselves.
+  const purchaseDismissedRef = useRef(false)
   const [selectedPackageForPurchase, setSelectedPackageForPurchase] = useState<Package | null>(null)
   const [verifyWarningOpen, setVerifyWarningOpen] = useState(false)
   const [pendingPhoneNumber, setPendingPhoneNumber] = useState<string | null>(null)
@@ -72,12 +74,6 @@ function DataPackagesPageInner() {
   const [regCheckInput, setRegCheckInput] = useState("")
   const [regChecking, setRegChecking] = useState(false)
   const [regResults, setRegResults] = useState<{ phone: string; verified: boolean }[] | null>(null)
-  const [successModal, setSuccessModal] = useState<{
-    open: boolean
-    title: string
-    message: string
-    details: Array<{ label: string; value: string }>
-  }>({ open: false, title: "", message: "", details: [] })
   // Live network->prefix map (admin-editable) for pre-submit validation;
   // falls back to the hardcoded default if the fetch fails.
   const [prefixMap, setPrefixMap] = useState<NetworkPrefixMap>(DEFAULT_NETWORK_PREFIXES)
@@ -230,7 +226,8 @@ function DataPackagesPageInner() {
       return
     }
     setSelectedPackageForPurchase(pkg)
-    setPhoneModalOpen(true)
+    purchaseDismissedRef.current = false
+    setPurchaseModal({ state: "phone" })
   }
 
   const handlePhoneNumberSubmit = async (phoneNumber: string, skipVerification = false) => {
@@ -246,6 +243,7 @@ function DataPackagesPageInner() {
     }
 
     setPurchasing(selectedPackageForPurchase.id)
+    setPurchaseModal({ state: "processing" })
 
     if (!skipVerification && selectedPackageForPurchase.network.toUpperCase() === "MTN") {
       try {
@@ -259,7 +257,7 @@ function DataPackagesPageInner() {
           const verifiedResult = verifyData.results?.[0]?.verified
           if (verifiedResult === false) {
             setPurchasing(null)
-            setPhoneModalOpen(false)
+            setPurchaseModal(null)
             setPendingPhoneNumber(phoneNumber)
             setVerifyWarningOpen(true)
             return
@@ -279,7 +277,7 @@ function DataPackagesPageInner() {
       if (!session?.access_token) {
         toast.error("Session expired, please login again")
         setPurchasing(null)
-        setPhoneModalOpen(false)
+        setPurchaseModal(null)
         return
       }
 
@@ -298,34 +296,31 @@ function DataPackagesPageInner() {
 
       const data = await response.json()
       if (!response.ok) {
-        toast.error(data.error || "Purchase failed")
+        if (!purchaseDismissedRef.current) setPurchaseModal({ state: "failed", message: data.error || "Purchase failed" })
         return
       }
 
       setWallet({ balance: data.newBalance })
       toast.success(`Successfully purchased ${selectedPackageForPurchase.network} ${selectedPackageForPurchase.size}!`)
-      setPhoneModalOpen(false)
 
-      setTimeout(() => {
-        setSuccessModal({
-          open: true,
-          title: "Purchase Successful!",
-          message: "Your data package has been ordered and will be delivered shortly.",
-          details: [
-            { label: "Package", value: `${selectedPackageForPurchase?.network} ${selectedPackageForPurchase?.size}` },
-            { label: "Amount", value: `GHS ${(selectedPackageForPurchase?.price || 0).toFixed(2)}` },
-            { label: "New Balance", value: `GHS ${(data.newBalance || 0).toFixed(2)}` },
-          ],
-        })
-      }, 100)
+      // Customer already dismissed the sheet before this resolved -- the
+      // order still went through, but don't reopen a view they already closed.
+      if (purchaseDismissedRef.current) return
+      setPurchaseModal({
+        state: "success",
+        summary: {
+          packageLabel: `${selectedPackageForPurchase.network} ${selectedPackageForPurchase.size}`,
+          amount: selectedPackageForPurchase.price,
+          newBalance: data.newBalance,
+        },
+      })
 
-      setTimeout(() => router.push("/dashboard/my-orders"), 3500)
+      setTimeout(() => { if (!purchaseDismissedRef.current) router.push("/dashboard/my-orders") }, 3500)
     } catch (error) {
       console.error("Purchase error:", error)
-      toast.error("An error occurred during purchase")
+      if (!purchaseDismissedRef.current) setPurchaseModal({ state: "failed", message: "An error occurred during purchase" })
     } finally {
       setPurchasing(null)
-      setSelectedPackageForPurchase(null)
     }
   }
 
@@ -337,6 +332,18 @@ function DataPackagesPageInner() {
       setPurchasing(selectedPackageForPurchase.id)
       await handlePhoneNumberSubmit(phone, true)
     }
+  }
+
+  const handleCancelPurchase = () => {
+    purchaseDismissedRef.current = true
+    setPurchaseModal(null)
+    setSelectedPackageForPurchase(null)
+  }
+
+  const handleDismissPurchase = () => {
+    purchaseDismissedRef.current = true
+    setPurchaseModal(null)
+    setSelectedPackageForPurchase(null)
   }
 
   const handleRegCheck = async () => {
@@ -643,23 +650,37 @@ function DataPackagesPageInner() {
           </DialogContent>
         </Dialog>
 
-        <PhoneNumberModal
-          open={phoneModalOpen}
-          onOpenChange={setPhoneModalOpen}
-          onSubmit={handlePhoneNumberSubmit}
-          isLoading={purchasing !== null}
-          packageName={selectedPackageForPurchase ? `${selectedPackageForPurchase.network} ${selectedPackageForPurchase.size}` : "Data Package"}
-        />
-
-        <SuccessModal
-          open={successModal.open}
-          onClose={() => setSuccessModal({ ...successModal, open: false })}
-          title={successModal.title}
-          message={successModal.message}
-          details={successModal.details}
-          actionLabel="View Orders"
-          onAction={() => router.push("/dashboard/my-orders")}
-        />
+        {purchaseModal && (
+          <PurchaseSheet
+            modal={purchaseModal}
+            packageName={selectedPackageForPurchase ? `${selectedPackageForPurchase.network} ${selectedPackageForPurchase.size}` : "Data Package"}
+            network={selectedPackageForPurchase?.network}
+            onSubmitPhone={(phone) => handlePhoneNumberSubmit(phone)}
+            onCancel={handleCancelPurchase}
+            onDismiss={handleDismissPurchase}
+            accentColor="#1b388b"
+            renderSuccess={(modal) => (
+              <div className="px-5 pb-6 pt-2 text-center space-y-4">
+                <div className="mx-auto w-16 h-16 rounded-full bg-success/15 flex items-center justify-center">
+                  <CheckCircle2 className="w-9 h-9 text-success" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-foreground">Purchase successful!</h3>
+                  <p className="text-sm text-muted-foreground mt-1">Your data package has been ordered and will be delivered shortly.</p>
+                </div>
+                <div className="text-left p-4 rounded-2xl bg-muted/40 border border-border space-y-1.5 text-sm">
+                  <div className="flex justify-between"><span className="text-muted-foreground">Package</span><span className="font-medium">{modal.summary?.packageLabel}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="font-bold">GHS {Number(modal.summary?.amount || 0).toFixed(2)}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">New Balance</span><span className="font-bold">GHS {Number(modal.summary?.newBalance || 0).toFixed(2)}</span></div>
+                </div>
+                <Button onClick={() => { handleDismissPurchase(); router.push("/dashboard/my-orders") }} className="w-full rounded-2xl bg-[#1b388b] text-white hover:bg-[#1b388b]/90">
+                  View Orders
+                </Button>
+                <button onClick={handleDismissPurchase} className="text-xs text-muted-foreground underline">Close</button>
+              </div>
+            )}
+          />
+        )}
 
         <Dialog open={verifyWarningOpen} onOpenChange={(open) => { if (!open) { setVerifyWarningOpen(false); setPendingPhoneNumber(null) } }}>
           <DialogContent>
@@ -670,7 +691,7 @@ function DataPackagesPageInner() {
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
-              <Button variant="outline" onClick={() => { setVerifyWarningOpen(false); setPendingPhoneNumber(null); setPhoneModalOpen(true) }}>Change number</Button>
+              <Button variant="outline" onClick={() => { setVerifyWarningOpen(false); setPendingPhoneNumber(null); setPurchaseModal({ state: "phone" }) }}>Change number</Button>
               <Button disabled={purchasing !== null} onClick={handleProceedAfterVerifyWarning}>
                 {purchasing !== null ? (
                   <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Processing...</>

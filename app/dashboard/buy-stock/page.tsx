@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -18,8 +18,7 @@ import {
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
 import { networkLogoService } from "@/lib/shop-service"
-import { PhoneNumberModal } from "@/components/phone-number-modal"
-import { SuccessModal } from "@/components/success-modal"
+import { PurchaseSheet, type PurchaseSheetModal } from "@/components/dashboard/PurchaseSheet"
 
 interface WholesalePackage {
   id: string
@@ -56,16 +55,13 @@ export default function BuyStockPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [networkLogos, setNetworkLogos] = useState<Record<string, string>>({})
 
-  // Phone modal state
-  const [phoneModalOpen, setPhoneModalOpen] = useState(false)
+  // Purchase sheet state
+  const [purchaseModal, setPurchaseModal] = useState<PurchaseSheetModal | null>(null)
+  // Guards the in-flight purchase call from reopening a stale success/failed
+  // view after the customer already dismissed the sheet themselves.
+  const purchaseDismissedRef = useRef(false)
   const [selectedPackageForPurchase, setSelectedPackageForPurchase] = useState<WholesalePackage | null>(null)
   const [globalOrderingEnabled, setGlobalOrderingEnabled] = useState(true)
-  const [successModal, setSuccessModal] = useState<{
-    open: boolean
-    title: string
-    message: string
-    details: Array<{ label: string; value: string }>
-  }>({ open: false, title: "", message: "", details: [] })
 
   useEffect(() => {
     loadData()
@@ -240,7 +236,8 @@ export default function BuyStockPage() {
       return
     }
     setSelectedPackageForPurchase(pkg)
-    setPhoneModalOpen(true)
+    purchaseDismissedRef.current = false
+    setPurchaseModal({ state: "phone" })
   }
 
   const handlePhoneNumberSubmit = async (phoneNumber: string) => {
@@ -248,6 +245,8 @@ export default function BuyStockPage() {
       toast.error("Error: Missing package information")
       return
     }
+
+    setPurchaseModal({ state: "processing" })
 
     try {
       setPurchasing(selectedPackageForPurchase.id)
@@ -257,14 +256,14 @@ export default function BuyStockPage() {
       if (!session?.access_token) {
         toast.error("Please log in")
         setPurchasing(null)
-        setPhoneModalOpen(false)
+        setPurchaseModal(null)
         return
       }
 
       if (!shopId) {
         toast.error("Shop information not found")
         setPurchasing(null)
-        setPhoneModalOpen(false)
+        setPurchaseModal(null)
         return
       }
 
@@ -297,7 +296,7 @@ export default function BuyStockPage() {
 
       if (!orderResponse.ok) {
         console.error("[BUY-STOCK] Order creation failed:", orderData)
-        toast.error(orderData.error || `Failed to order ${pkg.network} ${pkg.size}`)
+        if (!purchaseDismissedRef.current) setPurchaseModal({ state: "failed", message: orderData.error || `Failed to order ${pkg.network} ${pkg.size}` })
         return
       }
 
@@ -321,7 +320,7 @@ export default function BuyStockPage() {
       const debitData = await debitResponse.json()
       if (!debitResponse.ok) {
         console.error("[BUY-STOCK] Wallet debit failed:", debitData)
-        toast.error(debitData.error || "Failed to deduct from wallet")
+        if (!purchaseDismissedRef.current) setPurchaseModal({ state: "failed", message: debitData.error || "Failed to deduct from wallet" })
         return
       }
 
@@ -330,31 +329,35 @@ export default function BuyStockPage() {
 
       toast.success(`Successfully purchased ${pkg.network} ${pkg.size}!`)
 
-      // Close phone modal specifically before opening success modal
-      setPhoneModalOpen(false)
-
-      // Delay just slightly to avoid React state/z-index collision with closing modal
-      setTimeout(() => {
-        setSuccessModal({
-          open: true,
-          title: "Purchase Successful!",
-          message: "Your data package has been ordered and will be delivered shortly.",
-          details: [
-            { label: "Package", value: `${pkg.network} ${pkg.size}` },
-            { label: "Amount", value: `GHS ${(pkg.parent_price || 0).toFixed(2)}` },
-            { label: "New Balance", value: `GHS ${(debitData.newBalance || 0).toFixed(2)}` },
-          ],
-        })
-      }, 100)
-
-      // Reset state
-      setSelectedPackageForPurchase(null)
+      // Customer already dismissed the sheet before this resolved -- the
+      // order still went through, but don't reopen a view they already closed.
+      if (purchaseDismissedRef.current) return
+      setPurchaseModal({
+        state: "success",
+        summary: {
+          packageLabel: `${pkg.network} ${pkg.size}`,
+          amount: pkg.parent_price,
+          newBalance: debitData.newBalance,
+        },
+      })
     } catch (error) {
       console.error("[BUY-STOCK] Purchase error:", error)
-      toast.error(error instanceof Error ? error.message : "Purchase failed")
+      if (!purchaseDismissedRef.current) setPurchaseModal({ state: "failed", message: error instanceof Error ? error.message : "Purchase failed" })
     } finally {
       setPurchasing(null)
     }
+  }
+
+  const handleCancelPurchase = () => {
+    purchaseDismissedRef.current = true
+    setPurchaseModal(null)
+    setSelectedPackageForPurchase(null)
+  }
+
+  const handleDismissPurchase = () => {
+    purchaseDismissedRef.current = true
+    setPurchaseModal(null)
+    setSelectedPackageForPurchase(null)
   }
 
   if (loading) {
@@ -557,27 +560,43 @@ export default function BuyStockPage() {
         </p>
       </div>
 
-      {/* Phone Number Modal */}
-      <PhoneNumberModal
-        open={phoneModalOpen}
-        onOpenChange={setPhoneModalOpen}
-        onSubmit={handlePhoneNumberSubmit}
-        isLoading={purchasing !== null}
-        packageName={selectedPackageForPurchase
-          ? `${selectedPackageForPurchase.network} ${selectedPackageForPurchase.size} (GHS ${(selectedPackageForPurchase.parent_price || 0).toFixed(2)})`
-          : "Data Package"
-        }
-        network={selectedPackageForPurchase?.network}
-      />
-
-      {/* Success Modal */}
-      <SuccessModal
-        open={successModal.open}
-        onClose={() => setSuccessModal(prev => ({ ...prev, open: false }))}
-        title={successModal.title}
-        message={successModal.message}
-        details={successModal.details}
-      />
+      {/* Purchase sheet -- one persistent bottom sheet for phone entry ->
+          processing -> success/failed, matching the storefront checkout
+          pattern instead of a phone popup handing off to a separate
+          success popup. */}
+      {purchaseModal && (
+        <PurchaseSheet
+          modal={purchaseModal}
+          packageName={selectedPackageForPurchase
+            ? `${selectedPackageForPurchase.network} ${selectedPackageForPurchase.size} (GHS ${(selectedPackageForPurchase.parent_price || 0).toFixed(2)})`
+            : "Data Package"
+          }
+          network={selectedPackageForPurchase?.network}
+          onSubmitPhone={handlePhoneNumberSubmit}
+          onCancel={handleCancelPurchase}
+          onDismiss={handleDismissPurchase}
+          accentColor="#1b388b"
+          renderSuccess={(modal) => (
+            <div className="px-5 pb-6 pt-2 text-center space-y-4">
+              <div className="mx-auto w-16 h-16 rounded-full bg-success/15 flex items-center justify-center">
+                <CheckCircle2 className="w-9 h-9 text-success" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-foreground">Purchase successful!</h3>
+                <p className="text-sm text-muted-foreground mt-1">Your data package has been ordered and will be delivered shortly.</p>
+              </div>
+              <div className="text-left p-4 rounded-2xl bg-muted/40 border border-border space-y-1.5 text-sm">
+                <div className="flex justify-between"><span className="text-muted-foreground">Package</span><span className="font-medium">{modal.summary?.packageLabel}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="font-bold">GHS {Number(modal.summary?.amount || 0).toFixed(2)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">New Balance</span><span className="font-bold">GHS {Number(modal.summary?.newBalance || 0).toFixed(2)}</span></div>
+              </div>
+              <Button onClick={handleDismissPurchase} className="w-full rounded-2xl bg-[#1b388b] text-white hover:bg-[#1b388b]/90">
+                Done
+              </Button>
+            </div>
+          )}
+        />
+      )}
     </DashboardLayout>
   )
 }
