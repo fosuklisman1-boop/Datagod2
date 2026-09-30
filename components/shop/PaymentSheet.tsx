@@ -48,7 +48,7 @@ export function PaymentSheet({ modal, onCancelSending, onDismiss, onRetry, otpIn
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50"
+      className="fixed inset-0 z-[60] flex items-end justify-center bg-black/50"
       style={accentColor ? ({ "--shop-accent": accentColor } as React.CSSProperties) : undefined}
       onClick={handleBackdropDismiss}
     >
