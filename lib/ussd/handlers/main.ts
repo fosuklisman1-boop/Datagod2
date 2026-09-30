@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { UzoResponse, USSDSession } from "../types"
-import { cont, end, afaEnterNamePrompt, airtimeRecipientPrompt, rcMenu, resolveMainMenu, type MainMenuKey } from "../menus"
+import { cont, end, afaEnterNamePrompt, airtimeRecipientPrompt, rcMenu, resolveMainMenu, networkMenu, type MainMenuKey } from "../menus"
 import { keyForDigit, renderMenuText } from "../menu-items"
 import { setSession, deleteSession } from "../session"
 import { getUssdServiceVisibility } from "../../ussd-service-visibility"
@@ -42,7 +42,7 @@ export async function handleMain(
   switch (matchedKey) {
     case 'data':
       await setSession(sessionId, { step: 'SELECT_NETWORK', dialingPhone, dataBlocked })
-      return cont('Select Network:\n1. MTN\n2. Telecel\n3. AirtelTigo\n4. AT-iShare\n0. Back')
+      return cont(networkMenu())
     case 'afa':
       await setSession(sessionId, { step: 'AFA_ENTER_NAME', dialingPhone, dataBlocked })
       return cont(afaEnterNamePrompt())
