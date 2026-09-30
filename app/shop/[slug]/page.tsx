@@ -71,6 +71,19 @@ function networkColorFor(network: string | undefined): string {
   return NETWORK_BRAND_COLOR[network || ""] || "#1b388b"
 }
 
+// A real, opaque light tint of a brand color (blended toward white), not a
+// transparent overlay -- alpha-based tints looked muddy sitting on top of
+// the checkout sheet's own black/50 backdrop instead of reading as a clean
+// pastel. `amount` is how much white to mix in (0.94 = 94% white).
+function lightenColor(hex: string, amount: number): string {
+  const clean = hex.replace("#", "")
+  const r = parseInt(clean.slice(0, 2), 16)
+  const g = parseInt(clean.slice(2, 4), 16)
+  const b = parseInt(clean.slice(4, 6), 16)
+  const mix = (channel: number) => Math.round(channel + (255 - channel) * amount)
+  return `#${[mix(r), mix(g), mix(b)].map((c) => c.toString(16).padStart(2, "0")).join("")}`
+}
+
 // Mirrors lib/paystack.ts's MOMO_PREFIX exactly -- used client-side purely to
 // auto-select/confirm which MoMo provider pill matches the typed number. The
 // server (app/api/payments/initialize) re-derives the real provider from the
@@ -1575,7 +1588,7 @@ export default function ShopStorefront() {
             >
               <div
                 className="flex max-h-[92vh] w-full max-w-md flex-col rounded-t-3xl"
-                style={{ backgroundColor: `${netColor}0d` }}
+                style={{ backgroundColor: lightenColor(netColor, 0.92) }}
                 onClick={(e) => e.stopPropagation()}
               >
                 {/* Drag handle + close */}
