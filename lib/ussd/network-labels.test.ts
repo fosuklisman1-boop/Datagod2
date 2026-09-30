@@ -18,13 +18,17 @@ describe("networkNickname", () => {
     expect(networkNickname("AT-BigTime")).toBe("Delay Blue")
   })
 
+  it("maps AT (generic AirtelTigo, used by Airtime) to Instant Blue", () => {
+    expect(networkNickname("AT")).toBe("Instant Blue")
+  })
+
   it("falls back to the raw value for an unrecognized network (e.g. a legacy generic AirtelTigo row)", () => {
     expect(networkNickname("AirtelTigo")).toBe("AirtelTigo")
   })
 
-  it("exports exactly the 4 expected networks", () => {
+  it("exports exactly the 5 expected networks", () => {
     expect(Object.keys(NETWORK_NICKNAMES).sort()).toEqual(
-      ["AT-BigTime", "AT-iShare", "MTN", "Telecel"].sort()
+      ["AT", "AT-BigTime", "AT-iShare", "MTN", "Telecel"].sort()
     )
   })
 })

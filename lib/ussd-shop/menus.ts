@@ -55,7 +55,7 @@ export function shopAirtimeRecipientPrompt(shopName: string): string {
 }
 
 export function shopAirtimeNetworkMenu(): string {
-  return 'Select Network:\n1. MTN\n2. Telecel\n3. AirtelTigo\n\n0. Back'
+  return 'Select Network:\n1. Yellow Plans\n2. Tele\n3. Instant Blue\n\n0. Back'
 }
 
 export function shopAirtimeAmountPrompt(network: string, min: number, max: number): string {

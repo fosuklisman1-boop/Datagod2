@@ -9,6 +9,11 @@ export const NETWORK_NICKNAMES: Record<string, string> = {
   'Telecel': 'Tele',
   'AT-iShare': 'Instant Blue',
   'AT-BigTime': 'Delay Blue',
+  // Airtime doesn't split AirtelTigo into iShare/BigTime the way data
+  // packages do (see lib/airtime-pricing.ts's AirtimeNetwork union) — its
+  // generic "AT" value reuses the iShare nickname for one consistent
+  // AirtelTigo identity.
+  'AT': 'Instant Blue',
 }
 
 /**
