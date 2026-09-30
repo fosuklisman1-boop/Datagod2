@@ -710,8 +710,10 @@ export const adminShopService = {
 
 // Admin Dashboard Stats
 export const adminDashboardService = {
-  // Get dashboard statistics
-  async getDashboardStats() {
+  // Get dashboard statistics. `range` scopes the newer hub fields
+  // (rangeRevenue/rangeProfit/chartSeries/etc) to "today" | "7d" | "30d" --
+  // the all-time fields (totalOrders, totalRevenue, ...) are unaffected.
+  async getDashboardStats(range?: "today" | "7d" | "30d") {
     try {
       const { data: { session } } = await supabase.auth.getSession()
 
@@ -719,7 +721,8 @@ export const adminDashboardService = {
         throw new Error("No authentication token available")
       }
 
-      const response = await fetch("/api/admin/dashboard-stats", {
+      const url = range ? `/api/admin/dashboard-stats?range=${range}` : "/api/admin/dashboard-stats"
+      const response = await fetch(url, {
         headers: {
           Authorization: `Bearer ${session.access_token}`,
         },
