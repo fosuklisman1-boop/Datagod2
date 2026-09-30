@@ -47,6 +47,10 @@ export async function GET(request: NextRequest) {
           price_adjustment_telecel: 0,
           price_adjustment_at_ishare: 0,
           price_adjustment_at_bigtime: 0,
+          supplier_cost_per_gb_mtn: 0,
+          supplier_cost_per_gb_telecel: 0,
+          supplier_cost_per_gb_at_ishare: 0,
+          supplier_cost_per_gb_at_bigtime: 0,
           storefront_announcement_enabled: false,
           storefront_announcement_title: "",
           storefront_announcement_message: "",
@@ -150,6 +154,10 @@ export async function PUT(request: NextRequest) {
       'price_adjustment_telecel',
       'price_adjustment_at_ishare',
       'price_adjustment_at_bigtime',
+      'supplier_cost_per_gb_mtn',
+      'supplier_cost_per_gb_telecel',
+      'supplier_cost_per_gb_at_ishare',
+      'supplier_cost_per_gb_at_bigtime',
       'storefront_announcement_enabled',
       'storefront_announcement_title',
       'storefront_announcement_message',
@@ -226,6 +234,16 @@ export async function PUT(request: NextRequest) {
       )
     }
 
+    for (const field of ['supplier_cost_per_gb_mtn', 'supplier_cost_per_gb_telecel', 'supplier_cost_per_gb_at_ishare', 'supplier_cost_per_gb_at_bigtime']) {
+      const value = updates[field]
+      if (value !== undefined && (typeof value !== "number" || !Number.isFinite(value) || value < 0)) {
+        return NextResponse.json(
+          { error: `${field} must be a number >= 0` },
+          { status: 400 }
+        )
+      }
+    }
+
     // Validate signup_default_role if present
     const validSignupRoles = ['user', 'dealer']
     if (updates.signup_default_role !== undefined && !validSignupRoles.includes(updates.signup_default_role)) {
@@ -290,6 +308,10 @@ export async function PUT(request: NextRequest) {
         price_adjustment_telecel: 0,
         price_adjustment_at_ishare: 0,
         price_adjustment_at_bigtime: 0,
+        supplier_cost_per_gb_mtn: 0,
+        supplier_cost_per_gb_telecel: 0,
+        supplier_cost_per_gb_at_ishare: 0,
+        supplier_cost_per_gb_at_bigtime: 0,
         storefront_announcement_enabled: false,
         storefront_announcement_title: "",
         storefront_announcement_message: "",
