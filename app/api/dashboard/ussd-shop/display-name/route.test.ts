@@ -100,4 +100,19 @@ describe("POST /api/dashboard/ussd-shop/display-name", () => {
     const res = await POST(postRequest({ name: "Kwame Shop" }))
     expect(res.status).toBe(500)
   })
+
+  it("treats an empty name as clearing the override, writing null and reverting to shop_name", async () => {
+    const res = await POST(postRequest({ name: "" }))
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body).toEqual({ success: true, ussd_display_name: null })
+    expect(h.state.updateCalls).toEqual([{ id: "shop-1", data: { ussd_display_name: null } }])
+  })
+
+  it("treats a whitespace-only name as clearing the override too", async () => {
+    const res = await POST(postRequest({ name: "   " }))
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body).toEqual({ success: true, ussd_display_name: null })
+  })
 })

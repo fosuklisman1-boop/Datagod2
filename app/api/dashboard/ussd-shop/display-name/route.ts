@@ -18,11 +18,20 @@ export async function POST(request: NextRequest) {
 
   const { name } = await request.json()
 
-  const validation = validateUssdDisplayName(String(name ?? ""))
-  if (!validation.valid) {
-    return NextResponse.json({ error: validation.reason }, { status: 400 })
+  // An empty/whitespace-only name clears the override (reverting to
+  // shop_name) rather than being rejected — otherwise, once set, it could
+  // never be unset. validateUssdDisplayName still rejects empty for its own
+  // callers (the "required" message serves the plain single-field-validation
+  // case); this route special-cases it into "clear" instead.
+  const trimmed = String(name ?? "").trim()
+  const toSave: string | null = trimmed === "" ? null : trimmed
+
+  if (toSave !== null) {
+    const validation = validateUssdDisplayName(toSave)
+    if (!validation.valid) {
+      return NextResponse.json({ error: validation.reason }, { status: 400 })
+    }
   }
-  const trimmed = String(name).trim()
 
   const { data: shop } = await supabase
     .from("user_shops").select("id").eq("user_id", user.id).single()
@@ -30,7 +39,7 @@ export async function POST(request: NextRequest) {
 
   const { error: updateError } = await supabase
     .from("user_shops")
-    .update({ ussd_display_name: trimmed })
+    .update({ ussd_display_name: toSave })
     .eq("id", shop.id)
 
   if (updateError) {
@@ -38,5 +47,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Failed to save display name" }, { status: 500 })
   }
 
-  return NextResponse.json({ success: true, ussd_display_name: trimmed })
+  return NextResponse.json({ success: true, ussd_display_name: toSave })
 }

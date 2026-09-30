@@ -191,10 +191,15 @@ export default function UssdShopPage() {
   }
 
   const handleSaveDisplayName = async () => {
-    const validation = validateUssdDisplayName(displayNameInput)
-    if (!validation.valid) {
-      setDisplayNameError(validation.reason)
-      return
+    // An empty/whitespace-only input means "clear the override" (see the
+    // matching special-case in the API route) — only non-empty input goes
+    // through the blocked-word/length validation.
+    if (displayNameInput.trim()) {
+      const validation = validateUssdDisplayName(displayNameInput)
+      if (!validation.valid) {
+        setDisplayNameError(validation.reason)
+        return
+      }
     }
     setDisplayNameError(null)
     setSavingDisplayName(true)
@@ -207,8 +212,8 @@ export default function UssdShopPage() {
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? "Save failed")
-      setDisplayNameInput(json.ussd_display_name)
-      toast.success("USSD display name saved!")
+      setDisplayNameInput(json.ussd_display_name ?? "")
+      toast.success(json.ussd_display_name ? "Display name saved!" : "Reverted to your shop name.")
     } catch (err: any) {
       setDisplayNameError(err.message ?? "Save failed")
     } finally {
@@ -386,7 +391,7 @@ export default function UssdShopPage() {
                   USSD Display Name
                 </CardTitle>
                 <CardDescription>
-                  Optional — overrides your shop name on USSD screens only.
+                  Optional — overrides your shop name on USSD and WhatsApp bot screens only. Clear it to revert.
                   {!displayNameInput && shopName && ` Currently showing: "${shopName}"`}
                 </CardDescription>
               </CardHeader>
@@ -402,12 +407,12 @@ export default function UssdShopPage() {
                 {displayNameError && <p className="text-xs text-destructive">{displayNameError}</p>}
                 <Button
                   size="sm"
-                  disabled={savingDisplayName || !displayNameInput.trim()}
+                  disabled={savingDisplayName}
                   onClick={handleSaveDisplayName}
                   className="w-full"
                 >
                   {savingDisplayName ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
-                  Save
+                  {displayNameInput.trim() ? "Save" : "Clear"}
                 </Button>
               </CardContent>
             </Card>
