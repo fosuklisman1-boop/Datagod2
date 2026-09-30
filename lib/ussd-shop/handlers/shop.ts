@@ -129,7 +129,7 @@ export async function handleEnterShopCode(
   console.log("[USSD-SHOP] networks for shop", resolved.shopId, ":", sortedNetworks)
 
   // Whitelist check: resolve once at session start so the product menu never
-  // shows Data Bundle to callers who can't use it.
+  // shows Browse Services to callers who can't use it.
   const localPhone = dialingPhone.startsWith('+233') ? '0' + dialingPhone.slice(4)
     : dialingPhone.startsWith('233') ? '0' + dialingPhone.slice(3)
     : dialingPhone
