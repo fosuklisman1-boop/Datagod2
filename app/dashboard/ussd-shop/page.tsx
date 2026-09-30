@@ -8,8 +8,9 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { supabase } from "@/lib/supabase"
-import { Smartphone, Hash, Coins, Copy, CheckCircle, RefreshCw, AlertCircle, Wallet, Loader2, MessageCircle } from "lucide-react"
+import { Smartphone, Hash, Coins, Copy, CheckCircle, RefreshCw, AlertCircle, Wallet, Loader2, MessageCircle, Tag } from "lucide-react"
 import { toast } from "sonner"
+import { validateUssdDisplayName } from "@/lib/ussd-display-name"
 
 interface UssdShopCode {
   id: string
@@ -52,6 +53,10 @@ export default function UssdShopPage() {
   const [whatsappFee, setWhatsappFee] = useState(0)
   const [whatsappActivating, setWhatsappActivating] = useState(false)
   const [waLinkCopied, setWaLinkCopied] = useState(false)
+  const [shopName, setShopName] = useState("")
+  const [displayNameInput, setDisplayNameInput] = useState("")
+  const [savingDisplayName, setSavingDisplayName] = useState(false)
+  const [displayNameError, setDisplayNameError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!user) return
@@ -63,11 +68,14 @@ export default function UssdShopPage() {
     try {
       const { data: shopRow } = await supabase
         .from("user_shops")
-        .select("id")
+        .select("id, shop_name, ussd_display_name")
         .eq("user_id", user!.id)
         .single()
 
       if (!shopRow) { setLoading(false); return }
+
+      setShopName(shopRow.shop_name ?? "")
+      setDisplayNameInput(shopRow.ussd_display_name ?? "")
 
       // app_settings is service-role only; read ussd config via curated public API.
       const [codeRes, cfgRes, ordersRes, walletRes] = await Promise.all([
@@ -179,6 +187,32 @@ export default function UssdShopPage() {
       toast.error(err.message ?? "Purchase failed")
     } finally {
       setBuyingSessions(false)
+    }
+  }
+
+  const handleSaveDisplayName = async () => {
+    const validation = validateUssdDisplayName(displayNameInput)
+    if (!validation.valid) {
+      setDisplayNameError(validation.reason)
+      return
+    }
+    setDisplayNameError(null)
+    setSavingDisplayName(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch("/api/dashboard/ussd-shop/display-name", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ name: displayNameInput }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? "Save failed")
+      setDisplayNameInput(json.ussd_display_name)
+      toast.success("USSD display name saved!")
+    } catch (err: any) {
+      setDisplayNameError(err.message ?? "Save failed")
+    } finally {
+      setSavingDisplayName(false)
     }
   }
 
@@ -341,6 +375,40 @@ export default function UssdShopPage() {
                     )}
                   </div>
                 )}
+              </CardContent>
+            </Card>
+
+            {/* USSD Display Name */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Tag className="w-4 h-4" />
+                  USSD Display Name
+                </CardTitle>
+                <CardDescription>
+                  Optional — overrides your shop name on USSD screens only.
+                  {!displayNameInput && shopName && ` Currently showing: "${shopName}"`}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <input
+                  type="text"
+                  maxLength={30}
+                  placeholder={shopName || "Shop"}
+                  value={displayNameInput}
+                  onChange={e => { setDisplayNameInput(e.target.value); setDisplayNameError(null) }}
+                  className="w-full border border-border rounded-md px-3 py-2 text-sm bg-card focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+                {displayNameError && <p className="text-xs text-destructive">{displayNameError}</p>}
+                <Button
+                  size="sm"
+                  disabled={savingDisplayName || !displayNameInput.trim()}
+                  onClick={handleSaveDisplayName}
+                  className="w-full"
+                >
+                  {savingDisplayName ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+                  Save
+                </Button>
               </CardContent>
             </Card>
 
