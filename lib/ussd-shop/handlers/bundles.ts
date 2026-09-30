@@ -12,6 +12,7 @@ import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import { fetchShopBundles, verifyBundlePrice } from "@/lib/shop-commerce/pricing"
 import { createShopBundleOrder } from "@/lib/shop-commerce/orders"
+import { getCanonicalShopName } from "@/lib/shop-commerce/shop-code"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -256,7 +257,7 @@ export async function handleConfirm(
     profitAmount,
     parentProfitAmount,
     chargeAmount,
-    shopName: session.shopName ?? null,
+    shopName: await getCanonicalShopName(session.shopId!),
     customerEmail: customerEmail ?? null,
     shopOwnerEmail,
     channel: "ussd_shop",

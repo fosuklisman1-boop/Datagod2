@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { resolveShopCode } from "./shop-code"
+import { resolveShopCode, getCanonicalShopName } from "./shop-code"
 
 // Fake Supabase client injected directly into resolveShopCode (no @supabase/supabase-js
 // mocking needed — the function accepts an optional client param for exactly this reason).
@@ -162,5 +162,25 @@ describe("resolveShopCode", () => {
 
     await resolveShopCode("  ABC123  ", client)
     expect(eqCalls).toEqual([["code", "ABC123"]])
+  })
+})
+
+describe("getCanonicalShopName", () => {
+  it("returns the real shop_name for the given shop id, ignoring ussd_display_name", async () => {
+    const client = fakeClient({
+      user_shops: { data: { shop_name: "MTN Data Direct" } },
+    })
+
+    const result = await getCanonicalShopName("s5", client)
+    expect(result).toBe("MTN Data Direct")
+  })
+
+  it("falls back to 'Shop' when the row isn't found", async () => {
+    const client = fakeClient({
+      user_shops: { data: null },
+    })
+
+    const result = await getCanonicalShopName("missing", client)
+    expect(result).toBe("Shop")
   })
 })

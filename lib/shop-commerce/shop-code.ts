@@ -58,6 +58,22 @@ export async function resolveShopCode(
   }
 }
 
+// Looks up a shop's real, unfiltered shop_name directly by id — for callers
+// that only have a shopId in hand (e.g. a USSD/WhatsApp session) and need
+// the canonical name for record-keeping (see ResolvedShopCode.canonicalShopName).
+export async function getCanonicalShopName(
+  shopId: string,
+  client: SupabaseClientLike = supabase
+): Promise<string> {
+  const { data } = await client
+    .from("user_shops")
+    .select("shop_name")
+    .eq("id", shopId)
+    .single()
+
+  return (data as any)?.shop_name ?? 'Shop'
+}
+
 // Distinct, deduped list of networks a shop's Data Bundle catalog currently offers.
 // Extracted from the network-listing block inside lib/ussd-shop/handlers/shop.ts's
 // handleEnterShopCode (the USSD entry handler) so the WhatsApp shop bot can build the
