@@ -1,6 +1,7 @@
 import { UzoResponse, ShopBundleOption } from "./types"
 import { MenuItemDef, resolveMenuItems, renderMenuText } from "../ussd/menu-items"
 import { networkNickname } from "../ussd/network-labels"
+import { formatBundleSize } from "../ussd/menus"
 
 const PAGE_SIZE = 5
 const SCREEN_LIMIT = 160
@@ -133,7 +134,7 @@ export function bundleMenu(
   let shown = 0
 
   for (let i = 0; i < bundles.length; i++) {
-    const line = `${offset + i + 1}. ${bundles[i].size} - GHS ${bundles[i].price.toFixed(2)}\n`
+    const line = `${offset + i + 1}. ${formatBundleSize(bundles[i].size)} - GHS ${bundles[i].price.toFixed(2)}\n`
     const afterThis = i + 1
     const hasMoreAfterThis = afterThis < bundles.length || (offset + afterThis) < total
     const moreLine = hasMoreAfterThis ? `${offset + afterThis + 1}. More...\n` : ''
@@ -160,7 +161,7 @@ export function confirmMenu(shopName: string, network: string, size: string, pri
   const localRecipient = formatLocal(recipient)
   return (
     `${gsm7(shopName)}\n` +
-    `${size} ${network}\n` +
+    `${formatBundleSize(size)} ${network}\n` +
     `To: ${localRecipient}\n` +
     `GHS ${price.toFixed(2)} from\n${localDialing}\n\n` +
     `1. Pay now\n2. Cancel`
