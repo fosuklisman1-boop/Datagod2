@@ -1,10 +1,11 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { supabase } from "@/lib/supabase"
 import { Phone, CheckCircle2, Circle, RefreshCw, ArrowRight, Clock, History as HistoryIcon } from "lucide-react"
+import { PurchaseSheet, type PurchaseSheetModal } from "@/components/dashboard/PurchaseSheet"
 
 const NETWORKS = ["MTN", "Telecel", "AT"]
 // AT/AirtelTigo gets a literal orange here (its own real brand color, and
@@ -75,7 +76,10 @@ export default function AirtimePage() {
 
   // Submission
   const [submitting, setSubmitting]     = useState(false)
-  const [message, setMessage]           = useState<{ type: "success" | "error"; text: string } | null>(null)
+  const [purchaseModal, setPurchaseModal] = useState<PurchaseSheetModal | null>(null)
+  // Guards the in-flight purchase call from reopening a stale success/failed
+  // view after the customer already dismissed the sheet themselves.
+  const purchaseDismissedRef = useRef(false)
 
   // ----- Fee calculations -----
   const numAmount = parseFloat(amount) || 0
@@ -176,7 +180,8 @@ export default function AirtimePage() {
     e.preventDefault()
     if (phoneError || amountOutOfRange) return
     setSubmitting(true)
-    setMessage(null)
+    purchaseDismissedRef.current = false
+    setPurchaseModal({ state: "processing" })
     try {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) { router.push("/auth/login"); return }
@@ -191,20 +196,29 @@ export default function AirtimePage() {
       })
       const data = await res.json()
       if (!res.ok) {
-        setMessage({ type: "error", text: data.error || "Purchase failed" })
+        if (!purchaseDismissedRef.current) setPurchaseModal({ state: "failed", message: data.error || "Purchase failed" })
       } else {
-        setMessage({ type: "success", text: `Order placed! Ref: ${data.order.reference_code}` })
+        // Customer already dismissed the sheet before this resolved -- the
+        // order still went through, but don't reopen a view they already closed.
+        if (purchaseDismissedRef.current) return
+        setPurchaseModal({
+          state: "success",
+          summary: { reference: data.order.reference_code, network, phone, amount: totalPaid },
+        })
         setPhone("")
         setAmount("")
         setWalletBalance(data.newBalance)
         loadOrders()
       }
     } catch {
-      setMessage({ type: "error", text: "Something went wrong. Please try again." })
+      if (!purchaseDismissedRef.current) setPurchaseModal({ state: "failed", message: "Something went wrong. Please try again." })
     } finally {
       setSubmitting(false)
     }
   }
+
+  const handleCancelPurchase = () => { purchaseDismissedRef.current = true; setPurchaseModal(null) }
+  const handleDismissPurchase = () => { purchaseDismissedRef.current = true; setPurchaseModal(null) }
 
   return (
     <DashboardLayout>
@@ -385,12 +399,6 @@ export default function AirtimePage() {
               </div>
             )}
 
-            {message && (
-              <div className={`rounded-2xl px-4 py-3 text-sm font-medium ${message.type === "success" ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
-                {message.text}
-              </div>
-            )}
-
             <button
               type="submit"
               disabled={submitting || !!phoneError || !phone || !amount || amountOutOfRange || (walletBalance !== null && totalPaid > walletBalance)}
@@ -434,6 +442,33 @@ export default function AirtimePage() {
           </div>
         )}
       </div>
+
+      {purchaseModal && (
+        <PurchaseSheet
+          modal={purchaseModal}
+          onCancel={handleCancelPurchase}
+          onDismiss={handleDismissPurchase}
+          accentColor="#1b388b"
+          renderSuccess={(modal) => (
+            <div className="px-5 pb-6 pt-2 text-center space-y-4">
+              <div className="mx-auto w-16 h-16 rounded-full bg-success/15 flex items-center justify-center">
+                <CheckCircle2 className="w-9 h-9 text-success" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-foreground">Order placed!</h3>
+                <p className="text-sm text-muted-foreground mt-1">Your airtime order is confirmed and being processed.</p>
+              </div>
+              <div className="text-left p-4 rounded-2xl bg-muted/40 border border-border space-y-1.5 text-sm">
+                <div className="flex justify-between"><span className="text-muted-foreground">Network</span><span className="font-medium">{modal.summary?.network}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">To</span><span className="font-medium">{modal.summary?.phone}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="font-bold">GHS {Number(modal.summary?.amount || 0).toFixed(2)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Reference</span><span className="font-mono text-xs">{modal.summary?.reference}</span></div>
+              </div>
+              <button onClick={handleDismissPurchase} className="w-full rounded-2xl bg-[#1b388b] py-3 text-sm font-bold text-white">Done</button>
+            </div>
+          )}
+        />
+      )}
     </DashboardLayout>
   )
 }

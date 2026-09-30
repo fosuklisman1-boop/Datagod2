@@ -1,9 +1,8 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -12,6 +11,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
+import { PaymentSheet } from "@/components/shop/PaymentSheet"
 import {
   EXAM_BOARDS,
   type ExamBoard,
@@ -72,9 +72,9 @@ export default function DashboardResultsCheckPage() {
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
 
-  // Live "approve the prompt" modal for the MoMo flow
+  // Live "approve the prompt" sheet for the MoMo flow
   const [momoModal, setMomoModal] = useState<null | {
-    state: "awaiting" | "otp" | "success" | "failed"
+    state: "sending" | "awaiting" | "otp" | "success" | "failed"
     orderId?: string
     reference?: string
     summary?: { label: string; paymentPhone: string; amount: number; whatsappNumber: string }
@@ -82,6 +82,9 @@ export default function DashboardResultsCheckPage() {
   }>(null)
   const [momoOtpInput, setMomoOtpInput] = useState("")
   const [momoOtpSubmitting, setMomoOtpSubmitting] = useState(false)
+  // Guards in-flight init/charge/poll/OTP calls from reopening a stale view
+  // after the customer already dismissed the sheet themselves.
+  const paymentDismissedRef = useRef(false)
 
   // Success screen (wallet path, or after MoMo completes)
   const [success, setSuccess] = useState<SuccessInfo | null>(null)
@@ -232,6 +235,7 @@ export default function DashboardResultsCheckPage() {
     const started = Date.now()
     const TIMEOUT_MS = 4 * 60 * 1000
     const tick = async () => {
+      if (paymentDismissedRef.current) return
       if (Date.now() - started > TIMEOUT_MS) {
         setMomoModal({ state: "failed", message: "Payment timed out. If you approved the prompt, the request will still be processed — check the order, or try again." })
         return
@@ -270,7 +274,9 @@ export default function DashboardResultsCheckPage() {
         setMomoOtpSubmitting(false)
         return
       }
-      setMomoModal({ state: "awaiting", orderId: momoModal.orderId, reference: momoModal.reference, summary: momoModal.summary })
+      if (!paymentDismissedRef.current) {
+        setMomoModal({ state: "awaiting", orderId: momoModal.orderId, reference: momoModal.reference, summary: momoModal.summary })
+      }
       setMomoOtpInput("")
       setMomoOtpSubmitting(false)
     } catch {
@@ -296,6 +302,15 @@ export default function DashboardResultsCheckPage() {
       return
     }
 
+    // Direct-charge requests take two sequential network round-trips (init
+    // request, then initialize the charge) before a MoMo prompt actually
+    // reaches the phone. Show the sheet's "sending" view immediately on
+    // submit instead of leaving the customer watching the button spinner.
+    if (payFrom === "momo") {
+      paymentDismissedRef.current = false
+      setMomoModal({ state: "sending" })
+    }
+
     setSubmitting(true)
     try {
       // Step 1: Initialize the results-check request (authed dealer).
@@ -318,11 +333,11 @@ export default function DashboardResultsCheckPage() {
       const initData = await initRes.json().catch(() => ({}))
 
       if (!initRes.ok) {
-        if (initRes.status === 402) {
-          toast.error(`Insufficient wallet balance. You need GHS ${Number(initData.required ?? total).toFixed(2)} — please top up first.`)
-        } else {
-          toast.error(initData.error ?? "Failed to initialize request. Please try again.")
-        }
+        const message = initRes.status === 402
+          ? `Insufficient wallet balance. You need GHS ${Number(initData.required ?? total).toFixed(2)} — please top up first.`
+          : (initData.error ?? "Failed to initialize request. Please try again.")
+        if (payFrom === "momo" && !paymentDismissedRef.current) setMomoModal({ state: "failed", message })
+        else if (payFrom === "wallet") toast.error(message)
         return
       }
 
@@ -364,7 +379,7 @@ export default function DashboardResultsCheckPage() {
       })
       const chargeData = await chargeRes.json().catch(() => ({}))
       if (!chargeRes.ok || !chargeData.success) {
-        toast.error(chargeData?.error ?? "Could not start the Mobile Money charge. Please try again.")
+        if (!paymentDismissedRef.current) setMomoModal({ state: "failed", message: chargeData?.error ?? "Could not start the Mobile Money charge. Please try again." })
         return
       }
 
@@ -376,10 +391,15 @@ export default function DashboardResultsCheckPage() {
         examBoard: selectedBoard,
         paidVia: "momo",
       }
+      // Customer already dismissed the sheet before this resolved -- the
+      // charge may still have fired (the webhook completes the request
+      // regardless), but don't reopen a view they already closed.
+      if (paymentDismissedRef.current) return
       setMomoModal({ state: chargeData.status === "send_otp" ? "otp" : "awaiting", orderId, reference: chargeData.reference, summary })
       pollMomoStatus(orderId, chargeData.reference, summary, successInfo)
     } catch {
-      toast.error("Something went wrong. Please try again.")
+      if (payFrom === "momo" && !paymentDismissedRef.current) setMomoModal({ state: "failed", message: "Something went wrong. Please try again." })
+      else if (payFrom === "wallet") toast.error("Something went wrong. Please try again.")
     } finally {
       setSubmitting(false)
     }
@@ -752,77 +772,32 @@ export default function DashboardResultsCheckPage() {
         )}
       </div>
 
-      {/* Live Mobile Money prompt modal (MoMo flow). */}
+      {/* Live Mobile Money prompt sheet (MoMo flow) -- the same persistent
+          bottom sheet the storefront checkout uses, shared via
+          components/shop/PaymentSheet.tsx. Completion is handled by
+          pollMomoStatus clearing momoModal and showing the inline `success`
+          screen above instead of a sheet "success" state, so renderSuccess
+          here is a defensive fallback that should never actually render. */}
       {momoModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-[60]">
-          <Card className="w-full max-w-md bg-card rounded-2xl">
-            {momoModal.state === "awaiting" && (
-              <CardContent className="pt-8 pb-6 text-center space-y-4">
-                <div className="mx-auto w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center">
-                  <Loader2 className="w-8 h-8 text-purple-600 animate-spin" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-foreground">Approve the prompt on your phone</h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    We sent a Mobile Money prompt to{" "}
-                    <span className="font-semibold">{momoModal.summary?.paymentPhone}</span>. Enter your PIN to approve the payment of{" "}
-                    <span className="font-semibold">GHS {Number(momoModal.summary?.amount || 0).toFixed(2)}</span>.
-                  </p>
-                </div>
-                <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-                  <Loader2 className="w-3 h-3 animate-spin" /> Waiting for confirmation…
-                </div>
-                <p className="text-xs text-muted-foreground">Keep this page open. This can take up to a minute.</p>
-              </CardContent>
-            )}
-
-            {momoModal.state === "otp" && (
-              <CardContent className="pt-8 pb-6 text-center space-y-4">
-                <div className="mx-auto w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center">
-                  <svg className="w-8 h-8 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-foreground">Enter the code sent to your phone</h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Your provider sent a one-time code to{" "}
-                    <span className="font-semibold">{momoModal.summary?.paymentPhone}</span> to approve this payment.
-                  </p>
-                </div>
-                <Input
-                  type="text"
-                  inputMode="numeric"
-                  autoFocus
-                  placeholder="Enter OTP"
-                  value={momoOtpInput}
-                  onChange={(e) => setMomoOtpInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") submitMomoOtp() }}
-                  className="text-center text-lg tracking-widest"
-                  disabled={momoOtpSubmitting}
-                />
-                <Button
-                  onClick={submitMomoOtp}
-                  disabled={momoOtpSubmitting || !momoOtpInput.trim()}
-                  className="w-full rounded-xl"
-                >
-                  {momoOtpSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Submit code"}
-                </Button>
-              </CardContent>
-            )}
-
-            {momoModal.state === "failed" && (
-              <CardContent className="pt-8 pb-6 text-center space-y-4">
-                <div className="mx-auto w-16 h-16 rounded-full bg-red-100 flex items-center justify-center">
-                  <AlertCircle className="w-9 h-9 text-red-600" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-foreground">Payment not completed</h3>
-                  <p className="text-sm text-muted-foreground mt-1">{momoModal.message || "The prompt was not approved. Please try again."}</p>
-                </div>
-                <Button variant="outline" onClick={() => { setMomoModal(null); setMomoOtpInput(""); setMomoOtpSubmitting(false) }} className="w-full rounded-xl">Close</Button>
-              </CardContent>
-            )}
-          </Card>
-        </div>
+        <PaymentSheet
+          modal={momoModal}
+          accentColor="#1b388b"
+          onCancelSending={() => { paymentDismissedRef.current = true; setMomoModal(null) }}
+          onDismiss={() => { paymentDismissedRef.current = true; setMomoModal(null); setMomoOtpInput(""); setMomoOtpSubmitting(false) }}
+          onRetry={() => { setMomoModal(null); setMomoOtpInput(""); setMomoOtpSubmitting(false) }}
+          otpInput={momoOtpInput}
+          setOtpInput={setMomoOtpInput}
+          onSubmitOtp={submitMomoOtp}
+          otpSubmitting={momoOtpSubmitting}
+          renderSuccess={() => (
+            <div className="px-5 pb-6 pt-2 text-center space-y-4">
+              <div className="mx-auto w-16 h-16 rounded-full bg-success/15 flex items-center justify-center">
+                <CheckCircle2 className="w-9 h-9 text-success" />
+              </div>
+              <h3 className="text-lg font-bold text-foreground">Payment successful</h3>
+            </div>
+          )}
+        />
       )}
     </DashboardLayout>
   )

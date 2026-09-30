@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Input } from "@/components/ui/input"
@@ -10,6 +10,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
+import { PurchaseSheet, type PurchaseSheetModal } from "@/components/dashboard/PurchaseSheet"
 
 const EXAM_BOARDS = ["WASSCE", "BECE", "NOVDEC"]
 // Same "every item gets its own color" pattern as the dashboard's promo
@@ -69,6 +70,10 @@ export default function ResultsCheckerPage() {
   const [successOrder, setSuccessOrder] = useState<RCOrder | null>(null)
   const [successVouchers, setSuccessVouchers] = useState<Array<{ pin: string; serial_number: string | null }>>([])
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
+  const [purchaseModal, setPurchaseModal] = useState<PurchaseSheetModal | null>(null)
+  // Guards the in-flight purchase call from reopening a stale success/failed
+  // view after the customer already dismissed the sheet themselves.
+  const purchaseDismissedRef = useRef(false)
 
   // Order history
   const [orders, setOrders] = useState<RCOrder[]>([])
@@ -161,6 +166,8 @@ export default function ResultsCheckerPage() {
   const handlePurchase = async () => {
     if (!token) return
     setPurchasing(true)
+    purchaseDismissedRef.current = false
+    setPurchaseModal({ state: "processing" })
     try {
       const res = await fetch("/api/results-checker/purchase", {
         method: "POST",
@@ -169,25 +176,29 @@ export default function ResultsCheckerPage() {
       })
       const data = await res.json()
       if (!res.ok) {
+        let message: string
         if (res.status === 402) {
-          toast.error(`Insufficient wallet balance. You need GHS ${data.required?.toFixed(2) ?? "more"} — please top up first.`)
+          message = `Insufficient wallet balance. You need GHS ${data.required?.toFixed(2) ?? "more"} — please top up first.`
         } else if (res.status === 409 && data.available !== undefined) {
-          toast.error(
-            data.available === 0
-              ? `${examBoard} vouchers are currently out of stock.`
-              : `Only ${data.available} ${examBoard} voucher${data.available !== 1 ? "s" : ""} left in stock — reduce your quantity.`
-          )
+          message = data.available === 0
+            ? `${examBoard} vouchers are currently out of stock.`
+            : `Only ${data.available} ${examBoard} voucher${data.available !== 1 ? "s" : ""} left in stock — reduce your quantity.`
         } else if (res.status === 409 && typeof data.error === "string" && data.error.includes("sold out")) {
-          toast.error("Stock ran out at checkout — your wallet has been refunded automatically.")
+          message = "Stock ran out at checkout — your wallet has been refunded automatically."
         } else if (res.status === 503) {
-          toast.error(`${examBoard} vouchers are not available right now. Try a different board.`)
+          message = `${examBoard} vouchers are not available right now. Try a different board.`
         } else {
-          toast.error(data.error ?? "Purchase failed. Please try again.")
+          message = data.error ?? "Purchase failed. Please try again."
         }
+        if (!purchaseDismissedRef.current) setPurchaseModal({ state: "failed", message })
         return
       }
+      // Customer already dismissed the sheet before this resolved -- the
+      // purchase still went through, but don't reopen a view they already closed.
+      if (purchaseDismissedRef.current) return
       setSuccessOrder({ ...data.order, vouchers: data.vouchers })
       setSuccessVouchers(data.vouchers ?? [])
+      setPurchaseModal({ state: "success" })
       setWalletBalance(data.newBalance)
       setQuantity(1)
       loadOrders()
@@ -196,6 +207,9 @@ export default function ResultsCheckerPage() {
       setPurchasing(false)
     }
   }
+
+  const handleCancelPurchase = () => { purchaseDismissedRef.current = true; setPurchaseModal(null) }
+  const handleDismissPurchase = () => { purchaseDismissedRef.current = true; setPurchaseModal(null); setSuccessOrder(null) }
 
   const handleCopyVoucher = (v: { pin: string; serial_number: string | null }, key: string) => {
     const text = `Serial: ${v.serial_number ?? "N/A"}\nPIN: ${v.pin}`
@@ -517,56 +531,58 @@ export default function ResultsCheckerPage() {
           </div>
         )}
 
-        {/* Success Modal */}
-        {successOrder && (
-          <div className="fixed inset-0 bg-background/60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-            <div className="w-full sm:max-w-md bg-card rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[92vh] flex flex-col">
-              <div className="text-center px-6 pt-6 pb-3 flex-shrink-0">
+      </div>
+
+      {purchaseModal && (
+        <PurchaseSheet
+          modal={purchaseModal}
+          onCancel={handleCancelPurchase}
+          onDismiss={handleDismissPurchase}
+          accentColor="#1b388b"
+          renderSuccess={() => (
+            <div className="px-5 pb-6 pt-2 space-y-3">
+              <div className="text-center">
                 <div className="text-4xl mb-2">🎓</div>
                 <h2 className="text-lg font-bold text-success">Vouchers Delivered!</h2>
-                <p className="text-sm text-muted-foreground mt-0.5">Ref: {successOrder.reference_code}</p>
+                <p className="text-sm text-muted-foreground mt-0.5">Ref: {successOrder?.reference_code}</p>
               </div>
 
-              <div className="flex-1 overflow-y-auto px-6 pb-2 space-y-3">
-                <div className="flex justify-end">
-                  <button
-                    onClick={() => triggerExcelDownload(successVouchers, successOrder.exam_board, successOrder.reference_code)}
-                    className="flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs font-medium text-[#1b388b] hover:border-[#1b388b]/40"
-                  >
-                    <Download className="w-3.5 h-3.5" />Download receipt
-                  </button>
-                </div>
-                <div className="space-y-2">
-                  {successVouchers.map((v, i) => (
-                    <div key={i} className="flex items-start justify-between gap-3 rounded-xl bg-muted/40 px-4 py-3">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs text-muted-foreground font-medium mb-1">Voucher {i + 1}</p>
-                        <p className="text-xs text-muted-foreground">Serial Number</p>
-                        <p className="font-mono font-semibold text-foreground text-sm break-all">{v.serial_number ?? "N/A"}</p>
-                        <p className="text-xs text-muted-foreground mt-1">PIN</p>
-                        <p className="font-mono font-bold text-foreground tracking-widest text-lg break-all">{v.pin}</p>
-                      </div>
-                      <button onClick={() => handleCopyVoucher(v, `success-${i}`)}
-                        className="flex-shrink-0 rounded-lg border border-border p-2 hover:bg-muted mt-1">
-                        {copiedKey === `success-${i}`
-                          ? <CheckCircle className="w-4 h-4 text-success" />
-                          : <Copy className="w-4 h-4 text-muted-foreground" />}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                <p className="text-xs text-muted-foreground text-center">These vouchers have also been sent to your phone &amp; email.</p>
-              </div>
-
-              <div className="px-6 pb-6 pt-3 flex-shrink-0">
-                <button onClick={() => setSuccessOrder(null)} className="w-full rounded-2xl bg-[#1b388b] py-3.5 text-base font-bold text-primary-foreground">
-                  Done
+              <div className="flex justify-end">
+                <button
+                  onClick={() => successOrder && triggerExcelDownload(successVouchers, successOrder.exam_board, successOrder.reference_code)}
+                  className="flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs font-medium text-[#1b388b] hover:border-[#1b388b]/40"
+                >
+                  <Download className="w-3.5 h-3.5" />Download receipt
                 </button>
               </div>
+              <div className="space-y-2 max-h-[45vh] overflow-y-auto">
+                {successVouchers.map((v, i) => (
+                  <div key={i} className="flex items-start justify-between gap-3 rounded-xl bg-muted/40 px-4 py-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-muted-foreground font-medium mb-1">Voucher {i + 1}</p>
+                      <p className="text-xs text-muted-foreground">Serial Number</p>
+                      <p className="font-mono font-semibold text-foreground text-sm break-all">{v.serial_number ?? "N/A"}</p>
+                      <p className="text-xs text-muted-foreground mt-1">PIN</p>
+                      <p className="font-mono font-bold text-foreground tracking-widest text-lg break-all">{v.pin}</p>
+                    </div>
+                    <button onClick={() => handleCopyVoucher(v, `success-${i}`)}
+                      className="flex-shrink-0 rounded-lg border border-border p-2 hover:bg-muted mt-1">
+                      {copiedKey === `success-${i}`
+                        ? <CheckCircle className="w-4 h-4 text-success" />
+                        : <Copy className="w-4 h-4 text-muted-foreground" />}
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground text-center">These vouchers have also been sent to your phone &amp; email.</p>
+
+              <button onClick={handleDismissPurchase} className="w-full rounded-2xl bg-[#1b388b] py-3.5 text-base font-bold text-primary-foreground">
+                Done
+              </button>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        />
+      )}
     </DashboardLayout>
   )
 }
