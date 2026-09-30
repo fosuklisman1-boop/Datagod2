@@ -208,7 +208,7 @@ export async function handleConfirm(
   // Re-fetch retail price from DB to prevent stale session attacks
   const verified = await verifyBundlePrice(shopId!, bundleId!, parentShopId)
   if (!verified) {
-    return end('Bundle no longer available. Please try again.')
+    return end('Package no longer available. Please try again.')
   }
   const { verifiedPrice, profitAmount, parentProfitAmount } = verified
 

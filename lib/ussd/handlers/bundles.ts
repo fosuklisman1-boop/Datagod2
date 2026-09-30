@@ -303,7 +303,7 @@ export async function handleConfirm(
 
   if (!pkg || !pkg.is_available) {
     await setSession(sessionId, { step: 'MAIN', dialingPhone })
-    return end('Bundle no longer available. Please try again.')
+    return end('Package no longer available. Please try again.')
   }
 
   const { data: feeSettings } = await supabase
@@ -579,7 +579,7 @@ export async function handlePaymentMethod(
       }
     })
 
-    return end('Payment successful.\nYour bundle will reflect\nin a few minutes.')
+    return end('Payment successful.\nYour package will reflect\nin a few minutes.')
   }
 
   return cont(paymentMethodMenu(verifiedPrice, session.walletBalance ?? 0))
