@@ -85,7 +85,10 @@ function detectMomoProviderClient(phone: string): "mtn" | "vod" | "tgo" | null {
   const local = d.startsWith("233") ? "0" + d.slice(3) : d.startsWith("0") ? d : "0" + d
   return MOMO_PREFIX_CLIENT[local.slice(0, 3)] ?? null
 }
-const MOMO_NETWORK_LABEL: Record<"mtn" | "vod" | "tgo", string> = { mtn: "MTN", vod: "Telecel", tgo: "AirtelTigo" }
+const MOMO_NETWORK_LABEL: Record<"mtn" | "vod" | "tgo", string> = { mtn: "MTN MoMo", vod: "Telecel Cash", tgo: "AT Money" }
+// Real network logo keys these MoMo choices correspond to (same assets the
+// data-network picker uses, loaded via networkLogoService -- not new logos).
+const MOMO_LOGO_NETWORK_KEY: Record<"mtn" | "vod" | "tgo", string> = { mtn: "MTN", vod: "Telecel", tgo: "AT - iShare" }
 
 export default function ShopStorefront() {
   const params = useParams()
@@ -137,7 +140,7 @@ export default function ShopStorefront() {
   const [sendingOtp, setSendingOtp] = useState(false)
   const [verifyingOtp, setVerifyingOtp] = useState(false)
   // Live MoMo charge modal
-  const [momoModal, setMomoModal] = useState<null | { state: "awaiting" | "otp" | "success" | "failed"; orderId?: string; summary?: any; message?: string; reference?: string }>(null)
+  const [momoModal, setMomoModal] = useState<null | { state: "sending" | "awaiting" | "otp" | "success" | "failed"; orderId?: string; summary?: any; message?: string; reference?: string }>(null)
   const [momoOtpInput, setMomoOtpInput] = useState("")
   const [momoOtpSubmitting, setMomoOtpSubmitting] = useState(false)
   const [globalOrderingEnabled, setGlobalOrderingEnabled] = useState(true)
@@ -149,6 +152,11 @@ export default function ShopStorefront() {
   const [termsContent, setTermsContent] = useState("")
   const [termsLastUpdated, setTermsLastUpdated] = useState<string | null>(null)
   const packagesRef = useRef<HTMLDivElement>(null)
+  // Guards against the order-create/charge-initialize calls resolving AFTER
+  // the customer already dismissed the "sending" modal (a real race, not
+  // hypothetical -- both are real network round-trips) and reopening a
+  // stale awaiting/failed modal on top of a sheet they're already back in.
+  const sendingCancelledRef = useRef(false)
   const serviceTabsRef = useRef<HTMLDivElement>(null)
   // A carousel CTA both selects the service AND scrolls the persistent
   // "Choose a Service" tabs into view, since the picker sits below the hero
@@ -191,6 +199,29 @@ export default function ShopStorefront() {
       setMtnCheckStatus(result?.verified ? "verified" : "unverified")
     } catch {
       setMtnCheckStatus("error")
+    }
+  }
+
+  // Inline, upfront verification of the checkout sheet's own beneficiary
+  // number -- auto-runs on blur (MTN packages only) so the customer sees a
+  // warning before they submit, instead of only discovering it via the
+  // separate confirmation dialog handleSubmitOrder already shows on submit.
+  const [checkoutVerifyStatus, setCheckoutVerifyStatus] = useState<"idle" | "checking" | "verified" | "unverified">("idle")
+  const checkCheckoutPhoneUpfront = async () => {
+    if (!selectedPackage || selectedPackage.packages.network.toUpperCase() !== "MTN") return
+    const digits = orderData.customer_phone.replace(/\D/g, "")
+    if (!/^0?\d{9}$/.test(digits)) { setCheckoutVerifyStatus("idle"); return }
+    setCheckoutVerifyStatus("checking")
+    try {
+      const res = await fetch("/api/verify-phone-live", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phones: [orderData.customer_phone] }),
+      })
+      const data = await res.json().catch(() => ({}))
+      setCheckoutVerifyStatus(data?.results?.[0]?.verified ? "verified" : "unverified")
+    } catch {
+      setCheckoutVerifyStatus("idle")
     }
   }
 
@@ -495,6 +526,16 @@ export default function ShopStorefront() {
   }
 
   const proceedWithOrderCreation = async (normalizedPhone: string) => {
+    // Direct-charge orders take two sequential network round-trips (create
+    // order, then initialize the charge) before a MoMo prompt actually
+    // reaches the customer's phone. Replace the sheet with a full-screen
+    // "processing" modal immediately on submit, rather than leaving them
+    // watching the sheet's own submit-button spinner for that whole time.
+    if (directCharge) {
+      sendingCancelledRef.current = false
+      setCheckoutOpen(false)
+      setMomoModal({ state: "sending" })
+    }
     try {
       const pkg = selectedPackage.packages
       const profitAmount = selectedPackage.profit_margin
@@ -583,6 +624,8 @@ export default function ShopStorefront() {
       // prompt can then only reach a number the customer proved they control).
       if (directCharge) {
         if (otpRequired && !otpVerified) {
+          setMomoModal(null)
+          setCheckoutOpen(true)
           toast.error("Please verify your Mobile Money number first")
           return
         }
@@ -610,10 +653,19 @@ export default function ShopStorefront() {
         if (!chargeRes.ok || !chargeData.success) {
           throw new Error(chargeData?.error || "Could not start the Mobile Money charge. Please try again.")
         }
-        // Close the checkout dialog and show the live payment modal. Telecel Cash
-        // charges come back "send_otp" (needs a typed code); MTN/AirtelTigo use a
-        // push-to-approve prompt instead ("pay_offline"/"pending").
-        setCheckoutOpen(false)
+        // Customer already dismissed the "sending" modal before this resolved
+        // -- the charge may still have fired, but don't yank them back into a
+        // modal they explicitly closed. Polling still runs so the real order
+        // status keeps updating regardless.
+        if (sendingCancelledRef.current) {
+          pollMomoStatus(order.id, { ...summary, reference: chargeData.reference })
+          return
+        }
+        // Sheet is already closed and the "sending" modal already showing (set
+        // at the top of this function) -- just transition it now that the
+        // prompt has actually been dispatched. Telecel Cash charges come back
+        // "send_otp" (needs a typed code); MTN/AirtelTigo use a push-to-approve
+        // prompt instead ("pay_offline"/"pending").
         if (chargeData.status === "send_otp") {
           setMomoModal({ state: "otp", orderId: order.id, summary, reference: chargeData.reference })
         } else {
@@ -734,7 +786,16 @@ export default function ShopStorefront() {
         error: error,
         errorStack: error instanceof Error ? error.stack : "N/A",
       })
-      toast.error(errorMessage)
+      // Direct-charge orders already closed the sheet for the "sending" modal
+      // (set at the top of this function) -- a toast alone would be easy to
+      // miss behind it, so show the same full-screen error card the "prompt
+      // declined" case uses instead, with the real failure reason. Skip it
+      // if the customer already dismissed "sending" themselves.
+      if (directCharge && momoModal?.state === "sending" && !sendingCancelledRef.current) {
+        setMomoModal({ state: "failed", message: errorMessage })
+      } else if (!directCharge || !sendingCancelledRef.current) {
+        toast.error(errorMessage)
+      }
     } finally {
       setSubmitting(false)
     }
@@ -1513,19 +1574,25 @@ export default function ShopStorefront() {
               onClick={() => { setCheckoutOpen(false); setOrderData({ customer_name: "", customer_email: "", customer_phone: "" }) }}
             >
               <div
-                className="flex max-h-[92vh] w-full max-w-md flex-col rounded-t-3xl bg-card"
+                className="flex max-h-[92vh] w-full max-w-md flex-col rounded-t-3xl"
+                style={{ backgroundColor: `${netColor}0d` }}
                 onClick={(e) => e.stopPropagation()}
               >
                 {/* Drag handle + close */}
                 <div className="relative flex shrink-0 justify-center pt-3 pb-1">
                   <div className="h-1 w-10 rounded-full bg-border" />
                   <button
-                    onClick={() => { setCheckoutOpen(false); setOrderData({ customer_name: "", customer_email: "", customer_phone: "" }) }}
+                    onClick={() => { setCheckoutOpen(false); setOrderData({ customer_name: "", customer_email: "", customer_phone: "" }); setCheckoutVerifyStatus("idle") }}
                     className="absolute right-4 top-2 grid h-8 w-8 place-items-center rounded-full bg-muted text-foreground"
                     aria-label="Close"
                   >
                     <X className="h-4 w-4" />
                   </button>
+                </div>
+
+                <div className="shrink-0 px-5 pb-3 pt-1">
+                  <h3 className="text-lg font-bold text-foreground">Complete your order</h3>
+                  <p className="text-xs text-muted-foreground">Takes about a minute</p>
                 </div>
 
                 <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 pb-2">
@@ -1539,23 +1606,15 @@ export default function ShopStorefront() {
                   </div>
 
                   <div>
-                    <Label>Full name</Label>
-                    <Input
-                      value={orderData.customer_name}
-                      onChange={(e) => setOrderData({ ...orderData, customer_name: e.target.value })}
-                      placeholder="e.g. Kwame Mensah"
-                      className="mt-1 bg-card"
-                    />
-                  </div>
-
-                  <div>
                     <Label>Beneficiary number <span className="font-normal text-muted-foreground">(gets the data)</span></Label>
                     <Input
                       value={orderData.customer_phone}
                       onChange={(e) => {
                         setOrderData({ ...orderData, customer_phone: e.target.value })
+                        setCheckoutVerifyStatus("idle")
                         if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode("") }
                       }}
+                      onBlur={checkCheckoutPhoneUpfront}
                       placeholder="0241234567"
                       className="mt-1 bg-card"
                     />
@@ -1564,6 +1623,15 @@ export default function ShopStorefront() {
                         ? `Must be a ${selectedPackage.packages.network} number — the prefix is checked at checkout.`
                         : "Format: 10 digits starting with 02 or 05 (e.g., 0201234567)"}
                     </p>
+                    {checkoutVerifyStatus === "checking" && (
+                      <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground"><Loader2 className="h-3 w-3 animate-spin" /> Checking number…</p>
+                    )}
+                    {checkoutVerifyStatus === "verified" && (
+                      <p className="mt-1.5 flex items-center gap-1.5 text-xs font-medium text-success"><CheckCircle2 className="h-3.5 w-3.5" /> Ready to receive {selectedPackage.packages.network} data.</p>
+                    )}
+                    {checkoutVerifyStatus === "unverified" && (
+                      <p className="mt-1.5 flex items-center gap-1.5 text-xs font-medium text-amber-700"><AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" /> Not yet confirmed — you can still order, but delivery may be delayed until it&apos;s confirmed.</p>
+                    )}
                   </div>
 
                   <HoneypotField value={honeypot} onChange={setHoneypot} />
@@ -1600,22 +1668,22 @@ export default function ShopStorefront() {
                       </div>
 
                       <div>
-                        <Label>Network</Label>
+                        <Label>Pay with</Label>
                         <div className="mt-1 grid grid-cols-3 gap-2">
                           {(["mtn", "vod", "tgo"] as const).map((p) => (
                             <button
                               key={p}
                               type="button"
                               onClick={() => setMomoNetworkChoice(p)}
-                              className={`flex items-center justify-center gap-1.5 rounded-xl border-2 py-2.5 text-sm font-semibold ${chosenProvider === p ? "border-[var(--shop-accent)]" : "border-border"}`}
+                              className={`flex flex-col items-center gap-1.5 rounded-2xl border-2 p-2.5 text-center transition-colors ${chosenProvider === p ? "border-[var(--shop-accent)] bg-[var(--shop-accent)]/5" : "border-border bg-card"}`}
                             >
-                              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: p === "mtn" ? NETWORK_BRAND_COLOR.MTN : p === "vod" ? NETWORK_BRAND_COLOR.Telecel : NETWORK_BRAND_COLOR["AT - iShare"] }} />
-                              {MOMO_NETWORK_LABEL[p]}
+                              <img src={getNetworkLogo(MOMO_LOGO_NETWORK_KEY[p])} alt="" className="h-9 w-9 rounded-lg object-contain" />
+                              <span className="text-xs font-bold text-foreground">{MOMO_NETWORK_LABEL[p]}</span>
                             </button>
                           ))}
                         </div>
                         {providerMismatch && (
-                          <p className="mt-1 text-xs text-amber-600">That number doesn&apos;t look like a {MOMO_NETWORK_LABEL[momoNetworkChoice!]} number — double check before proceeding.</p>
+                          <p className="mt-1 text-xs text-amber-600">That number doesn&apos;t match {MOMO_NETWORK_LABEL[momoNetworkChoice!]} — double check before proceeding.</p>
                         )}
                       </div>
 
@@ -1671,6 +1739,16 @@ export default function ShopStorefront() {
                       value={orderData.customer_email}
                       onChange={(e) => setOrderData({ ...orderData, customer_email: e.target.value })}
                       placeholder="you@example.com"
+                      className="mt-1 bg-card"
+                    />
+                  </div>
+
+                  <div>
+                    <Label>Name</Label>
+                    <Input
+                      value={orderData.customer_name}
+                      onChange={(e) => setOrderData({ ...orderData, customer_name: e.target.value })}
+                      placeholder="e.g. Kwame Mensah"
                       className="mt-1 bg-card"
                     />
                   </div>
@@ -1739,6 +1817,26 @@ export default function ShopStorefront() {
       {momoModal && (
         <div className="fixed inset-0 bg-background/60 flex items-center justify-center p-4 z-[60]">
           <Card className="w-full max-w-md bg-card">
+            {momoModal.state === "sending" && (
+              <CardContent className="pt-8 pb-6 text-center space-y-4">
+                <div className="mx-auto h-16 w-16 rounded-full border-4 border-muted border-t-[var(--shop-accent)] animate-spin" />
+                <div>
+                  <h3 className="text-lg font-bold text-foreground">Processing payment</h3>
+                  <p className="text-sm text-muted-foreground mt-1">Please keep this page open until we confirm.</p>
+                </div>
+                <p className="rounded-xl bg-[var(--shop-accent)]/10 px-4 py-2.5 text-sm font-medium text-[var(--shop-accent)]">
+                  Sending payment prompt to your phone…
+                </p>
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => { sendingCancelledRef.current = true; setMomoModal(null); setCheckoutOpen(true) }}
+                >
+                  Cancel payment
+                </Button>
+              </CardContent>
+            )}
+
             {momoModal.state === "awaiting" && (
               <CardContent className="pt-8 pb-6 text-center space-y-4">
                 <div className="mx-auto w-16 h-16 rounded-full bg-[var(--shop-accent)] flex items-center justify-center">
