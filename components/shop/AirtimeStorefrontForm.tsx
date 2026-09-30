@@ -167,10 +167,16 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
   }
 
   useEffect(() => {
-    if (shop?.id && selectedNetwork) {
+    // NB: shop comes from getShopBySlug, which does not select the `id`
+    // column (see lib/shop-service.ts) -- gating on shop?.id here meant this
+    // never fired, constraints stayed null forever, and every fee/total
+    // calculation silently short-circuited to the raw amount regardless of
+    // the "Pay fee separately" toggle. loadConstraints only needs shopSlug
+    // (already a required prop) and selectedNetwork.
+    if (selectedNetwork) {
       loadConstraints()
     }
-  }, [shop, selectedNetwork])
+  }, [selectedNetwork])
 
   const loadNetworkLogos = async () => {
     try {
