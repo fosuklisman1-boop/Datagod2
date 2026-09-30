@@ -221,6 +221,7 @@ export default function ShopStorefront() {
   // warning before they submit, instead of only discovering it via the
   // separate confirmation dialog handleSubmitOrder already shows on submit.
   const [checkoutVerifyStatus, setCheckoutVerifyStatus] = useState<"idle" | "checking" | "verified" | "unverified">("idle")
+  const [paystackFeePercentage, setPaystackFeePercentage] = useState(3.0)
   const checkCheckoutPhoneUpfront = async () => {
     if (!selectedPackage || selectedPackage.packages.network.toUpperCase() !== "MTN") return
     const digits = orderData.customer_phone.replace(/\D/g, "")
@@ -263,6 +264,15 @@ export default function ShopStorefront() {
         setDirectCharge(d.direct_charge === true)
       })
       .catch(() => { setTurnstileEnabled(true); setOtpRequired(false); setDirectCharge(false) })
+
+    // Real Paystack gateway fee -- same public endpoint + formula
+    // (amount * (1 + pct/100)) that components/wallet-top-up.tsx already
+    // uses, so the total shown here matches what the customer is actually
+    // charged (app/api/payments/initialize computes the identical total).
+    fetch("/api/settings/fees")
+      .then(r => r.ok ? r.json() : { paystack_fee_percentage: 3.0 })
+      .then(d => setPaystackFeePercentage(d.paystack_fee_percentage || 3.0))
+      .catch(() => setPaystackFeePercentage(3.0))
 
     // USSD card: admin toggle (platform-wide) + this shop's own active PIN
     // (per-shop, only exposed by the API when genuinely usable right now).
@@ -1620,6 +1630,11 @@ export default function ShopStorefront() {
           const chosenProvider = momoNetworkChoice ?? detectedProvider
           const providerMismatch = momoNetworkChoice && detectedProvider && momoNetworkChoice !== detectedProvider
           const total = selectedPackage.selling_price !== undefined ? selectedPackage.selling_price : (selectedPackage.packages.price + selectedPackage.profit_margin)
+          // Same formula app/api/payments/initialize actually charges with
+          // (data orders always carry the gateway fee -- only airtime is
+          // exempted there), so this displayed total matches the real charge.
+          const gatewayFee = Math.round(total * (paystackFeePercentage / 100) * 100) / 100
+          const totalWithFee = total + gatewayFee
           const showForm = !verifyWarningOpen && !momoModal
           return (
             <div
@@ -1632,7 +1647,7 @@ export default function ShopStorefront() {
                   content, instead of closing and reopening as separate
                   popups. */}
               <div
-                className="flex max-h-[92vh] w-full max-w-md flex-col rounded-t-3xl"
+                className="flex max-h-[92dvh] w-full max-w-md flex-col rounded-t-3xl"
                 style={{ backgroundColor: lightenColor(netColor, 0.92) }}
                 onClick={(e) => e.stopPropagation()}
               >
@@ -1815,7 +1830,11 @@ export default function ShopStorefront() {
                     </div>
 
                     {/* Fixed action footer — stays visible while the form above scrolls */}
-                    <div className="shrink-0 space-y-3 p-5">
+                    <div className="shrink-0 space-y-3 border-t border-border p-5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">Total <span className="text-xs">+ gateway fee</span></span>
+                        <span className="text-xl font-black text-foreground">GH₵{totalWithFee.toFixed(2)}</span>
+                      </div>
                       {turnstileEnabled && (
                         <div className="flex justify-center">
                           <TurnstileWidget onToken={setTurnstileToken} onExpire={() => setTurnstileToken("")} />
