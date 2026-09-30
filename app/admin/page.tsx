@@ -7,7 +7,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import {
   Users, Package, Store, TrendingUp, TrendingDown, AlertCircle, Download, Wallet, Loader2,
   MessageSquare, Settings, Search, Banknote, Crown, Send, MessageCircle, CheckCircle2, Crown as AgentsIcon,
-  ShoppingCart, Clock, Scale, ArrowRight,
+  ShoppingCart, Clock, Scale, ArrowRight, BarChart3, Layers, Radio, UserPlus,
 } from "lucide-react"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { adminDashboardService } from "@/lib/admin-service"
@@ -55,6 +55,39 @@ interface DashboardStats {
   chartSeries?: Array<{ date: string; revenue: number; profit: number }>
 }
 
+interface DashboardAnalytics {
+  byNetwork: Array<{ network: string; revenue: number; orders: number }>
+  byProduct: Array<{ product: string; revenue: number; orders: number }>
+  bySource: Array<{ source: string; revenue: number; orders: number }>
+  topPackages: Array<{ network: string; sizeGb: number; revenue: number; orders: number }>
+  topAgents: Array<{ shopName: string; email: string; revenue: number; orders: number }>
+  growth: {
+    new7d: number
+    new30d: number
+    expiring: number
+    roleMix: Array<{ role: string; count: number }>
+  }
+}
+
+const ROLE_LABELS: Record<string, string> = {
+  user: "Customers",
+  dealer: "Dealers",
+  sub_agent: "Subagents",
+  admin: "Admins",
+}
+const ROLE_COLORS: Record<string, string> = {
+  user: "bg-amber-400",
+  dealer: "bg-blue-500",
+  sub_agent: "bg-red-500",
+  admin: "bg-violet-500",
+}
+const NETWORK_COLORS: Record<string, string> = {
+  MTN: "bg-amber-400",
+  Telecel: "bg-red-500",
+  "AT - iShare": "bg-slate-600",
+  "AT - BigTime": "bg-slate-400",
+}
+
 const RANGES = [
   { id: "today", label: "Today" },
   { id: "7d", label: "7D" },
@@ -84,6 +117,8 @@ export default function AdminDashboardPage() {
   const { isAdmin, loading: adminLoading } = useAdminProtected()
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [loading, setLoading] = useState(true)
+  const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null)
+  const [analyticsLoading, setAnalyticsLoading] = useState(true)
   const [navigating, setNavigating] = useState<string | null>(null)
   const [range, setRange] = useState<RangeId>("7d")
 
@@ -96,6 +131,12 @@ export default function AdminDashboardPage() {
       cleanupOldNotifications()
     }
   }, [isAdmin, adminLoading, range])
+
+  useEffect(() => {
+    if (isAdmin && !adminLoading) {
+      loadAnalytics()
+    }
+  }, [isAdmin, adminLoading])
 
   const checkScheduledOrders = async () => {
     try {
@@ -133,6 +174,17 @@ export default function AdminDashboardPage() {
       toast.error(errorMessage)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadAnalytics = async () => {
+    try {
+      const data = await adminDashboardService.getDashboardAnalytics()
+      setAnalytics(data)
+    } catch (error) {
+      console.error("Error loading dashboard analytics:", error)
+    } finally {
+      setAnalyticsLoading(false)
     }
   }
 
@@ -357,6 +409,159 @@ export default function AdminDashboardPage() {
                 </button>
               </div>
             </div>
+
+            {/* All-time analytics panels */}
+            {analyticsLoading || !analytics ? (
+              <div className="flex items-center justify-center py-10">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <>
+                {/* Revenue by Network */}
+                <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+                  <p className="flex items-center gap-1.5 text-sm font-bold text-foreground">
+                    <BarChart3 className="h-4 w-4 text-[#1b388b]" /> Revenue by Network
+                  </p>
+                  <div className="mt-4 space-y-3">
+                    {analytics.byNetwork.map((n) => {
+                      const max = Math.max(...analytics.byNetwork.map((x) => x.revenue), 1)
+                      return (
+                        <div key={n.network}>
+                          <div className="flex items-baseline justify-between text-sm">
+                            <span className="flex items-center gap-1.5 font-bold text-foreground">
+                              <span className={`h-2 w-2 rounded-full ${NETWORK_COLORS[n.network] || "bg-muted-foreground"}`} /> {n.network}
+                            </span>
+                            <span className="text-xs text-muted-foreground">GH₵{n.revenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · {formatCount(n.orders)}</span>
+                          </div>
+                          <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                            <div className={`h-full rounded-full ${NETWORK_COLORS[n.network] || "bg-muted-foreground"}`} style={{ width: `${(n.revenue / max) * 100}%` }} />
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Growth & Roles */}
+                <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+                  <p className="flex items-center gap-1.5 text-sm font-bold text-foreground">
+                    <Users className="h-4 w-4 text-[#1b388b]" /> Growth &amp; Roles
+                  </p>
+                  <div className="mt-4 grid grid-cols-3 gap-2 sm:gap-3">
+                    <div className="rounded-xl bg-muted/50 p-3">
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">New · 7D</p>
+                      <p className="mt-1 flex items-center gap-1 text-lg font-black text-foreground"><UserPlus className="h-4 w-4 text-success" /> {formatCount(analytics.growth.new7d)}</p>
+                    </div>
+                    <div className="rounded-xl bg-muted/50 p-3">
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">New · 30D</p>
+                      <p className="mt-1 text-lg font-black text-foreground">{formatCount(analytics.growth.new30d)}</p>
+                    </div>
+                    <div className="rounded-xl bg-muted/50 p-3">
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Expiring</p>
+                      <p className="mt-1 flex items-center gap-1 text-lg font-black text-foreground"><Crown className="h-4 w-4 text-amber-500" /> {formatCount(analytics.growth.expiring)}</p>
+                    </div>
+                  </div>
+                  <p className="mt-4 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Role Mix</p>
+                  <div className="mt-1.5 flex h-2 w-full overflow-hidden rounded-full bg-muted">
+                    {analytics.growth.roleMix.map((r) => {
+                      const total = analytics.growth.roleMix.reduce((s, x) => s + x.count, 0) || 1
+                      return <div key={r.role} className={ROLE_COLORS[r.role] || "bg-muted-foreground"} style={{ width: `${(r.count / total) * 100}%` }} />
+                    })}
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5">
+                    {analytics.growth.roleMix.map((r) => (
+                      <span key={r.role} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <span className={`h-2 w-2 rounded-full ${ROLE_COLORS[r.role] || "bg-muted-foreground"}`} /> {ROLE_LABELS[r.role] || r.role} <span className="font-bold text-foreground">{formatCount(r.count)}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* By Product / By Source */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+                    <p className="flex items-center gap-1.5 text-sm font-bold text-foreground">
+                      <Layers className="h-4 w-4 text-violet-600" /> By Product
+                    </p>
+                    <div className="mt-4 space-y-3">
+                      {analytics.byProduct.map((p) => {
+                        const max = Math.max(...analytics.byProduct.map((x) => x.revenue), 1)
+                        return (
+                          <div key={p.product}>
+                            <div className="flex items-baseline justify-between text-sm">
+                              <span className="font-bold text-foreground">{p.product}</span>
+                              <span className="text-xs text-muted-foreground">GH₵{p.revenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            </div>
+                            <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                              <div className="h-full rounded-full bg-amber-400" style={{ width: `${(p.revenue / max) * 100}%` }} />
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+                    <p className="flex items-center gap-1.5 text-sm font-bold text-foreground">
+                      <Radio className="h-4 w-4 text-success" /> By Source
+                    </p>
+                    <div className="mt-4 space-y-3">
+                      {analytics.bySource.map((s) => {
+                        const max = Math.max(...analytics.bySource.map((x) => x.revenue), 1)
+                        return (
+                          <div key={s.source}>
+                            <div className="flex items-baseline justify-between text-sm">
+                              <span className="font-bold text-foreground">{s.source}</span>
+                              <span className="text-xs text-muted-foreground">GH₵{s.revenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            </div>
+                            <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                              <div className="h-full rounded-full bg-[#1b388b]" style={{ width: `${(s.revenue / max) * 100}%` }} />
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Top Packages / Top Agents */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+                    <p className="flex items-center gap-1.5 text-sm font-bold text-foreground">
+                      <Package className="h-4 w-4 text-amber-600" /> Top Packages
+                    </p>
+                    <div className="mt-3 divide-y divide-border">
+                      {analytics.topPackages.map((pkg, i) => (
+                        <div key={`${pkg.network}-${pkg.sizeGb}`} className="flex items-center justify-between gap-3 py-2.5">
+                          <span className="flex items-center gap-2.5 min-w-0">
+                            <span className="flex h-5 w-5 shrink-0 items-center justify-center text-xs font-bold text-muted-foreground">{i + 1}</span>
+                            <span className="truncate font-bold text-foreground">{pkg.network} {pkg.sizeGb}GB</span>
+                          </span>
+                          <span className="shrink-0 text-right text-xs text-muted-foreground">GH₵{pkg.revenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · {formatCount(pkg.orders)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+                    <p className="flex items-center gap-1.5 text-sm font-bold text-foreground">
+                      <Crown className="h-4 w-4 text-amber-500" /> Top Agents
+                    </p>
+                    <div className="mt-3 divide-y divide-border">
+                      {analytics.topAgents.map((a, i) => (
+                        <div key={a.email} className="flex items-center justify-between gap-3 py-2.5">
+                          <span className="flex items-center gap-2.5 min-w-0">
+                            <span className="flex h-5 w-5 shrink-0 items-center justify-center text-xs font-bold text-muted-foreground">{i + 1}</span>
+                            <span className="truncate font-bold text-foreground">{a.shopName}</span>
+                          </span>
+                          <span className="shrink-0 text-right text-xs text-muted-foreground">GH₵{a.revenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · {formatCount(a.orders)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
 
             {/* Pending Shop Approvals Alert */}
             {stats.pendingShops > 0 && (

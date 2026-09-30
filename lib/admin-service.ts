@@ -738,6 +738,33 @@ export const adminDashboardService = {
       throw error
     }
   },
+
+  // All-time breakdown panels (Revenue by Network, Growth & Roles, By
+  // Product, By Source, Top Packages, Top Agents) -- not range-scoped.
+  async getDashboardAnalytics() {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        throw new Error("No authentication token available")
+      }
+
+      const response = await fetch("/api/admin/dashboard-analytics", {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch dashboard analytics")
+      }
+
+      return await response.json()
+    } catch (error) {
+      console.error("Error fetching dashboard analytics:", error)
+      throw error
+    }
+  },
 }
 
 // Admin Order Management
