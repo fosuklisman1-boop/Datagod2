@@ -247,22 +247,23 @@ export function networkMenu(): string {
   return 'Select Network:\n1. Yellow Plans\n2. Tele\n3. Instant Blue\n4. Delay Blue\n0. Back'
 }
 
-function formatBundleSizeWithUnit(size: string, gbUnit: string): string {
+// USSD screens (package list, confirm) show just the bare package size —
+// no unit at all, not even for sub-1GB sizes. Deliberately no MB conversion
+// here (unlike formatBundleSizeGB below) since a unit-less number is the
+// point of this format.
+export function formatBundleSize(size: string): string {
+  const n = parseFloat(size)
+  return isNaN(n) ? size : `${n}`
+}
+
+// WhatsApp confirm screens keep the full "GB"/"MB" unit convention — kept
+// separate so a USSD-only size-format tweak can't silently also change
+// WhatsApp copy.
+function formatBundleSizeGB(size: string): string {
   const n = parseFloat(size)
   if (isNaN(n)) return size
   if (n < 1) return `${Math.round(n * 1000)}MB`
-  return `${Number.isInteger(n) ? n : n}${gbUnit}`
-}
-
-// USSD screens (package list, confirm) use the short "G" unit.
-export function formatBundleSize(size: string): string {
-  return formatBundleSizeWithUnit(size, 'G')
-}
-
-// WhatsApp confirm screens keep the full "GB" unit — kept separate so a
-// future USSD-only unit tweak doesn't silently also change WhatsApp copy.
-function formatBundleSizeGB(size: string): string {
-  return formatBundleSizeWithUnit(size, 'GB')
+  return `${n}GB`
 }
 
 export function bundleMenu(bundles: BundleOption[], page: number, total: number): string {
