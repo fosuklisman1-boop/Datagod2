@@ -114,6 +114,34 @@ describe("resolveShopCode", () => {
     })
   })
 
+  it("prefers ussd_display_name over shop_name when it is set", async () => {
+    const client = fakeClient({
+      ussd_shop_codes: {
+        data: { id: "sc5", shop_id: "s5", status: "active", token_balance: 1, whatsapp_activated: false },
+      },
+      user_shops: {
+        data: { shop_name: "MTN Data Direct", parent_shop_id: null, ussd_display_name: "Kwame Mobile" },
+      },
+    })
+
+    const result = await resolveShopCode("DISP01", client)
+    expect(result?.shopName).toBe("Kwame Mobile")
+  })
+
+  it("falls back to shop_name when ussd_display_name is null", async () => {
+    const client = fakeClient({
+      ussd_shop_codes: {
+        data: { id: "sc6", shop_id: "s6", status: "active", token_balance: 1, whatsapp_activated: false },
+      },
+      user_shops: {
+        data: { shop_name: "Test Shop", parent_shop_id: null, ussd_display_name: null },
+      },
+    })
+
+    const result = await resolveShopCode("DISP02", client)
+    expect(result?.shopName).toBe("Test Shop")
+  })
+
   it("trims the input code before looking it up", async () => {
     const eqCalls: unknown[][] = []
     const client = {
