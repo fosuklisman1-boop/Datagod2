@@ -7,14 +7,20 @@ describe("TOGGLEABLE_PAGES", () => {
     expect(new Set(keys).size).toBe(keys.length)
   })
 
-  it("includes exactly the 9 dealer-tool paths previously hardcoded in NON_SERVICE_GATED_PATHS", () => {
-    const dealerToolPaths = TOGGLEABLE_PAGES
-      .filter(p => p.group === "dashboard" && p.key !== "wallet")
-      .map(p => p.path)
-    expect(dealerToolPaths.slice().sort()).toEqual([
+  it("has exactly 19 entries: 3 auth, 6 core, 10 tools", () => {
+    expect(TOGGLEABLE_PAGES.filter(p => p.group === "auth")).toHaveLength(3)
+    expect(TOGGLEABLE_PAGES.filter(p => p.group === "core")).toHaveLength(6)
+    expect(TOGGLEABLE_PAGES.filter(p => p.group === "tools")).toHaveLength(10)
+  })
+
+  it("includes exactly the 9 original dealer-tool paths plus the new Developer/API tool", () => {
+    const toolPaths = TOGGLEABLE_PAGES
+      .filter(p => p.group === "tools" && p.key !== "my_shop")
+      .flatMap(p => p.paths ?? [])
+    expect(toolPaths.slice().sort()).toEqual([
       "/dashboard/afa-orders",
       "/dashboard/buy-stock",
-      "/dashboard/my-shop",
+      "/dashboard/developer",
       "/dashboard/payment-reverify",
       "/dashboard/shop-dashboard",
       "/dashboard/sub-agent-catalog",
@@ -24,15 +30,36 @@ describe("TOGGLEABLE_PAGES", () => {
     ])
   })
 
-  it("has no path for the 3 standalone auth-group entries", () => {
+  it("has no paths for the 3 standalone auth-group entries", () => {
     const authEntries = TOGGLEABLE_PAGES.filter(p => p.group === "auth")
     expect(authEntries.map(p => p.key).slice().sort()).toEqual(["guest_purchase", "join_channel", "landing_page"])
-    expect(authEntries.every(p => p.path === undefined)).toBe(true)
+    expect(authEntries.every(p => p.paths === undefined)).toBe(true)
   })
 
-  it("wallet has both a path and sits in the dashboard group", () => {
+  it("wallet has a single path and sits in the core group", () => {
     const wallet = TOGGLEABLE_PAGES.find(p => p.key === "wallet")
-    expect(wallet?.path).toBe("/dashboard/wallet")
-    expect(wallet?.group).toBe("dashboard")
+    expect(wallet?.paths).toEqual(["/dashboard/wallet"])
+    expect(wallet?.group).toBe("core")
+  })
+
+  it("the 5 other core keys each have exactly one path", () => {
+    const coreKeys = ["dashboard_home", "my_orders", "transactions", "profile", "complaints"]
+    for (const key of coreKeys) {
+      const entry = TOGGLEABLE_PAGES.find(p => p.key === key)
+      expect(entry?.paths).toHaveLength(1)
+    }
+  })
+
+  it("my_shop bundles exactly its 7 routes (Overview + 6 sibling pages) as one unit", () => {
+    const myShop = TOGGLEABLE_PAGES.find(p => p.key === "my_shop")
+    expect(myShop?.paths?.slice().sort()).toEqual([
+      "/dashboard/customers",
+      "/dashboard/my-shop",
+      "/dashboard/shop-orders",
+      "/dashboard/shop-pricing",
+      "/dashboard/shop-profile",
+      "/dashboard/shop-profit-logs",
+      "/dashboard/shop-withdraw",
+    ])
   })
 })
