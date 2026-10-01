@@ -16,6 +16,7 @@ import { authService } from "@/lib/auth"
 import { getAuthErrorMessage } from "@/lib/auth-errors"
 import GoogleAuthButton from "@/components/GoogleAuthButton"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
+import { isPageHidden } from "@/lib/custom-domains"
 
 const DEFAULT_TERMS = `Welcome to DATAGOD. By accessing or using our platform, you agree to be bound by these Terms of Service. Please read them carefully before creating an account or making any purchase.
 
@@ -320,7 +321,7 @@ export default function SignupPage() {
         <div className="relative hidden lg:flex flex-col justify-between overflow-hidden bg-gradient-to-br from-primary to-primary p-12 text-white">
           <div aria-hidden className="absolute -right-20 -top-16 h-72 w-72 rounded-full bg-card/10" />
           <div aria-hidden className="absolute -left-12 -bottom-12 h-48 w-48 rounded-full bg-card/10" />
-          <Link href="/" className="relative flex items-center gap-3">
+          <Link href={isPageHidden("landing_page", domainBranding.hiddenPages) ? "/auth/login" : "/"} className="relative flex items-center gap-3">
             <div className="rounded-xl bg-card/15 p-2">
               <img src={domainBranding.logoUrl || "/favicon-v2.jpeg"} alt={domainBranding.siteName || "DATAGOD"} className="h-7 w-7 rounded-lg object-cover" />
             </div>
@@ -621,11 +622,13 @@ export default function SignupPage() {
                 </div>
 
                 {/* Back to Home Link */}
-                <div className="text-center">
-                  <Link href="/" className="text-sm text-muted-foreground hover:underline">
-                    Back to Home
-                  </Link>
-                </div>
+                {!isPageHidden("landing_page", domainBranding.hiddenPages) && (
+                  <div className="text-center">
+                    <Link href="/" className="text-sm text-muted-foreground hover:underline">
+                      Back to Home
+                    </Link>
+                  </div>
+                )}
               </form>
             )}
           </div>

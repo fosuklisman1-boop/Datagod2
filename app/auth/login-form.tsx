@@ -99,7 +99,7 @@ export default function LoginForm() {
       <div className="relative hidden lg:flex flex-col justify-between overflow-hidden bg-gradient-to-br from-primary to-primary p-12 text-white">
         <div aria-hidden className="absolute -right-20 -top-16 h-72 w-72 rounded-full bg-card/10" />
         <div aria-hidden className="absolute -left-12 -bottom-12 h-48 w-48 rounded-full bg-card/10" />
-        <Link href="/" className="relative flex items-center gap-3">
+        <Link href={isPageHidden("landing_page", domainBranding.hiddenPages) ? "/auth/login" : "/"} className="relative flex items-center gap-3">
           <div className="rounded-xl bg-card/15 p-2">
             <img src={domainBranding.logoUrl || "/favicon-v2.jpeg"} alt={domainBranding.siteName || "DATAGOD"} className="h-7 w-7 rounded-lg object-cover" />
           </div>
@@ -226,9 +226,11 @@ export default function LoginForm() {
             ) : null
           )}
 
-          <div className="mt-6 text-center">
-            <Link href="/" className="text-sm text-muted-foreground hover:underline">Back to Home</Link>
-          </div>
+          {!isPageHidden("landing_page", domainBranding.hiddenPages) && (
+            <div className="mt-6 text-center">
+              <Link href="/" className="text-sm text-muted-foreground hover:underline">Back to Home</Link>
+            </div>
+          )}
         </div>
       </div>
     </div>
