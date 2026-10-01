@@ -6,7 +6,13 @@ import {
   normalizeDomainHost,
   hexToHslTriplet,
   isReservedDomainHost,
+  isPageHidden,
 } from "./custom-domains"
+
+const ALL_DEALER_TOOL_KEYS = [
+  "afa_orders", "upgrade", "my_shop", "shop_dashboard", "sub_agents",
+  "sub_agent_catalog", "ussd_shop", "payment_reverify", "buy_stock",
+]
 
 describe("getServicePrimaryPath", () => {
   it("returns each service's own first/primary path", () => {
@@ -55,23 +61,32 @@ describe("getServiceRedirect", () => {
     expect(getServiceRedirect("/dashboard/airtime", [])).toBeNull()
   })
 
-  it("redirects non-service dealer/business-management paths to the first selected service", () => {
-    expect(getServiceRedirect("/dashboard/afa-orders", ["airtime"])).toBe("/dashboard/airtime")
-    expect(getServiceRedirect("/dashboard/upgrade", ["data_bundles"])).toBe("/dashboard/data-packages")
-    expect(getServiceRedirect("/dashboard/my-shop", ["data_bundles"])).toBe("/dashboard/data-packages")
-    expect(getServiceRedirect("/dashboard/my-shop/settings", ["data_bundles"])).toBe("/dashboard/data-packages")
-    expect(getServiceRedirect("/dashboard/shop-dashboard", ["airtime"])).toBe("/dashboard/airtime")
-    expect(getServiceRedirect("/dashboard/sub-agents", ["airtime"])).toBe("/dashboard/airtime")
-    expect(getServiceRedirect("/dashboard/sub-agent-catalog", ["airtime"])).toBe("/dashboard/airtime")
-    expect(getServiceRedirect("/dashboard/sub-agent-catalog/add", ["airtime"])).toBe("/dashboard/airtime")
-    expect(getServiceRedirect("/dashboard/ussd-shop", ["airtime"])).toBe("/dashboard/airtime")
-    expect(getServiceRedirect("/dashboard/payment-reverify", ["airtime"])).toBe("/dashboard/airtime")
-    expect(getServiceRedirect("/dashboard/buy-stock", ["airtime"])).toBe("/dashboard/airtime")
+  it("redirects dealer/business-management paths to the first selected service when those pages are hidden", () => {
+    expect(getServiceRedirect("/dashboard/afa-orders", ["airtime"], ALL_DEALER_TOOL_KEYS)).toBe("/dashboard/airtime")
+    expect(getServiceRedirect("/dashboard/upgrade", ["data_bundles"], ALL_DEALER_TOOL_KEYS)).toBe("/dashboard/data-packages")
+    expect(getServiceRedirect("/dashboard/my-shop", ["data_bundles"], ALL_DEALER_TOOL_KEYS)).toBe("/dashboard/data-packages")
+    expect(getServiceRedirect("/dashboard/my-shop/settings", ["data_bundles"], ALL_DEALER_TOOL_KEYS)).toBe("/dashboard/data-packages")
+    expect(getServiceRedirect("/dashboard/shop-dashboard", ["airtime"], ALL_DEALER_TOOL_KEYS)).toBe("/dashboard/airtime")
+    expect(getServiceRedirect("/dashboard/sub-agents", ["airtime"], ALL_DEALER_TOOL_KEYS)).toBe("/dashboard/airtime")
+    expect(getServiceRedirect("/dashboard/sub-agent-catalog", ["airtime"], ALL_DEALER_TOOL_KEYS)).toBe("/dashboard/airtime")
+    expect(getServiceRedirect("/dashboard/sub-agent-catalog/add", ["airtime"], ALL_DEALER_TOOL_KEYS)).toBe("/dashboard/airtime")
+    expect(getServiceRedirect("/dashboard/ussd-shop", ["airtime"], ALL_DEALER_TOOL_KEYS)).toBe("/dashboard/airtime")
+    expect(getServiceRedirect("/dashboard/payment-reverify", ["airtime"], ALL_DEALER_TOOL_KEYS)).toBe("/dashboard/airtime")
+    expect(getServiceRedirect("/dashboard/buy-stock", ["airtime"], ALL_DEALER_TOOL_KEYS)).toBe("/dashboard/airtime")
   })
 
-  it("does not redirect non-service dealer/business-management paths when service is null (main site)", () => {
-    expect(isPathAllowedForService("/dashboard/my-shop", null)).toBe(true)
-    expect(isPathAllowedForService("/dashboard/sub-agents", null)).toBe(true)
+  it("does NOT redirect a dealer-tool path when its key is not in hiddenPages (admin has shown it)", () => {
+    expect(getServiceRedirect("/dashboard/my-shop", ["airtime"], [])).toBeNull()
+    expect(getServiceRedirect("/dashboard/upgrade", ["airtime"], ["afa_orders"])).toBeNull()
+  })
+
+  it("defaults to nothing hidden when hiddenPages is omitted entirely", () => {
+    expect(getServiceRedirect("/dashboard/my-shop", ["airtime"])).toBeNull()
+  })
+
+  it("does not redirect dealer/business-management paths when service is null (main site), regardless of hiddenPages", () => {
+    expect(isPathAllowedForService("/dashboard/my-shop", null, ALL_DEALER_TOOL_KEYS)).toBe(true)
+    expect(isPathAllowedForService("/dashboard/sub-agents", null, ALL_DEALER_TOOL_KEYS)).toBe(true)
   })
 })
 
@@ -94,10 +109,14 @@ describe("isPathAllowedForService", () => {
     expect(isPathAllowedForService("/dashboard/sms", ["airtime", "data_bundles"])).toBe(false)
   })
 
-  it("disallows non-service dealer/business-management paths on a branded domain", () => {
-    expect(isPathAllowedForService("/dashboard/my-shop", ["airtime"])).toBe(false)
-    expect(isPathAllowedForService("/dashboard/afa-orders", ["airtime"])).toBe(false)
-    expect(isPathAllowedForService("/dashboard/upgrade", ["airtime"])).toBe(false)
+  it("disallows dealer/business-management paths on a branded domain when they're hidden", () => {
+    expect(isPathAllowedForService("/dashboard/my-shop", ["airtime"], ALL_DEALER_TOOL_KEYS)).toBe(false)
+    expect(isPathAllowedForService("/dashboard/afa-orders", ["airtime"], ALL_DEALER_TOOL_KEYS)).toBe(false)
+    expect(isPathAllowedForService("/dashboard/upgrade", ["airtime"], ALL_DEALER_TOOL_KEYS)).toBe(false)
+  })
+
+  it("allows a dealer-tool path once it's no longer in hiddenPages", () => {
+    expect(isPathAllowedForService("/dashboard/my-shop", ["airtime"], [])).toBe(true)
   })
 })
 
@@ -156,5 +175,19 @@ describe("isReservedDomainHost", () => {
   })
   it("does not false-positive on a lookalike domain that merely shares trailing letters", () => {
     expect(isReservedDomainHost("notdatagod.store", "datagod.store")).toBe(false)
+  })
+})
+
+describe("isPageHidden", () => {
+  it("returns true when the key is in hiddenPages", () => {
+    expect(isPageHidden("landing_page", ["landing_page", "wallet"])).toBe(true)
+  })
+
+  it("returns false when the key is not in hiddenPages", () => {
+    expect(isPageHidden("landing_page", ["wallet"])).toBe(false)
+  })
+
+  it("returns false for an empty hiddenPages array", () => {
+    expect(isPageHidden("wallet", [])).toBe(false)
   })
 })
