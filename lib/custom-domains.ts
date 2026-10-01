@@ -52,7 +52,7 @@ export function getServiceRedirect(path: string, services: DomainService[], hidd
 
   const belongsToOtherService = (Object.entries(SERVICE_PATH_PREFIXES) as [DomainService, string[]][])
     .some(([s, prefixes]) => !validServices.includes(s) && prefixes.some(p => path.startsWith(p)))
-  const hiddenPaths = TOGGLEABLE_PAGES.filter(p => p.path && hiddenPages.includes(p.key)).map(p => p.path!)
+  const hiddenPaths = TOGGLEABLE_PAGES.filter(p => p.paths && hiddenPages.includes(p.key)).flatMap(p => p.paths!)
   const belongsToHiddenPage = hiddenPaths.some(p => path.startsWith(p))
   if (!belongsToOtherService && !belongsToHiddenPage) return null
 

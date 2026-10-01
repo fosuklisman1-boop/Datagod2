@@ -85,6 +85,20 @@ describe("getServiceRedirect", () => {
     expect(getServiceRedirect("/dashboard/wallet", ["airtime"], [])).toBeNull()
   })
 
+  it("hiding my_shop blocks all 7 of its bundled paths, not just /dashboard/my-shop", () => {
+    expect(getServiceRedirect("/dashboard/my-shop", ["airtime"], ["my_shop"])).toBe("/dashboard/airtime")
+    expect(getServiceRedirect("/dashboard/shop-orders", ["airtime"], ["my_shop"])).toBe("/dashboard/airtime")
+    expect(getServiceRedirect("/dashboard/customers", ["airtime"], ["my_shop"])).toBe("/dashboard/airtime")
+    expect(getServiceRedirect("/dashboard/shop-profit-logs", ["airtime"], ["my_shop"])).toBe("/dashboard/airtime")
+    expect(getServiceRedirect("/dashboard/shop-pricing", ["airtime"], ["my_shop"])).toBe("/dashboard/airtime")
+    expect(getServiceRedirect("/dashboard/shop-withdraw", ["airtime"], ["my_shop"])).toBe("/dashboard/airtime")
+    expect(getServiceRedirect("/dashboard/shop-profile", ["airtime"], ["my_shop"])).toBe("/dashboard/airtime")
+  })
+
+  it("does not block my_shop's paths when my_shop is not in hiddenPages", () => {
+    expect(getServiceRedirect("/dashboard/shop-pricing", ["airtime"], [])).toBeNull()
+  })
+
   it("does not redirect dealer/business-management paths when service is null (main site), regardless of hiddenPages", () => {
     expect(isPathAllowedForService("/dashboard/my-shop", null, ALL_DEALER_TOOL_KEYS)).toBe(true)
     expect(isPathAllowedForService("/dashboard/sub-agents", null, ALL_DEALER_TOOL_KEYS)).toBe(true)
