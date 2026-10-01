@@ -15,6 +15,7 @@ import { toast } from "sonner"
 import { authService } from "@/lib/auth"
 import { getAuthErrorMessage } from "@/lib/auth-errors"
 import GoogleAuthButton from "@/components/GoogleAuthButton"
+import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 
 const DEFAULT_TERMS = `Welcome to DATAGOD. By accessing or using our platform, you agree to be bound by these Terms of Service. Please read them carefully before creating an account or making any purchase.
 
@@ -76,6 +77,7 @@ function passwordStrength(pw: string): number {
 }
 
 export default function SignupPage() {
+  const domainBranding = useDomainBranding()
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
   const [confirmationSent, setConfirmationSent] = useState(false)
@@ -320,9 +322,9 @@ export default function SignupPage() {
           <div aria-hidden className="absolute -left-12 -bottom-12 h-48 w-48 rounded-full bg-card/10" />
           <Link href="/" className="relative flex items-center gap-3">
             <div className="rounded-xl bg-card/15 p-2">
-              <img src="/favicon-v2.jpeg" alt="DATAGOD" className="h-7 w-7 rounded-lg object-cover" />
+              <img src={domainBranding.logoUrl || "/favicon-v2.jpeg"} alt={domainBranding.siteName || "DATAGOD"} className="h-7 w-7 rounded-lg object-cover" />
             </div>
-            <span className="text-xl font-extrabold tracking-tight">DATAGOD</span>
+            <span className="text-xl font-extrabold tracking-tight">{domainBranding.siteName || "DATAGOD"}</span>
           </Link>
           <div className="relative">
             <h2 className="mb-3 text-3xl font-extrabold tracking-tight">Create your account.</h2>
@@ -348,9 +350,9 @@ export default function SignupPage() {
           <div className="w-full max-w-md">
             <div className="mb-8 flex items-center justify-center gap-2 lg:hidden">
               <div className="rounded-lg bg-card p-2 shadow-sm">
-                <img src="/favicon-v2.jpeg" alt="DATAGOD" className="h-7 w-7 rounded-md object-cover" />
+                <img src={domainBranding.logoUrl || "/favicon-v2.jpeg"} alt={domainBranding.siteName || "DATAGOD"} className="h-7 w-7 rounded-md object-cover" />
               </div>
-              <span className="text-lg font-extrabold tracking-tight">DATAGOD</span>
+              <span className="text-lg font-extrabold tracking-tight">{domainBranding.siteName || "DATAGOD"}</span>
             </div>
             <h1 className="text-2xl font-bold tracking-tight text-foreground">Create account</h1>
             <p className="mt-1 mb-6 text-sm text-muted-foreground">Start buying &amp; reselling in minutes.</p>
