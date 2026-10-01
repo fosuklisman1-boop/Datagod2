@@ -80,6 +80,11 @@ describe("getServiceRedirect", () => {
     expect(getServiceRedirect("/dashboard/upgrade", ["airtime"], ["afa_orders"])).toBeNull()
   })
 
+  it("redirects /dashboard/wallet when wallet is hidden, and allows it again once it's not — the first non-dealer-tool key with a path", () => {
+    expect(getServiceRedirect("/dashboard/wallet", ["airtime"], ["wallet"])).toBe("/dashboard/airtime")
+    expect(getServiceRedirect("/dashboard/wallet", ["airtime"], [])).toBeNull()
+  })
+
   it("does not redirect dealer/business-management paths when service is null (main site), regardless of hiddenPages", () => {
     expect(isPathAllowedForService("/dashboard/my-shop", null, ALL_DEALER_TOOL_KEYS)).toBe(true)
     expect(isPathAllowedForService("/dashboard/sub-agents", null, ALL_DEALER_TOOL_KEYS)).toBe(true)
