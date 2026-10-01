@@ -2,8 +2,18 @@ import { describe, it, expect } from 'vitest'
 import { sidebarSkinClasses } from './sidebar-theme'
 
 describe('sidebarSkinClasses', () => {
-  it('returns the same fixed-navy classes as "admin" for "default" (customer-dashboard rebuild made these deliberately identical)', () => {
-    expect(sidebarSkinClasses('default')).toEqual(sidebarSkinClasses('admin'))
+  it('returns a light sidebar with a navy active-item highlight for "default"', () => {
+    expect(sidebarSkinClasses('default')).toEqual({
+      container: 'bg-sidebar text-sidebar-foreground border-r border-sidebar-border',
+      logoSectionBorder: 'border-sidebar-border',
+      userIdentityText: 'text-muted-foreground',
+      collapseButtonHover: 'text-sidebar-foreground hover:bg-accent',
+      navLinkActive: 'bg-[#1b388b]/10 text-[#1b388b] font-medium',
+      navLinkInactive: 'text-sidebar-foreground hover:bg-accent',
+      sectionBorder: 'border-sidebar-border',
+      sectionLabelText: 'text-muted-foreground',
+      logoutText: 'text-sidebar-foreground hover:bg-destructive/10 hover:text-destructive',
+    })
   })
 
   it('returns the exact current literal classes for "dealer" (regression guard)', () => {

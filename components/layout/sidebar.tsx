@@ -282,10 +282,11 @@ export function Sidebar() {
         </Button>
       )}
 
-      {/* Overlay for mobile */}
+      {/* Overlay for mobile -- blurs the page behind the open drawer
+          instead of dimming it with a flat color wash */}
       {isMobile && isOpen && (
         <div
-          className="fixed inset-0 bg-background bg-opacity-50 z-40 md:hidden"
+          className="fixed inset-0 z-40 backdrop-blur-sm bg-background/20 md:hidden"
           onClick={() => setIsOpen(false)}
         />
       )}
