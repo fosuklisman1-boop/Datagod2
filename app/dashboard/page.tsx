@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button"
 import { TrendingUp, ShoppingCart, CheckCircle, AlertCircle, Clock, Loader2, type LucideIcon } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
-import { getServicePrimaryPath, type DomainService } from "@/lib/custom-domains"
+import { getServicePrimaryPath, isPageHidden, type DomainService } from "@/lib/custom-domains"
 import { LatestOrderCard } from "@/components/dashboard/latest-order-card"
 import { NetworkHealthCard } from "@/components/dashboard/network-health-card"
 import type { LatestOrderSummary, NetworkHealthStat } from "@/lib/order-health-service"
@@ -379,7 +379,7 @@ export default function DashboardPage() {
   return (
     <DashboardLayout>
       <WalletOnboardingModal
-        open={showOnboarding && !onboardingLoading}
+        open={showOnboarding && !onboardingLoading && !isPageHidden("wallet", domainBranding.hiddenPages)}
         onComplete={completeOnboarding}
       />
       <PhoneVerifyModal
@@ -407,33 +407,35 @@ export default function DashboardPage() {
 
         {/* Wallet hero + account meta */}
         <div className="grid gap-4 lg:grid-cols-3">
-          <Card
-            data-tour="wallet-balance"
-            className={`lg:col-span-2 border-0 text-primary-foreground relative overflow-hidden ${isDealer
-              ? "bg-gradient-to-br from-primary to-brand-accent"
-              : "bg-gradient-to-br from-primary to-primary"
-              }`}
-          >
-            <div className="absolute -right-10 -top-12 w-48 h-48 rounded-full bg-card/10" />
-            <CardContent className="p-6 relative">
-              <p className="text-sm font-medium text-white/85">Wallet Balance</p>
-              <p className="text-4xl font-extrabold tracking-tight tabular-nums mt-2">
-                GHS {Math.max(0, walletBalance || 0).toFixed(2)}
-              </p>
-              <p className="text-xs text-white/75 mt-1">Available funds</p>
-              <div className="flex flex-wrap gap-2 mt-5">
-                <Button onClick={() => router.push("/dashboard/wallet")} className="bg-card text-primary hover:bg-card/90 font-semibold">
-                  ＋ Top Up
-                </Button>
-                <Button onClick={() => router.push(primaryService ? getServicePrimaryPath(primaryService) : "/dashboard/data-packages")} className="bg-card/15 text-white hover:bg-card/25 border-0">
-                  {primaryService ? SERVICE_QUICK_LABELS[primaryService] : "Buy Data"}
-                </Button>
-                <Button onClick={() => router.push("/dashboard/my-orders")} className="bg-card/15 text-white hover:bg-card/25 border-0">
-                  My Orders
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+          {!isPageHidden("wallet", domainBranding.hiddenPages) && (
+            <Card
+              data-tour="wallet-balance"
+              className={`lg:col-span-2 border-0 text-primary-foreground relative overflow-hidden ${isDealer
+                ? "bg-gradient-to-br from-primary to-brand-accent"
+                : "bg-gradient-to-br from-primary to-primary"
+                }`}
+            >
+              <div className="absolute -right-10 -top-12 w-48 h-48 rounded-full bg-card/10" />
+              <CardContent className="p-6 relative">
+                <p className="text-sm font-medium text-white/85">Wallet Balance</p>
+                <p className="text-4xl font-extrabold tracking-tight tabular-nums mt-2">
+                  GHS {Math.max(0, walletBalance || 0).toFixed(2)}
+                </p>
+                <p className="text-xs text-white/75 mt-1">Available funds</p>
+                <div className="flex flex-wrap gap-2 mt-5">
+                  <Button onClick={() => router.push("/dashboard/wallet")} className="bg-card text-primary hover:bg-card/90 font-semibold">
+                    ＋ Top Up
+                  </Button>
+                  <Button onClick={() => router.push(primaryService ? getServicePrimaryPath(primaryService) : "/dashboard/data-packages")} className="bg-card/15 text-white hover:bg-card/25 border-0">
+                    {primaryService ? SERVICE_QUICK_LABELS[primaryService] : "Buy Data"}
+                  </Button>
+                  <Button onClick={() => router.push("/dashboard/my-orders")} className="bg-card/15 text-white hover:bg-card/25 border-0">
+                    My Orders
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardContent className="p-5 space-y-3">
@@ -513,9 +515,11 @@ export default function DashboardPage() {
             <Button variant="outline" onClick={() => router.push("/dashboard/my-orders")} className="font-semibold">
               View My Orders
             </Button>
-            <Button variant="outline" onClick={() => router.push("/dashboard/wallet")} className="font-semibold">
-              Top Up Wallet
-            </Button>
+            {!isPageHidden("wallet", domainBranding.hiddenPages) && (
+              <Button variant="outline" onClick={() => router.push("/dashboard/wallet")} className="font-semibold">
+                Top Up Wallet
+              </Button>
+            )}
           </CardContent>
         </Card>
 
