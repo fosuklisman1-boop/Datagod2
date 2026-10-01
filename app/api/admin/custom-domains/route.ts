@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { supabaseAdmin as supabase } from "@/lib/supabase"
 import { isReservedDomainHost, type DomainService } from "@/lib/custom-domains"
+import { TOGGLEABLE_PAGES } from "@/lib/custom-domain-pages"
 import { setCustomDomainCache, clearCustomDomainCache } from "@/lib/custom-domain-lookup"
 
 const VALID_SERVICES: DomainService[] = ["data_bundles", "airtime", "results_checker", "bulk_sms"]
@@ -24,13 +25,29 @@ function parseServices(raw: unknown): { services: DomainService[] } | { error: s
   return { services: Array.from(new Set(raw as DomainService[])) }
 }
 
+const VALID_PAGE_KEYS = new Set(TOGGLEABLE_PAGES.map(p => p.key))
+
+/** Validates a `hidden_pages` request field: must be an array of known
+ * TOGGLEABLE_PAGES keys (empty array is valid — "nothing hidden"). Returns
+ * the deduplicated array, or an error message. */
+function parseHiddenPages(raw: unknown): { hiddenPages: string[] } | { error: string } {
+  if (!Array.isArray(raw)) {
+    return { error: "'hidden_pages' must be an array of page keys" }
+  }
+  const invalid = raw.find(k => !VALID_PAGE_KEYS.has(k as string))
+  if (invalid !== undefined) {
+    return { error: `'hidden_pages' contains an unknown key: "${invalid}"` }
+  }
+  return { hiddenPages: Array.from(new Set(raw as string[])) }
+}
+
 export async function GET(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse!
 
   const { data, error } = await supabase
     .from("custom_domains")
-    .select("id, domain, services, site_name, logo_url, primary_color, is_active, created_at, updated_at")
+    .select("id, domain, services, site_name, logo_url, primary_color, is_active, hidden_pages, created_at, updated_at")
     .order("created_at", { ascending: false })
 
   if (error) {
@@ -62,6 +79,14 @@ export async function POST(request: NextRequest) {
     if (!siteName) {
       return NextResponse.json({ error: "'site_name' is required" }, { status: 400 })
     }
+    let hiddenPages: string[] | undefined
+    if (body.hidden_pages !== undefined) {
+      const hiddenPagesResult = parseHiddenPages(body.hidden_pages)
+      if ("error" in hiddenPagesResult) {
+        return NextResponse.json({ error: hiddenPagesResult.error }, { status: 400 })
+      }
+      hiddenPages = hiddenPagesResult.hiddenPages
+    }
     if (isReservedDomainHost(domain, ROOT_DOMAIN)) {
       return NextResponse.json(
         { error: `"${domain}" collides with the main app's own domain routing and can't be used as a custom domain` },
@@ -69,7 +94,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const row = { domain, services, site_name: siteName, logo_url: logoUrl, primary_color: primaryColor, is_active: true }
+    const row = {
+      domain, services, site_name: siteName, logo_url: logoUrl, primary_color: primaryColor, is_active: true,
+      ...(hiddenPages !== undefined ? { hidden_pages: hiddenPages } : {}),
+    }
     const { data, error } = await supabase.from("custom_domains").insert(row).select().single()
 
     if (error) {
@@ -81,6 +109,7 @@ export async function POST(request: NextRequest) {
 
     await setCustomDomainCache({
       domain, services, site_name: siteName, logo_url: logoUrl, primary_color: primaryColor, is_active: true,
+      hidden_pages: data.hidden_pages,
     })
 
     return NextResponse.json({ domain: data }, { status: 201 })
@@ -118,6 +147,13 @@ export async function PATCH(request: NextRequest) {
       if (typeof body.is_active !== "boolean") return NextResponse.json({ error: "'is_active' must be a boolean" }, { status: 400 })
       updates.is_active = body.is_active
     }
+    if (body.hidden_pages !== undefined) {
+      const hiddenPagesResult = parseHiddenPages(body.hidden_pages)
+      if ("error" in hiddenPagesResult) {
+        return NextResponse.json({ error: hiddenPagesResult.error }, { status: 400 })
+      }
+      updates.hidden_pages = hiddenPagesResult.hiddenPages
+    }
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: "No fields to update" }, { status: 400 })
@@ -132,6 +168,7 @@ export async function PATCH(request: NextRequest) {
       await setCustomDomainCache({
         domain: data.domain, services: data.services, site_name: data.site_name,
         logo_url: data.logo_url, primary_color: data.primary_color, is_active: data.is_active,
+        hidden_pages: data.hidden_pages,
       })
     } else {
       await clearCustomDomainCache(data.domain)

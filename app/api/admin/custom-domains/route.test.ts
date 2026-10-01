@@ -128,6 +128,42 @@ describe("POST /api/admin/custom-domains", () => {
     const res = await POST(postRequest({ domain: "checkresults.com", services: ["results_checker"], site_name: "CheckResults" }))
     expect(res.status).toBe(409)
   })
+
+  it("rejects a non-array hidden_pages", async () => {
+    const res = await POST(postRequest({ domain: "checkresults.com", services: ["results_checker"], site_name: "CheckResults", hidden_pages: "wallet" }))
+    expect(res.status).toBe(400)
+  })
+
+  it("rejects an unknown hidden_pages key", async () => {
+    const res = await POST(postRequest({ domain: "checkresults.com", services: ["results_checker"], site_name: "CheckResults", hidden_pages: ["not_a_real_key"] }))
+    expect(res.status).toBe(400)
+  })
+
+  it("accepts a valid hidden_pages array and write-throughs it to the cache", async () => {
+    fromMock.mockReturnValue(makeBuilder({
+      data: { id: "1", domain: "checkresults.com", services: ["results_checker"], site_name: "CheckResults", logo_url: null, primary_color: null, is_active: true, hidden_pages: ["wallet"] },
+      error: null,
+    }))
+    const res = await POST(postRequest({ domain: "checkresults.com", services: ["results_checker"], site_name: "CheckResults", hidden_pages: ["wallet"] }))
+    expect(res.status).toBe(201)
+    expect(setCacheMock).toHaveBeenCalledWith(expect.objectContaining({ hidden_pages: ["wallet"] }))
+  })
+
+  it("omits hidden_pages from the insert row when not provided, relying on the column default", async () => {
+    const builder = makeBuilder({
+      data: { id: "1", domain: "checkresults.com", services: ["results_checker"], site_name: "CheckResults", logo_url: null, primary_color: null, is_active: true, hidden_pages: ["afa_orders"] },
+      error: null,
+    })
+    fromMock.mockReturnValue(builder)
+
+    const res = await POST(postRequest({ domain: "checkresults.com", services: ["results_checker"], site_name: "CheckResults" }))
+    expect(res.status).toBe(201)
+
+    const insertedRow = builder.insert.mock.calls[0][0]
+    expect(Object.keys(insertedRow)).not.toContain("hidden_pages")
+    // The cache write uses the DB-returned value (the column's own default), not an empty array.
+    expect(setCacheMock).toHaveBeenCalledWith(expect.objectContaining({ hidden_pages: ["afa_orders"] }))
+  })
 })
 
 describe("PATCH /api/admin/custom-domains", () => {
@@ -152,6 +188,11 @@ describe("PATCH /api/admin/custom-domains", () => {
     expect(res.status).toBe(200)
     expect(clearCacheMock).toHaveBeenCalledWith("checkresults.com")
     expect(setCacheMock).not.toHaveBeenCalled()
+  })
+
+  it("rejects an unknown hidden_pages key on update", async () => {
+    const res = await PATCH(postRequest({ id: "1", hidden_pages: ["bogus"] }, "PATCH"))
+    expect(res.status).toBe(400)
   })
 })
 
