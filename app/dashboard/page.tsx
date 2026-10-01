@@ -19,6 +19,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { supabase } from "@/lib/supabase"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 import { getServicePrimaryPath, isPageHidden } from "@/lib/custom-domains"
+import { useFirstVisiblePath } from "@/hooks/use-first-visible-path"
 import { TOGGLEABLE_PAGES } from "@/lib/custom-domain-pages"
 import { LatestOrderCard } from "@/components/dashboard/latest-order-card"
 import { NetworkHealthCard, NETWORK_BADGE } from "@/components/dashboard/network-health-card"
@@ -146,12 +147,19 @@ export default function DashboardPage() {
   const { isDealer } = useUserRole()
   const domainBranding = useDomainBranding()
   const primaryService = domainBranding.services?.[0] ?? null
+  const { path: firstVisiblePath, loading: firstVisiblePathLoading } = useFirstVisiblePath()
+  const dashboardHomeHidden = isPageHidden("dashboard_home", domainBranding.hiddenPages)
+
+  useEffect(() => {
+    if (!dashboardHomeHidden || firstVisiblePathLoading) return
+    router.replace(firstVisiblePath ?? "/dashboard/unavailable")
+  }, [dashboardHomeHidden, firstVisiblePathLoading, firstVisiblePath, router])
   // Drops any promo tile whose destination is a hidden toggleable page (e.g.
   // "Own Shop" when my_shop is hidden, "Wallet Top Up" when wallet is
   // hidden) — matched generically by href against the registry's path, so
   // this stays correct without hardcoding each promo's gating key.
   const visiblePromoServices = PROMO_SERVICES.filter(svc => {
-    const page = TOGGLEABLE_PAGES.find(p => p.path === svc.href)
+    const page = TOGGLEABLE_PAGES.find(p => p.paths?.includes(svc.href))
     return !page || !isPageHidden(page.key, domainBranding.hiddenPages)
   })
   const [firstName, setFirstName] = useState("")
@@ -448,6 +456,18 @@ export default function DashboardPage() {
 
   // Redirect happens in useEffect, but render nothing while waiting
   if (!user) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-screen">
+          <Loader2 className="w-8 h-8 animate-spin text-[#1b388b]" />
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  // dashboard_home is hidden for this domain — useEffect above is
+  // redirecting onward; render nothing but a spinner while that resolves.
+  if (dashboardHomeHidden) {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center h-screen">
