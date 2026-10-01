@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react"
 import { Sparkles, X, Send, ChevronDown, RefreshCw } from "lucide-react"
 import ReactMarkdown from "react-markdown"
+import { useDraggableFloatingPosition } from "@/hooks/use-draggable-floating-position"
 
 interface Message {
   role: "user" | "assistant"
@@ -51,6 +52,8 @@ export function HomeAIChatWidget() {
   const messagesEndRef    = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const inputRef          = useRef<HTMLInputElement>(null)
+  const { position: fabPosition, containerRef: fabContainerRef, onPointerDown: onFabPointerDown, onClickCapture: onFabClickCapture } =
+    useDraggableFloatingPosition("datagod_ai_widget_position")
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -290,7 +293,16 @@ export function HomeAIChatWidget() {
         </div>
       )}
 
-      <div className="fixed bottom-24 md:bottom-6 right-6 z-50 flex flex-col items-end gap-2">
+      <div
+        ref={fabContainerRef}
+        onPointerDown={onFabPointerDown}
+        onClickCapture={onFabClickCapture}
+        style={fabPosition ? { position: "fixed", top: fabPosition.top, left: fabPosition.left } : undefined}
+        className={
+          (fabPosition ? "fixed z-50" : "fixed bottom-32 md:bottom-10 right-6 z-50") +
+          " flex flex-col items-end gap-2 cursor-grab active:cursor-grabbing touch-none select-none"
+        }
+      >
       {/* Refresh button — hidden when chat is open */}
       {!isOpen && (
         <button

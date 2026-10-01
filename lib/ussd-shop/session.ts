@@ -21,6 +21,13 @@ function sessionKey(sessionId: string): string {
   return `ussd-shop:session:${sessionId}`
 }
 
+// Diagnostic only — lets router.ts's "session not found" log distinguish a
+// Redis-not-configured deployment from a genuine TTL expiry or a transient
+// Redis error (which is already logged separately, below, by sessionId).
+export function isRedisConfigured(): boolean {
+  return redis !== null
+}
+
 const fallbackCache = new Map<string, { data: USSDShopSession, expires: number }>()
 
 export async function getSession(sessionId: string): Promise<USSDShopSession | null> {
@@ -29,10 +36,10 @@ export async function getSession(sessionId: string): Promise<USSDShopSession | n
       const data = await redis.get<USSDShopSession>(sessionKey(sessionId))
       if (data) return data
     } catch (e) {
-      console.error("[USSD-SHOP-SESSION] get error:", e)
+      console.error("[USSD-SHOP-SESSION] get error for", sessionId, ":", e)
     }
   }
-  
+
   // Fallback to in-memory cache
   const cached = fallbackCache.get(sessionId)
   if (cached && cached.expires > Date.now()) {
@@ -47,10 +54,10 @@ export async function setSession(sessionId: string, session: USSDShopSession): P
       await redis.setex(sessionKey(sessionId), SESSION_TTL, JSON.stringify(session))
       return
     } catch (e) {
-      console.error("[USSD-SHOP-SESSION] set error:", e)
+      console.error("[USSD-SHOP-SESSION] set error for", sessionId, ":", e)
     }
   }
-  
+
   // Fallback to in-memory cache
   fallbackCache.set(sessionId, { data: session, expires: Date.now() + SESSION_TTL * 1000 })
 }

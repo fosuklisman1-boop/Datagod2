@@ -62,11 +62,13 @@ export async function POST(request: NextRequest) {
       // by the fail-closed check below. Apply migrations/otp_verify_attempts_fallback.sql.
     }
 
-    // FAIL CLOSED: if BOTH brute-force defences are unavailable (Upstash degraded
-    // AND the DB counter unavailable), there is no cap left and the 6-digit code
-    // could be sprayed out. Refuse to verify rather than become an open oracle.
-    if (!dbFallbackOk && (perPhone.degraded || perIp.degraded)) {
-      console.error("[VERIFY-OTP] Both rate limiters unavailable — failing closed")
+    // FAIL CLOSED only if OUR OWN DB-backed cap is unavailable — that's the real
+    // backstop now (bump_otp_attempts holds regardless of Upstash). Upstash
+    // degrading is no longer treated as a reason to block verification on its
+    // own: it fails open by design, and the DB counter above already covers
+    // brute-force protection when it does.
+    if (!dbFallbackOk) {
+      console.error("[VERIFY-OTP] DB attempt-cap fallback unavailable — failing closed")
       return NextResponse.json(
         { verified: false, error: "Verification is temporarily unavailable. Please try again shortly." },
         { status: 503 }

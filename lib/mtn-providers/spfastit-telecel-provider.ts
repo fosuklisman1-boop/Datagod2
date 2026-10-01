@@ -34,13 +34,14 @@ async function apiCall(path: string, body: Record<string, unknown>): Promise<Res
  * Maps SPFastIT's order_status values to this app's canonical status set.
  * The doc only gives two concrete values ("initiated" right after order
  * placement, "completed" in the status-check example) — no exhaustive list.
- * Anything that reads as a rejection maps to failed; everything else is
- * still in flight. Flag for a live re-test if a real terminal status ever
- * doesn't match this.
+ * "served" is a real value seen live and confirmed to mean delivered, same
+ * as "completed" (not documented). Anything that reads as a rejection maps
+ * to failed; everything else is still in flight. Flag for a live re-test if
+ * a real terminal status ever doesn't match this.
  */
 export function mapSpfastitTelecelStatus(raw: string): "pending" | "processing" | "completed" | "failed" {
   const s = (raw ?? "").toLowerCase().trim()
-  if (s === "completed") return "completed"
+  if (s === "completed" || s === "served") return "completed"
   if (/fail|cancel|reject|block/.test(s)) return "failed"
   return "processing"
 }

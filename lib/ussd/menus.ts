@@ -25,7 +25,7 @@ function truncate(msg: string): string {
 export type MainMenuKey = "data" | "afa" | "airtime" | "resultsChecker"
 
 const MAIN_MENU_ITEMS: MenuItemDef<MainMenuKey>[] = [
-  { key: "data", label: "Buy Data Bundle" },
+  { key: "data", label: "Browse Services" },
   { key: "afa", label: "AFA Registration" },
   { key: "airtime", label: "Buy Airtime" },
   { key: "resultsChecker", label: "Results Checker" },
@@ -54,7 +54,7 @@ export function airtimeRecipientPrompt(): string {
 }
 
 export function airtimeNetworkMenu(): string {
-  return 'Select Network:\n1. MTN\n2. Telecel\n3. AirtelTigo\n\n0. Back'
+  return 'Select Network:\n1. Yellow Plans\n2. Tele\n3. Instant Blue\n\n0. Back'
 }
 
 export function airtimeAmountPrompt(network: string, min: number, max: number): string {
@@ -244,14 +244,26 @@ export function afaConfirmMenu(name: string, card: string, price: number, localP
 }
 
 export function networkMenu(): string {
-  return 'Select Network:\n1. MTN\n2. Telecel\n3. AirtelTigo\n4. AT-iShare\n0. Back'
+  return 'Select Network:\n1. Yellow Plans\n2. Tele\n3. Instant Blue\n4. Delay Blue\n0. Back'
 }
 
-function formatBundleSize(size: string): string {
+// USSD screens (package list, confirm) show just the bare package size —
+// no unit at all, not even for sub-1GB sizes. Deliberately no MB conversion
+// here (unlike formatBundleSizeGB below) since a unit-less number is the
+// point of this format.
+export function formatBundleSize(size: string): string {
+  const n = parseFloat(size)
+  return isNaN(n) ? size : `${n}`
+}
+
+// WhatsApp confirm screens keep the full "GB"/"MB" unit convention — kept
+// separate so a USSD-only size-format tweak can't silently also change
+// WhatsApp copy.
+function formatBundleSizeGB(size: string): string {
   const n = parseFloat(size)
   if (isNaN(n)) return size
   if (n < 1) return `${Math.round(n * 1000)}MB`
-  return `${Number.isInteger(n) ? n : n}GB`
+  return `${n}GB`
 }
 
 export function bundleMenu(bundles: BundleOption[], page: number, total: number): string {
@@ -260,7 +272,7 @@ export function bundleMenu(bundles: BundleOption[], page: number, total: number)
   const hasMore = offset + bundles.length < total
   if (hasMore) lines.push(`${offset + bundles.length + 1}. More...`)
   lines.push('0. Back')
-  return 'Select Bundle:\n' + lines.join('\n')
+  return 'Select Package:\n' + lines.join('\n')
 }
 
 export function paymentMethodMenu(amount: number, balance: number): string {
@@ -274,7 +286,7 @@ export function paymentMethodMenu(amount: number, balance: number): string {
 }
 
 export function recipientPrompt(): string {
-  return 'Enter recipient number\n(who gets the data):\n\n0. Back'
+  return 'Enter recipient number:\n(who gets it):\n\n0. Back'
 }
 
 export function confirmMenu(network: string, size: string, price: number, recipient: string, dialingPhone: string, holdWarning = false): string {
@@ -302,7 +314,7 @@ export function otpPrompt(): string {
 export function waConfirmMenu(network: string, size: string, price: number, recipient: string, balance: number): string {
   return (
     `Confirm:\n` +
-    `${formatBundleSize(size)} ${network}\n` +
+    `${formatBundleSizeGB(size)} ${network}\n` +
     `To: ${formatLocal(recipient)}\n` +
     `GHS ${price.toFixed(2)}\n\n` +
     `1. Pay via Wallet\n   (GHS ${balance.toFixed(2)})\n` +

@@ -12,7 +12,7 @@ import {
   shopRcCheckVoucherPrompt, shopRcCheckIndexPrompt, shopRcCheckYearPrompt,
   shopRcCheckDobPrompt, shopRcCheckConfirmMenu,
 } from "./shop-menus"
-import { resolveShopCode, fetchShopNetworks } from "@/lib/shop-commerce/shop-code"
+import { resolveShopCode, fetchShopNetworks, getCanonicalShopName } from "@/lib/shop-commerce/shop-code"
 import { getShopPref, setShopPref, clearShopPref } from "@/lib/whatsapp-bot/shop-prefs"
 import type { WaShopSession } from "./shop-types"
 import { fetchShopBundles, verifyBundlePrice, shopOwnerIsDealer } from "@/lib/shop-commerce/pricing"
@@ -757,7 +757,7 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
           profitAmount,
           parentProfitAmount,
           chargeAmount,
-          shopName: session.shopName ?? null,
+          shopName: await getCanonicalShopName(session.shopId!),
           customerEmail: customerEmail ?? null,
           shopOwnerEmail,
           channel: 'whatsapp_shop',

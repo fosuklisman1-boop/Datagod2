@@ -1,7 +1,7 @@
 import { shopWaRouter, isShopWhatsAppNumber } from "@/lib/whatsapp-bot/shop-router"
 import { sendWhatsAppText } from "@/lib/whatsapp-bot/send"
 import { logMessage } from "@/lib/whatsapp-bot/log-message"
-import { resolveShopCode, fetchShopNetworks } from "@/lib/shop-commerce/shop-code"
+import { resolveShopCode, fetchShopNetworks, getCanonicalShopName } from "@/lib/shop-commerce/shop-code"
 import { fetchShopBundles, verifyBundlePrice, shopOwnerIsDealer } from "@/lib/shop-commerce/pricing"
 import { createShopBundleOrder, createShopAirtimeOrder, createShopRcOrder, createShopCheckResultsRequest } from "@/lib/shop-commerce/orders"
 import { chargeMobileMoney, submitOtp } from "@/lib/paystack"
@@ -32,6 +32,7 @@ vi.mock("@/lib/whatsapp-bot/log-message", () => ({ logMessage: vi.fn() }))
 vi.mock("@/lib/shop-commerce/shop-code", () => ({
   resolveShopCode: vi.fn(),
   fetchShopNetworks: vi.fn(),
+  getCanonicalShopName: vi.fn(),
 }))
 vi.mock("@/lib/shop-commerce/pricing", () => ({
   fetchShopBundles: vi.fn(),
@@ -194,6 +195,7 @@ describe("shopWaRouter", () => {
       map: { MTN: [], TELECEL: [], AT: [] },
     })
     vi.mocked(resolveEmail).mockResolvedValue("cust@example.com")
+    vi.mocked(getCanonicalShopName).mockResolvedValue("Test Shop")
     vi.mocked(shopOwnerIsDealer).mockResolvedValue(false)
     // Airtime defaults — a healthy, enabled network with a 5% base fee and (via
     // the fake user_shops row below, which has no airtime_markup_* field) a 0%
@@ -280,6 +282,7 @@ describe("shopWaRouter", () => {
       shopCodeId: "sc10", shopId: "s10", shopName: "Kofi Shop", parentShopId: null,
       status: "active", tokenBalance: 5, whatsappActivated: true,
     })
+    vi.mocked(getCanonicalShopName).mockResolvedValue("Kofi Shop")
     vi.mocked(fetchShopNetworks).mockResolvedValue(["Telecel", "MTN"])
 
     // ENTER_CODE (no session) -> SELECT_PRODUCT
@@ -373,6 +376,40 @@ describe("shopWaRouter", () => {
     const followUp = await shopWaRouter(phone, "whatever", "w9")
     expect(followUp).toBe("")
     expect(resolveShopCode).not.toHaveBeenCalled()
+  })
+
+  it("persists the order's shop_name as the canonical shop_name, not the USSD display-name override shown on screen", async () => {
+    const phone = "233241000140"
+
+    // resolveShopCode's shopName reflects a ussd_display_name override (what
+    // the customer sees), but the shop's real shop_name ("MTN Data Direct")
+    // is what getCanonicalShopName looks up fresh for order persistence.
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc10b", shopId: "s10b", shopName: "Kwame Mobile", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(getCanonicalShopName).mockResolvedValue("MTN Data Direct")
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+
+    await shopWaRouter(phone, "CODE123", "d1")
+    expect(lastReplyTo(phone)).toContain("Kwame Mobile") // the override IS shown on screen
+
+    await shopWaRouter(phone, "1", "d2") // SELECT_PRODUCT -> Data
+    vi.mocked(fetchShopBundles).mockResolvedValue([{ id: "p1", size: "1GB", price: 5 }])
+    await shopWaRouter(phone, "1", "d3") // SELECT_NETWORK -> MTN
+    await shopWaRouter(phone, "1", "d4") // SELECT_BUNDLE -> 1GB
+    await shopWaRouter(phone, "0244000111", "d5") // ENTER_RECIPIENT
+    await shopWaRouter(phone, "0244000222", "d6") // ENTER_PAYMENT_PHONE
+
+    vi.mocked(verifyBundlePrice).mockResolvedValue({ verifiedPrice: 5, profitAmount: 1, parentProfitAmount: 0 })
+    vi.mocked(createShopBundleOrder).mockResolvedValue({ orderId: "order-d" })
+    vi.mocked(chargeMobileMoney).mockResolvedValue({ status: "send_otp", reference: "order-d" })
+    await shopWaRouter(phone, "1", "d7") // CONFIRM -> create order
+
+    expect(getCanonicalShopName).toHaveBeenCalledWith("s10b")
+    expect(createShopBundleOrder).toHaveBeenCalledWith(expect.objectContaining({
+      shopName: "MTN Data Direct",
+    }))
   })
 
   it("CONFIRM: a charge that doesn't need an OTP sends the payment-sent message and ends the session", async () => {
