@@ -31,6 +31,8 @@ export function useFirstVisiblePath(): FirstVisiblePathResult {
       setSubLoading(false)
       return
     }
+    setSubLoading(true)
+    setDealerHasSubscription(false)
     let cancelled = false
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user) {
