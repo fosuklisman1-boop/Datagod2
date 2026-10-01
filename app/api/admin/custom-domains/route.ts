@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
     }
 
     await setCustomDomainCache({
-      domain, services, site_name: siteName, logo_url: logoUrl, primary_color: primaryColor, is_active: true, hidden_pages: [],
+      domain, services, site_name: siteName, logo_url: logoUrl, primary_color: primaryColor, is_active: true,
     })
 
     return NextResponse.json({ domain: data }, { status: 201 })
@@ -131,7 +131,7 @@ export async function PATCH(request: NextRequest) {
     if (data.is_active) {
       await setCustomDomainCache({
         domain: data.domain, services: data.services, site_name: data.site_name,
-        logo_url: data.logo_url, primary_color: data.primary_color, is_active: data.is_active, hidden_pages: data.hidden_pages ?? [],
+        logo_url: data.logo_url, primary_color: data.primary_color, is_active: data.is_active,
       })
     } else {
       await clearCustomDomainCache(data.domain)
