@@ -99,6 +99,12 @@ describe("getServiceRedirect", () => {
     expect(getServiceRedirect("/dashboard/shop-pricing", ["airtime"], [])).toBeNull()
   })
 
+  it("hiding dashboard_home blocks only the exact /dashboard root, not its sibling dashboard pages", () => {
+    expect(getServiceRedirect("/dashboard", ["airtime"], ["dashboard_home"])).toBe("/dashboard/airtime")
+    expect(getServiceRedirect("/dashboard/wallet", ["airtime"], ["dashboard_home"])).toBeNull()
+    expect(getServiceRedirect("/dashboard/my-shop", ["airtime"], ["dashboard_home"])).toBeNull()
+  })
+
   it("does not redirect dealer/business-management paths when service is null (main site), regardless of hiddenPages", () => {
     expect(isPathAllowedForService("/dashboard/my-shop", null, ALL_DEALER_TOOL_KEYS)).toBe(true)
     expect(isPathAllowedForService("/dashboard/sub-agents", null, ALL_DEALER_TOOL_KEYS)).toBe(true)
