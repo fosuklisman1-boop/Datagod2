@@ -64,7 +64,13 @@ async function lookupExact(host: string): Promise<LookupResult> {
     try {
       const cached = await redis.get<CustomDomainConfig | typeof NOT_FOUND_MARKER>(cacheKey(host))
       if (cached === NOT_FOUND_MARKER) return { kind: "not_found", fromNegativeCache: true }
-      if (cached) return { kind: "found", config: cached }
+      // A cache entry written before hidden_pages existed on this interface
+      // (pre-dating this feature's deploy, within CACHE_TTL_SECONDS of it)
+      // would otherwise come back with hidden_pages undefined, and every
+      // isPageHidden(key, config.hidden_pages) call downstream would throw.
+      // Treat that shape as a miss instead of a hit — it falls through to
+      // Supabase below, which refills the cache with the correct shape.
+      if (cached && Array.isArray(cached.hidden_pages)) return { kind: "found", config: cached }
     } catch (e) {
       console.error("[CUSTOM-DOMAIN-LOOKUP] Redis read failed, falling back to Supabase:", e instanceof Error ? e.message : e)
     }

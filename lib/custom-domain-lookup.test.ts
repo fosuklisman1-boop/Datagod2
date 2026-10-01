@@ -72,6 +72,30 @@ describe("resolveCustomDomain", () => {
     expect(maybeSingleMock).not.toHaveBeenCalled()
   })
 
+  it("treats a cached config missing hidden_pages (from before this field existed) as a miss, not a crash", async () => {
+    // A stale cache entry written by pre-this-feature code would have every
+    // field EXCEPT hidden_pages — simulate that shape directly rather than
+    // spreading sampleConfig, which already includes it.
+    const staleConfig = {
+      domain: sampleConfig.domain,
+      services: sampleConfig.services,
+      site_name: sampleConfig.site_name,
+      logo_url: sampleConfig.logo_url,
+      primary_color: sampleConfig.primary_color,
+      is_active: sampleConfig.is_active,
+    }
+    redisGetMock.mockResolvedValueOnce(staleConfig)
+    maybeSingleMock.mockResolvedValueOnce({ data: sampleConfig, error: null })
+    const { resolveCustomDomain } = await import("./custom-domain-lookup")
+
+    const result = await resolveCustomDomain("checkresults.com")
+
+    // Falls through to Supabase instead of returning the malformed cached
+    // value, and the result has a real hidden_pages array.
+    expect(maybeSingleMock).toHaveBeenCalled()
+    expect(result).toEqual(sampleConfig)
+  })
+
   it("queries Supabase and fills the cache on a Redis miss", async () => {
     redisGetMock.mockResolvedValueOnce(null)
     maybeSingleMock.mockResolvedValueOnce({ data: sampleConfig, error: null })

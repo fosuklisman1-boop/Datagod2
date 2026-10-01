@@ -25,40 +25,40 @@ describe("getServicePrimaryPath", () => {
 
 describe("getServiceRedirect", () => {
   it("returns null for a path belonging to one of the domain's selected services", () => {
-    expect(getServiceRedirect("/dashboard/data-packages", ["data_bundles"])).toBeNull()
-    expect(getServiceRedirect("/dashboard/data-packages/foo", ["data_bundles"])).toBeNull()
-    expect(getServiceRedirect("/dashboard/airtime", ["data_bundles", "airtime"])).toBeNull()
+    expect(getServiceRedirect("/dashboard/data-packages", ["data_bundles"], [])).toBeNull()
+    expect(getServiceRedirect("/dashboard/data-packages/foo", ["data_bundles"], [])).toBeNull()
+    expect(getServiceRedirect("/dashboard/airtime", ["data_bundles", "airtime"], [])).toBeNull()
   })
 
   it("returns null instead of throwing for an unrecognized service value", () => {
-    expect(getServiceRedirect("/dashboard/airtime", ["not_a_real_service" as any])).toBeNull()
+    expect(getServiceRedirect("/dashboard/airtime", ["not_a_real_service" as any], [])).toBeNull()
   })
 
   it("returns null for account-wide paths regardless of selected services", () => {
-    expect(getServiceRedirect("/dashboard/wallet", ["airtime"])).toBeNull()
-    expect(getServiceRedirect("/dashboard/my-orders", ["bulk_sms"])).toBeNull()
-    expect(getServiceRedirect("/dashboard/profile", ["results_checker"])).toBeNull()
-    expect(getServiceRedirect("/dashboard/transactions", ["airtime"])).toBeNull()
-    expect(getServiceRedirect("/dashboard/complaints", ["airtime"])).toBeNull()
-    expect(getServiceRedirect("/dashboard", ["airtime"])).toBeNull()
-    expect(getServiceRedirect("/admin/users", ["data_bundles"])).toBeNull()
+    expect(getServiceRedirect("/dashboard/wallet", ["airtime"], [])).toBeNull()
+    expect(getServiceRedirect("/dashboard/my-orders", ["bulk_sms"], [])).toBeNull()
+    expect(getServiceRedirect("/dashboard/profile", ["results_checker"], [])).toBeNull()
+    expect(getServiceRedirect("/dashboard/transactions", ["airtime"], [])).toBeNull()
+    expect(getServiceRedirect("/dashboard/complaints", ["airtime"], [])).toBeNull()
+    expect(getServiceRedirect("/dashboard", ["airtime"], [])).toBeNull()
+    expect(getServiceRedirect("/admin/users", ["data_bundles"], [])).toBeNull()
   })
 
   it("redirects a path belonging to a non-selected service to the first selected service's root", () => {
-    expect(getServiceRedirect("/dashboard/airtime", ["data_bundles"])).toBe("/dashboard/data-packages")
-    expect(getServiceRedirect("/dashboard/data-packages", ["airtime"])).toBe("/dashboard/airtime")
-    expect(getServiceRedirect("/dashboard/sms", ["results_checker"])).toBe("/dashboard/results-checker")
-    expect(getServiceRedirect("/dashboard/results-checker", ["airtime", "bulk_sms"])).toBe("/dashboard/airtime")
+    expect(getServiceRedirect("/dashboard/airtime", ["data_bundles"], [])).toBe("/dashboard/data-packages")
+    expect(getServiceRedirect("/dashboard/data-packages", ["airtime"], [])).toBe("/dashboard/airtime")
+    expect(getServiceRedirect("/dashboard/sms", ["results_checker"], [])).toBe("/dashboard/results-checker")
+    expect(getServiceRedirect("/dashboard/results-checker", ["airtime", "bulk_sms"], [])).toBe("/dashboard/airtime")
   })
 
   it("treats both results-checker and results-check paths as the results_checker service", () => {
-    expect(getServiceRedirect("/dashboard/results-checker", ["results_checker"])).toBeNull()
-    expect(getServiceRedirect("/dashboard/results-check", ["results_checker"])).toBeNull()
-    expect(getServiceRedirect("/dashboard/results-checker", ["bulk_sms"])).toBe("/dashboard/sms")
+    expect(getServiceRedirect("/dashboard/results-checker", ["results_checker"], [])).toBeNull()
+    expect(getServiceRedirect("/dashboard/results-check", ["results_checker"], [])).toBeNull()
+    expect(getServiceRedirect("/dashboard/results-checker", ["bulk_sms"], [])).toBe("/dashboard/sms")
   })
 
   it("returns null when given an empty services array (defensive — treated as unrestricted)", () => {
-    expect(getServiceRedirect("/dashboard/airtime", [])).toBeNull()
+    expect(getServiceRedirect("/dashboard/airtime", [], [])).toBeNull()
   })
 
   it("redirects dealer/business-management paths to the first selected service when those pages are hidden", () => {
@@ -80,10 +80,6 @@ describe("getServiceRedirect", () => {
     expect(getServiceRedirect("/dashboard/upgrade", ["airtime"], ["afa_orders"])).toBeNull()
   })
 
-  it("defaults to nothing hidden when hiddenPages is omitted entirely", () => {
-    expect(getServiceRedirect("/dashboard/my-shop", ["airtime"])).toBeNull()
-  })
-
   it("does not redirect dealer/business-management paths when service is null (main site), regardless of hiddenPages", () => {
     expect(isPathAllowedForService("/dashboard/my-shop", null, ALL_DEALER_TOOL_KEYS)).toBe(true)
     expect(isPathAllowedForService("/dashboard/sub-agents", null, ALL_DEALER_TOOL_KEYS)).toBe(true)
@@ -92,21 +88,21 @@ describe("getServiceRedirect", () => {
 
 describe("isPathAllowedForService", () => {
   it("allows everything when services is null (main site/shop)", () => {
-    expect(isPathAllowedForService("/dashboard/airtime", null)).toBe(true)
-    expect(isPathAllowedForService("/dashboard/sms", null)).toBe(true)
-    expect(isPathAllowedForService("/dashboard/my-shop", null)).toBe(true)
+    expect(isPathAllowedForService("/dashboard/airtime", null, [])).toBe(true)
+    expect(isPathAllowedForService("/dashboard/sms", null, [])).toBe(true)
+    expect(isPathAllowedForService("/dashboard/my-shop", null, [])).toBe(true)
   })
 
   it("allows selected-service and account-wide paths", () => {
-    expect(isPathAllowedForService("/dashboard/airtime", ["airtime"])).toBe(true)
-    expect(isPathAllowedForService("/dashboard/wallet", ["airtime"])).toBe(true)
-    expect(isPathAllowedForService("/dashboard/data-packages", ["data_bundles", "airtime"])).toBe(true)
-    expect(isPathAllowedForService("/dashboard/airtime", ["data_bundles", "airtime"])).toBe(true)
+    expect(isPathAllowedForService("/dashboard/airtime", ["airtime"], [])).toBe(true)
+    expect(isPathAllowedForService("/dashboard/wallet", ["airtime"], [])).toBe(true)
+    expect(isPathAllowedForService("/dashboard/data-packages", ["data_bundles", "airtime"], [])).toBe(true)
+    expect(isPathAllowedForService("/dashboard/airtime", ["data_bundles", "airtime"], [])).toBe(true)
   })
 
   it("disallows a non-selected service's path", () => {
-    expect(isPathAllowedForService("/dashboard/sms", ["airtime"])).toBe(false)
-    expect(isPathAllowedForService("/dashboard/sms", ["airtime", "data_bundles"])).toBe(false)
+    expect(isPathAllowedForService("/dashboard/sms", ["airtime"], [])).toBe(false)
+    expect(isPathAllowedForService("/dashboard/sms", ["airtime", "data_bundles"], [])).toBe(false)
   })
 
   it("disallows dealer/business-management paths on a branded domain when they're hidden", () => {

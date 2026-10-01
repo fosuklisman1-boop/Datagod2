@@ -29,13 +29,16 @@ export function getServicePrimaryPath(service: DomainService): string {
 }
 
 /**
- * Given the requested path and the domain's selected services, return the
- * path to redirect to if this path belongs to a service NOT selected, or to
- * a non-service dealer/business-management route, else null (the path is
- * either account-wide — wallet, orders, auth, admin — or already belongs to
- * one of this domain's own selected services).
+ * Given the requested path, the domain's selected services, and its hidden
+ * TOGGLEABLE_PAGES keys, return the path to redirect to if this path belongs
+ * to a service NOT selected or to a page the admin has hidden, else null
+ * (the path is either account-wide — wallet, orders, auth, admin — or
+ * already belongs to one of this domain's own selected services and isn't
+ * hidden). `hiddenPages` is required, not optional, so a call site that
+ * forgets to thread it through fails to compile instead of silently
+ * behaving as if nothing is hidden.
  */
-export function getServiceRedirect(path: string, services: DomainService[], hiddenPages: string[] = []): string | null {
+export function getServiceRedirect(path: string, services: DomainService[], hiddenPages: string[]): string | null {
   if (!services || services.length === 0) return null
 
   // Recognized-service check first, filtering out any unrecognized value
@@ -57,7 +60,7 @@ export function getServiceRedirect(path: string, services: DomainService[], hidd
 }
 
 /** Convenience wrapper for nav filtering: true when `path` should be shown for `services`. */
-export function isPathAllowedForService(path: string, services: DomainService[] | null, hiddenPages: string[] = []): boolean {
+export function isPathAllowedForService(path: string, services: DomainService[] | null, hiddenPages: string[]): boolean {
   if (!services || services.length === 0) return true
   return getServiceRedirect(path, services, hiddenPages) === null
 }
