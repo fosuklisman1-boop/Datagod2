@@ -1,7 +1,7 @@
 "use client"
 
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -270,12 +270,18 @@ export default function ProfilePage() {
       // (shows on every dashboard page, including this one). The profile's own
       // phone dialog stays for the manual "add/change phone" button only.
 
-      // Fetch user stats from dashboard stats
-      const statsResponse = await fetch("/api/dashboard/stats", {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      })
+      // Fetch user stats. /api/orders/stats (already used by My Orders) sums
+      // `price` across every one of this user's orders for a real lifetime
+      // spend figure -- this used to be hardcoded to 0 here.
+      const [statsResponse, orderStatsResponse] = await Promise.all([
+        fetch("/api/dashboard/stats", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        }),
+        fetch("/api/orders/stats", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        }),
+      ])
+      const orderStatsData = orderStatsResponse.ok ? await orderStatsResponse.json() : null
       if (statsResponse.ok) {
         const statsData = await statsResponse.json()
         if (statsData.stats) {
@@ -283,7 +289,7 @@ export default function ProfilePage() {
             totalOrders: statsData.stats.totalOrders || 0,
             completedOrders: statsData.stats.completed || 0,
             successRate: parseFloat(statsData.stats.successRate || "0"),
-            totalSpent: 0, // Will need a separate endpoint for this
+            totalSpent: orderStatsData?.totalAmount || 0,
           })
         }
       }
@@ -508,7 +514,7 @@ export default function ProfilePage() {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center min-h-screen">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <Loader2 className="h-8 w-8 animate-spin text-[#1b388b]" />
         </div>
       </DashboardLayout>
     )
@@ -516,185 +522,162 @@ export default function ProfilePage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
-        {/* Page Header */}
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">My Profile</h1>
-          <p className="text-muted-foreground mt-1">Manage your account information and settings</p>
+      <div className="max-w-2xl lg:max-w-4xl mx-auto space-y-5">
+        <DashboardHeroBanner title="My Profile" subtitle="Manage your account information and settings" icon={User} />
+
+        {/* Profile hero -- same navy-gradient identity as the rest of this
+            rebuild (Wallet, etc.), dealer keeps its own amber identity. */}
+        <div className={`rounded-2xl p-5 text-white ${isDealer ? "bg-warning" : "bg-gradient-to-br from-[#1b388b] to-[#2a5ce8]"}`}>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-4">
+              <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-full bg-white">
+                <User className={`h-8 w-8 ${isDealer ? "text-amber-600" : "text-[#1b388b]"}`} />
+              </div>
+              <div className="min-w-0">
+                <h2 className="truncate text-xl font-black">{profile.firstName} {profile.lastName}</h2>
+                <p className={`truncate text-sm ${isDealer ? "text-amber-100" : "text-white/70"}`}>{profile.email}</p>
+                <div className="mt-2 flex gap-2">
+                  <Badge className={`bg-white ${isDealer ? "text-amber-600" : "text-[#1b388b]"}`}>
+                    {profile.role ? profile.role.toUpperCase() : "USER"}
+                  </Badge>
+                  <Badge className="bg-success">{profile.status}</Badge>
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={handleOpenEditDialog}
+                className={`flex-1 rounded-2xl bg-white px-4 py-2.5 text-sm font-bold hover:bg-white/90 sm:flex-none ${isDealer ? "text-amber-600" : "text-[#1b388b]"}`}
+              >
+                Edit Profile
+              </button>
+              <button
+                onClick={() => (isOAuthUser ? setShowSetPasswordDialog(true) : setShowChangePasswordDialog(true))}
+                className="flex-1 rounded-2xl border border-white/30 bg-white/10 px-4 py-2.5 text-sm font-bold text-white backdrop-blur-sm hover:bg-white/20 sm:flex-none"
+              >
+                {isOAuthUser ? "Set Password" : "Change Password"}
+              </button>
+            </div>
+          </div>
         </div>
 
-        {/* Profile Header Card */}
-        <Card className={`border-0 text-white ${isDealer
-            ? "bg-warning"
-            : "bg-gradient-to-r from-primary to-primary"
-          }`}>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="w-16 h-16 bg-card rounded-full flex items-center justify-center">
-                  <User className={`w-8 h-8 ${isDealer ? "text-amber-600" : "text-primary"}`} />
-                </div>
-                <div>
-                  <h2 className="text-2xl font-bold">{profile.firstName} {profile.lastName}</h2>
-                  <p className={isDealer ? "text-amber-100" : "text-primary-foreground/80"}>{profile.email}</p>
-                  <div className="flex gap-2 mt-2">
-                    <Badge className={`bg-card ${isDealer ? "text-amber-600" : "text-primary"}`}>
-                      {profile.role ? profile.role.toUpperCase() : "USER"}
-                    </Badge>
-                    <Badge className="bg-success">{profile.status}</Badge>
-                  </div>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  className={`bg-card hover:bg-accent ${isDealer ? "text-amber-600" : "text-primary"}`}
-                  onClick={handleOpenEditDialog}
-                >
-                  Edit Profile
-                </Button>
-                <Button
-                  variant="outline"
-                  className="border-white text-white hover:bg-card/20"
-                  onClick={() => (isOAuthUser ? setShowSetPasswordDialog(true) : setShowChangePasswordDialog(true))}
-                >
-                  {isOAuthUser ? "Set Password" : "Change Password"}
-                </Button>
-              </div>
+        {/* Personal / Account Information -- side by side at lg */}
+        <div className="lg:grid lg:grid-cols-2 lg:gap-4 lg:items-start space-y-5 lg:space-y-0">
+        <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+          <p className="text-sm font-bold text-foreground">Personal Information</p>
+          <p className="mb-4 text-xs text-muted-foreground">Your personal details</p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">First Name</label>
+              <Input value={profile.firstName} readOnly className="mt-1" />
             </div>
-          </CardContent>
-        </Card>
-
-        {/* Personal Information */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Personal Information</CardTitle>
-            <CardDescription>Your personal details</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-2">
-              <div>
-                <label className="text-sm font-medium text-foreground">First Name</label>
-                <Input value={profile.firstName} readOnly className="mt-1" />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-foreground">Last Name</label>
-                <Input value={profile.lastName} readOnly className="mt-1" />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-foreground">Email</label>
-                <Input value={profile.email} readOnly className="mt-1" />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-foreground">Phone</label>
-                <div className="flex items-center gap-2 mt-1">
-                  <Input value={profile.phone || "Not provided"} readOnly className="flex-1" />
-                  {!profile.phone ? (
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Last Name</label>
+              <Input value={profile.lastName} readOnly className="mt-1" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Email</label>
+              <Input value={profile.email} readOnly className="mt-1" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Phone</label>
+              <div className="flex items-center gap-2 mt-1">
+                <Input value={profile.phone || "Not provided"} readOnly className="flex-1" />
+                {!profile.phone ? (
+                  <button
+                    onClick={() => setShowPhoneVerifyModal(true)}
+                    className="flex items-center gap-1 text-xs text-[#1b388b] font-medium shrink-0 hover:text-[#1b388b]"
+                  >
+                    <Phone className="w-4 h-4" /> Add
+                  </button>
+                ) : profile.phoneVerified ? (
+                  <>
+                    <span className="flex items-center gap-1 text-xs text-success font-medium shrink-0">
+                      <CheckCircle2 className="w-4 h-4" /> Verified
+                    </span>
                     <button
                       onClick={() => setShowPhoneVerifyModal(true)}
-                      className="flex items-center gap-1 text-xs text-primary font-medium shrink-0 hover:text-primary"
+                      className="text-xs text-[#1b388b] font-medium shrink-0 hover:text-[#1b388b]"
                     >
-                      <Phone className="w-4 h-4" /> Add
+                      Change
                     </button>
-                  ) : profile.phoneVerified ? (
-                    <>
-                      <span className="flex items-center gap-1 text-xs text-success font-medium shrink-0">
-                        <CheckCircle2 className="w-4 h-4" /> Verified
-                      </span>
-                      <button
-                        onClick={() => setShowPhoneVerifyModal(true)}
-                        className="text-xs text-primary font-medium shrink-0 hover:text-primary"
-                      >
-                        Change
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      onClick={() => setShowPhoneVerifyModal(true)}
-                      className="flex items-center gap-1 text-xs text-warning font-medium shrink-0 hover:text-warning"
-                    >
-                      <ShieldAlert className="w-4 h-4" /> Verify
-                    </button>
-                  )}
-                </div>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-foreground">WhatsApp</label>
-                <Input value={profile.phone || "Not provided"} readOnly className="mt-1" />
+                  </>
+                ) : (
+                  <button
+                    onClick={() => setShowPhoneVerifyModal(true)}
+                    className="flex items-center gap-1 text-xs text-warning font-medium shrink-0 hover:text-warning"
+                  >
+                    <ShieldAlert className="w-4 h-4" /> Verify
+                  </button>
+                )}
               </div>
             </div>
-          </CardContent>
-        </Card>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">WhatsApp</label>
+              <Input value={profile.phone || "Not provided"} readOnly className="mt-1" />
+            </div>
+          </div>
+        </div>
 
         {/* Account Information */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Account Information</CardTitle>
-            <CardDescription>Your account details and status</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-foreground">Username</label>
-                <Input value={profile.firstName.toLowerCase()} readOnly className="mt-1" />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-foreground">Role</label>
-                <Input value={profile.role} readOnly className="mt-1" />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-foreground">Status</label>
-                <div className="mt-1 flex items-center gap-2">
-                  <Input value={profile.status} readOnly />
-                  <Badge className="bg-success/15 text-success">Active</Badge>
-                </div>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-foreground">Member Since</label>
-                <Input value={profile.memberSince} readOnly className="mt-1" />
+        <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+          <p className="text-sm font-bold text-foreground">Account Information</p>
+          <p className="mb-4 text-xs text-muted-foreground">Your account details and status</p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Username</label>
+              <Input value={profile.firstName.toLowerCase()} readOnly className="mt-1" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Role</label>
+              <Input value={profile.role} readOnly className="mt-1" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Status</label>
+              <div className="mt-1 flex items-center gap-2">
+                <Input value={profile.status} readOnly />
+                <Badge className="bg-success/15 text-success">Active</Badge>
               </div>
             </div>
-          </CardContent>
-        </Card>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Member Since</label>
+              <Input value={profile.memberSince} readOnly className="mt-1" />
+            </div>
+          </div>
+        </div>
+        </div>
 
         {/* Statistics */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Account Statistics</CardTitle>
-            <CardDescription>Your performance metrics</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-4">
-              <div className="p-4 bg-primary/5 rounded-lg">
-                <p className="text-sm text-muted-foreground">Total Orders</p>
-                <p className="text-2xl font-bold text-primary">{stats.totalOrders.toLocaleString()}</p>
-              </div>
-              <div className="p-4 bg-success/10 rounded-lg">
-                <p className="text-sm text-muted-foreground">Completed Orders</p>
-                <p className="text-2xl font-bold text-success">{stats.completedOrders.toLocaleString()}</p>
-              </div>
-              <div className="p-4 bg-primary rounded-lg">
-                <p className="text-sm text-muted-foreground">Success Rate</p>
-                <p className="text-2xl font-bold text-primary">{stats.successRate.toFixed(1)}%</p>
-              </div>
-              <div className="p-4 bg-warning/10 rounded-lg">
-                <p className="text-sm text-muted-foreground">Lifetime Spent</p>
-                <p className="text-2xl font-bold text-warning">GHS {stats.totalSpent.toFixed(2)}</p>
-              </div>
+        <div>
+          <p className="mb-2 text-sm font-bold text-foreground">Account Statistics</p>
+          <div className="grid grid-cols-2 gap-2 sm:gap-3">
+            <div className="rounded-2xl border border-border bg-card p-4">
+              <p className="text-lg font-black text-foreground">{stats.totalOrders.toLocaleString()}</p>
+              <p className="text-xs text-muted-foreground">Total Orders</p>
             </div>
-          </CardContent>
-        </Card>
+            <div className="rounded-2xl border border-border bg-card p-4">
+              <p className="text-lg font-black text-success">{stats.completedOrders.toLocaleString()}</p>
+              <p className="text-xs text-muted-foreground">Completed Orders</p>
+            </div>
+            <div className="rounded-2xl border border-border bg-card p-4">
+              <p className="text-lg font-black text-[#1b388b]">{stats.successRate.toFixed(1)}%</p>
+              <p className="text-xs text-muted-foreground">Success Rate</p>
+            </div>
+            <div className="rounded-2xl border border-border bg-card p-4">
+              <p className="text-lg font-black text-warning">GHS {stats.totalSpent.toFixed(2)}</p>
+              <p className="text-xs text-muted-foreground">Lifetime Spent</p>
+            </div>
+          </div>
+        </div>
 
         {/* Security */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Security</CardTitle>
-            <CardDescription>Manage your account security</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between p-4 border rounded-lg">
-              <div>
-                <p className="font-semibold">Password</p>
-                <p className="text-sm text-muted-foreground">
+        <div>
+          <p className="mb-2 text-sm font-bold text-foreground">Security</p>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-foreground">Password</p>
+                <p className="text-xs text-muted-foreground">
                   {isOAuthUser
                     ? "You signed up with Google. Set a password to also sign in with email."
                     : "Change the password you use to sign in."}
@@ -702,17 +685,18 @@ export default function ProfilePage() {
               </div>
               <Button
                 variant="outline"
+                className="shrink-0 rounded-full"
                 onClick={() => (isOAuthUser ? setShowSetPasswordDialog(true) : setShowChangePasswordDialog(true))}
               >
                 <Key className="w-4 h-4 mr-2" />
                 {isOAuthUser ? "Set Password" : "Change Password"}
               </Button>
             </div>
-            <div className="p-4 border rounded-lg space-y-4">
-              <div className="flex items-center justify-between gap-3">
+            <div className="rounded-2xl border border-border bg-card p-4 space-y-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <p className="font-semibold">Active Sessions</p>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-sm font-semibold text-foreground">Active Sessions</p>
+                  <p className="text-xs text-muted-foreground">
                     {sessionsLoading
                       ? "Loading sessions…"
                       : `You have ${sessions.length} active session${sessions.length === 1 ? "" : "s"}`}
@@ -720,7 +704,8 @@ export default function ProfilePage() {
                 </div>
                 <Button
                   variant="outline"
-                  className="text-destructive border-border hover:bg-destructive/10"
+                  size="sm"
+                  className="shrink-0 rounded-full text-destructive border-border hover:bg-destructive/10"
                   onClick={handleLogoutOtherDevices}
                   disabled={loggingOutOthers || sessionsLoading || sessions.filter((s) => !s.current).length === 0}
                 >
@@ -744,7 +729,7 @@ export default function ProfilePage() {
                   {sessions.map((s) => (
                     <div
                       key={s.id}
-                      className="flex items-center justify-between gap-3 p-3 rounded-md border bg-muted/30"
+                      className="flex items-center justify-between gap-3 rounded-xl border border-border bg-muted/30 p-3"
                     >
                       <div className="flex items-start gap-3 min-w-0">
                         <Monitor className="w-4 h-4 mt-0.5 text-muted-foreground shrink-0" />
@@ -780,8 +765,8 @@ export default function ProfilePage() {
                 </div>
               )}
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
 
       {/* Change Password Dialog */}
@@ -853,7 +838,7 @@ export default function ProfilePage() {
               <Button
                 onClick={handleChangePassword}
                 disabled={isChangingPassword}
-                className="bg-primary hover:bg-primary/90"
+                className="bg-[#1b388b] hover:bg-[#1b388b]/90"
               >
                 {isChangingPassword && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                 {isChangingPassword ? "Changing..." : "Change Password"}
@@ -908,7 +893,7 @@ export default function ProfilePage() {
                 )}
               </div>
               {setPwOtp.sent && !setPwOtp.verified && (
-                <button type="button" onClick={handleSendSetPwOtp} disabled={setPwOtpLoading} className="text-xs text-primary hover:underline mt-1">
+                <button type="button" onClick={handleSendSetPwOtp} disabled={setPwOtpLoading} className="text-xs text-[#1b388b] hover:underline mt-1">
                   Resend code
                 </button>
               )}
@@ -945,7 +930,7 @@ export default function ProfilePage() {
               <Button
                 onClick={handleSetPassword}
                 disabled={setPwLoading || !setPwOtp.verified || !setPwForm.newPassword}
-                className="bg-primary hover:bg-primary/90"
+                className="bg-[#1b388b] hover:bg-[#1b388b]/90"
               >
                 {setPwLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                 {setPwLoading ? "Saving..." : "Set Password"}
@@ -1012,7 +997,7 @@ export default function ProfilePage() {
               <Button
                 onClick={handleEditProfile}
                 disabled={isSavingProfile}
-                className="bg-primary hover:bg-primary/90"
+                className="bg-[#1b388b] hover:bg-[#1b388b]/90"
               >
                 {isSavingProfile && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                 {isSavingProfile ? "Saving..." : "Save Changes"}

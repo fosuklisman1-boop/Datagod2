@@ -1,6 +1,9 @@
 // Class-name mappings for the 3 sidebar skins (default/dealer/admin).
-// default/dealer must always equal today's literal output -- they're a
-// regression guard, not a design decision, while admin is new.
+// 'default' is a light sidebar with a navy active-item highlight --
+// reverted from a brief "fixed navy for everyone" experiment after the
+// active nav item turned out invisible (white text on a light drawer
+// background in practice). 'admin' keeps its own fixed-navy identity,
+// 'dealer' its own purple "Bold Telco" skin.
 export type SidebarSkin = 'default' | 'dealer' | 'admin'
 
 export interface SidebarSkinClasses {
@@ -21,7 +24,7 @@ const SKIN_CLASSES: Record<SidebarSkin, SidebarSkinClasses> = {
     logoSectionBorder: 'border-sidebar-border',
     userIdentityText: 'text-muted-foreground',
     collapseButtonHover: 'text-sidebar-foreground hover:bg-accent',
-    navLinkActive: 'bg-primary/10 text-primary font-medium',
+    navLinkActive: 'bg-[#1b388b]/10 text-[#1b388b] font-medium',
     navLinkInactive: 'text-sidebar-foreground hover:bg-accent',
     sectionBorder: 'border-sidebar-border',
     sectionLabelText: 'text-muted-foreground',

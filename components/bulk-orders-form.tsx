@@ -39,10 +39,22 @@ interface ValidationResult {
     price: number
     status: "valid" | "invalid"
     reason: string
+    /** MTN live-verification result, checked at validate time (not
+     *  submit time) so "Place order" can go straight through unless
+     *  something actually needs a warning. Undefined for invalid rows
+     *  and for non-MTN networks, which have no live verification. */
+    verified?: boolean
   }>
 }
 
-export function BulkOrdersForm() {
+interface BulkOrdersFormProps {
+  /** Real network label (e.g. "MTN", "AT - iShare"), driven by an external
+   *  network picker. When set, the form's own network dropdown is hidden
+   *  and locked to this network instead. */
+  presetNetwork?: string
+}
+
+export function BulkOrdersForm({ presetNetwork }: BulkOrdersFormProps = {}) {
   const [activeTab, setActiveTab] = useState<"excel" | "text">("text")
   const [selectedNetwork, setSelectedNetwork] = useState("")
   const [textInput, setTextInput] = useState("")
@@ -52,7 +64,6 @@ export function BulkOrdersForm() {
   const [networks, setNetworks] = useState<Array<{ id: string; label: string }>>([])
   const [loading, setLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [showSummary, setShowSummary] = useState(false)
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
   const [batchVerifyWarning, setBatchVerifyWarning] = useState<{
     unverifiedPhones: string[]
@@ -64,7 +75,28 @@ export function BulkOrdersForm() {
   // Load packages from database on mount
   useEffect(() => {
     loadPackages()
+    loadWalletBalance()
   }, [])
+
+  const loadWalletBalance = async () => {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.user?.id) return
+    const { data } = await supabase.from("wallets").select("balance").eq("user_id", session.user.id).maybeSingle()
+    setWalletBalance(data?.balance ?? 0)
+  }
+
+  // Lock the internal network selection to the externally-picked network
+  // once its matching entry has loaded, and drop any validation run against
+  // a previously-picked network so stale results can't be submitted.
+  useEffect(() => {
+    if (!presetNetwork) return
+    const match = networks.find((n) => n.label === presetNetwork)
+    if (!match || match.id === selectedNetwork) return
+    setSelectedNetwork(match.id)
+    setTextInput("")
+    setValidationResults(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presetNetwork, networks])
 
   const loadPackages = async () => {
     try {
@@ -233,6 +265,33 @@ export function BulkOrdersForm() {
     }
   }
 
+  // Live-verifies a batch of MTN phone numbers, chunked to this endpoint's
+  // real 100-per-request limit. Failures default a phone to "verified" (the
+  // same fail-open the endpoint itself uses) so a flaky check never blocks
+  // an otherwise-valid order.
+  const verifyPhonesLive = async (phones: string[]): Promise<Map<string, boolean>> => {
+    const CHUNK_SIZE = 100
+    const verifiedMap = new Map<string, boolean>()
+    for (let i = 0; i < phones.length; i += CHUNK_SIZE) {
+      const chunk = phones.slice(i, i + CHUNK_SIZE)
+      try {
+        const res = await fetch("/api/verify-phone-live", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phones: chunk }),
+        })
+        if (res.ok) {
+          const data = await res.json()
+          const chunkResults: Array<{ phone: string; verified: boolean }> = data.results ?? []
+          chunkResults.forEach(r => verifiedMap.set(r.phone, r.verified))
+        }
+      } catch (err) {
+        console.warn("[BULK-ORDERS] Live verification check failed for a chunk, leaving unverified entries as verified:", err)
+      }
+    }
+    return verifiedMap
+  }
+
   const handleValidate = async () => {
     if (!selectedNetwork) {
       toast.error("Please select a network")
@@ -246,15 +305,29 @@ export function BulkOrdersForm() {
 
     setIsValidating(true)
     try {
-      // Parse and validate
-      await new Promise(resolve => setTimeout(resolve, 500))
       const results = parseAndValidate(textInput)
+      const selectedNetworkLabel = networks.find(n => n.id === selectedNetwork)?.label
+      const validOrders = results.orders.filter(o => o.status === "valid")
+
+      // Verified at validate time (not submit time) so "Place order" can go
+      // straight through and only interrupt with a warning when it actually
+      // needs to.
+      if (selectedNetworkLabel?.toUpperCase() === "MTN" && validOrders.length > 0) {
+        const verifiedMap = await verifyPhonesLive(validOrders.map(o => o.phone))
+        results.orders = results.orders.map(o =>
+          o.status === "valid" ? { ...o, verified: verifiedMap.get(o.phone) ?? true } : o
+        )
+      }
+
       setValidationResults(results)
 
-      if (results.invalid === 0) {
-        toast.success(`Validation successful! ${results.valid} valid orders ready to place`)
-      } else {
+      const unverifiedCount = results.orders.filter(o => o.status === "valid" && o.verified === false).length
+      if (results.invalid > 0) {
         toast.warning(`Validation complete. ${results.valid} valid, ${results.invalid} invalid`)
+      } else if (unverifiedCount > 0) {
+        toast.warning(`${unverifiedCount} number(s) not yet verified`)
+      } else {
+        toast.success(`Validation successful! ${results.valid} valid orders ready to place`)
       }
     } catch (error) {
       toast.error("Validation failed")
@@ -395,70 +468,6 @@ export function BulkOrdersForm() {
     }
   }
 
-  const handleSubmitOrders = async () => {
-    if (!validationResults || validationResults.invalid > 0) {
-      toast.error("Please fix validation errors before submitting")
-      return
-    }
-
-    const validOrders = validationResults.orders.filter(o => o.status === "valid")
-    if (validOrders.length === 0) {
-      toast.error("No valid orders to submit")
-      return
-    }
-
-    try {
-      console.log("Preparing order submission...")
-
-      // Get auth token and user
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token || !session.user?.id) {
-        throw new Error("Not authenticated")
-      }
-
-      console.log("Fetching wallet balance for user:", session.user.id)
-
-      // Check wallet balance
-      const { data: walletData, error: walletError } = await supabase
-        .from("wallets")
-        .select("balance")
-        .eq("user_id", session.user.id)
-
-      if (walletError && walletError.code !== "PGRST116") {
-        console.error("Wallet error:", walletError)
-        throw new Error("Failed to fetch wallet balance")
-      }
-
-      const wallet = walletData && walletData.length > 0 ? walletData[0] : null
-      const availableBalance = wallet?.balance || 0
-
-      console.log("Wallet balance found:", availableBalance)
-
-      // Calculate total cost
-      const totalCost = validOrders.reduce((sum, order) => sum + order.price, 0)
-
-      console.log("Total cost:", totalCost)
-
-      // Check if balance is sufficient
-      if (availableBalance < totalCost) {
-        toast.error(
-          `Insufficient wallet balance. Required: ₵${totalCost.toFixed(2)}, Available: ₵${availableBalance.toFixed(2)}`
-        )
-        return
-      }
-
-      console.log("Balance sufficient. Showing summary...")
-
-      // Set wallet balance and show summary
-      setWalletBalance(availableBalance)
-      setShowSummary(true)
-      console.log("Summary should be visible now")
-    } catch (error) {
-      console.error("Error preparing summary:", error)
-      toast.error(error instanceof Error ? error.message : "Failed to prepare summary")
-    }
-  }
-
   const submitBulkOrders = async (ordersToSubmit: ValidationResult["orders"], networkLabel: string) => {
     setIsSubmitting(true)
     try {
@@ -489,7 +498,6 @@ export function BulkOrdersForm() {
       }
 
       toast.success(`Successfully created ${data.count} orders!`)
-      setShowSummary(false)
       setBatchVerifyWarning(null)
       setValidationResults(null)
       setTextInput("")
@@ -505,10 +513,22 @@ export function BulkOrdersForm() {
     }
   }
 
-  const handleConfirmSubmission = async () => {
-    if (!validationResults) return
+  // Goes straight to submission -- verification already happened at
+  // validate time (see handleValidate), so this only interrupts with the
+  // batch-verify warning modal when something actually needs it, instead of
+  // always re-checking live before every submit.
+  const handlePlaceOrder = async () => {
+    if (!validationResults || validationResults.invalid > 0) {
+      toast.error("Please fix validation errors before submitting")
+      return
+    }
 
     const validOrders = validationResults.orders.filter(o => o.status === "valid")
+    if (validOrders.length === 0) {
+      toast.error("No valid orders to submit")
+      return
+    }
+
     const selectedNetworkLabel = networks.find(n => n.id === selectedNetwork)?.label
     if (!selectedNetworkLabel) {
       toast.error("Invalid network selected")
@@ -516,56 +536,57 @@ export function BulkOrdersForm() {
     }
 
     setIsSubmitting(true)
-
-    if (selectedNetworkLabel.toUpperCase() === "MTN" && validOrders.length > 0) {
-      try {
-        const CHUNK_SIZE = 100
-        const allPhones = validOrders.map(o => o.phone)
-        const chunks: string[][] = []
-        for (let i = 0; i < allPhones.length; i += CHUNK_SIZE) {
-          chunks.push(allPhones.slice(i, i + CHUNK_SIZE))
-        }
-
-        const unverifiedPhones: string[] = []
-        let allChunksConfirmed = true
-        for (const chunk of chunks) {
-          const verifyRes = await fetch("/api/verify-phone-live", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ phones: chunk }),
-          })
-          if (verifyRes.ok) {
-            const verifyData = await verifyRes.json()
-            const results: Array<{ phone: string; verified: boolean }> = verifyData.results ?? []
-            unverifiedPhones.push(...results.filter(r => !r.verified).map(r => r.phone))
-          } else {
-            allChunksConfirmed = false
-            console.warn("[BULK-ORDERS] Live verification check returned non-OK status for a chunk, treating that chunk as verified:", verifyRes.status)
-          }
-        }
-
-        if (unverifiedPhones.length > 0) {
-          setIsSubmitting(false)
-          setBatchVerifyWarning({ unverifiedPhones, ordersToSubmit: validOrders, networkLabel: selectedNetworkLabel })
-          return
-        }
-
-        if (allChunksConfirmed) {
-          toast.success(`All ${validOrders.length} number(s) verified ✓`)
-        }
-      } catch (verifyErr) {
-        console.warn("[BULK-ORDERS] Live verification check failed, proceeding:", verifyErr)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token || !session.user?.id) {
+        throw new Error("Not authenticated")
       }
-    }
 
-    await submitBulkOrders(validOrders, selectedNetworkLabel)
+      // Re-check the balance fresh right before placing, rather than trusting
+      // whatever was last fetched on mount.
+      const { data: walletData, error: walletError } = await supabase
+        .from("wallets")
+        .select("balance")
+        .eq("user_id", session.user.id)
+
+      if (walletError && walletError.code !== "PGRST116") {
+        throw new Error("Failed to fetch wallet balance")
+      }
+
+      const wallet = walletData && walletData.length > 0 ? walletData[0] : null
+      const availableBalance = wallet?.balance || 0
+      setWalletBalance(availableBalance)
+
+      const totalCost = validOrders.reduce((sum, order) => sum + order.price, 0)
+      if (availableBalance < totalCost) {
+        toast.error(`Insufficient wallet balance. Required: GHS ${totalCost.toFixed(2)}, Available: GHS ${availableBalance.toFixed(2)}`)
+        return
+      }
+
+      const unverifiedPhones = validOrders.filter(o => o.verified === false).map(o => o.phone)
+      if (unverifiedPhones.length > 0) {
+        setBatchVerifyWarning({ unverifiedPhones, ordersToSubmit: validOrders, networkLabel: selectedNetworkLabel })
+        return
+      }
+
+      await submitBulkOrders(validOrders, selectedNetworkLabel)
+    } catch (error) {
+      console.error("Error placing bulk order:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to place order")
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
+  const validOrders = validationResults?.orders.filter(o => o.status === "valid") ?? []
+  const unverifiedOrders = validOrders.filter(o => o.verified === false)
+  const totalCost = validOrders.reduce((sum, o) => sum + o.price, 0)
+
   return (
-    <Card className="bg-card backdrop-blur-xl border border-primary/20 hover:border-border hover:shadow-2xl transition-all duration-300">
+    <Card className="bg-card backdrop-blur-xl border border-[#1b388b]/20 hover:border-border hover:shadow-2xl transition-all duration-300">
       <CardHeader>
         <div className="flex items-center gap-2">
-          <Download className="h-5 w-5 text-primary" />
+          <Download className="h-5 w-5 text-[#1b388b]" />
           <div>
             <CardTitle className="text-foreground">Bulk Orders (Excel/Text)</CardTitle>
             <CardDescription>Upload multiple phone numbers at once</CardDescription>
@@ -573,63 +594,82 @@ export function BulkOrdersForm() {
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
-        {/* Network Selection */}
-        <div className="space-y-2">
-          <Label htmlFor="network">Select Network</Label>
-          <Select value={selectedNetwork} onValueChange={setSelectedNetwork} disabled={loading}>
-            <SelectTrigger id="network">
-              <SelectValue placeholder={loading ? "Loading networks..." : "Choose network"} />
-            </SelectTrigger>
-            <SelectContent>
-              {networks.map((network) => (
-                <SelectItem key={network.id} value={network.id}>
-                  {network.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {/* Network Selection -- hidden when an external picker (the network
+            cards on the data-packages page) already drives this. */}
+        {presetNetwork ? (
+          <p className="text-sm text-muted-foreground">
+            Network: <span className="font-semibold text-foreground">{presetNetwork}</span>
+          </p>
+        ) : (
+          <div className="space-y-2">
+            <Label htmlFor="network">Select Network</Label>
+            <Select value={selectedNetwork} onValueChange={setSelectedNetwork} disabled={loading}>
+              <SelectTrigger id="network">
+                <SelectValue placeholder={loading ? "Loading networks..." : "Choose network"} />
+              </SelectTrigger>
+              <SelectContent>
+                {networks.map((network) => (
+                  <SelectItem key={network.id} value={network.id}>
+                    {network.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
 
-        {/* Tab Buttons */}
-        <div className="flex gap-2">
-          <Button
-            variant={activeTab === "text" ? "default" : "outline"}
+        {/* Tabs -- underline style */}
+        <div className="flex border-b border-border">
+          <button
             onClick={() => setActiveTab("text")}
-            className={activeTab === "text" ? "bg-gradient-to-r from-primary to-primary text-white" : "hover:border-primary hover:text-primary bg-primary/30 border-border text-foreground"}
+            className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-semibold transition ${
+              activeTab === "text" ? "border-foreground text-foreground" : "border-transparent text-muted-foreground"
+            }`}
           >
-            Text Input
-          </Button>
-          <Button
-            variant={activeTab === "excel" ? "default" : "outline"}
+            Text
+          </button>
+          <button
             onClick={() => setActiveTab("excel")}
-            className={activeTab === "excel" ? "bg-gradient-to-r from-primary to-primary text-white" : "hover:border-primary hover:text-primary bg-primary/30 border-border text-foreground"}
+            className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-semibold transition ${
+              activeTab === "excel" ? "border-foreground text-foreground" : "border-transparent text-muted-foreground"
+            }`}
           >
-            Excel Upload
-          </Button>
+            Excel / CSV
+          </button>
         </div>
 
         {/* Text Input Tab */}
         {activeTab === "text" && (
           <div className="space-y-2">
-            <Label htmlFor="text-input">Paste numbers and volumes (e.g. 0551053716 1)</Label>
-            <Textarea
-              id="text-input"
-              placeholder="One per line, e.g. 0551053716 1"
-              value={textInput}
-              onChange={(e) => setTextInput(e.target.value)}
-              rows={6}
-              className="font-mono text-sm bg-card/70 backdrop-blur border-border focus:border-primary focus:ring-2 focus:ring-primary/50"
-            />
             <p className="text-xs text-muted-foreground">
-              Format: Phone number followed by space and volume in GB
+              One per line · up to 500 items · e.g. <span className="font-mono font-semibold text-foreground">0241234567 5</span> or <span className="font-mono font-semibold text-foreground">0551234567 10</span>
             </p>
+            <div className="relative">
+              <Textarea
+                id="text-input"
+                placeholder={"0241234567 5\n0551234567 10"}
+                value={textInput}
+                onChange={(e) => setTextInput(e.target.value)}
+                rows={6}
+                className="font-mono text-sm bg-card/70 backdrop-blur border-border focus:border-[#1b388b] focus:ring-2 focus:ring-[#1b388b]/50"
+              />
+              <button
+                type="button"
+                aria-label="Reload package prices"
+                onClick={loadPackages}
+                disabled={loading}
+                className="absolute bottom-3 right-3 flex h-11 w-11 items-center justify-center rounded-full bg-card text-foreground shadow-md border border-border disabled:opacity-50"
+              >
+                <span className={loading ? "animate-spin" : ""}>↻</span>
+              </button>
+            </div>
           </div>
         )}
 
         {/* Excel Upload Tab */}
         {activeTab === "excel" && (
           <div className="space-y-4">
-            <div className="border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-primary transition-colors cursor-pointer">
+            <div className="border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-[#1b388b] transition-colors cursor-pointer">
               <p className="text-muted-foreground mb-2">Click to upload Excel file or drag and drop</p>
               <p className="text-xs text-muted-foreground">CSV or XLSX files only</p>
               <Input
@@ -654,217 +694,118 @@ export function BulkOrdersForm() {
         <Button
           onClick={handleValidate}
           disabled={isValidating || !selectedNetwork || loading}
-          className="w-full bg-gradient-to-r from-primary via-primary to-primary hover:from-primary hover:via-primary hover:to-primary shadow-lg hover:shadow-xl transition-all duration-300 text-white font-semibold"
+          variant="outline"
+          className="w-full font-semibold"
         >
           {loading ? "Loading..." : isValidating ? "Validating..." : "Validate"}
         </Button>
 
-        {/* Validation Results */}
+        {/* Validation Results -- compact list, not a table. Keeps the
+            invalid-row reason (why it failed) even though the reference's
+            compact style doesn't show one. Summary (total cost, wallet
+            balance, unverified count) folded into this header instead of a
+            separate preview step. */}
         {validationResults && (
-          <div className="space-y-4 border-t pt-4">
-            {/* Header with Clear Buttons */}
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Validation Results</h3>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    if (validationResults) {
-                      // Keep only valid orders
-                      const validOrders = validationResults.orders.filter(o => o.status === "valid")
-                      setValidationResults({
-                        ...validationResults,
-                        orders: validOrders,
-                        invalid: 0,
-                      })
-                      // Update text input to only show valid phone/volume pairs
-                      const validLines = validOrders.map(o => `${o.phone} ${o.volume}`).join("\n")
-                      setTextInput(validLines)
-                    }
-                  }}
-                  className="text-warning border-border hover:bg-warning/10"
-                >
-                  🗑️ Clear Invalid
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setValidationResults(null)
-                    setTextInput("")
-                  }}
-                  className="text-destructive border-border hover:bg-destructive/10"
-                >
-                  ✕ Clear All
-                </Button>
-              </div>
-            </div>
-
-            {/* Results Table */}
-            <div className="overflow-x-auto border rounded-lg bg-card backdrop-blur border-primary/20">
-              <table className="w-full text-sm">
-                <thead className="bg-card backdrop-blur border-b border-primary/20">
-                  <tr>
-                    <th className="px-4 py-2 text-left font-semibold text-foreground">#</th>
-                    <th className="px-4 py-2 text-left font-semibold text-foreground">Phone Number</th>
-                    <th className="px-4 py-2 text-left font-semibold text-foreground">Volume (GB)</th>
-                    <th className="px-4 py-2 text-left font-semibold text-foreground">Package Price</th>
-                    <th className="px-4 py-2 text-left font-semibold text-foreground">Status</th>
-                    <th className="px-4 py-2 text-left font-semibold text-foreground">Reason</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {validationResults.orders.map((order, idx) => (
-                    <tr
-                      key={idx}
-                      className={order.status === "valid" ? "bg-success/10 hover:bg-success/15" : "bg-destructive/10 hover:bg-destructive/15"}
-                    >
-                      <td className="px-4 py-2">{order.id}</td>
-                      <td
-                        className={`px-4 py-2 ${order.status === "invalid" ? "text-destructive" : ""
-                          }`}
-                      >
-                        {order.phone}
-                      </td>
-                      <td className={`px-4 py-2 ${order.status === "invalid" ? "text-red-600" : ""
-                        }`}>
-                        {order.volume > 0 ? `${order.volume} GB` : "N/A"}
-                      </td>
-                      <td className={`px-4 py-2 ${order.status === "invalid" ? "text-red-600" : ""
-                        }`}>
-                        {order.price > 0 ? `GHS ${order.price.toFixed(2)}` : "N/A"}
-                      </td>
-                      <td className="px-4 py-2">
-                        <span
-                          className={`px-2 py-1 rounded text-xs font-semibold ${order.status === "valid"
-                              ? "bg-card text-success border border-border"
-                              : "bg-card text-destructive border border-border"
-                            }`}
-                        >
-                          {order.status === "valid" ? "✓ Valid" : "✕ Invalid"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-2 text-muted-foreground">{order.reason}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Summary Statistics */}
-            <div className="bg-card backdrop-blur-xl p-4 rounded-lg border border-border">
+          <div className="space-y-3">
+            <div className="space-y-2 rounded-2xl border border-border bg-card p-3">
               <div className="flex items-center justify-between">
-                <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">
-                    Total: <span className="font-semibold">{validationResults.total}</span> |{" "}
-                    <span className="text-success">
-                      Valid: <span className="font-semibold">{validationResults.valid}</span>
-                    </span>{" "}
-                    |{" "}
-                    <span className="text-destructive">
-                      Invalid: <span className="font-semibold">{validationResults.invalid}</span>
-                    </span>
-                  </p>
-                  <p className="text-lg font-bold">
-                    Total Cost:{" "}
-                    <span className="bg-gradient-to-r from-primary via-primary to-primary bg-clip-text text-transparent">
-                      GHS{" "}
-                      {validationResults.orders
-                        .filter((o) => o.status === "valid")
-                        .reduce((sum, o) => sum + o.price, 0)
-                        .toFixed(2)}
-                    </span>
-                  </p>
-                </div>
-                {validationResults.invalid === 0 && (
-                  <Button
-                    onClick={handleSubmitOrders}
-                    disabled={isSubmitting}
-                    className="bg-gradient-to-r from-primary via-primary to-primary hover:from-primary hover:via-primary hover:to-primary px-6 shadow-lg hover:shadow-xl transition-all text-white font-semibold"
-                  >
-                    {isSubmitting ? "Submitting..." : "✓ SUBMIT ORDER"}
-                  </Button>
-                )}
+                <p className="text-sm font-bold">
+                  <span className="text-success">{validationResults.valid} valid</span>
+                  {validationResults.invalid > 0 && (
+                    <span className="text-destructive"> · {validationResults.invalid} invalid</span>
+                  )}
+                  {unverifiedOrders.length > 0 && (
+                    <span className="text-warning"> · {unverifiedOrders.length} unverified</span>
+                  )}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => { setValidationResults(null); setTextInput("") }}
+                  className="text-xs font-semibold text-destructive hover:underline"
+                >
+                  Clear all
+                </button>
               </div>
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2">
+                <p className="text-xs text-muted-foreground">
+                  Total: <span className="font-bold text-foreground">GHS {totalCost.toFixed(2)}</span>
+                  {" · "}Wallet: <span className="font-bold text-foreground">GHS {(walletBalance ?? 0).toFixed(2)}</span>
+                </p>
+                <div className="flex items-center gap-3 text-xs font-semibold">
+                  {validationResults.invalid > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const kept = validationResults.orders.filter(o => o.status === "valid")
+                        setValidationResults({ ...validationResults, orders: kept, invalid: 0 })
+                        setTextInput(kept.map(o => `${o.phone} ${o.volume}`).join("\n"))
+                      }}
+                      className="text-warning hover:underline"
+                    >
+                      Clear invalid
+                    </button>
+                  )}
+                  {unverifiedOrders.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // "Exports" the remaining rows back into the textarea,
+                        // same pattern as Clear invalid.
+                        const kept = validationResults.orders.filter(o => !(o.status === "valid" && o.verified === false))
+                        const keptValidCount = kept.filter(o => o.status === "valid").length
+                        setValidationResults({ ...validationResults, orders: kept, valid: keptValidCount })
+                        setTextInput(kept.filter(o => o.status === "valid").map(o => `${o.phone} ${o.volume}`).join("\n"))
+                      }}
+                      className="text-warning hover:underline"
+                    >
+                      Clear unverified
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="max-h-80 space-y-1 overflow-y-auto rounded-2xl border border-border bg-card p-2">
+              {validationResults.orders.map((order) => {
+                const isUnverified = order.status === "valid" && order.verified === false
+                return (
+                  <div
+                    key={order.id}
+                    className={`flex items-center gap-3 rounded-xl px-2 py-2 ${order.status === "invalid" ? "bg-destructive/5" : isUnverified ? "bg-warning/5" : ""}`}
+                  >
+                    <span className={`h-2 w-2 shrink-0 rounded-full ${order.status === "invalid" ? "bg-destructive" : isUnverified ? "bg-warning" : "bg-success"}`} />
+                    <span className="min-w-0 flex-1 truncate font-mono text-sm">{order.phone}</span>
+                    {order.status === "valid" ? (
+                      <>
+                        {isUnverified && <span className="shrink-0 text-[10px] font-bold uppercase text-warning">Unverified</span>}
+                        <span className="shrink-0 text-sm text-muted-foreground">{order.volume}GB</span>
+                        <span className="shrink-0 text-sm font-bold">GHS{order.price.toFixed(2)}</span>
+                      </>
+                    ) : (
+                      <span className="shrink-0 max-w-[55%] truncate text-xs text-destructive" title={order.reason}>{order.reason}</span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="flex items-center justify-between gap-2 rounded-2xl border border-border bg-card p-3">
+              <p className="text-xs text-muted-foreground">{validationResults.valid} valid rows</p>
+              <Button
+                onClick={handlePlaceOrder}
+                disabled={isSubmitting || validationResults.invalid > 0 || validOrders.length === 0}
+                className="bg-[#1b388b] text-primary-foreground hover:bg-[#1b388b]/90"
+              >
+                {isSubmitting ? "Placing order..." : "Place order"}
+              </Button>
             </div>
           </div>
         )}
 
-        {/* Summary Dialog */}
-        <Dialog open={showSummary} onOpenChange={setShowSummary}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Order Summary</DialogTitle>
-              <DialogDescription>
-                Please review your order details before confirming submission
-              </DialogDescription>
-            </DialogHeader>
-
-            {validationResults && (
-              <div className="space-y-4 py-4">
-                <div className="bg-primary/5 p-4 rounded-lg space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-sm text-muted-foreground">Number of Orders:</span>
-                    <span className="font-semibold text-lg">{validationResults.valid}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm text-muted-foreground">Network:</span>
-                    <span className="font-semibold">
-                      {networks.find(n => n.id === selectedNetwork)?.label}
-                    </span>
-                  </div>
-                  <div className="border-t pt-2 flex justify-between">
-                    <span className="text-sm text-muted-foreground">Total Cost:</span>
-                    <span className="font-bold text-lg text-primary">
-                      ₵{validationResults.orders
-                        .filter(o => o.status === "valid")
-                        .reduce((sum, o) => sum + o.price, 0)
-                        .toFixed(2)}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="bg-success/10 p-4 rounded-lg">
-                  <div className="flex justify-between">
-                    <span className="text-sm text-muted-foreground">Available Balance:</span>
-                    <span className="font-bold text-lg text-success">
-                      ₵{(walletBalance || 0).toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between mt-2">
-                    <span className="text-sm text-muted-foreground">Balance After:</span>
-                    <span className="font-bold text-lg text-success">
-                      ₵{(
-                        (walletBalance || 0) -
-                        validationResults.orders.filter(o => o.status === "valid").reduce((sum, o) => sum + o.price, 0)
-                      ).toFixed(2)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <DialogFooter className="gap-2">
-              <Button
-                variant="outline"
-                onClick={() => setShowSummary(false)}
-                disabled={isSubmitting}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleConfirmSubmission}
-                disabled={isSubmitting}
-                className="bg-gradient-to-r from-primary to-primary"
-              >
-                {isSubmitting ? "Processing..." : "Confirm & Submit"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* Batch Verification Warning Dialog */}
+        {/* Batch Verification Warning Dialog -- the only interrupt "Place
+            order" ever shows; everything else (totals, balance) is already
+            visible in the results header above, so there's no separate
+            preview step. */}
         <Dialog open={!!batchVerifyWarning} onOpenChange={(open) => { if (!open) setBatchVerifyWarning(null) }}>
           <DialogContent>
             <DialogHeader>

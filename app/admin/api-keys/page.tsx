@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { supabase } from "@/lib/supabase"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -252,7 +252,7 @@ export default function AdminApiManagementPage() {
     <DashboardLayout>
       <div className="p-6 space-y-6 max-w-7xl mx-auto">
         <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <AdminPageHeaderBanner
+          <PageHeaderBanner
             title="API Control Panel"
             subtitle="Manage programmatic access, rate limits, and audit usage across the platform."
             className="flex-1"

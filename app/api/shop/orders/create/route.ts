@@ -261,6 +261,14 @@ export async function POST(request: NextRequest) {
       total_price,
     })
 
+    // Email is optional from the customer's side (Paystack still needs a
+    // valid-format address for the receipt/charge, so synthesize one from the
+    // phone number rather than rejecting the order outright).
+    if (!customer_email || !customer_email.trim()) {
+      const digits = String(customer_phone || "").replace(/\D/g, "")
+      customer_email = digits ? `guest${digits}@datagod.store` : ""
+    }
+
     // Validate input
     if (!shop_id || !customer_email || !customer_phone || !shop_package_id) {
       return NextResponse.json(

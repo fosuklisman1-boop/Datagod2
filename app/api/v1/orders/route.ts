@@ -5,6 +5,7 @@ import { applyRateLimit } from "@/lib/rate-limiter"
 import { createMTNOrder, saveMTNTracking, normalizePhoneNumber, isAutoFulfillmentEnabled as isMTNAutoEnabled } from "@/lib/mtn-fulfillment"
 import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
+import { placeSandboxOrder, getSandboxOrder } from "@/lib/sandbox"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -34,6 +35,14 @@ export async function GET(request: NextRequest) {
 
   if (!reference) {
     return NextResponse.json({ success: false, error: "Reference is required" }, { status: 400 })
+  }
+
+  if (user.environment === "test") {
+    const order = await getSandboxOrder(user.id, reference)
+    if (!order) {
+      return NextResponse.json({ success: false, error: "Order not found" }, { status: 404 })
+    }
+    return NextResponse.json({ success: true, order: { ...order.response, status: order.status, sandbox: true } })
   }
 
   // Check api_orders by reference
@@ -162,6 +171,27 @@ export async function POST(request: NextRequest) {
   }
 
   const orderPrice = user.role === "dealer" && pkg.dealer_price > 0 ? Number(pkg.dealer_price) : Number(pkg.price)
+
+  // Sandbox: same validation and real catalog pricing above, but stop here
+  // -- no real order row, no RPC, no provider dispatch, no wallet touched.
+  if (user.environment === "test") {
+    const result = await placeSandboxOrder({
+      userId: user.id,
+      apiKeyId: user.api_key_id,
+      action: "data_order",
+      reference,
+      request: { network: sanitizedNetwork, volume_gb: volumeGb, recipient: cleanRecipient, reference },
+      price: orderPrice,
+      orderFields: { network: sanitizedNetwork, volume_gb: volumeGb, price: orderPrice, recipient: cleanRecipient },
+    })
+    if (!result.success) {
+      return NextResponse.json({ success: false, error: result.error }, { status: result.status })
+    }
+    return NextResponse.json(
+      { success: true, message: "Order placed successfully (sandbox)", order: { ...result.order, sandbox: true }, new_balance: result.newBalance },
+      { status: 201 }
+    )
+  }
 
   // --- 2 & 3 & 5. Atomic Order Placement ---
   const description = `API Data Purchase: ${sanitizedNetwork.toUpperCase()} ${volumeGb}GB (${cleanRecipient})`

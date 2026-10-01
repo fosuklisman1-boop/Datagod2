@@ -11,9 +11,10 @@ import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import { supabase } from "@/lib/supabase"
 import { UssdServiceVisibilityCard } from "@/components/admin/ussd-service-visibility-card"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { toast } from "sonner"
 import { Plus, Coins, CheckCircle, PauseCircle, Trash2, RefreshCw, Hash, Settings2, Save, ShieldCheck, Activity, Banknote, Database, MessageCircle } from "lucide-react"
 
@@ -86,6 +87,8 @@ export default function AdminUssdShopsPage() {
   const [minSessions, setMinSessions] = useState("")
   const [maxSessions, setMaxSessions] = useState("")
   const [savingSessionSettings, setSavingSessionSettings] = useState(false)
+  const [showUssdCard, setShowUssdCard] = useState(false)
+  const [savingShowUssdCard, setSavingShowUssdCard] = useState(false)
 
   // Stats
   const [activationRevenue, setActivationRevenue] = useState<number>(0)
@@ -158,6 +161,7 @@ export default function AdminUssdShopsPage() {
         setSessionPrice(String(settingsJson.ussd_shop_session_price ?? ""))
         setMinSessions(String(settingsJson.ussd_shop_min_sessions ?? "1"))
         setMaxSessions(String(settingsJson.ussd_shop_max_sessions ?? "100"))
+        setShowUssdCard(settingsJson.storefront_show_ussd_card === true)
       }
 
       await loadOrders(0)
@@ -182,6 +186,26 @@ export default function AdminUssdShopsPage() {
       toast.error("Failed to save dial code")
     } finally {
       setSavingDialCode(false)
+    }
+  }
+
+  const handleToggleShowUssdCard = async (checked: boolean) => {
+    setSavingShowUssdCard(true)
+    const previous = showUssdCard
+    setShowUssdCard(checked)
+    try {
+      const res = await fetch("/api/admin/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...await authHeader() },
+        body: JSON.stringify({ storefront_show_ussd_card: checked }),
+      })
+      if (!res.ok) throw new Error()
+      toast.success(checked ? "USSD card is now shown on storefronts" : "USSD card hidden from storefronts")
+    } catch {
+      setShowUssdCard(previous)
+      toast.error("Failed to update USSD card visibility")
+    } finally {
+      setSavingShowUssdCard(false)
     }
   }
 
@@ -354,7 +378,7 @@ export default function AdminUssdShopsPage() {
     <DashboardLayout>
       <div className="p-6 max-w-7xl mx-auto">
         <div className="flex items-center justify-between gap-4 mb-6">
-          <AdminPageHeaderBanner
+          <PageHeaderBanner
             className="flex-1"
             title="USSD Shops"
             subtitle="Manage shop codes, tokens, and orders for the shop-code USSD storefront"
@@ -400,6 +424,24 @@ export default function AdminUssdShopsPage() {
                 <Save className="w-3 h-3 mr-1" />
                 {savingDialCode ? "Saving..." : "Save"}
               </Button>
+            </div>
+
+            <div className="border-t border-primary/20" />
+
+            {/* Storefront card visibility */}
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <Label className="text-xs text-primary">Show USSD card on web storefronts</Label>
+                <p className="text-xs text-primary/70">
+                  Advertises the dial code + a shop&apos;s own PIN on their web storefront. Only shows for shops with an active, funded USSD code.
+                </p>
+              </div>
+              <Switch
+                checked={showUssdCard}
+                disabled={savingShowUssdCard}
+                onCheckedChange={handleToggleShowUssdCard}
+                aria-label="Show USSD card on web storefronts"
+              />
             </div>
 
             <div className="border-t border-primary/20" />

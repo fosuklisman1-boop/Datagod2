@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Send, Users, FileText, Network, History } from "lucide-react"
 import BroadcastTab from "./_components/BroadcastTab"
@@ -18,7 +18,7 @@ export default function SmsCentrePage() {
     <DashboardLayout>
       <div className="p-4 md:p-6 space-y-6 max-w-5xl">
         {/* Header */}
-        <AdminPageHeaderBanner
+        <PageHeaderBanner
           title="SMS Centre"
           subtitle="Broadcast to platform users or address-book groups, and manage contacts, templates and providers."
         />

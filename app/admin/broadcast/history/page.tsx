@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -157,7 +157,7 @@ export default function MessagingHistoryPage() {
                         >
                             <ChevronLeft className="w-6 h-6" />
                         </Button>
-                        <AdminPageHeaderBanner
+                        <PageHeaderBanner
                             title="Messaging History"
                             subtitle="Track your communication delivery and logs"
                             className="flex-1"

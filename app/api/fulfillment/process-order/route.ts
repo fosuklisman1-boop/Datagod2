@@ -430,6 +430,8 @@ async function handleMTNAutoFulfillment(
         .single()
 
       let smsMessage: string
+      let skipShopSms = false
+      let shopSenderId: string | undefined
 
       if (shopOrder?.shop_id) {
         // Storefront order — fetch shop name and owner phone
@@ -449,6 +451,38 @@ async function handleMTNAutoFulfillment(
           if (ownerData?.phone_number) ownerPhone = ownerData.phone_number
         }
 
+        // Per-shop toggle — defaults to sending (no row / column predates
+        // this feature) so existing shops keep today's behavior unless an
+        // owner explicitly turns it off.
+        const { data: shopSettings } = await supabase
+          .from("shop_settings")
+          .select("order_confirmation_sms_enabled")
+          .eq("shop_id", shopOrder.shop_id)
+          .maybeSingle()
+        skipShopSms = shopSettings?.order_confirmation_sms_enabled === false
+
+        // Send under the shop's own approved sender ID when they have one —
+        // never blocks sending, just a graceful fallback to the platform
+        // default sender (same pattern as app/api/v1/sms/send/route.ts).
+        if (!skipShopSms && shopInfo?.user_id) {
+          const { data: account } = await supabase
+            .from("sms_accounts")
+            .select("id")
+            .eq("user_id", shopInfo.user_id)
+            .maybeSingle()
+          if (account?.id) {
+            const { data: activeSender } = await supabase
+              .from("sms_sender_ids")
+              .select("sender_id")
+              .eq("sms_account_id", account.id)
+              .eq("local_status", "active")
+              .order("created_at", { ascending: true })
+              .limit(1)
+              .maybeSingle()
+            shopSenderId = activeSender?.sender_id ?? undefined
+          }
+        }
+
         smsMessage = SMSTemplates.shopOrderConfirmed(
           shopInfo?.shop_name || "DATAGOD",
           network,
@@ -465,11 +499,14 @@ async function handleMTNAutoFulfillment(
         )
       }
 
-      await sendSMS({
-        phone: phoneNumber,
-        message: smsMessage,
-        type: "order_confirmed",
-      })
+      if (!skipShopSms) {
+        await sendSMS({
+          phone: phoneNumber,
+          message: smsMessage,
+          type: "order_confirmed",
+          ...(shopSenderId ? { senderId: shopSenderId } : {}),
+        })
+      }
     } catch (smsError) {
       console.error("[FULFILLMENT] Failed to send success SMS:", smsError)
     }

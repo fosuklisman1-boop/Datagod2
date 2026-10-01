@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { complaintService } from "@/lib/database"
 import { notificationTemplates } from "@/lib/notification-service"
@@ -551,7 +551,7 @@ export default function AdminComplaintsPage() {
     <DashboardLayout>
       <div className="space-y-6">
         {/* Page Header */}
-        <AdminPageHeaderBanner
+        <PageHeaderBanner
           title="Customer Complaints"
           subtitle="View and rectify customer complaints"
         />

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,6 +11,7 @@ import { initializePayment } from "@/lib/payment-service"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
 import { useResendCooldown } from "@/lib/use-resend-cooldown"
+import { PaymentSheet } from "@/components/shop/PaymentSheet"
 
 interface WalletTopUpProps {
   onSuccess?: (amount: number) => void
@@ -39,9 +40,12 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
   const [sendingOtp, setSendingOtp] = useState(false)
   const [verifyingOtp, setVerifyingOtp] = useState(false)
   const otpCooldown = useResendCooldown(paymentPhone.replace(/\D/g, ""))
-  const [momoModal, setMomoModal] = useState<null | { state: "awaiting" | "otp" | "success" | "failed"; reference?: string; summary?: any; message?: string }>(null)
+  const [momoModal, setMomoModal] = useState<null | { state: "sending" | "awaiting" | "otp" | "success" | "failed"; reference?: string; summary?: any; message?: string }>(null)
   const [momoOtpInput, setMomoOtpInput] = useState("")
   const [momoOtpSubmitting, setMomoOtpSubmitting] = useState(false)
+  // Guards in-flight charge-init/poll/OTP calls from reopening a stale view
+  // after the customer already dismissed the sheet themselves.
+  const paymentDismissedRef = useRef(false)
 
   // Predefined amounts
   const quickAmounts = [50, 100, 200, 500]
@@ -134,6 +138,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
     const started = Date.now()
     const TIMEOUT_MS = 4 * 60 * 1000
     const tick = async () => {
+      if (paymentDismissedRef.current) return
       if (Date.now() - started > TIMEOUT_MS) {
         setMomoModal({ state: "failed", message: "Payment timed out. If you approved the prompt, your wallet will still be credited — refresh in a moment, or try again." })
         return
@@ -171,7 +176,9 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
         setMomoOtpSubmitting(false)
         return
       }
-      setMomoModal({ state: "awaiting", reference: momoModal.reference, summary: momoModal.summary })
+      if (!paymentDismissedRef.current) {
+        setMomoModal({ state: "awaiting", reference: momoModal.reference, summary: momoModal.summary })
+      }
       setMomoOtpInput("")
       setMomoOtpSubmitting(false)
     } catch {
@@ -220,6 +227,14 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
       return
     }
 
+    // Direct-charge top-ups take two sequential network round-trips (this
+    // function's own init call, awaited below) before a MoMo prompt actually
+    // reaches the phone. Show the sheet's "sending" view immediately on
+    // submit instead of leaving the customer watching the button spinner.
+    if (walletDirect) {
+      paymentDismissedRef.current = false
+      setMomoModal({ state: "sending" })
+    }
     try {
       setIsLoading(true)
       setPaymentStatus("processing")
@@ -238,6 +253,10 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
         })
         const data = await res.json().catch(() => ({}))
         if (!res.ok || !data.success) { throw new Error(data?.error || "Could not start the Mobile Money charge. Please try again.") }
+        // Customer already dismissed the sheet before this resolved -- the
+        // charge may still have fired (the webhook completes the top-up
+        // regardless), but don't reopen a view they already closed.
+        if (paymentDismissedRef.current) { setIsLoading(false); return }
         const summary = { amount: parseFloat(amount), paymentPhone, reference: data.reference }
         setMomoModal({ state: data.status === "send_otp" ? "otp" : "awaiting", reference: data.reference, summary })
         pollMomoStatus(data.reference, summary)
@@ -259,9 +278,17 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
       setIsLoading(false)
     } catch (error) {
       console.error("[WALLET-TOPUP] Error:", error)
-      setPaymentStatus("error")
-      setErrorMessage(error instanceof Error ? error.message : "Payment initialization failed")
-      toast.error("Payment initialization failed")
+      const message = error instanceof Error ? error.message : "Payment initialization failed"
+      // A toast alone would be easy to miss behind the sheet's "sending"
+      // view, so surface direct-charge failures inside it instead -- unless
+      // the customer already dismissed the sheet themselves.
+      if (walletDirect && !paymentDismissedRef.current) {
+        setMomoModal({ state: "failed", message })
+      } else if (!walletDirect || !paymentDismissedRef.current) {
+        setPaymentStatus("error")
+        setErrorMessage(message)
+        toast.error("Payment initialization failed")
+      }
       setIsLoading(false)
     }
   }
@@ -480,99 +507,48 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
       </CardContent>
     </Card>
 
-    {/* Live Mobile Money prompt modal (direct-charge flow) */}
+    {/* Live Mobile Money prompt sheet (direct-charge flow) -- the same
+        persistent bottom sheet the storefront checkout uses, shared via
+        components/shop/PaymentSheet.tsx. No --shop-accent ancestor exists
+        on the dashboard, so accentColor is passed explicitly. */}
     {momoModal && (
-      <div className="fixed inset-0 bg-background/60 flex items-center justify-center p-4 z-[60]">
-        <Card className="w-full max-w-md bg-card rounded-2xl">
-          {momoModal.state === "awaiting" && (
-            <CardContent className="pt-8 pb-6 text-center space-y-4">
-              <div className="mx-auto w-16 h-16 rounded-full bg-primary flex items-center justify-center">
-                <Loader2 className="w-8 h-8 text-primary-foreground animate-spin" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-foreground">Approve the prompt on your phone</h3>
-                <p className="text-sm text-muted-foreground mt-1">
-                  We sent a Mobile Money prompt to{" "}
-                  <span className="font-semibold">{momoModal.summary?.paymentPhone}</span>. Enter your PIN to approve the top-up of{" "}
-                  <span className="font-semibold">GHS {Number(momoModal.summary?.amount || 0).toFixed(2)}</span>.
-                </p>
-              </div>
-              <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-                <Loader2 className="w-3 h-3 animate-spin" /> Waiting for confirmation…
-              </div>
-              <p className="text-xs text-muted-foreground">Keep this page open. This can take up to a minute.</p>
-            </CardContent>
-          )}
-
-          {momoModal.state === "otp" && (
-            <CardContent className="pt-8 pb-6 text-center space-y-4">
-              <div className="mx-auto w-16 h-16 rounded-full bg-primary flex items-center justify-center">
-                <Zap className="w-8 h-8 text-primary-foreground" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-foreground">Enter the code sent to your phone</h3>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Your provider sent a one-time code to{" "}
-                  <span className="font-semibold">{momoModal.summary?.paymentPhone}</span> to approve this top-up.
-                </p>
-              </div>
-              <Input
-                type="text"
-                inputMode="numeric"
-                autoFocus
-                placeholder="Enter OTP"
-                value={momoOtpInput}
-                onChange={(e) => setMomoOtpInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") submitMomoOtp() }}
-                className="text-center text-lg tracking-widest"
-                disabled={momoOtpSubmitting}
-              />
-              <Button
-                onClick={submitMomoOtp}
-                disabled={momoOtpSubmitting || !momoOtpInput.trim()}
-                className="w-full bg-gradient-to-r from-primary to-primary/80 hover:from-primary hover:to-primary/80 text-white"
-              >
-                {momoOtpSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Submit code"}
-              </Button>
-            </CardContent>
-          )}
-
-          {momoModal.state === "success" && (
-            <CardContent className="pt-8 pb-6 text-center space-y-4">
-              <div className="mx-auto w-16 h-16 rounded-full bg-success/15 flex items-center justify-center">
-                <CheckCircle className="w-9 h-9 text-success" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-foreground">Wallet topped up 🎉</h3>
-                <p className="text-sm text-muted-foreground mt-1">Your wallet has been credited with GHS {Number(momoModal.summary?.amount || 0).toFixed(2)}.</p>
-              </div>
-              <Button
-                onClick={() => {
-                  setMomoModal(null); setAmount(""); setPaymentPhone("")
-                  setOtpSent(false); setOtpVerified(false); setOtpCode(""); setPaymentStatus("idle")
-                  setMomoOtpInput(""); setMomoOtpSubmitting(false)
-                }}
-                className="w-full bg-gradient-to-r from-primary to-primary/80 hover:from-primary hover:to-primary/80 text-white"
-              >
-                Done
-              </Button>
-            </CardContent>
-          )}
-
-          {momoModal.state === "failed" && (
-            <CardContent className="pt-8 pb-6 text-center space-y-4">
-              <div className="mx-auto w-16 h-16 rounded-full bg-destructive/15 flex items-center justify-center">
-                <AlertCircle className="w-9 h-9 text-destructive" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-foreground">Top-up not completed</h3>
-                <p className="text-sm text-muted-foreground mt-1">{momoModal.message || "The prompt was not approved. Please try again."}</p>
-              </div>
-              <Button variant="outline" onClick={() => { setMomoModal(null); setPaymentStatus("idle"); setMomoOtpInput(""); setMomoOtpSubmitting(false) }} className="w-full">Close</Button>
-            </CardContent>
-          )}
-        </Card>
-      </div>
+      <PaymentSheet
+        modal={momoModal}
+        accentColor="#1b388b"
+        onCancelSending={() => { paymentDismissedRef.current = true; setMomoModal(null); setPaymentStatus("idle") }}
+        onDismiss={() => {
+          paymentDismissedRef.current = true
+          setMomoModal(null); setAmount(""); setPaymentPhone("")
+          setOtpSent(false); setOtpVerified(false); setOtpCode(""); setPaymentStatus("idle")
+          setMomoOtpInput(""); setMomoOtpSubmitting(false)
+        }}
+        onRetry={() => { setMomoModal(null); setPaymentStatus("idle"); setMomoOtpInput(""); setMomoOtpSubmitting(false) }}
+        otpInput={momoOtpInput}
+        setOtpInput={setMomoOtpInput}
+        onSubmitOtp={submitMomoOtp}
+        otpSubmitting={momoOtpSubmitting}
+        renderSuccess={(modal) => (
+          <div className="px-5 pb-6 pt-2 text-center space-y-4">
+            <div className="mx-auto w-16 h-16 rounded-full bg-success/15 flex items-center justify-center">
+              <CheckCircle className="w-9 h-9 text-success" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-foreground">Wallet topped up 🎉</h3>
+              <p className="text-sm text-muted-foreground mt-1">Your wallet has been credited with GHS {Number(modal.summary?.amount || 0).toFixed(2)}.</p>
+            </div>
+            <Button
+              onClick={() => {
+                setMomoModal(null); setAmount(""); setPaymentPhone("")
+                setOtpSent(false); setOtpVerified(false); setOtpCode(""); setPaymentStatus("idle")
+                setMomoOtpInput(""); setMomoOtpSubmitting(false)
+              }}
+              className="w-full rounded-2xl bg-[#1b388b] hover:bg-[#1b388b]/90 text-white"
+            >
+              Done
+            </Button>
+          </div>
+        )}
+      />
     )}
     </div>
   )

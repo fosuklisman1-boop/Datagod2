@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import { Send, RefreshCw, Settings2, Paperclip, X, Copy, Check } from "lucide-react"
@@ -301,7 +301,7 @@ export default function ResultsCheckRequestsPage() {
     <DashboardLayout>
       <div className="max-w-4xl mx-auto py-8 px-4 space-y-6">
         <div className="flex items-center gap-3">
-          <AdminPageHeaderBanner
+          <PageHeaderBanner
             className="flex-1"
             title="Results Check Requests"
             subtitle="Manage customer requests to check exam results on their behalf"

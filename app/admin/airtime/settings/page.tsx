@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { Save, AlertCircle, CheckCircle } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 
@@ -79,7 +79,7 @@ export default function AirtimeSettingsPage() {
     <DashboardLayout>
       <div className="max-w-4xl mx-auto space-y-8">
         <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <AdminPageHeaderBanner
+          <PageHeaderBanner
             title="Airtime Management Settings"
             subtitle="Configure network fees and service availability."
             className="flex-1"

@@ -8,6 +8,7 @@ import { useUserRole } from "@/hooks/use-user-role"
 import { cn } from "@/lib/utils"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 import { getServicePrimaryPath, isPageHidden, type DomainService } from "@/lib/custom-domains"
+import { bottomNavSkinClasses, type BottomNavSkin } from "@/lib/bottom-nav-theme"
 
 // Short, FAB-appropriate labels for each service, used when a custom domain is
 // scoped to one service and the FAB is repointed to that service's own page
@@ -71,30 +72,22 @@ export function BottomNav() {
   const onAdminPage = pathname.startsWith("/admin")
   const items = isAdmin && onAdminPage ? ADMIN_NAV : USER_NAV
 
-  // Colour tokens — admin theme only applies when inside /admin pages.
-  // Dealer uses the "Bold Telco" fuchsia/purple accent; everyone else the Fintech primary.
-  const activeColor = isAdmin && onAdminPage
-    ? "text-primary dark:text-primary"
-    : isDealer
-      ? "text-primary dark:text-primary"
-      : "text-primary"
-
-  const fabGradient = isAdmin && onAdminPage
-    ? "bg-gradient-to-br from-primary to-brand-accent ring-4 ring-primary/15"
-    : isDealer
-      ? "bg-gradient-to-br from-primary to-brand-accent ring-4 ring-primary/15"
-      : "bg-gradient-to-br from-primary to-brand-accent ring-4 ring-primary/15"
-
-  const fabLabelColor = isAdmin && onAdminPage
-    ? "text-primary"
-    : isDealer ? "text-primary" : "text-primary"
+  // Same 3-way identity used everywhere else in the rebuild: admin's own
+  // dark panel skin while browsing /admin pages, dealer's amber "Bold Telco"
+  // accent (matching e.g. the Wallet balance hero's isDealer ? bg-warning),
+  // navy for everyone else.
+  const skin: BottomNavSkin = isAdmin && onAdminPage ? "admin" : isDealer ? "dealer" : "default"
+  const c = bottomNavSkinClasses(skin)
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-card border-t border-border shadow-[0_-4px_20px_hsl(var(--foreground)/0.08)]"
-      style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+      className={cn(
+        "fixed left-3 right-3 z-50 md:hidden rounded-[28px] shadow-[0_10px_30px_-6px_hsl(var(--foreground)/0.25)]",
+        c.bar
+      )}
+      style={{ bottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))" }}
     >
-      <div className="flex items-end justify-around h-16 px-1">
+      <div className="flex items-end justify-around h-[68px] px-1">
         {items.map((item) => {
           const Icon = item.icon
           const isActive = pathname === item.href || pathname.startsWith(item.href + "/")
@@ -104,20 +97,17 @@ export function BottomNav() {
               <Link
                 key={item.href}
                 href={item.href}
-                className="flex flex-col items-center justify-end flex-1 pb-1"
+                className="flex flex-col items-center justify-end flex-1 pb-2"
               >
                 <div className={cn(
-                  "-mt-6 mb-0.5 w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-transform active:scale-95",
-                  fabGradient
+                  "-mt-8 w-16 h-16 rounded-full flex flex-col items-center justify-center gap-0.5 shadow-lg transition-transform active:scale-95",
+                  c.fabCircle
                 )}>
-                  <Icon className="w-7 h-7 text-primary-foreground" />
+                  <Icon className={cn("w-5 h-5", c.fabIconText)} />
+                  <span className={cn("text-[9px] font-bold leading-none", isActive ? c.fabLabelActive : c.fabLabelInactive)}>
+                    {item.label}
+                  </span>
                 </div>
-                <span className={cn(
-                  "text-[10px] font-medium",
-                  isActive ? fabLabelColor : "text-muted-foreground"
-                )}>
-                  {item.label}
-                </span>
               </Link>
             )
           }
@@ -127,8 +117,8 @@ export function BottomNav() {
               key={item.href}
               href={item.href}
               className={cn(
-                "flex flex-col items-center justify-center flex-1 py-2 gap-0.5 transition-colors",
-                isActive ? activeColor : "text-muted-foreground"
+                "flex flex-col items-center justify-center flex-1 py-2.5 gap-0.5 transition-colors",
+                isActive ? c.navLinkActive : c.navLinkInactive
               )}
             >
               <Icon className={cn("w-5 h-5", isActive && "stroke-[2.5]")} />

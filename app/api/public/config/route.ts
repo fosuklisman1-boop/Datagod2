@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic"
 
 // admin_settings key PREFIXES that are safe to expose (pricing / fees / enablement
 // flags — all of which are already reflected in customer-facing prices).
-const SAFE_ADMIN_PREFIXES = ["results_checker_", "airtime_", "results_check_"]
+const SAFE_ADMIN_PREFIXES = ["results_checker_", "airtime_", "results_check_", "afa_"]
 
 // Explicit deny-list: keys that match a SAFE prefix but must NEVER be public.
 // `results_check_admin_phones` holds the operators' MoMo/support numbers (used
@@ -28,6 +28,7 @@ const SAFE_APP_COLUMNS = [
   "ussd_shop_min_sessions",
   "ussd_shop_max_sessions",
   "whatsapp_shop_activation_fee",
+  "storefront_show_ussd_card",
 ] as const
 
 export async function GET() {

@@ -72,7 +72,7 @@ export interface NetworkHealthStat {
  * "AT-iShare") does NOT map to either AT bucket; it's dropped rather than
  * force-fit into iShare or BigTime.
  */
-function normalizeNetwork(raw: string | null | undefined): HealthNetwork | null {
+export function normalizeNetwork(raw: string | null | undefined): HealthNetwork | null {
   const n = (raw || "").toLowerCase().trim()
   if (n === "mtn") return "MTN"
   if (n === "telecel") return "Telecel"

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { useAdminProtected } from "@/hooks/use-admin"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import { RefreshCw, Loader2, Search, TrendingDown, RotateCcw } from "lucide-react"
@@ -145,7 +145,7 @@ export default function WithdrawalHistoryPage() {
       <div className="space-y-6 p-6">
         {/* Header */}
         <div className="flex items-center justify-between gap-4">
-          <AdminPageHeaderBanner
+          <PageHeaderBanner
             className="flex-1"
             title="Withdrawal History"
             subtitle="All withdrawal requests from shop owners with balance snapshots."

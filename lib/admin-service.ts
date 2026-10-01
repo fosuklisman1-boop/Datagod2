@@ -710,8 +710,10 @@ export const adminShopService = {
 
 // Admin Dashboard Stats
 export const adminDashboardService = {
-  // Get dashboard statistics
-  async getDashboardStats() {
+  // Get dashboard statistics. `range` scopes the newer hub fields
+  // (rangeRevenue/rangeProfit/chartSeries/etc) to "today" | "7d" | "30d" --
+  // the all-time fields (totalOrders, totalRevenue, ...) are unaffected.
+  async getDashboardStats(range?: "today" | "7d" | "30d") {
     try {
       const { data: { session } } = await supabase.auth.getSession()
 
@@ -719,7 +721,8 @@ export const adminDashboardService = {
         throw new Error("No authentication token available")
       }
 
-      const response = await fetch("/api/admin/dashboard-stats", {
+      const url = range ? `/api/admin/dashboard-stats?range=${range}` : "/api/admin/dashboard-stats"
+      const response = await fetch(url, {
         headers: {
           Authorization: `Bearer ${session.access_token}`,
         },
@@ -732,6 +735,36 @@ export const adminDashboardService = {
       return await response.json()
     } catch (error) {
       console.error("Error fetching dashboard stats:", error)
+      throw error
+    }
+  },
+
+  // Breakdown panels (Revenue by Network, By Product, By Source, Top
+  // Packages, Top Agents). `range` scopes those to "today" | "7d" | "30d",
+  // matching the hub's toggle. Growth & Roles is always a live snapshot,
+  // unaffected by `range`.
+  async getDashboardAnalytics(range?: "today" | "7d" | "30d") {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        throw new Error("No authentication token available")
+      }
+
+      const url = range ? `/api/admin/dashboard-analytics?range=${range}` : "/api/admin/dashboard-analytics"
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch dashboard analytics")
+      }
+
+      return await response.json()
+    } catch (error) {
+      console.error("Error fetching dashboard analytics:", error)
       throw error
     }
   },

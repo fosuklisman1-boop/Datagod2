@@ -24,7 +24,7 @@ import {
 import { useAdminProtected } from "@/hooks/use-admin"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 
 interface AFASubmission {
   id: string
@@ -390,7 +390,7 @@ Occupation: ${submission.occupation || "N/A"}`
       <div className="space-y-6">
         {/* Page Header */}
         <div className="flex items-start justify-between flex-wrap gap-3">
-          <AdminPageHeaderBanner
+          <PageHeaderBanner
             className="flex-1"
             title="AFA Management"
             subtitle="Configure pricing, manage and fulfill AFA registrations"

@@ -1,15 +1,14 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { Card, CardContent } from "@/components/ui/card"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { GraduationCap, Loader2, CheckCircle2, Copy, AlertCircle, Download } from "lucide-react"
 import { toast } from "sonner"
 import TurnstileWidget from "@/components/shop/TurnstileWidget"
 import HoneypotField from "@/components/shop/HoneypotField"
 import { useResendCooldown } from "@/lib/use-resend-cooldown"
+import { PaymentSheet } from "@/components/shop/PaymentSheet"
 
 interface ResultsCheckerStorefrontFormProps {
   shop: any
@@ -58,10 +57,13 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
   const [sendingOtp, setSendingOtp] = useState(false)
   const [verifyingOtp, setVerifyingOtp] = useState(false)
   const otpCooldown = useResendCooldown(paymentPhone.replace(/\D/g, ""))
-  // Live "approve the prompt" modal for the direct-charge flow
-  const [momoModal, setMomoModal] = useState<null | { state: "awaiting" | "otp" | "success" | "failed"; orderId?: string; reference?: string; summary?: any; message?: string }>(null)
+  // Live "approve the prompt" sheet for the direct-charge flow
+  const [momoModal, setMomoModal] = useState<null | { state: "sending" | "awaiting" | "otp" | "success" | "failed"; orderId?: string; reference?: string; summary?: any; message?: string }>(null)
   const [momoOtpInput, setMomoOtpInput] = useState("")
   const [momoOtpSubmitting, setMomoOtpSubmitting] = useState(false)
+  // Guards in-flight order-create/charge-initialize/poll/OTP calls from
+  // reopening a stale view after the customer already dismissed the sheet.
+  const paymentDismissedRef = useRef(false)
 
   // Success state
   const [vouchers, setVouchers] = useState<Array<{ pin: string; serial_number: string | null }> | null>(null)
@@ -128,6 +130,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
     const started = Date.now()
     const TIMEOUT_MS = 4 * 60 * 1000
     const tick = async () => {
+      if (paymentDismissedRef.current) return
       if (Date.now() - started > TIMEOUT_MS) {
         setMomoModal({ state: "failed", message: "Payment timed out. If you approved the prompt, your order will still be processed — check your SMS/email, or try again." })
         return
@@ -161,7 +164,9 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
         setMomoOtpSubmitting(false)
         return
       }
-      setMomoModal({ state: "awaiting", orderId: momoModal.orderId, reference: momoModal.reference, summary: momoModal.summary })
+      if (!paymentDismissedRef.current) {
+        setMomoModal({ state: "awaiting", orderId: momoModal.orderId, reference: momoModal.reference, summary: momoModal.summary })
+      }
       setMomoOtpInput("")
       setMomoOtpSubmitting(false)
     } catch {
@@ -264,6 +269,14 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
       toast.error("Enter a valid Mobile Money number to pay from")
       return
     }
+    // Direct-charge orders take two sequential network round-trips (init
+    // order, then initialize the charge) before a MoMo prompt actually
+    // reaches the phone. Show the sheet's "sending" view immediately on
+    // submit instead of leaving the customer watching the button spinner.
+    if (directCharge) {
+      paymentDismissedRef.current = false
+      setMomoModal({ state: "sending" })
+    }
     setSubmitting(true)
     try {
       // Step 1: Initialize order
@@ -285,13 +298,12 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
       })
       const initData = await initRes.json()
       if (!initRes.ok) {
-        toast.error(initData.error ?? "Failed to initialize order")
-        return
+        throw new Error(initData.error ?? "Failed to initialize order")
       }
 
       // ── Direct MoMo charge path (direct-charge toggle ON) ────────────────
       // Charge the on-page payment number directly, then keep the buyer on-page
-      // with a live modal that polls until the webhook confirms the prompt.
+      // with a live sheet that polls until the webhook confirms the prompt.
       if (directCharge) {
         const summary = {
           packageLabel: `${selectedBoard} voucher × ${quantity}`,
@@ -313,9 +325,12 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
         })
         const chargeData = await chargeRes.json().catch(() => ({}))
         if (!chargeRes.ok || !chargeData.success) {
-          toast.error(chargeData?.error ?? "Could not start the Mobile Money charge. Please try again.")
-          return
+          throw new Error(chargeData?.error ?? "Could not start the Mobile Money charge. Please try again.")
         }
+        // Customer already dismissed the sheet before this resolved -- the
+        // charge may still have fired (the webhook completes the order
+        // regardless), but don't reopen a view they already closed.
+        if (paymentDismissedRef.current) return
         setMomoModal({ state: chargeData.status === "send_otp" ? "otp" : "awaiting", orderId: initData.orderId, reference: chargeData.reference, summary })
         pollMomoStatus(initData.orderId, chargeData.reference, { ...summary, reference: chargeData.reference })
         return
@@ -335,15 +350,22 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
       })
       const payData = await payRes.json()
       if (!payRes.ok) {
-        toast.error(payData.error ?? "Payment initialization failed")
-        return
+        throw new Error(payData.error ?? "Payment initialization failed")
       }
 
       // Step 3: Redirect to Paystack
       window.location.href = payData.authorizationUrl
 
-    } catch {
-      toast.error("Something went wrong. Please try again.")
+    } catch (error: any) {
+      // A toast alone would be easy to miss behind the sheet's "sending"
+      // view, so surface direct-charge failures inside it instead -- unless
+      // the customer already dismissed the sheet themselves.
+      const message = error?.message || "Something went wrong. Please try again."
+      if (directCharge && !paymentDismissedRef.current) {
+        setMomoModal({ state: "failed", message })
+      } else if (!directCharge || !paymentDismissedRef.current) {
+        toast.error(message)
+      }
     } finally {
       setSubmitting(false)
     }
@@ -404,7 +426,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
   if (loadingPrices) {
     return (
       <div className="flex items-center justify-center py-16">
-        <Loader2 className="w-6 h-6 animate-spin text-primary" />
+        <Loader2 className="w-6 h-6 animate-spin text-[var(--shop-accent)]" />
       </div>
     )
   }
@@ -421,7 +443,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
         <div className="flex justify-end">
           <button
             onClick={() => triggerExcelDownload(vouchers, selectedBoard ?? "", orderRef)}
-            className="flex items-center gap-1.5 text-xs text-primary hover:text-primary font-medium border border-border hover:border-border rounded-full px-2.5 py-1 transition-colors"
+            className="flex items-center gap-1.5 text-xs text-[var(--shop-accent)] hover:text-[var(--shop-accent)] font-medium border border-border hover:border-border rounded-full px-2.5 py-1 transition-colors"
           >
             <Download className="w-3.5 h-3.5" />
             Download receipt
@@ -451,117 +473,123 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
   }
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div>
-        <h2 className="text-2xl font-black mb-2 text-foreground border-l-4 border-primary pl-4">Results Checker Vouchers</h2>
-        <p className="text-muted-foreground text-sm pl-5">WASSCE · BECE · NOVDEC — instant serial &amp; PIN delivery</p>
-      </div>
-
-      {/* Board selection */}
-      <div className="grid grid-cols-3 gap-4">
-        {EXAM_BOARDS.map(board => {
-          const info = boardInfo[board]
-          if (!info) return null
-          return (
-            <Card
-              key={board}
-              onClick={() => info.enabled && info.availableCount > 0 && setSelectedBoard(board)}
-              className={`group cursor-pointer transition-all duration-300 overflow-hidden border-0 ${
-                !info.enabled || info.availableCount === 0
-                  ? "opacity-40 cursor-not-allowed shadow-sm"
-                  : selectedBoard === board
-                  ? "ring-4 ring-primary shadow-xl"
-                  : "shadow-md hover:shadow-xl hover:-translate-y-1"
-              }`}
-            >
-              <div className={`h-2 ${selectedBoard === board ? "bg-primary" : "bg-muted group-hover:bg-primary"} transition-colors`} />
-              <CardContent className="pt-4 pb-4 text-center">
-                <GraduationCap className={`w-8 h-8 mx-auto mb-2 ${selectedBoard === board ? "text-primary" : "text-muted-foreground"}`} />
-                <p className={`font-black text-lg ${selectedBoard === board ? "text-primary" : "text-foreground"}`}>{board}</p>
-                <p className="text-2xl font-black text-foreground mt-1">GHS {info.customerPrice.toFixed(2)}</p>
-                <p className="text-xs text-muted-foreground mt-1">per voucher</p>
+    <div className="space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      {/* Exam board -- same picker card style as the dashboard's Results Checker page */}
+      <div className="space-y-2">
+        <p className="text-sm font-bold text-foreground">Exam Board</p>
+        <div className="grid grid-cols-3 gap-2 sm:gap-3">
+          {EXAM_BOARDS.map(board => {
+            const info = boardInfo[board]
+            if (!info) return null
+            const isSelected = selectedBoard === board
+            const isAvailable = info.enabled && info.availableCount > 0
+            return (
+              <button
+                key={board}
+                type="button"
+                disabled={!isAvailable}
+                onClick={() => isAvailable && setSelectedBoard(board)}
+                className={`relative flex flex-col items-center gap-1.5 sm:gap-2 rounded-2xl border-2 bg-card p-2.5 sm:p-4 transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                  isSelected ? "border-[var(--shop-accent)] shadow-sm" : "border-border hover:border-[var(--shop-accent)]/30"
+                }`}
+              >
+                {isSelected && (
+                  <span className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-success text-white">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                  </span>
+                )}
+                <span className="flex h-11 w-11 sm:h-14 sm:w-14 items-center justify-center rounded-full bg-[var(--shop-accent)]/10 text-[var(--shop-accent)]">
+                  <GraduationCap className="h-5 w-5 sm:h-6 sm:w-6" />
+                </span>
+                <span className="text-xs sm:text-sm font-bold text-foreground">{board}</span>
+                <span className="text-[10px] sm:text-xs font-medium text-muted-foreground">GHS {info.customerPrice.toFixed(2)}</span>
                 {info.bulkMinQty && info.bulkPrice && (
-                  <p className="text-xs text-primary font-bold mt-1">
-                    {info.bulkMinQty}+ @ GHS {info.bulkPrice.toFixed(2)}/ea
-                  </p>
+                  <span className="text-[10px] font-bold text-[var(--shop-accent)]">{info.bulkMinQty}+ @ {info.bulkPrice.toFixed(2)}</span>
                 )}
-                {!info.enabled
-                  ? <p className="text-xs text-destructive mt-1 font-medium">Unavailable</p>
-                  : info.availableCount === 0
-                  ? <p className="text-xs text-destructive mt-1 font-medium">Out of stock</p>
-                  : null}
-                {selectedBoard === board && (
-                  <div className="absolute top-3 right-3">
-                    <CheckCircle2 className="w-5 h-5 text-primary" />
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )
-        })}
+                {!info.enabled ? (
+                  <span className="text-[10px] font-medium text-destructive">Unavailable</span>
+                ) : info.availableCount === 0 ? (
+                  <span className="text-[10px] font-medium text-destructive">Out of stock</span>
+                ) : null}
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       {selectedBoard && (
-        <div className="space-y-6 animate-in fade-in duration-300">
-          {/* Quantity */}
-          <div>
-            <Label className="text-sm font-semibold text-foreground">Quantity</Label>
-            <div className="flex items-center gap-3 mt-2">
-              <button onClick={() => setQuantity(q => Math.max(1, q - 1))}
-                className="w-10 h-10 rounded-xl border-2 flex items-center justify-center font-bold text-foreground hover:bg-accent transition-colors">−</button>
+        <div className="space-y-5 animate-in fade-in duration-300">
+          {/* Quantity -- same stepper style as the dashboard */}
+          <div className="space-y-2">
+            <div className="flex items-baseline justify-between">
+              <p className="text-sm font-bold text-foreground">Quantity</p>
+              <p className="text-xs text-muted-foreground">Max {maxQuantity}</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setQuantity(q => Math.max(1, q - 1))}
+                className="flex h-11 w-11 items-center justify-center rounded-2xl border border-border bg-card font-bold text-foreground hover:bg-accent"
+              >
+                −
+              </button>
               <Input type="number" min="1" max={maxQuantity} value={quantity}
                 onChange={e => setQuantity(Math.max(1, Math.min(maxQuantity, parseInt(e.target.value) || 1)))}
-                className="w-20 text-center font-bold text-lg h-10 rounded-xl" />
-              <button onClick={() => setQuantity(q => Math.min(maxQuantity, q + 1))}
-                className="w-10 h-10 rounded-xl border-2 flex items-center justify-center font-bold text-foreground hover:bg-accent transition-colors">+</button>
-              <span className="text-sm text-muted-foreground ml-2">max {maxQuantity}</span>
+                className="h-11 w-20 rounded-2xl text-center text-lg font-bold" />
+              <button
+                type="button"
+                onClick={() => setQuantity(q => Math.min(maxQuantity, q + 1))}
+                className="flex h-11 w-11 items-center justify-center rounded-2xl border border-border bg-card font-bold text-foreground hover:bg-accent"
+              >
+                +
+              </button>
             </div>
           </div>
 
           {/* Customer details */}
           <div className="space-y-4">
-            <h3 className="font-semibold text-foreground">Your Details</h3>
             <div>
-              <Label className="text-sm">Full Name</Label>
+              <p className="text-sm font-bold text-foreground">Full Name</p>
               <Input value={formData.customerName} onChange={e => setFormData(p => ({ ...p, customerName: e.target.value }))}
-                placeholder="e.g. Kwame Mensah" className={`mt-1 ${formErrors.customerName ? "border-destructive" : ""}`} />
+                placeholder="e.g. Kwame Mensah" className={`mt-1 rounded-2xl bg-card py-3.5 ${formErrors.customerName ? "border-destructive" : "border-border"}`} />
               {formErrors.customerName && <p className="text-xs text-destructive mt-1">{formErrors.customerName}</p>}
             </div>
             <div>
-              <Label className="text-sm">Email Address</Label>
+              <p className="text-sm font-bold text-foreground">Email Address</p>
               <Input type="email" value={formData.customerEmail} onChange={e => setFormData(p => ({ ...p, customerEmail: e.target.value }))}
-                placeholder="e.g. kwame@example.com" className={`mt-1 ${formErrors.customerEmail ? "border-destructive" : ""}`} />
+                placeholder="e.g. kwame@example.com" className={`mt-1 rounded-2xl bg-card py-3.5 ${formErrors.customerEmail ? "border-destructive" : "border-border"}`} />
               {formErrors.customerEmail && <p className="text-xs text-destructive mt-1">{formErrors.customerEmail}</p>}
             </div>
             <div>
-              <Label className="text-sm">Phone Number</Label>
+              <p className="text-sm font-bold text-foreground">Phone Number</p>
               <Input value={formData.customerPhone} onChange={e => {
                   setFormData(p => ({ ...p, customerPhone: e.target.value }))
                   if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode("") }
                 }}
-                placeholder="0XX XXX XXXX" className={`mt-1 ${formErrors.customerPhone ? "border-destructive" : ""}`} />
+                placeholder="0XX XXX XXXX" className={`mt-1 rounded-2xl bg-card py-3.5 ${formErrors.customerPhone ? "border-destructive" : "border-border"}`} />
               {formErrors.customerPhone && <p className="text-xs text-destructive mt-1">{formErrors.customerPhone}</p>}
               <p className="text-xs text-muted-foreground mt-1">Voucher serial numbers &amp; PINs will be sent to this number via SMS</p>
             </div>
           </div>
 
-          {/* Price summary */}
-          <div className="bg-primary/10 rounded-xl p-4 space-y-2 text-sm border border-border">
+          {/* Price summary -- same layout as the dashboard */}
+          <div className="space-y-2 rounded-2xl border border-border bg-card p-4 text-sm">
             <div className="flex justify-between text-muted-foreground">
               <span>{selectedBoard} voucher × {quantity}</span>
               <span>GHS {effectivePricePerVoucher.toFixed(2)} × {quantity}</span>
             </div>
             {bulkActive && (
-              <div className="flex items-center gap-1.5 text-primary font-semibold text-xs bg-primary/10 rounded-lg px-3 py-1.5">
-                <span>✓ Bulk rate applied — GHS {activeBoardInfo!.bulkPrice!.toFixed(2)}/ea (save GHS {((activeBoardInfo!.customerPrice - activeBoardInfo!.bulkPrice!) * quantity).toFixed(2)})</span>
+              <div className="rounded-xl bg-success/10 px-3 py-2 text-xs">
+                <p className="font-bold text-success">Bulk rate applied — GHS {activeBoardInfo!.bulkPrice!.toFixed(2)}/ea</p>
+                <p className="text-success">You save GHS {((activeBoardInfo!.customerPrice - activeBoardInfo!.bulkPrice!) * quantity).toFixed(2)} on this order</p>
               </div>
             )}
             {!bulkActive && activeBoardInfo?.bulkMinQty && activeBoardInfo?.bulkPrice && (
-              <div className="text-xs text-primary font-medium">
+              <p className="text-xs font-medium text-[var(--shop-accent)]">
                 Buy {activeBoardInfo.bulkMinQty - quantity} more to unlock bulk rate (GHS {activeBoardInfo.bulkPrice.toFixed(2)}/ea)
-              </div>
+              </p>
             )}
-            <div className="flex justify-between font-bold text-foreground text-lg border-t border-border pt-2">
+            <div className="flex justify-between border-t border-border pt-2 font-bold text-foreground">
               <span>Total</span>
               <span>GHS {totalPrice.toFixed(2)}</span>
             </div>
@@ -573,9 +601,9 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
               on — both need the on-page MoMo number. OTP controls render only when
               OTP is required; with direct charge alone the number is charged as typed. */}
           {(otpRequired || directCharge) && (
-            <div className="p-4 rounded-xl bg-primary/10 border border-border space-y-3">
+            <div className="space-y-3 rounded-2xl border border-border bg-card p-4">
               <div>
-                <Label className="text-sm font-semibold text-primary">Mobile Money number to pay from</Label>
+                <p className="text-sm font-bold text-foreground">Mobile Money number to pay from</p>
                 <Input
                   inputMode="numeric"
                   placeholder="0241234567"
@@ -585,34 +613,34 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
                     if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode(""); otpCooldown.reset() }
                   }}
                   disabled={otpRequired && otpVerified}
-                  className="mt-1 bg-card font-mono"
+                  className="mt-1 rounded-2xl border-border bg-card py-3.5 font-mono"
                 />
-                <p className="text-xs text-primary mt-1">
+                <p className="text-xs text-muted-foreground mt-1">
                   {otpRequired ? "The payment prompt is sent to this number. You verify it once." : "The payment prompt is sent to this number."}
                 </p>
               </div>
 
               {otpRequired && (!otpVerified ? (
                 !otpSent ? (
-                  <Button type="button" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0} className="w-full bg-primary hover:bg-primary text-white rounded-xl">
+                  <Button type="button" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0} className="w-full rounded-2xl bg-[var(--shop-accent)] text-white hover:bg-[var(--shop-accent)]/90">
                     {sendingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code…</>) : otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Send verification code"}
                   </Button>
                 ) : (
                   <div className="space-y-2">
                     <Input inputMode="numeric" maxLength={6} placeholder="Enter 6-digit code" value={otpCode}
                       onChange={e => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                      className="text-center text-lg tracking-[0.4em] font-mono bg-card" />
+                      className="rounded-2xl bg-card text-center text-lg font-mono tracking-[0.4em]" />
                     <div className="flex gap-2">
-                      <Button type="button" onClick={handleVerifyOtp} disabled={verifyingOtp || otpCode.length < 4} className="flex-1 bg-primary hover:bg-primary text-white rounded-xl">
+                      <Button type="button" onClick={handleVerifyOtp} disabled={verifyingOtp || otpCode.length < 4} className="flex-1 rounded-2xl bg-[var(--shop-accent)] text-white hover:bg-[var(--shop-accent)]/90">
                         {verifyingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying…</>) : "Verify"}
                       </Button>
-                      <Button type="button" variant="outline" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0}>{otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Resend"}</Button>
+                      <Button type="button" variant="outline" onClick={handleSendOtp} disabled={sendingOtp || otpCooldown.seconds > 0} className="rounded-2xl">{otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Resend"}</Button>
                     </div>
                     <p className="text-xs text-muted-foreground">📩 Don&apos;t see the code? Check your phone&apos;s Spam or Blocked messages folder.</p>
                   </div>
                 )
               ) : (
-                <div className="p-3 rounded-xl bg-success/10 border border-border flex items-center gap-2">
+                <div className="flex items-center gap-2 rounded-2xl border border-border bg-success/10 p-3">
                   <CheckCircle2 className="w-5 h-5 text-success" />
                   <span className="text-sm font-medium text-success">Payment number verified ✓</span>
                 </div>
@@ -629,7 +657,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
           <Button
             onClick={handleSubmit}
             disabled={submitting || (turnstileEnabled && !turnstileToken) || (otpRequired && !otpVerified) || (directCharge && !otpRequired && !/^0?\d{9}$/.test(paymentPhone.replace(/\D/g, "")))}
-            className="w-full h-14 bg-slate-900 hover:bg-primary text-white font-black rounded-xl shadow-xl transition-all duration-300 text-base"
+            className="w-full rounded-2xl bg-success py-4 text-base font-bold text-white hover:bg-success/90"
           >
             {submitting
               ? <><Loader2 className="w-5 h-5 mr-2 animate-spin" />Processing…</>
@@ -646,106 +674,53 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
         </div>
       )}
 
-      {/* Live Mobile Money prompt modal (direct-charge flow). */}
+      {/* Live Mobile Money prompt sheet (direct-charge flow) -- the same
+          persistent bottom sheet the Data checkout uses, shared via
+          components/shop/PaymentSheet.tsx. */}
       {momoModal && (
-        <div className="fixed inset-0 bg-background/60 flex items-center justify-center p-4 z-[60]">
-          <Card className="w-full max-w-md bg-card rounded-2xl">
-            {momoModal.state === "awaiting" && (
-              <CardContent className="pt-8 pb-6 text-center space-y-4">
-                <div className="mx-auto w-16 h-16 rounded-full bg-primary flex items-center justify-center">
-                  <Loader2 className="w-8 h-8 text-primary-foreground animate-spin" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-foreground">Approve the prompt on your phone</h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    We sent a Mobile Money prompt to{" "}
-                    <span className="font-semibold">{momoModal.summary?.paymentPhone}</span>. Enter your PIN to approve the payment of{" "}
-                    <span className="font-semibold">GHS {Number(momoModal.summary?.amount || 0).toFixed(2)}</span>.
-                  </p>
-                </div>
-                <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-                  <Loader2 className="w-3 h-3 animate-spin" /> Waiting for confirmation…
-                </div>
-                <p className="text-xs text-muted-foreground">Keep this page open. This can take up to a minute.</p>
-              </CardContent>
-            )}
-
-            {momoModal.state === "otp" && (
-              <CardContent className="pt-8 pb-6 text-center space-y-4">
-                <div className="mx-auto w-16 h-16 rounded-full bg-primary flex items-center justify-center">
-                  <GraduationCap className="w-8 h-8 text-primary-foreground" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-foreground">Enter the code sent to your phone</h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Your provider sent a one-time code to{" "}
-                    <span className="font-semibold">{momoModal.summary?.paymentPhone}</span> to approve this payment.
-                  </p>
-                </div>
-                <Input
-                  type="text"
-                  inputMode="numeric"
-                  autoFocus
-                  placeholder="Enter OTP"
-                  value={momoOtpInput}
-                  onChange={(e) => setMomoOtpInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") submitMomoOtp() }}
-                  className="text-center text-lg tracking-widest"
-                  disabled={momoOtpSubmitting}
-                />
-                <Button
-                  onClick={submitMomoOtp}
-                  disabled={momoOtpSubmitting || !momoOtpInput.trim()}
-                  className="w-full bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary rounded-xl"
-                >
-                  {momoOtpSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Submit code"}
-                </Button>
-              </CardContent>
-            )}
-
-            {momoModal.state === "success" && (
-              <CardContent className="pt-8 pb-6 text-center space-y-4">
-                <div className="mx-auto w-16 h-16 rounded-full bg-success/15 flex items-center justify-center">
-                  <CheckCircle2 className="w-9 h-9 text-success" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-foreground">Payment successful 🎉</h3>
-                  <p className="text-sm text-muted-foreground mt-1">Your vouchers are ready. View them now, or check your SMS &amp; email.</p>
-                </div>
-                <div className="text-left p-4 rounded-lg bg-muted/40 border border-border space-y-1.5 text-sm">
-                  <div className="flex justify-between"><span className="text-muted-foreground">Item</span><span className="font-medium">{momoModal.summary?.packageLabel}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Paid from</span><span className="font-medium">{momoModal.summary?.paymentPhone}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="font-bold">GHS {Number(momoModal.summary?.amount || 0).toFixed(2)}</span></div>
-                  {momoModal.reference && (
-                    <div className="flex justify-between"><span className="text-muted-foreground">Reference</span><span className="font-mono text-xs">{momoModal.reference}</span></div>
-                  )}
-                </div>
-                <Button
-                  onClick={() => {
-                    // Reuse the existing secure confirmation page to display vouchers.
-                    window.location.href = `/shop/${shopSlug}/results-checker/confirmation?reference=${momoModal.reference}&orderId=${momoModal.orderId}`
-                  }}
-                  className="w-full bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary rounded-xl"
-                >
-                  View my vouchers
-                </Button>
-              </CardContent>
-            )}
-
-            {momoModal.state === "failed" && (
-              <CardContent className="pt-8 pb-6 text-center space-y-4">
-                <div className="mx-auto w-16 h-16 rounded-full bg-destructive/15 flex items-center justify-center">
-                  <AlertCircle className="w-9 h-9 text-destructive" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-foreground">Payment not completed</h3>
-                  <p className="text-sm text-muted-foreground mt-1">{momoModal.message || "The prompt was not approved. Please try again."}</p>
-                </div>
-                <Button variant="outline" onClick={() => { setMomoModal(null); setMomoOtpInput(""); setMomoOtpSubmitting(false) }} className="w-full rounded-xl">Close</Button>
-              </CardContent>
-            )}
-          </Card>
-        </div>
+        <PaymentSheet
+          modal={momoModal}
+          onCancelSending={() => { paymentDismissedRef.current = true; setMomoModal(null) }}
+          onDismiss={() => {
+            paymentDismissedRef.current = true
+            setMomoModal(null)
+            setPaymentPhone(""); setOtpSent(false); setOtpVerified(false); setOtpCode("")
+            setMomoOtpInput(""); setMomoOtpSubmitting(false)
+          }}
+          onRetry={() => { setMomoModal(null); setMomoOtpInput(""); setMomoOtpSubmitting(false) }}
+          otpInput={momoOtpInput}
+          setOtpInput={setMomoOtpInput}
+          onSubmitOtp={submitMomoOtp}
+          otpSubmitting={momoOtpSubmitting}
+          renderSuccess={(modal) => (
+            <div className="px-5 pb-6 pt-2 text-center space-y-4">
+              <div className="mx-auto w-16 h-16 rounded-full bg-success/15 flex items-center justify-center">
+                <CheckCircle2 className="w-9 h-9 text-success" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-foreground">Payment successful 🎉</h3>
+                <p className="text-sm text-muted-foreground mt-1">Your vouchers are ready. View them now, or check your SMS &amp; email.</p>
+              </div>
+              <div className="text-left p-4 rounded-2xl bg-muted/40 border border-border space-y-1.5 text-sm">
+                <div className="flex justify-between"><span className="text-muted-foreground">Item</span><span className="font-medium">{modal.summary?.packageLabel}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Paid from</span><span className="font-medium">{modal.summary?.paymentPhone}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="font-bold">GHS {Number(modal.summary?.amount || 0).toFixed(2)}</span></div>
+                {modal.reference && (
+                  <div className="flex justify-between"><span className="text-muted-foreground">Reference</span><span className="font-mono text-xs">{modal.reference}</span></div>
+                )}
+              </div>
+              <Button
+                onClick={() => {
+                  // Reuse the existing secure confirmation page to display vouchers.
+                  window.location.href = `/shop/${shopSlug}/results-checker/confirmation?reference=${modal.reference}&orderId=${modal.orderId}`
+                }}
+                className="w-full rounded-2xl bg-success text-white hover:bg-success/90"
+              >
+                View my vouchers
+              </Button>
+            </div>
+          )}
+        />
       )}
     </div>
   )

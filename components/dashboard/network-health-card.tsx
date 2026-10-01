@@ -1,10 +1,7 @@
 "use client"
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Activity, RefreshCw } from "lucide-react"
-import type { NetworkHealthStat } from "@/lib/order-health-service"
+import { Activity, Zap } from "lucide-react"
+import type { NetworkHealthStat, HealthNetwork } from "@/lib/order-health-service"
 
 interface NetworkHealthCardProps {
   networks: NetworkHealthStat[]
@@ -12,90 +9,109 @@ interface NetworkHealthCardProps {
   onRefresh: () => void
 }
 
-const STATUS_LABEL: Record<NetworkHealthStat["status"], string> = {
-  optimal: "Optimal",
-  degraded: "Degraded",
-  down: "Down",
-  no_data: "No data yet",
+// Circle badge: real brand tokens (bg-mtn/telecel/at already calibrated to
+// real network brand colors, unlike the generic primary/success palette).
+// bigtime has no brand token (single-usage accent), so it stays a literal
+// violet matching the rest of this app's bigtime convention.
+export const NETWORK_BADGE: Record<HealthNetwork, { text: string; className: string }> = {
+  MTN: { text: "MTN", className: "bg-mtn text-mtn-foreground" },
+  Telecel: { text: "TEL", className: "bg-telecel text-telecel-foreground" },
+  "AT - iShare": { text: "iS", className: "bg-at text-at-foreground" },
+  "AT - BigTime": { text: "BT", className: "bg-violet-600 text-white" },
 }
 
-const STATUS_BADGE_CLASS: Record<NetworkHealthStat["status"], string> = {
-  optimal: "bg-success/15 text-success border-border",
-  degraded: "bg-warning/15 text-warning border-border",
-  down: "bg-destructive/15 text-destructive border-border",
-  no_data: "bg-muted text-muted-foreground border-border",
-}
-
-const STATUS_BAR_CLASS: Record<NetworkHealthStat["status"], string> = {
-  optimal: "bg-success",
-  degraded: "bg-warning",
-  down: "bg-destructive",
-  no_data: "bg-muted",
-}
-
-function formatMinutes(minutes: number): string {
-  if (minutes < 60) return `${minutes}m`
-  const hours = Math.floor(minutes / 60)
-  const rest = minutes % 60
-  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`
+// Bar colors sampled from the reference (a clean green for "optimal") rather
+// than this app's --success token, per explicit direction to match the
+// reference's own palette on this page. Degraded/down aren't shown in the
+// reference screenshots, so those fall back to standard amber/red.
+function barColor(status: NetworkHealthStat["status"]): string {
+  if (status === "optimal") return "#22c55e"
+  if (status === "degraded") return "#f59e0b"
+  return "#ef4444"
 }
 
 function summarize(networks: NetworkHealthStat[]): string {
   const withData = networks.filter((n) => n.status !== "no_data")
   if (withData.length === 0) return "No recent data"
   const optimalCount = withData.filter((n) => n.status === "optimal").length
-  return optimalCount === withData.length
-    ? "All Networks Optimal"
-    : `${optimalCount}/${withData.length} Networks Optimal`
+  return optimalCount === withData.length ? "All Gateways Optimal" : `${optimalCount}/${withData.length} Gateways Optimal`
 }
 
 export function NetworkHealthCard({ networks, loading, onRefresh }: NetworkHealthCardProps) {
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Activity className="w-4 h-4 text-primary" /> Network Health
-            </CardTitle>
-            <CardDescription>{networks.length > 0 ? summarize(networks) : "Last 24 hours"}</CardDescription>
-          </div>
-          <Button variant="outline" size="sm" onClick={onRefresh} disabled={loading}>
-            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
+    <div className="rounded-2xl border border-[#e5e9f5] bg-white p-4 sm:p-5">
+      <div className="flex items-center gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#e7f7ef] text-[#0f7a4d]">
+          <Activity className="w-5 h-5" />
+        </span>
+        <div className="min-w-0">
+          <p className="text-[15px] font-bold text-[#1e2537]">Telecom Gateway Health &amp; Ping Radar</p>
+          <p className="text-xs font-medium text-[#0f7a4d]">
+            {networks.length > 0 ? summarize(networks) : "Last 24 hours"} &middot; Automated Routing
+          </p>
         </div>
-      </CardHeader>
-      <CardContent>
-        {loading && networks.length === 0 ? (
-          <div className="p-4 text-center text-sm text-muted-foreground">Loading...</div>
-        ) : (
-          <div className="space-y-4">
-            {networks.map((stat) => (
-              <div key={stat.network} className="space-y-1.5">
+      </div>
+
+      <button
+        type="button"
+        onClick={onRefresh}
+        disabled={loading}
+        className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-[#e5e9f5] px-3.5 py-1.5 text-xs font-bold text-[#1e2537] hover:bg-[#f7f8fc] disabled:opacity-50"
+      >
+        <Zap className={`w-3.5 h-3.5 text-[#f2a900] ${loading ? "animate-pulse" : ""}`} /> Test Ping
+      </button>
+
+      {loading && networks.length === 0 ? (
+        <div className="p-4 text-center text-sm text-[#6b7280]">Loading...</div>
+      ) : (
+        <div className="mt-3 space-y-3">
+          {networks.map((stat) => {
+            const badge = NETWORK_BADGE[stat.network]
+            if (stat.status === "no_data" || stat.uptimePercent === null) {
+              // No fabricated 0% -- 0% would claim "completely down", a
+              // different, false claim from "we have no data yet".
+              return (
+                <div key={stat.network} className="rounded-xl bg-[#eef2ff] p-3.5">
+                  <div className="flex items-center gap-2">
+                    <span className={`flex h-8 w-8 items-center justify-center rounded-full text-[10px] font-extrabold ${badge.className}`}>
+                      {badge.text}
+                    </span>
+                    <span className="text-sm font-bold text-[#1e2537]">{stat.network} Gateway</span>
+                  </div>
+                  <p className="mt-2 text-[11px] text-[#6b7280]">No recent data</p>
+                </div>
+              )
+            }
+            const width = Math.max(0, Math.min(100, stat.uptimePercent))
+            return (
+              <div key={stat.network} className="rounded-xl bg-[#eef2ff] p-3.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">{stat.network}</span>
-                  <Badge variant="outline" className={STATUS_BADGE_CLASS[stat.status]}>
-                    {STATUS_LABEL[stat.status]}
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    <span className={`flex h-8 w-8 items-center justify-center rounded-full text-[10px] font-extrabold ${badge.className}`}>
+                      {badge.text}
+                    </span>
+                    <span className="text-sm font-bold text-[#1e2537]">{stat.network} Gateway</span>
+                  </div>
+                  {stat.avgDeliveryMinutes !== null && (
+                    <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-[#1e2537]">
+                      {stat.avgDeliveryMinutes < 60 ? `${stat.avgDeliveryMinutes}m` : `${Math.floor(stat.avgDeliveryMinutes / 60)}h`}
+                    </span>
+                  )}
                 </div>
-                <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
-                  <div
-                    className={`h-full rounded-full ${STATUS_BAR_CLASS[stat.status]}`}
-                    style={{ width: stat.uptimePercent !== null ? `${stat.uptimePercent}%` : "0%" }}
-                  />
+                <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-white">
+                  <div className="h-full rounded-full" style={{ width: `${width}%`, backgroundColor: barColor(stat.status) }} />
                 </div>
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <div className="mt-2 flex items-center justify-between text-[11px] text-[#4b5563]">
                   <span>
-                    {stat.avgDeliveryMinutes !== null ? `Avg delivery: ${formatMinutes(stat.avgDeliveryMinutes)}` : "No data yet"}
+                    Status: <span className="font-bold capitalize text-[#0f7a4d]">{stat.status}</span>
                   </span>
-                  <span>{stat.uptimePercent !== null ? `Uptime: ${stat.uptimePercent}%` : "No data yet"}</span>
+                  <span>Uptime: {stat.uptimePercent.toFixed(1)}%</span>
                 </div>
               </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+            )
+          })}
+        </div>
+      )}
+    </div>
   )
 }

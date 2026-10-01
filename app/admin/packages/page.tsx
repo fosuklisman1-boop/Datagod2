@@ -15,7 +15,7 @@ import { toast } from "sonner"
 import { Checkbox } from "@/components/ui/checkbox"
 import { BulkPriceUpdateDialog } from "@/components/admin/bulk-price-update-dialog"
 import { NetworkStockCard } from "@/components/admin/network-stock-card"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 
 // Format large numbers with K/M suffix
 const formatCount = (num: number): string => {
@@ -216,7 +216,7 @@ export default function AdminPackagesPage() {
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between gap-4">
-          <AdminPageHeaderBanner
+          <PageHeaderBanner
             className="flex-1"
             title="Package Management"
             subtitle="Create, edit, and delete data packages"

@@ -1,7 +1,12 @@
 import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
-export function AdminPageHeaderBanner({
+// Note: the underlying CSS tokens (--admin-banner-from/-to) still carry an
+// "admin" prefix from Phase 1, even though this component (like the sidebar)
+// is no longer admin-only -- a rename ripples into globals.css and
+// tailwind.config.ts too, left as tracked cosmetic debt rather than bundled
+// into this page's rebuild.
+export function PageHeaderBanner({
   title,
   subtitle,
   children,

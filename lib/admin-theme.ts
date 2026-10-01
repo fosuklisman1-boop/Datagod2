@@ -1,4 +1,6 @@
-// Class-name mappings and small status-derivation helpers backing the admin reskin's presentational components.
+// Class-name mappings backing the admin reskin's presentational components.
+// Gateway/network-status helpers moved to lib/network-status-theme.ts once
+// they got a non-admin caller (the customer dashboard's Network Health card).
 
 export type StatusPillVariant = 'success' | 'warning' | 'danger'
 
@@ -17,35 +19,4 @@ export function segmentedPillItemClasses(isActive: boolean): string {
   return isActive
     ? 'bg-admin-amber text-slate-900 font-bold'
     : 'bg-transparent text-current font-medium hover:bg-white/10'
-}
-
-export type GatewayStatus = 'optimal' | 'degraded' | 'down'
-
-export function gatewayStatus(uptimePct: number): GatewayStatus {
-  if (uptimePct >= 99) return 'optimal'
-  if (uptimePct >= 90) return 'degraded'
-  return 'down'
-}
-
-export function gatewayBarColorClass(status: GatewayStatus): string {
-  switch (status) {
-    case 'optimal':
-      return 'bg-success'
-    case 'degraded':
-      return 'bg-warning'
-    case 'down':
-      return 'bg-destructive'
-  }
-}
-
-export type GatewayNetwork = 'mtn' | 'telecel' | 'at'
-
-const NETWORK_BADGE_CLASSES: Record<GatewayNetwork, string> = {
-  mtn: 'bg-mtn text-mtn-foreground',
-  telecel: 'bg-telecel text-telecel-foreground',
-  at: 'bg-at text-at-foreground',
-}
-
-export function networkBadgeClasses(network: GatewayNetwork): string {
-  return NETWORK_BADGE_CLASSES[network]
 }

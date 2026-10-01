@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -207,7 +207,7 @@ export default function AISettingsPage() {
     <DashboardLayout>
       <div className="max-w-2xl mx-auto py-8 px-4 space-y-6">
         <div className="flex items-center gap-3">
-          <AdminPageHeaderBanner
+          <PageHeaderBanner
             title="AI Provider Settings"
             subtitle="Configure API keys and assign models to each chat widget"
             className="flex-1"

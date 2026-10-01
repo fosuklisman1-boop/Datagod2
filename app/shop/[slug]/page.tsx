@@ -36,17 +36,73 @@ import {
   Search,
   Menu,
   X,
-  ChevronLeft
+  ChevronLeft,
+  IdCard,
+  Users2,
+  ShieldCheck,
+  AlertTriangle,
+  List,
+  LayoutGrid,
+  ChevronDown,
+  ChevronUp,
+  Smartphone,
+  UserPlus
 } from "lucide-react"
 import { AirtimeStorefrontForm } from "@/components/shop/AirtimeStorefrontForm"
 import { ResultsCheckerStorefrontForm } from "@/components/shop/ResultsCheckerStorefrontForm"
 import { ResultsCheckServiceForm } from "@/components/shop/ResultsCheckServiceForm"
 import { VoucherLookup } from "@/components/shop/VoucherLookup"
+import { SubAgentRequestForm } from "@/components/shop/SubAgentRequestForm"
 import TurnstileWidget from "@/components/shop/TurnstileWidget"
 import HoneypotField from "@/components/shop/HoneypotField"
 import { toast } from "sonner"
 import { AnnouncementModal } from "@/components/announcement-modal"
 import { AIChatWidget } from "@/components/shop/AIChatWidget"
+import { StorefrontServicesCarousel, type StorefrontCarouselSlide } from "@/components/shop/StorefrontServicesCarousel"
+
+// Real public brand colors for the 3 Ghana MoMo providers -- used to tint the
+// checkout sheet by the package's data network, not the shop's own branding.
+const NETWORK_BRAND_COLOR: Record<string, string> = {
+  MTN: "#FFCC00",
+  Telecel: "#E4002B",
+  "AT - iShare": "#0066CC",
+  "AT - BigTime": "#0066CC",
+}
+function networkColorFor(network: string | undefined): string {
+  return NETWORK_BRAND_COLOR[network || ""] || "#1b388b"
+}
+
+// A real, opaque light tint of a brand color (blended toward white), not a
+// transparent overlay -- alpha-based tints looked muddy sitting on top of
+// the checkout sheet's own black/50 backdrop instead of reading as a clean
+// pastel. `amount` is how much white to mix in (0.94 = 94% white).
+function lightenColor(hex: string, amount: number): string {
+  const clean = hex.replace("#", "")
+  const r = parseInt(clean.slice(0, 2), 16)
+  const g = parseInt(clean.slice(2, 4), 16)
+  const b = parseInt(clean.slice(4, 6), 16)
+  const mix = (channel: number) => Math.round(channel + (255 - channel) * amount)
+  return `#${[mix(r), mix(g), mix(b)].map((c) => c.toString(16).padStart(2, "0")).join("")}`
+}
+
+// Mirrors lib/paystack.ts's MOMO_PREFIX exactly -- used client-side purely to
+// auto-select/confirm which MoMo provider pill matches the typed number. The
+// server (app/api/payments/initialize) re-derives the real provider from the
+// phone itself; this is a confirmation aid, never an override sent to it.
+const MOMO_PREFIX_CLIENT: Record<string, "mtn" | "vod" | "tgo"> = {
+  "024": "mtn", "025": "mtn", "053": "mtn", "054": "mtn", "055": "mtn", "059": "mtn",
+  "020": "vod", "050": "vod",
+  "026": "tgo", "027": "tgo", "056": "tgo", "057": "tgo",
+}
+function detectMomoProviderClient(phone: string): "mtn" | "vod" | "tgo" | null {
+  const d = (phone || "").replace(/\D/g, "")
+  const local = d.startsWith("233") ? "0" + d.slice(3) : d.startsWith("0") ? d : "0" + d
+  return MOMO_PREFIX_CLIENT[local.slice(0, 3)] ?? null
+}
+const MOMO_NETWORK_LABEL: Record<"mtn" | "vod" | "tgo", string> = { mtn: "MTN MoMo", vod: "Telecel Cash", tgo: "AT Money" }
+// Real network logo keys these MoMo choices correspond to (same assets the
+// data-network picker uses, loaded via networkLogoService -- not new logos).
+const MOMO_LOGO_NETWORK_KEY: Record<"mtn" | "vod" | "tgo", string> = { mtn: "MTN", vod: "Telecel", tgo: "AT - iShare" }
 
 export default function ShopStorefront() {
   const params = useParams()
@@ -60,7 +116,11 @@ export default function ShopStorefront() {
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null)
   const [networkLogos, setNetworkLogos] = useState<Record<string, string>>({})
-  const [activeTab, setActiveTab] = useState<"products" | "airtime" | "vouchers" | "about" | "track-order">("products")
+  const [activeTab, setActiveTab] = useState<"home" | "about" | "track-order">("home")
+  // Which service's content shows below the persistent "Choose a Service"
+  // picker -- picking a service no longer navigates away from it (previously
+  // it did, via a separate activeTab value, which made the picker disappear).
+  const [selectedService, setSelectedService] = useState<"data" | "airtime" | "vouchers">("data")
   const [rcTab, setRcTab] = useState<"buy" | "retrieve" | "check">("buy")
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [orderData, setOrderData] = useState({
@@ -83,6 +143,10 @@ export default function ShopStorefront() {
   // hosted Paystack redirect — regardless of whether OTP is required.
   const [directCharge, setDirectCharge] = useState<boolean>(false)
   const [paymentPhone, setPaymentPhone] = useState("")
+  // Default on: most buyers pay with the same number they're buying for.
+  const [sameAsMomo, setSameAsMomo] = useState(true)
+  // User's explicit MoMo-provider pill choice; null = just follow auto-detection.
+  const [momoNetworkChoice, setMomoNetworkChoice] = useState<"mtn" | "vod" | "tgo" | null>(null)
   const otpCooldown = useResendCooldown(paymentPhone.replace(/\D/g, ""))
   const [otpSent, setOtpSent] = useState(false)
   const [otpCode, setOtpCode] = useState("")
@@ -90,13 +154,101 @@ export default function ShopStorefront() {
   const [sendingOtp, setSendingOtp] = useState(false)
   const [verifyingOtp, setVerifyingOtp] = useState(false)
   // Live MoMo charge modal
-  const [momoModal, setMomoModal] = useState<null | { state: "awaiting" | "otp" | "success" | "failed"; orderId?: string; summary?: any; message?: string; reference?: string }>(null)
+  const [momoModal, setMomoModal] = useState<null | { state: "sending" | "awaiting" | "otp" | "success" | "failed"; orderId?: string; summary?: any; message?: string; reference?: string }>(null)
   const [momoOtpInput, setMomoOtpInput] = useState("")
   const [momoOtpSubmitting, setMomoOtpSubmitting] = useState(false)
   const [globalOrderingEnabled, setGlobalOrderingEnabled] = useState(true)
+  // USSD storefront card — admin-gated (storefront_show_ussd_card) AND only
+  // rendered once this shop's own USSD PIN is confirmed active+funded.
+  const [showUssdCard, setShowUssdCard] = useState(false)
+  const [ussdDialCode, setUssdDialCode] = useState<string | null>(null)
+  const [shopUssdCode, setShopUssdCode] = useState<string | null>(null)
   const [termsContent, setTermsContent] = useState("")
   const [termsLastUpdated, setTermsLastUpdated] = useState<string | null>(null)
   const packagesRef = useRef<HTMLDivElement>(null)
+  // Guards against in-flight order-create/charge-initialize/poll/OTP calls
+  // resolving AFTER the customer already dismissed the payment sheet (a real
+  // race, not hypothetical -- all of these are real async network work) and
+  // reopening a stale awaiting/success/failed view on a sheet they already
+  // closed themselves.
+  const paymentDismissedRef = useRef(false)
+  const serviceTabsRef = useRef<HTMLDivElement>(null)
+  // A carousel CTA both selects the service AND scrolls the persistent
+  // "Choose a Service" tabs into view, since the picker sits below the hero
+  // and carousel now -- without this, picking a service from the carousel
+  // wouldn't visibly change anything still on screen.
+  const scrollToServiceTabs = () => {
+    setTimeout(() => serviceTabsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50)
+  }
+
+  // Same idea for the carousel's "Become a sub-agent" slide -- it switches to
+  // the About tab (where SubAgentRequestForm actually lives) and scrolls
+  // straight to that card once the tab's content has mounted.
+  const subAgentCardRef = useRef<HTMLDivElement>(null)
+  const goToSubAgentForm = () => {
+    setActiveTab("about")
+    setTimeout(() => subAgentCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50)
+  }
+
+  // Standalone "check your MTN number" widget — reuses the same real, already-
+  // wired /api/verify-phone-live endpoint the checkout flow calls automatically
+  // (app/api/verify-phone-live/route.ts -> checkCustomerFacingVerification()).
+  // That check returns ONE combined verified/not-verified result across
+  // whichever providers admin has configured -- there's no per-"server"
+  // breakdown to show, so this only ever reports a single yes/no.
+  const [mtnCheckExpanded, setMtnCheckExpanded] = useState(false)
+  const [mtnCheckPhone, setMtnCheckPhone] = useState("")
+  const [mtnCheckStatus, setMtnCheckStatus] = useState<"idle" | "checking" | "verified" | "unverified" | "error">("idle")
+
+  // Package search + view mode — client-side over the already-fetched
+  // `packages` list, no new endpoint needed.
+  const [packageSearch, setPackageSearch] = useState("")
+  const [packageViewMode, setPackageViewMode] = useState<"grid" | "list">("grid")
+
+  const handleCheckMtnNumber = async () => {
+    const digits = mtnCheckPhone.replace(/\D/g, "")
+    if (!/^0?\d{9}$/.test(digits)) {
+      setMtnCheckStatus("error")
+      return
+    }
+    setMtnCheckStatus("checking")
+    try {
+      const res = await fetch("/api/verify-phone-live", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phones: [mtnCheckPhone] }),
+      })
+      const data = await res.json().catch(() => ({}))
+      const result = data?.results?.[0]
+      setMtnCheckStatus(result?.verified ? "verified" : "unverified")
+    } catch {
+      setMtnCheckStatus("error")
+    }
+  }
+
+  // Inline, upfront verification of the checkout sheet's own beneficiary
+  // number -- auto-runs on blur (MTN packages only) so the customer sees a
+  // warning before they submit, instead of only discovering it via the
+  // separate confirmation dialog handleSubmitOrder already shows on submit.
+  const [checkoutVerifyStatus, setCheckoutVerifyStatus] = useState<"idle" | "checking" | "verified" | "unverified">("idle")
+  const [paystackFeePercentage, setPaystackFeePercentage] = useState(3.0)
+  const checkCheckoutPhoneUpfront = async () => {
+    if (!selectedPackage || selectedPackage.packages.network.toUpperCase() !== "MTN") return
+    const digits = orderData.customer_phone.replace(/\D/g, "")
+    if (!/^0?\d{9}$/.test(digits)) { setCheckoutVerifyStatus("idle"); return }
+    setCheckoutVerifyStatus("checking")
+    try {
+      const res = await fetch("/api/verify-phone-live", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phones: [orderData.customer_phone] }),
+      })
+      const data = await res.json().catch(() => ({}))
+      setCheckoutVerifyStatus(data?.results?.[0]?.verified ? "verified" : "unverified")
+    } catch {
+      setCheckoutVerifyStatus("idle")
+    }
+  }
 
   const [showAnnouncement, setShowAnnouncement] = useState(false)
   const [activeAnnouncement, setActiveAnnouncement] = useState<{title: string, message: string} | null>(null)
@@ -122,6 +274,31 @@ export default function ShopStorefront() {
         setDirectCharge(d.direct_charge === true)
       })
       .catch(() => { setTurnstileEnabled(true); setOtpRequired(false); setDirectCharge(false) })
+
+    // Real Paystack gateway fee -- same public endpoint + formula
+    // (amount * (1 + pct/100)) that components/wallet-top-up.tsx already
+    // uses, so the total shown here matches what the customer is actually
+    // charged (app/api/payments/initialize computes the identical total).
+    fetch("/api/settings/fees")
+      .then(r => r.ok ? r.json() : { paystack_fee_percentage: 3.0 })
+      .then(d => setPaystackFeePercentage(d.paystack_fee_percentage || 3.0))
+      .catch(() => setPaystackFeePercentage(3.0))
+
+    // USSD card: admin toggle (platform-wide) + this shop's own active PIN
+    // (per-shop, only exposed by the API when genuinely usable right now).
+    fetch("/api/public/config")
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d?.app_settings?.storefront_show_ussd_card === true) {
+          setShowUssdCard(true)
+          setUssdDialCode(d.app_settings.ussd_shop_dial_code || null)
+        }
+      })
+      .catch(() => {})
+    fetch(`/api/public/shop-ussd-code?shopSlug=${encodeURIComponent(shopSlug)}`)
+      .then(r => r.ok ? r.json() : { active: false, code: null })
+      .then(d => setShopUssdCode(d.active ? d.code : null))
+      .catch(() => {})
   }, [shopSlug])
 
   useEffect(() => {
@@ -158,6 +335,16 @@ export default function ShopStorefront() {
     }, 600)
     return () => clearTimeout(t)
   }, [paymentPhone, otpRequired, otpVerified])
+
+  // "Use this number for Mobile Money payment" — mirrors the beneficiary
+  // number into the payment number while checked; unchecking lets the buyer
+  // type a different payer number.
+  useEffect(() => {
+    if (!sameAsMomo) return
+    if (paymentPhone === orderData.customer_phone) return
+    setPaymentPhone(orderData.customer_phone)
+    if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode("") }
+  }, [sameAsMomo, orderData.customer_phone])
 
   const loadShopData = async () => {
     try {
@@ -253,6 +440,12 @@ export default function ShopStorefront() {
   const handleBuyNow = (pkg: any) => {
     setSelectedPackage(pkg)
     setCheckoutOpen(true)
+    setSameAsMomo(true)
+    setMomoNetworkChoice(null)
+    setPaymentPhone("")
+    setOtpSent(false)
+    setOtpVerified(false)
+    setOtpCode("")
   }
 
   const getNetworkLogo = (network: string): string => {
@@ -319,11 +512,14 @@ export default function ShopStorefront() {
     }
   }
 
-  // Poll order payment status while the live MoMo prompt modal is open.
+  // Poll order payment status while the sheet's live MoMo view is showing.
   const pollMomoStatus = (orderId: string, summary: any) => {
     const started = Date.now()
     const TIMEOUT_MS = 4 * 60 * 1000 // 4 minutes to approve the prompt
     const tick = async () => {
+      // Customer dismissed the sheet -- stop polling for a UI no one's
+      // watching. The order still completes server-side via the webhook.
+      if (paymentDismissedRef.current) return
       if (Date.now() - started > TIMEOUT_MS) {
         setMomoModal({ state: "failed", message: "Payment timed out. If you approved the prompt, your order will still be processed — check your orders, or try again." })
         return
@@ -357,7 +553,9 @@ export default function ShopStorefront() {
         setMomoOtpSubmitting(false)
         return
       }
-      setMomoModal({ state: "awaiting", orderId: momoModal.orderId, summary: momoModal.summary, reference: momoModal.reference })
+      if (!paymentDismissedRef.current) {
+        setMomoModal({ state: "awaiting", orderId: momoModal.orderId, summary: momoModal.summary, reference: momoModal.reference })
+      }
       setMomoOtpInput("")
       setMomoOtpSubmitting(false)
     } catch {
@@ -367,6 +565,17 @@ export default function ShopStorefront() {
   }
 
   const proceedWithOrderCreation = async (normalizedPhone: string) => {
+    // Direct-charge orders take two sequential network round-trips (create
+    // order, then initialize the charge) before a MoMo prompt actually
+    // reaches the customer's phone. Swap the SAME sheet's content to the
+    // "sending" view immediately on submit (the sheet itself never closes
+    // and reopens as a separate modal -- one persistent sheet handles the
+    // whole flow through to success/failure), rather than leaving them
+    // watching the sheet's own submit-button spinner for that whole time.
+    if (directCharge) {
+      paymentDismissedRef.current = false
+      setMomoModal({ state: "sending" })
+    }
     try {
       const pkg = selectedPackage.packages
       const profitAmount = selectedPackage.profit_margin
@@ -455,6 +664,7 @@ export default function ShopStorefront() {
       // prompt can then only reach a number the customer proved they control).
       if (directCharge) {
         if (otpRequired && !otpVerified) {
+          setMomoModal(null)
           toast.error("Please verify your Mobile Money number first")
           return
         }
@@ -482,10 +692,16 @@ export default function ShopStorefront() {
         if (!chargeRes.ok || !chargeData.success) {
           throw new Error(chargeData?.error || "Could not start the Mobile Money charge. Please try again.")
         }
-        // Close the checkout dialog and show the live payment modal. Telecel Cash
-        // charges come back "send_otp" (needs a typed code); MTN/AirtelTigo use a
-        // push-to-approve prompt instead ("pay_offline"/"pending").
-        setCheckoutOpen(false)
+        // Customer already dismissed the sheet before this resolved -- the
+        // charge may still have fired (the server-side webhook completes the
+        // order regardless of anything client-side), but don't reopen a view
+        // they explicitly closed or keep polling for a UI no one's watching.
+        if (paymentDismissedRef.current) return
+        // Sheet is already showing the "sending" view (set at the top of this
+        // function) -- just transition it now that the prompt has actually
+        // been dispatched. Telecel Cash charges come back "send_otp" (needs a
+        // typed code); MTN/AirtelTigo use a push-to-approve prompt instead
+        // ("pay_offline"/"pending").
         if (chargeData.status === "send_otp") {
           setMomoModal({ state: "otp", orderId: order.id, summary, reference: chargeData.reference })
         } else {
@@ -606,7 +822,21 @@ export default function ShopStorefront() {
         error: error,
         errorStack: error instanceof Error ? error.stack : "N/A",
       })
-      toast.error(errorMessage)
+      // Direct-charge orders already closed the sheet for the "sending" modal
+      // (set at the top of this function) -- a toast alone would be easy to
+      // miss behind it, so show the same full-screen error card the "prompt
+      // declined" case uses instead, with the real failure reason. Skip it
+      // if the customer already dismissed "sending" themselves.
+      // NB: can't gate this on `momoModal?.state === "sending"` -- that reads
+      // the `momoModal` binding this async closure captured at call-start,
+      // which the `setMomoModal({ state: "sending" })` above never updates
+      // (state setters don't mutate a running closure's locals). `directCharge`
+      // alone already implies we showed "sending" for this call.
+      if (directCharge && !paymentDismissedRef.current) {
+        setMomoModal({ state: "failed", message: errorMessage })
+      } else if (!directCharge || !paymentDismissedRef.current) {
+        toast.error(errorMessage)
+      }
     } finally {
       setSubmitting(false)
     }
@@ -618,11 +848,8 @@ export default function ShopStorefront() {
       return
     }
 
-    if (!orderData.customer_email.trim()) {
-      toast.error("Please enter your email")
-      return
-    }
-
+    // Email stays optional here (the server synthesizes a guest email from
+    // the phone number when left blank -- see app/api/shop/orders/create/route.ts).
     if (!validatePhoneNumberField(orderData.customer_phone, selectedPackage.packages.network, prefixMap)) {
       toast.error("Please enter a valid phone number")
       return
@@ -678,6 +905,42 @@ export default function ShopStorefront() {
     }
   }
 
+  // One persistent checkout sheet handles the whole flow -- form, the
+  // "not verified" warning, sending, awaiting/OTP, success, and failure --
+  // rather than closing and reopening as separate popups. This is the sheet's
+  // single dismiss action (backdrop click + the X button), and it behaves
+  // differently depending on how far the flow has gotten:
+  //  - mid-payment ("sending"): a transient pre-prompt state, so just drop
+  //    back to the form and keep whatever the customer already typed.
+  //  - further along (awaiting/otp/success/failed) or the verify warning:
+  //    fully reset and close, since those are terminal or a real charge may
+  //    already be in flight.
+  const handleSheetDismiss = () => {
+    if (momoModal) {
+      paymentDismissedRef.current = true
+      if (momoModal.state === "sending") {
+        setMomoModal(null)
+        return
+      }
+      setCheckoutOpen(false)
+      setSelectedPackage(null)
+      setMomoModal(null)
+      setOrderData({ customer_name: "", customer_email: "", customer_phone: "" })
+      setCheckoutVerifyStatus("idle")
+      setPaymentPhone(""); setOtpSent(false); setOtpVerified(false); setOtpCode("")
+      setMomoOtpInput(""); setMomoOtpSubmitting(false)
+      return
+    }
+    if (verifyWarningOpen) {
+      setVerifyWarningOpen(false)
+      setPendingNormalizedPhone(null)
+      return
+    }
+    setCheckoutOpen(false)
+    setOrderData({ customer_name: "", customer_email: "", customer_phone: "" })
+    setCheckoutVerifyStatus("idle")
+  }
+
   const handleCloseAnnouncement = () => {
     setShowAnnouncement(false)
     const sessionKey = sessionStorage.getItem("current_storefront_announcement")
@@ -713,15 +976,73 @@ export default function ShopStorefront() {
     )
   }
 
-  // Tab navigation items
-  const tabs: Array<{ id: "products" | "about" | "track-order", label: string, icon: React.ReactNode }> = [
-    { id: "products", label: "Shop Products", icon: <ShoppingCart className="w-4 h-4" /> },
-    { id: "track-order", label: "Track Order", icon: <Package className="w-4 h-4" /> },
-    { id: "about", label: "About Shop", icon: <AlertCircle className="w-4 h-4" /> },
+  // Hamburger menu — grouped by real destination. Each item maps directly onto
+  // the existing activeTab/selectedService/rcTab state (no new routes/tabs):
+  // "Results Checker" and "Retrieve Voucher" both land on the real vouchers
+  // service, just pre-set to a different rcTab sub-view. No "Mashup" entry —
+  // confirmed no real product behind it (same call as the Pricing page
+  // earlier this session).
+  const productItems: Array<{ label: string; icon: React.ReactNode; onClick?: () => void; href?: string; isActive: boolean }> = [
+    { label: "Data Packages", icon: <ShoppingCart className="w-4 h-4" />, onClick: () => { setActiveTab("home"); setSelectedService("data"); setSidebarOpen(false) }, isActive: activeTab === "home" && selectedService === "data" },
+    { label: "Airtime Recharge", icon: <Zap className="w-4 h-4" />, onClick: () => { setActiveTab("home"); setSelectedService("airtime"); setSidebarOpen(false) }, isActive: activeTab === "home" && selectedService === "airtime" },
+    { label: "Results Checker", icon: <GraduationCap className="w-4 h-4" />, onClick: () => { setActiveTab("home"); setSelectedService("vouchers"); setRcTab("buy"); setSidebarOpen(false) }, isActive: activeTab === "home" && selectedService === "vouchers" && rcTab === "buy" },
+    ...(shop?.afa_price != null ? [{
+      label: "AFA Registration", icon: <IdCard className="w-4 h-4" />,
+      href: shop.subdomain ? `${shopOrigin(shop.subdomain)}/afa` : `/shop/${shopSlug}/afa`,
+      isActive: false,
+    }] : []),
+  ]
+  const accountItems: Array<{ label: string; icon: React.ReactNode; onClick: () => void; isActive: boolean }> = [
+    { label: "Track My Orders", icon: <Package className="w-4 h-4" />, onClick: () => { setActiveTab("track-order"); setSidebarOpen(false) }, isActive: activeTab === "track-order" },
+    { label: "Retrieve Voucher", icon: <GraduationCap className="w-4 h-4" />, onClick: () => { setActiveTab("home"); setSelectedService("vouchers"); setRcTab("retrieve"); setSidebarOpen(false) }, isActive: activeTab === "home" && selectedService === "vouchers" && rcTab === "retrieve" },
+    { label: "About Shop & Terms", icon: <AlertCircle className="w-4 h-4" />, onClick: () => { setActiveTab("about"); setSidebarOpen(false) }, isActive: activeTab === "about" },
+  ]
+
+  // Every accent on this storefront (buttons, selected states, badges) follows
+  // the shop owner's own branding (Shop Profile > Branding > custom_color), not
+  // Datagod's platform navy -- this page renders a different shop's brand, not
+  // our own UI. Falls back to the platform navy only when a shop hasn't set one.
+  const accentColor = shop?.custom_color || "#1b388b"
+  // Hero banner is a two-color gradient card; the second stop degrades to
+  // the primary color (a solid-looking card) when the owner hasn't set one.
+  const heroColor2 = shop?.custom_color_2 || accentColor
+
+  const helpWhatsAppLink = normalizeWhatsAppLink(shopSettings?.whatsapp_link)
+  const carouselSlides: StorefrontCarouselSlide[] = [
+    {
+      key: "data", badge: "DATA", title: "Data Bundles", description: "Fast, affordable data for every network.",
+      cta: "Shop Data", icon: ShoppingCart, gradient: "from-[#0f172a] to-[#2563eb]",
+      onClick: () => { setSelectedService("data"); setActiveTab("home"); scrollToServiceTabs() },
+    },
+    {
+      key: "airtime", badge: "AIRTIME", title: "Airtime Recharge", description: "Top up any network instantly.",
+      cta: "Buy Airtime", icon: Zap, gradient: "from-[#431407] to-[#d97706]",
+      onClick: () => { setSelectedService("airtime"); setActiveTab("home"); scrollToServiceTabs() },
+    },
+    {
+      key: "vouchers", badge: "EDUCATION", title: "Results Checker", description: "Buy checker vouchers or check your results online.",
+      cta: "Get Checker", icon: GraduationCap, gradient: "from-[#052e16] to-[#059669]",
+      onClick: () => { setSelectedService("vouchers"); setRcTab("buy"); setActiveTab("home"); scrollToServiceTabs() },
+    },
+    ...(shop?.afa_price != null ? [{
+      key: "afa", badge: "AFA", title: "AFA Registration", description: "Register your line for AFA data bundles.",
+      cta: "Register Now", icon: IdCard, gradient: "from-[#3b0764] to-[#7c3aed]",
+      onClick: () => { window.location.href = shop.subdomain ? `${shopOrigin(shop.subdomain)}/afa` : `/shop/${shopSlug}/afa` },
+    }] : []),
+    ...((shop?.phone || helpWhatsAppLink) ? [{
+      key: "help", badge: "SUPPORT", title: "Need Help?", description: shop.phone ? `Call or WhatsApp us at ${shop.phone}` : "Chat with us on WhatsApp",
+      cta: "Contact Us", icon: MessageCircle, gradient: "from-[#1e1b4b] to-[#4f46e5]",
+      onClick: () => { if (helpWhatsAppLink) window.open(helpWhatsAppLink, "_blank"); else if (shop?.phone) window.location.href = `tel:${shop.phone}` },
+    }] : []),
+    {
+      key: "sub-agent", badge: "PARTNER", title: "Become a Sub-Agent", description: "Start your own shop under this business and earn commission.",
+      cta: "Apply Now", icon: UserPlus, gradient: "from-[#083344] to-[#0891b2]",
+      onClick: goToSubAgentForm,
+    },
   ]
 
   return (
-    <div className="min-h-screen bg-card">
+    <div className="min-h-screen bg-card" style={{ "--shop-accent": accentColor } as React.CSSProperties}>
       {/* Breadcrumb Schema */}
       <script
         type="application/ld+json"
@@ -781,20 +1102,20 @@ export default function ShopStorefront() {
             {/* 3-Line Hamburger Button */}
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="p-2 hover:bg-primary/10 text-foreground hover:text-primary rounded-lg transition-all duration-200 hover:shadow-md"
+              className="p-2 hover:bg-[var(--shop-accent)]/10 text-foreground hover:text-[var(--shop-accent)] rounded-lg transition-all duration-200 hover:shadow-md"
               aria-label="Toggle navigation menu"
               aria-expanded={sidebarOpen}
             >
               <AlignJustify className="w-6 h-6" />
             </button>
 
-            {/* Shop Info */}
-            <div className="flex items-center gap-3">
-              <Store className="w-6 h-6 text-primary hidden sm:block" />
+            {/* Shop Info — click to return to the service-picker home view */}
+            <button onClick={() => setActiveTab("home")} className="flex items-center gap-3 min-w-0">
+              <Store className="w-6 h-6 text-[var(--shop-accent)] hidden sm:block" />
               <h1 className="text-xl sm:text-2xl font-bold text-foreground truncate">
                 {shop.shop_name || shop.name || "Store"}
               </h1>
-            </div>
+            </button>
           </div>
 
           {/* Shop Logo */}
@@ -819,33 +1140,59 @@ export default function ShopStorefront() {
 
       {/* Collapsible Sidebar */}
       <aside
-        className={`fixed left-0 top-16 h-[calc(100vh-64px)] bg-card border-r border-border w-64 transform transition-all duration-300 ease-in-out z-30 shadow-lg ${sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        className={`fixed left-0 top-0 h-screen bg-card border-r border-border w-72 transform transition-all duration-300 ease-in-out z-30 shadow-lg overflow-y-auto ${sidebarOpen ? "translate-x-0" : "-translate-x-full"
           }`}
       >
-        <div className="sticky top-0 overflow-y-auto h-full">
-          <Card className="border-0 shadow-none rounded-none h-full">
-            <CardContent className="p-4">
-              <nav className="space-y-1">
-                {tabs.map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => {
-                      setActiveTab(tab.id)
-                      setSidebarOpen(false)
-                    }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all duration-200 ${activeTab === tab.id
-                      ? "bg-primary/10 text-primary border-l-4 border-l-violet-600 shadow-sm"
-                      : "text-foreground hover:bg-accent border-l-4 border-l-transparent"
-                      }`}
-                  >
-                    {tab.icon}
-                    <span>{tab.label}</span>
-                  </button>
-                ))}
-              </nav>
-            </CardContent>
-          </Card>
+        <div className="relative p-6 text-center text-white" style={{ backgroundColor: "var(--shop-accent)" }}>
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className="absolute right-3 top-3 grid h-8 w-8 place-items-center rounded-full bg-white/15 hover:bg-white/25"
+            aria-label="Close menu"
+          >
+            <X className="w-4 h-4" />
+          </button>
+          <div className="mx-auto mb-2 grid h-12 w-12 place-items-center rounded-2xl bg-white/15">
+            <ShoppingCart className="w-6 h-6" />
+          </div>
+          <p className="text-lg font-bold">{shop.shop_name || shop.name || "Store"}</p>
         </div>
+        <nav className="space-y-5 p-4">
+          <div>
+            <p className="mb-1.5 px-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Products</p>
+            <div className="space-y-1">
+              {productItems.map((item) => {
+                const className = `w-full flex items-center justify-between gap-3 px-3 py-3 rounded-xl text-sm font-semibold transition-colors ${item.isActive ? "bg-[var(--shop-accent)]/10 text-[var(--shop-accent)]" : "text-foreground hover:bg-accent"
+                  }`
+                return item.href ? (
+                  <a key={item.label} href={item.href} className={className}>
+                    <span className="flex items-center gap-3">{item.icon} {item.label}</span>
+                  </a>
+                ) : (
+                  <button key={item.label} onClick={item.onClick} className={className}>
+                    <span className="flex items-center gap-3">{item.icon} {item.label}</span>
+                    {item.isActive && <CheckCircle2 className="w-4 h-4" />}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <div className="border-t border-border pt-4">
+            <p className="mb-1.5 px-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Account</p>
+            <div className="space-y-1">
+              {accountItems.map((item) => (
+                <button
+                  key={item.label}
+                  onClick={item.onClick}
+                  className={`w-full flex items-center justify-between gap-3 px-3 py-3 rounded-xl text-sm font-semibold transition-colors ${item.isActive ? "bg-[var(--shop-accent)]/10 text-[var(--shop-accent)]" : "text-foreground hover:bg-accent"
+                    }`}
+                >
+                  <span className="flex items-center gap-3">{item.icon} {item.label}</span>
+                  {item.isActive && <CheckCircle2 className="w-4 h-4" />}
+                </button>
+              ))}
+            </div>
+          </div>
+        </nav>
       </aside>
       {shop.banner_url && (
         <div className="h-40 relative overflow-hidden">
@@ -859,22 +1206,27 @@ export default function ShopStorefront() {
       )}
 
       <div className="max-w-7xl mx-auto px-4">
-        {/* Shop Description Section */}
-        <div className="py-8 mb-8 text-center px-2">
-          <p className="text-muted-foreground break-words text-sm sm:text-base md:text-lg">{shop.description || "Welcome to our store"}</p>
-          <div className="flex flex-wrap gap-3 mt-4 justify-center">
-            {normalizeWhatsAppLink(shopSettings?.whatsapp_link) && (
-              <a
-                href={normalizeWhatsAppLink(shopSettings?.whatsapp_link)!}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 px-4 py-2 bg-success hover:bg-success/90 text-primary-foreground rounded-lg font-semibold transition-colors"
-              >
-                <MessageCircle className="w-4 h-4" />
-                Contact on WhatsApp
-              </a>
-            )}
-          </div>
+        {/* Brand hero card — a rounded two-color gradient card (owner's
+            custom_color -> custom_color_2, degrading to a solid look when the
+            second color isn't set) instead of the old full-bleed flat hero +
+            section-divider cut. Always renders; only the colors change. */}
+        <div
+          className="relative mt-6 overflow-hidden rounded-b-2xl px-6 py-10 text-center shadow-sm"
+          style={{ backgroundImage: `linear-gradient(135deg, ${accentColor}, ${heroColor2})` }}
+        >
+          <span className="pointer-events-none absolute -right-10 -top-12 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
+          <span className="pointer-events-none absolute -bottom-10 left-16 h-28 w-28 rounded-full bg-white/5 blur-xl" />
+          <h2 className="relative text-2xl sm:text-3xl font-bold text-white">{shop.shop_name || shop.name}</h2>
+          {shop.description && (
+            <p className="relative mt-2 text-white/90 break-words text-sm sm:text-base max-w-2xl mx-auto">{shop.description}</p>
+          )}
+        </div>
+
+        {/* Services carousel — real services this shop offers (+ help, if a
+            phone/WhatsApp is set), each CTA jumping straight to that service's
+            content below. Same mechanics as the dashboard's promo carousel. */}
+        <div className="mt-6 mb-8">
+          <StorefrontServicesCarousel slides={carouselSlides} />
         </div>
 
         {/* Global Maintenance Alert */}
@@ -892,49 +1244,72 @@ export default function ShopStorefront() {
         <div className="flex flex-col lg:flex-row gap-6">
           {/* Main Content */}
           <div className="flex-1 min-w-0">
-            {/* Products Tab (Data, Airtime & Vouchers) */}
-            {(activeTab === "products" || activeTab === "airtime" || activeTab === "vouchers") && (
-              <div className="space-y-8">
-                {/* Sub-tab Switcher */}
-                <div className="flex p-1.5 bg-muted rounded-2xl w-full sm:w-fit mx-auto sm:mx-0 shadow-inner">
-                  <button
-                    onClick={() => setActiveTab("products")}
-                    className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all duration-300 ${activeTab === "products"
-                        ? "bg-card text-primary shadow-md scale-[1.02]"
-                        : "text-muted-foreground hover:text-foreground hover:bg-card/50"
-                      }`}
+            {/* Home — persistent service-picker page. "Choose a Service" and
+                the Need Help / community / USSD cards stay on screen at all
+                times; picking a service only changes what renders below,
+                matching the reference's single continuous-scroll layout
+                instead of the earlier tab-switch (which made the picker
+                disappear once a service was chosen). */}
+            {activeTab === "home" && (
+              <div className="space-y-6 animate-in fade-in duration-500">
+                {shopSettings?.community_link && (
+                  <a
+                    href={shopSettings.community_link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold text-white shadow-sm"
+                    style={{ backgroundColor: accentColor }}
                   >
-                    <ShoppingCart className="w-5 h-5" />
-                    Buy Data
-                  </button>
-                  <button
-                    onClick={() => setActiveTab("airtime")}
-                    className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all duration-300 ${activeTab === "airtime"
-                        ? "bg-card text-primary shadow-md scale-[1.02]"
-                        : "text-muted-foreground hover:text-foreground hover:bg-card/50"
-                      }`}
-                  >
-                    <Zap className="w-5 h-5" />
-                    Buy Airtime
-                  </button>
-                  <button
-                    onClick={() => setActiveTab("vouchers")}
-                    className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all duration-300 ${activeTab === "vouchers"
-                        ? "bg-card text-primary shadow-md scale-[1.02]"
-                        : "text-muted-foreground hover:text-foreground hover:bg-card/50"
-                      }`}
-                  >
-                    <GraduationCap className="w-5 h-5" />
-                    Results Vouchers
-                  </button>
+                    <Users2 className="w-4 h-4" />
+                    Join our community
+                  </a>
+                )}
+                {showUssdCard && ussdDialCode && shopUssdCode && (
+                  <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+                    <div className="flex items-start gap-3">
+                      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[var(--shop-accent)]/10 text-[var(--shop-accent)]">
+                        <Smartphone className="w-5 h-5" />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-foreground">No internet? Order by USSD</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          Dial <span className="font-mono font-bold text-foreground">{ussdDialCode}</span>, then enter shop code{" "}
+                          <span className="font-mono font-bold text-foreground">{shopUssdCode}</span> to buy Data Bundle, Airtime or a Results Checker.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <div ref={serviceTabsRef}>
+                  <p className="mb-2 text-center text-xs font-bold uppercase tracking-wide text-muted-foreground">Our Services</p>
+                  <div className="flex gap-1.5 overflow-x-auto rounded-2xl bg-muted/60 p-1.5 [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: "none" }}>
+                    {productItems.map((item) =>
+                      item.href ? (
+                        <a
+                          key={item.label}
+                          href={item.href}
+                          className="shrink-0 rounded-full px-4 py-2 text-sm font-bold text-muted-foreground transition-colors hover:text-foreground"
+                        >
+                          {item.label}
+                        </a>
+                      ) : (
+                        <button
+                          key={item.label}
+                          onClick={item.onClick}
+                          className={`shrink-0 rounded-full px-4 py-2 text-sm font-bold transition-colors ${item.isActive ? "text-white shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                          style={item.isActive ? { backgroundColor: accentColor } : undefined}
+                        >
+                          {item.label}
+                        </button>
+                      )
+                    )}
+                  </div>
                 </div>
 
-                {activeTab === "products" ? (
+                {selectedService === "data" ? (
                   /* Data Packages Section */
                   <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <div>
-                      <h2 className="text-2xl font-black mb-6 text-foreground border-l-4 border-primary pl-4">Fast Data Packages</h2>
-
                       {packages.length === 0 ? (
                         <Card className="bg-card/50 border-2 border-dashed border-border backdrop-blur-sm">
                           <CardContent className="pt-12 pb-12 text-center">
@@ -944,50 +1319,108 @@ export default function ShopStorefront() {
                         </Card>
                       ) : (
                         <>
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
+                          <div className="grid grid-cols-4 gap-2 sm:gap-4 mb-10">
                             {Array.from(new Set(packages.map(p => p.packages.network))).map((network) => {
                               const networkPackages = packages.filter(p => p.packages.network === network)
                               const availableCount = networkPackages.filter(p => p.is_available).length
+                              const netColor = networkColorFor(network as string)
+                              const isSelected = selectedNetwork === network
 
                               return (
-                                <Card
+                                <button
                                   key={network}
                                   onClick={() => setSelectedNetwork(network as string)}
-                                  className={`group cursor-pointer hover:shadow-2xl transition-all duration-500 hover:-translate-y-2 overflow-hidden border-0 ${selectedNetwork === network
-                                      ? "ring-4 ring-primary shadow-xl"
-                                      : "shadow-md bg-card/80"
-                                    }`}
+                                  className="relative flex flex-col items-center gap-1.5 sm:gap-2 rounded-2xl border-2 bg-card p-2 sm:p-4 text-center shadow-sm transition-all"
+                                  style={{ borderColor: isSelected ? netColor : "transparent" }}
                                 >
-                                  <div className="flex flex-col h-full relative">
-                                    <div className={`h-24 sm:h-32 w-full flex items-center justify-center relative overflow-hidden transition-colors ${selectedNetwork === network ? 'bg-primary' : 'bg-muted/40 group-hover:bg-muted'}`}>
-                                      <img
-                                        src={getNetworkLogo(network as string)}
-                                        alt={network}
-                                        className={`h-16 w-16 sm:h-20 sm:w-20 object-contain transition-transform duration-500 ${selectedNetwork === network ? 'scale-110' : 'group-hover:scale-110'}`}
-                                      />
-                                    </div>
-
-                                    <div className="flex-1 p-3 text-center">
-                                      <h3 className={`text-sm sm:text-base font-black uppercase tracking-tight ${selectedNetwork === network ? 'text-primary' : 'text-foreground'}`}>{network}</h3>
-                                      <p className="text-[10px] sm:text-xs text-muted-foreground font-bold mt-1 uppercase opacity-60">{availableCount} plans</p>
-                                    </div>
-                                    
-                                    {selectedNetwork === network && (
-                                      <div className="absolute top-2 right-2 bg-primary text-white rounded-full p-1 shadow-lg">
-                                        <CheckCircle2 className="w-3 h-3 sm:w-4 sm:h-4" />
-                                      </div>
-                                    )}
-                                  </div>
-                                </Card>
+                                  {isSelected && (
+                                    <span className="absolute right-1.5 top-1.5 sm:right-2 sm:top-2 grid h-5 w-5 place-items-center rounded-full bg-success text-white">
+                                      <CheckCircle2 className="h-3 w-3" />
+                                    </span>
+                                  )}
+                                  {network === "Telecel" ? (
+                                    // Telecel's logo art crops badly under object-cover (zooms
+                                    // in past the wordmark) -- reverted to the inset/contain
+                                    // treatment for this one network only.
+                                    <span className="grid h-11 w-11 sm:h-14 sm:w-14 place-items-center rounded-full" style={{ backgroundColor: `${netColor}22` }}>
+                                      <img src={getNetworkLogo(network as string)} alt={network as string} className="h-8 w-8 sm:h-9 sm:w-9 object-contain" />
+                                    </span>
+                                  ) : (
+                                    <span className="block h-11 w-11 sm:h-14 sm:w-14 overflow-hidden rounded-full bg-card">
+                                      <img src={getNetworkLogo(network as string)} alt={network as string} className="h-full w-full object-cover" />
+                                    </span>
+                                  )}
+                                  <p className="text-xs sm:text-sm font-bold text-foreground">{network}</p>
+                                  {availableCount > 0 ? (
+                                    <p className="flex items-center gap-1 text-[10px] sm:text-xs font-semibold text-success"><span className="h-1.5 w-1.5 rounded-full bg-success" /> Live</p>
+                                  ) : (
+                                    <p className="text-[10px] sm:text-xs text-muted-foreground">No plans yet</p>
+                                  )}
+                                </button>
                               )
                             })}
                           </div>
+
+                          {/* Standalone MTN number checker — MTN-specific since the
+                              underlying registration/verification system only
+                              covers MTN today. */}
+                          {selectedNetwork === "MTN" && (
+                            <div className="mb-8 rounded-2xl border border-border bg-card p-5 shadow-sm">
+                              <button
+                                type="button"
+                                onClick={() => setMtnCheckExpanded((v) => !v)}
+                                className="flex w-full items-start gap-3 text-left"
+                              >
+                                <span className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-xl bg-amber-500/10 text-amber-600">
+                                  <ShieldCheck className="w-4 h-4" />
+                                </span>
+                                <div className="min-w-0 flex-1">
+                                  <p className="font-bold text-foreground">Check your MTN number</p>
+                                  <p className="text-sm text-muted-foreground">Make sure it can receive data before you pay</p>
+                                </div>
+                                {mtnCheckExpanded ? <ChevronUp className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />}
+                              </button>
+                              {mtnCheckExpanded && (
+                                <div className="mt-1 pl-12">
+                                  <div className="mt-3 flex gap-2">
+                                    <input
+                                      value={mtnCheckPhone}
+                                      onChange={(e) => { setMtnCheckPhone(e.target.value); setMtnCheckStatus("idle") }}
+                                      placeholder="024XXXXXXX"
+                                      className="min-w-0 flex-1 rounded-xl border border-border bg-background px-4 py-2.5 text-sm focus:border-[var(--shop-accent)] focus:outline-none"
+                                    />
+                                    <Button
+                                      onClick={handleCheckMtnNumber}
+                                      disabled={mtnCheckStatus === "checking"}
+                                      className="shrink-0 bg-[var(--shop-accent)] text-white hover:bg-[var(--shop-accent)]/90"
+                                    >
+                                      {mtnCheckStatus === "checking" ? <Loader2 className="w-4 h-4 animate-spin" /> : "Check"}
+                                    </Button>
+                                  </div>
+
+                                  {mtnCheckStatus === "verified" && (
+                                    <p className="mt-3 flex items-center gap-2 rounded-xl bg-success/10 p-3 text-sm font-medium text-success">
+                                      <CheckCircle2 className="w-4 h-4 flex-shrink-0" /> This number is ready to receive MTN data.
+                                    </p>
+                                  )}
+                                  {mtnCheckStatus === "unverified" && (
+                                    <p className="mt-3 flex items-center gap-2 rounded-xl bg-amber-500/10 p-3 text-sm font-medium text-amber-700">
+                                      <AlertTriangle className="w-4 h-4 flex-shrink-0" /> Not yet confirmed — you can still order, but delivery may be delayed until it's confirmed.
+                                    </p>
+                                  )}
+                                  {mtnCheckStatus === "error" && (
+                                    <p className="mt-3 text-sm text-destructive">Enter a valid MTN number to check.</p>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
 
                           {/* Packages Grid */}
                           {selectedNetwork && (
                             <div ref={packagesRef} className="py-10 border-t border-border animate-in fade-in slide-in-from-bottom-8 duration-700">
                               <div className="flex items-center gap-4 mb-8">
-                                <div className="p-3 bg-primary rounded-2xl">
+                                <div className="p-3 bg-[var(--shop-accent)] rounded-2xl">
                                   <img src={getNetworkLogo(selectedNetwork)} className="w-8 h-8 object-contain" alt={selectedNetwork} />
                                 </div>
                                 <div>
@@ -996,9 +1429,52 @@ export default function ShopStorefront() {
                                 </div>
                               </div>
 
-                              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                              <div className="mb-6 flex gap-2">
+                                <div className="relative flex-1">
+                                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                                  <input
+                                    value={packageSearch}
+                                    onChange={(e) => setPackageSearch(e.target.value)}
+                                    placeholder="Search packages..."
+                                    className="w-full rounded-xl border border-border bg-card py-2.5 pl-10 pr-3 text-sm focus:border-[var(--shop-accent)] focus:outline-none"
+                                  />
+                                </div>
+                                <div className="flex shrink-0 overflow-hidden rounded-xl border border-border">
+                                  <button
+                                    onClick={() => setPackageViewMode("grid")}
+                                    aria-label="Grid view"
+                                    className={`px-3 ${packageViewMode === "grid" ? "bg-foreground text-background" : "bg-card text-muted-foreground"}`}
+                                  >
+                                    <LayoutGrid className="h-4 w-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => setPackageViewMode("list")}
+                                    aria-label="List view"
+                                    className={`px-3 ${packageViewMode === "list" ? "bg-foreground text-background" : "bg-card text-muted-foreground"}`}
+                                  >
+                                    <List className="h-4 w-4" />
+                                  </button>
+                                </div>
+                              </div>
+
+                              {packages
+                                .filter(p => p.packages.network === selectedNetwork)
+                                .filter(p => {
+                                  if (!packageSearch.trim()) return true
+                                  const q = packageSearch.trim().toLowerCase()
+                                  return p.packages.size?.toLowerCase().includes(q) || p.packages.description?.toLowerCase().includes(q)
+                                }).length === 0 && (
+                                <p className="py-8 text-center text-sm text-muted-foreground">No packages match &quot;{packageSearch}&quot;.</p>
+                              )}
+
+                              <div className={packageViewMode === "grid" ? "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6" : "grid grid-cols-1 gap-3"}>
                                 {packages
                                   .filter(p => p.packages.network === selectedNetwork)
+                                  .filter(p => {
+                                    if (!packageSearch.trim()) return true
+                                    const q = packageSearch.trim().toLowerCase()
+                                    return p.packages.size?.toLowerCase().includes(q) || p.packages.description?.toLowerCase().includes(q)
+                                  })
                                   .sort((a, b) => {
                                     const toMb = (s: string) => {
                                       const m = s.trim().match(/(\d+(?:\.\d+)?)\s*(MB|GB|TB)/i)
@@ -1013,50 +1489,36 @@ export default function ShopStorefront() {
                                   .map((shopPkg) => {
                                     const pkg = shopPkg.packages
                                     const totalPrice = pkg.price + shopPkg.profit_margin
+                                    const netColor = networkColorFor(pkg.network)
+                                    const inStock = shopPkg.is_available && globalOrderingEnabled
 
                                     return (
-                                      <Card key={shopPkg.id} className="group hover:shadow-2xl transition-all duration-500 hover:-translate-y-2 border-0 shadow-lg bg-card overflow-hidden rounded-2xl">
-                                        <div className="h-2 bg-gradient-to-r from-primary to-primary opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-                                        <CardHeader className="pb-2">
-                                          <div className="flex items-start justify-between">
-                                            <div className="flex-1">
-                                              <CardTitle className="text-2xl font-black text-foreground group-hover:text-primary transition-colors">
-                                                {pkg.size}GB
-                                              </CardTitle>
-                                              <CardDescription className="text-sm font-medium text-muted-foreground mt-1">{pkg.description}</CardDescription>
-                                            </div>
-                                            <Badge className={shopPkg.is_available ? "bg-green-100 text-green-700 border-border" : "bg-red-100 text-red-700 border-border"}>
-                                              {shopPkg.is_available ? "Active" : "OOS"}
-                                            </Badge>
-                                          </div>
-                                        </CardHeader>
-                                        <CardContent className="space-y-6 pt-0">
-                                          <div className="flex justify-between items-end pt-4">
-                                            <div className="flex flex-col">
-                                              <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Price</span>
-                                              <span className="text-3xl font-black text-foreground">
-                                                GHS {totalPrice.toFixed(2)}
-                                              </span>
-                                            </div>
-                                            <div className="flex flex-col items-end">
-                                              <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mb-1">Status</span>
-                                              <div className="flex items-center gap-1.5 px-2.5 py-1 bg-primary/10 text-primary rounded-lg text-xs font-bold ring-1 ring-primary/50">
-                                                <Zap className="w-3 h-3 fill-primary" />
-                                                Instant
-                                              </div>
-                                            </div>
-                                          </div>
-
-                                          <Button
-                                            onClick={() => handleBuyNow(shopPkg)}
-                                            disabled={!shopPkg.is_available || !globalOrderingEnabled}
-                                            className="w-full h-14 bg-slate-900 hover:bg-primary text-white font-black rounded-xl shadow-xl transition-all duration-300 disabled:opacity-50 group-hover:scale-[1.02]"
-                                          >
-                                            <ShoppingCart className="w-5 h-5 mr-3" />
-                                            Order Now
-                                          </Button>
-                                        </CardContent>
-                                      </Card>
+                                      <div
+                                        key={shopPkg.id}
+                                        className={`overflow-hidden rounded-2xl shadow-md transition-all ${inStock ? "hover:shadow-xl hover:-translate-y-1" : "opacity-60 grayscale"}`}
+                                        style={{ backgroundColor: netColor }}
+                                      >
+                                        <div className="flex items-start justify-between p-4 pb-2">
+                                          <span className="grid h-8 w-8 place-items-center rounded-full bg-white/60">
+                                            <img src={getNetworkLogo(pkg.network)} alt="" className="h-5 w-5 object-contain" />
+                                          </span>
+                                          <span className="rounded-full bg-black/15 px-2.5 py-1 text-[11px] font-bold text-black/70">{pkg.network}</span>
+                                        </div>
+                                        <div className="px-4 pb-4 text-center">
+                                          <p className="text-4xl font-black text-black/85">{pkg.size}GB</p>
+                                          <p className="mt-1 text-lg font-bold text-black/70">GH₵{totalPrice.toFixed(2)}</p>
+                                          {pkg.description && <p className="mt-1 text-xs text-black/60">{pkg.description}</p>}
+                                          {!inStock && <p className="mt-1 text-xs font-semibold text-black/60">{!shopPkg.is_available ? "Out of stock" : "Ordering paused"}</p>}
+                                        </div>
+                                        <button
+                                          onClick={() => handleBuyNow(shopPkg)}
+                                          disabled={!inStock}
+                                          className="flex w-full items-center justify-center gap-2 py-3 text-sm font-bold text-black/80 disabled:cursor-not-allowed"
+                                          style={{ backgroundColor: `rgba(0,0,0,0.12)` }}
+                                        >
+                                          <ShoppingCart className="h-4 w-4" /> Buy Now
+                                        </button>
+                                      </div>
                                     )
                                   })}
                               </div>
@@ -1066,7 +1528,7 @@ export default function ShopStorefront() {
                       )}
                     </div>
                   </div>
-                ) : activeTab === "airtime" ? (
+                ) : selectedService === "airtime" ? (
                   /* Airtime Form Section */
                   <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <AirtimeStorefrontForm shop={shop} shopSlug={shopSlug} />
@@ -1078,19 +1540,19 @@ export default function ShopStorefront() {
                     <div className="flex p-1 bg-muted rounded-xl w-full sm:w-fit shadow-inner">
                       <button
                         onClick={() => setRcTab("buy")}
-                        className={`flex-1 sm:flex-none px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-200 ${rcTab === "buy" ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                        className={`flex-1 sm:flex-none px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-200 ${rcTab === "buy" ? "bg-card text-[var(--shop-accent)] shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
                       >
                         Buy Vouchers
                       </button>
                       <button
                         onClick={() => setRcTab("retrieve")}
-                        className={`flex-1 sm:flex-none px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-200 ${rcTab === "retrieve" ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                        className={`flex-1 sm:flex-none px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-200 ${rcTab === "retrieve" ? "bg-card text-[var(--shop-accent)] shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
                       >
                         Retrieve Vouchers
                       </button>
                       <button
                         onClick={() => setRcTab("check")}
-                        className={`flex-1 sm:flex-none px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-200 ${rcTab === "check" ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                        className={`flex-1 sm:flex-none px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-200 ${rcTab === "check" ? "bg-card text-[var(--shop-accent)] shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
                       >
                         Check My Results
                       </button>
@@ -1142,6 +1604,16 @@ export default function ShopStorefront() {
                   </CardContent>
                 </Card>
 
+                {/* Become a sub-agent under this shop — customer-initiated
+                    request queue, reviewed by the shop owner in their dashboard. */}
+                <div ref={subAgentCardRef}>
+                  <Card className="border-0 shadow-md">
+                    <CardContent className="pt-6">
+                      <SubAgentRequestForm shopSlug={shopSlug} />
+                    </CardContent>
+                  </Card>
+                </div>
+
                 {/* Platform Terms of Service */}
                 <ShopTermsSection termsContent={termsContent} termsLastUpdated={termsLastUpdated} />
               </div>
@@ -1167,330 +1639,417 @@ export default function ShopStorefront() {
           </div>
         </div>
       </div>
+
+      {/* Floating WhatsApp button — persistent across tabs, same real
+          shopSettings.whatsapp_link the hero used to bury a text button for. */}
+      {normalizeWhatsAppLink(shopSettings?.whatsapp_link) && (
+        <a
+          href={normalizeWhatsAppLink(shopSettings?.whatsapp_link)!}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="fixed bottom-5 right-5 z-40 grid h-14 w-14 place-items-center rounded-full bg-success text-white shadow-xl transition-transform hover:scale-105"
+          aria-label="Contact on WhatsApp"
+        >
+          <MessageCircle className="h-6 w-6" />
+        </a>
+      )}
+
       {
-        checkoutOpen && selectedPackage && (
-          <div className="fixed inset-0 bg-background/50 flex items-center justify-center p-4 z-50">
-            <Card className="w-full max-w-md bg-card max-h-[90vh] flex flex-col">
-              <CardHeader className="border-b border-border shrink-0">
-                <CardTitle>Checkout</CardTitle>
-                <CardDescription>
-                  {selectedPackage.packages.network} - {selectedPackage.packages.size}GB
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="pt-6 space-y-4 overflow-y-auto flex-1 min-h-0">
-                <div>
-                  <Label>Full Name *</Label>
-                  <Input
-                    value={orderData.customer_name}
-                    onChange={(e) => setOrderData({ ...orderData, customer_name: e.target.value })}
-                    placeholder="John Doe"
-                    className="mt-1"
-                  />
+        checkoutOpen && selectedPackage && (() => {
+          const netColor = networkColorFor(selectedPackage.packages.network)
+          const detectedProvider = detectMomoProviderClient(paymentPhone)
+          const chosenProvider = momoNetworkChoice ?? detectedProvider
+          const providerMismatch = momoNetworkChoice && detectedProvider && momoNetworkChoice !== detectedProvider
+          const total = selectedPackage.selling_price !== undefined ? selectedPackage.selling_price : (selectedPackage.packages.price + selectedPackage.profit_margin)
+          // Same formula app/api/payments/initialize actually charges with
+          // (data orders always carry the gateway fee -- only airtime is
+          // exempted there), so this displayed total matches the real charge.
+          const gatewayFee = Math.round(total * (paystackFeePercentage / 100) * 100) / 100
+          const totalWithFee = total + gatewayFee
+          const showForm = !verifyWarningOpen && !momoModal
+          return (
+            <div
+              className="fixed inset-0 z-50 flex items-end justify-center bg-black/50"
+              onClick={handleSheetDismiss}
+            >
+              {/* One persistent sheet for the entire flow -- form, the "not
+                  verified" warning, sending, awaiting/OTP, success and
+                  failure all render inside this SAME container by swapping
+                  content, instead of closing and reopening as separate
+                  popups. */}
+              <div
+                className="flex max-h-[92dvh] w-full max-w-md flex-col rounded-t-3xl"
+                style={{ backgroundColor: lightenColor(netColor, 0.92) }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Drag handle + close */}
+                <div className="relative flex shrink-0 justify-center pt-3 pb-1">
+                  <div className="h-1 w-10 rounded-full bg-border" />
+                  <button
+                    onClick={handleSheetDismiss}
+                    className="absolute right-4 top-2 grid h-8 w-8 place-items-center rounded-full bg-muted text-foreground"
+                    aria-label="Close"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
                 </div>
 
-                <div>
-                  <Label>Email Address *</Label>
-                  <Input
-                    type="email"
-                    value={orderData.customer_email}
-                    onChange={(e) => setOrderData({ ...orderData, customer_email: e.target.value })}
-                    placeholder="john@example.com"
-                    className="mt-1"
-                  />
-                </div>
-
-                <div>
-                  <Label>Phone Number (MTN, Telecel, AT) *</Label>
-                  <Input
-                    value={orderData.customer_phone}
-                    onChange={(e) => {
-                      setOrderData({ ...orderData, customer_phone: e.target.value })
-                      // changing phone invalidates any prior OTP verification
-                      if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode("") }
-                    }}
-                    placeholder="0201234567 or 0551234567"
-                    className="mt-1"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {selectedPackage?.packages?.network
-                      ? `Must be a ${selectedPackage.packages.network} number — the prefix is checked at checkout.`
-                      : "Format: 10 digits starting with 02 or 05 (e.g., 0201234567)"}
-                  </p>
-                </div>
-
-                {/* Order Summary */}
-                <div className="p-4 bg-card rounded-lg border border-border">
-                  <div className="flex justify-between items-end mb-3">
-                    <span className="font-semibold text-foreground">Total Amount:</span>
-                    <span className="text-2xl font-bold bg-gradient-to-r from-primary to-primary bg-clip-text text-transparent">
-                      GHS {(selectedPackage.selling_price !== undefined ? selectedPackage.selling_price : (selectedPackage.packages.price + selectedPackage.profit_margin)).toFixed(2)}
-                    </span>
-                  </div>
-                </div>
-
-                <Alert className="border-border bg-primary/5">
-                  <AlertCircle className="h-4 w-4 text-primary" />
-                  <AlertDescription className="text-xs text-primary">
-                    {directCharge
-                      ? "A Mobile Money prompt will be sent to the number you enter below. Approve it with your PIN to complete the order."
-                      : "You will be redirected to Paystack to complete your payment."}
-                  </AlertDescription>
-                </Alert>
-
-                <HoneypotField value={honeypot} onChange={setHoneypot} />
-
-                {/* Payment-number step. Shown whenever OTP verification OR direct
-                    charge is on — both need the on-page MoMo number. The OTP
-                    send/verify controls render only when OTP is required; with
-                    direct charge alone the number is simply charged as typed. */}
-                {(otpRequired || directCharge) && (
-                  <div className="p-4 rounded-lg bg-primary/10 border border-border space-y-3">
-                    <div>
-                      <Label className="text-sm font-semibold text-primary">Mobile Money number to pay from *</Label>
-                      <Input
-                        value={paymentPhone}
-                        onChange={(e) => {
-                          setPaymentPhone(e.target.value)
-                          // changing the number invalidates any prior verification
-                          if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode(""); otpCooldown.reset() }
-                        }}
-                        placeholder="0241234567"
-                        className="mt-1 bg-card"
-                        disabled={otpRequired && otpVerified}
-                      />
-                      <p className="text-xs text-primary mt-1">
-                        {otpRequired
-                          ? "The payment prompt is sent to this number. You verify it once."
-                          : "The payment prompt is sent to this number."}
-                      </p>
+                {showForm && (
+                  <>
+                    <div className="shrink-0 px-5 pb-3 pt-1">
+                      <h3 className="text-lg font-bold text-foreground">Complete your order</h3>
+                      <p className="text-xs text-muted-foreground">Takes about a minute</p>
                     </div>
 
-                    {otpRequired && (!otpVerified ? (
-                      !otpSent ? (
-                        <Button
-                          type="button"
-                          onClick={handleSendCheckoutOtp}
-                          disabled={sendingOtp || otpCooldown.seconds > 0}
-                          className="w-full bg-primary hover:bg-primary text-white"
-                        >
-                          {sendingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code…</>) : otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Send verification code"}
-                        </Button>
-                      ) : (
-                        <div className="space-y-2">
-                          <Input
-                            inputMode="numeric"
-                            maxLength={6}
-                            placeholder="Enter 6-digit code"
-                            value={otpCode}
-                            onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                            className="text-center text-lg tracking-[0.4em] font-mono bg-card"
-                          />
-                          <div className="flex gap-2">
-                            <Button
-                              type="button"
-                              onClick={handleVerifyCheckoutOtp}
-                              disabled={verifyingOtp || otpCode.length < 4}
-                              className="flex-1 bg-primary hover:bg-primary text-white"
-                            >
-                              {verifyingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying…</>) : "Verify"}
-                            </Button>
-                            <Button type="button" variant="outline" onClick={handleSendCheckoutOtp} disabled={sendingOtp || otpCooldown.seconds > 0}>
-                              {otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Resend"}
-                            </Button>
-                          </div>
-                          <p className="text-xs text-muted-foreground">📩 Don&apos;t see the code? Check your phone&apos;s Spam or Blocked messages folder.</p>
-                        </div>
-                      )
-                    ) : (
-                      <div className="p-3 rounded-lg bg-green-50 border border-border flex items-center gap-2">
-                        <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                        <span className="text-sm font-medium text-green-900">Payment number verified ✓</span>
+                    <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 pb-2">
+                      {/* Network · size · price pill */}
+                      <div className="flex items-center justify-between rounded-2xl px-4 py-3" style={{ backgroundColor: netColor }}>
+                        <span className="flex items-center gap-2 font-bold text-black/80">
+                          <img src={getNetworkLogo(selectedPackage.packages.network)} alt="" className="h-5 w-5 object-contain" />
+                          {selectedPackage.packages.network} · {selectedPackage.packages.size}GB
+                        </span>
+                        <span className="font-black text-black/80">GH₵{total.toFixed(2)}</span>
                       </div>
-                    ))}
+
+                      <div>
+                        <Label>Beneficiary number <span className="font-normal text-muted-foreground">(gets the data)</span></Label>
+                        <Input
+                          value={orderData.customer_phone}
+                          onChange={(e) => {
+                            setOrderData({ ...orderData, customer_phone: e.target.value })
+                            setCheckoutVerifyStatus("idle")
+                            if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode("") }
+                          }}
+                          onBlur={checkCheckoutPhoneUpfront}
+                          placeholder="0241234567"
+                          className="mt-1 bg-card"
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {selectedPackage?.packages?.network
+                            ? `Must be a ${selectedPackage.packages.network} number — the prefix is checked at checkout.`
+                            : "Format: 10 digits starting with 02 or 05 (e.g., 0201234567)"}
+                        </p>
+                        {checkoutVerifyStatus === "checking" && (
+                          <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground"><Loader2 className="h-3 w-3 animate-spin" /> Checking number…</p>
+                        )}
+                        {checkoutVerifyStatus === "verified" && (
+                          <p className="mt-1.5 flex items-center gap-1.5 text-xs font-medium text-success"><CheckCircle2 className="h-3.5 w-3.5" /> Ready to receive {selectedPackage.packages.network} data.</p>
+                        )}
+                        {checkoutVerifyStatus === "unverified" && (
+                          <p className="mt-1.5 flex items-center gap-1.5 text-xs font-medium text-amber-700"><AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" /> Not yet confirmed — you can still order, but delivery may be delayed until it&apos;s confirmed.</p>
+                        )}
+                      </div>
+
+                      <HoneypotField value={honeypot} onChange={setHoneypot} />
+
+                      {/* Payment-number step. Shown whenever OTP verification OR direct
+                          charge is on — both need the on-page MoMo number. Without
+                          either, the sheet stays this short and Paystack's own hosted
+                          page collects payment. */}
+                      {(otpRequired || directCharge) && (
+                        <div className="space-y-3">
+                          <label className="flex items-center gap-2 text-sm text-foreground">
+                            <input
+                              type="checkbox"
+                              checked={sameAsMomo}
+                              onChange={(e) => setSameAsMomo(e.target.checked)}
+                              className="h-4 w-4 rounded border-border"
+                            />
+                            Use this number for Mobile Money payment
+                          </label>
+
+                          <div>
+                            <Label>Mobile Money number <span className="font-normal text-muted-foreground">(to pay)</span></Label>
+                            <Input
+                              value={paymentPhone}
+                              onChange={(e) => {
+                                setPaymentPhone(e.target.value)
+                                if (sameAsMomo) setSameAsMomo(false)
+                                if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode(""); otpCooldown.reset() }
+                              }}
+                              placeholder="0241234567"
+                              className="mt-1 bg-card"
+                              disabled={otpRequired && otpVerified}
+                            />
+                          </div>
+
+                          <div>
+                            <Label>Pay with</Label>
+                            <div className="mt-1 grid grid-cols-3 gap-2">
+                              {(["mtn", "vod", "tgo"] as const).map((p) => (
+                                <button
+                                  key={p}
+                                  type="button"
+                                  onClick={() => setMomoNetworkChoice(p)}
+                                  className={`flex flex-col items-center gap-1.5 rounded-2xl border-2 p-2.5 text-center transition-colors ${chosenProvider === p ? "border-[var(--shop-accent)] bg-[var(--shop-accent)]/5" : "border-border bg-card"}`}
+                                >
+                                  <img src={getNetworkLogo(MOMO_LOGO_NETWORK_KEY[p])} alt="" className="h-9 w-9 rounded-lg object-contain" />
+                                  <span className="text-xs font-bold text-foreground">{MOMO_NETWORK_LABEL[p]}</span>
+                                </button>
+                              ))}
+                            </div>
+                            {providerMismatch && (
+                              <p className="mt-1 text-xs text-amber-600">That number doesn&apos;t match {MOMO_NETWORK_LABEL[momoNetworkChoice!]} — double check before proceeding.</p>
+                            )}
+                          </div>
+
+                          {otpRequired && (!otpVerified ? (
+                            !otpSent ? (
+                              <Button
+                                type="button"
+                                onClick={handleSendCheckoutOtp}
+                                disabled={sendingOtp || otpCooldown.seconds > 0}
+                                className="w-full bg-[var(--shop-accent)] hover:bg-[var(--shop-accent)] text-white"
+                              >
+                                {sendingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code…</>) : otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Send verification code"}
+                              </Button>
+                            ) : (
+                              <div className="space-y-2">
+                                <Input
+                                  inputMode="numeric"
+                                  maxLength={6}
+                                  placeholder="Enter 6-digit code"
+                                  value={otpCode}
+                                  onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                                  className="text-center text-lg tracking-[0.4em] font-mono bg-card"
+                                />
+                                <div className="flex gap-2">
+                                  <Button
+                                    type="button"
+                                    onClick={handleVerifyCheckoutOtp}
+                                    disabled={verifyingOtp || otpCode.length < 4}
+                                    className="flex-1 bg-[var(--shop-accent)] hover:bg-[var(--shop-accent)] text-white"
+                                  >
+                                    {verifyingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying…</>) : "Verify"}
+                                  </Button>
+                                  <Button type="button" variant="outline" onClick={handleSendCheckoutOtp} disabled={sendingOtp || otpCooldown.seconds > 0}>
+                                    {otpCooldown.seconds > 0 ? `Resend in ${otpCooldown.seconds}s` : "Resend"}
+                                  </Button>
+                                </div>
+                                <p className="text-xs text-muted-foreground">📩 Don&apos;t see the code? Check your phone&apos;s Spam or Blocked messages folder.</p>
+                              </div>
+                            )
+                          ) : (
+                            <div className="p-3 rounded-lg bg-green-50 border border-border flex items-center gap-2">
+                              <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                              <span className="text-sm font-medium text-green-900">Payment number verified ✓</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <div>
+                        <Label>Email <span className="font-normal text-muted-foreground">(for receipt — optional)</span></Label>
+                        <Input
+                          type="email"
+                          value={orderData.customer_email}
+                          onChange={(e) => setOrderData({ ...orderData, customer_email: e.target.value })}
+                          placeholder="you@example.com"
+                          className="mt-1 bg-card"
+                        />
+                      </div>
+
+                      <div>
+                        <Label>Name</Label>
+                        <Input
+                          value={orderData.customer_name}
+                          onChange={(e) => setOrderData({ ...orderData, customer_name: e.target.value })}
+                          placeholder="e.g. Kwame Mensah"
+                          className="mt-1 bg-card"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Fixed action footer — stays visible while the form above scrolls */}
+                    <div className="shrink-0 space-y-3 border-t border-border p-5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">Total <span className="text-xs">+ gateway fee</span></span>
+                        <span className="text-xl font-black text-foreground">GH₵{totalWithFee.toFixed(2)}</span>
+                      </div>
+                      {turnstileEnabled && (
+                        <div className="flex justify-center">
+                          <TurnstileWidget onToken={setTurnstileToken} onExpire={() => setTurnstileToken("")} />
+                        </div>
+                      )}
+                      <Button
+                        onClick={handleSubmitOrder}
+                        disabled={submitting || (turnstileEnabled && !turnstileToken) || (otpRequired && !otpVerified) || (directCharge && !otpRequired && !/^0?\d{9}$/.test(paymentPhone.replace(/\D/g, "")))}
+                        className="w-full bg-success text-white hover:bg-success/90"
+                      >
+                        {submitting ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Processing...
+                          </>
+                        ) : (
+                          <>Proceed to payment<ArrowRight className="w-4 h-4 ml-2" /></>
+                        )}
+                      </Button>
+                      <p className="text-center text-xs text-muted-foreground">A small payment fee applies. Confirm the exact total on your phone.</p>
+                    </div>
+                  </>
+                )}
+
+                {verifyWarningOpen && (
+                  <div className="px-5 pb-6 pt-2 space-y-4">
+                    <h3 className="text-lg font-bold text-foreground">Number not yet verified</h3>
+                    <p className="text-sm text-muted-foreground">
+                      This number hasn&apos;t been verified yet. If you proceed, your order will still be processed, but delivery may be delayed until the number is confirmed — you&apos;ll receive your data automatically once that happens.
+                    </p>
+                    <div className="flex justify-end gap-2">
+                      <Button variant="outline" onClick={() => { setVerifyWarningOpen(false); setPendingNormalizedPhone(null) }}>Change number</Button>
+                      <Button disabled={submitting} onClick={handleProceedAfterVerifyWarning}>
+                        {submitting ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Processing...
+                          </>
+                        ) : (
+                          "Proceed anyway"
+                        )}
+                      </Button>
+                    </div>
                   </div>
                 )}
 
-              </CardContent>
-
-              {/* Fixed action footer — stays visible while the form above scrolls */}
-              <div className="border-t border-border p-4 space-y-3 shrink-0">
-                {turnstileEnabled && (
-                  <div className="flex justify-center">
-                    <TurnstileWidget onToken={setTurnstileToken} onExpire={() => setTurnstileToken("")} />
+                {momoModal?.state === "sending" && (
+                  <div className="px-5 pb-6 pt-2 text-center space-y-4">
+                    <div className="mx-auto h-16 w-16 rounded-full border-4 border-muted border-t-[var(--shop-accent)] animate-spin" />
+                    <div>
+                      <h3 className="text-lg font-bold text-foreground">Processing payment</h3>
+                      <p className="text-sm text-muted-foreground mt-1">Please keep this page open until we confirm.</p>
+                    </div>
+                    <p className="rounded-xl bg-[var(--shop-accent)]/10 px-4 py-2.5 text-sm font-medium text-[var(--shop-accent)]">
+                      Sending payment prompt to your phone…
+                    </p>
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => { paymentDismissedRef.current = true; setMomoModal(null) }}
+                    >
+                      Cancel payment
+                    </Button>
                   </div>
                 )}
-                <div className="flex gap-2">
-                  <Button
-                    onClick={handleSubmitOrder}
-                    disabled={submitting || (turnstileEnabled && !turnstileToken) || (otpRequired && !otpVerified) || (directCharge && !otpRequired && !/^0?\d{9}$/.test(paymentPhone.replace(/\D/g, "")))}
-                    className="flex-1 bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary"
-                  >
-                    {submitting ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Processing...
-                      </>
-                    ) : (
-                      <>
-                        Place Order
-                        <ArrowRight className="w-4 h-4 ml-2" />
-                      </>
-                    )}
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      setCheckoutOpen(false)
-                      setOrderData({ customer_name: "", customer_email: "", customer_phone: "" })
-                    }}
-                    variant="outline"
-                  >
-                    Cancel
-                  </Button>
-                </div>
+
+                {momoModal?.state === "awaiting" && (
+                  <div className="px-5 pb-6 pt-2 text-center space-y-4">
+                    <div className="mx-auto w-16 h-16 rounded-full bg-[var(--shop-accent)] flex items-center justify-center">
+                      <Loader2 className="w-8 h-8 text-primary-foreground animate-spin" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-foreground">Approve the prompt on your phone</h3>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        We sent a Mobile Money prompt to{" "}
+                        <span className="font-semibold">{momoModal.summary?.paymentPhone}</span>. Enter your PIN to approve the payment of{" "}
+                        <span className="font-semibold">GHS {Number(momoModal.summary?.amount || 0).toFixed(2)}</span>.
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                      <Loader2 className="w-3 h-3 animate-spin" /> Waiting for confirmation…
+                    </div>
+                    <p className="text-xs text-muted-foreground">Keep this page open. This can take up to a minute.</p>
+                  </div>
+                )}
+
+                {momoModal?.state === "otp" && (
+                  <div className="px-5 pb-6 pt-2 text-center space-y-4">
+                    <div className="mx-auto w-16 h-16 rounded-full bg-[var(--shop-accent)] flex items-center justify-center">
+                      <svg className="w-8 h-8 text-primary-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-foreground">Enter the code sent to your phone</h3>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Your provider sent a one-time code to{" "}
+                        <span className="font-semibold">{momoModal.summary?.paymentPhone}</span> to approve this payment.
+                      </p>
+                    </div>
+                    <Input
+                      type="text"
+                      inputMode="numeric"
+                      autoFocus
+                      placeholder="Enter OTP"
+                      value={momoOtpInput}
+                      onChange={(e) => setMomoOtpInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") submitMomoOtp() }}
+                      className="text-center text-lg tracking-widest bg-card"
+                      disabled={momoOtpSubmitting}
+                    />
+                    <Button
+                      onClick={submitMomoOtp}
+                      disabled={momoOtpSubmitting || !momoOtpInput.trim()}
+                      className="w-full bg-[var(--shop-accent)] hover:bg-[var(--shop-accent)] text-white"
+                    >
+                      {momoOtpSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Submit code"}
+                    </Button>
+                  </div>
+                )}
+
+                {momoModal?.state === "success" && (
+                  <div className="px-5 pb-6 pt-2 text-center space-y-4">
+                    <div className="mx-auto w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
+                      <svg className="w-9 h-9 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-foreground">Payment successful 🎉</h3>
+                      <p className="text-sm text-muted-foreground mt-1">Your order is confirmed and is being processed.</p>
+                    </div>
+                    <div className="text-left p-4 rounded-lg bg-card border border-border space-y-1.5 text-sm">
+                      <div className="flex justify-between"><span className="text-muted-foreground">Package</span><span className="font-medium">{momoModal.summary?.packageLabel}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Beneficiary</span><span className="font-medium">{momoModal.summary?.beneficiary}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Paid from</span><span className="font-medium">{momoModal.summary?.paymentPhone}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="font-bold">GHS {Number(momoModal.summary?.amount || 0).toFixed(2)}</span></div>
+                      {momoModal.summary?.reference && (
+                        <div className="flex justify-between"><span className="text-muted-foreground">Reference</span><span className="font-mono text-xs">{momoModal.summary.reference}</span></div>
+                      )}
+                    </div>
+                    <Button
+                      onClick={() => {
+                        setCheckoutOpen(false)
+                        setSelectedPackage(null)
+                        setMomoModal(null)
+                        setOrderData({ customer_name: "", customer_email: "", customer_phone: "" })
+                        setPaymentPhone(""); setOtpSent(false); setOtpVerified(false); setOtpCode("")
+                        setMomoOtpInput(""); setMomoOtpSubmitting(false)
+                      }}
+                      className="w-full bg-[var(--shop-accent)] hover:bg-[var(--shop-accent)] text-white"
+                    >
+                      Done
+                    </Button>
+                  </div>
+                )}
+
+                {momoModal?.state === "failed" && (
+                  <div className="px-5 pb-6 pt-2 text-center space-y-4">
+                    <div className="mx-auto w-16 h-16 rounded-full bg-red-100 flex items-center justify-center">
+                      <AlertCircle className="w-9 h-9 text-red-600" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-foreground">Payment not completed</h3>
+                      <p className="text-sm text-muted-foreground mt-1">{momoModal.message || "The prompt was not approved. Please try again."}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        onClick={() => { setCheckoutOpen(false); setSelectedPackage(null); setMomoModal(null); setMomoOtpInput(""); setMomoOtpSubmitting(false) }}
+                        className="flex-1"
+                      >
+                        Close
+                      </Button>
+                      <Button
+                        onClick={() => { setMomoModal(null); setMomoOtpInput(""); setMomoOtpSubmitting(false) }}
+                        className="flex-1 bg-[var(--shop-accent)] hover:bg-[var(--shop-accent)] text-white"
+                      >
+                        Try again
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
-            </Card>
-          </div>
-        )
+            </div>
+          )
+        })()
       }
-
-      {
-        verifyWarningOpen && (
-          <div className="fixed inset-0 bg-background/50 flex items-center justify-center p-4 z-[60]">
-            <Card className="w-full max-w-md bg-card">
-              <CardHeader>
-                <CardTitle>Number not yet verified</CardTitle>
-                <CardDescription>
-                  This number hasn&apos;t been verified yet. If you proceed, your order will still be processed, but delivery may be delayed until the number is confirmed — you&apos;ll receive your data automatically once that happens.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => { setVerifyWarningOpen(false); setPendingNormalizedPhone(null) }}>Change number</Button>
-                <Button disabled={submitting} onClick={handleProceedAfterVerifyWarning}>
-                  {submitting ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Processing...
-                    </>
-                  ) : (
-                    "Proceed anyway"
-                  )}
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
-        )
-      }
-
-      {/* Live Mobile Money prompt modal (direct-charge flow). Stays on-page while
-          the customer approves the prompt; polls order status until the webhook
-          flips it to completed, then shows the order summary. */}
-      {momoModal && (
-        <div className="fixed inset-0 bg-background/60 flex items-center justify-center p-4 z-[60]">
-          <Card className="w-full max-w-md bg-card">
-            {momoModal.state === "awaiting" && (
-              <CardContent className="pt-8 pb-6 text-center space-y-4">
-                <div className="mx-auto w-16 h-16 rounded-full bg-primary flex items-center justify-center">
-                  <Loader2 className="w-8 h-8 text-primary-foreground animate-spin" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-foreground">Approve the prompt on your phone</h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    We sent a Mobile Money prompt to{" "}
-                    <span className="font-semibold">{momoModal.summary?.paymentPhone}</span>. Enter your PIN to approve the payment of{" "}
-                    <span className="font-semibold">GHS {Number(momoModal.summary?.amount || 0).toFixed(2)}</span>.
-                  </p>
-                </div>
-                <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-                  <Loader2 className="w-3 h-3 animate-spin" /> Waiting for confirmation…
-                </div>
-                <p className="text-xs text-muted-foreground">Keep this page open. This can take up to a minute.</p>
-              </CardContent>
-            )}
-
-            {momoModal.state === "otp" && (
-              <CardContent className="pt-8 pb-6 text-center space-y-4">
-                <div className="mx-auto w-16 h-16 rounded-full bg-primary flex items-center justify-center">
-                  <svg className="w-8 h-8 text-primary-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-foreground">Enter the code sent to your phone</h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Your provider sent a one-time code to{" "}
-                    <span className="font-semibold">{momoModal.summary?.paymentPhone}</span> to approve this payment.
-                  </p>
-                </div>
-                <Input
-                  type="text"
-                  inputMode="numeric"
-                  autoFocus
-                  placeholder="Enter OTP"
-                  value={momoOtpInput}
-                  onChange={(e) => setMomoOtpInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") submitMomoOtp() }}
-                  className="text-center text-lg tracking-widest"
-                  disabled={momoOtpSubmitting}
-                />
-                <Button
-                  onClick={submitMomoOtp}
-                  disabled={momoOtpSubmitting || !momoOtpInput.trim()}
-                  className="w-full bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary"
-                >
-                  {momoOtpSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Submit code"}
-                </Button>
-              </CardContent>
-            )}
-
-            {momoModal.state === "success" && (
-              <CardContent className="pt-8 pb-6 text-center space-y-4">
-                <div className="mx-auto w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
-                  <svg className="w-9 h-9 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-foreground">Payment successful 🎉</h3>
-                  <p className="text-sm text-muted-foreground mt-1">Your order is confirmed and is being processed.</p>
-                </div>
-                <div className="text-left p-4 rounded-lg bg-muted/40 border border-border space-y-1.5 text-sm">
-                  <div className="flex justify-between"><span className="text-muted-foreground">Package</span><span className="font-medium">{momoModal.summary?.packageLabel}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Beneficiary</span><span className="font-medium">{momoModal.summary?.beneficiary}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Paid from</span><span className="font-medium">{momoModal.summary?.paymentPhone}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="font-bold">GHS {Number(momoModal.summary?.amount || 0).toFixed(2)}</span></div>
-                  {momoModal.summary?.reference && (
-                    <div className="flex justify-between"><span className="text-muted-foreground">Reference</span><span className="font-mono text-xs">{momoModal.summary.reference}</span></div>
-                  )}
-                </div>
-                <Button
-                  onClick={() => {
-                    setMomoModal(null)
-                    setSelectedPackage(null)
-                    setOrderData({ customer_name: "", customer_email: "", customer_phone: "" })
-                    setPaymentPhone(""); setOtpSent(false); setOtpVerified(false); setOtpCode("")
-                    setMomoOtpInput(""); setMomoOtpSubmitting(false)
-                  }}
-                  className="w-full bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary"
-                >
-                  Done
-                </Button>
-              </CardContent>
-            )}
-
-            {momoModal.state === "failed" && (
-              <CardContent className="pt-8 pb-6 text-center space-y-4">
-                <div className="mx-auto w-16 h-16 rounded-full bg-red-100 flex items-center justify-center">
-                  <AlertCircle className="w-9 h-9 text-red-600" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-foreground">Payment not completed</h3>
-                  <p className="text-sm text-muted-foreground mt-1">{momoModal.message || "The prompt was not approved. Please try again."}</p>
-                </div>
-                <div className="flex gap-2">
-                  <Button variant="outline" onClick={() => { setMomoModal(null); setMomoOtpInput(""); setMomoOtpSubmitting(false) }} className="flex-1">Close</Button>
-                  <Button onClick={() => { setMomoModal(null); setMomoOtpInput(""); setMomoOtpSubmitting(false); setCheckoutOpen(true) }} className="flex-1 bg-primary hover:bg-primary text-white">Try again</Button>
-                </div>
-              </CardContent>
-            )}
-          </Card>
-        </div>
-      )}
 
       {/* Floating WhatsApp Icon */}
       {
@@ -1567,12 +2126,12 @@ function ShopTermsSection({ termsContent, termsLastUpdated }: { termsContent: st
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2 text-base">
-            <AlignJustify className="w-4 h-4 text-primary" />
+            <AlignJustify className="w-4 h-4 text-[var(--shop-accent)]" />
             Platform Terms of Service
           </CardTitle>
           <button
             onClick={() => setExpanded(!expanded)}
-            className="text-xs text-primary hover:text-primary font-medium border border-border hover:border-primary rounded px-2 py-0.5 transition-colors"
+            className="text-xs text-[var(--shop-accent)] hover:text-[var(--shop-accent)] font-medium border border-border hover:border-[var(--shop-accent)] rounded px-2 py-0.5 transition-colors"
           >
             {expanded ? "Hide" : "Read Terms"}
           </button>
@@ -1584,7 +2143,7 @@ function ShopTermsSection({ termsContent, termsLastUpdated }: { termsContent: st
         <CardContent className="space-y-3 pt-0">
           {sections.map((s, i) => (
             <div key={i} className="p-3 bg-muted/40 rounded-lg border border-border">
-              <p className="text-xs font-bold text-primary mb-1">{s.title}</p>
+              <p className="text-xs font-bold text-[var(--shop-accent)] mb-1">{s.title}</p>
               <p className="text-xs text-foreground leading-relaxed">{s.body}</p>
             </div>
           ))}
@@ -1680,7 +2239,7 @@ function OrderStatusSearch({ shopSlug, shopName }: { shopSlug: string; shopName:
       case "completed":
         return "bg-green-100 text-green-800 border-border"
       case "processing":
-        return "bg-primary/10 text-primary border-primary/20"
+        return "bg-[var(--shop-accent)]/10 text-[var(--shop-accent)] border-[var(--shop-accent)]/20"
       case "pending":
         return "bg-yellow-100 text-yellow-800 border-border"
       case "failed":
@@ -1763,7 +2322,7 @@ function OrderStatusSearch({ shopSlug, shopName }: { shopSlug: string; shopName:
                     <div className="flex items-start justify-between">
                       <div className="space-y-1 flex-1">
                         <div className="flex items-center gap-2">
-                          <Package className="w-4 h-4 text-primary" />
+                          <Package className="w-4 h-4 text-[var(--shop-accent)]" />
                           <CardTitle className="text-base">{order.network} {order.type === 'airtime' ? 'Airtime' : 'Data'}</CardTitle>
                           <Badge className="text-xs" variant="outline">
                             {order.type === 'airtime' ? `GHS ${order.volume_gb}` : `${order.volume_gb}GB`}

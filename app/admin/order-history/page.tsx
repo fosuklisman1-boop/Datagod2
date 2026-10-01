@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -154,7 +154,7 @@ export default function OrderHistoryPage() {
     return (
         <DashboardLayout>
             <div className="space-y-6">
-                <AdminPageHeaderBanner
+                <PageHeaderBanner
                     title="Order History"
                     subtitle="View and export completed order statistics."
                 />

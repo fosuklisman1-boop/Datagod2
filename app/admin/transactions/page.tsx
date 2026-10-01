@@ -26,7 +26,7 @@ import {
 import { Search, ArrowUpCircle, ArrowDownCircle, Clock, XCircle, RefreshCw, Download, ChevronLeft, ChevronRight, TrendingUp, TrendingDown, AlertTriangle, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { useAdminProtected } from "@/hooks/use-admin"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { supabase } from "@/lib/supabase"
 
 // Format currency helper - handles null/undefined
@@ -259,7 +259,7 @@ export default function AdminTransactionsPage() {
     <DashboardLayout>
       <div className="container mx-auto py-4 sm:py-6 px-2 sm:px-4 space-y-4 sm:space-y-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <AdminPageHeaderBanner
+          <PageHeaderBanner
             className="flex-1"
             title="All Transactions"
             subtitle="View and manage all user transactions"

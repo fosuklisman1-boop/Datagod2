@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { supabase } from "@/lib/supabase"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { toast } from "sonner"
 import { Calendar, RefreshCw, Trash2, Loader2, ToggleLeft, ToggleRight, Clock, CheckCircle, XCircle } from "lucide-react"
 
@@ -158,7 +158,7 @@ export default function ScheduledTasksPage() {
     <DashboardLayout>
       <div className="space-y-6">
         <div className="flex items-center justify-between gap-4">
-          <AdminPageHeaderBanner
+          <PageHeaderBanner
             className="flex-1"
             title="Scheduled Tasks"
             subtitle="AI tasks created via the admin chat. Tasks run automatically and notify the owner on completion."

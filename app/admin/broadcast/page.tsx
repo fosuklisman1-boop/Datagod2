@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -291,7 +291,7 @@ export default function BroadcastPage() {
         <DashboardLayout>
             <div className="max-w-4xl mx-auto space-y-6">
                 <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <AdminPageHeaderBanner
+                    <PageHeaderBanner
                         title="Broadcast Messaging"
                         subtitle="Reach your users via SMS, Email, or Push broadcasts"
                         className="flex-1"

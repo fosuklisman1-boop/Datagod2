@@ -39,7 +39,7 @@ import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import Link from "next/link"
 import { PROVIDER_DISPLAY, getProviderDisplay } from "@/lib/mtn-providers/provider-display"
-import { AdminPageHeaderBanner } from "@/components/admin/page-header-banner"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 
 interface MTNLog {
   id: string
@@ -411,7 +411,7 @@ export default function MTNFulfillmentLogsPage() {
                 Back to MTN Settings
               </Button>
             </Link>
-            <AdminPageHeaderBanner
+            <PageHeaderBanner
               className="flex-1"
               title="MTN Fulfillment Logs"
               subtitle="Track MTN API orders and their status"

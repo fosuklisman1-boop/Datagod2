@@ -50,13 +50,17 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Calculate stats
+    // Calculate stats. totalSpent sums every order regardless of status --
+    // the application fee is deducted from the wallet at submission time and
+    // is non-refundable, so pending/processing/cancelled orders were already
+    // charged, not just completed ones.
     const stats = {
       total: (afaOrders || []).length,
       pending: (afaOrders || []).filter(o => o.status === "pending").length,
       processing: (afaOrders || []).filter(o => o.status === "processing").length,
       completed: (afaOrders || []).filter(o => o.status === "completed").length,
       cancelled: (afaOrders || []).filter(o => o.status === "cancelled").length,
+      totalSpent: (afaOrders || []).reduce((sum, o) => sum + (Number(o.amount) || 0), 0),
     }
 
     return NextResponse.json(

@@ -890,6 +890,26 @@ export async function fulfillPaidResultsCheckerOrder(
     }
   }
 
+  // Customer tracking — shop-scoped voucher purchases were never wired into
+  // customerTrackingService, so they never showed up on the shop's Customers
+  // dashboard. Non-blocking: must never break voucher delivery.
+  if (rcOrder.shop_id && rcOrder.customer_phone) {
+    try {
+      const { customerTrackingService } = await import("./customer-tracking-service")
+      await customerTrackingService.trackCustomer({
+        shopId: rcOrder.shop_id,
+        phoneNumber: rcOrder.customer_phone,
+        email: rcOrder.customer_email || "",
+        customerName: "Customer",
+        totalPrice: Number(rcOrder.total_paid) || 0,
+        slug: "storefront",
+        orderId: rcOrder.id,
+      })
+    } catch (trackErr) {
+      console.error("[RC-SERVICE] Customer tracking failed (non-fatal):", trackErr)
+    }
+  }
+
   // Deliver PINs (SMS + email). Dynamic import avoids a service↔notification cycle.
   const { deliverVouchers } = await import("@/lib/results-checker-notification-service")
   await deliverVouchers(rcOrder, vouchers).catch(e => console.warn("[RC-SERVICE] RC delivery error:", e))

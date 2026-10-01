@@ -4,10 +4,9 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/hooks/use-auth"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Badge } from "@/components/ui/badge"
-import { AlertCircle, Loader2 } from "lucide-react"
+import { AlertCircle, Loader2, CheckCircle2, Clock, XCircle, Search, MessageSquareText } from "lucide-react"
 import { toast } from "sonner"
 import { complaintService } from "@/lib/database"
 
@@ -26,22 +25,34 @@ interface Complaint {
   updated_at: string
 }
 
+const STATUS_META: Record<string, { label: string; badge: string }> = {
+  pending: { label: "Pending", badge: "bg-warning/15 text-warning" },
+  in_review: { label: "In Review", badge: "bg-[#1b388b]/10 text-[#1b388b]" },
+  resolved: { label: "Resolved", badge: "bg-success/15 text-success" },
+  rejected: { label: "Rejected", badge: "bg-destructive/15 text-destructive" },
+}
+
+const PRIORITY_META: Record<string, { label: string; badge: string }> = {
+  low: { label: "Low", badge: "bg-success/10 text-success" },
+  medium: { label: "Medium", badge: "bg-warning/10 text-warning" },
+  high: { label: "High", badge: "bg-destructive/10 text-destructive" },
+  urgent: { label: "Urgent", badge: "bg-destructive text-destructive-foreground" },
+}
+
 export default function ComplaintsPage() {
   const router = useRouter()
   const { user, loading: authLoading } = useAuth()
   const [complaints, setComplaints] = useState<Complaint[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
-  // Auth protection
   useEffect(() => {
     if (!authLoading && !user) {
-      console.log("[COMPLAINTS] User not authenticated, redirecting to login")
       router.push("/auth/login")
     }
   }, [user, authLoading, router])
 
-  // Fetch complaints
   useEffect(() => {
     if (user && !authLoading) {
       loadComplaints()
@@ -62,45 +73,17 @@ export default function ComplaintsPage() {
     }
   }
 
-  const getStatusColor = (status: string) => {
-    switch (status?.toLowerCase()) {
-      case "pending":
-        return "bg-warning/10 text-warning"
-      case "in_review":
-        return "bg-primary/10 text-primary"
-      case "resolved":
-        return "bg-success/15 text-success"
-      case "rejected":
-        return "bg-destructive/15 text-destructive"
-      default:
-        return "bg-muted text-foreground"
-    }
-  }
-
-  const getPriorityColor = (priority: string) => {
-    switch (priority?.toLowerCase()) {
-      case "high":
-        return "text-destructive"
-      case "medium":
-        return "text-warning"
-      case "low":
-        return "text-success"
-      default:
-        return "text-muted-foreground"
-    }
-  }
-
-  const filteredComplaints = complaints.filter(complaint =>
-    complaint.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    complaint.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    complaint.id?.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredComplaints = complaints.filter((c) =>
+    c.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    c.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    c.id?.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
   const stats = {
     total: complaints.length,
-    pending: complaints.filter(c => c.status?.toLowerCase() === "pending").length,
-    resolved: complaints.filter(c => c.status?.toLowerCase() === "resolved").length,
-    rejected: complaints.filter(c => c.status?.toLowerCase() === "rejected").length,
+    pending: complaints.filter((c) => c.status?.toLowerCase() === "pending").length,
+    resolved: complaints.filter((c) => c.status?.toLowerCase() === "resolved").length,
+    rejected: complaints.filter((c) => c.status?.toLowerCase() === "rejected").length,
   }
 
   if (authLoading || !user) {
@@ -115,163 +98,118 @@ export default function ComplaintsPage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
-        {/* Page Header */}
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">My Complaints</h1>
-          <p className="text-muted-foreground mt-1">Track and manage your complaint submissions</p>
+      <div className="max-w-2xl lg:max-w-4xl mx-auto space-y-5">
+        <DashboardHeroBanner title="My Complaints" subtitle="Track your complaint submissions and support responses" icon={MessageSquareText} />
+
+        {/* Stats */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+          <div className="rounded-2xl border border-border bg-card p-4">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#1b388b]/10 text-[#1b388b]">
+              <AlertCircle className="h-4 w-4" />
+            </span>
+            <p className="mt-2 text-lg font-black text-foreground">{stats.total}</p>
+            <p className="text-xs text-muted-foreground">Total</p>
+          </div>
+          <div className="rounded-2xl border border-border bg-card p-4">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-warning/10 text-warning">
+              <Clock className="h-4 w-4" />
+            </span>
+            <p className="mt-2 text-lg font-black text-foreground">{stats.pending}</p>
+            <p className="text-xs text-muted-foreground">Pending</p>
+          </div>
+          <div className="rounded-2xl border border-border bg-card p-4">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-success/10 text-success">
+              <CheckCircle2 className="h-4 w-4" />
+            </span>
+            <p className="mt-2 text-lg font-black text-foreground">{stats.resolved}</p>
+            <p className="text-xs text-muted-foreground">Resolved</p>
+          </div>
+          <div className="rounded-2xl border border-border bg-card p-4">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
+              <XCircle className="h-4 w-4" />
+            </span>
+            <p className="mt-2 text-lg font-black text-foreground">{stats.rejected}</p>
+            <p className="text-xs text-muted-foreground">Rejected</p>
+          </div>
         </div>
 
-        {/* Header Banner */}
-        <Card className="bg-destructive text-white border-0">
-          <CardContent className="pt-6">
-            <div className="flex items-start gap-4">
-              <AlertCircle className="w-8 h-8 flex-shrink-0 mt-1" />
-              <div>
-                <h2 className="text-xl font-bold">My Complaints</h2>
-                <p className="text-orange-100 mt-1">
-                  Track and manage your complaint submissions
-                </p>
-                <p className="text-orange-100 mt-2">
-                  Monitor the status of your complaints and view responses from our support team.
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Stats Cards */}
-        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Complaints</CardTitle>
-              <AlertCircle className="h-4 w-4 text-primary" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.total}</div>
-              <p className="text-xs text-muted-foreground">All time</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Pending</CardTitle>
-              <AlertCircle className="h-4 w-4 text-warning" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.pending}</div>
-              <p className="text-xs text-muted-foreground">Awaiting review</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Resolved</CardTitle>
-              <AlertCircle className="h-4 w-4 text-success" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.resolved}</div>
-              <p className="text-xs text-muted-foreground">Completed</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Rejected</CardTitle>
-              <AlertCircle className="h-4 w-4 text-destructive" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.rejected}</div>
-              <p className="text-xs text-muted-foreground">Not approved</p>
-            </CardContent>
-          </Card>
+        {/* Search */}
+        <div className="relative">
+          <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder="Search by title, description, or ticket ID..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full rounded-2xl border border-border bg-card py-2.5 pl-10 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-[#1b388b]/30"
+          />
         </div>
 
-        {/* Complaints Table */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Complaints List</CardTitle>
-            <CardDescription>Your complaint submissions and responses</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Search */}
-            <div className="flex flex-wrap gap-2 pb-4 border-b">
-              <div className="ml-auto">
-                <input
-                  type="text"
-                  placeholder="Search complaints..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="px-3 py-2 border border-border rounded-md text-sm"
-                />
-              </div>
-            </div>
+        {/* Complaints List */}
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : filteredComplaints.length === 0 ? (
+          <div className="rounded-2xl border border-border bg-card p-8 text-center">
+            <AlertCircle className="mx-auto mb-2 h-10 w-10 text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">
+              {complaints.length === 0 ? "No complaints filed yet." : "No complaints match your search."}
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0 lg:items-start">
+            {filteredComplaints.map((complaint) => {
+              const statusMeta = STATUS_META[complaint.status?.toLowerCase()] || { label: complaint.status || "Unknown", badge: "bg-muted text-foreground" }
+              const priorityMeta = PRIORITY_META[complaint.priority?.toLowerCase()] || { label: complaint.priority || "—", badge: "bg-muted text-muted-foreground" }
+              const expanded = expandedId === complaint.id
+              return (
+                <button
+                  key={complaint.id}
+                  onClick={() => setExpandedId(expanded ? null : complaint.id)}
+                  className="w-full rounded-2xl border border-border bg-card p-4 text-left transition hover:border-[#1b388b]/30"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-foreground">{complaint.title}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        #{complaint.id.slice(0, 8)} · {new Date(complaint.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 flex-col items-end gap-1.5">
+                      <Badge className={statusMeta.badge}>{statusMeta.label}</Badge>
+                      <Badge className={priorityMeta.badge}>{priorityMeta.label}</Badge>
+                    </div>
+                  </div>
 
-            {/* Loading State */}
-            {loading ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : filteredComplaints.length === 0 ? (
-              <div className="text-center py-8">
-                <AlertCircle className="w-12 h-12 text-muted-foreground mx-auto mb-2" />
-                <p className="text-muted-foreground">No complaints found</p>
-              </div>
-            ) : (
-              /* Table */
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-muted/40 border-b">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Ticket ID</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Title</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Priority</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Status</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Date Submitted</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredComplaints.map((complaint) => (
-                      <tr key={complaint.id} className="border-b hover:bg-accent">
-                        <td className="px-6 py-3 text-sm text-foreground font-mono">{complaint.id.slice(0, 8)}</td>
-                        <td className="px-6 py-3 text-sm text-foreground">{complaint.title}</td>
-                        <td className="px-6 py-3 text-sm">
-                          <span className={`font-medium ${getPriorityColor(complaint.priority)}`}>
-                            {complaint.priority}
-                          </span>
-                        </td>
-                        <td className="px-6 py-3 text-sm">
-                          <Badge className={getStatusColor(complaint.status)}>
-                            {complaint.status}
-                          </Badge>
-                        </td>
-                        <td className="px-6 py-3 text-sm text-muted-foreground">
-                          {new Date(complaint.created_at).toLocaleDateString()}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                  {expanded && (
+                    <div className="mt-3 space-y-2 border-t border-border pt-3">
+                      <p className="text-sm text-foreground whitespace-pre-wrap">{complaint.description}</p>
+                      {complaint.resolution_notes && (
+                        <div className="rounded-xl bg-muted/40 p-3">
+                          <p className="flex items-center gap-1.5 text-xs font-bold text-foreground">
+                            <MessageSquareText className="h-3.5 w-3.5" /> Response from support
+                          </p>
+                          <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap">{complaint.resolution_notes}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        )}
 
-            {/* Summary */}
-            {!loading && filteredComplaints.length > 0 && (
-              <div className="flex justify-between items-center pt-4">
-                <p className="text-sm text-muted-foreground">Showing {filteredComplaints.length} of {complaints.length} complaints</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Submit Complaint Button */}
-        <div className="flex justify-center">
-          <Button 
+        {/* Submit Complaint */}
+        <div className="flex flex-col items-center gap-2 pt-2">
+          <button
             onClick={() => router.push("/dashboard/my-orders")}
-            className="bg-gradient-to-r from-primary to-primary hover:from-primary hover:to-primary px-8"
+            className="rounded-2xl bg-[#1b388b] px-8 py-3 text-sm font-bold text-primary-foreground hover:bg-[#1b388b]/90"
           >
-            Submit New Complaint
-          </Button>
+            File a New Complaint
+          </button>
+          <p className="text-xs text-muted-foreground">Complaints are filed against a specific order — pick one from My Orders.</p>
         </div>
       </div>
     </DashboardLayout>

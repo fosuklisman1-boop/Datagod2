@@ -131,6 +131,26 @@ export async function markAirtimeOrderPaid(
     }
   }
 
+  // Customer tracking — shop-scoped airtime purchases were never wired into
+  // customerTrackingService, so they never showed up on the shop's Customers
+  // dashboard. Non-blocking: must never break payment/fulfillment.
+  if (airtimeData.shop_id) {
+    try {
+      const { customerTrackingService } = await import("./customer-tracking-service")
+      await customerTrackingService.trackCustomer({
+        shopId: airtimeData.shop_id,
+        phoneNumber: airtimeData.beneficiary_phone,
+        email: "",
+        customerName: "Customer",
+        totalPrice: Number(airtimeData.total_paid) || 0,
+        slug: "storefront",
+        orderId: airtimeData.id,
+      })
+    } catch (trackErr) {
+      console.error("[AIRTIME-SVC] Customer tracking failed (non-fatal):", trackErr)
+    }
+  }
+
   await triggerDigiwapyFulfillment({
     id: airtimeData.id,
     reference_code: airtimeData.reference_code,

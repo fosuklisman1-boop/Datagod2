@@ -2,13 +2,13 @@ import { describe, it, expect } from 'vitest'
 import { sidebarSkinClasses } from './sidebar-theme'
 
 describe('sidebarSkinClasses', () => {
-  it('returns the exact current literal classes for "default" (regression guard)', () => {
+  it('returns a light sidebar with a navy active-item highlight for "default"', () => {
     expect(sidebarSkinClasses('default')).toEqual({
       container: 'bg-sidebar text-sidebar-foreground border-r border-sidebar-border',
       logoSectionBorder: 'border-sidebar-border',
       userIdentityText: 'text-muted-foreground',
       collapseButtonHover: 'text-sidebar-foreground hover:bg-accent',
-      navLinkActive: 'bg-primary/10 text-primary font-medium',
+      navLinkActive: 'bg-[#1b388b]/10 text-[#1b388b] font-medium',
       navLinkInactive: 'text-sidebar-foreground hover:bg-accent',
       sectionBorder: 'border-sidebar-border',
       sectionLabelText: 'text-muted-foreground',

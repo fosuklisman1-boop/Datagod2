@@ -29,6 +29,17 @@ const EDITABLE_SHOP_FIELDS = new Set([
   "results_checker_markup_bece",
   "results_checker_markup_novdec",
   "results_check_markup",
+  "afa_price",
+  "custom_color",
+  "custom_color_2",
+  "section_divider_style",
+])
+
+const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/
+const DIVIDER_STYLES = new Set([
+  "asymmetrical-curve", "angled-divider", "geometric-zigzag", "concave-curve", "animated-wave",
+  "layered-waves", "tilt-divider", "organic-blob", "paper-cut", "torn-edge",
+  "convex-curve", "slant-transition", "skewed-transition", "glassmorphic-glow", "multi-step-wave",
 ])
 
 const isFiniteNumber = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v)
@@ -95,6 +106,22 @@ export async function POST(request: NextRequest) {
         if (!isFiniteNumber(value) || value < 0) {
           return NextResponse.json({ error: `Invalid value for ${key}` }, { status: 400 })
         }
+      }
+      // afa_price: null/undefined turns AFA off for the storefront (see
+      // app/shop/[slug]/afa/page.tsx); a set value must be a non-negative number.
+      if (key === "afa_price" && value !== null && !(isFiniteNumber(value) && value >= 0)) {
+        return NextResponse.json({ error: "Invalid value for afa_price" }, { status: 400 })
+      }
+      // custom_color / custom_color_2 / section_divider_style: null clears back
+      // to the platform default; a set value must match the real hex/style-id format.
+      if (key === "custom_color" && value !== null && !(typeof value === "string" && HEX_COLOR_RE.test(value))) {
+        return NextResponse.json({ error: "custom_color must be a 6-digit hex code, e.g. #2563eb" }, { status: 400 })
+      }
+      if (key === "custom_color_2" && value !== null && !(typeof value === "string" && HEX_COLOR_RE.test(value))) {
+        return NextResponse.json({ error: "custom_color_2 must be a 6-digit hex code, e.g. #2563eb" }, { status: 400 })
+      }
+      if (key === "section_divider_style" && value !== null && !(typeof value === "string" && DIVIDER_STYLES.has(value))) {
+        return NextResponse.json({ error: "Invalid section_divider_style" }, { status: 400 })
       }
       clean[key] = value
     }

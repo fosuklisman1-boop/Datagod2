@@ -295,7 +295,17 @@ export default function ShopAirtimePage() {
                       }`}
                     >
                       {networkLogos[net.id] ? (
-                        <img src={networkLogos[net.id]} alt={net.name} className="w-12 h-12 object-contain mb-2" />
+                        net.id === "Telecel" ? (
+                          // Telecel's logo art crops badly under object-cover (zooms in
+                          // past the wordmark) -- kept inset/contain for this network only.
+                          <span className="mb-2 grid h-12 w-12 place-items-center rounded-full bg-muted">
+                            <img src={networkLogos[net.id]} alt={net.name} className="h-9 w-9 object-contain" />
+                          </span>
+                        ) : (
+                          <span className="mb-2 block h-12 w-12 overflow-hidden rounded-full bg-card">
+                            <img src={networkLogos[net.id]} alt={net.name} className="h-full w-full object-cover" />
+                          </span>
+                        )
                       ) : (
                         <div className="w-12 h-12 bg-muted rounded-full mb-2 flex items-center justify-center">
                            <span className="font-bold text-muted-foreground">{net.name[0]}</span>
