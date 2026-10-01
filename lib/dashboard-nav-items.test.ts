@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { pickFirstVisiblePath } from "./dashboard-nav-items"
+import type { DomainService } from "./custom-domains"
 
 // NOTE on `services`: lib/custom-domains.ts's isPathAllowedForService/
 // getServiceRedirect treat `services === null` OR `services === []` as
@@ -17,7 +18,7 @@ describe("pickFirstVisiblePath", () => {
   })
 
   it("skips a hidden dashboard_home and returns the next role-eligible, non-hidden item", () => {
-    const allServices = ["data_bundles", "airtime", "results_checker", "bulk_sms"]
+    const allServices: DomainService[] = ["data_bundles", "airtime", "results_checker", "bulk_sms"]
     expect(pickFirstVisiblePath("user", allServices, ["dashboard_home"], false)).toBe("/dashboard/data-packages")
   })
 
