@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase"
 import { calculateSegments } from "@/lib/sms/segments"
 import { shopService, shopProfitService } from "@/lib/shop-service"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -1012,16 +1013,7 @@ export default function SmsDashboardPage() {
   return (
     <DashboardLayout>
       <div className="p-4 md:p-6 space-y-6 max-w-4xl lg:max-w-5xl">
-        {/* Header */}
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#1b388b]/10">
-            <MessageSquare className="h-6 w-6 text-[#1b388b]" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">SMS</h1>
-            <p className="text-sm text-muted-foreground">Send bulk SMS to your customers with your own sender ID.</p>
-          </div>
-        </div>
+        <DashboardHeroBanner title="SMS" subtitle="Send bulk SMS to your customers with your own sender ID." icon={MessageSquare} />
 
         {isSuspended && (
           <Alert variant="destructive">

@@ -5,10 +5,11 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { supabase } from "@/lib/supabase"
 import { shopOrigin } from "@/lib/shop-url"
 import {
-  ArrowLeft, Users, RefreshCw, Search, Copy, Share2, QrCode, X,
+  Users, RefreshCw, Search, Copy, Share2, QrCode, X,
   Crown, ShoppingCart, TrendingUp, MessageSquare, Loader2, Tag,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -133,22 +134,15 @@ export default function CustomersPage() {
   return (
     <DashboardLayout>
       <div className="mx-auto max-w-2xl lg:max-w-4xl space-y-5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Link href="/dashboard/my-shop" className="text-muted-foreground hover:text-foreground"><ArrowLeft className="h-5 w-5" /></Link>
-            <div>
-              <h1 className="flex items-center gap-2 text-2xl font-bold text-foreground"><Users className="h-5 w-5 text-[#1b388b]" /> Customers</h1>
-              <p className="text-sm text-muted-foreground">Everyone who has bought from your shop — and the tools to find more.</p>
-            </div>
-          </div>
+        <DashboardHeroBanner backHref="/dashboard/my-shop" title="Customers" subtitle="Everyone who has bought from your shop — and the tools to find more." icon={Users}>
           <button
             onClick={handleRefresh}
             disabled={refreshing}
-            className="flex shrink-0 items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-sm font-semibold text-foreground hover:bg-accent"
+            className="flex shrink-0 items-center gap-1.5 rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-sm font-semibold text-white hover:bg-white/20"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} /> Refresh
           </button>
-        </div>
+        </DashboardHeroBanner>
 
         {/* Stats */}
         <div className="grid grid-cols-2 gap-2 sm:gap-3">

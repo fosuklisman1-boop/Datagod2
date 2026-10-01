@@ -1,13 +1,13 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import Link from "next/link"
 import { useAuth } from "@/lib/auth-context"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { shopService, shopProfitService, withdrawalService } from "@/lib/shop-service"
 import { supabase } from "@/lib/supabase"
 import {
-  ArrowLeft, Banknote, RefreshCw, Wallet, ShieldCheck, Info, CreditCard,
+  Banknote, RefreshCw, Wallet, ShieldCheck, Info, CreditCard,
   Landmark, CheckCircle2, Loader2, PencilLine,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -254,22 +254,15 @@ export default function ShopWithdrawPage() {
   return (
     <DashboardLayout>
       <div className="mx-auto max-w-2xl lg:max-w-3xl space-y-5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Link href="/dashboard/my-shop" className="text-muted-foreground hover:text-foreground"><ArrowLeft className="h-5 w-5" /></Link>
-            <div>
-              <h1 className="flex items-center gap-2 text-2xl font-bold text-foreground"><Banknote className="h-5 w-5 text-[#1b388b]" /> Withdraw Earnings</h1>
-              <p className="text-sm text-muted-foreground">Payout from your shop wallet to mobile money or bank.</p>
-            </div>
-          </div>
+        <DashboardHeroBanner backHref="/dashboard/my-shop" title="Withdraw Earnings" subtitle="Payout from your shop wallet to mobile money or bank." icon={Banknote}>
           <button
             onClick={handleRefresh}
             disabled={refreshing}
-            className="flex shrink-0 items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-sm font-semibold text-foreground hover:bg-accent"
+            className="flex shrink-0 items-center gap-1.5 rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-sm font-semibold text-white hover:bg-white/20"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} /> Refresh
           </button>
-        </div>
+        </DashboardHeroBanner>
 
         {/* Balance hero */}
         <div className="rounded-2xl bg-gradient-to-br from-[#1b388b] to-[#2a5ce8] p-5 text-white">

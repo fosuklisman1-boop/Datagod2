@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -392,17 +393,12 @@ export default function BuyStockPage() {
           </div>
         )}
 
-        {/* Header */}
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h1 className="flex items-center gap-2 text-2xl font-bold text-foreground"><ShoppingCart className="h-5 w-5 text-[#1b388b]" /> Buy Data</h1>
-            <p className="mt-1 text-sm text-muted-foreground">Purchase data packages at your parent shop&apos;s wholesale prices</p>
+        <DashboardHeroBanner title="Buy Data" subtitle="Purchase data packages at your parent shop's wholesale prices" icon={ShoppingCart}>
+          <div className="shrink-0 rounded-2xl border border-white/20 bg-white/10 px-4 py-2.5 text-right">
+            <p className="flex items-center justify-end gap-1 text-[10px] font-bold uppercase tracking-wide text-white/70"><Wallet className="h-3 w-3" /> Balance</p>
+            <p className="text-lg font-black text-white">GHS {Math.max(0, walletBalance || 0).toFixed(2)}</p>
           </div>
-          <div className="shrink-0 rounded-2xl border border-border bg-card px-4 py-2.5 text-right">
-            <p className="flex items-center justify-end gap-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground"><Wallet className="h-3 w-3" /> Balance</p>
-            <p className="text-lg font-black text-success">GHS {Math.max(0, walletBalance || 0).toFixed(2)}</p>
-          </div>
-        </div>
+        </DashboardHeroBanner>
 
         {/* Network picker */}
         <div className="grid grid-cols-4 gap-2 sm:gap-3">

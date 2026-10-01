@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { useAuth } from "@/lib/auth-context"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -232,21 +233,14 @@ export default function UssdShopPage() {
     <DashboardLayout>
       <div className="mx-auto max-w-2xl lg:max-w-3xl space-y-5">
 
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="flex items-center gap-2 text-2xl font-bold text-foreground">
-              <Smartphone className="h-5 w-5 text-[#1b388b]" />
-              USSD & WhatsApp Storefront
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">Let your customers buy data bundles by USSD or WhatsApp</p>
-          </div>
+        <DashboardHeroBanner title="USSD & WhatsApp Storefront" subtitle="Let your customers buy data bundles by USSD or WhatsApp" icon={Smartphone}>
           <button
             onClick={loadData}
-            className="flex shrink-0 items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-sm font-semibold text-foreground hover:bg-accent"
+            className="flex shrink-0 items-center gap-1.5 rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-sm font-semibold text-white hover:bg-white/20"
           >
             <RefreshCw className="h-3.5 w-3.5" /> Refresh
           </button>
-        </div>
+        </DashboardHeroBanner>
 
         {!shopCode ? (
           <div className="rounded-2xl border-2 border-dashed border-border bg-card p-12 text-center">

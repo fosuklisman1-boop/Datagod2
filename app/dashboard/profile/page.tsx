@@ -1,6 +1,7 @@
 "use client"
 
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -522,11 +523,7 @@ export default function ProfilePage() {
   return (
     <DashboardLayout>
       <div className="max-w-2xl lg:max-w-4xl mx-auto space-y-5">
-        {/* Page Header */}
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">My Profile</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Manage your account information and settings</p>
-        </div>
+        <DashboardHeroBanner title="My Profile" subtitle="Manage your account information and settings" icon={User} />
 
         {/* Profile hero -- same navy-gradient identity as the rest of this
             rebuild (Wallet, etc.), dealer keeps its own amber identity. */}

@@ -1,15 +1,15 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import Link from "next/link"
 import { useAuth } from "@/lib/auth-context"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { shopService, shopOrderService } from "@/lib/shop-service"
 import { supabase } from "@/lib/supabase"
 import {
-  ArrowLeft, ShoppingCart, RefreshCw, Search, Clock, Loader2 as ProcessingIcon,
+  ShoppingCart, RefreshCw, Search, Clock, Loader2 as ProcessingIcon,
   CheckCircle2, XCircle, RotateCcw, Banknote, TrendingUp, ChevronLeft, ChevronRight,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -205,17 +205,11 @@ export default function ShopOrdersPage() {
   return (
     <DashboardLayout>
       <div className="mx-auto max-w-2xl lg:max-w-4xl space-y-5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Link href="/dashboard/my-shop" className="text-muted-foreground hover:text-foreground"><ArrowLeft className="h-5 w-5" /></Link>
-            <div>
-              <h1 className="flex items-center gap-2 text-2xl font-bold text-foreground"><ShoppingCart className="h-5 w-5 text-[#1b388b]" /> Shop Orders</h1>
-            </div>
-          </div>
-          <Button variant="outline" size="sm" className="rounded-full" onClick={handleRefresh} disabled={refreshing}>
+        <DashboardHeroBanner backHref="/dashboard/my-shop" title="Shop Orders" icon={ShoppingCart}>
+          <Button variant="outline" size="sm" className="rounded-full border-white/25 bg-white/10 text-white hover:bg-white/20 hover:text-white" onClick={handleRefresh} disabled={refreshing}>
             <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${refreshing ? "animate-spin" : ""}`} /> Refresh
           </Button>
-        </div>
+        </DashboardHeroBanner>
 
         {/* Category tabs */}
         <div className="-mx-2 overflow-x-auto px-2 sm:mx-0 sm:px-0">

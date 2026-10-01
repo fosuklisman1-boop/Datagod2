@@ -1,6 +1,7 @@
 "use client"
 
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   TrendingUp,
@@ -188,11 +189,7 @@ export default function TransactionsPage() {
   return (
     <DashboardLayout>
       <div className="max-w-2xl lg:max-w-4xl mx-auto space-y-5">
-        {/* Page Header */}
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Transactions</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Track and manage your financial activities</p>
-        </div>
+        <DashboardHeroBanner title="Transactions" subtitle="Track and manage your financial activities" icon={DollarSign} />
 
         {/* Tabs -- 7 categories don't fit an equal-width pill row, so this
             scrolls horizontally instead of wrapping or shrinking text. */}

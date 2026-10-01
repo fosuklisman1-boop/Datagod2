@@ -1,6 +1,7 @@
 "use client"
 
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -190,11 +191,7 @@ export default function MyOrdersPage() {
   return (
     <DashboardLayout>
       <div className="max-w-2xl lg:max-w-4xl mx-auto space-y-5">
-        {/* Header */}
-        <div className="text-center">
-          <h1 className="text-3xl font-black text-foreground">My Order History</h1>
-          <p className="mt-1 text-sm text-muted-foreground">View and manage your order transactions</p>
-        </div>
+        <DashboardHeroBanner title="My Order History" subtitle="View and manage your order transactions" icon={ShoppingCart} />
 
         {/* Totals -- navy/blue-black family, not the reference's black+yellow */}
         <div className="grid grid-cols-3 gap-2 sm:gap-3">

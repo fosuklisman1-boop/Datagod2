@@ -2,6 +2,7 @@
 "use client"
 
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ShieldCheck, KeyRound, BookOpen } from "lucide-react"
 import { DeveloperKeysCard } from "@/components/developer/DeveloperKeysCard"
@@ -17,11 +18,7 @@ export default function DeveloperPage() {
   return (
     <DashboardLayout>
       <div className="max-w-3xl lg:max-w-5xl mx-auto space-y-5">
-        {/* Page Header */}
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Developer / API</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Integrate and automate with the Datagod API.</p>
-        </div>
+        <DashboardHeroBanner title="Developer / API" subtitle="Integrate and automate with the Datagod API." icon={KeyRound} />
 
         <div className="flex items-start gap-3 rounded-2xl border border-[#1b388b]/20 bg-[#1b388b]/5 p-4 text-sm text-foreground">
           <ShieldCheck className="h-4 w-4 mt-0.5 shrink-0 text-[#1b388b]" />

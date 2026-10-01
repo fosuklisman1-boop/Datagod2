@@ -5,12 +5,13 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { shopService } from "@/lib/shop-service"
 import { supabase } from "@/lib/supabase"
 import { shopOrigin } from "@/lib/shop-url"
 import { PillToggle } from "@/components/shop/pill-toggle"
 import {
-  ArrowLeft, Store, CheckCircle2, Loader2, Phone, Mail, Users2, Palette, MessageSquare,
+  Store, CheckCircle2, Loader2, Phone, Mail, Users2, Palette, MessageSquare,
   Smartphone, Upload, RefreshCw, AlertTriangle, ExternalLink, ShieldCheck,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -290,13 +291,7 @@ export default function ShopProfilePage() {
   return (
     <DashboardLayout>
       <div className="mx-auto max-w-2xl lg:max-w-3xl space-y-5">
-        <div className="flex items-center gap-2">
-          <Link href="/dashboard/my-shop" className="text-muted-foreground hover:text-foreground"><ArrowLeft className="h-5 w-5" /></Link>
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">Shop Setup Wizard</h1>
-            <p className="text-sm text-muted-foreground">Let's get your {shop.shop_name} storefront ready.</p>
-          </div>
-        </div>
+        <DashboardHeroBanner backHref="/dashboard/my-shop" title="Shop Setup Wizard" subtitle={`Let's get your ${shop.shop_name} storefront ready.`} icon={Store} />
 
         {completed.size > 0 && (
           <button onClick={handleStartOver} className="text-xs font-semibold text-muted-foreground underline">Start over</button>

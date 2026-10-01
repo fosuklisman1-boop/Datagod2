@@ -4,10 +4,11 @@ import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useAuth } from "@/lib/auth-context"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Button } from "@/components/ui/button"
 import { supabase } from "@/lib/supabase"
 import { shopService } from "@/lib/shop-service"
-import { ArrowLeft, Package, Users, DollarSign, Loader2, Save, Trash2, Check } from "lucide-react"
+import { Package, Users, DollarSign, Loader2, Save, Trash2, Check } from "lucide-react"
 import { toast } from "sonner"
 
 // Same real gotcha shop-pricing's bulk feature already hit: "AT - iShare"/
@@ -260,13 +261,7 @@ export default function SubAgentCatalogPage() {
   return (
     <DashboardLayout>
       <div className="mx-auto max-w-2xl lg:max-w-4xl space-y-5">
-        <div className="flex items-center gap-2">
-          <Link href="/dashboard/sub-agents" className="text-muted-foreground hover:text-foreground"><ArrowLeft className="h-5 w-5" /></Link>
-          <div>
-            <h1 className="flex items-center gap-2 text-2xl font-bold text-foreground"><Package className="h-5 w-5 text-[#1b388b]" /> Sub-Agent Catalog</h1>
-            <p className="text-sm text-muted-foreground">Set the wholesale price your sub-agents pay for each package</p>
-          </div>
-        </div>
+        <DashboardHeroBanner backHref="/dashboard/sub-agents" title="Sub-Agent Catalog" subtitle="Set the wholesale price your sub-agents pay for each package" icon={Package} />
 
         {/* Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

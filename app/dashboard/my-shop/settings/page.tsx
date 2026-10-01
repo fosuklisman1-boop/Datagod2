@@ -8,7 +8,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { toast } from "sonner"
-import { Loader2, Save, MessageCircle, Megaphone } from "lucide-react"
+import { Loader2, Save, MessageCircle, Megaphone, Settings } from "lucide-react"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 
 export default function ShopSettingsPage() {
   const { user, loading: authLoading } = useAuth()
@@ -136,10 +137,7 @@ export default function ShopSettingsPage() {
     <div className="min-h-screen bg-muted/40 p-4 md:p-8">
       <div className="max-w-2xl mx-auto">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-foreground">Shop Settings</h1>
-          <p className="text-muted-foreground mt-2">
-            Configure {shopName ? `"${shopName}"` : "your shop"} settings
-          </p>
+          <DashboardHeroBanner title="Shop Settings" subtitle={`Configure ${shopName ? `"${shopName}"` : "your shop"} settings`} icon={Settings} />
         </div>
 
         <Card>

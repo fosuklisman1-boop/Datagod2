@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -189,20 +190,12 @@ export default function ShopPaymentReverifyPage() {
   return (
     <DashboardLayout>
       <div className="mx-auto max-w-2xl lg:max-w-4xl space-y-5">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="flex items-center gap-2 text-2xl font-bold text-foreground">
-              <Zap className="h-5 w-5 text-[#1b388b]" /> Payment Reverification
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Check pending customer orders against Paystack and trigger fulfillment
-            </p>
-          </div>
-          <Button variant="outline" size="sm" className="rounded-full" onClick={fetchOrders} disabled={loading}>
+        <DashboardHeroBanner title="Payment Reverification" subtitle="Check pending customer orders against Paystack and trigger fulfillment" icon={Zap}>
+          <Button variant="outline" size="sm" className="rounded-full border-white/25 bg-white/10 text-white hover:bg-white/20 hover:text-white" onClick={fetchOrders} disabled={loading}>
             <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${loading ? "animate-spin" : ""}`} />
             Refresh
           </Button>
-        </div>
+        </DashboardHeroBanner>
 
         {/* Search */}
         <div className="flex gap-2">

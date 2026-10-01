@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/hooks/use-auth"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Badge } from "@/components/ui/badge"
 import { AlertCircle, Loader2, CheckCircle2, Clock, XCircle, Search, MessageSquareText } from "lucide-react"
 import { toast } from "sonner"
@@ -98,11 +99,7 @@ export default function ComplaintsPage() {
   return (
     <DashboardLayout>
       <div className="max-w-2xl lg:max-w-4xl mx-auto space-y-5">
-        {/* Page Header */}
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">My Complaints</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Track your complaint submissions and support responses</p>
-        </div>
+        <DashboardHeroBanner title="My Complaints" subtitle="Track your complaint submissions and support responses" icon={MessageSquareText} />
 
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">

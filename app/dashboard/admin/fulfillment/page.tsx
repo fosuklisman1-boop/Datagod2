@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -282,11 +283,7 @@ export default function AdminFulfillmentPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold">Data Bundle Fulfillment Manager</h1>
-          <p className="text-muted-foreground mt-1">Monitor and manage data bundle order fulfillments (MTN, TELECEL, AT)</p>
-        </div>
+        <DashboardHeroBanner title="Data Bundle Fulfillment Manager" subtitle="Monitor and manage data bundle order fulfillments (MTN, TELECEL, AT)" icon={Zap} />
 
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">

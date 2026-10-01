@@ -1,12 +1,12 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import Link from "next/link"
 import { useAuth } from "@/lib/auth-context"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { shopService, shopProfitService } from "@/lib/shop-service"
 import { supabase } from "@/lib/supabase"
-import { ArrowLeft, Activity, RefreshCw, Wallet, TrendingUp, TrendingDown, Scale, MessageSquare, BarChart3 } from "lucide-react"
+import { Activity, RefreshCw, Wallet, TrendingUp, TrendingDown, Scale, MessageSquare, BarChart3 } from "lucide-react"
 import { toast } from "sonner"
 
 type DateRange = "today" | "7d" | "30d" | "all"
@@ -159,22 +159,15 @@ export default function ShopProfitLogsPage() {
   return (
     <DashboardLayout>
       <div className="mx-auto max-w-2xl lg:max-w-4xl space-y-5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Link href="/dashboard/my-shop" className="text-muted-foreground hover:text-foreground"><ArrowLeft className="h-5 w-5" /></Link>
-            <div>
-              <h1 className="flex items-center gap-2 text-2xl font-bold text-foreground"><BarChart3 className="h-5 w-5 text-[#1b388b]" /> Profit Logs</h1>
-              <p className="text-sm text-muted-foreground">Full ledger — every earning, withdrawal and expense with running balance.</p>
-            </div>
-          </div>
+        <DashboardHeroBanner backHref="/dashboard/my-shop" title="Profit Logs" subtitle="Full ledger — every earning, withdrawal and expense with running balance." icon={BarChart3}>
           <button
             onClick={handleRefresh}
             disabled={refreshing}
-            className="flex shrink-0 items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-sm font-semibold text-foreground hover:bg-accent"
+            className="flex shrink-0 items-center gap-1.5 rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-sm font-semibold text-white hover:bg-white/20"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} /> Refresh
           </button>
-        </div>
+        </DashboardHeroBanner>
 
         {/* Profit balance hero */}
         <div className="rounded-2xl bg-gradient-to-br from-success/10 to-success/5 border border-success/20 p-5">

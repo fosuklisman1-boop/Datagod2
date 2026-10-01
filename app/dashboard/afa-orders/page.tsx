@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { useAuth } from "@/hooks/use-auth"
 import { supabase } from "@/lib/supabase"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -223,10 +224,7 @@ export default function AFAOrdersPage() {
   return (
     <DashboardLayout>
       <div className="max-w-2xl lg:max-w-4xl mx-auto space-y-5">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">MTN AFA Registration</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Register a beneficiary for the MTN AFA package.</p>
-        </div>
+        <DashboardHeroBanner title="MTN AFA Registration" subtitle="Register a beneficiary for the MTN AFA package." icon={UserPlus} />
 
         {/* Tabs */}
         <div className="inline-flex w-full rounded-2xl bg-muted p-1">

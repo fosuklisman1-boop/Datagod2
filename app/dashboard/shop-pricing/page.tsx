@@ -1,16 +1,16 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import Link from "next/link"
 import { useAuth } from "@/lib/auth-context"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Button } from "@/components/ui/button"
 import { shopService, shopPackageService } from "@/lib/shop-service"
 import { packageService } from "@/lib/database"
 import { supabase } from "@/lib/supabase"
 import { shopOrigin } from "@/lib/shop-url"
 import { PillToggle } from "@/components/shop/pill-toggle"
-import { ArrowLeft, Tag, Send, AlertCircle, Loader2, Phone, GraduationCap, IdCard, Save, PartyPopper, Copy, MessageCircle, ExternalLink } from "lucide-react"
+import { Tag, Send, AlertCircle, Loader2, Phone, GraduationCap, IdCard, Save, PartyPopper, Copy, MessageCircle, ExternalLink } from "lucide-react"
 import { toast } from "sonner"
 
 type Category = "data" | "airtime" | "results_checker" | "afa"
@@ -397,18 +397,11 @@ export default function ShopPricingPage() {
   return (
     <DashboardLayout>
       <div className="mx-auto max-w-2xl lg:max-w-4xl space-y-5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Link href="/dashboard/my-shop" className="text-muted-foreground hover:text-foreground"><ArrowLeft className="h-5 w-5" /></Link>
-            <div>
-              <h1 className="flex items-center gap-2 text-2xl font-bold text-foreground"><Tag className="h-5 w-5 text-[#1b388b]" /> Pricing</h1>
-              <p className="text-sm text-muted-foreground">Set your profit on each service. Save sections individually or everything at once.</p>
-            </div>
-          </div>
-          <Button onClick={handleSaveAllAndGoLive} disabled={savingAll} className="shrink-0 rounded-full bg-[#1b388b] text-white hover:bg-[#1b388b]/90">
+        <DashboardHeroBanner backHref="/dashboard/my-shop" title="Pricing" subtitle="Set your profit on each service. Save sections individually or everything at once." icon={Tag}>
+          <Button onClick={handleSaveAllAndGoLive} disabled={savingAll} className="shrink-0 rounded-full bg-white text-[#1b388b] hover:bg-white/90">
             {savingAll ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Send className="h-4 w-4 mr-1.5" />} Save All & Go Live
           </Button>
-        </div>
+        </DashboardHeroBanner>
 
         <div className="flex items-start gap-3 rounded-2xl border border-warning/30 bg-warning/10 p-4 text-sm text-foreground">
           <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-warning" />

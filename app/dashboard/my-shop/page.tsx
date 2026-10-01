@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useAuth } from "@/lib/auth-context"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -247,10 +248,7 @@ export default function ShopOverviewPage() {
     return (
       <DashboardLayout>
         <div className="mx-auto max-w-2xl lg:max-w-4xl space-y-5">
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">My Shop</h1>
-            <p className="mt-1 text-sm text-muted-foreground">Create your storefront to start selling.</p>
-          </div>
+          <DashboardHeroBanner title="My Shop" subtitle="Create your storefront to start selling." icon={Store} />
           <div className="rounded-2xl border border-border bg-card p-4 sm:p-5 space-y-4">
             <div>
               <Label htmlFor="shop-name">Shop Name *</Label>

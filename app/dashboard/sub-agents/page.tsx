@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
@@ -337,26 +338,19 @@ export default function SubAgentsPage() {
   return (
     <DashboardLayout>
       <div className="mx-auto max-w-2xl lg:max-w-4xl space-y-5">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="flex items-center gap-2 text-2xl font-bold text-foreground">
-              <Users className="h-5 w-5 text-[#1b388b]" /> Sub-Agents
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">Manage your reseller network</p>
-          </div>
+        <DashboardHeroBanner title="Sub-Agents" subtitle="Manage your reseller network" icon={Users}>
           <Button
             onClick={() => {
               setShowInviteModal(true);
               setNewInviteUrl(null);
               setInvitePhone("");
             }}
-            className="w-full sm:w-auto bg-[#1b388b] hover:bg-[#1b388b]/90 text-white"
+            className="w-full sm:w-auto bg-white text-[#1b388b] hover:bg-white/90"
           >
             <Plus className="w-4 h-4 mr-2" />
             Invite Sub-Agent
           </Button>
-        </div>
+        </DashboardHeroBanner>
 
         {/* Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

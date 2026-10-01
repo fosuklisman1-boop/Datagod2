@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { useAuth } from "@/hooks/use-auth"
 import { useUserRole } from "@/hooks/use-user-role"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -373,11 +374,7 @@ export default function WalletPage() {
   return (
     <DashboardLayout>
       <div className="max-w-2xl lg:max-w-4xl mx-auto space-y-5">
-        {/* Page Header */}
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Wallet</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Manage your account balance and funds</p>
-        </div>
+        <DashboardHeroBanner title="Wallet" subtitle="Manage your account balance and funds" icon={Wallet} />
 
         {/* Tabs */}
         <div className="inline-flex w-full rounded-2xl bg-muted p-1">
