@@ -58,6 +58,7 @@ const sampleConfig: CustomDomainConfig = {
   logo_url: null,
   primary_color: "#059669",
   is_active: true,
+  hidden_pages: [],
 }
 
 describe("resolveCustomDomain", () => {
@@ -80,6 +81,16 @@ describe("resolveCustomDomain", () => {
 
     expect(result).toEqual(sampleConfig)
     expect(redisSetMock).toHaveBeenCalledWith("custom_domain:checkresults.com", sampleConfig, { ex: 300 })
+  })
+
+  it("round-trips a non-empty hidden_pages array through a fresh Supabase read", async () => {
+    redisGetMock.mockResolvedValueOnce(null)
+    maybeSingleMock.mockResolvedValueOnce({ data: { ...sampleConfig, hidden_pages: ["wallet", "upgrade"] }, error: null })
+    const { resolveCustomDomain } = await import("./custom-domain-lookup")
+
+    const result = await resolveCustomDomain("checkresults.com")
+
+    expect(result?.hidden_pages).toEqual(["wallet", "upgrade"])
   })
 
   it("negative-caches a definitive miss on both the exact host and its www-toggled variant", async () => {
