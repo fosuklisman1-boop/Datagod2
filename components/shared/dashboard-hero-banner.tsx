@@ -13,37 +13,40 @@ interface Props {
   children?: ReactNode
 }
 
-// Same visual language as the shop storefront's brand hero (diagonal
-// gradient + two soft glow-blur circles), reused here for the customer
-// dashboard's page headers instead of a plain <h1>. Dealer keeps its own
-// flat amber identity (bg-warning, no gradient) matching every other hero
-// card in the dashboard (e.g. the wallet balance card) rather than the
-// per-shop custom_color the storefront version uses.
+// Exact visual match for the shop storefront's brand hero (app/shop/[slug]/
+// page.tsx): same rounded-b-2xl silhouette, px-6 py-10 padding, centered
+// text, and the same two glow-blur circles at the same positions. Dealer
+// keeps its own flat amber identity (bg-warning, no gradient) matching
+// every other hero card in the dashboard (e.g. the wallet balance card)
+// rather than the per-shop custom_color the storefront version uses.
+//
+// Unlike the storefront hero, dashboard pages often need a back-arrow
+// and/or header actions -- both float directly on the banner (top-left
+// and top-right corners respectively) instead of breaking the centered
+// title or pushing the banner's height out with an extra row.
 export function DashboardHeroBanner({ title, subtitle, icon: Icon, backHref, children }: Props) {
   const { isDealer } = useUserRole()
 
   return (
     <div
-      className={`relative overflow-hidden rounded-2xl px-5 py-6 text-white shadow-sm sm:px-7 sm:py-7 ${isDealer ? "bg-warning" : "bg-gradient-to-br from-[#1b388b] to-[#2a5ce8]"}`}
+      className={`relative overflow-hidden rounded-b-2xl px-6 py-10 text-center text-white shadow-sm ${isDealer ? "bg-warning" : "bg-gradient-to-br from-[#1b388b] to-[#2a5ce8]"}`}
     >
       <span className="pointer-events-none absolute -right-10 -top-12 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
       <span className="pointer-events-none absolute -bottom-10 left-16 h-28 w-28 rounded-full bg-white/5 blur-xl" />
-      <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-start gap-3">
-          {backHref && (
-            <Link href={backHref} className="mt-1 shrink-0 text-white/80 hover:text-white">
-              <ArrowLeft className="h-5 w-5" />
-            </Link>
-          )}
-          <div className="min-w-0">
-            <h1 className="flex items-center gap-2 text-2xl font-bold text-white">
-              {Icon && <Icon className="h-5 w-5 shrink-0" />} {title}
-            </h1>
-            {subtitle && <p className={`mt-1 text-sm ${isDealer ? "text-amber-100" : "text-white/80"}`}>{subtitle}</p>}
-          </div>
-        </div>
-        {children && <div className="shrink-0">{children}</div>}
-      </div>
+      {backHref && (
+        <Link href={backHref} className="absolute left-4 top-4 text-white/80 hover:text-white">
+          <ArrowLeft className="h-5 w-5" />
+        </Link>
+      )}
+      {children && <div className="absolute right-4 top-4 flex flex-wrap items-center justify-end gap-2">{children}</div>}
+      <h1 className="relative flex items-center justify-center gap-2 text-2xl font-bold text-white sm:text-3xl">
+        {Icon && <Icon className="h-6 w-6 shrink-0" />} {title}
+      </h1>
+      {subtitle && (
+        <p className={`relative mx-auto mt-2 max-w-2xl break-words text-sm sm:text-base ${isDealer ? "text-amber-100" : "text-white/90"}`}>
+          {subtitle}
+        </p>
+      )}
     </div>
   )
 }
