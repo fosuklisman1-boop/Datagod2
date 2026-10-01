@@ -287,9 +287,20 @@ export default function CustomDomainsPage() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label>Visible Pages — Dashboard Tools</Label>
+                  <Label>Visible Pages — Core Pages</Label>
                   <div className="space-y-2">
-                    {TOGGLEABLE_PAGES.filter(p => p.group === "dashboard").map(p => (
+                    {TOGGLEABLE_PAGES.filter(p => p.group === "core").map(p => (
+                      <label key={p.key} className="flex items-center gap-2 text-sm cursor-pointer">
+                        <Checkbox checked={!form.hidden_pages.includes(p.key)} onCheckedChange={() => toggleHiddenPage(p.key)} />
+                        {p.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Visible Pages — Dealer & Business Tools</Label>
+                  <div className="space-y-2">
+                    {TOGGLEABLE_PAGES.filter(p => p.group === "tools").map(p => (
                       <label key={p.key} className="flex items-center gap-2 text-sm cursor-pointer">
                         <Checkbox checked={!form.hidden_pages.includes(p.key)} onCheckedChange={() => toggleHiddenPage(p.key)} />
                         {p.label}
