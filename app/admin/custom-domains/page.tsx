@@ -221,7 +221,7 @@ export default function CustomDomainsPage() {
             <DialogTrigger asChild>
               <Button onClick={openCreate}><Plus className="w-4 h-4 mr-2" /> Add Domain</Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>{editing ? "Edit Domain" : "Add Domain"}</DialogTitle>
               </DialogHeader>
