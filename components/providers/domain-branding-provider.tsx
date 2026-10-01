@@ -8,6 +8,7 @@ export interface DomainBranding {
   siteName: string | null
   logoUrl: string | null
   primaryColor: string | null
+  hiddenPages: string[]
 }
 
 const DEFAULT_BRANDING: DomainBranding = {
@@ -15,6 +16,7 @@ const DEFAULT_BRANDING: DomainBranding = {
   siteName: null,
   logoUrl: null,
   primaryColor: null,
+  hiddenPages: [],
 }
 
 const DomainBrandingContext = createContext<DomainBranding>(DEFAULT_BRANDING)
