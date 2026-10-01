@@ -4,7 +4,7 @@ import { generateShopSession } from "@/lib/shop-token-edge"
 import { Ratelimit } from "@upstash/ratelimit"
 import { Redis } from "@upstash/redis"
 import { resolveCustomDomain } from "@/lib/custom-domain-lookup"
-import { getServiceRedirect, normalizeDomainHost } from "@/lib/custom-domains"
+import { getServiceRedirect, isPageHidden, normalizeDomainHost } from "@/lib/custom-domains"
 
 // Per-IP cookie-issuance rate limit. Real customers refresh a handful of cookies
 // per browsing session (visit, navigate to checkout, etc.). Attackers harvesting
@@ -120,7 +120,17 @@ export async function middleware(request: NextRequest) {
       : null
 
   if (customDomainConfig) {
-    const serviceRedirectPath = getServiceRedirect(path, customDomainConfig.services)
+    // Landing-page-hide: "/" skips the marketing homepage entirely and goes
+    // straight to login, regardless of auth state. Checked before the
+    // service-redirect below since "/" would otherwise just fall through as
+    // an unrestricted account-wide path.
+    if (isPageHidden("landing_page", customDomainConfig.hidden_pages) && path === "/") {
+      const url = request.nextUrl.clone()
+      url.pathname = "/auth/login"
+      return NextResponse.redirect(url)
+    }
+
+    const serviceRedirectPath = getServiceRedirect(path, customDomainConfig.services, customDomainConfig.hidden_pages)
     if (serviceRedirectPath) {
       const url = request.nextUrl.clone()
       url.pathname = serviceRedirectPath
@@ -143,12 +153,14 @@ export async function middleware(request: NextRequest) {
     h.delete("x-domain-site-name")
     h.delete("x-domain-logo")
     h.delete("x-domain-color")
+    h.delete("x-domain-hidden-pages")
     if (customDomainConfig) {
       try {
         h.set("x-domain-services", customDomainConfig.services.join(","))
         h.set("x-domain-site-name", customDomainConfig.site_name)
         if (customDomainConfig.logo_url) h.set("x-domain-logo", customDomainConfig.logo_url)
         if (customDomainConfig.primary_color) h.set("x-domain-color", customDomainConfig.primary_color)
+        h.set("x-domain-hidden-pages", customDomainConfig.hidden_pages.join(","))
       } catch (e) {
         // A malformed branding value must never take down every request to this
         // domain — skip branding for this request rather than throwing out of
