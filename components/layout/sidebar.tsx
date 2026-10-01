@@ -361,7 +361,7 @@ export function Sidebar() {
             // Hide upgrade page for dealers with no subscription end-date (permanent dealers)
             if (item.href === '/dashboard/upgrade' && userRole === 'dealer' && !dealerHasSubscription) return false
             // On a custom domain scoped to one service, hide nav entries for the other services.
-            if (!isPathAllowedForService(item.href, domainBranding.services)) return false
+            if (!isPathAllowedForService(item.href, domainBranding.services, domainBranding.hiddenPages)) return false
             return true
           }).map((item) => {
               const Icon = item.icon
@@ -416,7 +416,7 @@ export function Sidebar() {
                   c.sectionLabelText
                 )}>SHOP</p>
               )}
-              {shopItems.filter(item => userRole && item.roles.includes(userRole) && isPathAllowedForService(item.href, domainBranding.services)).map((item) => {
+              {shopItems.filter(item => userRole && item.roles.includes(userRole) && isPathAllowedForService(item.href, domainBranding.services, domainBranding.hiddenPages)).map((item) => {
                 const Icon = item.icon
                 const isActive = pathname === item.href
                 const isLoading = loadingPath === item.href

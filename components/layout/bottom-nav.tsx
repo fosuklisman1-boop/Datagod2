@@ -7,7 +7,7 @@ import { useIsMobile } from "@/hooks/use-mobile"
 import { useUserRole } from "@/hooks/use-user-role"
 import { cn } from "@/lib/utils"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
-import { getServicePrimaryPath, type DomainService } from "@/lib/custom-domains"
+import { getServicePrimaryPath, isPageHidden, type DomainService } from "@/lib/custom-domains"
 
 // Short, FAB-appropriate labels for each service, used when a custom domain is
 // scoped to one service and the FAB is repointed to that service's own page
@@ -60,7 +60,9 @@ export function BottomNav() {
 
   const USER_NAV = [
     { href: "/dashboard",             label: "Home",    icon: Home,        isFab: false },
-    { href: "/dashboard/wallet",      label: "Wallet",  icon: Wallet,      isFab: false },
+    ...(isPageHidden("wallet", domainBranding.hiddenPages)
+      ? []
+      : [{ href: "/dashboard/wallet", label: "Wallet", icon: Wallet, isFab: false }]),
     { href: fabHref,                  label: fabLabel,  icon: Package,     isFab: true },
     { href: "/dashboard/my-orders",   label: "Orders",  icon: ShoppingBag, isFab: false },
     { href: shopSlotHref,             label: shopSlotLabel, icon: ShopSlotIcon, isFab: false },
