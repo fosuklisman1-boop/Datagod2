@@ -4,7 +4,7 @@ import {
   GraduationCap, Send, Code2, Tag, Banknote,
   type LucideIcon,
 } from "lucide-react"
-import { isPathAllowedForService, type DomainService } from "./custom-domains"
+import { isPathAllowedForService, isPageHidden, type DomainService } from "./custom-domains"
 
 export interface NavItem {
   href: string
@@ -64,6 +64,7 @@ export function pickFirstVisiblePath(
   const allItems = [...menuItems, ...shopItems]
   for (const item of allItems) {
     if (!item.roles.includes(role)) continue
+    if (item.href === "/dashboard" && isPageHidden("dashboard_home", hiddenPages)) continue
     if (item.href === "/dashboard/upgrade" && role === "dealer" && !dealerHasSubscription) continue
     if (!isPathAllowedForService(item.href, services, hiddenPages)) continue
     return item.href

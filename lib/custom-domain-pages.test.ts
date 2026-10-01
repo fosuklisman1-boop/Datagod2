@@ -42,12 +42,18 @@ describe("TOGGLEABLE_PAGES", () => {
     expect(wallet?.group).toBe("core")
   })
 
-  it("the 5 other core keys each have exactly one path", () => {
-    const coreKeys = ["dashboard_home", "my_orders", "transactions", "profile", "complaints"]
+  it("the 4 other single-path core keys each have exactly one path", () => {
+    const coreKeys = ["my_orders", "transactions", "profile", "complaints"]
     for (const key of coreKeys) {
       const entry = TOGGLEABLE_PAGES.find(p => p.key === key)
       expect(entry?.paths).toHaveLength(1)
     }
+  })
+
+  it("dashboard_home has no registered path — it's checked explicitly at its render sites instead, so middleware's path-based redirect never intercepts it", () => {
+    const dashboardHome = TOGGLEABLE_PAGES.find(p => p.key === "dashboard_home")
+    expect(dashboardHome?.paths).toBeUndefined()
+    expect(dashboardHome?.group).toBe("core")
   })
 
   it("my_shop bundles exactly its 7 routes (Overview + 6 sibling pages) as one unit", () => {

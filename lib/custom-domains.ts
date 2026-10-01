@@ -53,13 +53,7 @@ export function getServiceRedirect(path: string, services: DomainService[], hidd
   const belongsToOtherService = (Object.entries(SERVICE_PATH_PREFIXES) as [DomainService, string[]][])
     .some(([s, prefixes]) => !validServices.includes(s) && prefixes.some(p => path.startsWith(p)))
   const hiddenPaths = TOGGLEABLE_PAGES.filter(p => p.paths && hiddenPages.includes(p.key)).flatMap(p => p.paths!)
-  // "/dashboard" (dashboard_home's own path) is the literal routing root of
-  // every other dashboard page, so a plain startsWith would treat hiding
-  // dashboard_home as hiding EVERYTHING under /dashboard — it must match
-  // only the exact root path. Every other hidden path keeps the existing
-  // startsWith behavior, which is relied on to also hide dynamic sub-routes
-  // (e.g. hiding my_shop also hides /dashboard/my-shop/settings).
-  const belongsToHiddenPage = hiddenPaths.some(p => p === "/dashboard" ? path === p : path.startsWith(p))
+  const belongsToHiddenPage = hiddenPaths.some(p => path.startsWith(p))
   if (!belongsToOtherService && !belongsToHiddenPage) return null
 
   return getServicePrimaryPath(validServices[0])

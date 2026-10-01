@@ -4,8 +4,15 @@ export interface ToggleablePage {
   group: "auth" | "core" | "tools"
   // Present only for entries with one or more dedicated routes — drives
   // uniform middleware blocking + nav filtering (see getServiceRedirect /
-  // isPathAllowedForService in lib/custom-domains.ts). Absent for the 3
-  // entries gated at a specific render site instead of a whole route. An
+  // isPathAllowedForService in lib/custom-domains.ts). Absent for the 4
+  // entries gated at a specific render site instead of a whole route (the
+  // 3 auth-page entries, plus dashboard_home — its own path, "/dashboard",
+  // is the literal routing root of every other dashboard page, so
+  // registering it here would make middleware's path-based redirect
+  // intercept and redirect away from it BEFORE app/dashboard/page.tsx's
+  // own role-aware "land on the next visible page" logic ever runs;
+  // dashboard_home's hidden-ness is instead checked explicitly, wherever
+  // it matters, via isPageHidden("dashboard_home", hiddenPages)). An
   // array (not a single string) so one key can bundle sibling routes as
   // one unit — e.g. my_shop's 7 pages all hide/show together.
   paths?: string[]
@@ -16,7 +23,7 @@ export const TOGGLEABLE_PAGES: ToggleablePage[] = [
   { key: "guest_purchase", label: "Buy as Guest Button",  group: "auth" },
   { key: "join_channel",   label: "Join Channel Button",  group: "auth" },
 
-  { key: "dashboard_home", label: "Dashboard Home",  group: "core", paths: ["/dashboard"] },
+  { key: "dashboard_home", label: "Dashboard Home",  group: "core" },
   { key: "my_orders",      label: "My Orders",       group: "core", paths: ["/dashboard/my-orders"] },
   { key: "transactions",   label: "Transactions",    group: "core", paths: ["/dashboard/transactions"] },
   { key: "profile",        label: "Profile",         group: "core", paths: ["/dashboard/profile"] },

@@ -99,8 +99,8 @@ describe("getServiceRedirect", () => {
     expect(getServiceRedirect("/dashboard/shop-pricing", ["airtime"], [])).toBeNull()
   })
 
-  it("hiding dashboard_home blocks only the exact /dashboard root, not its sibling dashboard pages", () => {
-    expect(getServiceRedirect("/dashboard", ["airtime"], ["dashboard_home"])).toBe("/dashboard/airtime")
+  it("dashboard_home has no registered path, so hiding it never triggers getServiceRedirect at all — its enforcement lives entirely at the explicit isPageHidden call sites instead (app/dashboard/page.tsx, sidebar.tsx, pickFirstVisiblePath)", () => {
+    expect(getServiceRedirect("/dashboard", ["airtime"], ["dashboard_home"])).toBeNull()
     expect(getServiceRedirect("/dashboard/wallet", ["airtime"], ["dashboard_home"])).toBeNull()
     expect(getServiceRedirect("/dashboard/my-shop", ["airtime"], ["dashboard_home"])).toBeNull()
   })

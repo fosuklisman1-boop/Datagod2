@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { supabase } from "@/lib/supabase"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
-import { isPathAllowedForService } from "@/lib/custom-domains"
+import { isPathAllowedForService, isPageHidden } from "@/lib/custom-domains"
 import { menuItems, shopItems } from "@/lib/dashboard-nav-items"
 import { useIsAdmin } from "@/hooks/use-admin"
 import { useAppSettings } from "@/hooks/use-app-settings"
@@ -322,6 +322,7 @@ export function Sidebar() {
           ) : (
             menuItems.filter(item => {
             if (!userRole || !item.roles.includes(userRole)) return false
+            if (item.href === '/dashboard' && isPageHidden('dashboard_home', domainBranding.hiddenPages)) return false
             // Hide upgrade page for dealers with no subscription end-date (permanent dealers)
             if (item.href === '/dashboard/upgrade' && userRole === 'dealer' && !dealerHasSubscription) return false
             // On a custom domain scoped to one service, hide nav entries for the other services.

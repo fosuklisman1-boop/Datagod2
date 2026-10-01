@@ -55,17 +55,28 @@ export function BottomNav() {
   const fabLabel = primaryService
     ? SERVICE_FAB_LABELS[primaryService]
     : isSubAgent ? "Buy Data" : "Data"
-  const shopSlotHref = primaryService ? "/dashboard/profile" : "/dashboard/shop-dashboard"
-  const shopSlotLabel = primaryService ? "Profile" : "Shop"
-  const ShopSlotIcon = primaryService ? User : Store
+  const profileHidden = isPageHidden("profile", domainBranding.hiddenPages)
+  const shopSlotHref = primaryService
+    ? (profileHidden ? fabHref : "/dashboard/profile")
+    : "/dashboard/shop-dashboard"
+  const shopSlotLabel = primaryService
+    ? (profileHidden ? fabLabel : "Profile")
+    : "Shop"
+  const ShopSlotIcon = primaryService
+    ? (profileHidden ? Package : User)
+    : Store
 
   const USER_NAV = [
-    { href: "/dashboard",             label: "Home",    icon: Home,        isFab: false },
+    ...(isPageHidden("dashboard_home", domainBranding.hiddenPages)
+      ? []
+      : [{ href: "/dashboard", label: "Home", icon: Home, isFab: false }]),
     ...(isPageHidden("wallet", domainBranding.hiddenPages)
       ? []
       : [{ href: "/dashboard/wallet", label: "Wallet", icon: Wallet, isFab: false }]),
     { href: fabHref,                  label: fabLabel,  icon: Package,     isFab: true },
-    { href: "/dashboard/my-orders",   label: "Orders",  icon: ShoppingBag, isFab: false },
+    ...(isPageHidden("my_orders", domainBranding.hiddenPages)
+      ? []
+      : [{ href: "/dashboard/my-orders", label: "Orders", icon: ShoppingBag, isFab: false }]),
     { href: shopSlotHref,             label: shopSlotLabel, icon: ShopSlotIcon, isFab: false },
   ]
 
