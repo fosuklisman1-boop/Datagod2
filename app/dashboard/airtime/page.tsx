@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { supabase } from "@/lib/supabase"
 import { Phone, CheckCircle2, Circle, RefreshCw, ArrowRight, Clock, History as HistoryIcon } from "lucide-react"
 import { PurchaseSheet, type PurchaseSheetModal } from "@/components/dashboard/PurchaseSheet"
@@ -223,12 +224,11 @@ export default function AirtimePage() {
   return (
     <DashboardLayout>
       <div className="max-w-2xl lg:max-w-4xl mx-auto space-y-5">
-        <p className="text-sm text-muted-foreground">
-          Wallet balance:{" "}
-          <span className="font-semibold text-foreground">
-            {walletBalance !== null ? `GHS ${Math.max(0, walletBalance).toFixed(2)}` : "Loading…"}
-          </span>
-        </p>
+        <DashboardHeroBanner title="Buy Airtime" subtitle="Top up any network instantly, for yourself or someone else." icon={Phone}>
+          <div className="rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white">
+            Balance: GHS {walletBalance !== null ? Math.max(0, walletBalance).toFixed(2) : "…"}
+          </div>
+        </DashboardHeroBanner>
 
         {/* Tabs */}
         <div className="inline-flex w-full rounded-2xl bg-muted p-1">

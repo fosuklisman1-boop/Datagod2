@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Input } from "@/components/ui/input"
 import {
   GraduationCap, Copy, CheckCircle, AlertCircle,
@@ -278,11 +279,13 @@ export default function ResultsCheckerPage() {
   return (
     <DashboardLayout>
       <div className="max-w-2xl lg:max-w-4xl mx-auto space-y-5">
-        {walletBalance !== null && (
-          <p className="text-sm text-muted-foreground">
-            Wallet balance: <span className="font-semibold text-foreground">GHS {walletBalance.toFixed(2)}</span>
-          </p>
-        )}
+        <DashboardHeroBanner title="Results Checker" subtitle="Buy WASSCE, BECE and NOVDEC result-checker vouchers." icon={GraduationCap}>
+          {walletBalance !== null && (
+            <div className="rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white">
+              Balance: GHS {walletBalance.toFixed(2)}
+            </div>
+          )}
+        </DashboardHeroBanner>
 
         {/* Tabs -- same segmented-pill pattern as Data Packages / Buy Airtime */}
         <div className="inline-flex w-full rounded-2xl bg-muted p-1">

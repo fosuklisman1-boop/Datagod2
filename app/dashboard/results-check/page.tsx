@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -425,18 +426,13 @@ export default function DashboardResultsCheckPage() {
   return (
     <DashboardLayout>
       <div className="max-w-2xl lg:max-w-3xl mx-auto space-y-5">
-        {/* Header -- compact, same convention as the other rebuilt pages
-            (page identity already carried by the sidebar nav item). */}
-        <div>
-          <p className="text-sm text-muted-foreground">
-            We check a candidate&apos;s WASSCE, BECE or NOVDEC results on your behalf and deliver them to a WhatsApp number.
-          </p>
+        <DashboardHeroBanner title="Check Results" subtitle="We check a candidate's WASSCE, BECE or NOVDEC results on your behalf and deliver them to a WhatsApp number." icon={GraduationCap}>
           {walletBalance !== null && (
-            <p className="mt-1 text-sm text-muted-foreground">
-              Wallet balance: <span className="font-semibold text-foreground">GHS {walletBalance.toFixed(2)}</span>
-            </p>
+            <div className="rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white">
+              Balance: GHS {walletBalance.toFixed(2)}
+            </div>
           )}
-        </div>
+        </DashboardHeroBanner>
 
         {loadingPrices ? (
           <div className="flex items-center justify-center py-16">

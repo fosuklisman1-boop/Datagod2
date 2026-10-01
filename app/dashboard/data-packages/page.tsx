@@ -5,13 +5,14 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { useAuth } from "@/hooks/use-auth"
 import { useUserRole } from "@/hooks/use-user-role"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
-import { Grid3x3, List, Search, Loader2, ShieldCheck, ExternalLink, RefreshCw, ShoppingCart, CheckCircle2, XCircle } from "lucide-react"
+import { Grid3x3, List, Search, Loader2, ShieldCheck, ExternalLink, RefreshCw, ShoppingCart, CheckCircle2, XCircle, Package } from "lucide-react"
 import { PurchaseSheet, type PurchaseSheetModal } from "@/components/dashboard/PurchaseSheet"
 import { BulkOrdersForm } from "@/components/bulk-orders-form"
 import { networkLogoService } from "@/lib/shop-service"
@@ -394,6 +395,7 @@ function DataPackagesPageInner() {
   return (
     <DashboardLayout>
       <div className="relative mx-auto max-w-5xl space-y-5 px-2 pb-16 sm:px-4 md:px-8">
+        <DashboardHeroBanner title="Data Packages" subtitle="Browse and buy data bundles across every network." icon={Package} />
         {!globalOrderingEnabled && (
           <Alert className="border-destructive/30 bg-destructive/10 shadow-md">
             <AlertDescription className="text-destructive font-bold text-center">

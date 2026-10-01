@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Crown, Check, Zap, Loader2, Sparkles, Star, PartyPopper, ShieldCheck, Users, Store as StoreIcon, AlertCircle, List, TrendingDown, Tag } from "lucide-react"
@@ -372,22 +373,7 @@ export default function UpgradePage() {
     return (
         <DashboardLayout>
             <div className="max-w-2xl lg:max-w-4xl mx-auto space-y-5">
-                {/* Page Header -- premium/dealer identity stays amber, same
-                    branch as every other page's isDealer treatment. */}
-                <div className="rounded-2xl bg-gradient-to-br from-amber-500 to-amber-600 p-5 text-white">
-                    <div className="flex items-center gap-3">
-                        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/20">
-                            <Crown className="h-6 w-6" />
-                        </span>
-                        <div>
-                            <Badge className="bg-white/20 text-white hover:bg-white/20 mb-1 text-[10px]">PREMIUM MEMBERSHIP</Badge>
-                            <h1 className="text-xl font-black">Become a DATAGOD Dealer</h1>
-                        </div>
-                    </div>
-                    <p className="mt-3 text-sm text-amber-50">
-                        Unlock wholesale rates, sub-agent management, and exclusive features to grow your business.
-                    </p>
-                </div>
+                <DashboardHeroBanner title="Become a DATAGOD Dealer" subtitle="Premium membership — unlock wholesale rates, sub-agent management, and exclusive features to grow your business." icon={Crown} />
 
                 {upgradesBlocked && (
                     <div className="flex items-start gap-3 rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
