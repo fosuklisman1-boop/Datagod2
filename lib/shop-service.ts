@@ -29,6 +29,7 @@ export interface PublicShop {
   custom_color_2: string | null
   section_divider_style: string | null
   created_at: string
+  linked_custom_domain: string | null
 }
 
 // Shop operations
@@ -81,7 +82,10 @@ export const shopService = {
       .single()
 
     if (error && error.code !== "PGRST116") throw error
-    return data
+    if (!data) return data
+
+    const linked_custom_domain = await shopService.getLinkedCustomDomain(data.subdomain)
+    return { ...data, linked_custom_domain }
   },
 
   // Get shop by public handle — matches EITHER the clean subdomain OR the legacy
@@ -102,7 +106,41 @@ export const shopService = {
       .single()
 
     if (error && error.code !== "PGRST116") throw error
-    return (data as unknown as PublicShop) ?? null
+    if (!data) return null
+
+    const shop = data as unknown as PublicShop
+    const linked_custom_domain = await shopService.getLinkedCustomDomain(shop.subdomain)
+    return { ...shop, linked_custom_domain }
+  },
+
+  // Reverse lookup: is this shop (identified by its own, already-globally-
+  // unique subdomain — never its internal id, which anonymous storefront
+  // visitors can't read under RLS) linked to an active custom domain?
+  // Keyed by subdomain rather than id so this one function serves both
+  // getShop (an authenticated owner's own dashboard) and getShopBySlug (a
+  // fully anonymous storefront visitor) identically. Fetches every
+  // active, shop-linked custom_domains row rather than filtering in SQL,
+  // since this table is small (admin-managed, not a hot dataset) and a
+  // plain equality filter on the embedded relation isn't reliably
+  // supported by the query builder for a reverse one-to-many embed.
+  // Fails open to null on any error or no match — a shop's displayed URL
+  // must never break just because this lookup had a bad day.
+  async getLinkedCustomDomain(subdomain: string): Promise<string | null> {
+    const { data, error } = await supabase
+      .from("custom_domains")
+      .select("domain, created_at, linked_shop:user_shops!linked_shop_id(subdomain)")
+      .eq("is_active", true)
+      .not("linked_shop_id", "is", null)
+      .order("created_at", { ascending: true })
+
+    if (error) {
+      console.error("[SHOP-SERVICE] Failed to resolve linked custom domain:", error)
+      return null
+    }
+    const rows = (data ?? []) as unknown as Array<{ domain: string; created_at: string; linked_shop: { subdomain: string } | null }>
+    const sortedRows = rows.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+    const match = sortedRows.find(row => row.linked_shop?.subdomain === subdomain)
+    return match?.domain ?? null
   },
 
   // Update shop
