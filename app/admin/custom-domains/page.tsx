@@ -289,6 +289,16 @@ export default function CustomDomainsPage() {
                   <p className="text-xs text-muted-foreground">
                     Linking a shop makes this domain show that shop&apos;s storefront (guest checkout) instead of the dashboard. Services above then filter which of the shop&apos;s Buy Data/Airtime/Results Vouchers tabs show.
                   </p>
+                  {form.linked_shop_id && form.domain && (() => {
+                    const linkedShop = shops.find(s => s.id === form.linked_shop_id)
+                    if (!linkedShop) return null
+                    const shopHostname = `${linkedShop.subdomain}.${form.domain}`
+                    return (
+                      <p className="text-xs text-muted-foreground">
+                        This shop&apos;s own shareable URL will become <code className="font-mono">{shopHostname}</code>. Ask the domain owner to also point that exact hostname at Vercel (a DNS record, same as the root domain above — not a wildcard), then attach <code className="font-mono">{shopHostname}</code> under your Vercel project&apos;s Settings → Domains.
+                      </p>
+                    )
+                  })()}
                 </div>
                 <div className="space-y-2">
                   <Label>Site Name</Label>
