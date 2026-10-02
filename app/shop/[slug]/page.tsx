@@ -1011,7 +1011,7 @@ export default function ShopStorefront() {
     ...(allowedServices.includes("vouchers") ? [{ label: "Results Checker", icon: <GraduationCap className="w-4 h-4" />, onClick: () => { setActiveTab("home"); setSelectedService("vouchers"); setRcTab("buy"); setSidebarOpen(false) }, isActive: activeTab === "home" && selectedService === "vouchers" && rcTab === "buy" }] : []),
     ...(shop?.afa_price != null ? [{
       label: "AFA Registration", icon: <IdCard className="w-4 h-4" />,
-      href: shop.subdomain ? `${shopOrigin(shop.subdomain)}/afa` : `/shop/${shopSlug}/afa`,
+      href: shop.subdomain ? `${shopOrigin(shop.subdomain, shop.linked_custom_domain)}/afa` : `/shop/${shopSlug}/afa`,
       isActive: false,
     }] : []),
   ]
@@ -1050,7 +1050,7 @@ export default function ShopStorefront() {
     ...(shop?.afa_price != null ? [{
       key: "afa", badge: "AFA", title: "AFA Registration", description: "Register your line for AFA data bundles.",
       cta: "Register Now", icon: IdCard, gradient: "from-[#3b0764] to-[#7c3aed]",
-      onClick: () => { window.location.href = shop.subdomain ? `${shopOrigin(shop.subdomain)}/afa` : `/shop/${shopSlug}/afa` },
+      onClick: () => { window.location.href = shop.subdomain ? `${shopOrigin(shop.subdomain, shop.linked_custom_domain)}/afa` : `/shop/${shopSlug}/afa` },
     }] : []),
     ...((shop?.phone || helpWhatsAppLink) ? [{
       key: "help", badge: "SUPPORT", title: "Need Help?", description: shop.phone ? `Call or WhatsApp us at ${shop.phone}` : "Chat with us on WhatsApp",
@@ -1092,7 +1092,7 @@ export default function ShopStorefront() {
                 "@type": "ListItem",
                 position: "3",
                 name: shop?.shop_name || shop?.name || "Shop",
-                item: shop?.subdomain ? shopOrigin(shop.subdomain) : `https://www.datagod.store/shop/${shopSlug}`,
+                item: shop?.subdomain ? shopOrigin(shop.subdomain, shop?.linked_custom_domain) : `https://www.datagod.store/shop/${shopSlug}`,
               },
             ],
           }).replace(/</g, "\\u003c"),
@@ -1109,7 +1109,7 @@ export default function ShopStorefront() {
                 return generateProductSchema(
                   `${pkg.size}GB ${pkg.network} Data Bundle`,
                   pkg.price + shopPkg.profit_margin,
-                  shop?.subdomain ? shopOrigin(shop.subdomain) : `https://www.datagod.store/shop/${shopSlug}`,
+                  shop?.subdomain ? shopOrigin(shop.subdomain, shop?.linked_custom_domain) : `https://www.datagod.store/shop/${shopSlug}`,
                   "GHS",
                   pkg.description || undefined
                 )

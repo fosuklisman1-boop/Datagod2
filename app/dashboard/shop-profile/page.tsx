@@ -340,7 +340,7 @@ export default function ShopProfilePage() {
               <div>
                 <label className="mb-1 block text-sm font-semibold text-foreground">Shop URL</label>
                 <p className="break-all rounded-xl border border-border bg-muted/50 px-4 py-3 text-sm text-muted-foreground">
-                  {shop.subdomain ? shopOrigin(shop.subdomain) : `datagod.store/shop/${shop.shop_slug}`}
+                  {shop.subdomain ? shopOrigin(shop.subdomain, shop.linked_custom_domain) : `datagod.store/shop/${shop.shop_slug}`}
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">Your main storefront address — fixed, cannot be changed here.</p>
 
