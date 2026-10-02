@@ -2074,21 +2074,6 @@ export default function ShopStorefront() {
         })()
       }
 
-      {/* Floating WhatsApp Icon */}
-      {
-        normalizeWhatsAppLink(shopSettings?.whatsapp_link) && (
-          <a
-            href={normalizeWhatsAppLink(shopSettings?.whatsapp_link)!}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="fixed bottom-24 right-6 p-4 bg-green-500 hover:bg-green-600 text-white rounded-full shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-110 z-50 flex items-center justify-center"
-            title="Contact on WhatsApp"
-          >
-            <MessageCircle className="w-6 h-6" />
-          </a>
-        )
-      }
-
       {/* Announcement Modal */}
       <AnnouncementModal
         isOpen={showAnnouncement}
