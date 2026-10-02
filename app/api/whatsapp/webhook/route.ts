@@ -145,15 +145,6 @@ async function processInbound(body: unknown): Promise<void> {
     const mediaId: string | undefined = mediaNode?.id
     if (!mediaId) return // a non-media, non-text type we don't handle (location, reaction, …)
 
-    // Media skips the text-path dedup below, so guard duplicates here too.
-    if (msg.id) {
-      const { count } = await supabase
-        .from("whatsapp_messages")
-        .select("id", { count: "exact", head: true })
-        .eq("meta_message_id", msg.id)
-      if ((count ?? 0) > 0) return
-    }
-
     try {
       const { buffer, mimeType: rawMime } = await downloadWaMedia(mediaId)
       // WhatsApp reports params like "audio/ogg; codecs=opus" — strip them so the
@@ -209,6 +200,10 @@ async function processInbound(body: unknown): Promise<void> {
         msg.type === "sticker" ? "🌟 Sticker" :
         "📄 Document"
       const imgLog = await logMessage(from, "inbound", caption || typeLabel, msg.id, { url: publicUrl, type: displayType }, profileName)
+      // The insert above IS the dedup check (idx_whatsapp_messages_inbound_meta_id_unique) —
+      // a Meta webhook redelivery lands here as duplicate:true. Bail out before any
+      // complaint/AI processing runs twice for the same event.
+      if (imgLog.duplicate) return
 
       // Complaint proof (screenshots/PDF only — not voice notes/videos). When the
       // image satisfies a complaint (staged, or attached to a recent open one) we
@@ -283,20 +278,16 @@ async function processInbound(body: unknown): Promise<void> {
   // Immediate feedback: fire-and-forget (never block reply processing)
   if (msg.id) void markWaMessageRead(msg.id)
 
-  // Dedup: skip if we already processed this Meta message ID
-  if (msg.id) {
-    const { count } = await supabase
-      .from("whatsapp_messages")
-      .select("id", { count: "exact", head: true })
-      .eq("meta_message_id", msg.id)
-    if ((count ?? 0) > 0) {
-      console.log("[WA-WEBHOOK] Duplicate message, skipping:", msg.id)
-      return
-    }
+  // Log inbound message (also returns this conversation's takeover state).
+  // The insert itself IS the dedup check (idx_whatsapp_messages_inbound_meta_id_unique) —
+  // atomic at the DB level, unlike a separate SELECT-then-insert, which a Meta
+  // webhook redelivery arriving milliseconds apart could race past (confirmed
+  // live: 4,829 duplicate deliveries had slipped through that way).
+  const { humanTakeover, takenOverAt, takenOverBy, conversationCreatedAt, duplicate } = await logMessage(from, "inbound", text, msg.id, null, profileName)
+  if (duplicate) {
+    console.log("[WA-WEBHOOK] Duplicate message, skipping:", msg.id)
+    return
   }
-
-  // Log inbound message (also returns this conversation's takeover state)
-  const { humanTakeover, takenOverAt, takenOverBy, conversationCreatedAt } = await logMessage(from, "inbound", text, msg.id, null, profileName)
 
   // Dedicated shop WhatsApp number: a second Meta phone_number_id reserved for
   // the shop bot (Phase 3 fills in the real state machine). When the receiving
