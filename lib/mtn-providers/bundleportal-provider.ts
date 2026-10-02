@@ -3,7 +3,7 @@ import type { MTNProvider, MTNOrderRequest, MTNOrderResponse, MTNOrderStatusResp
 import { normalizePhoneNumber, isValidPhoneFormat, validatePhoneNetworkMatch } from "@/lib/mtn-fulfillment"
 import { supabaseAdmin as supabase } from "@/lib/supabase"
 
-const BASE_URL = process.env.BUNDLEPORTAL_BASE_URL ?? "https://api.bundleportal.com/v1"
+const BASE_URL = process.env.BUNDLEPORTAL_BASE_URL ?? "https://api.bundleportal.com/v2"
 const TIMEOUT = 30_000
 
 function apiKey(): string {
@@ -40,11 +40,15 @@ export async function getActiveMtnRoute(): Promise<"mtn" | "mtn_2" | "mtn_3"> {
 
 /**
  * Map our internal network + BigTime flag + configured MTN route to Bundle
- * Portal's own `network` value. "bigtime" is undocumented on Bundle Portal's
- * side (confirmed only via a live test order, not their official docs — see
- * design doc context) so it's kept as its own distinct literal rather than
- * folded into "airteltigo", making a future rejection of this specific value
- * easy to recognize.
+ * Portal's own `network` value.
+ *
+ * The literal "bigtime" (used pre-v2) is hard-rejected by v2: "Network must
+ * be one of: mtn, mtn_1, mtn_2, mtn_3, telecel, ishare, airteltigo". We were
+ * initially told by Bundle Portal that "airteltigo" routes to BigTime stock
+ * and "ishare" to the regular product — but a live BigTime order sent with
+ * "airteltigo" on 2026-09-26 showed up as regular iShare on Bundle Portal's
+ * own dashboard (confirmed directly by the user), so the mapping is reversed
+ * from that initial guidance: "ishare" is BigTime, "airteltigo" is regular.
  */
 export function mapNetworkToBundlePortal(
   network: "MTN" | "Telecel" | "AirtelTigo",
@@ -53,7 +57,7 @@ export function mapNetworkToBundlePortal(
 ): string {
   if (network === "MTN") return mtnRoute
   if (network === "Telecel") return "telecel"
-  return isBigTime ? "bigtime" : "airteltigo"
+  return isBigTime ? "ishare" : "airteltigo"
 }
 
 /** Maps Bundle Portal's order status values to this app's canonical status set. */
@@ -69,6 +73,26 @@ export function mapBundlePortalStatus(raw: string): "pending" | "processing" | "
 /** True for a documented retry-later business rejection code (not a hard failure). */
 export function isRetryableErrorCode(code: string | undefined): boolean {
   return code === "pending_order" || code === "network_locked" || code === "rate_limit" || code === "read_rate_limited" || code === "server_error" || code === "order_capacity_busy" || code === "balance_changed"
+}
+
+/**
+ * Extract Bundle Portal's documented 429 retry-after signal. Per their docs,
+ * a 429 always carries both a `Retry-After` header and a `retry_after`
+ * field in the JSON body — the header is the standard HTTP mechanism, so it
+ * wins if both are present; the body field is a fallback for a caller that
+ * only has the parsed JSON (no access to response headers).
+ */
+export function extractRetryAfterSeconds(headerValue: string | null, jsonRetryAfter: unknown): number | null {
+  if (headerValue != null) {
+    const fromHeader = Number(headerValue)
+    if (!Number.isNaN(fromHeader)) return fromHeader
+  }
+  return typeof jsonRetryAfter === "number" ? jsonRetryAfter : null
+}
+
+/** Appends a "(retry after Ns)" suffix to a message when a 429 retry-after value is known. */
+function withRetryAfterSuffix(message: string, retryAfterSeconds: number | null): string {
+  return retryAfterSeconds != null ? `${message} (retry after ${retryAfterSeconds}s)` : message
 }
 
 // ── Provider class ───────────────────────────────────────────────────────────
@@ -117,7 +141,9 @@ export class BundlePortalProvider implements MTNProvider {
 
     if (json.success !== true) {
       const errorType = isRetryableErrorCode(json.code) ? "RETRYABLE" : "API_ERROR"
-      return { success: false, message: json.message ?? `API error (status ${res.status})`, error_type: errorType }
+      const baseMessage = json.message ?? `API error (status ${res.status})`
+      const retryAfter = res.status === 429 ? extractRetryAfterSeconds(res.headers.get("retry-after"), json.retry_after) : null
+      return { success: false, message: withRetryAfterSuffix(baseMessage, retryAfter), error_type: errorType }
     }
 
     // json.data.duplicate === true means this order_id was already submitted —
@@ -132,27 +158,14 @@ export class BundlePortalProvider implements MTNProvider {
       return { success: true, status: "failed", message: "Order was never submitted to Bundle Portal (local failure)" }
     }
 
-    let res: Response
-    try {
-      res = await apiCall({ action: "check_status", order_reference: id })
-    } catch (err) {
-      return { success: false, message: err instanceof Error ? err.message : "Network error" }
-    }
-
-    let json: any
-    try { json = await res.json() } catch {
-      return { success: false, message: `HTTP ${res.status} (non-JSON response)` }
-    }
-
-    if (json.success !== true) {
-      return { success: false, message: json.message ?? `API error (status ${res.status})` }
-    }
-
+    // Bundle Portal's v2 API permanently removed status polling — check_status
+    // now always returns HTTP 410 { code: "polling_disabled" }, confirmed in
+    // their current docs. Short-circuit rather than making a network call
+    // that can never succeed; webhooks (app/api/webhooks/mtn/bundleportal/
+    // route.ts) are the only channel this provider reports outcomes on now.
     return {
-      success: true,
-      status: mapBundlePortalStatus(json.data?.status),
-      message: json.data?.failure_reason ?? "Status retrieved",
-      order: json.data,
+      success: false,
+      message: "Bundle Portal v2 has no status polling — order outcomes arrive only via webhook.",
     }
   }
 
@@ -174,7 +187,17 @@ export class BundlePortalProvider implements MTNProvider {
 
   async verifyNumber(phone: string, network: string): Promise<any> {
     const res = await apiCall({ action: "verify_number", network, recipient: normalizePhoneNumber(phone) })
-    if (!res.ok) throw new Error(`Bundle Portal verify_number API error ${res.status}`)
+    if (!res.ok) {
+      if (res.status === 429) {
+        // Reads (verify_number, get_bundles, check_balance) have their own
+        // separate rate-limit allowance from order placement, per the docs.
+        let json: any = null
+        try { json = await res.json() } catch { /* body may be absent/non-JSON */ }
+        const retryAfter = extractRetryAfterSeconds(res.headers.get("retry-after"), json?.retry_after)
+        throw new Error(withRetryAfterSuffix("Bundle Portal verify_number read-rate-limited", retryAfter))
+      }
+      throw new Error(`Bundle Portal verify_number API error ${res.status}`)
+    }
     return res.json()
   }
 

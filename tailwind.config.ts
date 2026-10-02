@@ -76,6 +76,18 @@ const config = {
         },
         'brand-accent': 'hsl(var(--brand-accent))',
         footer: 'hsl(var(--footer))',
+        'admin-sidebar': {
+          DEFAULT: 'hsl(var(--admin-sidebar))',
+          foreground: 'hsl(var(--admin-sidebar-foreground))',
+        },
+        'admin-banner-from': 'hsl(var(--admin-banner-from))',
+        'admin-banner-to': 'hsl(var(--admin-banner-to))',
+        'admin-accent': {
+          DEFAULT: 'hsl(var(--admin-accent))',
+          soft: 'hsl(var(--admin-accent-soft))',
+        },
+        'admin-amber': 'hsl(var(--admin-amber))',
+        'admin-orange': 'hsl(var(--admin-orange))',
       },
       fontFamily: {
         sans: ['var(--font-dm-sans)', 'system-ui', 'sans-serif'],

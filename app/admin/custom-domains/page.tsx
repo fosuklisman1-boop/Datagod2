@@ -12,8 +12,10 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Loader2, Plus, Pencil, Trash2 } from "lucide-react"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
+import { TOGGLEABLE_PAGES } from "@/lib/custom-domain-pages"
 
 type DomainService = "data_bundles" | "airtime" | "results_checker" | "bulk_sms"
 
@@ -26,8 +28,7 @@ interface CustomDomainRow {
   primary_color: string | null
   is_active: boolean
   linked_shop_id: string | null
-  show_guest_purchase: boolean
-  show_landing_page: boolean
+  hidden_pages: string[]
   created_at: string
   updated_at: string
 }
@@ -47,9 +48,18 @@ const SERVICE_LABELS: Record<DomainService, string> = {
 
 const ALL_SERVICES = Object.keys(SERVICE_LABELS) as DomainService[]
 
+// Matches migrations/0100's own column default — a brand-new domain's
+// checklist should visually start in the same state a freshly-inserted row
+// actually has (dealer tools unchecked/hidden, everything else checked/shown).
+const DEFAULT_HIDDEN_PAGES = [
+  "afa_orders", "upgrade", "my_shop", "shop_dashboard", "sub_agents",
+  "sub_agent_catalog", "ussd_shop", "payment_reverify", "buy_stock",
+]
+
 const EMPTY_FORM = {
   domain: "", services: [] as DomainService[], site_name: "", logo_url: "", primary_color: "",
-  linked_shop_id: null as string | null, show_guest_purchase: false, show_landing_page: true,
+  linked_shop_id: null as string | null,
+  hidden_pages: DEFAULT_HIDDEN_PAGES as string[],
 }
 
 export default function CustomDomainsPage() {
@@ -116,8 +126,7 @@ export default function CustomDomainsPage() {
       logo_url: row.logo_url || "",
       primary_color: row.primary_color || "",
       linked_shop_id: row.linked_shop_id,
-      show_guest_purchase: row.show_guest_purchase,
-      show_landing_page: row.show_landing_page,
+      hidden_pages: row.hidden_pages,
     })
     setDialogOpen(true)
   }
@@ -128,6 +137,15 @@ export default function CustomDomainsPage() {
       services: f.services.includes(service)
         ? f.services.filter(s => s !== service)
         : [...f.services, service],
+    }))
+  }
+
+  const toggleHiddenPage = (key: string) => {
+    setForm(f => ({
+      ...f,
+      hidden_pages: f.hidden_pages.includes(key)
+        ? f.hidden_pages.filter(k => k !== key)
+        : [...f.hidden_pages, key],
     }))
   }
 
@@ -161,8 +179,7 @@ export default function CustomDomainsPage() {
               logo_url: form.logo_url || null,
               primary_color: form.primary_color || null,
               linked_shop_id: form.linked_shop_id,
-              show_guest_purchase: form.show_guest_purchase,
-              show_landing_page: form.show_landing_page,
+              hidden_pages: form.hidden_pages,
             }),
           })
         : await fetch("/api/admin/custom-domains", {
@@ -175,8 +192,7 @@ export default function CustomDomainsPage() {
               logo_url: form.logo_url || null,
               primary_color: form.primary_color || null,
               linked_shop_id: form.linked_shop_id,
-              show_guest_purchase: form.show_guest_purchase,
-              show_landing_page: form.show_landing_page,
+              hidden_pages: form.hidden_pages,
             }),
           })
 
@@ -224,17 +240,16 @@ export default function CustomDomainsPage() {
     <DashboardLayout>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">Custom Domains</h1>
-            <p className="text-sm text-muted-foreground">
-              Point a domain you own at one or more services, with its own name/logo/color. Accounts, wallet, and orders stay shared with the main site.
-            </p>
-          </div>
+          <PageHeaderBanner
+            className="flex-1"
+            title="Custom Domains"
+            subtitle="Point a domain you own at one or more services, with its own name/logo/color. Accounts, wallet, and orders stay shared with the main site."
+          />
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
               <Button onClick={openCreate}><Plus className="w-4 h-4 mr-2" /> Add Domain</Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>{editing ? "Edit Domain" : "Add Domain"}</DialogTitle>
               </DialogHeader>
@@ -304,21 +319,45 @@ export default function CustomDomainsPage() {
                     <Input value={form.primary_color} onChange={e => setForm(f => ({ ...f, primary_color: e.target.value }))} placeholder="#059669" />
                   </div>
                 </div>
+                {/* Every hidden_pages key is a login/signup/homepage or
+                    dashboard page — a shop-linked domain renders neither (it
+                    rewrites straight to the shop storefront in middleware),
+                    so this whole checklist has no effect there and is hidden
+                    to avoid a confusing, inert control. */}
                 {!form.linked_shop_id && (
                   <>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <Label>Show Guest-Purchase Button</Label>
-                        <p className="text-xs text-muted-foreground">Shows the "Buy as Guest" link on this domain's landing page.</p>
+                    <div className="space-y-2">
+                      <Label>Visible Pages — Login / Signup / Homepage</Label>
+                      <div className="space-y-2">
+                        {TOGGLEABLE_PAGES.filter(p => p.group === "auth").map(p => (
+                          <label key={p.key} className="flex items-center gap-2 text-sm cursor-pointer">
+                            <Checkbox checked={!form.hidden_pages.includes(p.key)} onCheckedChange={() => toggleHiddenPage(p.key)} />
+                            {p.label}
+                          </label>
+                        ))}
                       </div>
-                      <Switch checked={form.show_guest_purchase} onCheckedChange={v => setForm(f => ({ ...f, show_guest_purchase: v }))} />
                     </div>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <Label>Show Landing Page</Label>
-                        <p className="text-xs text-muted-foreground">When off, visiting this domain goes straight to login instead of the marketing homepage.</p>
+                    <div className="space-y-2">
+                      <Label>Visible Pages — Core Pages</Label>
+                      <div className="space-y-2">
+                        {TOGGLEABLE_PAGES.filter(p => p.group === "core").map(p => (
+                          <label key={p.key} className="flex items-center gap-2 text-sm cursor-pointer">
+                            <Checkbox checked={!form.hidden_pages.includes(p.key)} onCheckedChange={() => toggleHiddenPage(p.key)} />
+                            {p.label}
+                          </label>
+                        ))}
                       </div>
-                      <Switch checked={form.show_landing_page} onCheckedChange={v => setForm(f => ({ ...f, show_landing_page: v }))} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Visible Pages — Dealer & Business Tools</Label>
+                      <div className="space-y-2">
+                        {TOGGLEABLE_PAGES.filter(p => p.group === "tools").map(p => (
+                          <label key={p.key} className="flex items-center gap-2 text-sm cursor-pointer">
+                            <Checkbox checked={!form.hidden_pages.includes(p.key)} onCheckedChange={() => toggleHiddenPage(p.key)} />
+                            {p.label}
+                          </label>
+                        ))}
+                      </div>
                     </div>
                   </>
                 )}
@@ -353,6 +392,7 @@ export default function CustomDomainsPage() {
                     <TableHead>Services / Shop</TableHead>
                     <TableHead>Site Name</TableHead>
                     <TableHead>Active</TableHead>
+                    <TableHead>Hidden</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -372,6 +412,9 @@ export default function CustomDomainsPage() {
                         {row.site_name}
                       </TableCell>
                       <TableCell><Switch checked={row.is_active} onCheckedChange={() => handleToggleActive(row)} /></TableCell>
+                      <TableCell>
+                        {row.hidden_pages.length > 0 && <Badge variant="secondary">{row.hidden_pages.length} hidden</Badge>}
+                      </TableCell>
                       <TableCell className="text-right space-x-2">
                         <Button variant="ghost" size="icon" onClick={() => openEdit(row)}><Pencil className="w-4 h-4" /></Button>
                         <Button variant="ghost" size="icon" onClick={() => handleDelete(row)}><Trash2 className="w-4 h-4 text-destructive" /></Button>

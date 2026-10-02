@@ -64,23 +64,19 @@ async function lookupExact(host: string): Promise<LookupResult> {
     try {
       const cached = await redis.get<CustomDomainConfig | typeof NOT_FOUND_MARKER>(cacheKey(host))
       if (cached === NOT_FOUND_MARKER) return { kind: "not_found", fromNegativeCache: true }
-      if (cached) {
-        // A cache entry written by pre-this-feature code has no
-        // show_guest_purchase/show_landing_page/linked_shop_subdomain keys.
-        // Without this normalization, show_landing_page reads as `undefined`
-        // (falsy) here, and middleware treats that identically to an explicit
-        // `false` — silently redirecting every already-cached domain's
-        // homepage to /auth/login for up to CACHE_TTL_SECONDS after this
-        // feature deploys. Normalize on read so a stale entry behaves exactly
-        // like it did before this feature existed, until it naturally expires
-        // or is refreshed by an admin save.
-        const normalized: CustomDomainConfig = {
-          ...cached,
-          linked_shop_subdomain: cached.linked_shop_subdomain ?? null,
-          show_guest_purchase: cached.show_guest_purchase ?? false,
-          show_landing_page: cached.show_landing_page ?? true,
-        }
-        return { kind: "found", config: normalized }
+      // A cache entry written before any of these fields existed on this
+      // interface (hidden_pages, or linked_shop_subdomain — each added by a
+      // separate feature) would otherwise come back with some fields
+      // undefined, and isPageHidden(key, config.hidden_pages) would throw on
+      // a non-array. Treat any such shape as a miss instead of a hit — it
+      // falls through to Supabase below, which refills the cache with the
+      // correct shape, for up to CACHE_TTL_SECONDS after this deploys.
+      if (
+        cached &&
+        Array.isArray(cached.hidden_pages) &&
+        (cached.linked_shop_subdomain === null || typeof cached.linked_shop_subdomain === "string")
+      ) {
+        return { kind: "found", config: cached }
       }
     } catch (e) {
       console.error("[CUSTOM-DOMAIN-LOOKUP] Redis read failed, falling back to Supabase:", e instanceof Error ? e.message : e)
@@ -90,7 +86,7 @@ async function lookupExact(host: string): Promise<LookupResult> {
   try {
     const { data, error } = await supabaseAdmin
       .from("custom_domains")
-      .select("domain, services, site_name, logo_url, primary_color, is_active, show_guest_purchase, show_landing_page, linked_shop:user_shops!linked_shop_id(subdomain)")
+      .select("domain, services, site_name, logo_url, primary_color, is_active, hidden_pages, linked_shop:user_shops!linked_shop_id(subdomain)")
       .eq("domain", host)
       .eq("is_active", true)
       .maybeSingle()
@@ -109,8 +105,7 @@ async function lookupExact(host: string): Promise<LookupResult> {
       logo_url: row.logo_url,
       primary_color: row.primary_color,
       is_active: row.is_active,
-      show_guest_purchase: row.show_guest_purchase,
-      show_landing_page: row.show_landing_page,
+      hidden_pages: row.hidden_pages,
       linked_shop_subdomain: row.linked_shop?.subdomain ?? null,
     }
     cacheSetPositive(host, config)

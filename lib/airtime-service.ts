@@ -2,6 +2,8 @@ import { createClient } from "@supabase/supabase-js"
 import { isDigiWapyEnabledForNetwork, sendAirtimeViaDigiwapy } from "@/lib/digiwapy-provider"
 import { notifyAdmins, SMSTemplates } from "@/lib/sms-service"
 import { secureReference } from "@/lib/secure-random"
+import { validateNetworkPrefix } from "@/lib/phone-format"
+import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -129,6 +131,26 @@ export async function markAirtimeOrderPaid(
     }
   }
 
+  // Customer tracking — shop-scoped airtime purchases were never wired into
+  // customerTrackingService, so they never showed up on the shop's Customers
+  // dashboard. Non-blocking: must never break payment/fulfillment.
+  if (airtimeData.shop_id) {
+    try {
+      const { customerTrackingService } = await import("./customer-tracking-service")
+      await customerTrackingService.trackCustomer({
+        shopId: airtimeData.shop_id,
+        phoneNumber: airtimeData.beneficiary_phone,
+        email: "",
+        customerName: "Customer",
+        totalPrice: Number(airtimeData.total_paid) || 0,
+        slug: "storefront",
+        orderId: airtimeData.id,
+      })
+    } catch (trackErr) {
+      console.error("[AIRTIME-SVC] Customer tracking failed (non-fatal):", trackErr)
+    }
+  }
+
   await triggerDigiwapyFulfillment({
     id: airtimeData.id,
     reference_code: airtimeData.reference_code,
@@ -186,6 +208,16 @@ export async function purchaseAirtime(params: PurchaseAirtimeParams): Promise<Pu
     const err: any = new Error(`Airtime for ${network} is currently unavailable`)
     err.code = "NETWORK_DISABLED"
     throw err
+  }
+
+  const { enabled: prefixCheckEnabled, map: prefixMap } = await getPrefixValidationConfig()
+  if (prefixCheckEnabled) {
+    const prefixCheck = validateNetworkPrefix(network, cleanPhone, prefixMap)
+    if (!prefixCheck.ok) {
+      const err: any = new Error(prefixCheck.message)
+      err.code = "NETWORK_MISMATCH"
+      throw err
+    }
   }
 
   let merchantRoleFeeRate = 5

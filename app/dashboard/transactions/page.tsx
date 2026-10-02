@@ -1,17 +1,28 @@
 "use client"
 
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { TrendingUp, TrendingDown, DollarSign, Loader2 } from "lucide-react"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import {
+  TrendingUp,
+  TrendingDown,
+  DollarSign,
+  Loader2,
+  AlertCircle,
+  LayoutGrid,
+  Plus,
+  Wifi,
+  GraduationCap,
+  Phone,
+  IdCard,
+  MoreHorizontal,
+} from "lucide-react"
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/hooks/use-auth"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
-// Safe format currency helper
 const formatAmount = (amount: number | null | undefined): string => {
   if (amount == null) return "0.00"
   return amount.toFixed(2)
@@ -21,39 +32,101 @@ interface TransactionStats {
   totalTransactions: number
   todayIncome: number
   todayExpenses: number
-  todayRefunds: number
 }
 
 interface Transaction {
   id: string
   created_at: string
-  type: "credit" | "debit" | "refund"
+  type: string
   description: string
   amount: number
-  balance_before: number
-  balance_after: number
-  status: "completed" | "pending" | "failed"
-  order_id?: string
+  status: string
+  source?: string
+  reference_id?: string
+}
+
+// Real `source` column on the `transactions` table, bucketed into the
+// categories this page is split into. `type` is "credit" | "debit" |
+// "admin_credit" | "admin_debit" in the real data -- there is no "refund"
+// type, so credit/debit is detected with .includes() rather than an exact
+// match (an exact match mis-signs every admin_credit/admin_debit row).
+type TxCategory = "topup" | "data" | "results" | "airtime" | "afa" | "misc"
+
+function isCredit(type: string): boolean {
+  return type.includes("credit")
+}
+
+function categorizeTransaction(source?: string | null): TxCategory {
+  const s = (source || "").toLowerCase()
+  if (s === "wallet_topup") return "topup"
+  if (s.includes("results_check")) return "results"
+  if (s.includes("airtime")) return "airtime"
+  if (s.includes("afa")) return "afa"
+  if (s === "data_purchase" || s === "api_order" || s === "bulk_order" || s.includes("data")) return "data"
+  return "misc"
+}
+
+const TABS = [
+  { id: "stats", label: "Stats", icon: LayoutGrid },
+  { id: "topup", label: "Top Ups", icon: Plus },
+  { id: "data", label: "Data", icon: Wifi },
+  { id: "results", label: "Results Checker", icon: GraduationCap },
+  { id: "airtime", label: "Airtime", icon: Phone },
+  { id: "afa", label: "AFA", icon: IdCard },
+  { id: "misc", label: "Misc", icon: MoreHorizontal },
+] as const
+
+type TabId = (typeof TABS)[number]["id"]
+
+function TransactionList({ transactions, emptyMessage }: { transactions: Transaction[]; emptyMessage: string }) {
+  if (transactions.length === 0) {
+    return (
+      <Alert>
+        <AlertCircle className="h-4 w-4" />
+        <AlertDescription>{emptyMessage}</AlertDescription>
+      </Alert>
+    )
+  }
+
+  return (
+    <div className="space-y-2 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
+      {transactions.map((transaction) => {
+        const credit = isCredit(transaction.type)
+        return (
+          <div key={transaction.id} className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className={`grid h-9 w-9 flex-shrink-0 place-items-center rounded-xl ${credit ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
+                {credit ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+              </span>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-foreground">{transaction.description}</p>
+                <p className="text-xs text-muted-foreground">
+                  {new Date(transaction.created_at).toLocaleDateString()} · {transaction.reference_id?.slice(-8) || "—"}
+                  {transaction.status === "pending" && <span className="ml-1 text-warning">· Pending</span>}
+                </p>
+              </div>
+            </div>
+            <p className={`whitespace-nowrap font-semibold tabular-nums ${credit ? "text-success" : "text-destructive"}`}>
+              {credit ? "+" : "-"}GHS {formatAmount(transaction.amount)}
+            </p>
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 export default function TransactionsPage() {
   const router = useRouter()
   const { user, loading: authLoading } = useAuth()
+  const [tab, setTab] = useState<TabId>("stats")
   const [stats, setStats] = useState<TransactionStats>({
     totalTransactions: 0,
     todayIncome: 0,
     todayExpenses: 0,
-    todayRefunds: 0,
   })
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [loading, setLoading] = useState(true)
-  const [filters, setFilters] = useState({
-    type: "all",
-    source: "all",
-    dateRange: "all",
-  })
-  const [page, setPage] = useState(1)
-  const pageSize = 10
 
   // Auth protection
   useEffect(() => {
@@ -67,7 +140,7 @@ export default function TransactionsPage() {
     if (user) {
       fetchTransactionData()
     }
-  }, [filters, page, user])
+  }, [user])
 
   const fetchTransactionData = async () => {
     try {
@@ -77,28 +150,18 @@ export default function TransactionsPage() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token) return
 
-      // Fetch stats
       const statsResponse = await fetch("/api/transactions/stats", {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
+        headers: { Authorization: `Bearer ${session.access_token}` },
       })
       if (statsResponse.ok) {
         const statsData = await statsResponse.json()
         setStats(statsData)
       }
 
-      // Fetch transactions
-      const queryParams = new URLSearchParams()
-      queryParams.append("page", page.toString())
-      queryParams.append("limit", pageSize.toString())
-      if (filters.type !== "all") queryParams.append("type", filters.type)
-      if (filters.dateRange !== "all") queryParams.append("dateRange", filters.dateRange)
-
-      const txnResponse = await fetch(`/api/transactions/list?${queryParams.toString()}`, {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
+      // Fetch a larger window than the old 10-row page needed -- splitting
+      // into category tabs means each one only shows a slice of this set.
+      const txnResponse = await fetch(`/api/transactions/list?limit=200`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
       })
       if (txnResponse.ok) {
         const txnData = await txnResponse.json()
@@ -117,7 +180,7 @@ export default function TransactionsPage() {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center min-h-screen">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <Loader2 className="h-8 w-8 animate-spin text-[#1b388b]" />
         </div>
       </DashboardLayout>
     )
@@ -125,266 +188,94 @@ export default function TransactionsPage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6 px-2 sm:px-4">
-        {/* Page Header */}
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">My Transactions</h1>
-          <p className="text-sm sm:text-base text-muted-foreground mt-1">Track and manage your financial activities</p>
+      <div className="max-w-2xl lg:max-w-4xl mx-auto space-y-5">
+        <DashboardHeroBanner title="Transactions" subtitle="Track and manage your financial activities" icon={DollarSign} />
+
+        {/* Tabs -- 7 categories don't fit an equal-width pill row, so this
+            scrolls horizontally instead of wrapping or shrinking text. */}
+        <div className="-mx-2 overflow-x-auto px-2 sm:mx-0 sm:px-0">
+          <div className="inline-flex min-w-full gap-1 rounded-2xl bg-muted p-1 sm:min-w-0">
+            {TABS.map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                onClick={() => setTab(id)}
+                className={`flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-4 py-2.5 text-sm font-bold transition ${
+                  tab === id ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"
+                }`}
+              >
+                <Icon className="h-4 w-4" /> {label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Transactions</CardTitle>
-              <DollarSign className="h-4 w-4 text-primary" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.totalTransactions.toLocaleString()}</div>
-              <p className="text-xs text-muted-foreground">All time</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Today's Income</CardTitle>
-              <TrendingUp className="h-4 w-4 text-success" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">GHS {formatAmount(stats.todayIncome)}</div>
-              <p className="text-xs text-muted-foreground">Credits</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Today's Expenses</CardTitle>
-              <TrendingDown className="h-4 w-4 text-destructive" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">GHS {formatAmount(stats.todayExpenses)}</div>
-              <p className="text-xs text-muted-foreground">Debits</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Today's Refunds</CardTitle>
-              <DollarSign className="h-4 w-4 text-warning" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">GHS {formatAmount(stats.todayRefunds)}</div>
-              <p className="text-xs text-muted-foreground">Refunded</p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Filters Card */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Filters</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label htmlFor="type" className="text-sm font-medium text-foreground">Transaction Type</label>
-                <select 
-                  id="type"
-                  value={filters.type}
-                  onChange={(e) => { setFilters({ ...filters, type: e.target.value }); setPage(1); }}
-                  className="w-full mt-1 px-3 py-2 border border-border rounded-md"
-                >
-                  <option value="all">All Types</option>
-                  <option value="credit">Credit</option>
-                  <option value="debit">Debit</option>
-                  <option value="refund">Refund</option>
-                </select>
-              </div>
-              <div>
-                <label htmlFor="dateRange" className="text-sm font-medium text-foreground">Date Range</label>
-                <select 
-                  id="dateRange"
-                  value={filters.dateRange}
-                  onChange={(e) => { setFilters({ ...filters, dateRange: e.target.value }); setPage(1); }}
-                  className="w-full mt-1 px-3 py-2 border border-border rounded-md"
-                >
-                  <option value="all">All Time</option>
-                  <option value="today">Today</option>
-                  <option value="week">This Week</option>
-                  <option value="month">This Month</option>
-                  <option value="3months">Last 3 Months</option>
-                </select>
-              </div>
-              <div>
-                <Button 
-                  onClick={() => { setFilters({ type: "all", source: "all", dateRange: "all" }); setPage(1); }}
-                  variant="outline"
-                  className="w-full mt-6"
-                >
-                  Clear Filters
-                </Button>
-              </div>
+        {tab === "stats" && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
+            <div className="rounded-2xl border border-border bg-card p-4">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#1b388b]/10 text-[#1b388b]">
+                <DollarSign className="h-4 w-4" />
+              </span>
+              <p className="mt-2 text-lg font-black text-foreground">{stats.totalTransactions.toLocaleString()}</p>
+              <p className="text-xs text-muted-foreground">Total Transactions</p>
             </div>
-          </CardContent>
-        </Card>
-
-        {/* Transactions List */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Transactions List</CardTitle>
-            <CardDescription>Your financial transaction history</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {transactions.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                No transactions found
-              </div>
-            ) : (
-              <>
-                {/* Mobile Card View */}
-                <div className="md:hidden space-y-3">
-                  {transactions.map((txn) => (
-                    <div key={txn.id} className="border rounded-lg p-4 bg-card shadow-sm">
-                      {/* Header: Date + Status */}
-                      <div className="flex justify-between items-start mb-3">
-                        <div>
-                          <p className="text-xs text-muted-foreground">
-                            {new Date(txn.created_at).toLocaleDateString()}
-                          </p>
-                          <p className="text-sm text-foreground mt-1 line-clamp-1">{txn.description}</p>
-                        </div>
-                        <Badge className={
-                          txn.status === "completed" ? "bg-success/15 text-success" :
-                          txn.status === "pending" ? "bg-warning/10 text-warning" :
-                          "bg-destructive/15 text-destructive"
-                        }>
-                          {txn.status.charAt(0).toUpperCase() + txn.status.slice(1)}
-                        </Badge>
-                      </div>
-                      
-                      {/* Amount + Type */}
-                      <div className="flex justify-between items-center mb-3">
-                        <Badge className={
-                          txn.type === "credit" ? "bg-success/15 text-success" :
-                          txn.type === "debit" ? "bg-destructive/15 text-destructive" :
-                          "bg-warning/10 text-warning"
-                        }>
-                          {txn.type.charAt(0).toUpperCase() + txn.type.slice(1)}
-                        </Badge>
-                        <span className={`text-lg font-bold ${
-                          txn.type === "credit" ? "text-success" : "text-destructive"
-                        }`}>
-                          {txn.type === "credit" ? "+" : "-"}GHS {formatAmount(txn.amount)}
-                        </span>
-                      </div>
-                      
-                      {/* Balance Info */}
-                      <div className="grid grid-cols-2 gap-2 text-xs border-t pt-3">
-                        <div>
-                          <span className="text-muted-foreground">Before:</span>
-                          <span className="ml-1 font-medium">GHS {formatAmount(Math.max(0, txn.balance_before))}</span>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">After:</span>
-                          <span className="ml-1 font-semibold">GHS {formatAmount(Math.max(0, txn.balance_after))}</span>
-                        </div>
-                      </div>
-                      
-                      {/* Order ID + Action */}
-                      <div className="flex justify-between items-center mt-3 pt-3 border-t">
-                        <span className="text-xs text-muted-foreground">
-                          {txn.order_id ? `#${txn.order_id.slice(0, 8)}...` : "No order"}
-                        </span>
-                        <Button size="sm" variant="outline">View</Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Desktop Table View */}
-                <div className="hidden md:block overflow-x-auto rounded-md border border-border">
-                  <table className="w-full text-sm">
-                    <thead className="bg-muted/40 border-b">
-                      <tr>
-                        <th className="px-4 py-3 text-left font-semibold text-foreground">Date</th>
-                        <th className="px-4 py-3 text-left font-semibold text-foreground">Type</th>
-                        <th className="px-4 py-3 text-left font-semibold text-foreground">Source</th>
-                        <th className="px-4 py-3 text-left font-semibold text-foreground">Amount</th>
-                        <th className="px-4 py-3 text-left font-semibold text-foreground">Balance Before</th>
-                        <th className="px-4 py-3 text-left font-semibold text-foreground">Balance After</th>
-                        <th className="px-4 py-3 text-left font-semibold text-foreground">Status</th>
-                        <th className="px-4 py-3 text-left font-semibold text-foreground">Order ID</th>
-                        <th className="px-4 py-3 text-left font-semibold text-foreground">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y">
-                      {transactions.map((txn) => (
-                        <tr key={txn.id} className="hover:bg-accent">
-                          <td className="px-4 py-3">{new Date(txn.created_at).toLocaleDateString()}</td>
-                          <td className="px-4 py-3">
-                            <Badge className={
-                              txn.type === "credit" ? "bg-success/15 text-success" :
-                              txn.type === "debit" ? "bg-destructive/15 text-destructive" :
-                              "bg-warning/10 text-warning"
-                            }>
-                              {txn.type.charAt(0).toUpperCase() + txn.type.slice(1)}
-                            </Badge>
-                          </td>
-                          <td className="px-4 py-3">{txn.description}</td>
-                          <td className={`px-4 py-3 font-semibold ${
-                            txn.type === "credit" ? "text-success" : "text-destructive"
-                          }`}>
-                            {txn.type === "credit" ? "+" : "-"}GHS {formatAmount(txn.amount)}
-                          </td>
-                          <td className="px-4 py-3">GHS {formatAmount(Math.max(0, txn.balance_before))}</td>
-                          <td className="px-4 py-3 font-semibold">GHS {formatAmount(Math.max(0, txn.balance_after))}</td>
-                          <td className="px-4 py-3">
-                            <Badge className={
-                              txn.status === "completed" ? "bg-success/15 text-success" :
-                              txn.status === "pending" ? "bg-warning/10 text-warning" :
-                              "bg-destructive/15 text-destructive"
-                            }>
-                              {txn.status.charAt(0).toUpperCase() + txn.status.slice(1)}
-                            </Badge>
-                          </td>
-                          <td className="px-4 py-3">{txn.order_id || "—"}</td>
-                          <td className="px-4 py-3">
-                            <Button size="sm" variant="outline">View</Button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            )}
-            
-            {/* Pagination */}
-            <div className="mt-4 flex flex-col sm:flex-row justify-between items-center gap-3">
-              <p className="text-sm text-muted-foreground">Showing {transactions.length} transaction(s)</p>
-              <div className="flex gap-2">
-                <Button 
-                  variant="outline" 
-                  onClick={() => setPage(page - 1)}
-                  disabled={page === 1}
-                  size="sm"
-                  className="px-4"
-                >
-                  Previous
-                </Button>
-                <Button 
-                  variant="outline"
-                  onClick={() => setPage(page + 1)}
-                  disabled={transactions.length < pageSize}
-                  size="sm"
-                  className="px-4"
-                >
-                  Next
-                </Button>
-              </div>
+            <div className="rounded-2xl border border-border bg-card p-4">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-success/10 text-success">
+                <TrendingUp className="h-4 w-4" />
+              </span>
+              <p className="mt-2 text-lg font-black text-foreground">GHS {formatAmount(stats.todayIncome)}</p>
+              <p className="text-xs text-muted-foreground">Today&apos;s Income</p>
             </div>
-          </CardContent>
-        </Card>
+            <div className="rounded-2xl border border-border bg-card p-4">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
+                <TrendingDown className="h-4 w-4" />
+              </span>
+              <p className="mt-2 text-lg font-black text-foreground">GHS {formatAmount(stats.todayExpenses)}</p>
+              <p className="text-xs text-muted-foreground">Today&apos;s Expenses</p>
+            </div>
+          </div>
+        )}
+
+        {tab === "topup" && (
+          <TransactionList
+            transactions={transactions.filter((t) => categorizeTransaction(t.source) === "topup")}
+            emptyMessage="No top-ups yet."
+          />
+        )}
+
+        {tab === "data" && (
+          <TransactionList
+            transactions={transactions.filter((t) => categorizeTransaction(t.source) === "data")}
+            emptyMessage="No data purchase transactions found."
+          />
+        )}
+
+        {tab === "results" && (
+          <TransactionList
+            transactions={transactions.filter((t) => categorizeTransaction(t.source) === "results")}
+            emptyMessage="No results checker/checking transactions found."
+          />
+        )}
+
+        {tab === "airtime" && (
+          <TransactionList
+            transactions={transactions.filter((t) => categorizeTransaction(t.source) === "airtime")}
+            emptyMessage="No airtime transactions found."
+          />
+        )}
+
+        {tab === "afa" && (
+          <TransactionList
+            transactions={transactions.filter((t) => categorizeTransaction(t.source) === "afa")}
+            emptyMessage="No AFA registration transactions found."
+          />
+        )}
+
+        {tab === "misc" && (
+          <TransactionList
+            transactions={transactions.filter((t) => categorizeTransaction(t.source) === "misc")}
+            emptyMessage="No miscellaneous transactions found."
+          />
+        )}
       </div>
     </DashboardLayout>
   )

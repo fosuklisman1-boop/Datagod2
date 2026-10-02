@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { useAuth } from "@/lib/auth-context"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { notificationService, type Notification } from "@/lib/notification-service"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -133,14 +134,7 @@ export default function NotificationsPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        {/* Page Header */}
-        <div>
-          <h1 className="text-3xl font-bold text-foreground flex items-center gap-2">
-            <Bell className="w-8 h-8 text-primary" />
-            Notifications
-          </h1>
-          <p className="text-muted-foreground mt-1">Manage your notifications and stay updated</p>
-        </div>
+        <DashboardHeroBanner title="Notifications" subtitle="Manage your notifications and stay updated" icon={Bell} />
 
         {/* Stats Cards */}
         <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">

@@ -43,19 +43,35 @@ export async function resolveShopCode(
 
   const { data: shopRow } = await client
     .from("user_shops")
-    .select("shop_name, parent_shop_id")
+    .select("shop_name, parent_shop_id, ussd_display_name")
     .eq("id", shopCode.shop_id)
     .single()
 
   return {
     shopCodeId: shopCode.id,
     shopId: shopCode.shop_id,
-    shopName: shopRow?.shop_name ?? 'Shop',
+    shopName: shopRow?.ussd_display_name || shopRow?.shop_name || 'Shop',
     parentShopId: (shopRow as any)?.parent_shop_id ?? null,
     status: shopCode.status,
     tokenBalance: shopCode.token_balance,
     whatsappActivated: shopCode.whatsapp_activated === true,
   }
+}
+
+// Looks up a shop's real, unfiltered shop_name directly by id — for callers
+// that only have a shopId in hand (e.g. a USSD/WhatsApp session) and need
+// the canonical name for record-keeping (see ResolvedShopCode.canonicalShopName).
+export async function getCanonicalShopName(
+  shopId: string,
+  client: SupabaseClientLike = supabase
+): Promise<string> {
+  const { data } = await client
+    .from("user_shops")
+    .select("shop_name")
+    .eq("id", shopId)
+    .single()
+
+  return (data as any)?.shop_name ?? 'Shop'
 }
 
 // Distinct, deduped list of networks a shop's Data Bundle catalog currently offers.

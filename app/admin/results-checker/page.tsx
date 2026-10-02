@@ -15,6 +15,7 @@ import {
 import { toast } from "sonner"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { supabase } from "@/lib/supabase"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 
 const EXAM_BOARDS = ["WASSCE", "BECE", "NOVDEC"]
 
@@ -412,10 +413,10 @@ export default function AdminResultsCheckerPage() {
   return (
     <DashboardLayout>
       <div className="p-6 space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Results Checker Vouchers</h1>
-          <p className="text-muted-foreground text-sm mt-1">Manage WASSCE, BECE &amp; NOVDEC voucher inventory and orders</p>
-        </div>
+        <PageHeaderBanner
+          title="Results Checker Vouchers"
+          subtitle="Manage WASSCE, BECE & NOVDEC voucher inventory and orders"
+        />
 
         {lowStockBoards.length > 0 && (
           <div className="flex items-center gap-2 px-4 py-3 bg-warning/10 border border-border rounded-lg text-warning text-sm font-medium">

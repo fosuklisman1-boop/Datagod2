@@ -7,6 +7,7 @@ import {
   airtimeConfirmMenu, airtimePaymentMethodMenu,
 } from "../menus"
 import { setSession } from "../session"
+import { networkNickname } from "../network-labels"
 import { resolveEmail } from "../resolve-email"
 import { resolveDialer } from "../resolve-dialer"
 import { chargeMobileMoney } from "../../paystack"
@@ -18,6 +19,7 @@ import {
   detectAirtimeNetwork, isAirtimeEnabled, getAirtimeLimits,
   airtimeBaseFeeRate, splitInclusive,
 } from "../../airtime-pricing"
+import { getUssdServiceVisibility } from "../../ussd-service-visibility"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -43,7 +45,13 @@ export async function handleAirtimeEnterRecipient(
 ): Promise<UzoResponse> {
   if (input.trim() === "0") {
     await setSession(sessionId, { step: "MAIN", dialingPhone: session.dialingPhone })
-    return cont(mainMenu())
+    const visibility = await getUssdServiceVisibility(supabase)
+    return cont(mainMenu({
+      data: visibility.data,
+      afa: visibility.afa,
+      airtime: visibility.airtime,
+      resultsChecker: visibility.resultsChecker,
+    }))
   }
 
   const raw = input.trim().replace(/\s+/g, "")
@@ -60,12 +68,12 @@ export async function handleAirtimeEnterRecipient(
   }
 
   if (!(await isAirtimeEnabled(network))) {
-    return cont(`${network} airtime unavailable.\n` + airtimeRecipientPrompt())
+    return cont(`${networkNickname(network)} airtime unavailable.\n` + airtimeRecipientPrompt())
   }
 
   const { min, max } = await getAirtimeLimits()
   await setSession(sessionId, { ...session, step: "AIRTIME_ENTER_AMOUNT", airtimeRecipient: local, airtimeNetwork: network })
-  return cont(airtimeAmountPrompt(network, min, max))
+  return cont(airtimeAmountPrompt(networkNickname(network), min, max))
 }
 
 // ── AIRTIME_SELECT_NETWORK (fallback when prefix unknown) ─────────────────────
@@ -84,12 +92,12 @@ export async function handleAirtimeSelectNetwork(
   if (!network) return cont(airtimeNetworkMenu())
 
   if (!(await isAirtimeEnabled(network))) {
-    return cont(`${network} airtime unavailable.\n` + airtimeNetworkMenu())
+    return cont(`${networkNickname(network)} airtime unavailable.\n` + airtimeNetworkMenu())
   }
 
   const { min, max } = await getAirtimeLimits()
   await setSession(sessionId, { ...session, step: "AIRTIME_ENTER_AMOUNT", airtimeNetwork: network })
-  return cont(airtimeAmountPrompt(network, min, max))
+  return cont(airtimeAmountPrompt(networkNickname(network), min, max))
 }
 
 // ── AIRTIME_ENTER_AMOUNT ──────────────────────────────────────────────────────
@@ -107,7 +115,7 @@ export async function handleAirtimeEnterAmount(
   const network = session.airtimeNetwork!
   const { min, max } = await getAirtimeLimits()
   if (isNaN(amount) || amount < min || amount > max) {
-    return cont(`Enter a valid amount.\n` + airtimeAmountPrompt(network, min, max))
+    return cont(`Enter a valid amount.\n` + airtimeAmountPrompt(networkNickname(network), min, max))
   }
 
   const dialer = await resolveDialer(session.dialingPhone ?? "")
@@ -124,7 +132,7 @@ export async function handleAirtimeEnterAmount(
     walletBalance: dialer.balance,
   })
 
-  return cont(airtimeConfirmMenu(network, session.airtimeRecipient!, amount, toDeliver, session.dialingPhone!))
+  return cont(airtimeConfirmMenu(networkNickname(network), session.airtimeRecipient!, amount, toDeliver, session.dialingPhone!))
 }
 
 // ── AIRTIME_CONFIRM ───────────────────────────────────────────────────────────
@@ -140,7 +148,7 @@ export async function handleAirtimeConfirm(
   }
   if (input.trim() !== "1") {
     return cont(airtimeConfirmMenu(
-      session.airtimeNetwork!, session.airtimeRecipient!,
+      networkNickname(session.airtimeNetwork!), session.airtimeRecipient!,
       session.airtimeAmount!, session.airtimeToDeliver!, session.dialingPhone!
     ))
   }
@@ -151,7 +159,7 @@ export async function handleAirtimeConfirm(
   // Re-verify settings server-side (stale-session guard)
   if (!(await isAirtimeEnabled(network))) {
     await setSession(sessionId, { step: "MAIN", dialingPhone })
-    return end(`${network} airtime is no longer available.`)
+    return end(`${networkNickname(network)} airtime is no longer available.`)
   }
   const { min, max } = await getAirtimeLimits()
   const amount = session.airtimeAmount!

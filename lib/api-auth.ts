@@ -14,6 +14,7 @@ export interface ApiUser {
   first_name: string
   api_key_id: string
   rate_limit_per_min: number
+  environment: "test" | "live"
 }
 
 /**
@@ -24,23 +25,26 @@ export function hashApiKey(key: string): string {
 }
 
 /**
- * Generate a new API key with the dg_live_ prefix
+ * Generate a new API key. `dg_live_` keys hit real endpoints and spend real
+ * money; `dg_test_` keys are sandboxed (see lib/sandbox.ts) and never touch
+ * real orders, wallets, or provider dispatch.
  */
-export function generateApiKey(): { key: string; prefix: string; hash: string } {
+export function generateApiKey(environment: "test" | "live"): { key: string; prefix: string; hash: string } {
   const random = crypto.randomBytes(32).toString("hex")
-  const key = `dg_live_${random}`
-  const prefix = key.substring(0, 16) // "dg_live_" + first 8 chars
+  const key = `dg_${environment}_${random}`
+  const prefix = key.substring(0, 16) // "dg_test_"/"dg_live_" + a few chars
   const hash = hashApiKey(key)
   return { key, prefix, hash }
 }
 
 /**
  * Authenticate an incoming API request via the X-API-Key header.
- * Returns the authenticated user or null.
+ * Returns the authenticated user (with which environment their key belongs
+ * to) or null.
  */
 export async function authenticateApiKey(request: NextRequest): Promise<ApiUser | null> {
   const apiKey = request.headers.get("X-API-Key") || request.headers.get("x-api-key")
-  if (!apiKey || !apiKey.startsWith("dg_live_")) {
+  if (!apiKey || !(apiKey.startsWith("dg_live_") || apiKey.startsWith("dg_test_"))) {
     return null
   }
 
@@ -49,7 +53,7 @@ export async function authenticateApiKey(request: NextRequest): Promise<ApiUser 
   // Look up the hashed key
   const { data: keyRecord, error } = await supabase
     .from("user_api_keys")
-    .select("id, user_id, is_active, last_used_at, rate_limit_per_min")
+    .select("id, user_id, is_active, last_used_at, rate_limit_per_min, environment")
     .eq("key_hash", keyHash)
     .eq("is_active", true)
     .single()
@@ -83,6 +87,7 @@ export async function authenticateApiKey(request: NextRequest): Promise<ApiUser 
     first_name: user.first_name,
     api_key_id: keyRecord.id,
     rate_limit_per_min: keyRecord.rate_limit_per_min || 60,
+    environment: keyRecord.environment === "test" ? "test" : "live",
   }
 }
 

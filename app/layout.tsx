@@ -130,13 +130,13 @@ export default async function RootLayout({
   const parsedServices = rawServices
     ? rawServices.split(",").filter((s): s is DomainService => VALID_DOMAIN_SERVICES.includes(s as DomainService))
     : [];
+  const rawHiddenPages = headersList.get("x-domain-hidden-pages");
   const domainBranding: DomainBranding = {
     services: parsedServices.length > 0 ? parsedServices : null,
     siteName: headersList.get("x-domain-site-name"),
     logoUrl: headersList.get("x-domain-logo"),
     primaryColor: headersList.get("x-domain-color"),
-    showGuestPurchase: headersList.get("x-domain-guest-purchase") === "1",
-    showLandingPage: headersList.get("x-domain-landing-page") !== "0",
+    hiddenPages: rawHiddenPages ? rawHiddenPages.split(",").filter(Boolean) : [],
   };
 
   // Maintenance mode: a DB-free kill switch. When on, render ONLY the maintenance
@@ -227,7 +227,7 @@ export default async function RootLayout({
         {maintenanceMode ? (
           <MaintenanceScreen />
         ) : (
-          <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} disableTransitionOnChange nonce={nonce}>
+          <ThemeProvider attribute="class" defaultTheme="light" forcedTheme="light" enableSystem={false} disableTransitionOnChange nonce={nonce}>
             <DomainBrandingProvider branding={domainBranding}>
               <AuthProvider>
                 <ServiceWorkerRegister />

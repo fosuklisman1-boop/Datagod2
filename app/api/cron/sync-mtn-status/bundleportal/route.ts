@@ -19,12 +19,15 @@ function sleep(ms: number): Promise<void> {
 /**
  * GET /api/cron/sync-mtn-status/bundleportal
  *
- * Polling fallback for Bundle Portal orders whose webhook was missed.
- * Webhooks are the primary channel for this provider (guaranteed delivery
- * via after(), documented by Bundle Portal as reliable enough that "most
- * integrations that use webhooks never call check_status at all") — this
- * cron is the same kind of safety net it already is for every other
- * provider, not the primary resolution path.
+ * ⚠️ NOT SCHEDULED (removed from vercel.json crons, 2026-09-26). Bundle
+ * Portal's v2 API permanently removed status polling — check_status now
+ * always returns HTTP 410 { code: "polling_disabled" }, so both the main
+ * loop below and the reversal-detection loop can only ever report failure;
+ * this cron no longer provides any safety net. Kept in the repo (rather than
+ * deleted) only in case Bundle Portal reintroduces polling later. Webhook
+ * delivery (app/api/webhooks/mtn/bundleportal/route.ts, backed by after())
+ * is now the SOLE channel for learning a Bundle Portal order's outcome — an
+ * order whose webhook is ever missed has no automatic recovery path.
  */
 export async function GET(request: NextRequest) {
     const { authorized, errorResponse } = verifyCronAuth(request)

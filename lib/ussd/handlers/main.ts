@@ -1,6 +1,14 @@
+import { createClient } from "@supabase/supabase-js"
 import { UzoResponse, USSDSession } from "../types"
-import { cont, end, mainMenu, afaEnterNamePrompt, airtimeRecipientPrompt, rcMenu } from "../menus"
+import { cont, end, afaEnterNamePrompt, airtimeRecipientPrompt, rcMenu, resolveMainMenu, networkMenu, type MainMenuKey } from "../menus"
+import { keyForDigit, renderMenuText } from "../menu-items"
 import { setSession, deleteSession } from "../session"
+import { getUssdServiceVisibility } from "../../ussd-service-visibility"
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
 
 export async function handleMain(
   input: string,
@@ -12,43 +20,39 @@ export async function handleMain(
 
   const key = input.trim()
 
-  if (dataBlocked) {
-    // Renumbered menu: 1=AFA, 2=Airtime, 3=RC
-    switch (key) {
-      case '1':
-        await setSession(sessionId, { step: 'AFA_ENTER_NAME', dialingPhone, dataBlocked })
-        return cont(afaEnterNamePrompt())
-      case '2':
-        await setSession(sessionId, { step: 'AIRTIME_ENTER_RECIPIENT', dialingPhone, dataBlocked })
-        return cont(airtimeRecipientPrompt())
-      case '3':
-        await setSession(sessionId, { step: 'RC_MENU', dialingPhone, dataBlocked })
-        return cont(rcMenu())
-      case '0':
-        await deleteSession(sessionId)
-        return end('Thank you for using DataGod.')
-      default:
-        return cont(mainMenu(false))
-    }
+  if (key === '0') {
+    await deleteSession(sessionId)
+    return end('Thank you for using DataGod.')
   }
 
-  switch (key) {
-    case '1':
-      await setSession(sessionId, { step: 'SELECT_NETWORK', dialingPhone })
-      return cont('Select Network:\n1. MTN\n2. Telecel\n3. AirtelTigo\n4. AT-iShare\n0. Back')
-    case '2':
-      await setSession(sessionId, { step: 'AFA_ENTER_NAME', dialingPhone })
+  // Combine the per-caller whitelist gate (existing, unrelated to this
+  // feature) with the admin's global service-visibility toggle — data
+  // bundle only shows if BOTH allow it. The other three services are gated
+  // only by the admin toggle.
+  const adminVisibility = await getUssdServiceVisibility(supabase)
+  const effective: Partial<Record<MainMenuKey, boolean>> = {
+    data: !dataBlocked && adminVisibility.data,
+    afa: adminVisibility.afa,
+    airtime: adminVisibility.airtime,
+    resultsChecker: adminVisibility.resultsChecker,
+  }
+  const resolved = resolveMainMenu(effective)
+  const matchedKey = keyForDigit(resolved, key)
+
+  switch (matchedKey) {
+    case 'data':
+      await setSession(sessionId, { step: 'SELECT_NETWORK', dialingPhone, dataBlocked })
+      return cont(networkMenu())
+    case 'afa':
+      await setSession(sessionId, { step: 'AFA_ENTER_NAME', dialingPhone, dataBlocked })
       return cont(afaEnterNamePrompt())
-    case '3':
-      await setSession(sessionId, { step: 'AIRTIME_ENTER_RECIPIENT', dialingPhone })
+    case 'airtime':
+      await setSession(sessionId, { step: 'AIRTIME_ENTER_RECIPIENT', dialingPhone, dataBlocked })
       return cont(airtimeRecipientPrompt())
-    case '4':
-      await setSession(sessionId, { step: 'RC_MENU', dialingPhone })
+    case 'resultsChecker':
+      await setSession(sessionId, { step: 'RC_MENU', dialingPhone, dataBlocked })
       return cont(rcMenu())
-    case '0':
-      await deleteSession(sessionId)
-      return end('Thank you for using DataGod.')
     default:
-      return cont(mainMenu())
+      return cont(renderMenuText('Welcome to Datagod', resolved, '0. Exit'))
   }
 }

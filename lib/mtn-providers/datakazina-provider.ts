@@ -7,18 +7,41 @@
 import { generateTraceId, log } from "@/lib/mtn-production-config"
 import type { MTNProvider, MTNOrderRequest, MTNOrderResponse, MTNOrderStatusResponse } from "./types"
 import { normalizePhoneNumber, isValidPhoneFormat, validatePhoneNetworkMatch } from "@/lib/mtn-fulfillment"
+import { supabaseAdmin as supabase } from "@/lib/supabase"
 
 const DATAKAZINA_API_KEY = process.env.DATAKAZINA_API_KEY!
 const DATAKAZINA_API_BASE_URL =
     process.env.DATAKAZINA_API_URL || "https://reseller.dakazinabusinessconsult.com/api/v1"
 const REQUEST_TIMEOUT = 30000 // 30 seconds
 
-// Network ID mapping for DataKazina
+// Network ID mapping for DataKazina's non-MTN networks. MTN is handled
+// separately (see getActiveMtnNetworkId) since DataKazina now offers two
+// independent MTN network IDs to choose between.
 const NETWORK_ID_MAP = {
-    MTN: 3,
     Telecel: 1, // TODO: Confirm with user
     AirtelTigo: 2, // TODO: Confirm with user
 } as const
+
+/** admin_settings key for the admin-selected active DataKazina MTN network. */
+export const MTN_ROUTE_KEY = "datakazina_mtn_route"
+
+/**
+ * DataKazina added a second MTN network, "MTN Express" (network_id 6), on
+ * 2026-09-26 — confirmed directly by DataKazina. The original MTN network
+ * (network_id 3) remains the default; an admin can switch to MTN Express.
+ */
+export async function getActiveMtnNetworkId(): Promise<3 | 6> {
+    try {
+        const { data } = await supabase
+            .from("admin_settings")
+            .select("value")
+            .eq("key", MTN_ROUTE_KEY)
+            .maybeSingle()
+        return data?.value?.route === "mtn_express" ? 6 : 3
+    } catch {
+        return 3
+    }
+}
 
 /**
  * Sleep helper function
@@ -66,7 +89,7 @@ export class DataKazinaProvider implements MTNProvider {
             }
 
             const normalized_phone = normalizePhoneNumber(order.recipient_phone)
-            const network_id = NETWORK_ID_MAP[order.network]
+            const network_id = order.network === "MTN" ? await getActiveMtnNetworkId() : NETWORK_ID_MAP[order.network]
 
             // Send our order UUID as the reference so DataKazina echoes it back
             // (disguised) in the webhook `reference`, enabling order correlation
@@ -346,7 +369,9 @@ export class DataKazinaProvider implements MTNProvider {
 
                 if (["completed", "success", "successful", "delivered", "done"].includes(apiStatus)) {
                     normalizedStatus = "completed"
-                } else if (["failed", "error", "cancelled", "rejected"].includes(apiStatus)) {
+                } else if (["failed", "error", "cancelled", "rejected", "waiting"].includes(apiStatus)) {
+                    // "waiting" reads like an in-flight state but DataKazina uses it to
+                    // mean the order failed — confirmed directly by DataKazina.
                     normalizedStatus = "failed"
                 } else if (["processing", "in_progress", "queued", "pending_delivery"].includes(apiStatus)) {
                     normalizedStatus = "processing"

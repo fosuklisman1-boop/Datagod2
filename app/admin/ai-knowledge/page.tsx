@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -144,11 +145,12 @@ export default function AIKnowledgePage() {
   return (
     <DashboardLayout>
       <div className="p-6 max-w-4xl mx-auto space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">AI Knowledge Base</h1>
-            <p className="text-sm text-muted-foreground mt-1">Entries the AI searches when answering user questions</p>
-          </div>
+        <div className="flex items-center gap-4">
+          <PageHeaderBanner
+            title="AI Knowledge Base"
+            subtitle="Entries the AI searches when answering user questions"
+            className="flex-1"
+          />
           {!showForm && (
             <Button onClick={() => setShowForm(true)} className="gap-2">
               <Plus size={16} /> Add Entry

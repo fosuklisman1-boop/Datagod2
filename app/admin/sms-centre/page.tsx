@@ -2,8 +2,9 @@
 
 import { useState } from "react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { MessageSquare, Send, Users, FileText, Network, History } from "lucide-react"
+import { Send, Users, FileText, Network, History } from "lucide-react"
 import BroadcastTab from "./_components/BroadcastTab"
 import ContactsTab from "./_components/ContactsTab"
 import TemplatesTab from "./_components/TemplatesTab"
@@ -17,17 +18,10 @@ export default function SmsCentrePage() {
     <DashboardLayout>
       <div className="p-4 md:p-6 space-y-6 max-w-5xl">
         {/* Header */}
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10">
-            <MessageSquare className="h-6 w-6 text-primary" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">SMS Centre</h1>
-            <p className="text-sm text-muted-foreground">
-              Broadcast to platform users or address-book groups, and manage contacts, templates and providers.
-            </p>
-          </div>
-        </div>
+        <PageHeaderBanner
+          title="SMS Centre"
+          subtitle="Broadcast to platform users or address-book groups, and manage contacts, templates and providers."
+        />
 
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList className="flex-wrap">

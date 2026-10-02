@@ -12,6 +12,7 @@ import { useAdminProtected } from "@/hooks/use-admin"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 
@@ -48,7 +49,9 @@ function getNetworkColor(network: string): string {
 // (business decision — neither provider's API distinguishes AT-iShare from AT-BigTime,
 // so this exclusion is enforced here rather than by the provider itself), spfastit
 // offered only for AT-iShare (it's AirtelTigo-only — not capable for Telecel or MTN,
-// per NON_MTN_CAPABLE.at_ishare_provider_selection in factory.ts), and bundleportal
+// per NON_MTN_CAPABLE.at_ishare_provider_selection in factory.ts), spfastit_telecel
+// offered only for plain Telecel (a separate account/API from spfastit, Telecel-only —
+// per NON_MTN_CAPABLE.telecel_provider_selection in factory.ts), and bundleportal
 // offered on every branch, including AT-BigTime — it's a full member capable on all
 // networks (see NON_MTN_CAPABLE.at_bigtime_provider_selection in factory.ts).
 function getProviderOptionsForNetwork(network: string): { value: string; label: string }[] {
@@ -76,6 +79,7 @@ function getProviderOptionsForNetwork(network: string): { value: string; label: 
     { value: "eazyghdata", label: "EazyGhData" },
     ...(isBigTime ? [] : [{ value: "agentportalgh", label: "AgentPortalGH" }, { value: "apexprime", label: "Apex Prime" }]),
     ...(isIshare ? [{ value: "spfastit", label: "SPFastIT" }] : []),
+    ...(isBigTime || isIshare ? [] : [{ value: "spfastit_telecel", label: "SPFastIT (Telecel)" }]),
     { value: "bundleportal", label: "Bundle Portal" },
   ]
 }
@@ -746,12 +750,11 @@ export default function OrderPaymentStatusPage() {
         {/* Page Header */}
         <div>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary via-primary to-pink-600 bg-clip-text text-transparent">
-                Order Payment Status
-              </h1>
-              <p className="text-muted-foreground mt-1 font-medium">View and search all orders by payment reference or phone number</p>
-            </div>
+            <PageHeaderBanner
+              className="flex-1"
+              title="Order Payment Status"
+              subtitle="View and search all orders by payment reference or phone number"
+            />
             {autoFulfillmentEnabled && pendingMTNOrders.length > 0 && (
               <Button
                 onClick={handleBulkManualFulfill}

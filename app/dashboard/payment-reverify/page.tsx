@@ -2,18 +2,9 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { Card, CardContent } from "@/components/ui/card"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import {
   Search,
   RefreshCw,
@@ -163,14 +154,14 @@ export default function ShopPaymentReverifyPage() {
     switch (result.paystack_status) {
       case "success":
         return result.action === "already_processed"
-          ? <Badge className="bg-primary text-xs">Already Done</Badge>
+          ? <Badge className="bg-[#1b388b] text-xs">Already Done</Badge>
           : <Badge className="bg-success text-xs"><CheckCircle className="w-3 h-3 mr-1" />Verified</Badge>
       case "failed":
         return <Badge className="bg-destructive text-xs"><XCircle className="w-3 h-3 mr-1" />Failed</Badge>
       case "abandoned":
         return <Badge className="bg-muted-foreground text-xs"><AlertTriangle className="w-3 h-3 mr-1" />Abandoned</Badge>
       case "pending":
-        return <Badge className="bg-warning text-xs"><Clock className="w-3 h-3 mr-1" />Still Pending</Badge>
+        return <Badge className="bg-amber-500 text-xs"><Clock className="w-3 h-3 mr-1" />Still Pending</Badge>
       default:
         return <Badge variant="secondary" className="text-xs">{result.paystack_status}</Badge>
     }
@@ -179,8 +170,8 @@ export default function ShopPaymentReverifyPage() {
   if (shopLoading) {
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center h-64">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        <div className="flex items-center justify-center h-screen">
+          <Loader2 className="w-8 h-8 animate-spin text-[#1b388b]" />
         </div>
       </DashboardLayout>
     )
@@ -189,7 +180,7 @@ export default function ShopPaymentReverifyPage() {
   if (!shopId) {
     return (
       <DashboardLayout>
-        <div className="p-6">
+        <div className="mx-auto max-w-2xl lg:max-w-4xl">
           <p className="text-muted-foreground">You don't have a shop set up yet.</p>
         </div>
       </DashboardLayout>
@@ -198,104 +189,144 @@ export default function ShopPaymentReverifyPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">Payment Reverification</h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Check pending customer orders against Paystack and trigger fulfillment
-            </p>
-          </div>
-          <Button variant="outline" size="sm" onClick={fetchOrders} disabled={loading}>
-            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+      <div className="mx-auto max-w-2xl lg:max-w-4xl space-y-5">
+        <DashboardHeroBanner title="Payment Reverification" subtitle="Check pending customer orders against Paystack and trigger fulfillment" icon={Zap}>
+          <Button variant="outline" size="sm" className="rounded-full border-white/25 bg-white/10 text-white hover:bg-white/20 hover:text-white" onClick={fetchOrders} disabled={loading}>
+            <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${loading ? "animate-spin" : ""}`} />
             Refresh
           </Button>
-        </div>
+        </DashboardHeroBanner>
 
         {/* Search */}
-        <Card>
-          <CardContent className="pt-4">
-            <div className="flex gap-3">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search by reference, phone or name..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="pl-9"
-                />
-              </div>
-              {search && (
-                <Button variant="ghost" size="sm" onClick={() => setSearch("")}>
-                  Clear
-                </Button>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              placeholder="Search by reference, phone or name..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full rounded-2xl border border-border bg-card py-2.5 pl-10 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-[#1b388b]/30"
+            />
+          </div>
+          {search && (
+            <button
+              onClick={() => setSearch("")}
+              className="shrink-0 rounded-2xl border border-border px-4 text-sm font-semibold text-foreground hover:bg-accent"
+            >
+              Clear
+            </button>
+          )}
+        </div>
 
-        {/* Table */}
-        <Card>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Reference</TableHead>
-                  <TableHead>Customer</TableHead>
-                  <TableHead>Network</TableHead>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Age</TableHead>
-                  <TableHead>Result</TableHead>
-                  <TableHead className="text-right">Action</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center py-12">
-                      <Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" />
-                    </TableCell>
-                  </TableRow>
-                ) : orders.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
-                      <CheckCircle className="w-8 h-8 mx-auto mb-2 text-success" />
-                      No pending orders
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  orders.map((order) => {
+        {/* Orders */}
+        {loading ? (
+          <div className="rounded-2xl border border-border bg-card py-12 text-center">
+            <Loader2 className="mx-auto h-6 w-6 animate-spin text-[#1b388b]" />
+          </div>
+        ) : orders.length === 0 ? (
+          <div className="rounded-2xl border border-border bg-card py-12 text-center">
+            <CheckCircle className="mx-auto mb-2 h-8 w-8 text-success" />
+            <p className="text-sm text-muted-foreground">No pending orders</p>
+          </div>
+        ) : (
+          <>
+            {/* Mobile: stacked cards */}
+            <div className="space-y-2 lg:hidden">
+              {orders.map((order) => {
+                const isProcessing = processingIds.has(order.id)
+                const result = rowResults[order.id]
+                return (
+                  <div
+                    key={order.id}
+                    className={`rounded-2xl border p-4 ${result?.paystack_status === "success" && result.action !== "already_processed" ? "border-success/30 bg-success/5" : "border-border bg-card"}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-mono text-xs font-semibold text-foreground">{order.wallet_reference}</p>
+                        <p className="truncate font-mono text-xs text-muted-foreground">{order.reference_code}</p>
+                      </div>
+                      <span className="shrink-0 text-xs text-muted-foreground">{formatAge(order.created_at)}</span>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-foreground">{order.customer_name || "—"}</p>
+                        <p className="text-xs text-muted-foreground">{order.customer_phone} · {order.network}</p>
+                      </div>
+                      <p className="shrink-0 text-sm font-semibold text-foreground">{formatCurrency(order.total_price)}</p>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        {result ? getResultBadge(result) : <span className="text-xs text-muted-foreground">—</span>}
+                        {result?.fulfillment && result.fulfillment !== "skipped (tracking exists)" && (
+                          <p className="mt-0.5 text-xs text-muted-foreground">Fulfillment: {result.fulfillment}</p>
+                        )}
+                      </div>
+                      <Button
+                        size="sm"
+                        variant={result ? "outline" : "default"}
+                        onClick={() => reverifyOrder(order)}
+                        disabled={isProcessing}
+                        className={`shrink-0 text-xs ${!result ? "bg-[#1b388b] hover:bg-[#1b388b]/90 text-white" : ""}`}
+                      >
+                        {isProcessing ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <><Zap className="w-3 h-3 mr-1" />{result ? "Re-check" : "Reverify"}</>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Desktop: table */}
+            <div className="hidden overflow-hidden rounded-2xl border border-border lg:block">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-semibold">Reference</th>
+                    <th className="px-4 py-3 text-left font-semibold">Customer</th>
+                    <th className="px-4 py-3 text-left font-semibold">Network</th>
+                    <th className="px-4 py-3 text-left font-semibold">Amount</th>
+                    <th className="px-4 py-3 text-left font-semibold">Age</th>
+                    <th className="px-4 py-3 text-left font-semibold">Result</th>
+                    <th className="px-4 py-3 text-right font-semibold">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {orders.map((order) => {
                     const isProcessing = processingIds.has(order.id)
                     const result = rowResults[order.id]
                     return (
-                      <TableRow
+                      <tr
                         key={order.id}
                         className={result?.paystack_status === "success" && result.action !== "already_processed" ? "bg-success/10" : undefined}
                       >
-                        <TableCell>
-                          <p className="font-mono text-xs">{order.wallet_reference}</p>
+                        <td className="px-4 py-3">
+                          <p className="font-mono text-xs text-foreground">{order.wallet_reference}</p>
                           <p className="font-mono text-xs text-muted-foreground">{order.reference_code}</p>
-                        </TableCell>
-                        <TableCell>
-                          <p className="text-sm font-medium">{order.customer_name || "—"}</p>
+                        </td>
+                        <td className="px-4 py-3">
+                          <p className="text-sm font-medium text-foreground">{order.customer_name || "—"}</p>
                           <p className="text-xs text-muted-foreground">{order.customer_phone}</p>
-                        </TableCell>
-                        <TableCell className="text-sm">{order.network}</TableCell>
-                        <TableCell className="text-sm font-medium">{formatCurrency(order.total_price)}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{formatAge(order.created_at)}</TableCell>
-                        <TableCell>
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">{order.network}</td>
+                        <td className="px-4 py-3 font-semibold text-foreground">{formatCurrency(order.total_price)}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{formatAge(order.created_at)}</td>
+                        <td className="px-4 py-3">
                           {result ? getResultBadge(result) : <span className="text-xs text-muted-foreground">—</span>}
                           {result?.fulfillment && result.fulfillment !== "skipped (tracking exists)" && (
-                            <p className="text-xs text-muted-foreground mt-0.5">Fulfillment: {result.fulfillment}</p>
+                            <p className="mt-0.5 text-xs text-muted-foreground">Fulfillment: {result.fulfillment}</p>
                           )}
-                        </TableCell>
-                        <TableCell className="text-right">
+                        </td>
+                        <td className="px-4 py-3 text-right">
                           <Button
                             size="sm"
                             variant={result ? "outline" : "default"}
                             onClick={() => reverifyOrder(order)}
                             disabled={isProcessing}
-                            className="text-xs"
+                            className={`text-xs ${!result ? "bg-[#1b388b] hover:bg-[#1b388b]/90 text-white" : ""}`}
                           >
                             {isProcessing ? (
                               <Loader2 className="w-3 h-3 animate-spin" />
@@ -303,30 +334,30 @@ export default function ShopPaymentReverifyPage() {
                               <><Zap className="w-3 h-3 mr-1" />{result ? "Re-check" : "Reverify"}</>
                             )}
                           </Button>
-                        </TableCell>
-                      </TableRow>
+                        </td>
+                      </tr>
                     )
-                  })
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
 
         {/* Pagination */}
         {totalPages > 1 && (
           <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Showing {(page - 1) * limit + 1}–{Math.min(page * limit, totalCount)} of {totalCount}
             </p>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={() => setPage((p) => p - 1)} disabled={page <= 1}>
-                <ChevronLeft className="w-4 h-4" />
-              </Button>
-              <span className="text-sm px-2 py-1">{page} / {totalPages}</span>
-              <Button variant="outline" size="sm" onClick={() => setPage((p) => p + 1)} disabled={page >= totalPages}>
-                <ChevronRight className="w-4 h-4" />
-              </Button>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setPage((p) => p - 1)} disabled={page <= 1} className="flex h-8 w-8 items-center justify-center rounded-full border border-border disabled:opacity-40">
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <span className="text-xs font-semibold text-foreground">{page} / {totalPages}</span>
+              <button onClick={() => setPage((p) => p + 1)} disabled={page >= totalPages} className="flex h-8 w-8 items-center justify-center rounded-full border border-border disabled:opacity-40">
+                <ChevronRight className="h-4 w-4" />
+              </button>
             </div>
           </div>
         )}

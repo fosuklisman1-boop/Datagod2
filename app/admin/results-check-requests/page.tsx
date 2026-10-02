@@ -8,9 +8,10 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
-import { ClipboardCheck, Send, RefreshCw, Settings2, Paperclip, X, Copy, Check } from "lucide-react"
+import { Send, RefreshCw, Settings2, Paperclip, X, Copy, Check } from "lucide-react"
 
 interface CheckRequest {
   id: string
@@ -300,13 +301,11 @@ export default function ResultsCheckRequestsPage() {
     <DashboardLayout>
       <div className="max-w-4xl mx-auto py-8 px-4 space-y-6">
         <div className="flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-blue-100">
-            <ClipboardCheck size={22} className="text-blue-600" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold">Results Check Requests</h1>
-            <p className="text-sm text-muted-foreground">Manage customer requests to check exam results on their behalf</p>
-          </div>
+          <PageHeaderBanner
+            className="flex-1"
+            title="Results Check Requests"
+            subtitle="Manage customer requests to check exam results on their behalf"
+          />
           <div className="ml-auto flex gap-2">
             <Button variant="ghost" size="sm" onClick={() => setShowSettings(s => !s)}>
               <Settings2 size={16} className="mr-1" /> Settings

@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import {
     Users,
     Calendar,
@@ -148,10 +149,11 @@ export default function AdminSubscribersPage() {
         <DashboardLayout>
             <div className="p-6 max-w-7xl mx-auto">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-                    <div>
-                        <h1 className="text-3xl font-bold tracking-tight">Dealer Subscriptions</h1>
-                        <p className="text-muted-foreground">Monitor and manage all dealer memberships</p>
-                    </div>
+                    <PageHeaderBanner
+                        className="flex-1"
+                        title="Dealer Subscriptions"
+                        subtitle="Monitor and manage all dealer memberships"
+                    />
                     <div className="flex items-center gap-4">
                         <Button variant="outline" onClick={fetchSubscriptions} disabled={loading}>
                             Refresh Data

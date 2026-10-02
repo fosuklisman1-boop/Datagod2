@@ -1,25 +1,31 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import {
-  GraduationCap, Copy, CheckCircle, Clock, AlertCircle,
-  Loader2, RefreshCw, Send, ChevronDown, ChevronUp, ShoppingCart, Download,
+  GraduationCap, Copy, CheckCircle, AlertCircle,
+  Loader2, RefreshCw, Send, ChevronDown, ChevronUp, ShoppingCart, Download, History as HistoryIcon,
 } from "lucide-react"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
+import { PurchaseSheet, type PurchaseSheetModal } from "@/components/dashboard/PurchaseSheet"
 
 const EXAM_BOARDS = ["WASSCE", "BECE", "NOVDEC"]
+// Same "every item gets its own color" pattern as the dashboard's promo
+// carousel -- not literal brand colors (exam boards don't have any), just
+// distinct accents so the three cards read apart at a glance.
+const BOARD_META: Record<string, { className: string; border: string }> = {
+  WASSCE: { className: "bg-[#1b388b] text-primary-foreground", border: "border-[#1b388b]" },
+  BECE: { className: "bg-violet-600 text-white", border: "border-violet-600" },
+  NOVDEC: { className: "bg-[#d97706] text-white", border: "border-[#d97706]" },
+}
 
 const STATUS_CLASSES: Record<string, string> = {
   pending:         "bg-warning/10 text-warning",
-  pending_payment: "bg-primary/10 text-primary",
+  pending_payment: "bg-[#1b388b]/10 text-[#1b388b]",
   completed:       "bg-success/15 text-success",
   failed:          "bg-destructive/15 text-destructive",
 }
@@ -46,11 +52,11 @@ interface BoardPricing {
 
 export default function ResultsCheckerPage() {
   const router = useRouter()
+  const [tab, setTab] = useState<"buy" | "history">("buy")
   const [token, setToken] = useState<string | null>(null)
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
 
   // Purchase form
-  const [purchaseOpen, setPurchaseOpen] = useState(false)
   const [examBoard, setExamBoard] = useState<string>("WASSCE")
   const [quantity, setQuantity] = useState(1)
   const [maxQuantity, setMaxQuantity] = useState(50)
@@ -59,11 +65,16 @@ export default function ResultsCheckerPage() {
 
   const [purchasing, setPurchasing] = useState(false)
   const [boardSettings, setBoardSettings] = useState<Record<string, BoardPricing>>({})
+  const [settingsLoading, setSettingsLoading] = useState(false)
 
   // Success modal
   const [successOrder, setSuccessOrder] = useState<RCOrder | null>(null)
   const [successVouchers, setSuccessVouchers] = useState<Array<{ pin: string; serial_number: string | null }>>([])
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
+  const [purchaseModal, setPurchaseModal] = useState<PurchaseSheetModal | null>(null)
+  // Guards the in-flight purchase call from reopening a stale success/failed
+  // view after the customer already dismissed the sheet themselves.
+  const purchaseDismissedRef = useRef(false)
 
   // Order history
   const [orders, setOrders] = useState<RCOrder[]>([])
@@ -85,7 +96,6 @@ export default function ResultsCheckerPage() {
     loadBoardSettings()
   }, [token])
 
-
   const loadWalletBalance = async () => {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
@@ -94,6 +104,7 @@ export default function ResultsCheckerPage() {
   }
 
   const loadBoardSettings = async () => {
+    setSettingsLoading(true)
     // admin_settings is service-role only; read curated config via API.
     const map: Record<string, any> = {}
     try {
@@ -104,6 +115,8 @@ export default function ResultsCheckerPage() {
       }
     } catch (e) {
       console.warn("Could not load results-checker config:", e)
+    } finally {
+      setSettingsLoading(false)
     }
 
     const bulkMinQty: number = map["results_checker_bulk_min_quantity"]?.min ?? 0
@@ -154,6 +167,8 @@ export default function ResultsCheckerPage() {
   const handlePurchase = async () => {
     if (!token) return
     setPurchasing(true)
+    purchaseDismissedRef.current = false
+    setPurchaseModal({ state: "processing" })
     try {
       const res = await fetch("/api/results-checker/purchase", {
         method: "POST",
@@ -162,27 +177,30 @@ export default function ResultsCheckerPage() {
       })
       const data = await res.json()
       if (!res.ok) {
+        let message: string
         if (res.status === 402) {
-          toast.error(`Insufficient wallet balance. You need GHS ${data.required?.toFixed(2) ?? "more"} — please top up first.`)
+          message = `Insufficient wallet balance. You need GHS ${data.required?.toFixed(2) ?? "more"} — please top up first.`
         } else if (res.status === 409 && data.available !== undefined) {
-          toast.error(
-            data.available === 0
-              ? `${examBoard} vouchers are currently out of stock.`
-              : `Only ${data.available} ${examBoard} voucher${data.available !== 1 ? "s" : ""} left in stock — reduce your quantity.`
-          )
+          message = data.available === 0
+            ? `${examBoard} vouchers are currently out of stock.`
+            : `Only ${data.available} ${examBoard} voucher${data.available !== 1 ? "s" : ""} left in stock — reduce your quantity.`
         } else if (res.status === 409 && typeof data.error === "string" && data.error.includes("sold out")) {
-          toast.error("Stock ran out at checkout — your wallet has been refunded automatically.")
+          message = "Stock ran out at checkout — your wallet has been refunded automatically."
         } else if (res.status === 503) {
-          toast.error(`${examBoard} vouchers are not available right now. Try a different board.`)
+          message = `${examBoard} vouchers are not available right now. Try a different board.`
         } else {
-          toast.error(data.error ?? "Purchase failed. Please try again.")
+          message = data.error ?? "Purchase failed. Please try again."
         }
+        if (!purchaseDismissedRef.current) setPurchaseModal({ state: "failed", message })
         return
       }
+      // Customer already dismissed the sheet before this resolved -- the
+      // purchase still went through, but don't reopen a view they already closed.
+      if (purchaseDismissedRef.current) return
       setSuccessOrder({ ...data.order, vouchers: data.vouchers })
       setSuccessVouchers(data.vouchers ?? [])
+      setPurchaseModal({ state: "success" })
       setWalletBalance(data.newBalance)
-      setPurchaseOpen(false)
       setQuantity(1)
       loadOrders()
       toast.success(`${examBoard} voucher${quantity > 1 ? "s" : ""} purchased!`)
@@ -190,6 +208,9 @@ export default function ResultsCheckerPage() {
       setPurchasing(false)
     }
   }
+
+  const handleCancelPurchase = () => { purchaseDismissedRef.current = true; setPurchaseModal(null) }
+  const handleDismissPurchase = () => { purchaseDismissedRef.current = true; setPurchaseModal(null); setSuccessOrder(null) }
 
   const handleCopyVoucher = (v: { pin: string; serial_number: string | null }, key: string) => {
     const text = `Serial: ${v.serial_number ?? "N/A"}\nPIN: ${v.pin}`
@@ -257,248 +278,214 @@ export default function ResultsCheckerPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 space-y-6 max-w-4xl mx-auto">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-              <GraduationCap className="w-6 h-6 text-primary" />
-              Results Checker Vouchers
-            </h1>
-            <p className="text-muted-foreground text-sm mt-1">Purchase WASSCE, BECE &amp; NOVDEC scratch card vouchers</p>
-          </div>
+      <div className="max-w-2xl lg:max-w-4xl mx-auto space-y-5">
+        <DashboardHeroBanner title="Results Checker" subtitle="Buy WASSCE, BECE and NOVDEC result-checker vouchers." icon={GraduationCap}>
           {walletBalance !== null && (
-            <div className="text-right">
-              <p className="text-xs text-muted-foreground">Wallet Balance</p>
-              <p className="text-xl font-bold text-foreground">GHS {walletBalance.toFixed(2)}</p>
+            <div className="rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white">
+              Balance: GHS {walletBalance.toFixed(2)}
             </div>
           )}
+        </DashboardHeroBanner>
+
+        {/* Tabs -- same segmented-pill pattern as Data Packages / Buy Airtime */}
+        <div className="inline-flex w-full rounded-2xl bg-muted p-1">
+          <button
+            onClick={() => setTab("buy")}
+            className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-bold transition ${tab === "buy" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
+          >
+            <ShoppingCart className="h-4 w-4" /> Buy Vouchers
+          </button>
+          <button
+            onClick={() => setTab("history")}
+            className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-bold transition ${tab === "history" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
+          >
+            <HistoryIcon className="h-4 w-4" /> History
+          </button>
         </div>
 
-        {/* Purchase Section */}
-        <Card>
-          <CardHeader className="pb-3 cursor-pointer" onClick={() => setPurchaseOpen(!purchaseOpen)}>
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base flex items-center gap-2">
-                <ShoppingCart className="w-4 h-4" />Buy Vouchers
-              </CardTitle>
-              {purchaseOpen ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
-            </div>
-          </CardHeader>
-
-          {purchaseOpen && (
-            <CardContent className="space-y-4 pt-0">
-              {/* Board selection */}
-              <div>
-                <Label className="text-sm font-medium">Exam Board</Label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-2">
-                  {EXAM_BOARDS.map(board => (
+        {tab === "buy" ? (
+          <div className="space-y-5">
+            {/* Exam board */}
+            <div className="space-y-2">
+              <p className="text-sm font-bold text-foreground">Exam Board</p>
+              <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                {EXAM_BOARDS.map((board) => {
+                  const meta = BOARD_META[board]
+                  const isSelected = examBoard === board
+                  const isEnabled = boardSettings[board]?.enabled
+                  return (
                     <button
                       key={board}
                       onClick={() => setExamBoard(board)}
-                      disabled={!boardSettings[board]?.enabled}
-                      className={`flex flex-col items-center p-4 rounded-xl border-2 transition-all font-semibold text-sm disabled:opacity-40 disabled:cursor-not-allowed ${
-                        examBoard === board
-                          ? "border-primary bg-primary/10 text-primary"
-                          : "border-border hover:border-border text-foreground"
+                      disabled={!isEnabled}
+                      className={`flex flex-col items-center gap-2 rounded-2xl border-2 bg-card p-3 sm:p-4 transition disabled:opacity-40 disabled:cursor-not-allowed ${
+                        isSelected ? `${meta.border} shadow-sm` : "border-border hover:border-[#1b388b]/30"
                       }`}
                     >
-                      <GraduationCap className="w-6 h-6 mb-1" />
-                      {board}
+                      <span className={`flex h-10 w-10 items-center justify-center rounded-full ${meta.className}`}>
+                        <GraduationCap className="h-5 w-5" />
+                      </span>
+                      <span className="text-xs sm:text-sm font-bold text-foreground">{board}</span>
                       {boardSettings[board] && (
-                        <span className="text-xs font-normal text-muted-foreground mt-1">
-                          GHS {boardSettings[board].basePrice.toFixed(2)}
-                        </span>
+                        <span className="text-[11px] font-medium text-muted-foreground">GHS {boardSettings[board].basePrice.toFixed(2)}</span>
                       )}
                     </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Quantity */}
-              <div>
-                <Label className="text-sm font-medium">Quantity</Label>
-                <div className="flex items-center gap-3 mt-2">
-                  <button onClick={() => setQuantity(q => Math.max(1, q - 1))}
-                    className="w-9 h-9 rounded-lg border border-border flex items-center justify-center font-bold text-foreground hover:bg-accent">−</button>
-                  <Input type="number" min="1" max={maxQuantity} value={quantity}
-                    onChange={e => setQuantity(Math.max(1, Math.min(maxQuantity, parseInt(e.target.value) || 1)))}
-                    className="w-20 text-center font-bold text-lg" />
-                  <button onClick={() => setQuantity(q => Math.min(maxQuantity, q + 1))}
-                    className="w-9 h-9 rounded-lg border border-border flex items-center justify-center font-bold text-foreground hover:bg-accent">+</button>
-                </div>
-              </div>
-
-              {/* Price summary */}
-              {pricing && (
-                <div className="bg-muted/40 rounded-lg p-4 space-y-2 text-sm">
-                  {(() => {
-                    const bs = boardSettings[examBoard]
-                    const need = bs?.bulkMinQty ? bs.bulkMinQty - quantity : 0
-                    if (pricing.bulkApplied && bs?.bulkPrice) {
-                      const saved = parseFloat(((bs.basePrice - bs.bulkPrice) * quantity).toFixed(2))
-                      return (
-                        <div className="text-xs bg-success/10 dark:bg-success/20 rounded px-2 py-1.5 space-y-0.5">
-                          <p className="font-bold text-success">Bulk rate applied — GHS {bs.bulkPrice.toFixed(2)}/voucher</p>
-                          <p className="text-success">You save GHS {saved.toFixed(2)} on this order</p>
-                        </div>
-                      )
-                    }
-                    if (!pricing.bulkApplied && bs?.bulkMinQty && bs?.bulkPrice) {
-                      return (
-                        <p className="text-xs text-primary font-medium">
-                          {need > 0
-                            ? `Buy ${need} more to unlock bulk rate (GHS ${bs.bulkPrice.toFixed(2)}/ea)`
-                            : `Buy ${bs.bulkMinQty}+ for bulk rate (GHS ${bs.bulkPrice.toFixed(2)}/ea)`}
-                        </p>
-                      )
-                    }
-                    return null
-                  })()}
-                  <div className="flex justify-between text-muted-foreground">
-                    <span>Price per voucher</span>
-                    <span>GHS {pricing.unitPrice.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-muted-foreground">
-                    <span>Quantity</span>
-                    <span>× {quantity}</span>
-                  </div>
-                  {pricing.bulkApplied && boardSettings[examBoard]?.basePrice && (
-                    <div className="flex justify-between text-muted-foreground line-through text-xs">
-                      <span>Regular price</span>
-                      <span>GHS {(boardSettings[examBoard].basePrice * quantity).toFixed(2)}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between font-bold text-foreground text-base border-t pt-2">
-                    <span>Total</span>
-                    <span>GHS {pricing.totalPaid.toFixed(2)}</span>
-                  </div>
-                  {walletBalance !== null && pricing.totalPaid > walletBalance && (
-                    <p className="text-destructive text-xs font-medium flex items-center gap-1">
-                      <AlertCircle className="w-3 h-3" />Insufficient balance. Top up your wallet first.
-                    </p>
-                  )}
-                </div>
-              )}
-
-              <Button
-                onClick={handlePurchase}
-                disabled={purchasing || (walletBalance !== null && pricing !== null && pricing.totalPaid > walletBalance) || !enabledBoards.includes(examBoard)}
-                className="w-full h-12 font-bold"
-              >
-                {purchasing
-                  ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Processing…</>
-                  : `Buy ${quantity} ${examBoard} Voucher${quantity > 1 ? "s" : ""} — GHS ${pricing?.totalPaid.toFixed(2) ?? "…"}`
-                }
-              </Button>
-            </CardContent>
-          )}
-        </Card>
-
-        {/* Success Modal */}
-        {successOrder && (
-          <div className="fixed inset-0 bg-background/60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-            <div className="w-full sm:max-w-md bg-card rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[92vh] flex flex-col">
-              {/* Header */}
-              <div className="text-center px-6 pt-6 pb-3 flex-shrink-0">
-                <div className="text-4xl mb-2">🎓</div>
-                <h2 className="text-lg font-bold text-success">Vouchers Delivered!</h2>
-                <p className="text-sm text-muted-foreground mt-0.5">Ref: {successOrder.reference_code}</p>
-              </div>
-
-              {/* Scrollable content */}
-              <div className="flex-1 overflow-y-auto px-6 pb-2 space-y-3">
-                <div className="flex justify-end">
-                  <button
-                    onClick={() => triggerExcelDownload(successVouchers, successOrder.exam_board, successOrder.reference_code)}
-                    className="flex items-center gap-1.5 text-xs text-primary hover:text-primary font-medium border border-border hover:border-border rounded-full px-2.5 py-1 transition-colors"
-                  >
-                    <Download className="w-3.5 h-3.5" />Download receipt
-                  </button>
-                </div>
-                <div className="space-y-2">
-                  {successVouchers.map((v, i) => (
-                    <div key={i} className="flex items-start justify-between bg-muted/40 rounded-xl px-4 py-3 gap-3">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs text-muted-foreground font-medium mb-1">Voucher {i + 1}</p>
-                        <p className="text-xs text-muted-foreground">Serial Number</p>
-                        <p className="font-mono font-semibold text-foreground text-sm break-all">{v.serial_number ?? "N/A"}</p>
-                        <p className="text-xs text-muted-foreground mt-1">PIN</p>
-                        <p className="font-mono font-bold text-foreground tracking-widest text-lg break-all">{v.pin}</p>
-                      </div>
-                      <button onClick={() => handleCopyVoucher(v, `success-${i}`)}
-                        className="flex-shrink-0 p-2 border border-border hover:bg-muted rounded-lg transition-colors mt-1">
-                        {copiedKey === `success-${i}`
-                          ? <CheckCircle className="w-4 h-4 text-success" />
-                          : <Copy className="w-4 h-4 text-muted-foreground" />}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                <p className="text-xs text-muted-foreground text-center">These vouchers have also been sent to your phone &amp; email.</p>
-              </div>
-
-              {/* Sticky footer */}
-              <div className="px-6 pb-6 pt-3 flex-shrink-0">
-                <Button onClick={() => setSuccessOrder(null)} className="w-full h-12 text-base">Done</Button>
+                  )
+                })}
               </div>
             </div>
-          </div>
-        )}
 
-        {/* Order History */}
-        <div>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold text-foreground">Order History</h2>
-            <Button variant="outline" size="sm" onClick={loadOrders}>
-              <RefreshCw className="w-4 h-4 mr-1" />Refresh
-            </Button>
-          </div>
+            {/* Quantity */}
+            <div className="space-y-2">
+              <div className="flex items-baseline justify-between">
+                <p className="text-sm font-bold text-foreground">Quantity</p>
+                <p className="text-xs text-muted-foreground">Max {maxQuantity}</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setQuantity(q => Math.max(1, q - 1))}
+                  className="flex h-11 w-11 items-center justify-center rounded-2xl border border-border bg-card font-bold text-foreground hover:bg-accent"
+                >
+                  −
+                </button>
+                <Input
+                  type="number" min="1" max={maxQuantity} value={quantity}
+                  onChange={e => setQuantity(Math.max(1, Math.min(maxQuantity, parseInt(e.target.value) || 1)))}
+                  className="h-11 w-20 rounded-2xl text-center text-lg font-bold"
+                />
+                <button
+                  onClick={() => setQuantity(q => Math.min(maxQuantity, q + 1))}
+                  className="flex h-11 w-11 items-center justify-center rounded-2xl border border-border bg-card font-bold text-foreground hover:bg-accent"
+                >
+                  +
+                </button>
+                <button
+                  type="button"
+                  aria-label="Reload settings"
+                  onClick={loadBoardSettings}
+                  disabled={settingsLoading}
+                  className="ml-auto flex h-11 w-11 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-sm disabled:opacity-50"
+                >
+                  <RefreshCw className={`h-4 w-4 ${settingsLoading ? "animate-spin" : ""}`} />
+                </button>
+              </div>
+            </div>
 
-          {ordersLoading ? (
-            <div className="flex items-center justify-center h-32"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
-          ) : orders.length === 0 ? (
-            <Card>
-              <CardContent className="py-12 text-center">
+            {/* Price summary */}
+            {pricing && (
+              <div className="rounded-2xl border border-border bg-card p-4 space-y-2 text-sm">
+                {(() => {
+                  const bs = boardSettings[examBoard]
+                  const need = bs?.bulkMinQty ? bs.bulkMinQty - quantity : 0
+                  if (pricing.bulkApplied && bs?.bulkPrice) {
+                    const saved = parseFloat(((bs.basePrice - bs.bulkPrice) * quantity).toFixed(2))
+                    return (
+                      <div className="rounded-xl bg-success/10 px-3 py-2 text-xs space-y-0.5">
+                        <p className="font-bold text-success">Bulk rate applied — GHS {bs.bulkPrice.toFixed(2)}/voucher</p>
+                        <p className="text-success">You save GHS {saved.toFixed(2)} on this order</p>
+                      </div>
+                    )
+                  }
+                  if (!pricing.bulkApplied && bs?.bulkMinQty && bs?.bulkPrice) {
+                    return (
+                      <p className="text-xs font-medium text-[#1b388b]">
+                        {need > 0
+                          ? `Buy ${need} more to unlock bulk rate (GHS ${bs.bulkPrice.toFixed(2)}/ea)`
+                          : `Buy ${bs.bulkMinQty}+ for bulk rate (GHS ${bs.bulkPrice.toFixed(2)}/ea)`}
+                      </p>
+                    )
+                  }
+                  return null
+                })()}
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Price per voucher</span>
+                  <span>GHS {pricing.unitPrice.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Quantity</span>
+                  <span>× {quantity}</span>
+                </div>
+                {pricing.bulkApplied && boardSettings[examBoard]?.basePrice && (
+                  <div className="flex justify-between text-xs text-muted-foreground line-through">
+                    <span>Regular price</span>
+                    <span>GHS {(boardSettings[examBoard].basePrice * quantity).toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between border-t border-border pt-2 text-base font-bold text-foreground">
+                  <span>Total</span>
+                  <span>GHS {pricing.totalPaid.toFixed(2)}</span>
+                </div>
+                {walletBalance !== null && pricing.totalPaid > walletBalance && (
+                  <p className="flex items-center gap-1 text-xs font-medium text-destructive">
+                    <AlertCircle className="w-3 h-3" />Insufficient balance. Top up your wallet first.
+                  </p>
+                )}
+              </div>
+            )}
+
+            <button
+              onClick={handlePurchase}
+              disabled={purchasing || (walletBalance !== null && pricing !== null && pricing.totalPaid > walletBalance) || !enabledBoards.includes(examBoard)}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#1b388b] py-4 text-base font-bold text-primary-foreground transition hover:bg-[#1b388b]/90 disabled:opacity-50"
+            >
+              {purchasing
+                ? <><Loader2 className="w-4 h-4 animate-spin" />Processing…</>
+                : `Buy ${quantity} ${examBoard} Voucher${quantity > 1 ? "s" : ""} — GHS ${pricing?.totalPaid.toFixed(2) ?? "…"}`
+              }
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-center justify-end">
+              <button onClick={loadOrders} className="flex items-center gap-1.5 text-xs font-semibold text-[#1b388b] hover:underline">
+                <RefreshCw className="w-3.5 h-3.5" />Refresh
+              </button>
+            </div>
+
+            {ordersLoading ? (
+              <div className="flex items-center justify-center h-32"><Loader2 className="w-6 h-6 animate-spin text-[#1b388b]" /></div>
+            ) : orders.length === 0 ? (
+              <div className="rounded-2xl border border-border bg-card py-12 text-center">
                 <GraduationCap className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
                 <p className="text-muted-foreground">No vouchers purchased yet</p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-3">
+              </div>
+            ) : (
+              <div className="space-y-2 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0 lg:items-start">
               {orders.map(order => (
-                <Card key={order.id} className="overflow-hidden">
+                <div key={order.id} className="overflow-hidden rounded-2xl border border-border bg-card">
                   <div
-                    className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-accent"
+                    className="flex items-center justify-between gap-2 px-4 py-3 cursor-pointer hover:bg-accent"
                     onClick={() => setExpandedOrder(expandedOrder === order.id ? null : order.id)}
                   >
-                    <div className="flex items-center gap-3">
-                      <Badge variant="outline" className="font-semibold">{order.exam_board}</Badge>
-                      <span className="font-mono text-sm text-muted-foreground">{order.reference_code}</span>
-                      <span className="text-sm text-muted-foreground">× {order.quantity}</span>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-extrabold ${BOARD_META[order.exam_board]?.className ?? "bg-muted text-muted-foreground"}`}>
+                        <GraduationCap className="h-3.5 w-3.5" />
+                      </span>
+                      <span className="truncate font-mono text-sm text-muted-foreground">{order.reference_code}</span>
+                      <span className="shrink-0 text-sm text-muted-foreground">× {order.quantity}</span>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex shrink-0 items-center gap-3">
                       <span className="text-sm font-semibold">GHS {Number(order.total_paid).toFixed(2)}</span>
-                      <Badge className={STATUS_CLASSES[order.status] ?? ""}>{order.status}</Badge>
-                      <span className="text-xs text-muted-foreground">{new Date(order.created_at).toLocaleDateString()}</span>
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_CLASSES[order.status] ?? "bg-muted text-muted-foreground"}`}>{order.status}</span>
                       {expandedOrder === order.id ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
                     </div>
                   </div>
 
                   {expandedOrder === order.id && (
-                    <div className="border-t px-4 py-3 bg-muted/40 space-y-3">
+                    <div className="space-y-3 border-t border-border bg-muted/40 px-4 py-3">
                       {order.status === "completed" && order.vouchers && order.vouchers.length > 0 ? (
                         <>
                           <div className="flex justify-end">
                             <button
                               onClick={() => triggerExcelDownload(order.vouchers!, order.exam_board, order.reference_code)}
-                              className="flex items-center gap-1.5 text-xs text-primary hover:text-primary font-medium"
+                              className="flex items-center gap-1.5 text-xs font-medium text-[#1b388b] hover:underline"
                             >
                               <Download className="w-3.5 h-3.5" />Download receipt
                             </button>
                           </div>
                           <div className="space-y-2">
                             {order.vouchers.map((v, i) => (
-                              <div key={i} className="flex items-start justify-between bg-card rounded-lg px-3 py-2 border gap-3">
+                              <div key={i} className="flex items-start justify-between gap-3 rounded-xl border border-border bg-card px-3 py-2">
                                 <div className="flex-1 min-w-0">
                                   <p className="text-xs text-muted-foreground mb-1">Voucher {i + 1}</p>
                                   <p className="text-xs text-muted-foreground">Serial Number</p>
@@ -506,7 +493,7 @@ export default function ResultsCheckerPage() {
                                   <p className="text-xs text-muted-foreground mt-1">PIN</p>
                                   <p className="font-mono font-bold tracking-widest text-base">{v.pin}</p>
                                 </div>
-                                <button onClick={() => handleCopyVoucher(v, `${order.id}-${i}`)} className="flex-shrink-0 p-2 border border-border hover:bg-accent rounded-lg mt-1">
+                                <button onClick={() => handleCopyVoucher(v, `${order.id}-${i}`)} className="flex-shrink-0 rounded-lg border border-border p-2 hover:bg-accent mt-1">
                                   {copiedKey === `${order.id}-${i}`
                                     ? <CheckCircle className="w-4 h-4 text-success" />
                                     : <Copy className="w-4 h-4 text-muted-foreground" />}
@@ -515,18 +502,22 @@ export default function ResultsCheckerPage() {
                             ))}
                           </div>
                           <div className="flex gap-2">
-                            <Button variant="outline" size="sm"
+                            <button
                               disabled={resending === `${order.id}-sms`}
-                              onClick={() => handleResend(order.id, "sms")}>
-                              {resending === `${order.id}-sms` ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Send className="w-3 h-3 mr-1" />}
+                              onClick={() => handleResend(order.id, "sms")}
+                              className="flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-accent disabled:opacity-50"
+                            >
+                              {resending === `${order.id}-sms` ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
                               Resend SMS
-                            </Button>
-                            <Button variant="outline" size="sm"
+                            </button>
+                            <button
                               disabled={resending === `${order.id}-email`}
-                              onClick={() => handleResend(order.id, "email")}>
-                              {resending === `${order.id}-email` ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Send className="w-3 h-3 mr-1" />}
+                              onClick={() => handleResend(order.id, "email")}
+                              className="flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-accent disabled:opacity-50"
+                            >
+                              {resending === `${order.id}-email` ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
                               Resend Email
-                            </Button>
+                            </button>
                           </div>
                         </>
                       ) : (
@@ -536,12 +527,65 @@ export default function ResultsCheckerPage() {
                       )}
                     </div>
                   )}
-                </Card>
+                </div>
               ))}
+              </div>
+            )}
+          </div>
+        )}
+
+      </div>
+
+      {purchaseModal && (
+        <PurchaseSheet
+          modal={purchaseModal}
+          onCancel={handleCancelPurchase}
+          onDismiss={handleDismissPurchase}
+          accentColor="#1b388b"
+          renderSuccess={() => (
+            <div className="px-5 pb-6 pt-2 space-y-3">
+              <div className="text-center">
+                <div className="text-4xl mb-2">🎓</div>
+                <h2 className="text-lg font-bold text-success">Vouchers Delivered!</h2>
+                <p className="text-sm text-muted-foreground mt-0.5">Ref: {successOrder?.reference_code}</p>
+              </div>
+
+              <div className="flex justify-end">
+                <button
+                  onClick={() => successOrder && triggerExcelDownload(successVouchers, successOrder.exam_board, successOrder.reference_code)}
+                  className="flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs font-medium text-[#1b388b] hover:border-[#1b388b]/40"
+                >
+                  <Download className="w-3.5 h-3.5" />Download receipt
+                </button>
+              </div>
+              <div className="space-y-2 max-h-[45vh] overflow-y-auto">
+                {successVouchers.map((v, i) => (
+                  <div key={i} className="flex items-start justify-between gap-3 rounded-xl bg-muted/40 px-4 py-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-muted-foreground font-medium mb-1">Voucher {i + 1}</p>
+                      <p className="text-xs text-muted-foreground">Serial Number</p>
+                      <p className="font-mono font-semibold text-foreground text-sm break-all">{v.serial_number ?? "N/A"}</p>
+                      <p className="text-xs text-muted-foreground mt-1">PIN</p>
+                      <p className="font-mono font-bold text-foreground tracking-widest text-lg break-all">{v.pin}</p>
+                    </div>
+                    <button onClick={() => handleCopyVoucher(v, `success-${i}`)}
+                      className="flex-shrink-0 rounded-lg border border-border p-2 hover:bg-muted mt-1">
+                      {copiedKey === `success-${i}`
+                        ? <CheckCircle className="w-4 h-4 text-success" />
+                        : <Copy className="w-4 h-4 text-muted-foreground" />}
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground text-center">These vouchers have also been sent to your phone &amp; email.</p>
+
+              <button onClick={handleDismissPurchase} className="w-full rounded-2xl bg-[#1b388b] py-3.5 text-base font-bold text-primary-foreground">
+                Done
+              </button>
             </div>
           )}
-        </div>
-      </div>
+        />
+      )}
     </DashboardLayout>
   )
 }

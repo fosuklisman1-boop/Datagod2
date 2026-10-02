@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -254,13 +255,12 @@ export default function PaymentReverifyPage() {
   return (
     <DashboardLayout>
       <div className="p-6 space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">Payment Reverification</h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Manually verify pending orders against Paystack and trigger fulfillment
-            </p>
-          </div>
+        <div className="flex items-center justify-between gap-4">
+          <PageHeaderBanner
+            className="flex-1"
+            title="Payment Reverification"
+            subtitle="Manually verify pending orders against Paystack and trigger fulfillment"
+          />
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={fetchOrders} disabled={loading}>
               <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} />

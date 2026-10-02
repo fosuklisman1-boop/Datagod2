@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -250,11 +251,12 @@ export default function AdminProfitsHistoryPage() {
   return (
     <DashboardLayout>
       <div className="container mx-auto py-6 space-y-6">
-        <div className="flex justify-between items-center">
-          <div>
-            <h1 className="text-3xl font-bold">Profits Crediting History</h1>
-            <p className="text-muted-foreground">Track all shop profits and their crediting status</p>
-          </div>
+        <div className="flex justify-between items-center gap-4">
+          <PageHeaderBanner
+            className="flex-1"
+            title="Profits Crediting History"
+            subtitle="Track all shop profits and their crediting status"
+          />
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => fetchProfits()} disabled={loading}>
               <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} />

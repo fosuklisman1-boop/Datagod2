@@ -11,6 +11,7 @@ import { CodeCraftMTNProvider } from "@/lib/mtn-providers/codecraft-provider"
 import { AgentPortalGHProvider } from "@/lib/mtn-providers/agentportalgh-provider"
 import { ApexPrimeProvider } from "@/lib/mtn-providers/apexprime-provider"
 import { SPFastITProvider } from "@/lib/mtn-providers/spfastit-provider"
+import { SPFastITTelecelProvider } from "@/lib/mtn-providers/spfastit-telecel-provider"
 import { BundlePortalProvider } from "@/lib/mtn-providers/bundleportal-provider"
 import { sendLowBalanceAlert } from "@/lib/mtn-balance-alert"
 
@@ -36,9 +37,10 @@ export async function GET(request: NextRequest) {
     const agentPortalGHProvider = new AgentPortalGHProvider()
     const apexPrimeProvider = new ApexPrimeProvider()
     const spfastitProvider = new SPFastITProvider()
+    const spfastitTelecelProvider = new SPFastITTelecelProvider()
     const bundlePortalProvider = new BundlePortalProvider()
 
-    const [sykesBalance, datakazinaBalance, xpressBalance, eazyghDataBalance, bisdelBalance, codeCraftBalance, agentportalghBalance, apexprimeBalance, spfastitBalance, bundleportalBalance] = await Promise.all([
+    const [sykesBalance, datakazinaBalance, xpressBalance, eazyghDataBalance, bisdelBalance, codeCraftBalance, agentportalghBalance, apexprimeBalance, spfastitBalance, spfastitTelecelBalance, bundleportalBalance] = await Promise.all([
       sykesProvider.checkBalance().catch(() => null),
       datakazinaProvider.checkBalance().catch(() => null),
       xpressProvider.checkBalance().catch(() => null),
@@ -48,6 +50,7 @@ export async function GET(request: NextRequest) {
       agentPortalGHProvider.checkBalance().catch(() => null),
       apexPrimeProvider.checkBalance().catch(() => null),
       spfastitProvider.checkBalance().catch(() => null),
+      spfastitTelecelProvider.checkBalance().catch(() => null),
       bundlePortalProvider.checkBalance().catch(() => null),
     ])
 
@@ -73,11 +76,12 @@ export async function GET(request: NextRequest) {
     const agentportalghLow = agentportalghBalance !== null && agentportalghBalance < threshold
     const apexprimeLow = apexprimeBalance !== null && apexprimeBalance < threshold
     const bundleportalLow = bundleportalBalance !== null && bundleportalBalance < threshold
+    const spfastitTelecelLow = spfastitTelecelBalance !== null && spfastitTelecelBalance < threshold
 
-    const balanceMap = { sykes: sykesBalance, datakazina: datakazinaBalance, xpress: xpressBalance, eazyghdata: eazyghDataBalance, bisdel: bisdelBalance, codecraft: codeCraftBalance, agentportalgh: agentportalghBalance, apexprime: apexprimeBalance, bundleportal: bundleportalBalance }
-    const lowMap = { sykes: sykesLow, datakazina: datakazinaLow, xpress: xpressLow, eazyghdata: eazyghDataLow, bisdel: bisdelLow, codecraft: codeCraftLow, agentportalgh: agentportalghLow, apexprime: apexprimeLow, bundleportal: bundleportalLow }
+    const balanceMap = { sykes: sykesBalance, datakazina: datakazinaBalance, xpress: xpressBalance, eazyghdata: eazyghDataBalance, bisdel: bisdelBalance, codecraft: codeCraftBalance, agentportalgh: agentportalghBalance, apexprime: apexprimeBalance, bundleportal: bundleportalBalance, spfastit_telecel: spfastitTelecelBalance }
+    const lowMap = { sykes: sykesLow, datakazina: datakazinaLow, xpress: xpressLow, eazyghdata: eazyghDataLow, bisdel: bisdelLow, codecraft: codeCraftLow, agentportalgh: agentportalghLow, apexprime: apexprimeLow, bundleportal: bundleportalLow, spfastit_telecel: spfastitTelecelLow }
 
-    if (sykesLow || datakazinaLow || xpressLow || eazyghDataLow || bisdelLow || codeCraftLow || agentportalghLow || apexprimeLow || bundleportalLow) {
+    if (sykesLow || datakazinaLow || xpressLow || eazyghDataLow || bisdelLow || codeCraftLow || agentportalghLow || apexprimeLow || bundleportalLow || spfastitTelecelLow) {
       sendLowBalanceAlert(balanceMap, lowMap, threshold).catch((e) => console.error("[MTN Balance] Alert error:", e))
     }
 
@@ -159,6 +163,13 @@ export async function GET(request: NextRequest) {
           is_low: bundleportalLow,
           is_active: activeProvider.name === "bundleportal",
           alert: bundleportalLow && bundleportalBalance !== null ? `Bundle Portal balance is below threshold of ₵${threshold}` : null,
+        },
+        spfastit_telecel: {
+          balance: spfastitTelecelBalance,
+          currency: "GHS",
+          is_low: spfastitTelecelLow,
+          is_active: false, // spfastit_telecel is Telecel-only — never the active MTN provider
+          alert: spfastitTelecelLow && spfastitTelecelBalance !== null ? `SPFastIT (Telecel) balance is below threshold of ₵${threshold}` : null,
         },
       },
       threshold,

@@ -4,7 +4,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { supabase } from "@/lib/supabase"
 import { calculateSegments } from "@/lib/sms/segments"
+import { shopService, shopProfitService } from "@/lib/shop-service"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -26,7 +28,7 @@ import { useResendCooldown } from "@/lib/use-resend-cooldown"
 import {
   MessageSquare, Send, Wallet, Sparkles, Clock, AlertCircle, CheckCircle, Loader2, Plus,
   BadgeCheck, History, ShieldCheck, Ban, CreditCard, Users, Eye, EyeOff, Smartphone, X, Trash2, Copy,
-  Upload, UserPlus, ShieldQuestion,
+  Upload, UserPlus, ShieldQuestion, Lock, Gift, Hourglass, Info, MessagesSquare,
 } from "lucide-react"
 
 // ─── types ────────────────────────────────────────────────────────────────
@@ -54,6 +56,7 @@ interface ShopTokens { shop_name: string; shop_link: string; shop_phone: string;
 interface ShopCustomer { phone: string; name: string | null }
 interface TenantTemplate { id: string; name: string; body: string }
 interface BatchMessage { id: string; phone: string; status: string; attempts: number; last_error: string | null; processed_at: string | null }
+interface SmsBundle { id: string; name: string; units: number; price_ghs: number }
 interface BatchDetail {
   log: { id: number; status: string; message: string; sender_id: string | null; recipients_count: number; segments: number; credits_reserved: number; credits_used: number; created_at: string; completed_at: string | null }
   messages: BatchMessage[]
@@ -161,6 +164,23 @@ function contactName(c: Contact): string {
   return typed || c.verified_name || "—"
 }
 
+/** Generate a few plausible sender-ID suggestions from the shop's own name
+ *  (letters/numbers only, 11-char max — same constraint the input enforces). */
+function senderSuggestions(shopName: string): string[] {
+  const clean = shopName.replace(/[^a-zA-Z0-9 ]/g, "").trim()
+  if (!clean) return []
+  const compact = clean.replace(/\s+/g, "").toUpperCase().slice(0, 11)
+  const words = clean.split(/\s+/).filter(Boolean)
+  const initials = words.map((w) => w[0]).join("").toUpperCase()
+  const out = [
+    compact,
+    initials.length >= 2 ? initials.slice(0, 11) : compact.slice(0, 4),
+    (compact.slice(0, 9) + "GH").slice(0, 11),
+    (compact.slice(0, 8) + "HUB").slice(0, 11),
+  ]
+  return Array.from(new Set(out.filter((s) => s.length >= 2)))
+}
+
 // ─── component ────────────────────────────────────────────────────────────────
 export default function SmsDashboardPage() {
   const [account, setAccount] = useState<AccountData | null>(null)
@@ -170,7 +190,17 @@ export default function SmsDashboardPage() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [tab, setTab] = useState("overview")
+  const [tab, setTab] = useState("send")
+
+  // shop wallet context (informational cards + real payment source for bundles)
+  const [shop, setShop] = useState<any>(null)
+  const [profitBalance, setProfitBalance] = useState(0)
+  const [walletBalance, setWalletBalance] = useState(0)
+
+  // bundle purchases (Buy tab)
+  const [bundles, setBundles] = useState<SmsBundle[]>([])
+  const [bundlesLoaded, setBundlesLoaded] = useState(false)
+  const [buyingBundleId, setBuyingBundleId] = useState<string | null>(null)
 
   // compose
   const [message, setMessage] = useState("")
@@ -281,6 +311,37 @@ export default function SmsDashboardPage() {
     } catch { toast.error("Could not load your sender IDs.") }
   }, [])
 
+  // Informational wallet cards. Shop is optional (a plain user with no shop still
+  // has an SMS account e.g. via sub-agent), so both fetches are best-effort.
+  const loadWallets = useCallback(async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const uid = session?.user?.id
+      if (!uid) return
+      const [userShop, walletRes] = await Promise.all([
+        shopService.getShop(uid).catch(() => null),
+        session?.access_token
+          ? fetch("/api/wallet/balance", { headers: { Authorization: `Bearer ${session.access_token}` } }).then((r) => (r.ok ? r.json() : null)).catch(() => null)
+          : null,
+      ])
+      setShop(userShop)
+      if (walletRes) setWalletBalance(walletRes.balance || 0)
+      if (userShop?.id) {
+        const bal = await shopProfitService.getShopBalanceFromTable(userShop.id).catch(() => null)
+        setProfitBalance(bal?.available_balance || 0)
+      }
+    } catch { /* non-fatal — cards just show 0 */ }
+  }, [])
+
+  const loadBundles = useCallback(async () => {
+    try {
+      const t = await token()
+      const res = await fetch("/api/sms/bundles", { headers: { Authorization: `Bearer ${t}` } }).then((r) => r.json()).catch(() => ({}))
+      setBundles(res.bundles ?? [])
+    } catch { toast.error("Could not load SMS bundles.") }
+    finally { setBundlesLoaded(true) }
+  }, [])
+
   const loadComposeContext = useCallback(async () => {
     try {
       const t = await token()
@@ -337,6 +398,7 @@ export default function SmsDashboardPage() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useEffect(() => { loadWallets() }, [loadWallets])
   // Direct-charge + OTP gates (independent toggles), same source as wallet top-up.
   useEffect(() => {
     fetch("/api/public/turnstile-status")
@@ -345,9 +407,13 @@ export default function SmsDashboardPage() {
       .catch(() => { setWalletDirect(false); setWalletOtp(false) })
   }, [])
   useEffect(() => { if (tab === "history") loadLogs() }, [tab, loadLogs])
-  // Sender IDs power the management tab AND the compose "From" selector.
-  useEffect(() => { if (tab === "senders" || tab === "send") loadSenderIds() }, [tab, loadSenderIds])
-  useEffect(() => { if (tab === "send") loadComposeContext() }, [tab, loadComposeContext])
+  // Sender ID is now an always-visible top card (not a tab), so it loads on
+  // mount rather than being gated to a "senders" tab; still reloaded when the
+  // Send tab opens since it also powers the compose "From" selector.
+  useEffect(() => { loadSenderIds() }, [loadSenderIds])
+  useEffect(() => { if (tab === "send") loadSenderIds() }, [tab, loadSenderIds])
+  useEffect(() => { if (tab === "send" || tab === "templates") loadComposeContext() }, [tab, loadComposeContext])
+  useEffect(() => { if (tab === "bundles" && !bundlesLoaded) loadBundles() }, [tab, bundlesLoaded, loadBundles])
   // Groups power BOTH the Contacts tab and the compose "Send to a group" select.
   useEffect(() => { if (tab === "contacts" || tab === "send") loadGroups() }, [tab, loadGroups])
   // If the user deselects/changes the group (or leaves the tab), point the verify
@@ -424,6 +490,30 @@ export default function SmsDashboardPage() {
     } else {
       toast.success(`${res.unitsCredited} SMS credits added (GHS ${Number(res.cost).toFixed(2)}).`)
       setCreditQty(""); await load()
+    }
+  }
+
+  async function buyBundle(bundleId: string, paidFrom: "wallet" | "paystack") {
+    setBuyingBundleId(bundleId)
+    const t = await token()
+    const endpoint = paidFrom === "wallet" ? "/api/sms/units/purchase-wallet" : "/api/sms/units/purchase-paystack"
+    const res = await fetch(endpoint, {
+      method: "POST", headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ bundleId }),
+    }).then((r) => r.json()).catch(() => ({}))
+    setBuyingBundleId(null)
+    if (res.error) {
+      toast.error(res.error === "Insufficient wallet balance"
+        ? "Insufficient wallet balance. Top up your wallet or pay with Paystack."
+        : res.error === "NOT_ACTIVATED" ? "Activate your SMS account first." : res.error)
+    } else if (res.authorizationUrl) {
+      window.location.href = res.authorizationUrl
+    } else if (res.pending) {
+      toast.info("Payment received — credits pending SMS supply top-up.")
+      await load()
+    } else {
+      toast.success("SMS credits added!")
+      await load()
     }
   }
 
@@ -906,7 +996,7 @@ export default function SmsDashboardPage() {
                 {loadError ? "We couldn’t load your SMS account. Check your connection and try again." : "No SMS account is available for your profile."}
               </CardDescription>
             </CardHeader>
-            <CardContent><Button onClick={() => { setLoading(true); load() }}><Loader2 className="h-4 w-4" /> Retry</Button></CardContent>
+            <CardContent><Button onClick={() => { setLoading(true); load() }} className="bg-[#1b388b] text-white hover:bg-[#1b388b]/90"><Loader2 className="h-4 w-4" /> Retry</Button></CardContent>
           </Card>
         </div>
       </DashboardLayout>
@@ -922,17 +1012,8 @@ export default function SmsDashboardPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-4 md:p-6 space-y-6 max-w-4xl">
-        {/* Header */}
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10">
-            <MessageSquare className="h-6 w-6 text-primary" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">SMS</h1>
-            <p className="text-sm text-muted-foreground">Send bulk SMS to your customers with your own sender ID.</p>
-          </div>
-        </div>
+      <div className="p-4 md:p-6 space-y-6 max-w-4xl lg:max-w-5xl">
+        <DashboardHeroBanner title="SMS" subtitle="Send bulk SMS to your customers with your own sender ID." icon={MessageSquare} />
 
         {isSuspended && (
           <Alert variant="destructive">
@@ -941,91 +1022,219 @@ export default function SmsDashboardPage() {
           </Alert>
         )}
 
+        {/* Wallet cards — informational. Bundle/activation payment only ever
+            debits the Main Wallet (or Paystack) for real; there is no code
+            path anywhere that pays from a shop's Profit balance, so it's
+            shown here for visibility but never offered as a payment button. */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription className="flex items-center gap-1.5"><CreditCard className="h-4 w-4" /> SMS Credits</CardDescription>
+              <CardTitle className="text-2xl">{balance.toLocaleString()}</CardTitle>
+            </CardHeader>
+            <CardContent><p className="text-xs text-muted-foreground">credits</p></CardContent>
+          </Card>
+          <Card className="border-success/30 bg-success/5">
+            <CardHeader className="pb-2">
+              <CardDescription className="flex items-center gap-1.5"><Wallet className="h-4 w-4" /> Profit Wallet</CardDescription>
+              <CardTitle className="text-2xl">GH₵{profitBalance.toFixed(2)}</CardTitle>
+            </CardHeader>
+            <CardContent><p className="text-xs text-muted-foreground">available</p></CardContent>
+          </Card>
+          <Card className="border-[#1b388b]/30 bg-[#1b388b]/5">
+            <CardHeader className="pb-2">
+              <CardDescription className="flex items-center gap-1.5"><Wallet className="h-4 w-4" /> Main Wallet</CardDescription>
+              <CardTitle className="text-2xl">GH₵{walletBalance.toFixed(2)}</CardTitle>
+            </CardHeader>
+            <CardContent><p className="text-xs text-muted-foreground">available</p></CardContent>
+          </Card>
+        </div>
+
+        {/* Your Sender ID — promoted out of a tab since it gates the whole
+            feature; the phone-preview + suggestions are new, the underlying
+            senderIds/newSender/requestSenderId are the existing real ones. */}
+        {(() => {
+          const activeSender = senderIds.find((s) => s.local_status === "active")
+          const pendingSender = senderIds.find((s) => s.local_status === "pending")
+          return (
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0">
+                <CardTitle className="flex items-center gap-2 text-base"><BadgeCheck className="h-4 w-4 text-[#1b388b]" /> Your Sender ID</CardTitle>
+                <Badge className={activeSender ? "bg-success text-white hover:bg-success" : pendingSender ? "bg-amber-500 text-white hover:bg-amber-500" : ""} variant={activeSender || pendingSender ? "default" : "secondary"}>
+                  {activeSender ? "ACTIVE" : pendingSender ? "UNDER REVIEW" : "NOT SET"}
+                </Badge>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {activeSender ? (
+                  <div className="flex items-center gap-2 rounded-lg border border-success/30 bg-success/5 p-3">
+                    <BadgeCheck className="h-4 w-4 shrink-0 text-success" />
+                    <div>
+                      <p className="font-mono font-semibold">{activeSender.sender_id}</p>
+                      <p className="text-xs text-muted-foreground">Live — this is what your customers see.</p>
+                    </div>
+                  </div>
+                ) : pendingSender ? (
+                  <>
+                    <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+                      <Hourglass className="h-4 w-4 mt-0.5 shrink-0 text-amber-600" />
+                      <div>
+                        <p className="font-mono font-semibold">{pendingSender.sender_id}</p>
+                        <p className="text-xs text-muted-foreground">Pending review by admin.</p>
+                      </div>
+                    </div>
+                    <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                      <Info className="h-3 w-3 shrink-0" /> <span className="font-medium text-foreground">{pendingSender.sender_id}</span> is waiting for admin review — you can submit another once it&apos;s been reviewed.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
+                      <p className="flex items-center gap-1.5 text-sm font-medium"><Info className="h-3.5 w-3.5" /> What is a sender ID?</p>
+                      <p className="text-xs text-muted-foreground">
+                        A sender ID is the name that shows up as the sender on your customer&apos;s phone when they receive an SMS from you — instead of a random phone number, they see <span className="font-medium text-foreground">your brand name</span>. It can be up to <span className="font-medium text-foreground">11 characters</span> (letters, numbers and spaces only).
+                      </p>
+                      <div className="rounded-md border bg-background p-3">
+                        <p className="mb-1.5 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"><Smartphone className="h-3 w-3" /> On your customer&apos;s phone</p>
+                        <div className="flex items-start gap-2">
+                          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-success/15 text-xs font-bold text-success">
+                            {(newSender || shop?.shop_name || "SH").slice(0, 2).toUpperCase()}
+                          </span>
+                          <div>
+                            <p className="text-sm font-semibold">{newSender || shop?.shop_name || "Your Shop"}</p>
+                            <p className="text-xs text-muted-foreground">Your order of GHS 25 MTN data is confirmed. Thank you!</p>
+                          </div>
+                        </div>
+                      </div>
+                      <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
+                        <Info className="h-3 w-3 mt-0.5 shrink-0" /> Why it matters: customers trust messages from your brand more than a generic number. Every sender ID request is reviewed before it goes live to prevent impersonation.
+                      </p>
+                    </div>
+
+                    {shop?.shop_name && senderSuggestions(shop.shop_name).length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                        <span className="text-muted-foreground">Suggestions:</span>
+                        {senderSuggestions(shop.shop_name).map((s) => (
+                          <button key={s} type="button" onClick={() => setNewSender(s)} className="rounded-full bg-muted px-2.5 py-1 font-mono font-medium hover:bg-accent">{s}</button>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="flex gap-2">
+                      <Input value={newSender} onChange={(e) => setNewSender(e.target.value)} placeholder="e.g. KFT Shop" maxLength={11} className="uppercase" />
+                      <Button onClick={requestSenderId} disabled={busy || !newSender.trim()} className="shrink-0 bg-[#1b388b] text-white hover:bg-[#1b388b]/90">
+                        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Request
+                      </Button>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">{newSender.length}/11 characters · letters, numbers and spaces only.</p>
+                  </>
+                )}
+
+                {senderIds.some((s) => s.local_status === "rejected") && (
+                  <div className="border-t pt-2">
+                    <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Previous requests</p>
+                    <ul className="space-y-1">
+                      {senderIds.filter((s) => s.local_status === "rejected").map((s) => (
+                        <li key={s.id} className="flex items-center justify-between text-xs">
+                          <span className="font-mono">{s.sender_id}</span>
+                          <Badge className={SENDER_BADGE[s.local_status] ?? ""} variant="secondary">rejected</Badge>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )
+        })()}
+
+        {showBonus && (
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
+            <div className="flex items-center gap-2">
+              <Gift className="h-5 w-5 shrink-0 text-amber-600" />
+              <div>
+                <p className="text-sm font-bold text-foreground">Claim your {account.welcomeBonusCredits} free SMS credits!</p>
+                <p className="text-xs text-muted-foreground">Welcome bonus for activating the SMS feature.</p>
+              </div>
+            </div>
+            <Button size="sm" onClick={claimBonus} disabled={busy} className="shrink-0 bg-amber-500 text-white hover:bg-amber-600">
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Gift className="h-4 w-4" />} Claim
+            </Button>
+          </div>
+        )}
+
+        {showActivation && (
+          <Card className="overflow-hidden border-success/30">
+            <CardContent className="space-y-4 pt-6 text-center">
+              <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-success/10">
+                <Lock className="h-7 w-7 text-success" />
+              </div>
+              <div>
+                <p className="text-lg font-bold text-foreground">Unlock Customer SMS</p>
+                <p className="text-sm text-muted-foreground">One-time activation, then pay-as-you-go with SMS bundles.</p>
+              </div>
+              {account.welcomeBonusCredits > 0 && !account.bonusClaimed && (
+                <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-700">
+                  <Gift className="mr-1 inline h-3.5 w-3.5" /> Activate now and get {account.welcomeBonusCredits} free SMS credits to get started!
+                </p>
+              )}
+              <ul className="space-y-1.5 rounded-lg bg-muted/30 p-3 text-left text-sm">
+                <li className="flex items-center gap-2"><CheckCircle className="h-4 w-4 shrink-0 text-success" /> Bulk SMS to your entire customer list in one tap</li>
+                <li className="flex items-center gap-2"><CheckCircle className="h-4 w-4 shrink-0 text-success" /> Single SMS to any Ghana number</li>
+                <li className="flex items-center gap-2"><CheckCircle className="h-4 w-4 shrink-0 text-success" /> Live character &amp; cost counter — no surprises</li>
+                <li className="flex items-center gap-2"><CheckCircle className="h-4 w-4 shrink-0 text-success" /> Failed messages are automatically refunded</li>
+              </ul>
+              {account.activationFee > 0 && (
+                <>
+                  <p className="text-3xl font-black text-success">GH₵{account.activationFee.toFixed(2)}</p>
+                  <p className="-mt-3 text-xs text-muted-foreground">one-time activation fee</p>
+                </>
+              )}
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button onClick={() => activate("wallet")} disabled={busy} className="bg-success text-white hover:bg-success/90">
+                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />} {account.activationFee === 0 ? "Activate" : `Activate for GH₵${account.activationFee.toFixed(2)}`}
+                </Button>
+                {account.activationFee > 0 && (
+                  walletDirect ? (
+                    <Button variant="outline" onClick={() => openMomo("activation", 0, account.activationFee)} disabled={busy}><Smartphone className="h-4 w-4" /> Pay with MoMo</Button>
+                  ) : (
+                    <Button variant="outline" onClick={() => activate("paystack")} disabled={busy}><CreditCard className="h-4 w-4" /> Pay with Paystack</Button>
+                  )
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList className="flex-wrap">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="send" disabled={!isActive}>Compose</TabsTrigger>
-            <TabsTrigger value="senders">Sender IDs</TabsTrigger>
-            <TabsTrigger value="contacts">Contacts</TabsTrigger>
-            <TabsTrigger value="bundles">Buy Credits</TabsTrigger>
+            <TabsTrigger value="send" disabled={!isActive}>Send</TabsTrigger>
+            <TabsTrigger value="bundles">Buy</TabsTrigger>
+            <TabsTrigger value="templates">Templates</TabsTrigger>
             <TabsTrigger value="history">History</TabsTrigger>
+            <TabsTrigger value="contacts">Contacts</TabsTrigger>
           </TabsList>
-
-          {/* ── OVERVIEW ── */}
-          <TabsContent value="overview" className="space-y-4 pt-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardDescription className="flex items-center gap-1.5"><CreditCard className="h-4 w-4" /> SMS credits</CardDescription>
-                  <CardTitle className="text-3xl">{balance.toLocaleString()}</CardTitle>
-                </CardHeader>
-                <CardContent><Badge variant={isActive ? "default" : "secondary"}>{isPlatform ? "Platform" : account.status}</Badge></CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardDescription className="flex items-center gap-1.5"><Clock className="h-4 w-4" /> Pending credits</CardDescription>
-                  <CardTitle className="text-3xl">{account.pendingUnits.toLocaleString()}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-xs text-muted-foreground">
-                    {account.pendingUnits > 0 ? "Awaiting SMS supply top-up — credited automatically." : "No pending credits."}
-                  </p>
-                </CardContent>
-              </Card>
-            </div>
-
-            {showActivation && (
-              account.activationFee === 0 ? (
-                // Free activation — no fee text, no MoMo/Paystack. Server debits 0.
-                <Card className="border-primary/30">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2"><ShieldCheck className="h-5 w-5 text-primary" /> Activate SMS</CardTitle>
-                    <CardDescription>Activate your SMS account — it&apos;s free. Unlocks sending and grants {account.welcomeBonusCredits} free welcome credits.</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <Button onClick={() => activate("wallet")} disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />} Activate</Button>
-                  </CardContent>
-                </Card>
-              ) : (
-                <Card className="border-primary/30">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2"><ShieldCheck className="h-5 w-5 text-primary" /> Activate SMS</CardTitle>
-                    <CardDescription>A one-time activation fee of GHS {account.activationFee} unlocks sending and grants {account.welcomeBonusCredits} free welcome credits.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="flex flex-wrap gap-2">
-                    <Button onClick={() => activate("wallet")} disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />} Pay from wallet</Button>
-                    {walletDirect ? (
-                      <Button variant="outline" onClick={() => openMomo("activation", 0, account.activationFee)} disabled={busy}><Smartphone className="h-4 w-4" /> Pay with MoMo</Button>
-                    ) : (
-                      <Button variant="outline" onClick={() => activate("paystack")} disabled={busy}><CreditCard className="h-4 w-4" /> Pay with Paystack</Button>
-                    )}
-                  </CardContent>
-                </Card>
-              )
-            )}
-
-            {showBonus && (
-              <Card className="border-warning/30 bg-warning/10">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2"><Sparkles className="h-5 w-5 text-warning" /> Claim welcome bonus</CardTitle>
-                  <CardDescription>Grab your {account.welcomeBonusCredits} free SMS credits — one-time offer.</CardDescription>
-                </CardHeader>
-                <CardContent><Button onClick={claimBonus} disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} Claim {account.welcomeBonusCredits} credits</Button></CardContent>
-              </Card>
-            )}
-
-            {isActive && (
-              <div className="flex flex-wrap gap-2">
-                <Button variant="outline" onClick={() => setTab("bundles")}><Plus className="h-4 w-4" /> Buy more credits</Button>
-              </div>
-            )}
-          </TabsContent>
 
           {/* ── SEND (compose) ── */}
           <TabsContent value="send" className="space-y-4 pt-4">
+            <Card className="border-amber-500/30 bg-amber-500/5">
+              <CardHeader className="cursor-default pb-2">
+                <CardTitle className="flex items-center gap-2 text-sm text-amber-700"><ShieldQuestion className="h-4 w-4" /> Sending rules — avoid scam messages</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 pt-0 text-xs text-amber-800">
+                <p>To protect your customers, every message is checked automatically. These are <span className="font-semibold">not allowed</span> and will be blocked:</p>
+                <ul className="space-y-1">
+                  <li className="flex items-start gap-1.5"><X className="mt-0.5 h-3 w-3 shrink-0 text-destructive" /> Asking for OTP, PIN, password, or to &quot;verify/confirm your account&quot;</li>
+                  <li className="flex items-start gap-1.5"><X className="mt-0.5 h-3 w-3 shrink-0 text-destructive" /> Fake prizes, lottery or &quot;you have won&quot; messages</li>
+                  <li className="flex items-start gap-1.5"><X className="mt-0.5 h-3 w-3 shrink-0 text-destructive" /> Fake account-reversal or &quot;send my money back&quot; tricks</li>
+                  <li className="flex items-start gap-1.5"><X className="mt-0.5 h-3 w-3 shrink-0 text-destructive" /> Links to suspicious or shortened URLs</li>
+                </ul>
+                <p><span className="font-semibold">Do</span> promote your real bundles, prices and your shop link — that&apos;s what customers love.</p>
+                <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2">Blocked messages cost <span className="font-semibold">no credits</span>. Repeated scam attempts can disable your SMS feature.</p>
+              </CardContent>
+            </Card>
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2"><Send className="h-5 w-5 text-primary" /> Compose Message</CardTitle>
+                <CardTitle className="flex items-center gap-2"><Send className="h-5 w-5 text-[#1b388b]" /> Compose Message</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 {/* From (sender ID) */}
@@ -1042,7 +1251,7 @@ export default function SmsDashboardPage() {
                   </Select>
                   {activeSenders.length === 0 && (
                     <p className="text-xs text-muted-foreground">
-                      No approved sender IDs yet — request one in the <span className="font-medium">Sender IDs</span> tab. Messages use the platform default meanwhile.
+                      No approved sender IDs yet — request one in the <span className="font-medium">Your Sender ID</span> card above. Messages use the platform default meanwhile.
                     </p>
                   )}
                 </div>
@@ -1129,7 +1338,7 @@ export default function SmsDashboardPage() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label htmlFor="msg" className="text-muted-foreground">Message</Label>
-                    <button type="button" onClick={() => setShowPreview((s) => !s)} className="flex items-center gap-1 text-sm text-primary hover:underline">
+                    <button type="button" onClick={() => setShowPreview((s) => !s)} className="flex items-center gap-1 text-sm text-[#1b388b] hover:underline">
                       {showPreview ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />} {showPreview ? "Hide Preview" : "Show Preview"}
                     </button>
                   </div>
@@ -1169,7 +1378,7 @@ export default function SmsDashboardPage() {
                 {/* Meter */}
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">{resolved.length} chars · {segPerRecipient} SMS</span>
-                  <span className="font-medium text-primary">{segPerRecipient} credit{segPerRecipient === 1 ? "" : "s"} per recipient</span>
+                  <span className="font-medium text-[#1b388b]">{segPerRecipient} credit{segPerRecipient === 1 ? "" : "s"} per recipient</span>
                 </div>
 
                 {overBudget && (
@@ -1187,11 +1396,11 @@ export default function SmsDashboardPage() {
                 {savingTemplate ? (
                   <div className="flex flex-wrap items-center gap-2">
                     <Input value={templateName} onChange={(e) => setTemplateName(e.target.value)} placeholder="Template name" className="w-48" />
-                    <Button size="sm" onClick={saveTemplate} disabled={busy}>Save</Button>
+                    <Button size="sm" onClick={saveTemplate} disabled={busy} className="bg-[#1b388b] text-white hover:bg-[#1b388b]/90">Save</Button>
                     <Button size="sm" variant="ghost" onClick={() => { setSavingTemplate(false); setTemplateName("") }}>Cancel</Button>
                   </div>
                 ) : (
-                  <button type="button" onClick={() => setSavingTemplate(true)} className="flex items-center gap-1.5 text-sm text-primary hover:underline">
+                  <button type="button" onClick={() => setSavingTemplate(true)} className="flex items-center gap-1.5 text-sm text-[#1b388b] hover:underline">
                     <Copy className="h-4 w-4" /> Save as template
                   </button>
                 )}
@@ -1204,7 +1413,7 @@ export default function SmsDashboardPage() {
                   </p>
                 )}
 
-                <Button onClick={sendMessage} disabled={sendDisabled} className="w-full" size="lg">
+                <Button onClick={sendMessage} disabled={sendDisabled} className="w-full bg-[#1b388b] text-white hover:bg-[#1b388b]/90" size="lg">
                   {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   {sending ? "Sending…" : "Send SMS"}
                 </Button>
@@ -1239,12 +1448,14 @@ export default function SmsDashboardPage() {
                 </AlertDialog>
               </CardContent>
             </Card>
+          </TabsContent>
 
-            {/* Message Templates */}
+          {/* ── TEMPLATES ── */}
+          <TabsContent value="templates" className="pt-4">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0">
-                <CardTitle className="text-base">Message Templates</CardTitle>
-                <Button size="sm" variant="outline" onClick={() => { setMessage(""); setSavingTemplate(false); toast.info("Compose a message, then “Save as template”.") }}>
+                <CardTitle className="flex items-center gap-2 text-base"><Copy className="h-4 w-4 text-[#1b388b]" /> Message Templates</CardTitle>
+                <Button size="sm" onClick={() => { setMessage(""); setSavingTemplate(false); setTab("send"); toast.info("Compose a message, then “Save as template”.") }} className="bg-[#1b388b] text-white hover:bg-[#1b388b]/90">
                   <Plus className="h-4 w-4" /> New
                 </Button>
               </CardHeader>
@@ -1255,50 +1466,13 @@ export default function SmsDashboardPage() {
                   <ul className="divide-y">
                     {templates.map((tpl) => (
                       <li key={tpl.id} className="flex items-center justify-between gap-3 py-2">
-                        <button type="button" onClick={() => { setMessage(tpl.body); toast.success(`Loaded “${tpl.name}”`) }} className="min-w-0 flex-1 text-left">
+                        <button type="button" onClick={() => { setMessage(tpl.body); setTab("send"); toast.success(`Loaded “${tpl.name}”`) }} className="min-w-0 flex-1 text-left">
                           <p className="font-medium">{tpl.name}</p>
                           <p className="truncate text-sm text-muted-foreground">{tpl.body}</p>
                         </button>
                         <Button size="sm" variant="ghost" onClick={() => deleteTemplate(tpl.id)} disabled={busy} className="text-destructive hover:text-destructive">
                           <Trash2 className="h-4 w-4" />
                         </Button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* ── SENDER IDs ── */}
-          <TabsContent value="senders" className="space-y-4 pt-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Request a sender ID</CardTitle>
-                <CardDescription>The name recipients see as the SMS sender (max 11 characters, letters/numbers). Requests are registered with the SMS provider and approved automatically — status updates within minutes.</CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-wrap items-end gap-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor="sid">Sender ID</Label>
-                  <Input id="sid" value={newSender} onChange={(e) => setNewSender(e.target.value)} placeholder="e.g. MYSHOP" maxLength={11} className="w-48 uppercase" />
-                </div>
-                <Button onClick={requestSenderId} disabled={busy || !newSender.trim()}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Request</Button>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader><CardTitle className="text-base">Your sender IDs</CardTitle></CardHeader>
-              <CardContent>
-                {senderIds.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No sender IDs yet. Request one above.</p>
-                ) : (
-                  <ul className="divide-y">
-                    {senderIds.map((s) => (
-                      <li key={s.id} className="flex items-center justify-between py-2.5">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono font-medium">{s.sender_id}</span>
-                          {s.local_status === "active" && <BadgeCheck className="h-4 w-4 text-success" />}
-                        </div>
-                        <Badge className={SENDER_BADGE[s.local_status] ?? ""} variant="secondary">{s.local_status}</Badge>
                       </li>
                     ))}
                   </ul>
@@ -1334,7 +1508,7 @@ export default function SmsDashboardPage() {
                           <button
                             type="button"
                             onClick={() => selectGroup(g)}
-                            className={`min-w-0 flex-1 text-left text-sm ${selectedGroup?.id === g.id ? "font-semibold text-primary" : ""}`}
+                            className={`min-w-0 flex-1 text-left text-sm ${selectedGroup?.id === g.id ? "font-semibold text-[#1b388b]" : ""}`}
                           >
                             <span className="block truncate">{g.name}</span>
                             <span className="text-xs text-muted-foreground">{g.contact_count} contact{g.contact_count === 1 ? "" : "s"}</span>
@@ -1499,50 +1673,52 @@ export default function SmsDashboardPage() {
           </TabsContent>
 
           {/* ── BUY CREDITS (free quantity at the per-credit fee) ── */}
-          <TabsContent value="bundles" className="pt-4">
+          <TabsContent value="bundles" className="space-y-4 pt-4">
             {!isActive ? (
-              <Alert><AlertCircle className="h-4 w-4" /><AlertDescription>Activate your SMS account (Overview tab) before buying credits.</AlertDescription></Alert>
+              <Alert><AlertCircle className="h-4 w-4" /><AlertDescription>Activate your SMS account before buying credits.</AlertDescription></Alert>
+            ) : !bundlesLoaded ? (
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-32 w-full" />)}
+              </div>
+            ) : bundles.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No bundles are available right now — check back later.</p>
             ) : (
-              <Card className="max-w-md">
-                <CardHeader>
-                  <CardTitle>Buy SMS credits</CardTitle>
-                  <CardDescription>GHS {account.pricePerCredit.toFixed(3)} per credit. Enter how many you want.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="qty">Credits</Label>
-                    <Input id="qty" inputMode="numeric" value={creditQty}
-                      onChange={(e) => setCreditQty(e.target.value.replace(/[^0-9]/g, ""))}
-                      placeholder="e.g. 1000" />
+              <>
+                <div className="flex items-center justify-between">
+                  <p className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground"><Wallet className="h-4 w-4" /> Buy Credits</p>
+                  <div className="flex gap-1.5">
+                    <span className="rounded-full border border-border bg-muted px-2.5 py-1 text-xs text-muted-foreground">Profit Wallet GH₵{profitBalance.toFixed(2)}</span>
+                    <span className="rounded-full border border-[#1b388b]/30 bg-[#1b388b]/10 px-2.5 py-1 text-xs font-medium text-[#1b388b]">Main Wallet GH₵{walletBalance.toFixed(2)}</span>
                   </div>
-                  {(() => {
-                    const credits = Number(creditQty)
-                    const cost = Number.isFinite(credits) ? credits * account.pricePerCredit : 0
+                </div>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {bundles.map((b) => {
+                    const perSms = b.units > 0 ? b.price_ghs / b.units : 0
+                    const affordable = walletBalance >= b.price_ghs
+                    const isBuying = buyingBundleId === b.id
                     return (
-                      <>
-                        <div className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2 text-sm">
-                          <span className="text-muted-foreground">{credits > 0 ? `${credits.toLocaleString()} credits` : "Total"}</span>
-                          <span className="text-lg font-bold">GHS {cost.toFixed(2)}</span>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          <Button onClick={() => buyCredits("wallet")} disabled={busy || !(credits > 0)}>
-                            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />} Buy with wallet
+                      <Card key={b.id}>
+                        <CardContent className="space-y-1.5 pt-4">
+                          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Messages</p>
+                          <p className="text-xl font-bold">{b.units.toLocaleString()}</p>
+                          <p className="text-lg font-bold text-success">GH₵{b.price_ghs.toFixed(2)}</p>
+                          <p className="text-[10px] text-muted-foreground">≈ GHS {perSms.toFixed(3)}/SMS</p>
+                          {!affordable && <p className="text-[10px] text-amber-600">Need GH₵{(b.price_ghs - walletBalance).toFixed(2)} more</p>}
+                          <Button
+                            size="sm"
+                            className="w-full bg-success text-white hover:bg-success/90"
+                            disabled={busy || isBuying}
+                            onClick={() => buyBundle(b.id, affordable ? "wallet" : "paystack")}
+                          >
+                            {isBuying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />} Buy
                           </Button>
-                          {walletDirect ? (
-                            <Button variant="outline" onClick={() => { if (credits > 0) openMomo("credits", credits, cost) }} disabled={busy || !(credits > 0)}>
-                              <Smartphone className="h-4 w-4" /> Pay with MoMo
-                            </Button>
-                          ) : (
-                            <Button variant="outline" onClick={() => buyCredits("paystack")} disabled={busy || !(credits > 0)}>
-                              <CreditCard className="h-4 w-4" /> Pay with MoMo
-                            </Button>
-                          )}
-                        </div>
-                      </>
+                        </CardContent>
+                      </Card>
                     )
-                  })()}
-                </CardContent>
-              </Card>
+                  })}
+                </div>
+                <p className="text-xs text-muted-foreground">Buys with sufficient Main Wallet balance are debited instantly; otherwise you&apos;ll be sent to Paystack/MoMo to pay.</p>
+              </>
             )}
           </TabsContent>
 
@@ -1668,7 +1844,7 @@ export default function SmsDashboardPage() {
           <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
-                <Smartphone className="h-5 w-5 text-primary" />
+                <Smartphone className="h-5 w-5 text-[#1b388b]" />
                 {momo.kind === "credits" ? "Pay with Mobile Money" : "Activate with Mobile Money"}
               </DialogTitle>
               <DialogDescription>
@@ -1747,8 +1923,8 @@ export default function SmsDashboardPage() {
             {/* AWAITING stage — prompt sent, polling the SMS account */}
             {momo.stage === "awaiting" && (
               <div className="space-y-4 py-2 text-center">
-                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
-                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#1b388b]/10">
+                  <Loader2 className="h-8 w-8 animate-spin text-[#1b388b]" />
                 </div>
                 <div>
                   <h3 className="text-lg font-bold">Approve the prompt on your phone</h3>

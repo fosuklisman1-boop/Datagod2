@@ -8,9 +8,10 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
-import { Loader2, Send, Search, UserCheck, Bot, AlertTriangle, MessageSquare, X, ChevronRight, Check, CheckCheck, Paperclip, FileText, Hand } from "lucide-react"
+import { Loader2, Send, Search, UserCheck, Bot, AlertTriangle, X, ChevronRight, Check, CheckCheck, Paperclip, FileText, Hand } from "lucide-react"
 
 interface Conversation {
   id: string
@@ -439,10 +440,11 @@ export default function WhatsAppInboxPage() {
   return (
     <>
       <DashboardLayout>
-        <div className="mb-4">
-          <h1 className="text-2xl font-bold flex items-center gap-2"><MessageSquare className="w-6 h-6" /> WhatsApp Inbox</h1>
-          <p className="text-sm text-muted-foreground">View bot conversations and take over to reply manually.</p>
-        </div>
+        <PageHeaderBanner
+          className="mb-4"
+          title="WhatsApp Inbox"
+          subtitle="View bot conversations and take over to reply manually."
+        />
 
         {/* Conversation list (full width) */}
         <Card className="flex flex-col overflow-hidden max-w-3xl">

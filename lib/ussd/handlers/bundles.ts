@@ -2,6 +2,7 @@ import { after } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { UzoResponse, USSDSession, BundleOption } from "../types"
 import { cont, end, networkMenu, bundleMenu, recipientPrompt, confirmMenu, paymentMethodMenu, mainMenu } from "../menus"
+import { networkNickname } from "../network-labels"
 import { setSession } from "../session"
 import { resolveEmail } from "../resolve-email"
 import { chargeMobileMoney, submitOtp } from "../../paystack"
@@ -12,6 +13,7 @@ import { sendWhatsAppText } from "../../whatsapp-bot/send"
 import { getJoinCommunityLink } from "../../app-settings"
 import { validateNetworkPrefix } from "../../phone-format"
 import { getPrefixValidationConfig } from "../../network-prefix-config"
+import { getUssdServiceVisibility } from "../../ussd-service-visibility"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -23,8 +25,8 @@ const PAGE_SIZE = 5
 const NETWORK_OPTIONS: Record<string, { dbName: string; paystackProvider: 'mtn' | 'vod' | 'tgo' }> = {
   '1': { dbName: 'MTN', paystackProvider: 'mtn' },
   '2': { dbName: 'Telecel', paystackProvider: 'vod' },
-  '3': { dbName: 'AirtelTigo', paystackProvider: 'tgo' },
-  '4': { dbName: 'AT-iShare', paystackProvider: 'tgo' },
+  '3': { dbName: 'AT-iShare', paystackProvider: 'tgo' },
+  '4': { dbName: 'AT-BigTime', paystackProvider: 'tgo' },
 }
 
 async function fetchBundles(
@@ -84,7 +86,13 @@ export async function handleSelectNetwork(
 ): Promise<UzoResponse> {
   if (input.trim() === '0') {
     await setSession(sessionId, { step: 'MAIN', dialingPhone: session.dialingPhone })
-    return cont(mainMenu())
+    const visibility = await getUssdServiceVisibility(supabase)
+    return cont(mainMenu({
+      data: visibility.data,
+      afa: visibility.afa,
+      airtime: visibility.airtime,
+      resultsChecker: visibility.resultsChecker,
+    }))
   }
 
   const net = NETWORK_OPTIONS[input.trim()]
@@ -138,7 +146,7 @@ export async function handleSelectNetwork(
 
   const { bundles, total } = await fetchBundles(net.dbName, 0, effectivePriceTier, subAgentParentShopId)
   if (bundles.length === 0) {
-    return cont(`No ${net.dbName} bundles available.\n\n${networkMenu()}`)
+    return cont(`No ${networkNickname(net.dbName)} packages available.\n\n${networkMenu()}`)
   }
 
   const paystackProvider = paystackProviderFromPhone(dialingPhone) ?? net.paystackProvider
@@ -250,7 +258,7 @@ export async function handleEnterRecipient(
   await setSession(sessionId, { ...session, step: 'CONFIRM', recipientPhone: local })
 
   return cont(confirmMenu(
-    session.network!,
+    networkNickname(session.network!),
     session.bundleSize!,
     session.bundlePrice!,
     local,
@@ -274,7 +282,7 @@ export async function handleConfirm(
 
   if (input.trim() !== '1') {
     return cont(confirmMenu(
-      session.network!,
+      networkNickname(session.network!),
       session.bundleSize!,
       session.bundlePrice!,
       session.recipientPhone!,
@@ -295,7 +303,7 @@ export async function handleConfirm(
 
   if (!pkg || !pkg.is_available) {
     await setSession(sessionId, { step: 'MAIN', dialingPhone })
-    return end('Bundle no longer available. Please try again.')
+    return end('Package no longer available. Please try again.')
   }
 
   const { data: feeSettings } = await supabase
@@ -571,7 +579,7 @@ export async function handlePaymentMethod(
       }
     })
 
-    return end('Payment successful.\nYour bundle will reflect\nin a few minutes.')
+    return end('Payment successful.\nYour package will reflect\nin a few minutes.')
   }
 
   return cont(paymentMethodMenu(verifiedPrice, session.walletBalance ?? 0))

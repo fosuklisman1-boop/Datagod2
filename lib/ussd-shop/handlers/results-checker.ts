@@ -17,6 +17,7 @@ import {
 } from "@/lib/results-checker-service"
 import { buildRcBoardOptions } from "@/lib/ussd/handlers/results-checker"
 import { createShopRcOrder } from "@/lib/shop-commerce/orders"
+import { getUssdServiceVisibility } from "../../ussd-service-visibility"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -38,7 +39,12 @@ export async function handleShopRcSelectBoard(
   const shopName = session.shopName ?? "Shop"
   if (input.trim() === "0") {
     await setSession(sessionId, { ...session, step: "SELECT_PRODUCT" })
-    return cont(productMenu(shopName))
+    const adminVisibility = await getUssdServiceVisibility(supabase)
+    return cont(productMenu(shopName, {
+      data: adminVisibility.data,
+      airtime: adminVisibility.airtime,
+      resultsChecker: adminVisibility.resultsChecker,
+    }))
   }
 
   const options = session.rcBoardOptions ?? []

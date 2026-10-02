@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { authenticateApiKey, logApiRequest } from "@/lib/api-auth"
 import { createClient } from "@supabase/supabase-js"
 import { applyRateLimit } from "@/lib/rate-limiter"
+import { getSandboxBalance } from "@/lib/sandbox"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -31,6 +32,29 @@ export async function GET(request: NextRequest) {
       { success: false, error: `Rate limit exceeded. Max ${rateLimitCount} requests/minute.` },
       { status: 429 }
     )
+  }
+
+  if (user.environment === "test") {
+    const balance = await getSandboxBalance(user.id)
+    logApiRequest({
+      userId: user.id,
+      apiKeyId: user.api_key_id,
+      method: "GET",
+      endpoint: "/api/v1/balance",
+      statusCode: 200,
+      request,
+      durationMs: Date.now() - start,
+      responsePayload: { balance, sandbox: true },
+    }).catch(() => {})
+    return NextResponse.json({
+      success: true,
+      balance,
+      total_credited: null,
+      total_spent: null,
+      currency: "GHS",
+      sandbox: true,
+      user: { name: user.first_name, role: user.role },
+    })
   }
 
   // Fetch wallet

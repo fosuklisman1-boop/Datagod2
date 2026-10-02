@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { toast } from "sonner"
-import { Loader2, Save, ExternalLink, MessageCircle, Copy, Check, Link as LinkIcon, Bell, DollarSign, Power, Megaphone, FileText } from "lucide-react"
+import { Loader2, Save, ExternalLink, MessageCircle, Copy, Check, Link as LinkIcon, Bell, DollarSign, Power, Megaphone, FileText, Truck } from "lucide-react"
 import { supportSettingsService } from "@/lib/support-settings-service"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import PhoneBlacklistManager from "@/components/admin/phone-blacklist-manager"
 import AirtimeSettingsCard from "@/components/admin/airtime-settings-card"
 import NetworkPrefixSettingsCard from "@/components/admin/network-prefix-settings-card"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 
 export default function AdminSettingsPage() {
   const { isAdmin, loading: adminLoading } = useAdminProtected()
@@ -77,6 +78,14 @@ export default function AdminSettingsPage() {
   const [priceAdjustmentTelecel, setPriceAdjustmentTelecel] = useState(0)
   const [priceAdjustmentAtIshare, setPriceAdjustmentAtIshare] = useState(0)
   const [priceAdjustmentAtBigtime, setPriceAdjustmentAtBigtime] = useState(0)
+
+  // Wholesale cost per GB we actually pay suppliers, per network -- feeds the
+  // admin dashboard's real profit calculation (revenue minus this, instead
+  // of only the gross-margin proxy).
+  const [supplierCostPerGbMtn, setSupplierCostPerGbMtn] = useState(0)
+  const [supplierCostPerGbTelecel, setSupplierCostPerGbTelecel] = useState(0)
+  const [supplierCostPerGbAtIshare, setSupplierCostPerGbAtIshare] = useState(0)
+  const [supplierCostPerGbAtBigtime, setSupplierCostPerGbAtBigtime] = useState(0)
 
   // Christmas theme settings
   const [christmasThemeEnabled, setChristmasThemeEnabled] = useState(false)
@@ -236,6 +245,20 @@ export default function AdminSettingsPage() {
         }
         if (data.price_adjustment_at_bigtime !== undefined) {
           setPriceAdjustmentAtBigtime(data.price_adjustment_at_bigtime)
+        }
+
+        // Load supplier cost per GB settings
+        if (data.supplier_cost_per_gb_mtn !== undefined) {
+          setSupplierCostPerGbMtn(data.supplier_cost_per_gb_mtn)
+        }
+        if (data.supplier_cost_per_gb_telecel !== undefined) {
+          setSupplierCostPerGbTelecel(data.supplier_cost_per_gb_telecel)
+        }
+        if (data.supplier_cost_per_gb_at_ishare !== undefined) {
+          setSupplierCostPerGbAtIshare(data.supplier_cost_per_gb_at_ishare)
+        }
+        if (data.supplier_cost_per_gb_at_bigtime !== undefined) {
+          setSupplierCostPerGbAtBigtime(data.supplier_cost_per_gb_at_bigtime)
         }
 
         // Load Christmas theme setting
@@ -862,6 +885,10 @@ export default function AdminSettingsPage() {
           price_adjustment_telecel: priceAdjustmentTelecel,
           price_adjustment_at_ishare: priceAdjustmentAtIshare,
           price_adjustment_at_bigtime: priceAdjustmentAtBigtime,
+          supplier_cost_per_gb_mtn: supplierCostPerGbMtn,
+          supplier_cost_per_gb_telecel: supplierCostPerGbTelecel,
+          supplier_cost_per_gb_at_ishare: supplierCostPerGbAtIshare,
+          supplier_cost_per_gb_at_bigtime: supplierCostPerGbAtBigtime,
           signups_enabled: signupsEnabled,
           wallet_topups_enabled: walletTopupsEnabled,
           upgrades_enabled: upgradesEnabled,
@@ -908,10 +935,10 @@ export default function AdminSettingsPage() {
       <div className="bg-muted/40 p-4 md:p-8">
         <div className="max-w-2xl mx-auto">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-foreground">App Settings</h1>
-          <p className="text-muted-foreground mt-2">
-            Configure application-wide settings and community links
-          </p>
+          <PageHeaderBanner
+            title="App Settings"
+            subtitle="Configure application-wide settings and community links"
+          />
         </div>
 
         {/* Global Ordering Control - Emergency Switch */}
@@ -1789,6 +1816,124 @@ export default function AdminSettingsPage() {
                   <p className="text-primary font-bold">
                     GHS {(10 * (1 + priceAdjustmentAtBigtime / 100)).toFixed(2)}
                   </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-4">
+              <Button
+                onClick={handleSave}
+                disabled={saving}
+                className="flex items-center gap-2 bg-primary hover:bg-primary"
+              >
+                {saving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    Save Settings
+                  </>
+                )}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Truck className="w-5 h-5 text-warning" />
+              Supplier Cost (Wholesale)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              What Datagod actually pays its suppliers per GB, for each network. Used to compute real
+              platform profit on the Admin Dashboard (revenue minus this cost) — not shown to customers
+              or shop owners, and separate from package prices and price adjustments above.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* MTN */}
+              <div className="p-4 bg-warning/10 border border-border rounded-lg">
+                <Label htmlFor="supplierCostMtn" className="text-sm font-medium text-warning">
+                  MTN Cost per GB
+                </Label>
+                <div className="flex items-center gap-2 mt-2">
+                  <span className="text-sm font-medium text-warning">GHS</span>
+                  <Input
+                    id="supplierCostMtn"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={supplierCostPerGbMtn}
+                    onChange={(e) => setSupplierCostPerGbMtn(parseFloat(e.target.value) || 0)}
+                    className="flex-1 bg-card"
+                    placeholder="0"
+                  />
+                </div>
+              </div>
+
+              {/* Telecel */}
+              <div className="p-4 bg-destructive/10 border border-border rounded-lg">
+                <Label htmlFor="supplierCostTelecel" className="text-sm font-medium text-destructive">
+                  Telecel Cost per GB
+                </Label>
+                <div className="flex items-center gap-2 mt-2">
+                  <span className="text-sm font-medium text-destructive">GHS</span>
+                  <Input
+                    id="supplierCostTelecel"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={supplierCostPerGbTelecel}
+                    onChange={(e) => setSupplierCostPerGbTelecel(parseFloat(e.target.value) || 0)}
+                    className="flex-1 bg-card"
+                    placeholder="0"
+                  />
+                </div>
+              </div>
+
+              {/* AT - iShare */}
+              <div className="p-4 bg-primary/5 border border-primary/20 rounded-lg">
+                <Label htmlFor="supplierCostAtIshare" className="text-sm font-medium text-primary">
+                  AT - iShare Cost per GB
+                </Label>
+                <div className="flex items-center gap-2 mt-2">
+                  <span className="text-sm font-medium text-primary">GHS</span>
+                  <Input
+                    id="supplierCostAtIshare"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={supplierCostPerGbAtIshare}
+                    onChange={(e) => setSupplierCostPerGbAtIshare(parseFloat(e.target.value) || 0)}
+                    className="flex-1 bg-card"
+                    placeholder="0"
+                  />
+                </div>
+              </div>
+
+              {/* AT - BigTime */}
+              <div className="p-4 bg-primary/10 border border-border rounded-lg">
+                <Label htmlFor="supplierCostAtBigtime" className="text-sm font-medium text-primary">
+                  AT - BigTime Cost per GB
+                </Label>
+                <div className="flex items-center gap-2 mt-2">
+                  <span className="text-sm font-medium text-primary">GHS</span>
+                  <Input
+                    id="supplierCostAtBigtime"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={supplierCostPerGbAtBigtime}
+                    onChange={(e) => setSupplierCostPerGbAtBigtime(parseFloat(e.target.value) || 0)}
+                    className="flex-1 bg-card"
+                    placeholder="0"
+                  />
                 </div>
               </div>
             </div>

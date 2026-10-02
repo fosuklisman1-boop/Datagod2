@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { shopHandleOrFilter } from "@/lib/shop-handle"
+import { normalizeWhatsAppLink } from "@/lib/whatsapp-link"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -29,7 +30,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     const { data: settings, error } = await supabase
       .from("shop_settings")
-      .select("id, shop_id, whatsapp_link, announcement_enabled, announcement_title, announcement_message, created_at, updated_at")
+      .select("id, shop_id, whatsapp_link, community_link, announcement_enabled, announcement_title, announcement_message, order_confirmation_sms_enabled, created_at, updated_at")
       .eq("shop_id", shopId)
       .single()
 
@@ -42,12 +43,21 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         id: null,
         shop_id: shopId,
         whatsapp_link: "",
+        community_link: "",
         announcement_enabled: false,
         announcement_title: "",
         announcement_message: "",
+        // No row yet == never explicitly turned off, so this stays true.
+        order_confirmation_sms_enabled: true,
         created_at: null,
         updated_at: null,
       })
+    }
+
+    // A row can predate this column (NULL) -- treat that the same as "never
+    // explicitly turned off" rather than surfacing NULL to the UI.
+    if (settings.order_confirmation_sms_enabled === null) {
+      settings.order_confirmation_sms_enabled = true
     }
 
     return NextResponse.json(settings)
@@ -112,10 +122,16 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const body = await request.json()
     const {
       whatsapp_link,
+      community_link,
       announcement_enabled,
       announcement_title,
-      announcement_message
+      announcement_message,
+      order_confirmation_sms_enabled
     } = body
+
+    if (order_confirmation_sms_enabled !== undefined && typeof order_confirmation_sms_enabled !== "boolean") {
+      return NextResponse.json({ error: "order_confirmation_sms_enabled must be a boolean" }, { status: 400 })
+    }
 
     console.log(`[SHOP-SETTINGS] Received whatsapp_link: ${whatsapp_link}`)
 
@@ -131,6 +147,28 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       const isPhone = /^\+?[0-9]{7,15}$/.test(whatsapp_link.replace(/\s/g, ""))
       if (!isUrl && !isPhone) {
         return NextResponse.json({ error: "whatsapp_link must be a valid URL or phone number" }, { status: 400 })
+      }
+    }
+
+    // Store a normalized, always-absolute URL — a bare phone number or a
+    // malformed scheme (e.g. "0598781315", "https.wa.me 0249489229") saved
+    // as-is would later be rendered as an <a href>, get resolved by the
+    // browser as a RELATIVE path under the storefront's own /shop/[slug]
+    // route, and break as "shop not found" (confirmed live on ~half of all
+    // shops before this fix — see lib/whatsapp-link.ts).
+    const normalizedWhatsappLink =
+      whatsapp_link !== undefined && whatsapp_link !== null
+        ? normalizeWhatsAppLink(whatsapp_link) ?? ""
+        : whatsapp_link
+
+    if (community_link !== undefined && community_link !== null && community_link !== "") {
+      if (typeof community_link !== "string" || community_link.length > 500) {
+        return NextResponse.json({ error: "community_link must be a string of 500 characters or fewer" }, { status: 400 })
+      }
+      try {
+        new URL(community_link)
+      } catch {
+        return NextResponse.json({ error: "community_link must be a valid URL" }, { status: 400 })
       }
     }
 
@@ -156,10 +194,12 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       const { data, error } = await supabase
         .from("shop_settings")
         .update({
-          whatsapp_link: whatsapp_link !== undefined ? whatsapp_link : existingSettings?.whatsapp_link,
+          whatsapp_link: whatsapp_link !== undefined ? normalizedWhatsappLink : existingSettings?.whatsapp_link,
+          community_link: community_link !== undefined ? community_link : existingSettings?.community_link,
           announcement_enabled: announcement_enabled !== undefined ? announcement_enabled : existingSettings?.announcement_enabled,
           announcement_title: announcement_title !== undefined ? announcement_title : existingSettings?.announcement_title,
           announcement_message: announcement_message !== undefined ? announcement_message : existingSettings?.announcement_message,
+          order_confirmation_sms_enabled: order_confirmation_sms_enabled !== undefined ? order_confirmation_sms_enabled : existingSettings?.order_confirmation_sms_enabled,
           updated_at: new Date().toISOString(),
         })
         .eq("id", existingSettings.id)
@@ -178,10 +218,12 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         .insert([
           {
             shop_id: shopId,
-            whatsapp_link: whatsapp_link || "",
+            whatsapp_link: normalizedWhatsappLink || "",
+            community_link: community_link || "",
             announcement_enabled: announcement_enabled || false,
             announcement_title: announcement_title || "",
             announcement_message: announcement_message || "",
+            order_confirmation_sms_enabled: order_confirmation_sms_enabled !== undefined ? order_confirmation_sms_enabled : true,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           },

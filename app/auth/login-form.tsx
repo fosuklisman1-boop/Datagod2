@@ -14,6 +14,7 @@ import GuestPurchaseButton from "@/components/GuestPurchaseButton"
 import GoogleAuthButton from "@/components/GoogleAuthButton"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 import { useCommunityLink } from "@/hooks/use-community-link"
+import { isPageHidden } from "@/lib/custom-domains"
 import { MessageCircle, Mail, Lock, Eye, EyeOff, Check } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -98,11 +99,11 @@ export default function LoginForm() {
       <div className="relative hidden lg:flex flex-col justify-between overflow-hidden bg-gradient-to-br from-primary to-primary p-12 text-white">
         <div aria-hidden className="absolute -right-20 -top-16 h-72 w-72 rounded-full bg-card/10" />
         <div aria-hidden className="absolute -left-12 -bottom-12 h-48 w-48 rounded-full bg-card/10" />
-        <Link href="/" className="relative flex items-center gap-3">
+        <Link href={isPageHidden("landing_page", domainBranding.hiddenPages) ? "/auth/login" : "/"} className="relative flex items-center gap-3">
           <div className="rounded-xl bg-card/15 p-2">
-            <img src="/favicon-v2.jpeg" alt="DATAGOD" className="h-7 w-7 rounded-lg object-cover" />
+            <img src={domainBranding.logoUrl || "/favicon-v2.jpeg"} alt={domainBranding.siteName || "DATAGOD"} className="h-7 w-7 rounded-lg object-cover" />
           </div>
-          <span className="text-xl font-extrabold tracking-tight">DATAGOD</span>
+          <span className="text-xl font-extrabold tracking-tight">{domainBranding.siteName || "DATAGOD"}</span>
         </Link>
         <div className="relative">
           <h2 className="mb-3 text-3xl font-extrabold tracking-tight">Welcome back.</h2>
@@ -131,9 +132,9 @@ export default function LoginForm() {
           {/* Logo (mobile only) */}
           <div className="mb-8 flex items-center justify-center gap-2 lg:hidden">
             <div className="rounded-lg bg-card p-2 shadow-sm">
-              <img src="/favicon-v2.jpeg" alt="DATAGOD" className="h-7 w-7 rounded-md object-cover" />
+              <img src={domainBranding.logoUrl || "/favicon-v2.jpeg"} alt={domainBranding.siteName || "DATAGOD"} className="h-7 w-7 rounded-md object-cover" />
             </div>
-            <span className="text-lg font-extrabold tracking-tight">DATAGOD</span>
+            <span className="text-lg font-extrabold tracking-tight">{domainBranding.siteName || "DATAGOD"}</span>
           </div>
 
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Sign in</h1>
@@ -207,25 +208,29 @@ export default function LoginForm() {
             <Link href="/auth/signup" className="font-medium text-primary hover:underline">Create an account</Link>
           </p>
 
-          {(!domainBranding.services || domainBranding.showGuestPurchase) && (
+          {!isPageHidden("guest_purchase", domainBranding.hiddenPages) && (
             <div className="mt-4">
               <GuestPurchaseButton variant="secondary" className="w-full" />
             </div>
           )}
 
-          {communityLoading ? (
-            <Skeleton className="mt-3 h-10 w-full rounded-md" />
-          ) : communityLink ? (
-            <a href={communityLink} target="_blank" rel="noopener noreferrer" className="mt-3 block">
-              <Button type="button" className="w-full gap-2 bg-success hover:bg-success/90 text-primary-foreground">
-                <MessageCircle className="h-4 w-4" /> Join Community
-              </Button>
-            </a>
-          ) : null}
+          {!isPageHidden("join_channel", domainBranding.hiddenPages) && (
+            communityLoading ? (
+              <Skeleton className="mt-3 h-10 w-full rounded-md" />
+            ) : communityLink ? (
+              <a href={communityLink} target="_blank" rel="noopener noreferrer" className="mt-3 block">
+                <Button type="button" className="w-full gap-2 bg-success hover:bg-success/90 text-primary-foreground">
+                  <MessageCircle className="h-4 w-4" /> Join Community
+                </Button>
+              </a>
+            ) : null
+          )}
 
-          <div className="mt-6 text-center">
-            <Link href="/" className="text-sm text-muted-foreground hover:underline">Back to Home</Link>
-          </div>
+          {!isPageHidden("landing_page", domainBranding.hiddenPages) && (
+            <div className="mt-6 text-center">
+              <Link href="/" className="text-sm text-muted-foreground hover:underline">Back to Home</Link>
+            </div>
+          )}
         </div>
       </div>
     </div>

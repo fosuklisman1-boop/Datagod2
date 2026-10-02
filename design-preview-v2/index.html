@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DATAGOD · Customer UI Redesign Preview (Apex Prime + kingflexygh synthesis)</title>
+<style>
+/* ===========================================================================
+   DATAGOD — Customer-facing redesign preview.
+   Synthesis of two references the user supplied:
+   - Apex Prime (apexprime.club): navy sidebar, gradient page banners, dual
+     info-card pairs, orange CTA buttons.
+   - kingflexygh.com: bold black/gold stat tiles, white network-picker cards
+     with colored selection border, solid per-network gradient product cards,
+     colored status-icon grid, floating circular refresh FAB.
+   Token-driven vanilla CSS, same convention as design-preview/ from the
+   earlier reskin. All copy/data below is either real Datagod content or
+   clearly-illustrative placeholder numbers -- nothing fabricated as fact.
+   =========================================================================== */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+:root {
+  --sidebar-w: 260px;
+  --bg: #eef1f6;
+  --surface: #ffffff;
+  --surface-2: #f4f6fa;
+  --text: #0f172a;
+  --text-muted: #64748b;
+  --text-faint: #94a3b8;
+  --border: #e5e9f0;
+
+  --navy: #0f1420;
+  --navy-2: #151b2c;
+  --banner-from: #1e3a8a;
+  --banner-to: #2563eb;
+  --accent: #2563eb;
+  --accent-soft: #dbeafe;
+  --orange: #f97316;
+  --amber: #f5a623;
+
+  --success: #16a34a;
+  --success-soft: #dcfce7;
+  --warning: #d97706;
+  --warning-soft: #fef3c7;
+  --danger: #dc2626;
+  --danger-soft: #fee2e2;
+  --purple: #7c3aed;
+  --purple-soft: #ede9fe;
+
+  --mtn: #f5a623; --mtn-fg: #1a1a1a;
+  --telecel: #dc2626; --telecel-fg: #ffffff;
+  --at-ishare: #2563eb; --at-ishare-fg: #ffffff;
+  --at-bigtime: #7c3aed; --at-bigtime-fg: #ffffff;
+
+  --radius: 16px;
+  --radius-sm: 10px;
+  --radius-pill: 999px;
+  --shadow: 0 1px 2px rgba(16,24,40,.04), 0 6px 20px -6px rgba(16,24,40,.10);
+}
+
+/* ── Layout shell ─────────────────────────────────────────── */
+.app { display: flex; min-height: 100vh; }
+
+.sidebar {
+  width: var(--sidebar-w); flex-shrink: 0; background: linear-gradient(180deg, var(--navy), var(--navy-2));
+  padding: 24px 0; display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; overflow-y: auto;
+}
+.sidebar-logo { display: flex; align-items: center; gap: 10px; padding: 0 20px 18px; }
+.sidebar-logo .mark { width: 34px; height: 34px; border-radius: 10px; background: var(--accent); display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 800; font-size: 15px; }
+.sidebar-logo .name { color: #fff; font-weight: 700; font-size: 15px; }
+.sidebar-user { margin: 0 16px 16px; padding: 12px 14px; border-radius: 12px; background: rgba(255,255,255,.08); display: flex; align-items: center; gap: 10px; }
+.sidebar-user .av { width: 34px; height: 34px; border-radius: 50%; background: rgba(255,255,255,.15); display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 12px; }
+.sidebar-user .email { color: rgba(255,255,255,.65); font-size: 11px; }
+.sidebar-user .label { color: #fff; font-size: 13px; font-weight: 600; }
+.navgroup { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: rgba(255,255,255,.4); padding: 0 20px; margin: 16px 0 6px; font-weight: 700; }
+.navlink { display: flex; align-items: center; gap: 12px; margin: 2px 12px; padding: 9px 12px; border-radius: 8px; color: rgba(255,255,255,.65); font-size: 13.5px; text-decoration: none; cursor: pointer; }
+.navlink svg { width: 17px; height: 17px; flex-shrink: 0; }
+.navlink:hover { background: rgba(255,255,255,.08); color: #fff; }
+.navlink.active { background: rgba(255,255,255,.12); color: #fff; font-weight: 600; }
+
+.main { flex: 1; min-width: 0; }
+.topbar { height: 60px; display: flex; align-items: center; justify-content: space-between; padding: 0 28px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.crumb { font-size: 13px; color: var(--text-muted); }
+.crumb b { color: var(--text); font-weight: 600; }
+.wallet-pill { display: flex; align-items: center; gap: 6px; background: var(--accent-soft); color: var(--accent); padding: 7px 14px; border-radius: 999px; font-size: 13px; font-weight: 700; }
+
+.page { padding: 26px 28px 60px; max-width: 1080px; border-top: 1px solid var(--border); }
+.page[hidden] { display: none; }
+
+/* ── Shared component patterns ───────────────────────────── */
+.banner { border-radius: 20px; padding: 26px 28px; background: linear-gradient(120deg, var(--banner-from), var(--banner-to)); color: #fff; margin-bottom: 22px; }
+.banner.orange { background: linear-gradient(120deg, var(--banner-from), var(--orange)); }
+.banner h1 { font-size: 21px; font-weight: 700; margin: 0; }
+.banner p { margin: 4px 0 0; font-size: 13.5px; color: rgba(255,255,255,.82); }
+.banner-stats { display: flex; gap: 12px; margin-top: 18px; flex-wrap: wrap; }
+.banner-stat { flex: 1; min-width: 120px; background: rgba(255,255,255,.12); border-radius: 12px; padding: 12px 14px; }
+.banner-stat .num { font-size: 21px; font-weight: 800; }
+.banner-stat .lbl { font-size: 10.5px; letter-spacing: .04em; text-transform: uppercase; color: rgba(255,255,255,.75); margin-top: 2px; }
+
+.info-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px; }
+.info-card { border-radius: 16px; padding: 16px 18px; border: 2px solid var(--border); }
+.info-card.warn { background: #fffbeb; border-color: #fde68a; }
+.info-card.info { background: #eff6ff; border-color: #bfdbfe; }
+.info-card .row { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13.5px; }
+.info-card.warn .row { color: #b45309; }
+.info-card.info .row { color: var(--accent); }
+.info-card .pill { margin-left: auto; background: rgba(255,255,255,.7); border-radius: 999px; padding: 3px 10px; font-size: 11px; font-weight: 700; color: inherit; }
+.info-card .big { font-size: 24px; font-weight: 800; margin-top: 8px; }
+.info-card.warn .big { color: #b45309; }
+.info-card.info .big { color: var(--accent); }
+.info-card .sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+.field { margin-bottom: 16px; }
+.field label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+.field .hint { float: right; font-size: 11.5px; color: var(--success); font-weight: 600; }
+.field input { width: 100%; border: 1px solid var(--border); background: #f4f6fb; border-radius: 10px; padding: 12px 14px; font-size: 14px; color: var(--text); }
+.field input::placeholder { color: var(--text-faint); }
+.chip-row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.chip { border: 1px solid var(--border); background: #f4f6fb; border-radius: 999px; padding: 7px 14px; font-size: 12.5px; font-weight: 600; color: var(--text-muted); display: inline-flex; align-items: center; gap: 6px; }
+.chip.accent { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+
+.btn-submit { width: 100%; background: var(--orange); color: #fff; border: none; border-radius: 12px; padding: 14px; font-size: 15px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; margin-top: 8px; }
+
+.network-picker { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 18px; }
+.network-card { background: var(--surface); border: 2px solid var(--border); border-radius: 16px; padding: 14px 8px; text-align: center; cursor: pointer; position: relative; }
+.network-card.selected { border-color: var(--accent); }
+.network-card .check { position: absolute; top: -8px; right: -8px; width: 22px; height: 22px; border-radius: 50%; background: var(--success); display: flex; align-items: center; justify-content: center; }
+.network-card .check svg { width: 12px; height: 12px; stroke: #fff; }
+.network-logo { width: 44px; height: 44px; border-radius: 50%; margin: 0 auto 8px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 15px; }
+.network-name { font-size: 13px; font-weight: 700; }
+.network-status { font-size: 11px; color: var(--success); display: flex; align-items: center; justify-content: center; gap: 4px; margin-top: 3px; }
+.network-status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--success); }
+
+.toggle-row { display: inline-flex; background: var(--surface-2); border-radius: 999px; padding: 4px; margin-bottom: 18px; }
+.toggle-row button { border: none; background: transparent; padding: 10px 22px; border-radius: 999px; font-size: 13.5px; font-weight: 700; color: var(--text-muted); cursor: pointer; }
+.toggle-row button.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+
+.setting-card { background: var(--surface); border-radius: 14px; padding: 16px 18px; display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; border: 1px solid var(--border); }
+.setting-card .title { font-size: 14px; font-weight: 700; }
+.setting-card .desc { font-size: 12.5px; color: var(--text-muted); margin-top: 3px; }
+.switch { width: 42px; height: 24px; border-radius: 999px; background: var(--accent); position: relative; flex-shrink: 0; }
+.switch::after { content: ""; position: absolute; top: 3px; right: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; }
+
+.search-row { display: flex; gap: 10px; margin-bottom: 18px; }
+.search-box { flex: 1; display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 11px 16px; }
+.search-box svg { width: 16px; height: 16px; color: var(--text-faint); }
+.search-box input { border: none; outline: none; flex: 1; font-size: 13.5px; background: transparent; color: var(--text); }
+.view-toggle { display: flex; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.view-toggle button { border: none; background: transparent; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-muted); }
+.view-toggle button.active { background: var(--navy); color: #fff; }
+
+.pkg-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; position: relative; }
+.pkg-card { border-radius: 18px; overflow: hidden; color: #fff; box-shadow: var(--shadow); }
+.pkg-top { padding: 16px 16px 20px; }
+.pkg-top .row { display: flex; align-items: center; justify-content: space-between; }
+.pkg-avatar { width: 30px; height: 30px; border-radius: 50%; background: rgba(0,0,0,.18); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 12px; }
+.pkg-badge { background: rgba(255,255,255,.22); border-radius: 999px; padding: 3px 10px; font-size: 10.5px; font-weight: 700; }
+.pkg-size { font-size: 30px; font-weight: 800; margin-top: 14px; }
+.pkg-price { font-size: 14px; font-weight: 700; margin-top: 2px; }
+.pkg-desc { font-size: 11px; color: rgba(255,255,255,.8); margin-top: 6px; }
+.pkg-buy { background: rgba(0,0,0,.18); padding: 12px; text-align: center; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; }
+.pkg-mtn { background: linear-gradient(160deg, var(--mtn), #d18a10); color: #1a1a1a; } .pkg-mtn .pkg-buy { background: rgba(0,0,0,.15); }
+.pkg-telecel { background: linear-gradient(160deg, var(--telecel), #a51414); }
+.pkg-ishare { background: linear-gradient(160deg, var(--at-ishare), #1e40af); }
+.pkg-bigtime { background: linear-gradient(160deg, var(--at-bigtime), #5b21b6); }
+
+.fab { position: fixed; bottom: 28px; right: 28px; width: 52px; height: 52px; border-radius: 50%; background: #fff; box-shadow: 0 8px 24px rgba(0,0,0,.18); display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text); }
+
+.stat-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+.stat-tile { border-radius: 16px; padding: 18px; text-align: center; background: var(--navy); color: #fff; }
+.stat-tile.gold { background: linear-gradient(140deg, var(--amber), #d18a10); color: #1a1a1a; }
+.stat-tile .num { font-size: 24px; font-weight: 800; }
+.stat-tile .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; margin-top: 4px; opacity: .8; }
+
+.status-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
+.status-card { background: var(--surface); border-radius: 16px; padding: 16px; border: 1px solid var(--border); }
+.status-icon { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; margin-bottom: 10px; }
+.status-icon svg { width: 18px; height: 18px; }
+.status-card .num { font-size: 22px; font-weight: 800; }
+.status-card .lbl { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+.filter-row { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
+.filter-pill { border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 8px 16px; font-size: 12.5px; font-weight: 600; color: var(--text-muted); cursor: pointer; }
+.filter-pill.active { background: var(--navy); color: #fff; border-color: var(--navy); }
+
+.note { font-size: 12px; color: var(--text-faint); margin-top: 14px; text-align: center; }
+
+.tx-list { background: var(--surface); border-radius: 16px; border: 1px solid var(--border); overflow: hidden; }
+.tx-row { display: flex; align-items: center; gap: 14px; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+.tx-row:last-child { border-bottom: none; }
+.tx-icon { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 16px; flex-shrink: 0; }
+.tx-icon.plus { background: var(--success-soft); color: var(--success); }
+.tx-icon.minus { background: var(--danger-soft); color: var(--danger); }
+.tx-title { font-size: 13.5px; font-weight: 700; }
+.tx-sub { font-size: 12px; color: var(--text-muted); margin-top: 1px; }
+.tx-amt { margin-left: auto; font-size: 14px; font-weight: 800; }
+.tx-amt.plus { color: var(--success); }
+.tx-amt.minus { color: var(--danger); }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Sidebar (matches the already-shipped admin navy sidebar language) -->
+  <div class="sidebar">
+    <div class="sidebar-logo"><div class="mark">D</div><div class="name">DATAGOD</div></div>
+    <div class="sidebar-user"><div class="av">JD</div><div><div class="label">John Doe</div><div class="email">john@email.com</div></div></div>
+    <div class="navgroup">Overview</div>
+    <a class="navlink active" onclick="showPage('dashboard', this, 'Overview')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>Dashboard</a>
+    <a class="navlink" onclick="showPage('packages', this, 'Data Packages')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>Data Packages</a>
+    <a class="navlink" onclick="showPage('airtime', this, 'Buy Airtime')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="14" height="20" x="5" y="2" rx="2"/><path d="M12 18h.01"/></svg>Buy Airtime</a>
+    <a class="navlink" onclick="showPage('afa', this, 'AFA Registration')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="M6.17 15a3 3 0 0 1 5.66 0"/><path d="M16 10h2M16 14h2"/></svg>AFA Registration</a>
+    <a class="navlink" onclick="showPage('orders', this, 'My Orders')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>My Orders</a>
+    <div class="navgroup">Account</div>
+    <a class="navlink" onclick="showPage('wallet', this, 'Wallet')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>Wallet</a>
+    <a class="navlink" onclick="showPage('transactions', this, 'Transactions')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>Transactions</a>
+  </div>
+
+  <div class="main">
+    <div class="topbar">
+      <div class="crumb">Dashboard <span style="margin:0 6px">/</span> <b id="crumb-label">Overview</b></div>
+      <div class="wallet-pill">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7"/><path d="M2 7l10-5 10 5"/></svg>
+        GHS 25.00
+      </div>
+    </div>
+
+    <!-- ══════════════════ DASHBOARD (Apex Prime language) ══════════════════ -->
+    <div class="page" id="page-dashboard">
+      <div class="banner">
+        <h1>Welcome back, John</h1>
+        <p>Here's what's happening with your account today.</p>
+        <div class="banner-stats">
+          <div class="banner-stat"><div class="num">3</div><div class="lbl">Orders Today</div></div>
+          <div class="banner-stat"><div class="num">GHS 25.00</div><div class="lbl">Wallet Balance</div></div>
+          <div class="banner-stat"><div class="num">12</div><div class="lbl">Orders This Month</div></div>
+        </div>
+      </div>
+
+      <div class="info-pair">
+        <div class="info-card info">
+          <div class="row"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>Wallet<span class="pill">Active</span></div>
+          <div class="big">GHS 25.00</div>
+          <div class="sub">Top up to buy faster</div>
+        </div>
+        <div class="info-card warn">
+          <div class="row"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/></svg>Sub-Agents<span class="pill">0</span></div>
+          <div class="big">0 recruited</div>
+          <div class="sub">Invite sellers, earn on every sale</div>
+        </div>
+      </div>
+
+      <div style="font-size:14px;font-weight:700;margin-bottom:10px">Recent Orders</div>
+      <div class="status-grid" style="grid-template-columns:repeat(4,1fr)">
+        <div class="status-card"><div class="status-icon" style="background:var(--warning-soft);color:var(--warning)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div><div class="num">0</div><div class="lbl">Pending</div></div>
+        <div class="status-card"><div class="status-icon" style="background:var(--accent-soft);color:var(--accent)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg></div><div class="num">0</div><div class="lbl">Processing</div></div>
+        <div class="status-card"><div class="status-icon" style="background:var(--success-soft);color:var(--success)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg></div><div class="num">12</div><div class="lbl">Completed</div></div>
+        <div class="status-card"><div class="status-icon" style="background:var(--danger-soft);color:var(--danger)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6M9 9l6 6"/></svg></div><div class="num">0</div><div class="lbl">Failed</div></div>
+      </div>
+      <div class="note">Illustrative numbers for preview purposes -- real page reads live account data.</div>
+    </div>
+
+    <!-- ══════════════════ DATA PACKAGES (kingflexygh language) ══════════════════ -->
+    <div class="page" id="page-packages" hidden>
+      <div class="network-picker">
+        <div class="network-card"><div class="network-logo" style="background:var(--mtn);color:var(--mtn-fg)">M</div><div class="network-name">MTN</div><div class="network-status">Live</div></div>
+        <div class="network-card"><div class="network-logo" style="background:var(--telecel);color:#fff">T</div><div class="network-name">Telecel</div><div class="network-status">Live</div></div>
+        <div class="network-card selected"><div class="check"><svg viewBox="0 0 24 24" fill="none" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div><div class="network-logo" style="background:var(--at-ishare);color:#fff">A</div><div class="network-name">AT iShare</div><div class="network-status">Live</div></div>
+        <div class="network-card"><div class="network-logo" style="background:var(--at-bigtime);color:#fff">A</div><div class="network-name">AT BigTime</div><div class="network-status">Live</div></div>
+      </div>
+
+      <div class="toggle-row"><button class="active">Single</button><button>Bulk Order</button></div>
+
+      <div class="setting-card">
+        <div><div class="title">Order SMS confirmation</div><div class="desc">The beneficiary gets a text confirming their order.</div></div>
+        <div class="switch"></div>
+      </div>
+
+      <div class="search-row">
+        <div class="search-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><input placeholder="Search packages..." /></div>
+        <div class="view-toggle"><button class="active"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></button><button><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></button></div>
+      </div>
+
+      <div class="pkg-grid">
+        <div class="pkg-card pkg-ishare"><div class="pkg-top"><div class="row"><div class="pkg-avatar">A</div><div class="pkg-badge">AT-iS</div></div><div class="pkg-size">1GB</div><div class="pkg-price">GHS 3.80</div><div class="pkg-desc">Valid for 90 days</div></div><div class="pkg-buy"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>Buy Now</div></div>
+        <div class="pkg-card pkg-ishare"><div class="pkg-top"><div class="row"><div class="pkg-avatar">A</div><div class="pkg-badge">AT-iS</div></div><div class="pkg-size">2GB</div><div class="pkg-price">GHS 7.60</div><div class="pkg-desc">Valid for 90 days</div></div><div class="pkg-buy"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>Buy Now</div></div>
+        <div class="pkg-card pkg-ishare"><div class="pkg-top"><div class="row"><div class="pkg-avatar">A</div><div class="pkg-badge">AT-iS</div></div><div class="pkg-size">5GB</div><div class="pkg-price">GHS 18.50</div><div class="pkg-desc">Valid for 90 days</div></div><div class="pkg-buy"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>Buy Now</div></div>
+      </div>
+      <div class="fab"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"/><path d="M21 3v5h-5"/></svg></div>
+      <div class="note">Card color follows the selected network -- MTN amber, Telecel red, AT iShare blue, AT BigTime purple. Prices are illustrative.</div>
+    </div>
+
+    <!-- ══════════════════ MY ORDERS (kingflexygh language) ══════════════════ -->
+    <div class="page" id="page-orders" hidden>
+      <h1 style="font-size:24px;font-weight:800;margin:0 0 2px">My Order History</h1>
+      <p style="color:var(--text-muted);font-size:13.5px;margin:0 0 20px">View and manage your order transactions</p>
+
+      <div class="stat-row">
+        <div class="stat-tile"><div class="num">12</div><div class="lbl">Total Orders</div></div>
+        <div class="stat-tile gold"><div class="num">GHS 84.50</div><div class="lbl">Total Amount</div></div>
+        <div class="stat-tile"><div class="num">18.0 GB</div><div class="lbl">Total Data</div></div>
+      </div>
+
+      <div class="status-grid">
+        <div class="status-card"><div class="status-icon" style="background:var(--warning-soft);color:var(--warning)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div><div class="num">0</div><div class="lbl">Pending</div></div>
+        <div class="status-card"><div class="status-icon" style="background:var(--accent-soft);color:var(--accent)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg></div><div class="num">1</div><div class="lbl">Processing</div></div>
+        <div class="status-card"><div class="status-icon" style="background:var(--success-soft);color:var(--success)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg></div><div class="num">10</div><div class="lbl">Completed</div></div>
+        <div class="status-card"><div class="status-icon" style="background:var(--danger-soft);color:var(--danger)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6M9 9l6 6"/></svg></div><div class="num">1</div><div class="lbl">Failed</div></div>
+        <div class="status-card"><div class="status-icon" style="background:var(--purple-soft);color:var(--purple)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg></div><div class="num">0</div><div class="lbl">Reversed</div></div>
+      </div>
+      <div class="note" style="margin-top:-8px;margin-bottom:18px">Using Datagod's real 5 order statuses (pending / processing / completed / failed / reversed) -- not the reference's 6, since "queued"/"refunded" aren't states this system has.</div>
+
+      <div class="filter-row">
+        <div class="filter-pill active">All</div><div class="filter-pill">Today</div><div class="filter-pill">This Week</div><div class="filter-pill">This Month</div><div class="filter-pill">Custom</div>
+      </div>
+      <div class="search-row">
+        <div class="search-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg><input placeholder="Search by phone number..." /></div>
+      </div>
+      <div class="fab"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"/><path d="M21 3v5h-5"/></svg></div>
+    </div>
+
+    <!-- ══════════════════ AFA REGISTRATION (Apex Prime language) ══════════════════ -->
+    <div class="page" id="page-afa" hidden>
+      <div class="banner orange">
+        <h1>AFA Registration</h1>
+        <p>Register a subscriber line for affordable MTN call rates &amp; discounted data bundles.</p>
+      </div>
+
+      <div class="info-pair">
+        <div class="info-card warn">
+          <div class="row"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/></svg>AFA Slots<span class="pill">50 available</span></div>
+          <div class="big">50 slots</div>
+          <div class="sub">Registrations open</div>
+        </div>
+        <div class="info-card info">
+          <div class="row"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>Wallet Cash<span class="pill">GHS 9.00</span></div>
+          <div class="big">GHS 25.00</div>
+          <div class="sub">Balance available</div>
+        </div>
+      </div>
+
+      <div class="field"><label>Full Name</label><input placeholder="E.g. John Doe" /></div>
+      <div class="field"><label>Phone Number (10 digits) <span class="hint" style="color:var(--text-muted);font-weight:600">MTN preferred</span></label><input placeholder="E.g. 0241234567" />
+        <div class="chip-row"><div class="chip accent">My Number</div><div class="chip">Paste</div><div class="chip">Clear</div></div>
+      </div>
+      <div class="field"><label>Ghana Card ID <span class="hint">Auto-formatted</span></label><input placeholder="GHA-123456789-0" /></div>
+      <div class="field"><label>Location</label><input placeholder="E.g. Accra, Kumasi, Takoradi" /></div>
+
+      <button class="btn-submit"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>Submit Registration</button>
+      <div class="fab"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"/><path d="M21 3v5h-5"/></svg></div>
+    </div>
+
+    <!-- ══════════════════ BUY AIRTIME (no explicit reference -- extrapolated from established patterns) ══════════════════ -->
+    <div class="page" id="page-airtime" hidden>
+      <div class="banner">
+        <h1>Buy Airtime</h1>
+        <p>Top up any network instantly from your wallet.</p>
+      </div>
+      <div class="network-picker">
+        <div class="network-card selected"><div class="check"><svg viewBox="0 0 24 24" fill="none" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div><div class="network-logo" style="background:var(--mtn);color:var(--mtn-fg)">M</div><div class="network-name">MTN</div><div class="network-status">Live</div></div>
+        <div class="network-card"><div class="network-logo" style="background:var(--telecel);color:#fff">T</div><div class="network-name">Telecel</div><div class="network-status">Live</div></div>
+        <div class="network-card"><div class="network-logo" style="background:var(--at-ishare);color:#fff">A</div><div class="network-name">AT iShare</div><div class="network-status">Live</div></div>
+        <div class="network-card"><div class="network-logo" style="background:var(--at-bigtime);color:#fff">A</div><div class="network-name">AT BigTime</div><div class="network-status">Live</div></div>
+      </div>
+      <div class="field"><label>Amount (GHS)</label><input placeholder="e.g. 10.00" />
+        <div class="chip-row"><div class="chip accent">GHS 5</div><div class="chip">GHS 10</div><div class="chip">GHS 20</div><div class="chip">GHS 50</div></div>
+      </div>
+      <div class="field"><label>Recipient Phone Number</label><input placeholder="e.g. 0241234567" />
+        <div class="chip-row"><div class="chip accent">My Number</div><div class="chip">Paste</div><div class="chip">Clear</div></div>
+      </div>
+      <button class="btn-submit"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="14" height="20" x="5" y="2" rx="2"/><path d="M12 18h.01"/></svg>Buy Airtime</button>
+      <div class="fab"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"/><path d="M21 3v5h-5"/></svg></div>
+    </div>
+
+    <!-- ══════════════════ WALLET (no explicit reference -- extrapolated from established patterns) ══════════════════ -->
+    <div class="page" id="page-wallet" hidden>
+      <div class="banner">
+        <h1>Wallet</h1>
+        <p>Load once via Paystack, then buy fast -- no card each time.</p>
+        <div class="banner-stats">
+          <div class="banner-stat"><div class="num">GHS 25.00</div><div class="lbl">Current Balance</div></div>
+        </div>
+      </div>
+      <button class="btn-submit" style="max-width:220px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Top Up Wallet</button>
+      <div style="font-size:14px;font-weight:700;margin:24px 0 10px">Recent Wallet Activity</div>
+      <div class="tx-list">
+        <div class="tx-row"><div class="tx-icon plus">+</div><div><div class="tx-title">Wallet Top Up</div><div class="tx-sub">Via Paystack · Today</div></div><div class="tx-amt plus">+GHS 20.00</div></div>
+        <div class="tx-row"><div class="tx-icon minus">&minus;</div><div><div class="tx-title">MTN 5GB Purchase</div><div class="tx-sub">Data package · Today</div></div><div class="tx-amt minus">&minus;GHS 18.50</div></div>
+        <div class="tx-row"><div class="tx-icon minus">&minus;</div><div><div class="tx-title">Airtime Top Up</div><div class="tx-sub">MTN · Yesterday</div></div><div class="tx-amt minus">&minus;GHS 5.00</div></div>
+      </div>
+      <div class="note">Illustrative activity for preview purposes -- real page reads live wallet transactions.</div>
+    </div>
+
+    <!-- ══════════════════ TRANSACTIONS (no explicit reference -- extrapolated from established patterns) ══════════════════ -->
+    <div class="page" id="page-transactions" hidden>
+      <h1 style="font-size:24px;font-weight:800;margin:0 0 2px">Transactions</h1>
+      <p style="color:var(--text-muted);font-size:13.5px;margin:0 0 20px">All wallet credits and debits</p>
+      <div class="filter-row">
+        <div class="filter-pill active">All</div><div class="filter-pill">Credits</div><div class="filter-pill">Debits</div><div class="filter-pill">This Month</div>
+      </div>
+      <div class="tx-list">
+        <div class="tx-row"><div class="tx-icon plus">+</div><div><div class="tx-title">Wallet Top Up</div><div class="tx-sub">Via Paystack · Sep 28, 1:42 PM</div></div><div class="tx-amt plus">+GHS 20.00</div></div>
+        <div class="tx-row"><div class="tx-icon minus">&minus;</div><div><div class="tx-title">MTN 5GB Purchase</div><div class="tx-sub">Data package · Sep 28, 12:10 PM</div></div><div class="tx-amt minus">&minus;GHS 18.50</div></div>
+        <div class="tx-row"><div class="tx-icon minus">&minus;</div><div><div class="tx-title">Airtime Top Up</div><div class="tx-sub">MTN · Sep 27, 4:05 PM</div></div><div class="tx-amt minus">&minus;GHS 5.00</div></div>
+        <div class="tx-row"><div class="tx-icon plus">+</div><div><div class="tx-title">Wallet Top Up</div><div class="tx-sub">Via Paystack · Sep 25, 9:18 AM</div></div><div class="tx-amt plus">+GHS 50.00</div></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+function showPage(id, link, label) {
+  document.querySelectorAll('.page').forEach(p => p.hidden = true);
+  document.getElementById('page-' + id).hidden = false;
+  document.querySelectorAll('.navlink').forEach(l => l.classList.remove('active'));
+  link.classList.add('active');
+  document.getElementById('crumb-label').textContent = label;
+}
+</script>
+</body>
+</html>

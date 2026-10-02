@@ -15,6 +15,7 @@ import { HomeAIChatWidget } from "@/components/home/AIChatWidget"
 import { useCommunityLink } from "@/hooks/use-community-link"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
+import { isPageHidden } from "@/lib/custom-domains"
 
 function Step({
   number,
@@ -391,7 +392,7 @@ export default function HomePage() {
             </p>
             <div className="mt-5 flex flex-col sm:flex-row gap-3 justify-center lg:justify-start">
               <Link href="/auth/signup"><Button size="lg" className="gap-2 w-full sm:w-auto">Get started <ArrowRight className="w-4 h-4" /></Button></Link>
-              {(!domainBranding.services || domainBranding.showGuestPurchase) && (
+              {!isPageHidden("guest_purchase", domainBranding.hiddenPages) && (
                 <GuestPurchaseButton variant="outline" className="w-full sm:w-auto" />
               )}
             </div>
@@ -400,13 +401,15 @@ export default function HomePage() {
               <div><div className="font-display text-2xl font-bold text-foreground">500k+</div><div className="text-xs text-muted-foreground">orders delivered</div></div>
               <div><div className="font-display text-2xl font-bold text-foreground">~8s</div><div className="text-xs text-muted-foreground">avg delivery</div></div>
             </div>
-            {communityLoading ? (
-              <div className="mt-5 flex justify-center lg:justify-start"><Skeleton className="h-11 w-full sm:w-56 rounded-md" /></div>
-            ) : communityLink ? (
-              <a href={communityLink} target="_blank" rel="noopener noreferrer" className="mt-5 inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-4 py-2.5 font-display text-sm font-semibold text-primary hover:bg-primary/15 transition-colors">
-                <MessageCircle className="w-4 h-4" /> Join Community
-              </a>
-            ) : null}
+            {!isPageHidden("join_channel", domainBranding.hiddenPages) && (
+              communityLoading ? (
+                <div className="mt-5 flex justify-center lg:justify-start"><Skeleton className="h-11 w-full sm:w-56 rounded-md" /></div>
+              ) : communityLink ? (
+                <a href={communityLink} target="_blank" rel="noopener noreferrer" className="mt-5 inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-4 py-2.5 font-display text-sm font-semibold text-primary hover:bg-primary/15 transition-colors">
+                  <MessageCircle className="w-4 h-4" /> Join Community
+                </a>
+              ) : null
+            )}
           </div>
           {/* Right: AI assistants card */}
           <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
@@ -699,7 +702,7 @@ When your sub-agent clicks the link, they see a branded invite page showing your
                   <ArrowRight className="w-4 h-4" />
                 </Button>
               </Link>
-              {(!domainBranding.services || domainBranding.showGuestPurchase) && (
+              {!isPageHidden("guest_purchase", domainBranding.hiddenPages) && (
                 <GuestPurchaseButton variant="outline" className="w-full sm:w-auto" />
               )}
             </div>

@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { complaintService } from "@/lib/database"
 import { notificationTemplates } from "@/lib/notification-service"
@@ -550,12 +551,10 @@ export default function AdminComplaintsPage() {
     <DashboardLayout>
       <div className="space-y-6">
         {/* Page Header */}
-        <div>
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
-            Customer Complaints
-          </h1>
-          <p className="text-muted-foreground mt-1">View and rectify customer complaints</p>
-        </div>
+        <PageHeaderBanner
+          title="Customer Complaints"
+          subtitle="View and rectify customer complaints"
+        />
 
         {/* Stats Cards */}
         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 sm:gap-3 lg:gap-4">

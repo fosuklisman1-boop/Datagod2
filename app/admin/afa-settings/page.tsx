@@ -11,6 +11,7 @@ import { Loader2, AlertCircle } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import { useAdminProtected } from "@/hooks/use-admin"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 
 export default function AFASettingsPage() {
   const { isAdmin, loading: adminLoading } = useAdminProtected()
@@ -158,10 +159,10 @@ export default function AFASettingsPage() {
   return (
     <DashboardLayout>
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">AFA Registration Settings</h1>
-        <p className="text-muted-foreground mt-2">Manage MTN AFA registration pricing</p>
-      </div>
+      <PageHeaderBanner
+        title="AFA Registration Settings"
+        subtitle="Manage MTN AFA registration pricing"
+      />
 
       <Card>
         <CardHeader>

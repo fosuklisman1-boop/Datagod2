@@ -5,6 +5,7 @@ import { FileCheck2, Search, Zap, ArrowRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import GuestPurchaseButton from "@/components/GuestPurchaseButton"
 import { supabaseAdmin } from "@/lib/supabase"
+import { isPageHidden } from "@/lib/custom-domains"
 
 export const metadata: Metadata = {
   title: "Check WASSCE, BECE & NOVDEC Results Online | DATAGOD",
@@ -55,9 +56,12 @@ async function getBoardPricing() {
 
 export default async function ResultsCheckerPage() {
   const { serviceEnabled, boards } = await getBoardPricing()
+  // Server Component — reads the same x-domain-hidden-pages header
+  // app/layout.tsx parses for the client-side DomainBranding context,
+  // since useDomainBranding() (a hook) isn't available here.
   const headersList = await headers()
-  const isCustomDomain = !!headersList.get("x-domain-services")
-  const showGuestPurchase = headersList.get("x-domain-guest-purchase") === "1"
+  const rawHiddenPages = headersList.get("x-domain-hidden-pages")
+  const hiddenPages = rawHiddenPages ? rawHiddenPages.split(",").filter(Boolean) : []
 
   return (
     <div className="min-h-screen bg-background">
@@ -73,7 +77,7 @@ export default async function ResultsCheckerPage() {
             Buy a voucher PIN instantly, or if you don't have one, let DATAGOD check your results for you.
           </p>
           <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
-            {(!isCustomDomain || showGuestPurchase) && (
+            {!isPageHidden("guest_purchase", hiddenPages) && (
               <GuestPurchaseButton variant="primary" className="w-full sm:w-auto" />
             )}
             <Link href="/vouchers">

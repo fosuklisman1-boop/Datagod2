@@ -21,6 +21,13 @@ function sessionKey(sessionId: string): string {
   return `ussd:session:${sessionId}`
 }
 
+// Diagnostic only — lets router.ts's "session not found" log distinguish a
+// Redis-not-configured deployment from a genuine TTL expiry or a transient
+// Redis error (which is already logged separately, below, by sessionId).
+export function isRedisConfigured(): boolean {
+  return redis !== null
+}
+
 const fallbackCache = new Map<string, { data: USSDSession, expires: number }>()
 
 export async function getSession(sessionId: string): Promise<USSDSession | null> {
@@ -29,7 +36,7 @@ export async function getSession(sessionId: string): Promise<USSDSession | null>
       const data = await redis.get<USSDSession>(sessionKey(sessionId))
       if (data) return data
     } catch (e) {
-      console.error("[USSD-SESSION] get error:", e)
+      console.error("[USSD-SESSION] get error for", sessionId, ":", e)
     }
   }
 
@@ -47,7 +54,7 @@ export async function setSession(sessionId: string, session: USSDSession): Promi
       await redis.setex(sessionKey(sessionId), SESSION_TTL, JSON.stringify(session))
       return
     } catch (e) {
-      console.error("[USSD-SESSION] set error:", e)
+      console.error("[USSD-SESSION] set error for", sessionId, ":", e)
     }
   }
 

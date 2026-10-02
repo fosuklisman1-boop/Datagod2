@@ -413,7 +413,7 @@ export async function POST(request: NextRequest) {
       // Handle USSD AFA orders (no wallet_payments record; reference IS the order UUID)
       const { data: ussdAfaOrder } = await supabase
         .from("ussd_afa_orders")
-        .select("id, amount, payment_status, dialing_phone")
+        .select("id, amount, payment_status, dialing_phone, shop_id, merchant_commission")
         .eq("id", reference)
         .maybeSingle()
 
@@ -447,6 +447,36 @@ export async function POST(request: NextRequest) {
           }
         } catch (fErr) {
           console.error("[WEBHOOK] Failed to trigger USSD AFA fulfillment:", fErr)
+        }
+
+        // Shop-scoped order (came from a shop's storefront, not the USSD
+        // channel) — credit shop profit and track the customer. Non-blocking.
+        if (ussdAfaOrder.shop_id) {
+          if (Number(ussdAfaOrder.merchant_commission) > 0) {
+            const { error: profitErr } = await supabase.from("shop_profits").insert([{
+              shop_id: ussdAfaOrder.shop_id,
+              profit_amount: ussdAfaOrder.merchant_commission,
+              status: "credited",
+              created_at: new Date().toISOString(),
+            }])
+            if (profitErr && profitErr.code !== "23505") {
+              console.error("[WEBHOOK] Failed to credit shop AFA profit:", profitErr)
+            }
+          }
+          try {
+            const { customerTrackingService } = await import("@/lib/customer-tracking-service")
+            await customerTrackingService.trackCustomer({
+              shopId: ussdAfaOrder.shop_id,
+              phoneNumber: ussdAfaOrder.dialing_phone,
+              email: "",
+              customerName: "Customer",
+              totalPrice: Number(ussdAfaOrder.amount) || 0,
+              slug: "storefront",
+              orderId: ussdAfaOrder.id,
+            })
+          } catch (trackErr) {
+            console.error("[WEBHOOK] Customer tracking failed for shop AFA order (non-fatal):", trackErr)
+          }
         }
 
         // SMS to payer confirming registration received
@@ -547,6 +577,26 @@ export async function POST(request: NextRequest) {
           .update({ status: 'completed', completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
           .eq("reference", ussdShopOrder.id)
           .eq("payment_type", "ussd_shop")
+
+        // Customer tracking — covers BOTH the USSD-shop and WhatsApp-shop-bot
+        // channels (both write into ussd_shop_orders, distinguished only by
+        // `channel`); neither was ever wired into customerTrackingService
+        // before, so the Customers dashboard undercounted these entirely.
+        // Non-blocking: a tracking failure must never break fulfillment.
+        try {
+          const { customerTrackingService } = await import("@/lib/customer-tracking-service")
+          await customerTrackingService.trackCustomer({
+            shopId: ussdShopOrder.shop_id,
+            phoneNumber: ussdShopOrder.recipient_phone,
+            email: "",
+            customerName: ussdShopOrder.channel === "whatsapp_shop" ? "WhatsApp Customer" : "USSD Customer",
+            totalPrice: Number(ussdShopOrder.amount) || 0,
+            slug: ussdShopOrder.channel || "ussd_shop",
+            orderId: ussdShopOrder.id,
+          })
+        } catch (trackErr) {
+          console.error("[WEBHOOK] Customer tracking failed for USSD/WhatsApp shop order (non-fatal):", trackErr)
+        }
 
         // Trigger fulfillment
         let fulfillResult: { success: boolean; message: string; held?: boolean } | undefined
@@ -1105,6 +1155,38 @@ export async function POST(request: NextRequest) {
               .from("shop_orders")
               .update({ payment_status: "completed", transaction_id: event.data.id, updated_at: new Date().toISOString() })
               .eq("id", paymentData.order_id)
+
+            // Customer tracking — this webhook is the primary completion path
+            // for web-storefront orders, but customerTrackingService was only
+            // ever called from the wallet-debit and admin-retry flows, so the
+            // Customers dashboard undercounted real storefront customers.
+            // Non-blocking: a tracking failure must never break fulfillment.
+            // Also back-links shop_orders.shop_customer_id (set NULL at order
+            // creation, "will be set when payment is confirmed" per
+            // app/api/shop/orders/create/route.ts:679) — this is what the
+            // per-customer order-history drill-down actually queries on
+            // (app/api/admin/customers/[id]/history/route.ts), same pattern
+            // already used by the wallet-debit and payment-attempts flows.
+            try {
+              const { customerTrackingService } = await import("@/lib/customer-tracking-service")
+              const trackingResult = await customerTrackingService.trackCustomer({
+                shopId: shopOrderData.shop_id,
+                phoneNumber: shopOrderData.customer_phone,
+                email: shopOrderData.customer_email || "",
+                customerName: shopOrderData.customer_name || "Customer",
+                totalPrice: Number(shopOrderData.total_price) || 0,
+                slug: "storefront",
+                orderId: paymentData.order_id,
+              })
+              if (trackingResult.customerId) {
+                await supabase
+                  .from("shop_orders")
+                  .update({ shop_customer_id: trackingResult.customerId })
+                  .eq("id", paymentData.order_id)
+              }
+            } catch (trackErr) {
+              console.error("[WEBHOOK] Customer tracking failed (non-fatal):", trackErr)
+            }
 
             // Push shop owner — payment confirmed
             Promise.resolve(supabase.from('user_shops').select('user_id').eq('id', paymentData.shop_id).single()).then(({ data: shop }) => {

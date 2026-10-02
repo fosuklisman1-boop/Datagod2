@@ -15,6 +15,7 @@ import { CodeCraftMTNProvider } from "./codecraft-provider"
 import { AgentPortalGHProvider } from "./agentportalgh-provider"
 import { ApexPrimeProvider } from "./apexprime-provider"
 import { SPFastITProvider } from "./spfastit-provider"
+import { SPFastITTelecelProvider } from "./spfastit-telecel-provider"
 import { BundlePortalProvider } from "./bundleportal-provider"
 
 /**
@@ -153,7 +154,7 @@ export const NETWORK_TO_REQUEST_NETWORK: Record<string, "Telecel" | "AirtelTigo"
 }
 
 export const NON_MTN_CAPABLE: Record<string, NonMTNProviderName[]> = {
-    telecel_provider_selection: ["datakazina", "xpress", "eazyghdata", "codecraft", "agentportalgh", "apexprime", "bundleportal"],
+    telecel_provider_selection: ["datakazina", "xpress", "eazyghdata", "codecraft", "agentportalgh", "apexprime", "bundleportal", "spfastit_telecel"],
     at_ishare_provider_selection: ["datakazina", "xpress", "eazyghdata", "codecraft", "agentportalgh", "apexprime", "spfastit", "bundleportal"],
     at_bigtime_provider_selection: ["datakazina", "xpress", "eazyghdata", "codecraft", "bundleportal"],
 }
@@ -260,5 +261,7 @@ export function getProviderByName(name: NonMTNProviderName): MTNProvider {
             return new SykesProvider()
         case "spfastit":
             return new SPFastITProvider()
+        case "spfastit_telecel":
+            return new SPFastITTelecelProvider()
     }
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { supabaseAdmin as supabase } from "@/lib/supabase"
 import { isReservedDomainHost, type DomainService } from "@/lib/custom-domains"
+import { TOGGLEABLE_PAGES } from "@/lib/custom-domain-pages"
 import { setCustomDomainCache, clearCustomDomainCache } from "@/lib/custom-domain-lookup"
 
 const VALID_SERVICES: DomainService[] = ["data_bundles", "airtime", "results_checker", "bulk_sms"]
@@ -44,13 +45,29 @@ async function validateLinkedShopId(raw: unknown): Promise<{ linkedShopId: strin
   return { linkedShopId: raw, linkedShopSubdomain: data.subdomain }
 }
 
+const VALID_PAGE_KEYS = new Set(TOGGLEABLE_PAGES.map(p => p.key))
+
+/** Validates a `hidden_pages` request field: must be an array of known
+ * TOGGLEABLE_PAGES keys (empty array is valid — "nothing hidden"). Returns
+ * the deduplicated array, or an error message. */
+function parseHiddenPages(raw: unknown): { hiddenPages: string[] } | { error: string } {
+  if (!Array.isArray(raw)) {
+    return { error: "'hidden_pages' must be an array of page keys" }
+  }
+  const invalid = raw.find(k => !VALID_PAGE_KEYS.has(k as string))
+  if (invalid !== undefined) {
+    return { error: `'hidden_pages' contains an unknown key: "${invalid}"` }
+  }
+  return { hiddenPages: Array.from(new Set(raw as string[])) }
+}
+
 export async function GET(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse!
 
   const { data, error } = await supabase
     .from("custom_domains")
-    .select("id, domain, services, site_name, logo_url, primary_color, is_active, linked_shop_id, show_guest_purchase, show_landing_page, created_at, updated_at")
+    .select("id, domain, services, site_name, logo_url, primary_color, is_active, linked_shop_id, hidden_pages, created_at, updated_at")
     .order("created_at", { ascending: false })
 
   if (error) {
@@ -82,6 +99,14 @@ export async function POST(request: NextRequest) {
     if (!siteName) {
       return NextResponse.json({ error: "'site_name' is required" }, { status: 400 })
     }
+    let hiddenPages: string[] | undefined
+    if (body.hidden_pages !== undefined) {
+      const hiddenPagesResult = parseHiddenPages(body.hidden_pages)
+      if ("error" in hiddenPagesResult) {
+        return NextResponse.json({ error: hiddenPagesResult.error }, { status: 400 })
+      }
+      hiddenPages = hiddenPagesResult.hiddenPages
+    }
     if (isReservedDomainHost(domain, ROOT_DOMAIN)) {
       return NextResponse.json(
         { error: `"${domain}" collides with the main app's own domain routing and can't be used as a custom domain` },
@@ -93,18 +118,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: linkedShopResult.error }, { status: 400 })
     }
     const { linkedShopId, linkedShopSubdomain } = linkedShopResult
-    if (body.show_guest_purchase !== undefined && typeof body.show_guest_purchase !== "boolean") {
-      return NextResponse.json({ error: "'show_guest_purchase' must be a boolean" }, { status: 400 })
-    }
-    if (body.show_landing_page !== undefined && typeof body.show_landing_page !== "boolean") {
-      return NextResponse.json({ error: "'show_landing_page' must be a boolean" }, { status: 400 })
-    }
-    const showGuestPurchase = body.show_guest_purchase === true
-    const showLandingPage = body.show_landing_page !== false
 
     const row = {
       domain, services, site_name: siteName, logo_url: logoUrl, primary_color: primaryColor, is_active: true,
-      linked_shop_id: linkedShopId, show_guest_purchase: showGuestPurchase, show_landing_page: showLandingPage,
+      linked_shop_id: linkedShopId,
+      ...(hiddenPages !== undefined ? { hidden_pages: hiddenPages } : {}),
     }
     const { data, error } = await supabase.from("custom_domains").insert(row).select().single()
 
@@ -118,7 +136,7 @@ export async function POST(request: NextRequest) {
     await setCustomDomainCache({
       domain, services, site_name: siteName, logo_url: logoUrl, primary_color: primaryColor, is_active: true,
       linked_shop_subdomain: linkedShopSubdomain,
-      show_guest_purchase: showGuestPurchase, show_landing_page: showLandingPage,
+      hidden_pages: data.hidden_pages,
     })
 
     return NextResponse.json({ domain: data }, { status: 201 })
@@ -163,13 +181,12 @@ export async function PATCH(request: NextRequest) {
       }
       updates.linked_shop_id = linkedShopResult.linkedShopId
     }
-    if (body.show_guest_purchase !== undefined) {
-      if (typeof body.show_guest_purchase !== "boolean") return NextResponse.json({ error: "'show_guest_purchase' must be a boolean" }, { status: 400 })
-      updates.show_guest_purchase = body.show_guest_purchase
-    }
-    if (body.show_landing_page !== undefined) {
-      if (typeof body.show_landing_page !== "boolean") return NextResponse.json({ error: "'show_landing_page' must be a boolean" }, { status: 400 })
-      updates.show_landing_page = body.show_landing_page
+    if (body.hidden_pages !== undefined) {
+      const hiddenPagesResult = parseHiddenPages(body.hidden_pages)
+      if ("error" in hiddenPagesResult) {
+        return NextResponse.json({ error: hiddenPagesResult.error }, { status: 400 })
+      }
+      updates.hidden_pages = hiddenPagesResult.hiddenPages
     }
 
     if (Object.keys(updates).length === 0) {
@@ -203,7 +220,7 @@ export async function PATCH(request: NextRequest) {
           domain: data.domain, services: data.services, site_name: data.site_name,
           logo_url: data.logo_url, primary_color: data.primary_color, is_active: data.is_active,
           linked_shop_subdomain: linkedShopSubdomain,
-          show_guest_purchase: data.show_guest_purchase, show_landing_page: data.show_landing_page,
+          hidden_pages: data.hidden_pages,
         })
       }
     } else {

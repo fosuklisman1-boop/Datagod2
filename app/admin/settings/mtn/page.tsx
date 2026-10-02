@@ -16,6 +16,7 @@ import { useAdminProtected } from "@/hooks/use-admin"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import Link from "next/link"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 
 interface MTNSettings {
   enabled: boolean
@@ -136,6 +137,9 @@ export default function MTNSettingsPage() {
   const [bpBalanceLoading, setBpBalanceLoading] = useState(false)
   const [bpMtnRoute, setBpMtnRoute] = useState<"mtn" | "mtn_2" | "mtn_3">("mtn")
   const [bpSavingRoute, setBpSavingRoute] = useState(false)
+  const [dkMtnRoute, setDkMtnRoute] = useState<"mtn" | "mtn_express">("mtn")
+  const [dkRouteLoading, setDkRouteLoading] = useState(false)
+  const [dkSavingRoute, setDkSavingRoute] = useState(false)
   const [bpVerifyPhone, setBpVerifyPhone] = useState("")
   const [bpVerifyResult, setBpVerifyResult] = useState<any>(null)
   const [bpVerifying, setBpVerifying] = useState(false)
@@ -148,7 +152,7 @@ export default function MTNSettingsPage() {
   const [disabledProviders, setDisabledProviders] = useState<MTNProviderName[]>([])
   const [togglingDisabled, setTogglingDisabled] = useState<MTNProviderName | null>(null)
 
-  type NonMTNProvider = "datakazina" | "xpress" | "eazyghdata" | "codecraft" | "agentportalgh" | "apexprime" | "spfastit" | "bundleportal"
+  type NonMTNProvider = "datakazina" | "xpress" | "eazyghdata" | "codecraft" | "agentportalgh" | "apexprime" | "spfastit" | "bundleportal" | "spfastit_telecel"
   const [telecelProvider, setTelecelProvider] = useState<NonMTNProvider>("codecraft")
   const [atIshareProvider, setAtIshareProvider] = useState<NonMTNProvider>("codecraft")
   const [atBigtimeProvider, setAtBigtimeProvider] = useState<NonMTNProvider>("codecraft")
@@ -280,6 +284,54 @@ export default function MTNSettingsPage() {
     }
     loadBundlePortalData()
   }, [activeTab])
+
+  useEffect(() => {
+    if (activeTab !== "datakazina") return
+    const loadDataKazinaRoute = async () => {
+      setDkRouteLoading(true)
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session?.access_token) return
+        const headers = { Authorization: `Bearer ${session.access_token}` }
+        const res = await fetch("/api/admin/datakazina?action=mtn-route", { headers })
+        if (res.ok) {
+          const data = await res.json()
+          if (data.error || !data.route) {
+            toast.error(data.error ? `Failed to load MTN route: ${data.error}` : "Failed to load MTN route")
+          } else {
+            setDkMtnRoute(data.route)
+          }
+        } else {
+          toast.error("Failed to load MTN route")
+        }
+      } catch (e) {
+        console.error("Error loading DataKazina MTN route:", e)
+      } finally {
+        setDkRouteLoading(false)
+      }
+    }
+    loadDataKazinaRoute()
+  }, [activeTab])
+
+  const handleSetDataKazinaMtnRoute = async (route: "mtn" | "mtn_express") => {
+    setDkSavingRoute(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) { toast.error("Authentication required"); return }
+      const res = await fetch("/api/admin/datakazina", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ action: "set-mtn-route", route }),
+      })
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Failed") }
+      setDkMtnRoute(route)
+      toast.success(`DataKazina MTN route set to ${route === "mtn_express" ? "MTN Express" : "MTN"}`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to update")
+    } finally {
+      setDkSavingRoute(false)
+    }
+  }
 
   const handleSetBundlePortalMtnRoute = async (route: "mtn" | "mtn_2" | "mtn_3") => {
     setBpSavingRoute(true)
@@ -1191,10 +1243,10 @@ export default function MTNSettingsPage() {
   return (
     <DashboardLayout>
       <div className="max-w-5xl mx-auto space-y-6 p-6">
-        <div className="flex items-center gap-2 mb-2">
-          <Settings className="h-6 w-6" />
-          <h1 className="text-3xl font-bold">MTN Fulfillment Settings</h1>
-        </div>
+        <PageHeaderBanner
+          title="MTN Fulfillment Settings"
+          subtitle="Configure MTN data fulfillment providers, routing, and delivery settings."
+        />
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="overflow-x-auto pb-1">
@@ -1459,8 +1511,12 @@ export default function MTNSettingsPage() {
                 ...nonBigTimeProviders,
                 { value: "spfastit", label: "SPFastIT", sub: "AirtelTigo-only" },
               ]
+              const telecelProviders: { value: NonMTNProvider; label: string; sub: string }[] = [
+                ...nonBigTimeProviders,
+                { value: "spfastit_telecel", label: "SPFastIT (Telecel)", sub: "Separate account, Telecel-only" },
+              ]
               const providers: { value: NonMTNProvider; label: string; sub: string }[] =
-                netKey === "at_bigtime" ? baseProviders : netKey === "at_ishare" ? ishareProviders : nonBigTimeProviders
+                netKey === "at_bigtime" ? baseProviders : netKey === "at_ishare" ? ishareProviders : telecelProviders
               return (
                 <Card key={netKey} className="border-2">
                   <CardHeader>
@@ -1767,6 +1823,32 @@ export default function MTNSettingsPage() {
               </CardContent>
             </Card>
             <ActivationCard providerKey="datakazina" label="DataKazina API" />
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Zap className="h-5 w-5" />MTN Delivery Route</CardTitle>
+                <CardDescription>DataKazina offers two independent MTN networks. Pick one active route — new MTN orders through DataKazina use it.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {dkRouteLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Loading…</div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    {(["mtn", "mtn_express"] as const).map(route => (
+                      <Button
+                        key={route}
+                        size="sm"
+                        variant={dkMtnRoute === route ? "default" : "outline"}
+                        disabled={dkSavingRoute}
+                        onClick={() => handleSetDataKazinaMtnRoute(route)}
+                      >
+                        {route === "mtn" ? "MTN (default)" : "MTN Express"}
+                      </Button>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* ─── Xpress ─── */}

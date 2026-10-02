@@ -9,6 +9,7 @@ import { useAdminProtected } from "@/hooks/use-admin"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import { Loader2, Upload, Download, CheckCircle, XCircle, Eye, Phone, ClipboardList, Copy, CircleMinus, ShieldCheck } from "lucide-react"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 
 type Tab = "upload" | "history"
 type VerifyState = "idle" | "uploading" | "processing" | "completed" | "error"
@@ -374,16 +375,12 @@ export default function PhoneVerificationPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Phone className="w-6 h-6" /> Phone Number Verification
-          </h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            {isWhitelistView
-              ? "Bulk-check Ghana numbers against MTN whitelist-capable providers (Xpress/CodeCraft/AgentPortalGH) to see which can currently receive an MTN data order."
-              : "Bulk-verify Ghana MoMo numbers against Moolre. Numbers with a returned account name are saved as verified."}
-          </p>
-        </div>
+        <PageHeaderBanner
+          title="Phone Number Verification"
+          subtitle={isWhitelistView
+            ? "Bulk-check Ghana numbers against MTN whitelist-capable providers (Xpress/CodeCraft/AgentPortalGH) to see which can currently receive an MTN data order."
+            : "Bulk-verify Ghana MoMo numbers against Moolre. Numbers with a returned account name are saved as verified."}
+        />
 
         {/* Tabs */}
         <div className="flex gap-0 border-b border-border">

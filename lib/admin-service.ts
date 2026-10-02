@@ -112,6 +112,172 @@ export const adminPackageService = {
       throw error
     }
   },
+
+  // Bulk update price and/or dealer_price for many packages at once
+  async bulkUpdatePrices(
+    packageIds: string[],
+    updates: import("./bulk-package-pricing").BulkPriceUpdates
+  ) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        throw new Error("No authentication token available")
+      }
+
+      const response = await fetch("/api/admin/packages/bulk-update-price", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ packageIds, updates }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to bulk update prices")
+      }
+
+      return data as {
+        updated: import("./bulk-package-pricing").PackagePriceResult[]
+        skipped: (Omit<import("./bulk-package-pricing").PackagePriceResult, "skip_reason"> & {
+          skip_reason: import("./bulk-package-pricing").SkipReason | "write_failed"
+        })[]
+        not_found: string[]
+      }
+    } catch (error: any) {
+      console.error("Error bulk updating package prices:", error)
+      throw error
+    }
+  },
+
+  // Get the current per-network out-of-stock status map
+  async getNetworkStock(): Promise<import("./network-stock-service").NetworkStockMap> {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        throw new Error("No authentication token available")
+      }
+
+      const response = await fetch("/api/admin/packages/network-stock", {
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to fetch network stock status")
+      }
+
+      return data.status
+    } catch (error: any) {
+      console.error("Error fetching network stock status:", error)
+      throw error
+    }
+  },
+
+  // Mark a network out of stock (disables all its currently-available
+  // packages) or restock it (re-enables exactly the packages that were
+  // disabled by the last out-of-stock toggle)
+  async setNetworkStock(network: string, outOfStock: boolean): Promise<{ success: boolean; affected: number }> {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        throw new Error("No authentication token available")
+      }
+
+      const response = await fetch("/api/admin/packages/network-stock", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ network, outOfStock }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to update network stock status")
+      }
+
+      return data
+    } catch (error: any) {
+      console.error("Error updating network stock status:", error)
+      throw error
+    }
+  },
+}
+
+// Admin USSD Menu Service Visibility
+export const adminUssdService = {
+  // Get the current top-level USSD menu service visibility map
+  async getServiceVisibility(): Promise<import("./ussd-service-visibility").UssdServiceVisibility> {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        throw new Error("No authentication token available")
+      }
+
+      const response = await fetch("/api/admin/ussd/service-visibility", {
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to fetch USSD service visibility")
+      }
+
+      return data.status
+    } catch (error: any) {
+      console.error("Error fetching USSD service visibility:", error)
+      throw error
+    }
+  },
+
+  // Flip one service's visibility on the top-level USSD menu (main + shop storefront)
+  async setServiceVisibility(
+    service: string,
+    visible: boolean
+  ): Promise<{ success: boolean; status: import("./ussd-service-visibility").UssdServiceVisibility }> {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        throw new Error("No authentication token available")
+      }
+
+      const response = await fetch("/api/admin/ussd/service-visibility", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ service, visible }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to update USSD service visibility")
+      }
+
+      return data
+    } catch (error: any) {
+      console.error("Error updating USSD service visibility:", error)
+      throw error
+    }
+  },
 }
 
 // Admin User Management
@@ -544,8 +710,10 @@ export const adminShopService = {
 
 // Admin Dashboard Stats
 export const adminDashboardService = {
-  // Get dashboard statistics
-  async getDashboardStats() {
+  // Get dashboard statistics. `range` scopes the newer hub fields
+  // (rangeRevenue/rangeProfit/chartSeries/etc) to "today" | "7d" | "30d" --
+  // the all-time fields (totalOrders, totalRevenue, ...) are unaffected.
+  async getDashboardStats(range?: "today" | "7d" | "30d") {
     try {
       const { data: { session } } = await supabase.auth.getSession()
 
@@ -553,7 +721,8 @@ export const adminDashboardService = {
         throw new Error("No authentication token available")
       }
 
-      const response = await fetch("/api/admin/dashboard-stats", {
+      const url = range ? `/api/admin/dashboard-stats?range=${range}` : "/api/admin/dashboard-stats"
+      const response = await fetch(url, {
         headers: {
           Authorization: `Bearer ${session.access_token}`,
         },
@@ -566,6 +735,36 @@ export const adminDashboardService = {
       return await response.json()
     } catch (error) {
       console.error("Error fetching dashboard stats:", error)
+      throw error
+    }
+  },
+
+  // Breakdown panels (Revenue by Network, By Product, By Source, Top
+  // Packages, Top Agents). `range` scopes those to "today" | "7d" | "30d",
+  // matching the hub's toggle. Growth & Roles is always a live snapshot,
+  // unaffected by `range`.
+  async getDashboardAnalytics(range?: "today" | "7d" | "30d") {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        throw new Error("No authentication token available")
+      }
+
+      const url = range ? `/api/admin/dashboard-analytics?range=${range}` : "/api/admin/dashboard-analytics"
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch dashboard analytics")
+      }
+
+      return await response.json()
+    } catch (error) {
+      console.error("Error fetching dashboard analytics:", error)
       throw error
     }
   },

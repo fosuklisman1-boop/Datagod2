@@ -5,6 +5,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { supabase } from "@/lib/supabase"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { Button } from "@/components/ui/button"
 import { Loader2, RefreshCw, MessageSquare, CheckCircle2, XCircle, Clock, AlertCircle } from "lucide-react"
 
@@ -57,12 +58,11 @@ export default function SmsHealthPage() {
       <div className="p-6 max-w-6xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-black text-foreground flex items-center gap-2">
-              <MessageSquare className="w-6 h-6 text-primary" /> SMS Health
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1">Real delivery outcomes (delivered vs failed), not just gateway acceptance.</p>
-          </div>
+          <PageHeaderBanner
+            className="flex-1"
+            title="SMS Health"
+            subtitle="Real delivery outcomes (delivered vs failed), not just gateway acceptance."
+          />
           <div className="flex items-center gap-2">
             {WINDOWS.map((w) => (
               <Button key={w.hours} size="sm" variant={hours === w.hours ? "default" : "outline"} onClick={() => setHours(w.hours)}>

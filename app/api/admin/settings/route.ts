@@ -47,6 +47,10 @@ export async function GET(request: NextRequest) {
           price_adjustment_telecel: 0,
           price_adjustment_at_ishare: 0,
           price_adjustment_at_bigtime: 0,
+          supplier_cost_per_gb_mtn: 0,
+          supplier_cost_per_gb_telecel: 0,
+          supplier_cost_per_gb_at_ishare: 0,
+          supplier_cost_per_gb_at_bigtime: 0,
           storefront_announcement_enabled: false,
           storefront_announcement_title: "",
           storefront_announcement_message: "",
@@ -150,6 +154,10 @@ export async function PUT(request: NextRequest) {
       'price_adjustment_telecel',
       'price_adjustment_at_ishare',
       'price_adjustment_at_bigtime',
+      'supplier_cost_per_gb_mtn',
+      'supplier_cost_per_gb_telecel',
+      'supplier_cost_per_gb_at_ishare',
+      'supplier_cost_per_gb_at_bigtime',
       'storefront_announcement_enabled',
       'storefront_announcement_title',
       'storefront_announcement_message',
@@ -165,6 +173,7 @@ export async function PUT(request: NextRequest) {
       'ussd_shop_session_price',
       'ussd_shop_min_sessions',
       'ussd_shop_max_sessions',
+      'storefront_show_ussd_card',
     ]
 
     // Auto-stamp terms_last_updated when terms_content changes
@@ -223,6 +232,16 @@ export async function PUT(request: NextRequest) {
         { error: "minimum_withdrawal_amount must be a number >= 0" },
         { status: 400 }
       )
+    }
+
+    for (const field of ['supplier_cost_per_gb_mtn', 'supplier_cost_per_gb_telecel', 'supplier_cost_per_gb_at_ishare', 'supplier_cost_per_gb_at_bigtime']) {
+      const value = updates[field]
+      if (value !== undefined && (typeof value !== "number" || !Number.isFinite(value) || value < 0)) {
+        return NextResponse.json(
+          { error: `${field} must be a number >= 0` },
+          { status: 400 }
+        )
+      }
     }
 
     // Validate signup_default_role if present
@@ -289,6 +308,10 @@ export async function PUT(request: NextRequest) {
         price_adjustment_telecel: 0,
         price_adjustment_at_ishare: 0,
         price_adjustment_at_bigtime: 0,
+        supplier_cost_per_gb_mtn: 0,
+        supplier_cost_per_gb_telecel: 0,
+        supplier_cost_per_gb_at_ishare: 0,
+        supplier_cost_per_gb_at_bigtime: 0,
         storefront_announcement_enabled: false,
         storefront_announcement_title: "",
         storefront_announcement_message: "",

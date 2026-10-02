@@ -58,9 +58,8 @@ const sampleConfig: CustomDomainConfig = {
   logo_url: null,
   primary_color: "#059669",
   is_active: true,
+  hidden_pages: [],
   linked_shop_subdomain: null,
-  show_guest_purchase: false,
-  show_landing_page: true,
 }
 
 const sampleRawRow = {
@@ -70,8 +69,7 @@ const sampleRawRow = {
   logo_url: sampleConfig.logo_url,
   primary_color: sampleConfig.primary_color,
   is_active: sampleConfig.is_active,
-  show_guest_purchase: sampleConfig.show_guest_purchase,
-  show_landing_page: sampleConfig.show_landing_page,
+  hidden_pages: sampleConfig.hidden_pages,
   linked_shop: null as { subdomain: string } | null,
 }
 
@@ -86,6 +84,53 @@ describe("resolveCustomDomain", () => {
     expect(maybeSingleMock).not.toHaveBeenCalled()
   })
 
+  it("treats a cached config missing hidden_pages (from before this field existed) as a miss, not a crash", async () => {
+    // A stale cache entry written by pre-this-feature code would have every
+    // field EXCEPT hidden_pages — simulate that shape directly rather than
+    // spreading sampleConfig, which already includes it.
+    const staleConfig = {
+      domain: sampleConfig.domain,
+      services: sampleConfig.services,
+      site_name: sampleConfig.site_name,
+      logo_url: sampleConfig.logo_url,
+      primary_color: sampleConfig.primary_color,
+      is_active: sampleConfig.is_active,
+    }
+    redisGetMock.mockResolvedValueOnce(staleConfig)
+    maybeSingleMock.mockResolvedValueOnce({ data: sampleConfig, error: null })
+    const { resolveCustomDomain } = await import("./custom-domain-lookup")
+
+    const result = await resolveCustomDomain("checkresults.com")
+
+    // Falls through to Supabase instead of returning the malformed cached
+    // value, and the result has a real hidden_pages array.
+    expect(maybeSingleMock).toHaveBeenCalled()
+    expect(result).toEqual(sampleConfig)
+  })
+
+  it("treats a cached config missing linked_shop_subdomain (from before it existed) as a miss, not a crash", async () => {
+    // A cache entry written after hidden_pages shipped but before shop-linking
+    // deployed would have hidden_pages present but linked_shop_subdomain
+    // missing entirely.
+    const staleConfig = {
+      domain: sampleConfig.domain,
+      services: sampleConfig.services,
+      site_name: sampleConfig.site_name,
+      logo_url: sampleConfig.logo_url,
+      primary_color: sampleConfig.primary_color,
+      is_active: sampleConfig.is_active,
+      hidden_pages: sampleConfig.hidden_pages,
+    }
+    redisGetMock.mockResolvedValueOnce(staleConfig)
+    maybeSingleMock.mockResolvedValueOnce({ data: sampleRawRow, error: null })
+    const { resolveCustomDomain } = await import("./custom-domain-lookup")
+
+    const result = await resolveCustomDomain("checkresults.com")
+
+    expect(maybeSingleMock).toHaveBeenCalled()
+    expect(result).toEqual(sampleConfig)
+  })
+
   it("queries Supabase and fills the cache on a Redis miss", async () => {
     redisGetMock.mockResolvedValueOnce(null)
     maybeSingleMock.mockResolvedValueOnce({ data: sampleRawRow, error: null })
@@ -95,6 +140,16 @@ describe("resolveCustomDomain", () => {
 
     expect(result).toEqual(sampleConfig)
     expect(redisSetMock).toHaveBeenCalledWith("custom_domain:checkresults.com", sampleConfig, { ex: 300 })
+  })
+
+  it("round-trips a non-empty hidden_pages array through a fresh Supabase read", async () => {
+    redisGetMock.mockResolvedValueOnce(null)
+    maybeSingleMock.mockResolvedValueOnce({ data: { ...sampleConfig, hidden_pages: ["wallet", "upgrade"] }, error: null })
+    const { resolveCustomDomain } = await import("./custom-domain-lookup")
+
+    const result = await resolveCustomDomain("checkresults.com")
+
+    expect(result?.hidden_pages).toEqual(["wallet", "upgrade"])
   })
 
   it("negative-caches a definitive miss on both the exact host and its www-toggled variant", async () => {

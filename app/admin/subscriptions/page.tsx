@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { Trash2, Edit, Plus, Check, X } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
@@ -175,11 +176,12 @@ export default function AdminSubscriptionsPage() {
     return (
         <DashboardLayout>
             <div className="p-6">
-                <div className="flex justify-between items-center mb-6">
-                    <div>
-                        <h1 className="text-2xl font-bold">Dealer Subscriptions</h1>
-                        <p className="text-muted-foreground text-sm">Manage dealer role subscription plans</p>
-                    </div>
+                <div className="flex justify-between items-center mb-6 gap-4">
+                    <PageHeaderBanner
+                        className="flex-1"
+                        title="Dealer Subscriptions"
+                        subtitle="Manage dealer role subscription plans"
+                    />
                     {!showForm && (
                         <Button onClick={() => setShowForm(true)} className="gap-2">
                             <Plus className="w-4 h-4" /> Add Plan

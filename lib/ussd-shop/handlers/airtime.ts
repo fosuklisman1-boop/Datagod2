@@ -6,6 +6,7 @@ import {
   shopAirtimeRecipientPrompt, shopAirtimeNetworkMenu, shopAirtimeAmountPrompt, shopAirtimeConfirmMenu,
 } from "../menus"
 import { setSession } from "../session"
+import { networkNickname } from "@/lib/ussd/network-labels"
 import { resolveEmail } from "@/lib/ussd/resolve-email"
 import { chargeMobileMoney } from "@/lib/paystack"
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
@@ -16,6 +17,7 @@ import {
   airtimeBaseFeeRate, splitInclusive, airtimeNetworkKey,
 } from "@/lib/airtime-pricing"
 import { createShopAirtimeOrder } from "@/lib/shop-commerce/orders"
+import { getUssdServiceVisibility } from "../../ussd-service-visibility"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -73,7 +75,12 @@ export async function handleShopAirtimeEnterRecipient(
   const shopName = session.shopName ?? "Shop"
   if (input.trim() === "0") {
     await setSession(sessionId, { ...session, step: "SELECT_PRODUCT" })
-    return cont(productMenu(shopName))
+    const adminVisibility = await getUssdServiceVisibility(supabase)
+    return cont(productMenu(shopName, {
+      data: adminVisibility.data,
+      airtime: adminVisibility.airtime,
+      resultsChecker: adminVisibility.resultsChecker,
+    }))
   }
 
   const raw = input.trim().replace(/\s+/g, "")
@@ -89,12 +96,12 @@ export async function handleShopAirtimeEnterRecipient(
   }
 
   if (!(await isAirtimeEnabled(network))) {
-    return cont(`${network} airtime unavailable.\n` + shopAirtimeRecipientPrompt(shopName))
+    return cont(`${networkNickname(network)} airtime unavailable.\n` + shopAirtimeRecipientPrompt(shopName))
   }
 
   const { min, max } = await getAirtimeLimits()
   await setSession(sessionId, { ...session, step: "SHOP_AIRTIME_ENTER_AMOUNT", airtimeRecipient: local, airtimeNetwork: network })
-  return cont(shopAirtimeAmountPrompt(network, min, max))
+  return cont(shopAirtimeAmountPrompt(networkNickname(network), min, max))
 }
 
 // ── SHOP_AIRTIME_SELECT_NETWORK (fallback) ────────────────────────────────────
@@ -114,12 +121,12 @@ export async function handleShopAirtimeSelectNetwork(
   if (!network) return cont(shopAirtimeNetworkMenu())
 
   if (!(await isAirtimeEnabled(network))) {
-    return cont(`${network} airtime unavailable.\n` + shopAirtimeNetworkMenu())
+    return cont(`${networkNickname(network)} airtime unavailable.\n` + shopAirtimeNetworkMenu())
   }
 
   const { min, max } = await getAirtimeLimits()
   await setSession(sessionId, { ...session, step: "SHOP_AIRTIME_ENTER_AMOUNT", airtimeNetwork: network })
-  return cont(shopAirtimeAmountPrompt(network, min, max))
+  return cont(shopAirtimeAmountPrompt(networkNickname(network), min, max))
 }
 
 // ── SHOP_AIRTIME_ENTER_AMOUNT ─────────────────────────────────────────────────
@@ -138,7 +145,7 @@ export async function handleShopAirtimeEnterAmount(
   const network = session.airtimeNetwork!
   const { min, max } = await getAirtimeLimits()
   if (isNaN(amount) || amount < min || amount > max) {
-    return cont(`Enter a valid amount.\n` + shopAirtimeAmountPrompt(network, min, max))
+    return cont(`Enter a valid amount.\n` + shopAirtimeAmountPrompt(networkNickname(network), min, max))
   }
 
   const { totalFeeRate, merchantCommissionRate } = await shopAirtimeFeeRate(session.shopId!, network)
@@ -153,7 +160,7 @@ export async function handleShopAirtimeEnterAmount(
     airtimeToDeliver: toDeliver,
     airtimeMerchantCommission: commission,
   })
-  return cont(shopAirtimeConfirmMenu(shopName, network, session.airtimeRecipient!, amount, toDeliver, session.dialingPhone!))
+  return cont(shopAirtimeConfirmMenu(shopName, networkNickname(network), session.airtimeRecipient!, amount, toDeliver, session.dialingPhone!))
 }
 
 // ── SHOP_AIRTIME_CONFIRM ──────────────────────────────────────────────────────
@@ -166,7 +173,7 @@ export async function handleShopAirtimeConfirm(
   if (input.trim() === "2" || input.trim() === "0") return end("Order cancelled.")
   if (input.trim() !== "1") {
     return cont(shopAirtimeConfirmMenu(
-      shopName, session.airtimeNetwork!, session.airtimeRecipient!,
+      shopName, networkNickname(session.airtimeNetwork!), session.airtimeRecipient!,
       session.airtimeAmount!, session.airtimeToDeliver!, session.dialingPhone!
     ))
   }
@@ -175,7 +182,7 @@ export async function handleShopAirtimeConfirm(
   const dialingPhone = session.dialingPhone!
 
   // Re-verify settings server-side
-  if (!(await isAirtimeEnabled(network))) return end(`${network} airtime is no longer available.`)
+  if (!(await isAirtimeEnabled(network))) return end(`${networkNickname(network)} airtime is no longer available.`)
   const { min, max } = await getAirtimeLimits()
   const amount = session.airtimeAmount!
   if (amount < min || amount > max) return end(`Amount must be GHS ${min}-${max}. Please restart.`)

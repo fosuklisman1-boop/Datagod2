@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -290,17 +291,11 @@ export default function BroadcastPage() {
         <DashboardLayout>
             <div className="max-w-4xl mx-auto space-y-6">
                 <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div>
-                        <div className="flex items-center gap-3 mb-2">
-                            <div className="p-2 bg-primary rounded-lg text-primary-foreground">
-                                <Send className="w-6 h-6" />
-                            </div>
-                            <h1 className="text-3xl font-bold bg-gradient-to-r from-pink-600 to-rose-600 bg-clip-text text-transparent">
-                                Broadcast Messaging
-                            </h1>
-                        </div>
-                        <p className="text-muted-foreground">Reach your users via SMS, Email, or Push broadcasts</p>
-                    </div>
+                    <PageHeaderBanner
+                        title="Broadcast Messaging"
+                        subtitle="Reach your users via SMS, Email, or Push broadcasts"
+                        className="flex-1"
+                    />
                     <Button
                         variant="outline"
                         onClick={() => router.push("/admin/broadcast/history")}

@@ -75,6 +75,24 @@
   --sidebar-ring: 160 84% 30%;
 }
 
+/* ===========================================================================
+   ADMIN TOKENS — Apex Prime-inspired navy/blue + amber identity.
+   Defined ONLY in :root (never redefined in .dark) so they are fixed
+   across both themes by construction — no wrapper class needed.
+   Scope: admin panel only. Does not touch --primary/--success/--warning/
+   --destructive/--mtn/--telecel/--at, which stay exactly as they are.
+   =========================================================================== */
+:root {
+  --admin-sidebar: 222 47% 8%;        /* #0f1420 */
+  --admin-sidebar-foreground: 0 0% 98%;
+  --admin-banner-from: 224 76% 33%;   /* #1e3a8a */
+  --admin-banner-to: 217 91% 53%;     /* #2563eb */
+  --admin-accent: 217 91% 53%;        /* #2563eb */
+  --admin-accent-soft: 214 95% 93%;   /* #dbeafe */
+  --admin-amber: 38 92% 58%;          /* #f5a623 */
+  --admin-orange: 25 95% 53%;         /* #f97316 -- secondary CTA buttons, unused until a follow-up plan wires a CTA into the banner */
+}
+
 .dark {
   --background: 0 0% 1%;            /* #030303 */
   --foreground: 0 0% 98%;          /* #FAFAFA */
@@ -137,6 +155,11 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* Mobile Safari/Chrome show a translucent gray highlight rectangle over
+       whatever was tapped, which doesn't respect a button's own border-radius
+       -- on our pill-shaped toggles/buttons it renders as a rectangular
+       artifact poking out past the rounded edges. */
+    -webkit-tap-highlight-color: transparent;
   }
 }
 

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import {
     updateDataKazinaOrderFromPayload,
-    extractOrderIdFromReference,
+    extractOrderIdCandidatesFromReference,
     DataKazinaWebhookPayload,
 } from "@/lib/mtn-fulfillment"
 import {
@@ -91,8 +91,15 @@ export async function POST(request: NextRequest) {
             test: payload.test,
         })
 
-        // Validate payload
-        const mtnOrderId = payload.transaction_id || payload.id || payload.reference || payload.incoming_api_ref
+        // Validate payload. order_code is DataKazina's stable order identifier
+        // and is what's stored as mtn_order_id at order-creation time (see
+        // createOrder() / updateDataKazinaOrderFromPayload) — it must come
+        // first here too, or the reversal check and notification lookup below
+        // (both keyed on this variable) silently search by the wrong field and
+        // never find the real order, even though the DB status update itself
+        // (delegated entirely to updateDataKazinaOrderFromPayload, which
+        // already prioritizes order_code correctly) still succeeds.
+        const mtnOrderId = payload.order_code || payload.transaction_id || payload.incoming_api_ref || payload.reference || payload.id
         if (!mtnOrderId) {
             log("info", "Webhook.DataKazina", "Webhook missing ID - likely a test ping", { traceId, payload })
             return NextResponse.json({ success: true, message: "Test received", traceId })
@@ -105,7 +112,9 @@ export async function POST(request: NextRequest) {
         // completed (within 72h) is a provider reversal — flag it and stop, so we never
         // run the normal failed-write (which would hit the completed→pending guard).
         const incomingStatusRaw = String(payload.status || "").toLowerCase()
-        if (["failed", "error", "cancelled", "rejected"].includes(incomingStatusRaw)) {
+        // "waiting" reads like an in-flight state but DataKazina uses it to
+        // mean the order failed — confirmed directly by DataKazina.
+        if (["failed", "error", "cancelled", "rejected", "waiting"].includes(incomingStatusRaw)) {
             const { data: existingTracking } = await supabase
                 .from("mtn_fulfillment_tracking")
                 .select("id, order_type, order_id, shop_order_id, api_order_id, provider, status, updated_at")
@@ -130,7 +139,9 @@ export async function POST(request: NextRequest) {
         // Process notifications based on status
         const status = String(payload.status || "").toLowerCase()
         const isCompleted = ["completed", "success", "successful", "delivered", "done"].includes(status)
-        const isFailed = ["failed", "error", "cancelled", "rejected"].includes(status)
+        // "waiting" reads like an in-flight state but DataKazina uses it to
+        // mean the order failed — confirmed directly by DataKazina.
+        const isFailed = ["failed", "error", "cancelled", "rejected", "waiting"].includes(status)
 
         if (isCompleted || isFailed) {
             // Get order details for notification. Mirror the matcher's resolution:
@@ -144,14 +155,17 @@ export async function POST(request: NextRequest) {
                 .maybeSingle()
 
             if (!tracking) {
-                const decodedOrderId = extractOrderIdFromReference(payload.reference)
-                if (decodedOrderId) {
+                const candidateIds = extractOrderIdCandidatesFromReference(payload.reference)
+                if (candidateIds.length > 0) {
+                    const orClause = candidateIds
+                        .flatMap((id) => [`shop_order_id.eq.${id}`, `order_id.eq.${id}`, `api_order_id.eq.${id}`])
+                        .join(",")
                     const { data: byReference } = await supabase
                         .from("mtn_fulfillment_tracking")
                         .select(notifyColumns)
-                        .or(`shop_order_id.eq.${decodedOrderId},order_id.eq.${decodedOrderId},api_order_id.eq.${decodedOrderId}`)
-                        .maybeSingle()
-                    if (byReference) tracking = byReference
+                        .or(orClause)
+                        .limit(1)
+                    if (byReference && byReference.length > 0) tracking = byReference[0]
                 }
             }
 

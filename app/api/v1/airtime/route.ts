@@ -5,6 +5,7 @@ import { applyRateLimit } from "@/lib/rate-limiter"
 import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 import { purchaseAirtime } from "@/lib/airtime-service"
 import { classifyServiceError } from "@/lib/api-v1-errors"
+import { placeSandboxOrder, getSandboxOrder } from "@/lib/sandbox"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -34,6 +35,14 @@ export async function GET(request: NextRequest) {
   const reference = searchParams.get("reference")
   if (!reference) {
     return NextResponse.json({ success: false, error: "Reference is required" }, { status: 400 })
+  }
+
+  if (user.environment === "test") {
+    const order = await getSandboxOrder(user.id, reference)
+    if (!order) {
+      return NextResponse.json({ success: false, error: "Order not found" }, { status: 404 })
+    }
+    return NextResponse.json({ success: true, order: { ...order.response, status: order.status, sandbox: true } })
   }
 
   const { data: order } = await supabase
@@ -88,9 +97,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: `Rate limit exceeded. Your current limit is ${postLimit} requests/minute.` }, { status: 429 })
   }
 
-  const phoneGuard = await checkPhoneVerified(supabase, user.id)
-  if (!phoneGuard.allowed) {
-    return NextResponse.json({ success: false, error: phoneGuard.error }, { status: 403 })
+  // Phone verification is a real-money/real-customer compliance guard --
+  // doesn't apply to a test key since nothing real happens.
+  if (user.environment !== "test") {
+    const phoneGuard = await checkPhoneVerified(supabase, user.id)
+    if (!phoneGuard.allowed) {
+      return NextResponse.json({ success: false, error: phoneGuard.error }, { status: 403 })
+    }
   }
 
   let body: any
@@ -116,6 +129,29 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "amount must be between GHS 0.01 and GHS 1000" }, { status: 400 })
   }
 
+  if (user.environment === "test") {
+    const { secureReference } = await import("@/lib/secure-random")
+    const reference = secureReference("AT", 2, 3)
+    // Sandbox charges a flat amount == the requested airtime value; the real
+    // endpoint's processing fee isn't simulated.
+    const result = await placeSandboxOrder({
+      userId: user.id,
+      apiKeyId: user.api_key_id,
+      action: "airtime",
+      reference,
+      request: { network, recipient: cleanPhone, amount: numericAmount, pay_separately },
+      price: numericAmount,
+      orderFields: { network, recipient: cleanPhone, airtime_amount: numericAmount, total_paid: numericAmount },
+    })
+    if (!result.success) {
+      return NextResponse.json({ success: false, error: result.error }, { status: result.status })
+    }
+    return NextResponse.json(
+      { success: true, order: { ...result.order, sandbox: true }, new_balance: result.newBalance },
+      { status: 201 }
+    )
+  }
+
   try {
     const result = await purchaseAirtime({
       userId: user.id, network, beneficiaryPhone: cleanPhone, airtimeAmount: numericAmount, paySeparately: pay_separately,
@@ -132,6 +168,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     const { status, publicMessage, isKnown } = classifyServiceError(error, {
       NETWORK_DISABLED: 503,
+      NETWORK_MISMATCH: 400,
       INVALID_AMOUNT: 400,
       DUPLICATE_REQUEST: 409,
       INSUFFICIENT_BALANCE: 402,

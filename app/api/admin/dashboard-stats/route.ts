@@ -12,6 +12,17 @@ export async function GET(request: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY || ""
     )
 
+    // Range-scoped hub stats (revenue/profit/orders/chart/actions) for the
+    // redesigned dashboard hub -- additive, merged into whichever payload
+    // shape below ends up returned so the existing all-time fields (and the
+    // get_admin_stats AI tool, which reads this same route) are untouched.
+    const rangeParam = request.nextUrl.searchParams.get("range")
+    const range = rangeParam === "today" || rangeParam === "30d" ? rangeParam : "7d"
+    const { data: hubStats, error: hubError } = await supabase.rpc("get_admin_dashboard_hub_stats", { p_range: range })
+    if (hubError) {
+      console.error("[ADMIN-STATS] hub stats RPC failed:", hubError.message)
+    }
+
     // Try optimized v2 RPC first (requires optimize_admin_stats.sql to be run in Supabase)
     const { data: statsV2, error: rpcV2Error } = await supabase.rpc("get_admin_dashboard_stats_v2")
 
@@ -26,6 +37,7 @@ export async function GET(request: NextRequest) {
       const completedOrders = (statsV2.completedOrders || 0) + airtimeStats.completedAirtimeOrders
       return NextResponse.json({
         ...statsV2,
+        ...(hubStats || {}),
         totalOrders,
         completedOrders,
         totalRevenue: (statsV2.totalRevenue || 0) + airtimeStats.airtimeRevenue,
@@ -70,6 +82,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         ...stats,
+        ...(hubStats || {}),
         totalOrders,
         completedOrders,
         totalRevenue: (stats.totalRevenue || 0) + airtimeStats.airtimeRevenue,

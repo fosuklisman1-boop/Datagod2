@@ -1,19 +1,20 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
-import { useRouter } from "next/navigation"
+import { useState, useEffect, useMemo, useRef, Suspense } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { useAuth } from "@/hooks/use-auth"
 import { useUserRole } from "@/hooks/use-user-role"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
+import { Switch } from "@/components/ui/switch"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
-import { Grid3x3, List, Search, Loader2 } from "lucide-react"
-import { PhoneNumberModal } from "@/components/phone-number-modal"
-import { SuccessModal } from "@/components/success-modal"
+import { Textarea } from "@/components/ui/textarea"
+import { Grid3x3, List, Search, Loader2, ShieldCheck, ExternalLink, RefreshCw, ShoppingCart, CheckCircle2, XCircle, Package } from "lucide-react"
+import { PurchaseSheet, type PurchaseSheetModal } from "@/components/dashboard/PurchaseSheet"
+import { BulkOrdersForm } from "@/components/bulk-orders-form"
 import { networkLogoService } from "@/lib/shop-service"
 import { supabase } from "@/lib/supabase"
 import { applyPriceAdjustmentsToPackages } from "@/lib/price-adjustment-service"
@@ -29,30 +30,51 @@ interface Package {
   description?: string
 }
 
-export default function DataPackagesPage() {
+// Real brand tokens (same ones used on the dashboard's Send Data Bundles
+// row and Network Health card) -- not arbitrary per-page colors. BigTime
+// has no dedicated token (single-usage accent), so it stays a plain violet.
+// Keys match the real packages.network values exactly (verified against the
+// live DB: "AT - iShare" / "AT - BigTime", WITH spaces around the hyphen --
+// not "AT-iShare"/"AT-BigTime", which silently matched zero rows).
+const NETWORK_META: Record<string, { label: string; avatar: string; badge: string; className: string; border: string }> = {
+  MTN: { label: "MTN", avatar: "M", badge: "MTN", className: "bg-mtn text-mtn-foreground", border: "border-mtn" },
+  Telecel: { label: "Telecel", avatar: "T", badge: "Telecel", className: "bg-telecel text-telecel-foreground", border: "border-telecel" },
+  "AT - iShare": { label: "AT iShare", avatar: "A", badge: "AT-iS", className: "bg-at text-at-foreground", border: "border-at" },
+  "AT - BigTime": { label: "AT BigTime", avatar: "A", badge: "AT-BT", className: "bg-violet-600 text-white", border: "border-violet-600" },
+}
+const NETWORK_ORDER = Object.keys(NETWORK_META)
+
+function DataPackagesPageInner() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { user, loading: authLoading } = useAuth()
   const { isDealer } = useUserRole()
+  const [orderMode, setOrderMode] = useState<"single" | "bulk">(searchParams.get("mode") === "bulk" ? "bulk" : "single")
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid")
-  const [selectedNetwork, setSelectedNetwork] = useState("All")
+  const [selectedNetwork, setSelectedNetwork] = useState("MTN")
   const [searchTerm, setSearchTerm] = useState("")
   const [networkLogos, setNetworkLogos] = useState<Record<string, string>>({})
   const [packages, setPackages] = useState<Package[]>([])
-  const [networks, setNetworks] = useState<string[]>(["All"])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [purchasing, setPurchasing] = useState<string | null>(null)
   const [wallet, setWallet] = useState<{ balance: number } | null>(null)
-  const [phoneModalOpen, setPhoneModalOpen] = useState(false)
+  const [purchaseModal, setPurchaseModal] = useState<PurchaseSheetModal | null>(null)
+  // Guards the in-flight purchase POST from reopening a stale success/failed
+  // view after the customer already dismissed the sheet themselves.
+  const purchaseDismissedRef = useRef(false)
   const [selectedPackageForPurchase, setSelectedPackageForPurchase] = useState<Package | null>(null)
   const [verifyWarningOpen, setVerifyWarningOpen] = useState(false)
   const [pendingPhoneNumber, setPendingPhoneNumber] = useState<string | null>(null)
   const [globalOrderingEnabled, setGlobalOrderingEnabled] = useState(true)
-  const [successModal, setSuccessModal] = useState<{
-    open: boolean
-    title: string
-    message: string
-    details: Array<{ label: string; value: string }>
-  }>({ open: false, title: "", message: "", details: [] })
+  // Whether the beneficiary gets an order-confirmation SMS -- this is real,
+  // existing behavior (app/api/orders/purchase already always sent this
+  // text); the toggle just makes it optional instead of unconditional.
+  const [sendSmsConfirmation, setSendSmsConfirmation] = useState(true)
+  const [regCheckOpen, setRegCheckOpen] = useState(false)
+  const [regCheckInput, setRegCheckInput] = useState("")
+  const [regChecking, setRegChecking] = useState(false)
+  const [regResults, setRegResults] = useState<{ phone: string; verified: boolean }[] | null>(null)
   // Live network->prefix map (admin-editable) for pre-submit validation;
   // falls back to the hardcoded default if the fetch fails.
   const [prefixMap, setPrefixMap] = useState<NetworkPrefixMap>(DEFAULT_NETWORK_PREFIXES)
@@ -60,7 +82,6 @@ export default function DataPackagesPage() {
   // Auth protection
   useEffect(() => {
     if (!authLoading && !user) {
-      console.log("[DATA-PACKAGES] User not authenticated, redirecting to login")
       router.push("/auth/login")
     }
   }, [user, authLoading, router])
@@ -84,10 +105,8 @@ export default function DataPackagesPage() {
 
   const loadGlobalSettings = async () => {
     try {
-      // Fetch via API to bypass RLS and use our hardened query logic
       const response = await fetch("/api/shop/public-packages?slug=default", { cache: "no-store" })
       const data = await response.json()
-
       if (data.ordering_enabled !== undefined) {
         setGlobalOrderingEnabled(data.ordering_enabled)
       }
@@ -98,52 +117,33 @@ export default function DataPackagesPage() {
 
   const loadWallet = async () => {
     if (!user?.id) return
-
     try {
-      const { data, error } = await supabase
-        .from("wallets")
-        .select("balance")
-        .eq("user_id", user.id)
-        .single()
+      const { data, error } = await supabase.from("wallets").select("balance").eq("user_id", user.id).single()
 
       if (error && error.code === "PGRST116") {
-        // No wallet found, create one via API
-        console.log("[DATA-PACKAGES] Wallet not found, creating new wallet via API")
         const session = await supabase.auth.getSession()
         if (!session.data.session?.access_token) {
-          console.error("[DATA-PACKAGES] No auth token available")
           setWallet({ balance: 0 })
           return
         }
-
         const response = await fetch("/api/wallet/create", {
           method: "POST",
-          headers: {
-            "Authorization": `Bearer ${session.data.session.access_token}`,
-            "Content-Type": "application/json",
-          },
+          headers: { Authorization: `Bearer ${session.data.session.access_token}`, "Content-Type": "application/json" },
         })
-
         if (!response.ok) {
-          const errorData = await response.json()
-          console.error("[DATA-PACKAGES] Error creating wallet:", errorData)
           setWallet({ balance: 0 })
           return
         }
-
         const result = await response.json()
-        console.log("[DATA-PACKAGES] Wallet created:", result.wallet)
         setWallet({ balance: result.wallet.balance })
       } else if (error) {
-        console.error("[DATA-PACKAGES] Error loading wallet:", error)
         setWallet({ balance: 0 })
         return
+      } else {
+        setWallet(data)
       }
-
-      console.log("[DATA-PACKAGES] Wallet loaded:", data)
-      setWallet(data)
     } catch (error) {
-      console.error("[DATA-PACKAGES] Error loading wallet:", error)
+      console.error("Error loading wallet:", error)
       setWallet({ balance: 0 })
     }
   }
@@ -159,14 +159,9 @@ export default function DataPackagesPage() {
 
   const loadPackages = async () => {
     try {
-      // First, get user role
       let userRole = "user"
       if (user) {
-        const { data: userData } = await supabase
-          .from("users")
-          .select("role")
-          .eq("id", user.id)
-          .single()
+        const { data: userData } = await supabase.from("users").select("role").eq("id", user.id).single()
         userRole = userData?.role || "user"
       }
 
@@ -181,7 +176,6 @@ export default function DataPackagesPage() {
         return
       }
 
-      // For dealers, use dealer_price instead of price
       let processedPackages = data || []
       if (userRole === "dealer") {
         processedPackages = processedPackages.map((pkg: any) => ({
@@ -190,49 +184,33 @@ export default function DataPackagesPage() {
         }))
       }
 
-      // Apply price adjustments based on network settings
       const adjustedPackages = await applyPriceAdjustmentsToPackages(processedPackages)
       setPackages(adjustedPackages)
-
-      // Extract unique networks
-      const uniqueNetworks = ["All", ...Array.from(new Set(adjustedPackages?.map((pkg: Package) => pkg.network) || []))]
-      setNetworks(uniqueNetworks as string[])
     } catch (error) {
       console.error("Error loading packages:", error)
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
+  }
+
+  const handleRefresh = () => {
+    setRefreshing(true)
+    loadPackages()
   }
 
   const getNetworkLogo = (network: string): string => {
-    // Try exact match first
-    if (networkLogos[network]) {
-      return networkLogos[network]
-    }
-
-    // Try normalized version (capitalize first letter)
+    if (networkLogos[network]) return networkLogos[network]
     const normalized = network.charAt(0).toUpperCase() + network.slice(1).toLowerCase()
-    if (networkLogos[normalized]) {
-      return networkLogos[normalized]
-    }
-
-    // Return empty string if not found
+    if (networkLogos[normalized]) return networkLogos[normalized]
     return ""
   }
 
-  // Helper function to extract numeric value from size string for sorting
   const extractSizeValue = (size: string): number => {
-    // Remove any whitespace and convert to uppercase for consistency
     const normalized = size.trim().toUpperCase()
-
-    // Extract the numeric part (handles any number of digits)
     const match = normalized.match(/^(\d+)(?:\D|$)/)
     if (!match) return 0
-
-    const value = parseInt(match[1], 10)
-
-    // Return raw numeric value
-    return value
+    return parseInt(match[1], 10)
   }
 
   const handlePurchase = async (pkg: Package) => {
@@ -240,20 +218,17 @@ export default function DataPackagesPage() {
       toast.error("Please login first")
       return
     }
-
     if (!wallet) {
       toast.error("Failed to load wallet")
       return
     }
-
     if (wallet.balance < (pkg.price || 0)) {
       toast.error(`Insufficient balance. You need GHS ${(pkg.price || 0).toFixed(2)} but have GHS ${Math.max(0, wallet.balance || 0).toFixed(2)}`)
       return
     }
-
-    // Show phone number modal instead of purchasing directly
     setSelectedPackageForPurchase(pkg)
-    setPhoneModalOpen(true)
+    purchaseDismissedRef.current = false
+    setPurchaseModal({ state: "phone" })
   }
 
   const handlePhoneNumberSubmit = async (phoneNumber: string, skipVerification = false) => {
@@ -262,8 +237,6 @@ export default function DataPackagesPage() {
       return
     }
 
-    // Order-time network↔prefix validation (client-side hint; server enforces
-    // regardless — see /api/orders/purchase).
     const phoneCheck = validatePhoneNumber(phoneNumber, selectedPackageForPurchase.network, prefixMap)
     if (!phoneCheck.isValid) {
       toast.error(phoneCheck.error || "Please enter a valid phone number")
@@ -271,6 +244,7 @@ export default function DataPackagesPage() {
     }
 
     setPurchasing(selectedPackageForPurchase.id)
+    setPurchaseModal({ state: "processing" })
 
     if (!skipVerification && selectedPackageForPurchase.network.toUpperCase() === "MTN") {
       try {
@@ -284,7 +258,7 @@ export default function DataPackagesPage() {
           const verifiedResult = verifyData.results?.[0]?.verified
           if (verifiedResult === false) {
             setPurchasing(null)
-            setPhoneModalOpen(false)
+            setPurchaseModal(null)
             setPendingPhoneNumber(phoneNumber)
             setVerifyWarningOpen(true)
             return
@@ -292,8 +266,6 @@ export default function DataPackagesPage() {
           if (verifiedResult === true) {
             toast.success("Number verified ✓")
           }
-        } else {
-          console.warn("[DATA-PACKAGES] Live verification check returned non-OK status, proceeding:", verifyRes.status)
         }
       } catch (verifyErr) {
         console.warn("[DATA-PACKAGES] Live verification check failed, proceeding:", verifyErr)
@@ -302,71 +274,54 @@ export default function DataPackagesPage() {
 
     try {
       setPurchasing(selectedPackageForPurchase.id)
-
-      // Get auth token
-      const {
-        data: { session },
-      } = await supabase.auth.getSession()
-
+      const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token) {
         toast.error("Session expired, please login again")
         setPurchasing(null)
-        setPhoneModalOpen(false)
+        setPurchaseModal(null)
         return
       }
 
       const response = await fetch("/api/orders/purchase", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
         body: JSON.stringify({
           packageId: selectedPackageForPurchase.id,
           network: selectedPackageForPurchase.network,
           size: selectedPackageForPurchase.size,
           price: selectedPackageForPurchase.price,
           phoneNumber,
+          sendSmsConfirmation,
         }),
       })
 
       const data = await response.json()
-
       if (!response.ok) {
-        toast.error(data.error || "Purchase failed")
+        if (!purchaseDismissedRef.current) setPurchaseModal({ state: "failed", message: data.error || "Purchase failed" })
         return
       }
 
-      // Update wallet balance
       setWallet({ balance: data.newBalance })
-
       toast.success(`Successfully purchased ${selectedPackageForPurchase.network} ${selectedPackageForPurchase.size}!`)
 
-      setPhoneModalOpen(false)
+      // Customer already dismissed the sheet before this resolved -- the
+      // order still went through, but don't reopen a view they already closed.
+      if (purchaseDismissedRef.current) return
+      setPurchaseModal({
+        state: "success",
+        summary: {
+          packageLabel: `${selectedPackageForPurchase.network} ${selectedPackageForPurchase.size}`,
+          amount: selectedPackageForPurchase.price,
+          newBalance: data.newBalance,
+        },
+      })
 
-      setTimeout(() => {
-        setSuccessModal({
-          open: true,
-          title: "Purchase Successful!",
-          message: "Your data package has been ordered and will be delivered shortly.",
-          details: [
-            { label: "Package", value: `${selectedPackageForPurchase?.network} ${selectedPackageForPurchase?.size}` },
-            { label: "Amount", value: `GHS ${(selectedPackageForPurchase?.price || 0).toFixed(2)}` },
-            { label: "New Balance", value: `GHS ${(data.newBalance || 0).toFixed(2)}` },
-          ],
-        })
-      }, 100)
-
-      // Optionally redirect to orders page after viewing the modal
-      setTimeout(() => {
-        router.push("/dashboard/my-orders")
-      }, 3500)
+      setTimeout(() => { if (!purchaseDismissedRef.current) router.push("/dashboard/my-orders") }, 3500)
     } catch (error) {
       console.error("Purchase error:", error)
-      toast.error("An error occurred during purchase")
+      if (!purchaseDismissedRef.current) setPurchaseModal({ state: "failed", message: "An error occurred during purchase" })
     } finally {
       setPurchasing(null)
-      setSelectedPackageForPurchase(null)
     }
   }
 
@@ -380,273 +335,262 @@ export default function DataPackagesPage() {
     }
   }
 
+  const handleCancelPurchase = () => {
+    purchaseDismissedRef.current = true
+    setPurchaseModal(null)
+    setSelectedPackageForPurchase(null)
+  }
+
+  const handleDismissPurchase = () => {
+    purchaseDismissedRef.current = true
+    setPurchaseModal(null)
+    setSelectedPackageForPurchase(null)
+  }
+
+  const handleRegCheck = async () => {
+    const phones = regCheckInput.split(/[\n,]/).map(p => p.trim()).filter(Boolean)
+    if (phones.length === 0) {
+      toast.error("Enter at least one phone number")
+      return
+    }
+    if (phones.length > 100) {
+      toast.error("Up to 100 numbers at a time")
+      return
+    }
+    setRegChecking(true)
+    setRegResults(null)
+    try {
+      const res = await fetch("/api/verify-phone-live", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phones }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        toast.error(data.error || "Check failed")
+        return
+      }
+      setRegResults(data.results || [])
+    } catch (err) {
+      toast.error("Check failed — please try again")
+    } finally {
+      setRegChecking(false)
+    }
+  }
+
+  const packagesForSelectedNetwork = useMemo(
+    () => packages.filter((pkg) => pkg.network === selectedNetwork),
+    [packages, selectedNetwork]
+  )
+
   const filteredPackages = useMemo(() => {
-    const NETWORK_ORDER = ["MTN", "Telecel", "AT-iShare", "AT-BigTime"]
     const search = searchTerm.toLowerCase()
-    return packages
-      .filter((pkg) => {
-        const networkMatch = selectedNetwork === "All" || pkg.network === selectedNetwork
-        const searchMatch = !search ||
-          pkg.size.toLowerCase().includes(search) ||
-          pkg.network.toLowerCase().includes(search)
-        return networkMatch && searchMatch
-      })
-      .sort((a, b) => {
-        const ai = NETWORK_ORDER.indexOf(a.network)
-        const bi = NETWORK_ORDER.indexOf(b.network)
-        const aNI = ai >= 0 ? ai : 999
-        const bNI = bi >= 0 ? bi : 999
-        if (aNI !== bNI) return aNI - bNI
-        return extractSizeValue(a.size) - extractSizeValue(b.size)
-      })
-  }, [packages, selectedNetwork, searchTerm])
+    return packagesForSelectedNetwork
+      .filter((pkg) => !search || pkg.size.toLowerCase().includes(search) || pkg.network.toLowerCase().includes(search))
+      .sort((a, b) => extractSizeValue(a.size) - extractSizeValue(b.size))
+  }, [packagesForSelectedNetwork, searchTerm])
+
+  const meta = NETWORK_META[selectedNetwork]
 
   return (
     <DashboardLayout>
-      <div className="space-y-6 px-2 sm:px-4 md:px-8 w-full max-w-full">
+      <div className="relative mx-auto max-w-5xl space-y-5 px-2 pb-16 sm:px-4 md:px-8">
+        <DashboardHeroBanner title="Data Packages" subtitle="Browse and buy data bundles across every network." icon={Package} />
         {!globalOrderingEnabled && (
-          <Alert className="mb-8 border-destructive/30 bg-destructive/10 shadow-md">
+          <Alert className="border-destructive/30 bg-destructive/10 shadow-md">
             <AlertDescription className="text-destructive font-bold text-center">
               The system is currently in maintenance mode. Data package purchases are temporarily disabled.
             </AlertDescription>
           </Alert>
         )}
-        {/* Page Header */}
-        <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
-          <div>
-            <h1 className={`text-2xl sm:text-3xl md:text-4xl font-bold ${isDealer
-              ? "text-warning"
-              : "bg-gradient-to-r from-primary via-primary to-primary bg-clip-text text-transparent"
-              }`}>Data Packages</h1>
-            <p className="text-xs sm:text-sm text-muted-foreground mt-1 font-medium">Browse and purchase data packages from multiple networks</p>
-          </div>
-          {wallet && (
-            <Card className={`border w-full sm:w-auto ${isDealer
-              ? "bg-card border-border dark:border-amber-500/20"
-              : "bg-card border-border"
-              }`}>
-              <CardContent className="pt-4 sm:pt-6">
-                <p className="text-xs sm:text-sm text-muted-foreground">Wallet Balance</p>
-                <p className={`text-lg sm:text-xl md:text-2xl font-bold ${isDealer
-                  ? "text-warning"
-                  : "text-success"
-                  }`}>
-                  GHS {Math.max(0, wallet.balance || 0).toFixed(2)}
-                </p>
-              </CardContent>
-            </Card>
-          )}
+
+        {/* Network picker */}
+        <div className="grid grid-cols-4 gap-2 sm:gap-3">
+          {NETWORK_ORDER.map((net) => {
+            const m = NETWORK_META[net]
+            const isSelected = selectedNetwork === net
+            const isLive = packages.some((p) => p.network === net)
+            const logo = getNetworkLogo(net)
+            return (
+              <button
+                key={net}
+                onClick={() => setSelectedNetwork(net)}
+                className={`relative flex flex-col items-center gap-1.5 rounded-2xl border-2 bg-card p-2.5 sm:p-4 transition ${
+                  isSelected ? `${m.border} shadow-sm` : "border-border hover:border-[#1b388b]/30"
+                }`}
+              >
+                {isSelected && (
+                  <span className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-success text-white">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                  </span>
+                )}
+                {logo ? (
+                  net === "Telecel" ? (
+                    // Telecel's logo art crops badly under object-cover (zooms in
+                    // past the wordmark) -- kept inset/contain for this one network.
+                    <span className="grid h-9 w-9 sm:h-10 sm:w-10 place-items-center rounded-full bg-muted">
+                      <img src={logo} alt={m.label} className="h-7 w-7 sm:h-8 sm:w-8 object-contain" />
+                    </span>
+                  ) : (
+                    <span className="block h-9 w-9 sm:h-10 sm:w-10 overflow-hidden rounded-full bg-card">
+                      <img src={logo} alt={m.label} className="h-full w-full object-cover" />
+                    </span>
+                  )
+                ) : (
+                  <span className={`flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full text-sm font-extrabold ${m.className}`}>
+                    {m.avatar}
+                  </span>
+                )}
+                <span className="text-xs sm:text-sm font-bold text-foreground">{m.label}</span>
+                <span className="flex items-center gap-1 text-[10px] sm:text-xs font-semibold text-success">
+                  <span className="h-1.5 w-1.5 rounded-full bg-success" /> {isLive ? "Live" : "No Packages"}
+                </span>
+              </button>
+            )
+          })}
         </div>
 
-        {/* Search and Filters */}
-        <Card className={`hover:shadow-md transition-all duration-300 border ${isDealer
-          ? "bg-card border-border dark:border-amber-500/20"
-          : "bg-card border-border"
-          }`}>
-          <CardHeader>
-            <CardTitle>Search & Filter</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Search Bar */}
-            <div className="relative">
-              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search packages..."
-                className={`pl-10 focus:ring-2 transition-all bg-card/70 backdrop-blur ${isDealer
-                  ? "focus:ring-amber-500 border-border focus:border-amber-400"
-                  : "focus:ring-primary border-border focus:border-primary"
-                  }`}
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
+        {/* MTN-only: real registration check via /api/verify-phone-live */}
+        {selectedNetwork === "MTN" && (
+          <button
+            onClick={() => { setRegCheckOpen(true); setRegResults(null); setRegCheckInput("") }}
+            className="flex w-full items-center gap-3 rounded-2xl border border-border bg-card p-4 text-left transition hover:border-[#1b388b]/30"
+          >
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-warning/15 text-warning">
+              <ShieldCheck className="h-5 w-5" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-bold text-foreground">Check MTN Number Registration</span>
+              <span className="block text-xs text-muted-foreground">Not-registered numbers may be held for MTN's own validation · up to 100 at once</span>
+            </span>
+            <ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground" />
+          </button>
+        )}
 
-            {/* Network Filter */}
-            <div className="flex flex-wrap gap-1 sm:gap-2">
-              {networks.map((network) => (
-                <Button
-                  key={network}
-                  variant={selectedNetwork === network ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setSelectedNetwork(network)}
-                  className={`text-xs sm:text-sm transition-all duration-200 ${selectedNetwork === network
-                    ? isDealer ? "bg-gradient-to-r from-amber-600 to-orange-600 shadow-lg text-white" : "bg-gradient-to-r from-primary to-primary/80 shadow-lg text-white"
-                    : isDealer
-                      ? "hover:border-warning/30 hover:text-warning hover:bg-warning/15 bg-warning/10 backdrop-blur border-border text-foreground"
-                      : "hover:border-primary hover:text-primary hover:bg-primary/60 bg-primary/30 backdrop-blur border-border text-foreground"
-                    }`}
-                >
-                  {network}
-                </Button>
-              ))}
-            </div>
+        {/* Single / Bulk Order tabs */}
+        <div className="inline-flex w-full rounded-2xl bg-muted p-1">
+          <button
+            onClick={() => setOrderMode("single")}
+            className={`flex-1 rounded-xl py-2.5 text-sm font-bold transition ${orderMode === "single" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
+          >
+            Single
+          </button>
+          <button
+            onClick={() => setOrderMode("bulk")}
+            className={`flex-1 rounded-xl py-2.5 text-sm font-bold transition ${orderMode === "bulk" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
+          >
+            Bulk Order
+          </button>
+        </div>
 
-            {/* View Mode Toggle */}
-            <div className="flex gap-2">
-              <Button
-                variant={viewMode === "grid" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setViewMode("grid")}
-                className={`transition-all duration-200 ${viewMode === "grid"
-                  ? isDealer ? "bg-gradient-to-r from-amber-600 to-orange-600 text-white" : "bg-gradient-to-r from-primary to-primary/80 text-white"
-                  : isDealer ? "hover:bg-warning/15 backdrop-blur bg-warning/10 border-border text-foreground hover:text-warning hover:border-warning/30" : "hover:bg-primary/80 backdrop-blur bg-primary/30 border-border text-foreground hover:text-primary hover:border-primary"
-                  }`}
-              >
-                <Grid3x3 className="w-4 h-4 mr-2" />
-                Grid
-              </Button>
-              <Button
-                variant={viewMode === "list" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setViewMode("list")}
-                className={`transition-all duration-200 ${viewMode === "list"
-                  ? isDealer ? "bg-gradient-to-r from-amber-600 to-orange-600 text-white" : "bg-gradient-to-r from-primary to-primary/80 text-white"
-                  : isDealer ? "hover:bg-warning/15 backdrop-blur bg-warning/10 border-border text-foreground hover:text-warning hover:border-warning/30" : "hover:bg-primary/80 backdrop-blur bg-primary/30 border-border text-foreground hover:text-primary hover:border-primary"
-                  }`}
-              >
-                <List className="w-4 h-4 mr-2" />
-                List
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Packages Display */}
-        {viewMode === "grid" ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredPackages.map((pkg) => (
-              <Card key={pkg.id} className={`hover:shadow-lg transition-all duration-300 hover:-translate-y-1 cursor-pointer group border-l-4 border overflow-hidden flex flex-col w-full min-w-0 ${isDealer
-                ? "border-l-warning/30 bg-card border-border hover:border-border"
-                : "border-l-primary bg-card border-border hover:border-primary/40"
-                }`}>
-                {/* Logo Section */}
-                <div className="h-16 sm:h-20 md:h-32 w-full bg-muted flex items-center justify-center overflow-hidden">
-                  {getNetworkLogo(pkg.network) && (
-                    <img
-                      src={getNetworkLogo(pkg.network)}
-                      alt={pkg.network}
-                      className="h-12 sm:h-16 md:h-24 w-12 sm:w-16 md:w-24 object-contain"
-                    />
-                  )}
-                </div>
-
-                <CardHeader>
-                  <div className="flex justify-between items-start gap-2">
-                    <div>
-                      <Badge className={`mb-2 text-xs sm:text-sm backdrop-blur transition-all bg-opacity-40 border border-opacity-60 ${isDealer
-                        ? "bg-warning/10 text-warning group-hover:bg-warning group-hover:text-white border-border"
-                        : "bg-gradient-to-r from-primary/40 to-blue-400/30 text-primary group-hover:bg-gradient-to-r group-hover:from-primary group-hover:to-primary/80 group-hover:text-white border-border"
-                        }`}>{pkg.network}</Badge>
-                      <CardTitle className={`text-lg sm:text-xl md:text-2xl transition-colors ${isDealer ? "group-hover:text-warning" : "group-hover:text-primary"}`}>{pkg.size.toString().replace(/[^0-9]/g, "")}GB</CardTitle>
-                    </div>
-                    <div className="text-right">
-                      <p className={`text-lg sm:text-xl md:text-2xl font-bold transition-colors ${isDealer
-                        ? "text-warning"
-                        : "bg-gradient-to-r from-primary to-primary/80 group-hover:from-primary group-hover:to-primary bg-clip-text text-transparent"
-                        }`}>GHS {(pkg.price || 0).toFixed(2)}</p>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4 flex-1 flex flex-col justify-between">
-                  {pkg.description && (
-                    <p className="text-sm text-muted-foreground group-hover:text-foreground transition-colors">
-                      {pkg.description}
-                    </p>
-                  )}
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-sm text-success group-hover:text-success/80 transition-colors">
-                      <div className="w-1.5 h-1.5 bg-success rounded-full"></div>
-                      No expiry
-                    </div>
-                    <div className="flex items-center gap-2 text-sm text-success group-hover:text-success/80 transition-colors">
-                      <div className="w-1.5 h-1.5 bg-success rounded-full"></div>
-                      Instant delivery
-                    </div>
-                  </div>
-                  <Button
-                    onClick={() => handlePurchase(pkg)}
-                    disabled={purchasing === pkg.id || !wallet || wallet.balance < pkg.price || !globalOrderingEnabled}
-                    className={`w-full shadow-lg hover:shadow-xl transition-all duration-300 font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm ${isDealer
-                      ? "bg-warning hover:bg-warning/90"
-                      : "bg-gradient-to-r from-primary via-primary to-primary hover:from-primary hover:via-primary/90 hover:to-primary"
-                      }`}
-                  >
-                    {purchasing === pkg.id ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Processing...
-                      </>
-                    ) : !wallet || wallet.balance < pkg.price ? (
-                      "Insufficient Balance"
-                    ) : (
-                      "Buy Now"
-                    )}
-                  </Button>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+        {orderMode === "bulk" ? (
+          <BulkOrdersForm presetNetwork={selectedNetwork} />
         ) : (
-          <Card className={`hover:shadow-md transition-all duration-300 border w-full ${isDealer
-            ? "bg-card border-border dark:border-amber-500/20"
-            : "bg-card border-border"
-            }`}>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto w-full">
-                <table className="min-w-[600px] sm:min-w-full w-full text-xs sm:text-sm">
-                  <thead className={`border-b ${isDealer
-                    ? "bg-muted/40 border-border"
-                    : "bg-muted/40 border-border"
-                    }`}>
+          <>
+            {/* Order SMS confirmation — real existing behavior (the purchase
+                route already always sent this text); this just makes it
+                optional instead of unconditional. */}
+            <div className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-card p-4">
+              <div>
+                <p className="text-sm font-bold text-foreground">Order SMS confirmation</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">The beneficiary gets a text confirming their order.</p>
+              </div>
+              <Switch checked={sendSmsConfirmation} onCheckedChange={setSendSmsConfirmation} />
+            </div>
+
+            {/* Search + view toggle */}
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search packages..."
+                  className="rounded-2xl border-border bg-card pl-10"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+              <div className="flex overflow-hidden rounded-2xl bg-muted p-1">
+                <button
+                  onClick={() => setViewMode("grid")}
+                  className={`flex items-center justify-center rounded-xl px-3 py-2 transition ${viewMode === "grid" ? "bg-foreground text-background" : "text-muted-foreground"}`}
+                >
+                  <Grid3x3 className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => setViewMode("list")}
+                  className={`flex items-center justify-center rounded-xl px-3 py-2 transition ${viewMode === "list" ? "bg-foreground text-background" : "text-muted-foreground"}`}
+                >
+                  <List className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Packages */}
+            {loading ? (
+              <div className="flex justify-center py-12">
+                <Loader2 className="h-6 w-6 animate-spin text-[#1b388b]" />
+              </div>
+            ) : viewMode === "grid" ? (
+              <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                {filteredPackages.map((pkg) => (
+                  <div key={pkg.id} className={`overflow-hidden rounded-2xl ${meta.className}`}>
+                    <div className="p-4 pb-6 sm:p-5 sm:pb-8">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-xs font-extrabold">
+                          {meta.avatar}
+                        </span>
+                        <span className="rounded-full bg-white/20 px-2.5 py-1 text-[10px] font-bold">{meta.badge}</span>
+                      </div>
+                      <p className="mt-3 text-2xl sm:text-3xl font-extrabold">
+                        {pkg.size.toString().replace(/[^0-9]/g, "")}GB
+                      </p>
+                      <p className="text-sm sm:text-base font-bold opacity-90">GHS {(pkg.price || 0).toFixed(2)}</p>
+                      {pkg.description && (
+                        <p className="mt-1.5 text-[11px] opacity-80">• {pkg.description}</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => handlePurchase(pkg)}
+                      disabled={purchasing === pkg.id || !wallet || wallet.balance < pkg.price || !globalOrderingEnabled}
+                      className="flex w-full items-center justify-center gap-2 bg-black/20 py-3 text-sm font-bold disabled:opacity-50"
+                    >
+                      {purchasing === pkg.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <ShoppingCart className="h-4 w-4" />
+                      )}
+                      {purchasing === pkg.id ? "Processing..." : !wallet || wallet.balance < pkg.price ? "Insufficient Balance" : "Buy Now"}
+                    </button>
+                  </div>
+                ))}
+                {filteredPackages.length === 0 && (
+                  <p className="col-span-2 py-8 text-center text-sm text-muted-foreground">No packages found for {meta.label}</p>
+                )}
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-2xl border border-border">
+                <table className="w-full min-w-[500px] text-sm">
+                  <thead className="border-b border-border bg-muted/40">
                     <tr>
-                      <th className="px-2 sm:px-6 py-2 sm:py-3 text-left font-semibold text-foreground whitespace-nowrap">Logo</th>
-                      <th className="px-2 sm:px-6 py-2 sm:py-3 text-left font-semibold text-foreground whitespace-nowrap">Network</th>
-                      <th className="px-2 sm:px-6 py-2 sm:py-3 text-left font-semibold text-foreground whitespace-nowrap">Size</th>
-                      <th className="px-2 sm:px-6 py-2 sm:py-3 text-left font-semibold text-foreground whitespace-nowrap">Price</th>
-                      <th className="px-2 sm:px-6 py-2 sm:py-3 text-left font-semibold text-foreground whitespace-nowrap">Description</th>
-                      <th className="px-2 sm:px-6 py-2 sm:py-3 text-left font-semibold text-foreground whitespace-nowrap">Action</th>
+                      <th className="px-4 py-3 text-left font-semibold text-foreground">Size</th>
+                      <th className="px-4 py-3 text-left font-semibold text-foreground">Price</th>
+                      <th className="px-4 py-3 text-left font-semibold text-foreground">Description</th>
+                      <th className="px-4 py-3 text-left font-semibold text-foreground">Action</th>
                     </tr>
                   </thead>
-                  <tbody className={`divide-y ${isDealer ? "divide-warning/10" : "divide-primary/40"}`}>
+                  <tbody className="divide-y divide-border">
                     {filteredPackages.map((pkg) => (
-                      <tr key={pkg.id} className={`hover:backdrop-blur transition-colors duration-200 cursor-pointer ${isDealer ? "hover:bg-warning/10" : "hover:bg-primary/30"
-                        }`}>
-                        <td className="px-2 sm:px-6 py-2 sm:py-4">
-                          {getNetworkLogo(pkg.network) && (
-                            <img
-                              src={getNetworkLogo(pkg.network)}
-                              alt={pkg.network}
-                              className="h-6 w-6 sm:h-8 sm:w-8 object-contain"
-                            />
-                          )}
-                        </td>
-                        <td className="px-2 sm:px-6 py-2 sm:py-4 font-medium text-foreground whitespace-nowrap">{pkg.network}</td>
-                        <td className="px-2 sm:px-6 py-2 sm:py-4 font-semibold text-foreground whitespace-nowrap">{pkg.size.toString().replace(/[^0-9]/g, "")}GB</td>
-                        <td className={`px-2 sm:px-6 py-2 sm:py-4 font-bold whitespace-nowrap ${isDealer
-                          ? "text-warning"
-                          : "bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent"
-                          }`}>GHS {(pkg.price || 0).toFixed(2)}</td>
-                        <td className="px-2 sm:px-6 py-2 sm:py-4 text-muted-foreground whitespace-nowrap">{pkg.description || "-"}</td>
-                        <td className="px-2 sm:px-6 py-2 sm:py-4">
+                      <tr key={pkg.id} className="hover:bg-muted/30">
+                        <td className="px-4 py-3 font-semibold text-foreground whitespace-nowrap">{pkg.size.toString().replace(/[^0-9]/g, "")}GB</td>
+                        <td className="px-4 py-3 font-bold text-foreground whitespace-nowrap">GHS {(pkg.price || 0).toFixed(2)}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{pkg.description || "-"}</td>
+                        <td className="px-4 py-3">
                           <Button
                             size="sm"
                             onClick={() => handlePurchase(pkg)}
                             disabled={purchasing === pkg.id || !wallet || wallet.balance < pkg.price || !globalOrderingEnabled}
-                            className={`shadow-md hover:shadow-lg transition-all font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm ${isDealer
-                              ? "bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700"
-                              : "bg-gradient-to-r from-primary to-primary/80 hover:from-primary hover:to-primary/80"
-                              }`}
                           >
-                            {purchasing === pkg.id ? (
-                              <>
-                                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                                Processing...
-                              </>
-                            ) : !wallet || wallet.balance < pkg.price ? (
-                              "No Balance"
-                            ) : (
-                              "Buy"
-                            )}
+                            {purchasing === pkg.id ? <Loader2 className="h-3 w-3 animate-spin" /> : !wallet || wallet.balance < pkg.price ? "No Balance" : "Buy"}
                           </Button>
                         </td>
                       </tr>
@@ -654,34 +598,91 @@ export default function DataPackagesPage() {
                   </tbody>
                 </table>
               </div>
-            </CardContent>
-          </Card>
+            )}
+
+            <p className="text-xs text-muted-foreground">
+              Showing {filteredPackages.length} of {packagesForSelectedNetwork.length} {meta.label} packages
+            </p>
+          </>
         )}
 
-        {/* Results Count */}
-        <p className="text-xs sm:text-sm text-muted-foreground px-1 sm:px-0">
-          Showing {filteredPackages.length} of {packages.length} packages
-        </p>
+        {/* Floating refresh FAB */}
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          aria-label="Refresh packages"
+          className="fixed bottom-24 right-4 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-card text-foreground shadow-lg border border-border md:bottom-8 md:right-8"
+        >
+          <RefreshCw className={`h-5 w-5 ${refreshing ? "animate-spin" : ""}`} />
+        </button>
 
-        {/* Phone Number Modal */}
-        <PhoneNumberModal
-          open={phoneModalOpen}
-          onOpenChange={setPhoneModalOpen}
-          onSubmit={handlePhoneNumberSubmit}
-          isLoading={purchasing !== null}
-          packageName={selectedPackageForPurchase ? `${selectedPackageForPurchase.network} ${selectedPackageForPurchase.size}` : "Data Package"}
-        />
+        {/* MTN registration check dialog */}
+        <Dialog open={regCheckOpen} onOpenChange={setRegCheckOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Check MTN Number Registration</DialogTitle>
+              <DialogDescription>Paste one number per line (or comma-separated), up to 100 at once.</DialogDescription>
+            </DialogHeader>
+            <Textarea
+              placeholder={"0244000000\n0244000001"}
+              value={regCheckInput}
+              onChange={(e) => setRegCheckInput(e.target.value)}
+              rows={5}
+            />
+            {regResults && (
+              <div className="max-h-48 space-y-1.5 overflow-y-auto rounded-lg border border-border p-2">
+                {regResults.map((r) => (
+                  <div key={r.phone} className="flex items-center justify-between text-sm">
+                    <span className="font-mono">{r.phone}</span>
+                    {r.verified ? (
+                      <span className="flex items-center gap-1 text-success"><CheckCircle2 className="h-3.5 w-3.5" /> Registered</span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-destructive"><XCircle className="h-3.5 w-3.5" /> Not registered</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setRegCheckOpen(false)}>Close</Button>
+              <Button onClick={handleRegCheck} disabled={regChecking}>
+                {regChecking ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Checking...</> : "Check"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
-        {/* Success Modal */}
-        <SuccessModal
-          open={successModal.open}
-          onClose={() => setSuccessModal({ ...successModal, open: false })}
-          title={successModal.title}
-          message={successModal.message}
-          details={successModal.details}
-          actionLabel="View Orders"
-          onAction={() => router.push("/dashboard/my-orders")}
-        />
+        {purchaseModal && (
+          <PurchaseSheet
+            modal={purchaseModal}
+            packageName={selectedPackageForPurchase ? `${selectedPackageForPurchase.network} ${selectedPackageForPurchase.size}` : "Data Package"}
+            network={selectedPackageForPurchase?.network}
+            onSubmitPhone={(phone) => handlePhoneNumberSubmit(phone)}
+            onCancel={handleCancelPurchase}
+            onDismiss={handleDismissPurchase}
+            accentColor="#1b388b"
+            renderSuccess={(modal) => (
+              <div className="px-5 pb-6 pt-2 text-center space-y-4">
+                <div className="mx-auto w-16 h-16 rounded-full bg-success/15 flex items-center justify-center">
+                  <CheckCircle2 className="w-9 h-9 text-success" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-foreground">Purchase successful!</h3>
+                  <p className="text-sm text-muted-foreground mt-1">Your data package has been ordered and will be delivered shortly.</p>
+                </div>
+                <div className="text-left p-4 rounded-2xl bg-muted/40 border border-border space-y-1.5 text-sm">
+                  <div className="flex justify-between"><span className="text-muted-foreground">Package</span><span className="font-medium">{modal.summary?.packageLabel}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="font-bold">GHS {Number(modal.summary?.amount || 0).toFixed(2)}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">New Balance</span><span className="font-bold">GHS {Number(modal.summary?.newBalance || 0).toFixed(2)}</span></div>
+                </div>
+                <Button onClick={() => { handleDismissPurchase(); router.push("/dashboard/my-orders") }} className="w-full rounded-2xl bg-[#1b388b] text-white hover:bg-[#1b388b]/90">
+                  View Orders
+                </Button>
+                <button onClick={handleDismissPurchase} className="text-xs text-muted-foreground underline">Close</button>
+              </div>
+            )}
+          />
+        )}
 
         <Dialog open={verifyWarningOpen} onOpenChange={(open) => { if (!open) { setVerifyWarningOpen(false); setPendingPhoneNumber(null) } }}>
           <DialogContent>
@@ -692,13 +693,10 @@ export default function DataPackagesPage() {
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
-              <Button variant="outline" onClick={() => { setVerifyWarningOpen(false); setPendingPhoneNumber(null); setPhoneModalOpen(true) }}>Change number</Button>
+              <Button variant="outline" onClick={() => { setVerifyWarningOpen(false); setPendingPhoneNumber(null); setPurchaseModal({ state: "phone" }) }}>Change number</Button>
               <Button disabled={purchasing !== null} onClick={handleProceedAfterVerifyWarning}>
                 {purchasing !== null ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Processing...
-                  </>
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Processing...</>
                 ) : (
                   "Proceed anyway"
                 )}
@@ -708,5 +706,19 @@ export default function DataPackagesPage() {
         </Dialog>
       </div>
     </DashboardLayout>
+  )
+}
+
+export default function DataPackagesPage() {
+  return (
+    <Suspense fallback={
+      <DashboardLayout>
+        <div className="flex h-64 items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-[#1b388b]" />
+        </div>
+      </DashboardLayout>
+    }>
+      <DataPackagesPageInner />
+    </Suspense>
   )
 }

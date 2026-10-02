@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useAuth } from "@/hooks/use-auth"
 import { useOnboarding } from "@/hooks/use-onboarding"
 import { useUserRole } from "@/hooks/use-user-role"
@@ -10,20 +10,88 @@ import { WalletOnboardingModal } from "@/components/onboarding/wallet-onboarding
 import { PhoneVerifyModal } from "@/components/phone-verify-modal"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { TrendingUp, ShoppingCart, CheckCircle, AlertCircle, Clock, Loader2, type LucideIcon } from "lucide-react"
+import {
+  TrendingUp, CheckCircle, AlertCircle, Clock, Loader2,
+  Store, Users, Send, IdCard, Wallet as WalletIcon, Smartphone, ArrowRight, ChevronLeft, ChevronRight, Grid3x3, BarChart3,
+  type LucideIcon,
+} from "lucide-react"
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 import { supabase } from "@/lib/supabase"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
-import { getServicePrimaryPath, type DomainService } from "@/lib/custom-domains"
+import { getServicePrimaryPath, isPageHidden } from "@/lib/custom-domains"
+import { useFirstVisiblePath } from "@/hooks/use-first-visible-path"
+import { TOGGLEABLE_PAGES } from "@/lib/custom-domain-pages"
+import { LatestOrderCard } from "@/components/dashboard/latest-order-card"
+import { NetworkHealthCard, NETWORK_BADGE } from "@/components/dashboard/network-health-card"
+// Type-only: order-health-service.ts pulls in mtn-hold.ts -> sms-service.ts
+// -> push-service.ts -> web-push (raw Node net/tls sockets) at runtime. A
+// value import (e.g. its HEALTH_NETWORKS const) would drag that whole chain
+// into this client bundle and fail the build ("Module not found: Can't
+// resolve 'net'"), so the network list below is instead derived from
+// NETWORK_BADGE's keys, which lives in the client-safe network-health-card.
+import type { LatestOrderSummary, NetworkHealthStat, HealthNetwork } from "@/lib/order-health-service"
 
-// Short, quick-action-appropriate labels for each service, used when a custom
-// domain is scoped to one or more services and the primary CTAs are repointed
-// to the domain's own first selected service instead of the hardcoded
-// data-packages target.
-const SERVICE_QUICK_LABELS: Record<DomainService, string> = {
-  data_bundles: "Buy Data",
-  airtime: "Buy Airtime",
-  results_checker: "Check Results",
-  bulk_sms: "Buy SMS",
+// Real Datagod services (not Apex Prime's Academic Writing / Apple Music /
+// Merchant SIM tiles, which don't apply to this platform). Each service gets
+// its own gradient + accent color, matching the reference (a navy card for
+// "Website & App Development", a green one for "Result Checkers" -- every
+// service has its own colour, not one shared card color).
+const PROMO_SERVICES: {
+  badge: string
+  title: string
+  description: string
+  cta: string
+  href: string
+  icon: LucideIcon
+  gradient: string
+  textColor: string
+}[] = [
+  {
+    badge: "STOREFRONT", title: "Own Shop", cta: "Launch Shop",
+    description: "Launch your white-label storefront and sell under your own brand.",
+    href: "/dashboard/my-shop", icon: Store,
+    gradient: "from-[#3b0764] to-[#7c3aed]", textColor: "text-[#6d28d9]",
+  },
+  {
+    badge: "BOT", title: "USSD / WhatsApp Bot", cta: "Set Up Bot",
+    description: "Sell data, airtime and results checks through your own automated bot.",
+    href: "/dashboard/ussd-shop", icon: Smartphone,
+    gradient: "from-[#042f2e] to-[#0d9488]", textColor: "text-[#0f766e]",
+  },
+  {
+    badge: "NETWORK", title: "Sub-Agents", cta: "Recruit Agents",
+    description: "Recruit sellers under you and earn on every sale they make.",
+    href: "/dashboard/sub-agents", icon: Users,
+    gradient: "from-[#431407] to-[#d97706]", textColor: "text-[#b45309]",
+  },
+  {
+    badge: "MESSAGING", title: "Bulk SMS", cta: "Send SMS",
+    description: "Send SMS campaigns to your customers at scale.",
+    href: "/dashboard/sms", icon: Send,
+    gradient: "from-[#0f172a] to-[#2563eb]", textColor: "text-[#1d4ed8]",
+  },
+  {
+    badge: "EDUCATION", title: "AFA Registration", cta: "Register Now",
+    description: "Register and manage AFA orders for your customers.",
+    href: "/dashboard/afa-orders", icon: IdCard,
+    gradient: "from-[#052e16] to-[#059669]", textColor: "text-[#047857]",
+  },
+  {
+    badge: "WALLET", title: "Wallet Top Up", cta: "Top Up Now",
+    description: "Fund your wallet instantly to keep buying without delay.",
+    href: "/dashboard/wallet", icon: WalletIcon,
+    gradient: "from-[#1e1b4b] to-[#4f46e5]", textColor: "text-[#4338ca]",
+  },
+]
+
+// Bar colors for the 7-Day Send Activity chart, matching this app's real
+// network brand hues (same family as bg-mtn/bg-telecel/bg-at) rather than a
+// generic chart palette. Recharts needs literal color strings, not classes.
+const CHART_COLORS: Record<HealthNetwork, string> = {
+  MTN: "#FFCC00",
+  Telecel: "#E00018",
+  "AT - iShare": "#0B57D0",
+  "AT - BigTime": "#7C3AED",
 }
 
 // Format large numbers with K/M suffix
@@ -39,33 +107,13 @@ const formatCount = (num: number | string): string => {
   return n.toLocaleString()
 }
 
-// Clean Fintech stat card: neutral surface, one accent chip, flat number.
-const STAT_TONES: Record<string, string> = {
-  primary: "bg-primary/10 text-primary",
-  success: "bg-success/10 text-success",
-  warning: "bg-warning/15 text-warning",
-  danger: "bg-destructive/10 text-destructive",
-}
-function StatCard({
-  label, value, hint, tone = "primary", icon: Icon, ...rest
-}: {
-  label: string
-  value: string
-  hint?: string
-  tone?: keyof typeof STAT_TONES
-  icon: LucideIcon
-} & React.ComponentProps<typeof Card>) {
+function BannerStat({ icon: Icon, value, label }: { icon: LucideIcon; value: string; label: string }) {
   return (
-    <Card className="transition-shadow hover:shadow-md" {...rest}>
-      <CardContent className="p-4 sm:p-5">
-        <div className={`w-9 h-9 rounded-xl grid place-items-center ${STAT_TONES[tone]}`}>
-          <Icon className="h-4 w-4" />
-        </div>
-        <p className="text-xs font-medium text-muted-foreground mt-3">{label}</p>
-        <p className="text-2xl font-bold tracking-tight tabular-nums mt-0.5 text-foreground">{value}</p>
-        {hint && <p className="text-[11px] text-muted-foreground mt-0.5">{hint}</p>}
-      </CardContent>
-    </Card>
+    <div className="rounded-xl bg-white/12 p-3 text-center">
+      <Icon className="mx-auto h-4 w-4 text-white/80" />
+      <p className="mt-1.5 text-lg font-extrabold text-white tabular-nums">{value}</p>
+      <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/70">{label}</p>
+    </div>
   )
 }
 
@@ -86,6 +134,12 @@ interface RecentActivity {
   timestamp: string
 }
 
+interface SendActivityDay {
+  date: string
+  label: string
+  counts: Record<HealthNetwork, number>
+}
+
 export default function DashboardPage() {
   const router = useRouter()
   const { user, loading: authLoading } = useAuth()
@@ -93,10 +147,24 @@ export default function DashboardPage() {
   const { isDealer } = useUserRole()
   const domainBranding = useDomainBranding()
   const primaryService = domainBranding.services?.[0] ?? null
+  const { path: firstVisiblePath, loading: firstVisiblePathLoading } = useFirstVisiblePath()
+  const dashboardHomeHidden = isPageHidden("dashboard_home", domainBranding.hiddenPages)
+
+  useEffect(() => {
+    if (!dashboardHomeHidden || firstVisiblePathLoading) return
+    router.replace(firstVisiblePath ?? "/dashboard/unavailable")
+  }, [dashboardHomeHidden, firstVisiblePathLoading, firstVisiblePath, router])
+  // Drops any promo tile whose destination is a hidden toggleable page (e.g.
+  // "Own Shop" when my_shop is hidden, "Wallet Top Up" when wallet is
+  // hidden) — matched generically by href against the registry's path, so
+  // this stays correct without hardcoding each promo's gating key.
+  const visiblePromoServices = PROMO_SERVICES.filter(svc => {
+    const page = TOGGLEABLE_PAGES.find(p => p.paths?.includes(svc.href))
+    return !page || !isPageHidden(page.key, domainBranding.hiddenPages)
+  })
   const [firstName, setFirstName] = useState("")
   const [userEmail, setUserEmail] = useState("")
   const [joinDate, setJoinDate] = useState("")
-  const [walletBalance, setWalletBalance] = useState(0)
   const [userRole, setUserRole] = useState<string | null>(null)
   const [isSubAgent, setIsSubAgent] = useState<boolean | null>(null) // null = checking, true/false = checked
   const [stats, setStats] = useState<DashboardStats>({
@@ -111,6 +179,13 @@ export default function DashboardPage() {
   const [showPhoneVerify, setShowPhoneVerify] = useState(false)
   const [currentPhone, setCurrentPhone] = useState("")
   const [phoneVerifyDeadline, setPhoneVerifyDeadline] = useState<string | null>(null)
+  const [latestOrder, setLatestOrder] = useState<LatestOrderSummary | null>(null)
+  const [latestOrderLoading, setLatestOrderLoading] = useState(true)
+  const [networkHealth, setNetworkHealth] = useState<NetworkHealthStat[]>([])
+  const [networkHealthLoading, setNetworkHealthLoading] = useState(true)
+  const [sendActivity, setSendActivity] = useState<SendActivityDay[]>([])
+  const [promoIndex, setPromoIndex] = useState(0)
+  const promoScrollRef = useRef<HTMLDivElement>(null)
 
   // Check if user is a sub-agent and redirect immediately.
   // Timeout after 5s so a slow/hanging Supabase query never permanently
@@ -170,6 +245,97 @@ export default function DashboardPage() {
         })
       } catch { /* silent — background task */ }
     })()
+  }, [user])
+
+  // Scrolls the carousel track to a given card with a smooth-scroll
+  // animation, used by the dot buttons below.
+  const scrollPromoTo = (index: number) => {
+    const el = promoScrollRef.current
+    if (el) el.scrollTo({ left: index * el.clientWidth, behavior: "smooth" })
+    setPromoIndex(index)
+  }
+
+  // Advance the promo carousel automatically with the same smooth-scroll
+  // animation, not a content swap — swiping the track manually (see
+  // handlePromoScroll below) keeps promoIndex in sync either way.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setPromoIndex((i) => {
+        const next = (i + 1) % visiblePromoServices.length
+        const el = promoScrollRef.current
+        if (el) el.scrollTo({ left: next * el.clientWidth, behavior: "smooth" })
+        return next
+      })
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Keeps the active dot in sync when the person swipes/drags the track by hand.
+  const handlePromoScroll = () => {
+    const el = promoScrollRef.current
+    if (!el || el.clientWidth === 0) return
+    setPromoIndex(Math.round(el.scrollLeft / el.clientWidth))
+  }
+
+  const fetchLatestOrder = async (token: string) => {
+    setLatestOrderLoading(true)
+    try {
+      const res = await fetch("/api/dashboard/latest-order", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" })
+      const d = res.ok ? await res.json() : null
+      if (d?.success) setLatestOrder(d.order)
+    } catch { /* silent — card shows its own empty state */ }
+    finally { setLatestOrderLoading(false) }
+  }
+
+  const fetchNetworkHealth = async (token: string) => {
+    setNetworkHealthLoading(true)
+    try {
+      const res = await fetch("/api/dashboard/network-health", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" })
+      const d = res.ok ? await res.json() : null
+      if (d?.success) setNetworkHealth(d.networks || [])
+    } catch { /* silent — card shows its own empty state */ }
+    finally { setNetworkHealthLoading(false) }
+  }
+
+  const fetchSendActivity = async (token: string) => {
+    try {
+      const res = await fetch("/api/dashboard/send-activity", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" })
+      const d = res.ok ? await res.json() : null
+      if (d?.success) setSendActivity(d.days || [])
+    } catch { /* silent — chart shows its own empty state */ }
+  }
+
+  const refreshWithFreshToken = async (fetcher: (token: string) => Promise<void>) => {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (session?.access_token) await fetcher(session.access_token)
+  }
+
+  // Keep the order-health cards live without requiring a manual refresh or
+  // full page reload: refetch when the tab regains focus/visibility (the
+  // common case — place an order elsewhere, come back to an already-open
+  // dashboard tab) and on a periodic interval while the tab stays visible.
+  useEffect(() => {
+    if (!user) return
+
+    const refreshOrderHealth = () => {
+      refreshWithFreshToken(fetchLatestOrder)
+      refreshWithFreshToken(fetchNetworkHealth)
+    }
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") refreshOrderHealth()
+    }
+    document.addEventListener("visibilitychange", onVisibilityChange)
+    window.addEventListener("focus", refreshOrderHealth)
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") refreshOrderHealth()
+    }, 60_000)
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+      window.removeEventListener("focus", refreshOrderHealth)
+      clearInterval(interval)
+    }
   }, [user])
 
   const loadDashboardData = async () => {
@@ -257,12 +423,19 @@ export default function DashboardPage() {
               })
           : Promise.resolve(),
 
-        // Wallet balance
+        // Latest completed order (real order-history trust widget)
         token
-          ? fetch("/api/wallet/balance", { headers: { Authorization: `Bearer ${token}` } })
-              .then(r => r.json())
-              .then(d => setWalletBalance(d.balance ?? 0))
-              .catch(() => setWalletBalance(0))
+          ? fetchLatestOrder(token)
+          : Promise.resolve(setLatestOrderLoading(false)),
+
+        // Platform-wide network health (real, computed from order history)
+        token
+          ? fetchNetworkHealth(token)
+          : Promise.resolve(setNetworkHealthLoading(false)),
+
+        // This account's own last-7-days send activity by network
+        token
+          ? fetchSendActivity(token)
           : Promise.resolve(),
       ])
     } catch {
@@ -270,26 +443,12 @@ export default function DashboardPage() {
     }
   }
 
-  const getGreeting = () => {
-    const hour = new Date().getHours()
-    if (hour < 12) return "Good Morning"
-    if (hour < 18) return "Good Afternoon"
-    return "Good Night"
-  }
-
-  const getGreetingEmoji = () => {
-    const hour = new Date().getHours()
-    if (hour < 12) return "☀️"
-    if (hour < 18) return "👋"
-    return "🌙"
-  }
-
   // Show loading state while checking authentication or sub-agent status
   if (authLoading || (user && isSubAgent === null)) {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center h-screen">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          <Loader2 className="w-8 h-8 animate-spin text-[#1b388b]" />
         </div>
       </DashboardLayout>
     )
@@ -300,16 +459,41 @@ export default function DashboardPage() {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center h-screen">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          <Loader2 className="w-8 h-8 animate-spin text-[#1b388b]" />
         </div>
       </DashboardLayout>
     )
   }
 
+  // dashboard_home is hidden for this domain — useEffect above is
+  // redirecting onward; render nothing but a spinner while that resolves.
+  if (dashboardHomeHidden) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-screen">
+          <Loader2 className="w-8 h-8 animate-spin text-[#1b388b]" />
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  const getGreeting = () => {
+    const hour = new Date().getHours()
+    if (hour < 12) return "Good Morning"
+    if (hour < 18) return "Good Afternoon"
+    return "Good Evening"
+  }
+
+  const chartData = sendActivity.map((d) => ({ label: d.label, ...d.counts }))
+  const activeNetworks = (Object.keys(NETWORK_BADGE) as HealthNetwork[]).filter((n) =>
+    sendActivity.some((d) => d.counts[n] > 0)
+  )
+  const legendNetworks = activeNetworks.length > 0 ? activeNetworks : (Object.keys(NETWORK_BADGE) as HealthNetwork[])
+
   return (
     <DashboardLayout>
       <WalletOnboardingModal
-        open={showOnboarding && !onboardingLoading}
+        open={showOnboarding && !onboardingLoading && !isPageHidden("wallet", domainBranding.hiddenPages)}
         onComplete={completeOnboarding}
       />
       <PhoneVerifyModal
@@ -319,128 +503,230 @@ export default function DashboardPage() {
         onVerified={() => setShowPhoneVerify(false)}
         onDismiss={() => setShowPhoneVerify(false)}
       />
-      <div className="space-y-5">
-        {/* Greeting */}
-        <div className="flex items-end justify-between gap-3 flex-wrap">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
-              {getGreeting()}, {firstName}! {getGreetingEmoji()}
-            </h1>
-            <p className="text-muted-foreground mt-1 text-sm">
-              {new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })} • {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })}
-            </p>
-          </div>
-          <Button onClick={() => router.push(primaryService ? getServicePrimaryPath(primaryService) : "/dashboard/data-packages")} className="font-semibold">
-            + {primaryService ? SERVICE_QUICK_LABELS[primaryService] : "Buy Data"}
-          </Button>
+      <div className="mx-auto max-w-5xl space-y-5">
+        <div>
+          <h1 className="text-2xl font-bold text-[#1e2537]">{getGreeting()}, {firstName}</h1>
+          <p className="mt-0.5 text-sm text-[#6b7280]">
+            {new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
+          </p>
         </div>
 
-        {/* Wallet hero + account meta */}
-        <div className="grid gap-4 lg:grid-cols-3">
-          <Card
-            data-tour="wallet-balance"
-            className={`lg:col-span-2 border-0 text-primary-foreground relative overflow-hidden ${isDealer
-              ? "bg-gradient-to-br from-primary to-brand-accent"
-              : "bg-gradient-to-br from-primary to-primary"
-              }`}
-          >
-            <div className="absolute -right-10 -top-12 w-48 h-48 rounded-full bg-card/10" />
-            <CardContent className="p-6 relative">
-              <p className="text-sm font-medium text-white/85">Wallet Balance</p>
-              <p className="text-4xl font-extrabold tracking-tight tabular-nums mt-2">
-                GHS {Math.max(0, walletBalance || 0).toFixed(2)}
-              </p>
-              <p className="text-xs text-white/75 mt-1">Available funds</p>
-              <div className="flex flex-wrap gap-2 mt-5">
-                <Button onClick={() => router.push("/dashboard/wallet")} className="bg-card text-primary hover:bg-card/90 font-semibold">
+        {/* First card: account meta (Role / Member Since) plus a live
+            Pending/Processing/Completed/Failed order-status grid — colors
+            match the reference's own navy gradient rather than this app's
+            --primary token. */}
+        <div className="rounded-2xl bg-gradient-to-br from-[#1b388b] to-[#2a5ce8] p-5">
+          <div className="flex items-center justify-between gap-4 border-b border-white/15 pb-4">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-white/60">Role</p>
+              <p className="mt-0.5 text-sm font-bold text-white">{isDealer ? "Authorized Dealer" : "Premium Agent"}</p>
+            </div>
+            <div className="h-8 w-px bg-white/15" />
+            <div className="text-right">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-white/60">Member Since</p>
+              <p className="mt-0.5 text-sm font-bold text-white">{joinDate || "Recently"}</p>
+            </div>
+          </div>
+
+          <div className="mt-4 grid grid-cols-4 gap-2.5">
+            <BannerStat icon={Clock} value={formatCount(stats.pending)} label="Pending" />
+            <BannerStat icon={TrendingUp} value={formatCount(stats.processing)} label="Processing" />
+            <BannerStat icon={CheckCircle} value={formatCount(stats.completed)} label="Completed" />
+            <BannerStat icon={AlertCircle} value={formatCount(stats.failed)} label="Failed" />
+          </div>
+
+          <div className="mt-4 border-t border-white/15 pt-4">
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-white/60">Quick Actions</p>
+            <div className="flex flex-wrap gap-2">
+              {(!domainBranding.services || domainBranding.services.includes("data_bundles")) && (
+                <Button onClick={() => router.push("/dashboard/data-packages")} className="bg-white text-[#1b388b] hover:bg-white/90 font-semibold">
+                  Buy Data Package
+                </Button>
+              )}
+              {(!domainBranding.services || domainBranding.services.includes("airtime")) && (
+                <Button onClick={() => router.push("/dashboard/airtime")} className="bg-white/15 text-white hover:bg-white/25 border-0 font-semibold">
+                  Buy Airtime
+                </Button>
+              )}
+              {domainBranding.services?.includes("results_checker") && (
+                <Button onClick={() => router.push("/dashboard/results-checker")} className="bg-white/15 text-white hover:bg-white/25 border-0 font-semibold">
+                  Check Results
+                </Button>
+              )}
+              {domainBranding.services?.includes("bulk_sms") && (
+                <Button onClick={() => router.push("/dashboard/sms")} className="bg-white/15 text-white hover:bg-white/25 border-0 font-semibold">
+                  Buy SMS
+                </Button>
+              )}
+              {!isPageHidden("my_shop", domainBranding.hiddenPages) && (
+                <Button onClick={() => router.push("/dashboard/my-shop")} className="bg-white/15 text-white hover:bg-white/25 border-0 font-semibold">
+                  Create Shop
+                </Button>
+              )}
+              {(!domainBranding.services || domainBranding.services.includes("data_bundles")) && (
+                <Button onClick={() => router.push("/dashboard/data-packages?mode=bulk")} className="bg-white/15 text-white hover:bg-white/25 border-0 font-semibold">
+                  Bulk Order
+                </Button>
+              )}
+              <Button onClick={() => router.push("/dashboard/my-orders")} className="bg-white/15 text-white hover:bg-white/25 border-0 font-semibold">
+                My Orders
+              </Button>
+              {!isPageHidden("wallet", domainBranding.hiddenPages) && (
+                <Button onClick={() => router.push("/dashboard/wallet")} className="bg-white/15 text-white hover:bg-white/25 border-0 font-semibold">
                   ＋ Top Up
                 </Button>
-                <Button onClick={() => router.push(primaryService ? getServicePrimaryPath(primaryService) : "/dashboard/data-packages")} className="bg-card/15 text-white hover:bg-card/25 border-0">
-                  {primaryService ? SERVICE_QUICK_LABELS[primaryService] : "Buy Data"}
-                </Button>
-                <Button onClick={() => router.push("/dashboard/my-orders")} className="bg-card/15 text-white hover:bg-card/25 border-0">
-                  My Orders
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+              )}
+            </div>
+          </div>
+        </div>
 
-          <Card>
-            <CardContent className="p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-muted-foreground">Role</span>
-                <span className="text-sm font-semibold text-foreground">{isDealer ? "Authorized Dealer" : "Premium Agent"}</span>
-              </div>
-              <div className="h-px bg-border" />
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-muted-foreground">Status</span>
-                <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-success">
-                  <span className="w-2 h-2 rounded-full bg-success" />Active
+        {/* Promo carousel — Datagod's real services, not Apex Prime's
+            irrelevant tiles (Academic Writing, Apple Music/iCloud, Merchant
+            SIM Onboarding). Every service gets its own gradient (the
+            reference uses a different color per card, not one shared blue),
+            plus decorative glow circles and left/right arrow buttons on top
+            of the real horizontally-scrollable, swipeable track. */}
+        <div className="relative">
+          <div
+            ref={promoScrollRef}
+            onScroll={handlePromoScroll}
+            className="flex overflow-x-auto snap-x snap-mandatory scroll-smooth rounded-2xl [&::-webkit-scrollbar]:hidden"
+            style={{ scrollbarWidth: "none" }}
+          >
+            {visiblePromoServices.map((svc) => (
+              <button
+                key={svc.title}
+                onClick={() => router.push(svc.href)}
+                className={`relative block w-full shrink-0 snap-start overflow-hidden rounded-2xl bg-gradient-to-br ${svc.gradient} p-5 pr-28 text-left sm:pr-36`}
+              >
+                <span className="pointer-events-none absolute -right-8 -top-10 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
+                <span className="pointer-events-none absolute -bottom-10 left-16 h-28 w-28 rounded-full bg-white/5 blur-xl" />
+                {/* Large, vertically-centered accent icon -- not a small
+                    top-corner badge; matches the reference's proportions.
+                    Inset far enough right that it never overlaps the
+                    left/right nav arrows below. */}
+                <span className="absolute right-12 top-1/2 flex h-16 w-16 -translate-y-1/2 items-center justify-center rounded-2xl border border-white/20 bg-white/15 text-white sm:right-16 sm:h-20 sm:w-20">
+                  <svc.icon className="h-7 w-7 sm:h-9 sm:w-9" />
                 </span>
-              </div>
-              <div className="h-px bg-border" />
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-muted-foreground">Member Since</span>
-                <span className="text-sm font-semibold text-foreground">{joinDate || "Recently"}</span>
-              </div>
-            </CardContent>
-          </Card>
+                <span className="relative inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                  <svc.icon className="h-3.5 w-3.5" /> {svc.badge}
+                </span>
+                <p className="relative mt-4 text-lg font-bold text-white">{svc.title}</p>
+                <p className="relative mt-1 max-w-md text-sm text-white/80">{svc.description}</p>
+                <span className={`relative mt-4 inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-sm font-bold ${svc.textColor}`}>
+                  {svc.cta} <ArrowRight className="h-3.5 w-3.5" />
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            aria-label="Previous service"
+            onClick={() => scrollPromoTo((promoIndex - 1 + visiblePromoServices.length) % visiblePromoServices.length)}
+            className="absolute left-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/25 text-white hover:bg-black/40"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            aria-label="Next service"
+            onClick={() => scrollPromoTo((promoIndex + 1) % visiblePromoServices.length)}
+            className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/25 text-white hover:bg-black/40"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="-mt-3 flex justify-center gap-1.5">
+          {visiblePromoServices.map((svc, i) => (
+            <button
+              key={svc.title}
+              aria-label={`Show ${svc.title}`}
+              onClick={() => scrollPromoTo(i)}
+              className={`h-1.5 rounded-full transition-all ${i === promoIndex ? "w-5 bg-[#235cd4]" : "w-1.5 bg-[#d1d5db]"}`}
+            />
+          ))}
         </div>
 
-        {/* Stats strip */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <StatCard label="Total Orders" value={formatCount(stats.totalOrders)} hint="All time" tone="primary" icon={ShoppingCart} />
-          <StatCard label="Completed" value={formatCount(stats.completed)} hint={`${stats.successRate} success rate`} tone="success" icon={CheckCircle} />
-          <StatCard label="Processing" value={formatCount(stats.processing)} hint="In progress" tone="warning" icon={TrendingUp} />
-          <StatCard label="Pending" value={formatCount(stats.pending)} hint="Awaiting processing" tone="warning" icon={Clock} />
-          <StatCard label="Failed" value={formatCount(stats.failed)} hint="Refunded if charged" tone="danger" icon={AlertCircle} />
+        {/* SEND DATA BUNDLES — network shortcuts. Network + name only; the
+            reference's "24H VOLUME" per-network figure isn't something this
+            platform currently computes, so it's omitted rather than made up. */}
+        <div>
+          <div className="mb-2 flex items-center gap-2">
+            <Grid3x3 className="h-4 w-4 text-[#1e2537]" />
+            <p className="text-xs font-extrabold uppercase tracking-wide text-[#1e2537]">Send Data Bundles</p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {(Object.keys(NETWORK_BADGE) as HealthNetwork[]).map((net) => {
+              const badge = NETWORK_BADGE[net]
+              return (
+                <button
+                  key={net}
+                  onClick={() => router.push(primaryService ? getServicePrimaryPath(primaryService) : "/dashboard/data-packages")}
+                  className="flex flex-col items-center gap-2 rounded-2xl border border-[#eef0f5] bg-white p-4 text-center transition hover:border-[#1b388b]/30 hover:shadow-sm"
+                >
+                  <span className={`flex h-12 w-12 items-center justify-center rounded-full text-xs font-extrabold ${badge.className}`}>
+                    {badge.text}
+                  </span>
+                  <span className="text-xs font-bold text-[#1e2537]">{net}</span>
+                </button>
+              )
+            })}
+          </div>
         </div>
 
-        {/* Quick Actions */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-foreground">Quick Actions</CardTitle>
-            <CardDescription>Get started with common tasks</CardDescription>
-          </CardHeader>
-          <CardContent className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            {(!domainBranding.services || domainBranding.services.includes("data_bundles")) && (
-              <Button onClick={() => router.push("/dashboard/data-packages")} className="font-semibold">
-                Buy Data Package
-              </Button>
+        {/* Latest completed order: real, computed trust widget — no fabricated numbers */}
+        <LatestOrderCard
+          order={latestOrder}
+          loading={latestOrderLoading}
+          onRefresh={() => refreshWithFreshToken(fetchLatestOrder)}
+        />
+
+        {/* Network health: real, computed — no fabricated numbers */}
+        <NetworkHealthCard
+          networks={networkHealth}
+          loading={networkHealthLoading}
+          onRefresh={() => refreshWithFreshToken(fetchNetworkHealth)}
+        />
+
+        {/* 7-Day Send Activity — this account's own completed orders per day
+            per network over the last 7 days (personal activity, unlike the
+            platform-wide Network Health section above). */}
+        <div className="rounded-2xl border border-[#e5e9f5] bg-white p-4 sm:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#eef2ff] text-[#235cd4]">
+                <BarChart3 className="h-4 w-4" />
+              </span>
+              <p className="text-[15px] font-bold text-[#1e2537]">7-Day Send Activity</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              {legendNetworks.map((n) => (
+                <span key={n} className="flex items-center gap-1.5 text-xs font-semibold text-[#4b5563]">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: CHART_COLORS[n] }} />
+                  {n}
+                </span>
+              ))}
+            </div>
+          </div>
+          <div className="mt-4 h-[220px]">
+            {chartData.length === 0 ? (
+              <div className="flex h-full items-center justify-center text-sm text-[#6b7280]">Loading...</div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData} barGap={2} barCategoryGap="24%">
+                  <CartesianGrid vertical={false} stroke="#eef0f5" />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "#6b7280" }} />
+                  <YAxis tickLine={false} axisLine={false} width={28} tick={{ fontSize: 11, fill: "#6b7280" }} allowDecimals={false} />
+                  <Tooltip cursor={{ fill: "rgba(27,56,139,0.04)" }} />
+                  {legendNetworks.map((n) => (
+                    <Bar key={n} dataKey={n} fill={CHART_COLORS[n]} radius={[3, 3, 0, 0]} maxBarSize={22} />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
             )}
-            {(!domainBranding.services || domainBranding.services.includes("airtime")) && (
-              <Button variant="outline" onClick={() => router.push("/dashboard/airtime")} className="font-semibold">
-                Buy Airtime
-              </Button>
-            )}
-            {domainBranding.services?.includes("results_checker") && (
-              <Button variant="outline" onClick={() => router.push("/dashboard/results-checker")} className="font-semibold">
-                Check Results
-              </Button>
-            )}
-            {domainBranding.services?.includes("bulk_sms") && (
-              <Button variant="outline" onClick={() => router.push("/dashboard/sms")} className="font-semibold">
-                Buy SMS
-              </Button>
-            )}
-            {!domainBranding.services && (
-              <Button variant="outline" onClick={() => router.push("/dashboard/my-shop")} className="font-semibold">
-                Create Shop
-              </Button>
-            )}
-            {(!domainBranding.services || domainBranding.services.includes("data_bundles")) && (
-              <Button variant="outline" onClick={() => router.push("/dashboard/bulk-orders")} className="font-semibold">
-                Bulk Order
-              </Button>
-            )}
-            <Button variant="outline" onClick={() => router.push("/dashboard/my-orders")} className="font-semibold">
-              View My Orders
-            </Button>
-            <Button variant="outline" onClick={() => router.push("/dashboard/wallet")} className="font-semibold">
-              Top Up Wallet
-            </Button>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
         {/* Recent Activity */}
         <Card>

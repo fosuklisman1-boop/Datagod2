@@ -3,13 +3,15 @@
 import { useEffect, useState } from "react"
 import { useAuth } from "@/lib/auth-context"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { supabase } from "@/lib/supabase"
-import { Smartphone, Hash, Coins, Copy, CheckCircle, RefreshCw, AlertCircle, Wallet, Loader2, MessageCircle } from "lucide-react"
+import { Smartphone, Hash, Coins, Copy, CheckCircle, RefreshCw, AlertCircle, Wallet, Loader2, MessageCircle, Tag } from "lucide-react"
 import { toast } from "sonner"
+import { validateUssdDisplayName } from "@/lib/ussd-display-name"
 
 interface UssdShopCode {
   id: string
@@ -52,6 +54,10 @@ export default function UssdShopPage() {
   const [whatsappFee, setWhatsappFee] = useState(0)
   const [whatsappActivating, setWhatsappActivating] = useState(false)
   const [waLinkCopied, setWaLinkCopied] = useState(false)
+  const [shopName, setShopName] = useState("")
+  const [displayNameInput, setDisplayNameInput] = useState("")
+  const [savingDisplayName, setSavingDisplayName] = useState(false)
+  const [displayNameError, setDisplayNameError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!user) return
@@ -63,11 +69,14 @@ export default function UssdShopPage() {
     try {
       const { data: shopRow } = await supabase
         .from("user_shops")
-        .select("id")
+        .select("id, shop_name, ussd_display_name")
         .eq("user_id", user!.id)
         .single()
 
       if (!shopRow) { setLoading(false); return }
+
+      setShopName(shopRow.shop_name ?? "")
+      setDisplayNameInput(shopRow.ussd_display_name ?? "")
 
       // app_settings is service-role only; read ussd config via curated public API.
       const [codeRes, cfgRes, ordersRes, walletRes] = await Promise.all([
@@ -182,6 +191,37 @@ export default function UssdShopPage() {
     }
   }
 
+  const handleSaveDisplayName = async () => {
+    // An empty/whitespace-only input means "clear the override" (see the
+    // matching special-case in the API route) — only non-empty input goes
+    // through the blocked-word/length validation.
+    if (displayNameInput.trim()) {
+      const validation = validateUssdDisplayName(displayNameInput)
+      if (!validation.valid) {
+        setDisplayNameError(validation.reason)
+        return
+      }
+    }
+    setDisplayNameError(null)
+    setSavingDisplayName(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch("/api/dashboard/ussd-shop/display-name", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ name: displayNameInput }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? "Save failed")
+      setDisplayNameInput(json.ussd_display_name ?? "")
+      toast.success(json.ussd_display_name ? "Display name saved!" : "Reverted to your shop name.")
+    } catch (err: any) {
+      setDisplayNameError(err.message ?? "Save failed")
+    } finally {
+      setSavingDisplayName(false)
+    }
+  }
+
   const copyCode = () => {
     if (!shopCode) return
     navigator.clipboard.writeText(shopCode.code)
@@ -204,8 +244,8 @@ export default function UssdShopPage() {
   }
 
   const statusBadge = (status: string, tokenBalance: number) => {
-    if (status === 'suspended') return <Badge className="bg-warning/10 text-warning border-border">Suspended</Badge>
-    if (status === 'active' && tokenBalance === 0) return <Badge className="bg-warning/10 text-warning border-border">No Sessions</Badge>
+    if (status === 'suspended') return <Badge className="bg-amber-500/10 text-amber-600 border-border">Suspended</Badge>
+    if (status === 'active' && tokenBalance === 0) return <Badge className="bg-amber-500/10 text-amber-600 border-border">No Sessions</Badge>
     if (status === 'active') return <Badge className="bg-success/15 text-success border-border">Active</Badge>
     return <Badge className="bg-muted text-muted-foreground border-border">Inactive</Badge>
   }
@@ -213,44 +253,40 @@ export default function UssdShopPage() {
   const orderStatusBadge = (status: string) => {
     if (status === 'completed') return <Badge className="bg-success/15 text-success text-xs">Completed</Badge>
     if (status === 'failed') return <Badge className="bg-destructive/15 text-destructive text-xs">Failed</Badge>
-    if (status === 'processing') return <Badge className="bg-primary/10 text-primary text-xs">Processing</Badge>
-    if (status === 'held_registration') return <Badge className="bg-warning/10 text-warning text-xs">Activating number</Badge>
+    if (status === 'processing') return <Badge className="bg-[#1b388b]/10 text-[#1b388b] text-xs">Processing</Badge>
+    if (status === 'held_registration') return <Badge className="bg-amber-500/10 text-amber-600 text-xs">Activating number</Badge>
     return <Badge className="bg-muted text-muted-foreground text-xs">Pending</Badge>
   }
 
   if (loading) {
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center h-64 text-muted-foreground">Loading...</div>
+        <div className="flex items-center justify-center h-screen">
+          <RefreshCw className="w-8 h-8 animate-spin text-[#1b388b]" />
+        </div>
       </DashboardLayout>
     )
   }
 
   return (
     <DashboardLayout>
-      <div className="p-4 sm:p-6 max-w-3xl mx-auto space-y-6">
+      <div className="mx-auto max-w-2xl lg:max-w-3xl space-y-5">
 
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-foreground flex items-center gap-2">
-              <Smartphone className="w-5 h-5 text-primary" />
-              USSD & WhatsApp Storefront
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1">Let your customers buy data bundles by USSD or WhatsApp</p>
-          </div>
-          <Button variant="outline" size="sm" onClick={loadData}>
-            <RefreshCw className="w-4 h-4" />
-          </Button>
-        </div>
+        <DashboardHeroBanner title="USSD & WhatsApp Storefront" subtitle="Let your customers buy data bundles by USSD or WhatsApp" icon={Smartphone}>
+          <button
+            onClick={loadData}
+            className="flex shrink-0 items-center gap-1.5 rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-sm font-semibold text-white hover:bg-white/20"
+          >
+            <RefreshCw className="h-3.5 w-3.5" /> Refresh
+          </button>
+        </DashboardHeroBanner>
 
         {!shopCode ? (
-          <Card className="border-dashed border-2 border-border">
-            <CardContent className="py-12 text-center text-muted-foreground">
-              <Hash className="w-10 h-10 mx-auto mb-3 opacity-40" />
-              <p className="font-medium text-muted-foreground">No USSD code assigned yet</p>
-              <p className="text-sm mt-1">Contact admin to get your shop's USSD code set up.</p>
-            </CardContent>
-          </Card>
+          <div className="rounded-2xl border-2 border-dashed border-border bg-card p-12 text-center">
+            <Hash className="mx-auto mb-3 h-10 w-10 text-muted-foreground opacity-40" />
+            <p className="font-medium text-foreground">No USSD code assigned yet</p>
+            <p className="mt-1 text-sm text-muted-foreground">Contact admin to get your shop's USSD code set up.</p>
+          </div>
         ) : (
           <Tabs defaultValue="ussd">
             <TabsList className="mb-2">
@@ -258,301 +294,312 @@ export default function UssdShopPage() {
               <TabsTrigger value="whatsapp">WhatsApp Bot</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="ussd" className="space-y-6">
-            {/* Shop Code Card */}
-            <Card className="border-primary/20 bg-card">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base text-primary flex items-center justify-between">
-                  <span className="flex items-center gap-2">
-                    <Hash className="w-4 h-4" />
-                    Your Shop Code
-                  </span>
+            <TabsContent value="ussd" className="space-y-5">
+              {/* Shop Code hero */}
+              <div className="rounded-2xl bg-gradient-to-br from-[#1b388b] to-[#2a5ce8] p-5 text-white">
+                <div className="flex items-center justify-between">
+                  <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-white/80">
+                    <Hash className="h-3.5 w-3.5" /> Your Shop Code
+                  </p>
                   {statusBadge(shopCode.status, shopCode.token_balance)}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-4 mt-1">
-                  <div className="bg-card border-2 border-primary/20 rounded-xl px-6 py-4 flex-1 text-center shadow-sm">
-                    <span className="text-4xl font-black tracking-widest text-primary font-mono">
-                      {shopCode.code}
-                    </span>
-                    <p className="text-xs text-muted-foreground mt-1">Enter this code on the USSD prompt</p>
+                </div>
+                <div className="mt-3 flex items-center gap-3">
+                  <div className="flex-1 rounded-xl border border-white/20 bg-white/10 px-6 py-4 text-center">
+                    <span className="font-mono text-4xl font-black tracking-widest">{shopCode.code}</span>
+                    <p className="mt-1 text-xs text-white/70">Enter this code on the USSD prompt</p>
+                  </div>
+                  <button
+                    onClick={copyCode}
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/20 bg-white/10 hover:bg-white/20"
+                  >
+                    {copied ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                  </button>
+                </div>
+
+                <div className="mt-4 flex items-center gap-2 border-t border-white/20 pt-3 text-sm text-white/90">
+                  <Coins className="h-4 w-4" />
+                  <span>
+                    <strong>{shopCode.token_balance}</strong> session{shopCode.token_balance !== 1 ? 's' : ''} remaining
+                  </span>
+                  {shopCode.token_balance <= 5 && shopCode.token_balance > 0 && (
+                    <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-bold">Low</span>
+                  )}
+                  {shopCode.token_balance === 0 && (
+                    <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-bold">Depleted</span>
+                  )}
+                </div>
+              </div>
+
+              {shopCode.token_balance === 0 && shopCode.activation_fee_paid && (
+                <div className="flex items-start gap-2 rounded-2xl border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>Your session tokens are depleted. Top up below so customers can access your shop.</span>
+                </div>
+              )}
+
+              {!shopCode.activation_fee_paid && (
+                <div className="space-y-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
+                  <div className="flex items-start gap-2 text-sm text-amber-700">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <div>
+                      <p className="font-semibold">Activation required</p>
+                      <p className="mt-0.5">
+                        One-time fee: <strong>GHS {activationFee.toFixed(2)}</strong>
+                        {walletBalance !== null && (
+                          <span className="ml-2 text-muted-foreground">· Wallet: GHS {walletBalance.toFixed(2)}</span>
+                        )}
+                      </p>
+                    </div>
                   </div>
                   <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={copyCode}
-                    className="shrink-0 border-primary/20 text-primary hover:bg-primary/10"
+                    disabled={activating || (walletBalance !== null && walletBalance < activationFee)}
+                    onClick={handleActivate}
+                    className="w-full bg-amber-500 hover:bg-amber-500/90 text-white"
                   >
-                    {copied ? <CheckCircle className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                    {activating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wallet className="w-4 h-4" />}
+                    Activate with Wallet
                   </Button>
+                  {walletBalance !== null && walletBalance < activationFee && activationFee > 0 && (
+                    <p className="text-xs text-destructive">Insufficient wallet balance. Top up your wallet first.</p>
+                  )}
                 </div>
+              )}
 
-                <div className="flex items-center gap-3 mt-4 pt-4 border-t border-primary/20">
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Coins className="w-4 h-4 text-primary" />
-                    <span>
-                      <strong className={shopCode.token_balance <= 5 ? 'text-destructive' : 'text-foreground'}>
-                        {shopCode.token_balance}
-                      </strong>
-                      {' '}session{shopCode.token_balance !== 1 ? 's' : ''} remaining
-                    </span>
-                    {shopCode.token_balance <= 5 && shopCode.token_balance > 0 && (
-                      <Badge className="bg-destructive/15 text-destructive text-xs ml-1">Low</Badge>
-                    )}
-                    {shopCode.token_balance === 0 && (
-                      <Badge className="bg-destructive/15 text-destructive text-xs ml-1">Depleted</Badge>
-                    )}
-                  </div>
-                </div>
-
-                {shopCode.token_balance === 0 && shopCode.activation_fee_paid && (
-                  <div className="mt-3 flex items-start gap-2 p-3 bg-destructive/10 border border-border rounded-lg text-sm text-destructive">
-                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                    <span>Your session tokens are depleted. Top up below so customers can access your shop.</span>
-                  </div>
-                )}
-
-                {!shopCode.activation_fee_paid && (
-                  <div className="mt-3 p-4 bg-warning/10 border border-border rounded-lg space-y-3">
-                    <div className="flex items-start gap-2 text-sm text-warning">
-                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                      <div>
-                        <p className="font-medium">Activation required</p>
-                        <p className="text-warning mt-0.5">
-                          One-time fee: <strong>GHS {activationFee.toFixed(2)}</strong>
-                          {walletBalance !== null && (
-                            <span className="ml-2 text-muted-foreground">· Wallet: GHS {walletBalance.toFixed(2)}</span>
-                          )}
-                        </p>
+              {/* Buy Sessions */}
+              {shopCode.activation_fee_paid && (
+                <Card className="border-[#1b388b]/20 bg-[#1b388b]/5">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base text-[#1b388b] flex items-center gap-2">
+                      <Coins className="w-4 h-4" />
+                      Buy Sessions
+                    </CardTitle>
+                    <CardDescription className="text-[#1b388b]">
+                      Each session = one customer entering your shop code.
+                      {sessionPrice > 0 && ` GHS ${sessionPrice.toFixed(2)} per session.`}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="flex gap-2 items-end">
+                      <div className="flex-1 space-y-1">
+                        <label className="text-xs text-[#1b388b]">
+                          Number of sessions ({minSessions}–{maxSessions})
+                        </label>
+                        <input
+                          type="number"
+                          min={minSessions}
+                          max={maxSessions}
+                          placeholder={`Min ${minSessions}`}
+                          value={sessionQty}
+                          onChange={e => setSessionQty(e.target.value)}
+                          className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1b388b]"
+                        />
                       </div>
+                      {sessionPrice > 0 && sessionQty && parseInt(sessionQty) >= minSessions && (
+                        <div className="text-sm text-[#1b388b] font-bold pb-2 shrink-0">
+                          = GHS {(sessionPrice * (parseInt(sessionQty) || 0)).toFixed(2)}
+                        </div>
+                      )}
                     </div>
                     <Button
-                      size="sm"
-                      disabled={activating || (walletBalance !== null && walletBalance < activationFee)}
-                      onClick={handleActivate}
-                      className="w-full bg-warning hover:bg-warning/90 text-white"
+                      disabled={buyingSessions || !sessionQty || parseInt(sessionQty) < minSessions || (walletBalance !== null && walletBalance < sessionPrice * (parseInt(sessionQty) || 0))}
+                      onClick={handleBuySessions}
+                      className="w-full bg-[#1b388b] hover:bg-[#1b388b]/90 text-white"
                     >
-                      {activating ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Wallet className="w-3 h-3 mr-1" />}
-                      Activate with Wallet
+                      {buyingSessions ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wallet className="w-4 h-4" />}
+                      Buy with Wallet
                     </Button>
-                    {walletBalance !== null && walletBalance < activationFee && activationFee > 0 && (
-                      <p className="text-xs text-destructive">Insufficient wallet balance. Top up your wallet first.</p>
+                    {walletBalance !== null && (
+                      <p className="text-xs text-muted-foreground">Wallet balance: GHS {walletBalance.toFixed(2)}</p>
                     )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                  </CardContent>
+                </Card>
+              )}
 
-            {/* Buy Sessions */}
-            {shopCode.activation_fee_paid && (
-              <Card className="border-border bg-primary/10">
+              {/* USSD Display Name */}
+              <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-base text-primary flex items-center gap-2">
-                    <Coins className="w-4 h-4" />
-                    Buy Sessions
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Tag className="w-4 h-4 text-[#1b388b]" />
+                    USSD Display Name
                   </CardTitle>
-                  <CardDescription className="text-primary">
-                    Each session = one customer entering your shop code.
-                    {sessionPrice > 0 && ` GHS ${sessionPrice.toFixed(2)} per session.`}
+                  <CardDescription>
+                    Optional — overrides your shop name on USSD and WhatsApp bot screens only. Clear it to revert.
+                    {!displayNameInput && shopName && ` Currently showing: "${shopName}"`}
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex gap-2 items-end">
-                    <div className="flex-1 space-y-1">
-                      <label className="text-xs text-primary">
-                        Number of sessions ({minSessions}–{maxSessions})
-                      </label>
-                      <input
-                        type="number"
-                        min={minSessions}
-                        max={maxSessions}
-                        placeholder={`Min ${minSessions}`}
-                        value={sessionQty}
-                        onChange={e => setSessionQty(e.target.value)}
-                        className="w-full border border-border rounded-md px-3 py-2 text-sm bg-card focus:outline-none focus:ring-2 focus:ring-primary"
-                      />
-                    </div>
-                    {sessionPrice > 0 && sessionQty && parseInt(sessionQty) >= minSessions && (
-                      <div className="text-sm text-primary font-medium pb-2 shrink-0">
-                        = GHS {(sessionPrice * (parseInt(sessionQty) || 0)).toFixed(2)}
-                      </div>
-                    )}
-                  </div>
+                <CardContent className="space-y-2">
+                  <input
+                    type="text"
+                    maxLength={30}
+                    placeholder={shopName || "Shop"}
+                    value={displayNameInput}
+                    onChange={e => { setDisplayNameInput(e.target.value); setDisplayNameError(null) }}
+                    className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1b388b]"
+                  />
+                  {displayNameError && <p className="text-xs text-destructive">{displayNameError}</p>}
                   <Button
                     size="sm"
-                    disabled={buyingSessions || !sessionQty || parseInt(sessionQty) < minSessions || (walletBalance !== null && walletBalance < sessionPrice * (parseInt(sessionQty) || 0))}
-                    onClick={handleBuySessions}
-                    className="w-full bg-primary hover:bg-primary text-white"
+                    disabled={savingDisplayName}
+                    onClick={handleSaveDisplayName}
+                    className="w-full bg-[#1b388b] hover:bg-[#1b388b]/90 text-white"
                   >
-                    {buyingSessions ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Wallet className="w-3 h-3 mr-1" />}
-                    Buy with Wallet
+                    {savingDisplayName ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+                    {displayNameInput.trim() ? "Save" : "Clear"}
                   </Button>
-                  {walletBalance !== null && (
-                    <p className="text-xs text-muted-foreground">Wallet balance: GHS {walletBalance.toFixed(2)}</p>
-                  )}
                 </CardContent>
               </Card>
-            )}
 
-            {/* How It Works */}
-            {dialCode && (
+              {/* How It Works */}
+              {dialCode && (
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">How Your Customers Use It</CardTitle>
+                    <CardDescription>Share these instructions with your customers</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="bg-muted/40 rounded-xl p-4 space-y-3 font-mono text-sm">
+                      <p className="text-muted-foreground text-xs font-sans uppercase tracking-wide mb-4">Step-by-step</p>
+                      <div className="flex items-start gap-3">
+                        <span className="bg-[#1b388b] text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0 mt-0.5 font-sans">1</span>
+                        <div>
+                          <p className="text-foreground font-sans">Dial the USSD code</p>
+                          <p className="text-[#1b388b] font-bold text-lg mt-0.5">{dialCode}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <span className="bg-[#1b388b] text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0 mt-0.5 font-sans">2</span>
+                        <div>
+                          <p className="text-foreground font-sans">Enter your shop code when prompted</p>
+                          <p className="text-[#1b388b] font-bold text-lg mt-0.5">{shopCode.code}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <span className="bg-[#1b388b] text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0 mt-0.5 font-sans">3</span>
+                        <p className="text-foreground font-sans">Select a network, pick a bundle, and enter the recipient's number</p>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <span className="bg-[#1b388b] text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0 mt-0.5 font-sans">4</span>
+                        <p className="text-foreground font-sans">Approve the MoMo prompt on their phone to complete payment</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 p-3 bg-[#1b388b]/5 border border-[#1b388b]/20 rounded-lg">
+                      <p className="text-sm font-medium text-[#1b388b] mb-1">Share with your customers:</p>
+                      <p className="text-sm text-[#1b388b]">
+                        "Dial <strong>{dialCode}</strong> on your phone, enter shop code <strong>{shopCode.code}</strong>, and buy your data bundle instantly!"
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Orders */}
               <Card>
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-base">How Your Customers Use It</CardTitle>
-                  <CardDescription>Share these instructions with your customers</CardDescription>
+                  <CardTitle className="text-base">Recent Orders</CardTitle>
+                  <CardDescription>Orders placed through your USSD shop code</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="bg-muted/40 rounded-xl p-4 space-y-3 font-mono text-sm">
-                    <p className="text-muted-foreground text-xs font-sans uppercase tracking-wide mb-4">Step-by-step</p>
-                    <div className="flex items-start gap-3">
-                      <span className="bg-primary text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0 mt-0.5 font-sans">1</span>
-                      <div>
-                        <p className="text-foreground font-sans">Dial the USSD code</p>
-                        <p className="text-primary font-bold text-lg mt-0.5">{dialCode}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <span className="bg-primary text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0 mt-0.5 font-sans">2</span>
-                      <div>
-                        <p className="text-foreground font-sans">Enter your shop code when prompted</p>
-                        <p className="text-primary font-bold text-lg mt-0.5">{shopCode.code}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <span className="bg-primary text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0 mt-0.5 font-sans">3</span>
-                      <p className="text-foreground font-sans">Select a network, pick a bundle, and enter the recipient's number</p>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <span className="bg-primary text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0 mt-0.5 font-sans">4</span>
-                      <p className="text-foreground font-sans">Approve the MoMo prompt on their phone to complete payment</p>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 p-3 bg-primary/5 border border-primary/20 rounded-lg">
-                    <p className="text-sm font-medium text-primary mb-1">Share with your customers:</p>
-                    <p className="text-sm text-primary">
-                      "Dial <strong>{dialCode}</strong> on your phone, enter shop code <strong>{shopCode.code}</strong>, and buy your data bundle instantly!"
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Orders */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Recent Orders</CardTitle>
-                <CardDescription>Orders placed through your USSD shop code</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {orders.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground text-sm">
-                    No orders yet. Share your shop code with customers to get started.
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {orders.map(order => (
-                      <div key={order.id} className="flex items-center justify-between py-2 border-b last:border-0">
-                        <div>
-                          <p className="text-sm font-medium text-foreground">
-                            {order.package_size} <span className="text-muted-foreground">{order.network}</span>
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            To: {order.recipient_phone} · {new Date(order.created_at).toLocaleDateString()}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-medium text-foreground">GHS {Number(order.amount).toFixed(2)}</p>
-                          {orderStatusBadge(order.order_status)}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-            </TabsContent>
-
-            <TabsContent value="whatsapp" className="space-y-6">
-              {/* WhatsApp Activation / Shop Link Card */}
-              <Card className="border-primary/20 bg-card">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base text-primary flex items-center justify-between">
-                    <span className="flex items-center gap-2">
-                      <MessageCircle className="w-4 h-4" />
-                      WhatsApp Shop Bot
-                    </span>
-                    {shopCode.whatsapp_activated ? (
-                      <Badge className="bg-success/15 text-success border-border">Active</Badge>
-                    ) : (
-                      <Badge className="bg-muted text-muted-foreground border-border">Not Activated</Badge>
-                    )}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {!shopCode.whatsapp_activated ? (
-                    <div className="p-4 bg-warning/10 border border-border rounded-lg space-y-3">
-                      <div className="flex items-start gap-2 text-sm text-warning">
-                        <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                        <div>
-                          <p className="font-medium">Activation required</p>
-                          <p className="text-warning mt-0.5">
-                            One-time fee: <strong>GHS {whatsappFee.toFixed(2)}</strong>
-                            {walletBalance !== null && (
-                              <span className="ml-2 text-muted-foreground">· Wallet: GHS {walletBalance.toFixed(2)}</span>
-                            )}
-                          </p>
-                        </div>
-                      </div>
-                      <Button
-                        size="sm"
-                        disabled={whatsappActivating || whatsappFee <= 0 || (walletBalance !== null && walletBalance < whatsappFee)}
-                        onClick={handleActivateWhatsapp}
-                        className="w-full bg-warning hover:bg-warning/90 text-white"
-                      >
-                        {whatsappActivating ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Wallet className="w-3 h-3 mr-1" />}
-                        Activate WhatsApp Shop
-                      </Button>
-                      {whatsappFee <= 0 && (
-                        <p className="text-xs text-muted-foreground">WhatsApp shop activation isn't available yet — check back soon.</p>
-                      )}
-                      {whatsappFee > 0 && walletBalance !== null && walletBalance < whatsappFee && (
-                        <p className="text-xs text-destructive">Insufficient wallet balance. Top up your wallet first.</p>
-                      )}
+                  {orders.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground text-sm">
+                      No orders yet. Share your shop code with customers to get started.
                     </div>
                   ) : (
-                    <>
-                      <p className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Your WhatsApp shop link</p>
-                      {waLink ? (
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 bg-muted/40 border border-border rounded-lg px-3 py-2 text-sm font-mono text-foreground truncate">
-                            {waLink}
+                    <div className="space-y-2">
+                      {orders.map(order => (
+                        <div key={order.id} className="flex items-center justify-between py-2 border-b last:border-0">
+                          <div>
+                            <p className="text-sm font-medium text-foreground">
+                              {order.package_size} <span className="text-muted-foreground">{order.network}</span>
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              To: {order.recipient_phone} · {new Date(order.created_at).toLocaleDateString()}
+                            </p>
                           </div>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={copyWaLink}
-                            className="shrink-0 border-primary/20 text-primary hover:bg-primary/10"
-                          >
-                            {waLinkCopied ? <CheckCircle className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                          </Button>
+                          <div className="text-right">
+                            <p className="text-sm font-medium text-foreground">GHS {Number(order.amount).toFixed(2)}</p>
+                            {orderStatusBadge(order.order_status)}
+                          </div>
                         </div>
-                      ) : (
-                        <div className="flex items-start gap-2 p-3 bg-muted/40 border border-border rounded-lg text-sm text-muted-foreground">
-                          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                          <span>WhatsApp number not yet configured. Check back soon — your shop's WhatsApp link will appear here once it's live.</span>
-                        </div>
-                      )}
-                      {shopCode.whatsapp_activated_at && (
-                        <p className="text-xs text-muted-foreground mt-2">
-                          Activated {new Date(shopCode.whatsapp_activated_at).toLocaleDateString()}
-                        </p>
-                      )}
-                    </>
+                      ))}
+                    </div>
                   )}
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            <TabsContent value="whatsapp" className="space-y-5">
+              {/* WhatsApp hero */}
+              <div className="rounded-2xl bg-gradient-to-br from-[#1b388b] to-[#2a5ce8] p-5 text-white">
+                <div className="flex items-center justify-between">
+                  <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-white/80">
+                    <MessageCircle className="h-3.5 w-3.5" /> WhatsApp Shop Bot
+                  </p>
+                  {shopCode.whatsapp_activated ? (
+                    <span className="rounded-full bg-white/20 px-2.5 py-1 text-xs font-bold">Active</span>
+                  ) : (
+                    <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs font-bold text-white/70">Not Activated</span>
+                  )}
+                </div>
+
+                {!shopCode.whatsapp_activated ? (
+                  <p className="mt-3 text-sm text-white/80">Let customers order Data, Airtime, and Results Checker vouchers straight from WhatsApp.</p>
+                ) : waLink ? (
+                  <>
+                    <p className="mt-3 text-xs uppercase tracking-wide text-white/70">Your WhatsApp shop link</p>
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <div className="flex-1 truncate rounded-xl border border-white/20 bg-white/10 px-3 py-2 font-mono text-sm">
+                        {waLink}
+                      </div>
+                      <button
+                        onClick={copyWaLink}
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/20 bg-white/10 hover:bg-white/20"
+                      >
+                        {waLinkCopied ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                      </button>
+                    </div>
+                    {shopCode.whatsapp_activated_at && (
+                      <p className="mt-2 text-xs text-white/60">Activated {new Date(shopCode.whatsapp_activated_at).toLocaleDateString()}</p>
+                    )}
+                  </>
+                ) : (
+                  <p className="mt-3 flex items-start gap-2 text-sm text-white/80">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                    WhatsApp number not yet configured. Check back soon — your shop's WhatsApp link will appear here once it's live.
+                  </p>
+                )}
+              </div>
+
+              {!shopCode.whatsapp_activated && (
+                <div className="space-y-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
+                  <div className="flex items-start gap-2 text-sm text-amber-700">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <div>
+                      <p className="font-semibold">Activation required</p>
+                      <p className="mt-0.5">
+                        One-time fee: <strong>GHS {whatsappFee.toFixed(2)}</strong>
+                        {walletBalance !== null && (
+                          <span className="ml-2 text-muted-foreground">· Wallet: GHS {walletBalance.toFixed(2)}</span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    disabled={whatsappActivating || whatsappFee <= 0 || (walletBalance !== null && walletBalance < whatsappFee)}
+                    onClick={handleActivateWhatsapp}
+                    className="w-full bg-amber-500 hover:bg-amber-500/90 text-white"
+                  >
+                    {whatsappActivating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wallet className="w-4 h-4" />}
+                    Activate WhatsApp Shop
+                  </Button>
+                  {whatsappFee <= 0 && (
+                    <p className="text-xs text-muted-foreground">WhatsApp shop activation isn't available yet — check back soon.</p>
+                  )}
+                  {whatsappFee > 0 && walletBalance !== null && walletBalance < whatsappFee && (
+                    <p className="text-xs text-destructive">Insufficient wallet balance. Top up your wallet first.</p>
+                  )}
+                </div>
+              )}
 
               {/* How It Works — only meaningful once activated */}
               {shopCode.whatsapp_activated && (
@@ -565,32 +612,32 @@ export default function UssdShopPage() {
                     <div className="bg-muted/40 rounded-xl p-4 space-y-3 font-mono text-sm">
                       <p className="text-muted-foreground text-xs font-sans uppercase tracking-wide mb-4">Step-by-step</p>
                       <div className="flex items-start gap-3">
-                        <span className="bg-primary text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0 mt-0.5 font-sans">1</span>
+                        <span className="bg-[#1b388b] text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0 mt-0.5 font-sans">1</span>
                         <div>
                           <p className="text-foreground font-sans">Tap your shop link{waLink ? "" : " (once your number is set up)"}, or open WhatsApp and message</p>
-                          <p className="text-primary font-bold text-lg mt-0.5">{whatsappShopNumber || "—"}</p>
+                          <p className="text-[#1b388b] font-bold text-lg mt-0.5">{whatsappShopNumber || "—"}</p>
                         </div>
                       </div>
                       <div className="flex items-start gap-3">
-                        <span className="bg-primary text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0 mt-0.5 font-sans">2</span>
+                        <span className="bg-[#1b388b] text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0 mt-0.5 font-sans">2</span>
                         <div>
                           <p className="text-foreground font-sans">Send your shop code to start (pre-filled automatically if they tapped the link)</p>
-                          <p className="text-primary font-bold text-lg mt-0.5">{shopCode.code}</p>
+                          <p className="text-[#1b388b] font-bold text-lg mt-0.5">{shopCode.code}</p>
                         </div>
                       </div>
                       <div className="flex items-start gap-3">
-                        <span className="bg-primary text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0 mt-0.5 font-sans">3</span>
+                        <span className="bg-[#1b388b] text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0 mt-0.5 font-sans">3</span>
                         <p className="text-foreground font-sans">Pick Data, Airtime, or Results Checker, then follow the prompts to choose a bundle and recipient</p>
                       </div>
                       <div className="flex items-start gap-3">
-                        <span className="bg-primary text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0 mt-0.5 font-sans">4</span>
+                        <span className="bg-[#1b388b] text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0 mt-0.5 font-sans">4</span>
                         <p className="text-foreground font-sans">Approve the MoMo prompt on their phone to complete payment</p>
                       </div>
                     </div>
 
-                    <div className="mt-4 p-3 bg-primary/5 border border-primary/20 rounded-lg">
-                      <p className="text-sm font-medium text-primary mb-1">Share with your customers:</p>
-                      <p className="text-sm text-primary">
+                    <div className="mt-4 p-3 bg-[#1b388b]/5 border border-[#1b388b]/20 rounded-lg">
+                      <p className="text-sm font-medium text-[#1b388b] mb-1">Share with your customers:</p>
+                      <p className="text-sm text-[#1b388b]">
                         {waLink
                           ? <>"Tap this link to order on WhatsApp: <strong>{waLink}</strong>"</>
                           : <>"Message us on WhatsApp and send shop code <strong>{shopCode.code}</strong> to buy your data bundle instantly!"</>}

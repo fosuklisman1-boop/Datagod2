@@ -27,7 +27,7 @@ vi.mock("@/lib/supabase", () => ({
   },
 }))
 
-import { mapNetworkToBundlePortal, mapBundlePortalStatus, isRetryableErrorCode, getActiveMtnRoute } from "./bundleportal-provider"
+import { mapNetworkToBundlePortal, mapBundlePortalStatus, isRetryableErrorCode, extractRetryAfterSeconds, getActiveMtnRoute, BundlePortalProvider } from "./bundleportal-provider"
 
 beforeEach(() => {
   fakeSettings.current = { bundleportal_mtn_route: { route: "mtn_2" } }
@@ -43,8 +43,8 @@ describe("mapNetworkToBundlePortal", () => {
     expect(mapNetworkToBundlePortal("Telecel", false, "mtn")).toBe("telecel")
     expect(mapNetworkToBundlePortal("Telecel", true, "mtn_3")).toBe("telecel")
   })
-  it("maps AirtelTigo to bigtime only when isBigTime is true", () => {
-    expect(mapNetworkToBundlePortal("AirtelTigo", true, "mtn")).toBe("bigtime")
+  it("maps AirtelTigo to ishare (BigTime) or airteltigo (regular) — a live BigTime order sent as \"airteltigo\" showed up as regular iShare on Bundle Portal's own dashboard, reversing their initial guidance", () => {
+    expect(mapNetworkToBundlePortal("AirtelTigo", true, "mtn")).toBe("ishare")
     expect(mapNetworkToBundlePortal("AirtelTigo", false, "mtn")).toBe("airteltigo")
     expect(mapNetworkToBundlePortal("AirtelTigo", undefined, "mtn")).toBe("airteltigo")
   })
@@ -81,6 +81,41 @@ describe("isRetryableErrorCode", () => {
     expect(isRetryableErrorCode("unknown_bundle")).toBe(false)
     expect(isRetryableErrorCode("not_allowlisted")).toBe(false)
     expect(isRetryableErrorCode(undefined)).toBe(false)
+  })
+})
+
+describe("extractRetryAfterSeconds", () => {
+  it("prefers the Retry-After header when present and numeric", () => {
+    expect(extractRetryAfterSeconds("30", 45)).toBe(30)
+  })
+  it("falls back to the JSON body's retry_after when the header is absent", () => {
+    expect(extractRetryAfterSeconds(null, 45)).toBe(45)
+  })
+  it("falls back to the JSON body when the header is present but not numeric", () => {
+    expect(extractRetryAfterSeconds("not-a-number", 45)).toBe(45)
+  })
+  it("returns null when neither signal is available", () => {
+    expect(extractRetryAfterSeconds(null, undefined)).toBeNull()
+    expect(extractRetryAfterSeconds(null, "not-a-number")).toBeNull()
+  })
+})
+
+describe("checkOrderStatus", () => {
+  it("short-circuits without calling the API — v2 permanently removed status polling", async () => {
+    const fetchSpy = vi.spyOn(global, "fetch")
+    const result = await new BundlePortalProvider().checkOrderStatus("some-order-id")
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(result.success).toBe(false)
+    expect(result.message).toMatch(/no status polling/i)
+    fetchSpy.mockRestore()
+  })
+
+  it("still recognizes a locally-failed order without calling the API", async () => {
+    const fetchSpy = vi.spyOn(global, "fetch")
+    const result = await new BundlePortalProvider().checkOrderStatus("FAILED_INIT_12345")
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(result).toEqual({ success: true, status: "failed", message: "Order was never submitted to Bundle Portal (local failure)" })
+    fetchSpy.mockRestore()
   })
 })
 

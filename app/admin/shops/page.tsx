@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { CheckCircle, XCircle, Eye, TrendingDown, ShieldOff, ShieldCheck } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
+import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { adminShopService } from "@/lib/admin-service"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
@@ -210,10 +211,10 @@ export default function AdminShopsPage() {
     <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div>
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary to-primary bg-clip-text text-transparent">Shop Management</h1>
-          <p className="text-muted-foreground mt-1">Approve or reject shop creation requests</p>
-        </div>
+        <PageHeaderBanner
+          title="Shop Management"
+          subtitle="Approve or reject shop creation requests"
+        />
 
         {/* Tabs */}
         <Tabs defaultValue="pending" className="space-y-4">

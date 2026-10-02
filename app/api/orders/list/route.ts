@@ -27,6 +27,9 @@ export async function GET(request: NextRequest) {
     const network = searchParams.get("network")
     const status = searchParams.get("status")
     const dateRange = searchParams.get("dateRange")
+    const customStart = searchParams.get("startDate")
+    const customEnd = searchParams.get("endDate")
+    const phone = searchParams.get("phone")
 
     const offset = (page - 1) * limit
 
@@ -58,14 +61,37 @@ export async function GET(request: NextRequest) {
       query = query.eq("status", status)
     }
 
-    if (dateRange && dateRange !== "all") {
+    // Server-side, across every matching order -- not just whatever happens
+    // to be on the current page (the previous client-side-only filter only
+    // ever searched the 10 rows already fetched for that page).
+    if (phone && phone.trim()) {
+      query = query.ilike("phone_number", `%${phone.trim()}%`)
+    }
+
+    if (dateRange === "custom") {
+      if (customStart) query = query.gte("created_at", new Date(customStart).toISOString())
+      if (customEnd) {
+        // Treat the end date as inclusive of the whole day.
+        const end = new Date(customEnd)
+        end.setHours(23, 59, 59, 999)
+        query = query.lte("created_at", end.toISOString())
+      }
+    } else if (dateRange && dateRange !== "all") {
       const now = new Date()
       let startDate: Date
+      let endDate: Date | null = null
 
       switch (dateRange) {
         case "today":
           startDate = new Date(now)
           startDate.setHours(0, 0, 0, 0)
+          break
+        case "yesterday":
+          startDate = new Date(now)
+          startDate.setDate(now.getDate() - 1)
+          startDate.setHours(0, 0, 0, 0)
+          endDate = new Date(now)
+          endDate.setHours(0, 0, 0, 0)
           break
         case "week":
           startDate = new Date(now)
@@ -84,6 +110,7 @@ export async function GET(request: NextRequest) {
       }
 
       query = query.gte("created_at", startDate.toISOString())
+      if (endDate) query = query.lt("created_at", endDate.toISOString())
     }
 
     const { data: ordersData, error, count } = await query.range(offset, offset + limit - 1)

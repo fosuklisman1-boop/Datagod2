@@ -79,4 +79,4 @@ export type MTNProviderName = "sykes" | "datakazina" | "xpress" | "eazyghdata" |
  * narrower MTNProviderName so a network-exclusive provider can't be assigned
  * there without a deliberate, explicit type change.
  */
-export type NonMTNProviderName = MTNProviderName | "spfastit"
+export type NonMTNProviderName = MTNProviderName | "spfastit" | "spfastit_telecel"

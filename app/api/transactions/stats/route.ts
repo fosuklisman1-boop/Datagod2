@@ -11,7 +11,7 @@ const supabase = createClient(
  */
 async function fetchAllTransactions(
   userId: string,
-  type: string,
+  types: string[],
   startDate: string
 ) {
   let allTransactions: any[] = []
@@ -24,7 +24,7 @@ async function fetchAllTransactions(
       .from("transactions")
       .select("amount")
       .eq("user_id", userId)
-      .eq("type", type)
+      .in("type", types)
       .gte("created_at", startDate)
       .range(offset, offset + batchSize - 1)
 
@@ -67,23 +67,21 @@ export async function GET(request: NextRequest) {
       .select("*", { count: "exact", head: true })
       .eq("user_id", userId)
 
-    // Get today's income (credits) WITH PAGINATION
-    const todayCredits = await fetchAllTransactions(userId, "credit", todayString)
+    // Get today's income (credits) WITH PAGINATION. Real `type` values are
+    // "credit" | "debit" | "admin_credit" | "admin_debit" -- admin_* rows
+    // were previously excluded entirely, undercounting on any day an admin
+    // adjustment happened.
+    const todayCredits = await fetchAllTransactions(userId, ["credit", "admin_credit"], todayString)
     const todayIncome = todayCredits.reduce((sum, t) => sum + t.amount, 0)
 
     // Get today's expenses (debits) WITH PAGINATION
-    const todayDebits = await fetchAllTransactions(userId, "debit", todayString)
+    const todayDebits = await fetchAllTransactions(userId, ["debit", "admin_debit"], todayString)
     const todayExpenses = todayDebits.reduce((sum, t) => sum + t.amount, 0)
-
-    // Get today's refunds WITH PAGINATION
-    const todayRefunds = await fetchAllTransactions(userId, "refund", todayString)
-    const todayRefundsTotal = todayRefunds.reduce((sum, t) => sum + t.amount, 0)
 
     return NextResponse.json({
       totalTransactions: totalCount || 0,
       todayIncome,
       todayExpenses,
-      todayRefunds: todayRefundsTotal,
     })
   } catch (error) {
     console.error("Error fetching transaction stats:", error)
