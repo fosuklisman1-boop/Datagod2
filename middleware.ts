@@ -130,8 +130,34 @@ export async function middleware(request: NextRequest) {
   // This does NOT return early — like the shop-subdomain rewrite, it flows
   // through the rest of the pipeline below so shop-mode pages still get CSP
   // headers, the nonce, and __shop_sess.
+  // Under wildcard mode (every active, non-blocked shop usable as a
+  // subdomain of this one domain — see lib/custom-domain-lookup.ts), the
+  // rewrite target is the REQUESTED subdomain label itself — e.g. "kofi"
+  // from "kofi.clingshub.com" — not one fixed shop. resolveCustomDomain's
+  // own subdomain-fallback lookup already confirmed this exact label is an
+  // active, non-blocked shop's own subdomain before returning this config,
+  // so middleware only re-derives the same label; it doesn't re-verify it.
+  //
+  // This must NOT fire for a bare-domain visit (hostname IS the domain
+  // itself) or its "www." form: both resolve via resolveCustomDomain's
+  // exact-host/www-toggle paths, not the subdomain-fallback path, so a
+  // naive hostname.split(".")[0] there would wrongly extract "clingshub" or
+  // "www" as if it were a real shop subdomain. RESERVED_SUBDOMAINS (defined
+  // above for the ROOT_DOMAIN rewrite) already excludes "www" from ever
+  // being a valid shop label, so reusing it here closes that case; the
+  // `hostname === "<label>.<domain>"` reconstruction below is the
+  // authoritative guard regardless of which label is involved.
+  const strippedLabel = hostname && hostname.includes(".") ? hostname.slice(0, hostname.indexOf(".")) : null
+  const wildcardLabelValid =
+    !!customDomainConfig?.wildcard_shops_enabled &&
+    !!strippedLabel &&
+    !RESERVED_SUBDOMAINS.has(strippedLabel) &&
+    hostname === `${strippedLabel}.${customDomainConfig.domain}`
+
+  const shopModeSubdomain = wildcardLabelValid ? strippedLabel : customDomainConfig?.linked_shop_subdomain
+
   const customDomainShopRewritePathname =
-    customDomainConfig?.linked_shop_subdomain &&
+    shopModeSubdomain &&
     !path.startsWith("/shop/") &&
     !path.startsWith("/api") &&
     !path.startsWith("/_next") &&
@@ -139,7 +165,7 @@ export async function middleware(request: NextRequest) {
     !path.startsWith("/dashboard") &&
     !path.startsWith("/admin") &&
     !PUBLIC_FILE.test(path)
-      ? `/shop/${customDomainConfig.linked_shop_subdomain}${path === "/" ? "" : path}`
+      ? `/shop/${shopModeSubdomain}${path === "/" ? "" : path}`
       : null
 
   // Account-mode checks below (landing-page-hide, service-redirect) are
