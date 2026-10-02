@@ -22,13 +22,18 @@ as $$
 
     union all
 
-    -- Priority 2: any active domain has wildcard mode on — every active,
-    -- non-blocked shop is automatically reachable under it, so the
-    -- caller's own subdomain being active is enough; no shop-specific
-    -- match needed.
+    -- Priority 2: any active, wildcard-enabled domain, but only when the
+    -- CALLING shop itself is genuinely active and non-blocked — the
+    -- function must not simply assume this about its caller (that
+    -- assumption doesn't hold for every real call site, e.g.
+    -- shopService.getShop(userId) and the customers page both fetch a
+    -- shop by user_id/id with no active/blocked filter of their own
+    -- before calling this function).
     select cd.domain, cd.created_at, 2 as priority
     from custom_domains cd
+    join user_shops us on us.subdomain = p_subdomain
     where cd.is_active = true and cd.wildcard_shops_enabled = true
+      and us.is_active = true and us.is_blocked = false
   ) ranked
   order by priority asc, created_at asc
   limit 1
