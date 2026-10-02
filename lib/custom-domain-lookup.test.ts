@@ -20,17 +20,33 @@ vi.mock("@upstash/redis", () => ({
 }))
 
 const maybeSingleMock = vi.fn()
+const shopExistsMaybeSingleMock = vi.fn()
 vi.mock("@/lib/supabase", () => ({
   supabaseAdmin: {
-    from: () => ({
-      select: () => ({
-        eq: () => ({
+    from: (table: string) => {
+      if (table === "user_shops") {
+        return {
+          select: () => ({
+            eq: () => ({
+              eq: () => ({
+                eq: () => ({
+                  maybeSingle: shopExistsMaybeSingleMock,
+                }),
+              }),
+            }),
+          }),
+        }
+      }
+      return {
+        select: () => ({
           eq: () => ({
-            maybeSingle: maybeSingleMock,
+            eq: () => ({
+              maybeSingle: maybeSingleMock,
+            }),
           }),
         }),
-      }),
-    }),
+      }
+    },
   },
 }))
 
@@ -60,6 +76,7 @@ const sampleConfig: CustomDomainConfig = {
   is_active: true,
   hidden_pages: [],
   linked_shop_subdomain: null,
+  wildcard_shops_enabled: false,
 }
 
 const sampleRawRow = {
@@ -70,6 +87,7 @@ const sampleRawRow = {
   primary_color: sampleConfig.primary_color,
   is_active: sampleConfig.is_active,
   hidden_pages: sampleConfig.hidden_pages,
+  wildcard_shops_enabled: sampleConfig.wildcard_shops_enabled,
   linked_shop: null as { subdomain: string } | null,
 }
 
@@ -268,6 +286,77 @@ describe("resolveCustomDomain", () => {
     const result = await resolveCustomDomain("wrongshop.clingshub.com")
 
     expect(result).toBeNull()
+  })
+
+  it("treats a cached config missing wildcard_shops_enabled (from before it existed) as a miss, not a crash", async () => {
+    const staleConfig = {
+      domain: sampleConfig.domain,
+      services: sampleConfig.services,
+      site_name: sampleConfig.site_name,
+      logo_url: sampleConfig.logo_url,
+      primary_color: sampleConfig.primary_color,
+      is_active: sampleConfig.is_active,
+      hidden_pages: sampleConfig.hidden_pages,
+      linked_shop_subdomain: sampleConfig.linked_shop_subdomain,
+    }
+    redisGetMock.mockResolvedValueOnce(staleConfig)
+    maybeSingleMock.mockResolvedValueOnce({ data: sampleRawRow, error: null })
+    const { resolveCustomDomain } = await import("./custom-domain-lookup")
+
+    const result = await resolveCustomDomain("checkresults.com")
+
+    expect(maybeSingleMock).toHaveBeenCalled()
+    expect(result).toEqual(sampleConfig)
+  })
+
+  it("resolves an active shop's own subdomain under a wildcard-enabled domain", async () => {
+    redisGetMock.mockResolvedValue(null)
+    maybeSingleMock
+      .mockResolvedValueOnce({ data: null, error: null }) // miss for "kofi.clingshub.com" itself
+      .mockResolvedValueOnce({ data: null, error: null }) // miss for its www-toggled form
+      .mockResolvedValueOnce({
+        data: { ...sampleRawRow, domain: "clingshub.com", wildcard_shops_enabled: true },
+        error: null,
+      }) // hit for the stripped remainder "clingshub.com", wildcard mode on
+    shopExistsMaybeSingleMock.mockResolvedValueOnce({ data: { id: "shop-1" }, error: null }) // "kofi" is an active, non-blocked shop
+    const { resolveCustomDomain } = await import("./custom-domain-lookup")
+
+    const result = await resolveCustomDomain("kofi.clingshub.com")
+
+    expect(result?.domain).toBe("clingshub.com")
+    expect(result?.wildcard_shops_enabled).toBe(true)
+  })
+
+  it("does NOT resolve a label under a wildcard-enabled domain when no active shop has that subdomain", async () => {
+    redisGetMock.mockResolvedValue(null)
+    maybeSingleMock
+      .mockResolvedValueOnce({ data: null, error: null }) // miss for "nosuchshop.clingshub.com"
+      .mockResolvedValueOnce({ data: null, error: null }) // miss for its www-toggled form
+      .mockResolvedValueOnce({
+        data: { ...sampleRawRow, domain: "clingshub.com", wildcard_shops_enabled: true },
+        error: null,
+      })
+    shopExistsMaybeSingleMock.mockResolvedValueOnce({ data: null, error: null }) // no active shop named "nosuchshop"
+    const { resolveCustomDomain } = await import("./custom-domain-lookup")
+
+    const result = await resolveCustomDomain("nosuchshop.clingshub.com")
+
+    expect(result).toBeNull()
+  })
+
+  it("still resolves a bare wildcard-enabled domain directly, without running the shop-existence check at all", async () => {
+    redisGetMock.mockResolvedValueOnce(null)
+    maybeSingleMock.mockResolvedValueOnce({
+      data: { ...sampleRawRow, domain: "clingshub.com", wildcard_shops_enabled: true },
+      error: null,
+    }) // exact hit on "clingshub.com" itself
+    const { resolveCustomDomain } = await import("./custom-domain-lookup")
+
+    const result = await resolveCustomDomain("clingshub.com")
+
+    expect(result?.domain).toBe("clingshub.com")
+    expect(maybeSingleMock).toHaveBeenCalledTimes(1)
+    expect(shopExistsMaybeSingleMock).not.toHaveBeenCalled()
   })
 
   it("still resolves a bare registered custom domain directly, undisturbed by the new subdomain fallback", async () => {

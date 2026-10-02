@@ -74,7 +74,8 @@ async function lookupExact(host: string): Promise<LookupResult> {
       if (
         cached &&
         Array.isArray(cached.hidden_pages) &&
-        (cached.linked_shop_subdomain === null || typeof cached.linked_shop_subdomain === "string")
+        (cached.linked_shop_subdomain === null || typeof cached.linked_shop_subdomain === "string") &&
+        typeof cached.wildcard_shops_enabled === "boolean"
       ) {
         return { kind: "found", config: cached }
       }
@@ -86,7 +87,7 @@ async function lookupExact(host: string): Promise<LookupResult> {
   try {
     const { data, error } = await supabaseAdmin
       .from("custom_domains")
-      .select("domain, services, site_name, logo_url, primary_color, is_active, hidden_pages, linked_shop:user_shops!linked_shop_id(subdomain)")
+      .select("domain, services, site_name, logo_url, primary_color, is_active, hidden_pages, wildcard_shops_enabled, linked_shop:user_shops!linked_shop_id(subdomain)")
       .eq("domain", host)
       .eq("is_active", true)
       .maybeSingle()
@@ -107,12 +108,39 @@ async function lookupExact(host: string): Promise<LookupResult> {
       is_active: row.is_active,
       hidden_pages: row.hidden_pages,
       linked_shop_subdomain: row.linked_shop?.subdomain ?? null,
+      wildcard_shops_enabled: row.wildcard_shops_enabled,
     }
     cacheSetPositive(host, config)
     return { kind: "found", config }
   } catch (e) {
     console.error("[CUSTOM-DOMAIN-LOOKUP] Supabase lookup failed:", e instanceof Error ? e.message : e)
     return { kind: "error" }
+  }
+}
+
+// Direct, non-embedded existence check against user_shops — safe to call
+// with supabaseAdmin (service-role; no RLS/column-grant concern here,
+// unlike the anon-facing RPC built this morning for the reverse shop->domain
+// lookup). Used only by resolveCustomDomain's wildcard fallback below, to
+// confirm a stripped host label is a real, currently-usable shop subdomain
+// before treating a wildcard-enabled domain's visitor as that shop.
+async function wildcardShopExists(subdomain: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("user_shops")
+      .select("id")
+      .eq("subdomain", subdomain)
+      .eq("is_active", true)
+      .eq("is_blocked", false)
+      .maybeSingle()
+    if (error) {
+      console.error("[CUSTOM-DOMAIN-LOOKUP] Wildcard shop existence check failed:", error)
+      return false
+    }
+    return !!data
+  } catch (e) {
+    console.error("[CUSTOM-DOMAIN-LOOKUP] Wildcard shop existence check failed:", e instanceof Error ? e.message : e)
+    return false
   }
 }
 
@@ -167,6 +195,10 @@ export async function resolveCustomDomain(host: string): Promise<CustomDomainCon
     const remainder = host.slice(firstDot + 1)
     const parent = await lookupExact(remainder)
     if (parent.kind === "found" && parent.config.linked_shop_subdomain === label) {
+      cacheSetPositive(host, parent.config)
+      return parent.config
+    }
+    if (parent.kind === "found" && parent.config.wildcard_shops_enabled && (await wildcardShopExists(label))) {
       cacheSetPositive(host, parent.config)
       return parent.config
     }
