@@ -61,13 +61,21 @@ function parseHiddenPages(raw: unknown): { hiddenPages: string[] } | { error: st
   return { hiddenPages: Array.from(new Set(raw as string[])) }
 }
 
+/** Validates an optional `wildcard_shops_enabled` request field: undefined
+ * defaults to false (unchanged), anything else must be a boolean. */
+function parseWildcardShopsEnabled(raw: unknown): { wildcardShopsEnabled: boolean } | { error: string } {
+  if (raw === undefined) return { wildcardShopsEnabled: false }
+  if (typeof raw !== "boolean") return { error: "'wildcard_shops_enabled' must be a boolean" }
+  return { wildcardShopsEnabled: raw }
+}
+
 export async function GET(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse!
 
   const { data, error } = await supabase
     .from("custom_domains")
-    .select("id, domain, services, site_name, logo_url, primary_color, is_active, linked_shop_id, hidden_pages, created_at, updated_at")
+    .select("id, domain, services, site_name, logo_url, primary_color, is_active, linked_shop_id, hidden_pages, wildcard_shops_enabled, created_at, updated_at")
     .order("created_at", { ascending: false })
 
   if (error) {
@@ -113,15 +121,32 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
+    const wildcardResult = parseWildcardShopsEnabled(body.wildcard_shops_enabled)
+    if ("error" in wildcardResult) {
+      return NextResponse.json({ error: wildcardResult.error }, { status: 400 })
+    }
     const linkedShopResult = await validateLinkedShopId(body.linked_shop_id)
     if ("error" in linkedShopResult) {
       return NextResponse.json({ error: linkedShopResult.error }, { status: 400 })
     }
-    const { linkedShopId, linkedShopSubdomain } = linkedShopResult
+    let { linkedShopId, linkedShopSubdomain } = linkedShopResult
+    const wildcardShopsEnabled = wildcardResult.wildcardShopsEnabled
+
+    // Mutual exclusivity (migration 0104): a domain can never both be
+    // linked to one shop and wildcard-enabled. Wildcard wins if a single
+    // request somehow sets both — the admin UI's own checkbox/dropdown
+    // never submits both at once in practice (see app/admin/custom-domains/
+    // page.tsx), so this only resolves a malformed/direct-API request
+    // deterministically rather than leaving an inconsistent row.
+    if (wildcardShopsEnabled) {
+      linkedShopId = null
+      linkedShopSubdomain = null
+    }
 
     const row = {
       domain, services, site_name: siteName, logo_url: logoUrl, primary_color: primaryColor, is_active: true,
       linked_shop_id: linkedShopId,
+      wildcard_shops_enabled: wildcardShopsEnabled,
       ...(hiddenPages !== undefined ? { hidden_pages: hiddenPages } : {}),
     }
     const { data, error } = await supabase.from("custom_domains").insert(row).select().single()
@@ -136,6 +161,7 @@ export async function POST(request: NextRequest) {
     await setCustomDomainCache({
       domain, services, site_name: siteName, logo_url: logoUrl, primary_color: primaryColor, is_active: true,
       linked_shop_subdomain: linkedShopSubdomain,
+      wildcard_shops_enabled: wildcardShopsEnabled,
       hidden_pages: data.hidden_pages,
     })
 
@@ -183,12 +209,30 @@ export async function PATCH(request: NextRequest) {
       if (typeof body.is_active !== "boolean") return NextResponse.json({ error: "'is_active' must be a boolean" }, { status: 400 })
       updates.is_active = body.is_active
     }
+    if (body.wildcard_shops_enabled !== undefined) {
+      const wildcardResult = parseWildcardShopsEnabled(body.wildcard_shops_enabled)
+      if ("error" in wildcardResult) {
+        return NextResponse.json({ error: wildcardResult.error }, { status: 400 })
+      }
+      updates.wildcard_shops_enabled = wildcardResult.wildcardShopsEnabled
+    }
     if (body.linked_shop_id !== undefined) {
       const linkedShopResult = await validateLinkedShopId(body.linked_shop_id)
       if ("error" in linkedShopResult) {
         return NextResponse.json({ error: linkedShopResult.error }, { status: 400 })
       }
       updates.linked_shop_id = linkedShopResult.linkedShopId
+    }
+    // Mutual exclusivity (migration 0104), same precedence as POST above:
+    // whichever of the two fields THIS request sets to an "on" value wins
+    // and clears the other in the SAME update, so two separate PATCH calls
+    // (one per field, as the admin UI's mutually-exclusive checkbox/dropdown
+    // naturally sends) always converge correctly even though the client
+    // never has to send the cleared field itself.
+    if (updates.wildcard_shops_enabled === true) {
+      updates.linked_shop_id = null
+    } else if (updates.linked_shop_id) {
+      updates.wildcard_shops_enabled = false
     }
     if (body.hidden_pages !== undefined) {
       const hiddenPagesResult = parseHiddenPages(body.hidden_pages)
@@ -236,6 +280,7 @@ export async function PATCH(request: NextRequest) {
           domain: data.domain, services: data.services, site_name: data.site_name,
           logo_url: data.logo_url, primary_color: data.primary_color, is_active: data.is_active,
           linked_shop_subdomain: linkedShopSubdomain,
+          wildcard_shops_enabled: data.wildcard_shops_enabled,
           hidden_pages: data.hidden_pages,
         })
       }

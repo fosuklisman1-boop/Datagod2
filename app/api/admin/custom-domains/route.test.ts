@@ -189,6 +189,49 @@ describe("POST /api/admin/custom-domains", () => {
     // The cache write uses the DB-returned value (the column's own default), not an empty array.
     expect(setCacheMock).toHaveBeenCalledWith(expect.objectContaining({ hidden_pages: ["afa_orders"] }))
   })
+
+  it("rejects a non-boolean wildcard_shops_enabled on create", async () => {
+    const res = await POST(postRequest({ domain: "clingshub.com", services: ["data_bundles"], site_name: "ClingsHub", wildcard_shops_enabled: "yes" }))
+    expect(res.status).toBe(400)
+  })
+
+  it("accepts wildcard_shops_enabled and writes it to the inserted row and cache", async () => {
+    const builder = makeBuilder({
+      data: { id: "1", domain: "clingshub.com", services: ["data_bundles"], site_name: "ClingsHub", logo_url: null, primary_color: null, is_active: true, linked_shop_id: null, wildcard_shops_enabled: true },
+      error: null,
+    })
+    fromMock.mockReturnValue(builder)
+
+    const res = await POST(postRequest({ domain: "clingshub.com", services: ["data_bundles"], site_name: "ClingsHub", wildcard_shops_enabled: true }))
+
+    expect(res.status).toBe(201)
+    const insertedRow = builder.insert.mock.calls[0][0]
+    expect(insertedRow.wildcard_shops_enabled).toBe(true)
+    expect(insertedRow.linked_shop_id).toBeNull()
+    expect(setCacheMock).toHaveBeenCalledWith(expect.objectContaining({ wildcard_shops_enabled: true }))
+  })
+
+  it("forces linked_shop_id to null when wildcard_shops_enabled is also set true in the same POST", async () => {
+    const builder = makeBuilder({
+      data: { id: "1", domain: "clingshub.com", services: ["data_bundles"], site_name: "ClingsHub", logo_url: null, primary_color: null, is_active: true, linked_shop_id: null, wildcard_shops_enabled: true },
+      error: null,
+    })
+    fromMock.mockImplementation((table: string) =>
+      table === "user_shops"
+        ? makeBuilder({ data: { id: "11111111-1111-1111-1111-111111111111", subdomain: "myshop", is_active: true, is_blocked: false }, error: null })
+        : builder
+    )
+
+    const res = await POST(postRequest({
+      domain: "clingshub.com", services: ["data_bundles"], site_name: "ClingsHub",
+      wildcard_shops_enabled: true, linked_shop_id: "11111111-1111-1111-1111-111111111111",
+    }))
+
+    expect(res.status).toBe(201)
+    const insertedRow = builder.insert.mock.calls[0][0]
+    expect(insertedRow.linked_shop_id).toBeNull()
+    expect(insertedRow.wildcard_shops_enabled).toBe(true)
+  })
 })
 
 describe("PATCH /api/admin/custom-domains", () => {
@@ -268,6 +311,45 @@ describe("PATCH /api/admin/custom-domains", () => {
 
     expect(res.status).toBe(200)
     expect(clearCacheMock).toHaveBeenCalledWith("myshop.checkresults.com")
+  })
+
+  it("rejects a non-boolean wildcard_shops_enabled on update", async () => {
+    const res = await PATCH(postRequest({ id: "1", wildcard_shops_enabled: "yes" }, "PATCH"))
+    expect(res.status).toBe(400)
+  })
+
+  it("clears linked_shop_id in the same update when PATCH turns wildcard_shops_enabled on", async () => {
+    const builder = makeBuilder({
+      data: { id: "1", domain: "clingshub.com", services: ["data_bundles"], site_name: "ClingsHub", logo_url: null, primary_color: null, is_active: true, linked_shop_id: null, wildcard_shops_enabled: true },
+      error: null,
+    })
+    fromMock.mockReturnValue(builder)
+
+    const res = await PATCH(postRequest({ id: "1", wildcard_shops_enabled: true }, "PATCH"))
+
+    expect(res.status).toBe(200)
+    const updatePayload = builder.update.mock.calls[0][0]
+    expect(updatePayload.wildcard_shops_enabled).toBe(true)
+    expect(updatePayload.linked_shop_id).toBeNull()
+  })
+
+  it("clears wildcard_shops_enabled in the same update when PATCH sets a linked_shop_id", async () => {
+    const builder = makeBuilder({
+      data: { id: "1", domain: "clingshub.com", services: ["data_bundles"], site_name: "ClingsHub", logo_url: null, primary_color: null, is_active: true, linked_shop_id: "11111111-1111-1111-1111-111111111111", wildcard_shops_enabled: false },
+      error: null,
+    })
+    fromMock.mockImplementation((table: string) =>
+      table === "user_shops"
+        ? makeBuilder({ data: { id: "11111111-1111-1111-1111-111111111111", subdomain: "myshop", is_active: true, is_blocked: false }, error: null })
+        : builder
+    )
+
+    const res = await PATCH(postRequest({ id: "1", linked_shop_id: "11111111-1111-1111-1111-111111111111" }, "PATCH"))
+
+    expect(res.status).toBe(200)
+    const updatePayload = builder.update.mock.calls[0][0]
+    expect(updatePayload.linked_shop_id).toBe("11111111-1111-1111-1111-111111111111")
+    expect(updatePayload.wildcard_shops_enabled).toBe(false)
   })
 })
 
