@@ -28,6 +28,7 @@ interface CustomDomainRow {
   primary_color: string | null
   is_active: boolean
   linked_shop_id: string | null
+  wildcard_shops_enabled: boolean
   hidden_pages: string[]
   created_at: string
   updated_at: string
@@ -59,6 +60,7 @@ const DEFAULT_HIDDEN_PAGES = [
 const EMPTY_FORM = {
   domain: "", services: [] as DomainService[], site_name: "", logo_url: "", primary_color: "",
   linked_shop_id: null as string | null,
+  wildcard_shops_enabled: false,
   hidden_pages: DEFAULT_HIDDEN_PAGES as string[],
 }
 
@@ -126,6 +128,7 @@ export default function CustomDomainsPage() {
       logo_url: row.logo_url || "",
       primary_color: row.primary_color || "",
       linked_shop_id: row.linked_shop_id,
+      wildcard_shops_enabled: row.wildcard_shops_enabled,
       hidden_pages: row.hidden_pages,
     })
     setDialogOpen(true)
@@ -179,6 +182,7 @@ export default function CustomDomainsPage() {
               logo_url: form.logo_url || null,
               primary_color: form.primary_color || null,
               linked_shop_id: form.linked_shop_id,
+              wildcard_shops_enabled: form.wildcard_shops_enabled,
               hidden_pages: form.hidden_pages,
             }),
           })
@@ -192,6 +196,7 @@ export default function CustomDomainsPage() {
               logo_url: form.logo_url || null,
               primary_color: form.primary_color || null,
               linked_shop_id: form.linked_shop_id,
+              wildcard_shops_enabled: form.wildcard_shops_enabled,
               hidden_pages: form.hidden_pages,
             }),
           })
@@ -278,8 +283,13 @@ export default function CustomDomainsPage() {
                   <Label>Link to Shop (optional)</Label>
                   <select
                     value={form.linked_shop_id ?? ""}
-                    onChange={e => setForm(f => ({ ...f, linked_shop_id: e.target.value || null }))}
-                    className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                    onChange={e => setForm(f => ({
+                      ...f,
+                      linked_shop_id: e.target.value || null,
+                      wildcard_shops_enabled: e.target.value ? false : f.wildcard_shops_enabled,
+                    }))}
+                    disabled={form.wildcard_shops_enabled}
+                    className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm disabled:opacity-50"
                   >
                     <option value="">— None (dashboard mode) —</option>
                     {shops.map(s => (
@@ -299,6 +309,25 @@ export default function CustomDomainsPage() {
                       </p>
                     )
                   })()}
+                </div>
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <Checkbox
+                      checked={form.wildcard_shops_enabled}
+                      disabled={!!form.linked_shop_id}
+                      onCheckedChange={(checked) => setForm(f => ({
+                        ...f,
+                        wildcard_shops_enabled: !!checked,
+                        linked_shop_id: checked ? null : f.linked_shop_id,
+                      }))}
+                    />
+                    Enable wildcard mode — any active shop can use {form.domain || "this domain"} as an alternate URL
+                  </label>
+                  {form.wildcard_shops_enabled && (
+                    <p className="text-xs text-muted-foreground">
+                      Every active shop automatically gets its own subdomain here (e.g. <code className="font-mono">kofi.{form.domain || "yourdomain.com"}</code>, <code className="font-mono">ama.{form.domain || "yourdomain.com"}</code>) — no per-shop setup needed. Ask the domain owner to add a WILDCARD DNS record instead of one exact hostname: a CNAME, host <code className="font-mono">*</code>, pointing at <code className="font-mono">cname.vercel-dns.com.</code> — then attach <code className="font-mono">*.{form.domain || "yourdomain.com"}</code> under your Vercel project&apos;s Settings → Domains.
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label>Site Name</Label>
@@ -407,7 +436,9 @@ export default function CustomDomainsPage() {
                     <TableRow key={row.id}>
                       <TableCell className="font-medium">{row.domain}</TableCell>
                       <TableCell className="space-x-1">
-                        {row.linked_shop_id ? (
+                        {row.wildcard_shops_enabled ? (
+                          <Badge variant="secondary">Wildcard — any shop</Badge>
+                        ) : row.linked_shop_id ? (
                           <Badge>{shops.find(s => s.id === row.linked_shop_id)?.shop_name || "Linked Shop"}</Badge>
                         ) : (
                           row.services.map(s => <Badge key={s} variant="outline">{SERVICE_LABELS[s]}</Badge>)
