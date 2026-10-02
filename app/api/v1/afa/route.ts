@@ -177,6 +177,7 @@ export async function POST(request: NextRequest) {
       INSUFFICIENT_BALANCE: 402,
       PAYMENT_FAILED: 500,
       ORDER_CREATE_FAILED: 500,
+      INVALID_GHANA_CARD: 400,
     }, "Failed to submit AFA order")
 
     if (!isKnown) {

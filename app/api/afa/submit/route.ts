@@ -47,6 +47,9 @@ export async function POST(request: NextRequest) {
     if (error?.code === "INSUFFICIENT_BALANCE") {
       return NextResponse.json({ error: error.message }, { status: 400 })
     }
+    if (error?.code === "INVALID_GHANA_CARD") {
+      return NextResponse.json({ error: error.message }, { status: 400 })
+    }
     if (error?.code === "PAYMENT_FAILED" || error?.code === "ORDER_CREATE_FAILED") {
       console.error("[AFA-SUBMIT] Order/payment error:", error)
       return NextResponse.json({ error: error.message, details: error.message }, { status: 500 })

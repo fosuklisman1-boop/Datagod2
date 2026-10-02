@@ -126,6 +126,17 @@ export interface AfaRegisterPayload {
   phoneNumber: string
   ghanaCardNumber: string
   location: string
+  /**
+   * Our own reference, passed through to Apex Prime so /status can look the
+   * registration up afterward. Generated if omitted. Required because — per
+   * Apex Prime's own documented /status behavior, confirmed live for Store
+   * orders — order_id must be "Database ID or client order code"; their own
+   * internal registration_id is NOT a valid /status lookup key on its own
+   * (confirmed live: every stored registration_id failed with "Order not
+   * found"). The reference, echoed back as client_code, is the one identifier
+   * we fully control and know is correct.
+   */
+  reference?: string
 }
 
 export interface AfaRegisterResult {
@@ -296,6 +307,7 @@ export class ApexPrimeProvider implements MTNProvider {
    * approved" — the caller must poll checkAfaStatus() for the real outcome.
    */
   async registerAfa(payload: AfaRegisterPayload): Promise<AfaRegisterResult> {
+    const reference = payload.reference ?? crypto.randomUUID()
     let res: Response
     try {
       res = await apiFetch("/afa-registration", {
@@ -306,6 +318,7 @@ export class ApexPrimeProvider implements MTNProvider {
           gha_number: payload.ghanaCardNumber,
           location: payload.location,
           payment_method: "wallet",
+          reference,
         }),
       })
     } catch (err) {
@@ -321,11 +334,13 @@ export class ApexPrimeProvider implements MTNProvider {
       return { success: false, message: json?.message ?? `API error ${res.status}` }
     }
 
-    if (json.registration_id == null) {
-      return { success: false, message: "Apex Prime returned no registration_id" }
-    }
-
-    return { success: true, registrationId: json.registration_id, message: json.message ?? "AFA registration initiated" }
+    // Mirrors createViaStore exactly: Apex Prime's own internal registration_id
+    // is NOT a valid /status lookup key on its own (confirmed live — every
+    // stored registration_id so far failed with "Order not found"). client_code
+    // (their echo of our reference) is the intended lookup key; fall back to
+    // our own reference only if they omit client_code from the response.
+    const lookupId = json.client_code ?? reference
+    return { success: true, registrationId: lookupId, message: json.message ?? "AFA registration initiated" }
   }
 
   /**

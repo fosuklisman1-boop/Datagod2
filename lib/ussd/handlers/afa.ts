@@ -6,6 +6,7 @@ import { setSession } from "../session"
 import { resolveEmail } from "../resolve-email"
 import { chargeMobileMoney } from "../../paystack"
 import { getUssdServiceVisibility } from "../../ussd-service-visibility"
+import { parseGhanaCardNumber } from "../../ghana-card"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -50,7 +51,15 @@ export async function handleAfaEnterCard(
   const card = input.trim()
   if (!card) return cont(afaEnterCardPrompt())
 
-  await setSession(sessionId, { ...session, step: 'AFA_ENTER_LOCATION', afaGhCard: card })
+  // Reject here rather than at fulfillment time — a malformed number typed
+  // on a USSD keypad (missing the GHA prefix, missing a dash) previously
+  // only surfaced as a failed order after payment. Re-prompt instead.
+  const normalizedCard = parseGhanaCardNumber(card)
+  if (!normalizedCard) {
+    return cont('Invalid Ghana Card number.\nUse the format:\nGHA-123456789-0\n\n0. Back')
+  }
+
+  await setSession(sessionId, { ...session, step: 'AFA_ENTER_LOCATION', afaGhCard: normalizedCard })
   return cont(afaEnterLocationPrompt())
 }
 

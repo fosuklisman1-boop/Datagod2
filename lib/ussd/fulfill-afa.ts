@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { registerAfaViaSykes } from "@/lib/sykes-afa-provider"
 import { getAfaProviderSelection } from "@/lib/afa-fulfillment"
+import { parseGhanaCardNumber } from "@/lib/ghana-card"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -29,6 +30,25 @@ export async function fulfillUssdAfaOrder(orderId: string): Promise<{ success: b
   }
   if (order.order_status === "completed") {
     return { success: false, message: "Already completed" }
+  }
+
+  // Normalize the Ghana Card number before it ever reaches a provider — see
+  // lib/afa-fulfillment.ts's fulfillAfaOrder for the full rationale (a
+  // malformed number is a data problem no provider retry fixes).
+  const normalizedGhCard = parseGhanaCardNumber(order.gh_card_number || "")
+  if (!normalizedGhCard) {
+    const failMsg = `Invalid Ghana Card number "${order.gh_card_number}" — expected the format GHA-123456789-0 (10 digits after GHA). Verify the correct number with the customer and update the order before retrying.`
+    await supabase.from("ussd_afa_orders").update({
+      fulfillment_status: "failed",
+      fulfillment_error: failMsg,
+      updated_at: new Date().toISOString(),
+    }).eq("id", orderId)
+    console.error("[USSD-AFA-FULFILL] Invalid Ghana Card number, not submitting:", orderId, order.gh_card_number)
+    return { success: false, message: failMsg }
+  }
+  if (normalizedGhCard !== order.gh_card_number) {
+    order.gh_card_number = normalizedGhCard
+    await supabase.from("ussd_afa_orders").update({ gh_card_number: normalizedGhCard }).eq("id", orderId)
   }
 
   const provider = await getAfaProviderSelection()
@@ -65,6 +85,7 @@ export async function fulfillUssdAfaOrder(orderId: string): Promise<{ success: b
         phoneNumber: order.dialing_phone,
         ghanaCardNumber: order.gh_card_number,
         location: order.location,
+        reference: orderId,
       })
     } catch (err) {
       console.error("[USSD-AFA-FULFILL] Apex Prime threw an exception:", err)

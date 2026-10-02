@@ -12,6 +12,7 @@ import {
   Wallet, Zap, ShieldCheck, Loader2, User, ClipboardPaste, X, Send, BarChart3, UserPlus, History as HistoryIcon,
 } from "lucide-react"
 import { toast } from "sonner"
+import { formatGhanaCardInput, parseGhanaCardNumber } from "@/lib/ghana-card"
 
 interface AFAOrder {
   id: string
@@ -55,19 +56,6 @@ const STATUS_BADGE: Record<string, string> = {
   pending: "bg-warning/10 text-warning",
   processing: "bg-[#1b388b]/10 text-[#1b388b]",
   cancelled: "bg-destructive/15 text-destructive",
-}
-
-// Standard Ghana Card format: 3 letters + 9 digits + 1 check digit, e.g.
-// GHA-123456789-0. Inserts the dashes as the person types instead of just
-// showing the shape as a placeholder.
-function formatGhanaCard(raw: string): string {
-  const clean = raw.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 13)
-  const letters = clean.slice(0, 3)
-  const digits = clean.slice(3)
-  if (!digits) return letters
-  const firstGroup = digits.slice(0, 9)
-  const lastDigit = digits.slice(9, 10)
-  return lastDigit ? `${letters}-${firstGroup}-${lastDigit}` : `${letters}-${firstGroup}`
 }
 
 const TABS = [
@@ -176,6 +164,11 @@ export default function AFAOrdersPage() {
       toast.error(`Insufficient balance. Required: GHS ${afaPrice.toFixed(2)}, Available: GHS ${walletBalance.toFixed(2)}`)
       return
     }
+    const normalizedGhCard = parseGhanaCardNumber(ghCardNumber)
+    if (!normalizedGhCard) {
+      toast.error("Ghana Card number must be in the format GHA-123456789-0")
+      return
+    }
     setSubmitting(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
@@ -187,7 +180,7 @@ export default function AFAOrdersPage() {
         body: JSON.stringify({
           fullName: fullName.trim(),
           phoneNumber: phoneNumber.trim(),
-          ghCardNumber: ghCardNumber.trim(),
+          ghCardNumber: normalizedGhCard,
           location: location.trim(),
           region: region.trim(),
           occupation: "Farmer", // fixed value -- was already a disabled, non-editable field
@@ -322,7 +315,7 @@ export default function AFAOrdersPage() {
             <Input
               placeholder="GHA-123456789-0"
               value={ghCardNumber}
-              onChange={(e) => setGhCardNumber(formatGhanaCard(e.target.value))}
+              onChange={(e) => setGhCardNumber(formatGhanaCardInput(e.target.value))}
               disabled={submitting}
               className="rounded-2xl border-border bg-muted/40 py-5 font-mono"
             />
