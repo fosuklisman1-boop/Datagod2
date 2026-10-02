@@ -319,48 +319,44 @@ export default function CustomDomainsPage() {
                     <Input value={form.primary_color} onChange={e => setForm(f => ({ ...f, primary_color: e.target.value }))} placeholder="#059669" />
                   </div>
                 </div>
-                {/* Every hidden_pages key is a login/signup/homepage or
-                    dashboard page — a shop-linked domain renders neither (it
-                    rewrites straight to the shop storefront in middleware),
-                    so this whole checklist has no effect there and is hidden
-                    to avoid a confusing, inert control. */}
-                {!form.linked_shop_id && (
-                  <>
-                    <div className="space-y-2">
-                      <Label>Visible Pages — Login / Signup / Homepage</Label>
-                      <div className="space-y-2">
-                        {TOGGLEABLE_PAGES.filter(p => p.group === "auth").map(p => (
-                          <label key={p.key} className="flex items-center gap-2 text-sm cursor-pointer">
-                            <Checkbox checked={!form.hidden_pages.includes(p.key)} onCheckedChange={() => toggleHiddenPage(p.key)} />
-                            {p.label}
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Visible Pages — Core Pages</Label>
-                      <div className="space-y-2">
-                        {TOGGLEABLE_PAGES.filter(p => p.group === "core").map(p => (
-                          <label key={p.key} className="flex items-center gap-2 text-sm cursor-pointer">
-                            <Checkbox checked={!form.hidden_pages.includes(p.key)} onCheckedChange={() => toggleHiddenPage(p.key)} />
-                            {p.label}
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Visible Pages — Dealer & Business Tools</Label>
-                      <div className="space-y-2">
-                        {TOGGLEABLE_PAGES.filter(p => p.group === "tools").map(p => (
-                          <label key={p.key} className="flex items-center gap-2 text-sm cursor-pointer">
-                            <Checkbox checked={!form.hidden_pages.includes(p.key)} onCheckedChange={() => toggleHiddenPage(p.key)} />
-                            {p.label}
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  </>
-                )}
+                {/* Still applies on a shop-linked domain: /auth and /dashboard
+                    are excluded from the shop-mode rewrite (middleware.ts)
+                    and keep rendering normally there, so these keys still
+                    gate them — only "/" itself (and everything else) is
+                    unconditionally covered by the shop rewrite instead. */}
+                <div className="space-y-2">
+                  <Label>Visible Pages — Login / Signup / Homepage</Label>
+                  <div className="space-y-2">
+                    {TOGGLEABLE_PAGES.filter(p => p.group === "auth").map(p => (
+                      <label key={p.key} className="flex items-center gap-2 text-sm cursor-pointer">
+                        <Checkbox checked={!form.hidden_pages.includes(p.key)} onCheckedChange={() => toggleHiddenPage(p.key)} />
+                        {p.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Visible Pages — Core Pages</Label>
+                  <div className="space-y-2">
+                    {TOGGLEABLE_PAGES.filter(p => p.group === "core").map(p => (
+                      <label key={p.key} className="flex items-center gap-2 text-sm cursor-pointer">
+                        <Checkbox checked={!form.hidden_pages.includes(p.key)} onCheckedChange={() => toggleHiddenPage(p.key)} />
+                        {p.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Visible Pages — Dealer & Business Tools</Label>
+                  <div className="space-y-2">
+                    {TOGGLEABLE_PAGES.filter(p => p.group === "tools").map(p => (
+                      <label key={p.key} className="flex items-center gap-2 text-sm cursor-pointer">
+                        <Checkbox checked={!form.hidden_pages.includes(p.key)} onCheckedChange={() => toggleHiddenPage(p.key)} />
+                        {p.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
               </div>
               <DialogFooter>
                 <Button onClick={handleSave} disabled={saving || !form.domain || !form.site_name || form.services.length === 0}>

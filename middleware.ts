@@ -142,12 +142,19 @@ export async function middleware(request: NextRequest) {
       ? `/shop/${customDomainConfig.linked_shop_subdomain}${path === "/" ? "" : path}`
       : null
 
-  // Account-mode-only checks below (landing-page-hide, service-redirect) are
-  // skipped entirely for a shop-linked domain — it has no marketing homepage
-  // or dashboard-scoped service restriction to apply; the rewrite above IS
-  // its entire routing story, and the shop storefront gates its own service
-  // sub-tabs directly off domainBranding.services (see app/shop/[slug]).
-  if (customDomainConfig && !customDomainConfig.linked_shop_subdomain) {
+  // Account-mode checks below (landing-page-hide, service-redirect) are
+  // skipped only for a path that's actually being shop-rewritten — not for
+  // every request on a shop-linked domain. /auth and /dashboard are
+  // deliberately excluded from the shop rewrite above (they still render
+  // normally on a shop-linked domain, e.g. so a customer can still manage an
+  // existing account), so hidden_pages/services must still be enforced for
+  // THOSE paths even when this domain is shop-linked — otherwise a
+  // dealer-tool page an admin hid via the checklist would stay reachable by
+  // direct URL just because a shop happens to be linked. "/" itself is
+  // always covered by customDomainShopRewritePathname on a shop-linked
+  // domain, so the landing-page-hide check below naturally never fires
+  // there regardless of this guard.
+  if (customDomainConfig && !customDomainShopRewritePathname) {
     // Landing-page-hide: "/" skips the marketing homepage entirely and goes
     // straight to login, regardless of auth state. Checked before the
     // service-redirect below since "/" would otherwise just fall through as
