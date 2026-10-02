@@ -566,13 +566,6 @@ async function handleWithAI(phone: string, text: string): Promise<string> {
     }
   }
 
-  // Snapshot session state up front. handleWithAI only runs when no bot/USSD session is
-  // active, so if a confirm session exists AFTER the loop it was necessarily seeded by
-  // place_whatsapp_order THIS turn. Capturing it makes the post-loop confirm-menu return
-  // robust — we never echo a stale confirm screen in place of the AI's actual reply (e.g.
-  // when the tool returned a validation error rather than staging an order).
-  const sessionAtStart = await getWaSession(phone)
-
   // Load AI config
   const aiConfig = await loadAiConfig()
 
@@ -728,12 +721,17 @@ STYLE:
     return "Sorry, I'm having trouble right now — I've alerted our team and someone will get back to you here shortly."
   }
 
-  // If place_whatsapp_order staged an order THIS run (data / airtime / RC voucher), show
-  // the confirm screen verbatim — the customer needs the exact "1=Wallet / 2=MoMo /
-  // 0=Cancel" gate the waRouter expects. Any confirm session here is necessarily fresh
-  // from this turn (handleWithAI only runs when no session was active), so payment happens
-  // only when they reply on this screen — never silently.
-  if (result.toolsUsed.includes("place_whatsapp_order") && !sessionAtStart) {
+  // If place_whatsapp_order was called THIS run (data / airtime / RC voucher), show the
+  // confirm screen verbatim — the customer needs the exact "1=Wallet / 2=MoMo / 0=Cancel"
+  // gate the waRouter expects, never the AI's own paraphrase of it. This fires whether the
+  // tool freshly staged a session OR found one already pending (its own duplicate-order
+  // guard) — in BOTH cases a real CONFIRM-type session now exists and the customer must see
+  // its actual contents. Previously this only fired on a freshly-staged session, so the
+  // duplicate-order case fell through to the AI's own text — which, having no idea what the
+  // real screen looks like, would invent fictional UI language ("tap the card above")
+  // instead of relaying the real numbered menu. That was the root cause of a customer-
+  // reported "nonsense response" complaint (confirmed live).
+  if (result.toolsUsed.includes("place_whatsapp_order")) {
     const stagedSession = await getWaSession(phone)
     if (stagedSession) {
       const { waConfirmMenu, waAirtimeConfirmMenu, waRcConfirmMenu } = await import("@/lib/ussd/menus")
