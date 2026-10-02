@@ -17,6 +17,11 @@ export interface CustomDomainConfig {
   // covered by hidden_pages' own "guest_purchase"/"landing_page" keys — no
   // separate fields needed for those.)
   linked_shop_subdomain: string | null
+  // True when every active, non-blocked shop platform-wide is reachable as
+  // <that shop's own subdomain>.<this domain> — mutually exclusive with
+  // linked_shop_subdomain being non-null (enforced in the admin API route,
+  // not here; see migration 0104).
+  wildcard_shops_enabled: boolean
 }
 
 const SERVICE_PATH_PREFIXES: Record<DomainService, string[]> = {
