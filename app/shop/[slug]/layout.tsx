@@ -33,7 +33,7 @@ export async function generateMetadata({
   // Some shops predate the subdomain backfill and have no subdomain yet —
   // same fallback as app/sitemap.ts, so canonical and sitemap never disagree.
   const canonicalUrl = shop.subdomain
-    ? `https://${shop.subdomain}.${ROOT_DOMAIN}`
+    ? `https://${shop.subdomain}.${shop.linked_custom_domain || ROOT_DOMAIN}`
     : `https://www.${ROOT_DOMAIN}/shop/${shop.shop_slug}`
   const title = `${shop.shop_name} - Buy Data & Airtime Online | Powered by DATAGOD`
   const description =

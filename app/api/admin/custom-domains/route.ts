@@ -155,6 +155,15 @@ export async function PATCH(request: NextRequest) {
     const id = String(body.id || "")
     if (!id) return NextResponse.json({ error: "'id' is required" }, { status: 400 })
 
+    // Fetch the CURRENT linked_shop_id/domain before mutating, so if this
+    // domain is (or was) shop-linked, the derived subdomain cache entry
+    // (<shop's own subdomain>.<domain>, used by lib/custom-domain-lookup.ts's
+    // resolveCustomDomain fallback) can be invalidated below regardless of
+    // which fields this PATCH actually changes — unlinking, deactivating, or
+    // re-linking to a different shop would otherwise leave that derived
+    // entry serving stale routing for up to CACHE_TTL_SECONDS.
+    const { data: beforeRow } = await supabase.from("custom_domains").select("domain, linked_shop_id").eq("id", id).maybeSingle()
+
     const updates: Record<string, unknown> = {}
     if (body.services !== undefined) {
       const servicesResult = parseServices(body.services)
@@ -197,6 +206,13 @@ export async function PATCH(request: NextRequest) {
     const { data, error } = await supabase.from("custom_domains").update(updates).eq("id", id).select().single()
     if (error) throw error
     if (!data) return NextResponse.json({ error: "Domain not found" }, { status: 404 })
+
+    if (beforeRow?.linked_shop_id) {
+      const { data: oldShopRow } = await supabase.from("user_shops").select("subdomain").eq("id", beforeRow.linked_shop_id).maybeSingle()
+      if (oldShopRow?.subdomain) {
+        await clearCustomDomainCache(`${oldShopRow.subdomain}.${beforeRow.domain}`)
+      }
+    }
 
     if (data.is_active) {
       let linkedShopSubdomain: string | null = null
@@ -246,7 +262,15 @@ export async function DELETE(request: NextRequest) {
     console.error("[CUSTOM-DOMAINS] DELETE error:", error)
     return NextResponse.json({ error: "Failed to delete custom domain" }, { status: 500 })
   }
-  if (data) await clearCustomDomainCache(data.domain)
+  if (data) {
+    await clearCustomDomainCache(data.domain)
+    if (data.linked_shop_id) {
+      const { data: oldShopRow } = await supabase.from("user_shops").select("subdomain").eq("id", data.linked_shop_id).maybeSingle()
+      if (oldShopRow?.subdomain) {
+        await clearCustomDomainCache(`${oldShopRow.subdomain}.${data.domain}`)
+      }
+    }
+  }
 
   return NextResponse.json({ success: true })
 }

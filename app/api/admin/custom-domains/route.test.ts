@@ -238,6 +238,37 @@ describe("PATCH /api/admin/custom-domains", () => {
     const res = await PATCH(postRequest({ id: "1", hidden_pages: ["bogus"] }, "PATCH"))
     expect(res.status).toBe(400)
   })
+
+  it("clears the derived <shop subdomain>.<domain> cache entry when unlinking an already-linked domain", async () => {
+    // Before this fix, resolveCustomDomain's subdomain fallback can leave a
+    // cache entry keyed under "myshop.checkresults.com" (the shop's own
+    // subdomain + the linked domain) that this route never touched — only
+    // the bare "checkresults.com" key was ever cleared. Unlinking the shop
+    // must also invalidate that derived key, or stale routing survives for
+    // up to 5 minutes.
+    let customDomainsCallCount = 0
+    fromMock.mockImplementation((table: string) => {
+      if (table === "user_shops") {
+        return makeBuilder({ data: { subdomain: "myshop" }, error: null })
+      }
+      customDomainsCallCount += 1
+      // 1st custom_domains call = the pre-update "beforeRow" select, where
+      // the shop is still linked. 2nd = update().select(), where this
+      // PATCH's body (linked_shop_id: null) has already cleared it.
+      if (customDomainsCallCount === 1) {
+        return makeBuilder({ data: { domain: "checkresults.com", linked_shop_id: "11111111-1111-1111-1111-111111111111" }, error: null })
+      }
+      return makeBuilder({
+        data: { id: "1", domain: "checkresults.com", services: ["data_bundles"], site_name: "CheckResults", logo_url: null, primary_color: null, is_active: true, linked_shop_id: null },
+        error: null,
+      })
+    })
+
+    const res = await PATCH(postRequest({ id: "1", linked_shop_id: null }, "PATCH"))
+
+    expect(res.status).toBe(200)
+    expect(clearCacheMock).toHaveBeenCalledWith("myshop.checkresults.com")
+  })
 })
 
 describe("DELETE /api/admin/custom-domains", () => {
