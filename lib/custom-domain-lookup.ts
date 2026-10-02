@@ -151,6 +151,27 @@ export async function resolveCustomDomain(host: string): Promise<CustomDomainCon
     return alt.config
   }
 
+  // Neither the exact host nor its www-toggled variant matched directly. One
+  // more possibility: host is <a shop's own subdomain>.<a registered,
+  // shop-linked domain> — e.g. "theirshop.clingshub.com", where
+  // "clingshub.com" is linked to a shop whose own subdomain is "theirshop".
+  // Strip the first label and retry the lookup against the remainder; only
+  // treat it as a hit if the remainder is itself an active, shop-linked
+  // domain AND the stripped label exactly matches that linked shop's own
+  // subdomain — anything else (a typo, an unrelated label, a domain that
+  // isn't shop-linked at all) falls through to the ordinary not-found path
+  // below, same as today.
+  const firstDot = host.indexOf(".")
+  if (firstDot > 0) {
+    const label = host.slice(0, firstDot)
+    const remainder = host.slice(firstDot + 1)
+    const parent = await lookupExact(remainder)
+    if (parent.kind === "found" && parent.config.linked_shop_subdomain === label) {
+      cacheSetPositive(host, parent.config)
+      return parent.config
+    }
+  }
+
   // Both forms are either genuinely absent or unreachable — negative-cache only
   // the forms we're actually sure about (an "error" outcome is never cached).
   if (alt.kind === "not_found") cacheSetNegative(altHost)

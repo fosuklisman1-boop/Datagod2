@@ -242,6 +242,44 @@ describe("resolveCustomDomain", () => {
 
     expect(result?.linked_shop_subdomain).toBeNull()
   })
+
+  it("resolves <linked shop's own subdomain>.<a registered, shop-linked domain> to that domain's config", async () => {
+    redisGetMock.mockResolvedValue(null) // no cache hit for any host form tried
+    maybeSingleMock
+      .mockResolvedValueOnce({ data: null, error: null }) // miss for "theirshop.clingshub.com" itself
+      .mockResolvedValueOnce({ data: null, error: null }) // miss for its www-toggled form
+      .mockResolvedValueOnce({ data: { ...sampleRawRow, domain: "clingshub.com", linked_shop: { subdomain: "theirshop" } }, error: null }) // hit for the stripped remainder "clingshub.com"
+    const { resolveCustomDomain } = await import("./custom-domain-lookup")
+
+    const result = await resolveCustomDomain("theirshop.clingshub.com")
+
+    expect(result?.domain).toBe("clingshub.com")
+    expect(result?.linked_shop_subdomain).toBe("theirshop")
+  })
+
+  it("does NOT resolve a subdomain whose label doesn't match the linked shop's own subdomain", async () => {
+    redisGetMock.mockResolvedValue(null)
+    maybeSingleMock
+      .mockResolvedValueOnce({ data: null, error: null }) // miss for "wrongshop.clingshub.com"
+      .mockResolvedValueOnce({ data: null, error: null }) // miss for its www-toggled form
+      .mockResolvedValueOnce({ data: { ...sampleRawRow, domain: "clingshub.com", linked_shop: { subdomain: "theirshop" } }, error: null }) // "clingshub.com" IS shop-linked, but to a DIFFERENT subdomain
+    const { resolveCustomDomain } = await import("./custom-domain-lookup")
+
+    const result = await resolveCustomDomain("wrongshop.clingshub.com")
+
+    expect(result).toBeNull()
+  })
+
+  it("still resolves a bare registered custom domain directly, undisturbed by the new subdomain fallback", async () => {
+    redisGetMock.mockResolvedValueOnce(null)
+    maybeSingleMock.mockResolvedValueOnce({ data: sampleRawRow, error: null }) // exact hit on "checkresults.com" itself — no further lookups should happen
+    const { resolveCustomDomain } = await import("./custom-domain-lookup")
+
+    const result = await resolveCustomDomain("checkresults.com")
+
+    expect(result).toEqual(sampleConfig)
+    expect(maybeSingleMock).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe("setCustomDomainCache / clearCustomDomainCache", () => {
