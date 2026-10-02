@@ -170,6 +170,7 @@ export async function resolveCustomDomain(host: string): Promise<CustomDomainCon
       cacheSetPositive(host, parent.config)
       return parent.config
     }
+    if (parent.kind === "error") return null
   }
 
   // Both forms are either genuinely absent or unreachable — negative-cache only
