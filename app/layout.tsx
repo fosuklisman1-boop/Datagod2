@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter, DM_Sans, JetBrains_Mono } from "next/font/google";
 import { headers } from "next/headers";
 import { DomainBrandingProvider, type DomainBranding } from "@/components/providers/domain-branding-provider";
-import type { DomainService } from "@/lib/custom-domains";
+import { SERVICE_LABELS, joinServiceLabels, type DomainService } from "@/lib/custom-domains";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
@@ -80,21 +80,6 @@ const BASE_METADATA: Omit<Metadata, "title" | "description" | "openGraph" | "twi
   },
 }
 
-// Human-readable label for each gated service, used to build a domain's link
-// preview so it only ever mentions services that domain actually has enabled.
-const SERVICE_LABELS: Record<DomainService, string> = {
-  data_bundles: "data bundles",
-  airtime: "airtime",
-  results_checker: "results checker vouchers",
-  bulk_sms: "bulk SMS",
-}
-
-function joinLabels(labels: string[]): string {
-  if (labels.length <= 1) return labels[0] ?? "digital services"
-  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`
-  return `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`
-}
-
 // A custom domain restricted to a subset of services (see lib/custom-domains.ts)
 // must never advertise a service it doesn't actually offer in its link preview —
 // previously this was a static, title/description that always mentioned every
@@ -141,7 +126,7 @@ export async function generateMetadata(): Promise<Metadata> {
     }
   }
 
-  const serviceLabels = joinLabels(services.map(s => SERVICE_LABELS[s]))
+  const serviceLabels = joinServiceLabels(services.map(s => SERVICE_LABELS[s]))
   const title = `${domainSiteName} - Buy ${serviceLabels.charAt(0).toUpperCase() + serviceLabels.slice(1)} Online`
   const description = `Get instant ${serviceLabels} from ${domainSiteName}. Fast delivery, secure payment.`
   const image = headersList.get("x-domain-logo") || "https://www.datagod.store/og-image.png"
