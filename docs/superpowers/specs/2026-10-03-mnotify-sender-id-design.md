@@ -41,6 +41,8 @@ Pushing to a provider a second time is allowed (e.g. after a rejection, to resub
 
 **Reject**: an admin-only action, scoped to one provider column (reject on Moolre vs reject on mNotify are independent) OR the whole row (if neither provider has been pushed yet). Sets `local_status`/`mnotify_local_status` to `'rejected'` directly in our DB — no provider API call. This is for an admin who decides a sender name shouldn't go out at all (e.g. impersonation, bad word), separate from a provider later rejecting a pushed submission (which the poll/fetch-status flow already handles by writing `'rejected'` from the provider's own response).
 
+**Mark Approved**: the same kind of manual, provider-call-free override as Reject, but setting the local-status column to `'active'` instead. Needed because Moolre's status-check API has been broken for months (the just-fixed "IE01" bug) — there is currently no reliable automated way to confirm a real Moolre approval, and the admin already knows some sender IDs ARE genuinely approved (checked via Moolre's own dashboard, or prior experience) but our system can't reflect that via polling right now. Available for both providers, not just Moolre, for symmetry and because mNotify's status API could just as easily have its own future outage.
+
 ## mNotify sender-ID client
 
 New file `lib/mnotify-sender-id.ts` (mirrors the existing Moolre functions' shape):
