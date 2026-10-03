@@ -10,6 +10,7 @@ import { createClient } from "@supabase/supabase-js"
 import { registerAfaViaSykes } from "@/lib/sykes-afa-provider"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { secureString } from "@/lib/secure-random"
+import { parseGhanaCardNumber } from "@/lib/ghana-card"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -69,6 +70,7 @@ async function fulfillAfaViaApexPrime(
       phoneNumber: order.phone_number || "",
       ghanaCardNumber: order.gh_card_number || "",
       location: order.location || "",
+      reference: orderId,
     })
   } catch (err) {
     console.error("[AFA-FULFILL] Apex Prime threw an exception:", err)
@@ -147,6 +149,28 @@ export async function fulfillAfaOrder(orderId: string): Promise<FulfillResult> {
   }
   if (order.status === "cancelled") {
     return { success: false, message: "Cannot fulfill a cancelled order" }
+  }
+
+  // 2b. Normalize the Ghana Card number before it ever reaches a provider.
+  // Apex Prime rejects anything not shaped exactly "GHA-123456789-0" (its own
+  // error message), and a malformed number here is a genuine data problem —
+  // never something a provider retry can fix — so fail fast with a clear,
+  // actionable message instead of burning a fulfillment attempt and getting
+  // back the provider's own generic rejection.
+  const normalizedGhCard = parseGhanaCardNumber(order.gh_card_number || "")
+  if (!normalizedGhCard) {
+    const failMsg = `Invalid Ghana Card number "${order.gh_card_number}" — expected the format GHA-123456789-0 (10 digits after GHA). Verify the correct number with the customer and update the order before retrying.`
+    await supabase.from("afa_orders").update({
+      fulfillment_status: "failed",
+      fulfillment_error: failMsg,
+      updated_at: new Date().toISOString(),
+    }).eq("id", orderId)
+    console.error("[AFA-FULFILL] Invalid Ghana Card number, not submitting:", orderId, order.gh_card_number)
+    return { success: false, message: failMsg }
+  }
+  if (normalizedGhCard !== order.gh_card_number) {
+    order.gh_card_number = normalizedGhCard
+    await supabase.from("afa_orders").update({ gh_card_number: normalizedGhCard }).eq("id", orderId)
   }
 
   // 3. Resolve provider (frozen onto the row now)
@@ -266,6 +290,17 @@ export async function submitAfaOrder(params: SubmitAfaOrderParams): Promise<Subm
   const supabase = getSupabase()
   const { userId, fullName, phoneNumber, ghCardNumber, location, region, occupation } = params
 
+  // Reject an invalid Ghana Card number before any money moves — previously
+  // this only surfaced as a fulfillment failure AFTER the wallet was already
+  // debited, leaving the customer paid but unregistered until someone
+  // noticed and manually refunded or corrected the order.
+  const normalizedGhCard = parseGhanaCardNumber(ghCardNumber)
+  if (!normalizedGhCard) {
+    const err: any = new Error(`Ghana Card number must be in the format GHA-123456789-0. Got: "${ghCardNumber}"`)
+    err.code = "INVALID_GHANA_CARD"
+    throw err
+  }
+
   const { data: priceRow } = await supabase
     .from("afa_registration_prices")
     .select("price")
@@ -308,7 +343,7 @@ export async function submitAfaOrder(params: SubmitAfaOrderParams): Promise<Subm
       transaction_code: transactionCode,
       full_name: fullName,
       phone_number: phoneNumber,
-      gh_card_number: ghCardNumber,
+      gh_card_number: normalizedGhCard,
       location,
       region,
       occupation,

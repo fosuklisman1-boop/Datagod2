@@ -15,6 +15,7 @@ import { Loader2, Plus, Pencil, Trash2 } from "lucide-react"
 import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
+import { TOGGLEABLE_PAGES } from "@/lib/custom-domain-pages"
 
 type DomainService = "data_bundles" | "airtime" | "results_checker" | "bulk_sms"
 
@@ -26,8 +27,17 @@ interface CustomDomainRow {
   logo_url: string | null
   primary_color: string | null
   is_active: boolean
+  linked_shop_id: string | null
+  wildcard_shops_enabled: boolean
+  hidden_pages: string[]
   created_at: string
   updated_at: string
+}
+
+interface ShopOption {
+  id: string
+  shop_name: string
+  subdomain: string
 }
 
 const SERVICE_LABELS: Record<DomainService, string> = {
@@ -39,7 +49,20 @@ const SERVICE_LABELS: Record<DomainService, string> = {
 
 const ALL_SERVICES = Object.keys(SERVICE_LABELS) as DomainService[]
 
-const EMPTY_FORM = { domain: "", services: [] as DomainService[], site_name: "", logo_url: "", primary_color: "" }
+// Matches migrations/0100's own column default — a brand-new domain's
+// checklist should visually start in the same state a freshly-inserted row
+// actually has (dealer tools unchecked/hidden, everything else checked/shown).
+const DEFAULT_HIDDEN_PAGES = [
+  "afa_orders", "upgrade", "my_shop", "shop_dashboard", "sub_agents",
+  "sub_agent_catalog", "ussd_shop", "payment_reverify", "buy_stock",
+]
+
+const EMPTY_FORM = {
+  domain: "", services: [] as DomainService[], site_name: "", logo_url: "", primary_color: "",
+  linked_shop_id: null as string | null,
+  wildcard_shops_enabled: false,
+  hidden_pages: DEFAULT_HIDDEN_PAGES as string[],
+}
 
 export default function CustomDomainsPage() {
   const [domains, setDomains] = useState<CustomDomainRow[]>([])
@@ -49,6 +72,22 @@ export default function CustomDomainsPage() {
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [uploadingLogo, setUploadingLogo] = useState(false)
+  const [shops, setShops] = useState<ShopOption[]>([])
+
+  const loadShops = async () => {
+    try {
+      const res = await fetch("/api/admin/shops?status=active&limit=1000", { headers: await authHeader() })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.error || "Failed to load shops")
+      const list: ShopOption[] = (body.data || []).map((s: { id: string; shop_name: string; subdomain: string }) => ({
+        id: s.id, shop_name: s.shop_name, subdomain: s.subdomain,
+      }))
+      setShops(list.sort((a, b) => a.shop_name.localeCompare(b.shop_name)))
+    } catch (e) {
+      console.error("Failed to load shops for picker:", e)
+      toast.error(e instanceof Error ? e.message : "Failed to load shops")
+    }
+  }
 
   const authHeader = async () => {
     const { data: { session } } = await supabase.auth.getSession()
@@ -71,6 +110,7 @@ export default function CustomDomainsPage() {
 
   useEffect(() => {
     loadDomains()
+    loadShops()
   }, [])
 
   const openCreate = () => {
@@ -87,6 +127,9 @@ export default function CustomDomainsPage() {
       site_name: row.site_name,
       logo_url: row.logo_url || "",
       primary_color: row.primary_color || "",
+      linked_shop_id: row.linked_shop_id,
+      wildcard_shops_enabled: row.wildcard_shops_enabled,
+      hidden_pages: row.hidden_pages,
     })
     setDialogOpen(true)
   }
@@ -97,6 +140,15 @@ export default function CustomDomainsPage() {
       services: f.services.includes(service)
         ? f.services.filter(s => s !== service)
         : [...f.services, service],
+    }))
+  }
+
+  const toggleHiddenPage = (key: string) => {
+    setForm(f => ({
+      ...f,
+      hidden_pages: f.hidden_pages.includes(key)
+        ? f.hidden_pages.filter(k => k !== key)
+        : [...f.hidden_pages, key],
     }))
   }
 
@@ -129,6 +181,9 @@ export default function CustomDomainsPage() {
               site_name: form.site_name,
               logo_url: form.logo_url || null,
               primary_color: form.primary_color || null,
+              linked_shop_id: form.linked_shop_id,
+              wildcard_shops_enabled: form.wildcard_shops_enabled,
+              hidden_pages: form.hidden_pages,
             }),
           })
         : await fetch("/api/admin/custom-domains", {
@@ -140,6 +195,9 @@ export default function CustomDomainsPage() {
               site_name: form.site_name,
               logo_url: form.logo_url || null,
               primary_color: form.primary_color || null,
+              linked_shop_id: form.linked_shop_id,
+              wildcard_shops_enabled: form.wildcard_shops_enabled,
+              hidden_pages: form.hidden_pages,
             }),
           })
 
@@ -196,7 +254,7 @@ export default function CustomDomainsPage() {
             <DialogTrigger asChild>
               <Button onClick={openCreate}><Plus className="w-4 h-4 mr-2" /> Add Domain</Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>{editing ? "Edit Domain" : "Add Domain"}</DialogTitle>
               </DialogHeader>
@@ -220,6 +278,56 @@ export default function CustomDomainsPage() {
                       </label>
                     ))}
                   </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Link to Shop (optional)</Label>
+                  <select
+                    value={form.linked_shop_id ?? ""}
+                    onChange={e => setForm(f => ({
+                      ...f,
+                      linked_shop_id: e.target.value || null,
+                      wildcard_shops_enabled: e.target.value ? false : f.wildcard_shops_enabled,
+                    }))}
+                    disabled={form.wildcard_shops_enabled}
+                    className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm disabled:opacity-50"
+                  >
+                    <option value="">— None (dashboard mode) —</option>
+                    {shops.map(s => (
+                      <option key={s.id} value={s.id}>{s.shop_name} ({s.subdomain})</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-muted-foreground">
+                    Linking a shop makes this domain show that shop&apos;s storefront (guest checkout) instead of the dashboard. Services above then filter which of the shop&apos;s Buy Data/Airtime/Results Vouchers tabs show.
+                  </p>
+                  {form.linked_shop_id && form.domain && (() => {
+                    const linkedShop = shops.find(s => s.id === form.linked_shop_id)
+                    if (!linkedShop) return null
+                    const shopHostname = `${linkedShop.subdomain}.${form.domain}`
+                    return (
+                      <p className="text-xs text-muted-foreground">
+                        This shop&apos;s own shareable URL will become <code className="font-mono">{shopHostname}</code>. Ask the domain owner to also point that exact hostname at Vercel (a DNS record, same as the root domain above — not a wildcard), then attach <code className="font-mono">{shopHostname}</code> under your Vercel project&apos;s Settings → Domains.
+                      </p>
+                    )
+                  })()}
+                </div>
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <Checkbox
+                      checked={form.wildcard_shops_enabled}
+                      disabled={!!form.linked_shop_id}
+                      onCheckedChange={(checked) => setForm(f => ({
+                        ...f,
+                        wildcard_shops_enabled: !!checked,
+                        linked_shop_id: checked ? null : f.linked_shop_id,
+                      }))}
+                    />
+                    Enable wildcard mode — any active shop can use {form.domain || "this domain"} as an alternate URL
+                  </label>
+                  {form.wildcard_shops_enabled && (
+                    <p className="text-xs text-muted-foreground">
+                      Every active shop automatically gets its own subdomain here (e.g. <code className="font-mono">kofi.{form.domain || "yourdomain.com"}</code>, <code className="font-mono">ama.{form.domain || "yourdomain.com"}</code>) — no per-shop setup needed. This needs TWO DNS records from the domain owner, not just one: (1) two NS records delegating <code className="font-mono">_acme-challenge</code> to <code className="font-mono">ns1.vercel-dns.com.</code> and <code className="font-mono">ns2.vercel-dns.com.</code>, so Vercel can issue and renew the wildcard TLS certificate — skip this and every subdomain shows a certificate error — and (2) a wildcard CNAME record, host <code className="font-mono">*</code>, for routing. Vercel assigns a project-specific CNAME target, so use the exact value shown in your Vercel project&apos;s Settings → Domains after attaching <code className="font-mono">*.{form.domain || "yourdomain.com"}</code> there, rather than assuming a fixed one.
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label>Site Name</Label>
@@ -250,6 +358,44 @@ export default function CustomDomainsPage() {
                     <Input value={form.primary_color} onChange={e => setForm(f => ({ ...f, primary_color: e.target.value }))} placeholder="#059669" />
                   </div>
                 </div>
+                {/* Still applies on a shop-linked domain: /auth and /dashboard
+                    are excluded from the shop-mode rewrite (middleware.ts)
+                    and keep rendering normally there, so these keys still
+                    gate them — only "/" itself (and everything else) is
+                    unconditionally covered by the shop rewrite instead. */}
+                <div className="space-y-2">
+                  <Label>Visible Pages — Login / Signup / Homepage</Label>
+                  <div className="space-y-2">
+                    {TOGGLEABLE_PAGES.filter(p => p.group === "auth").map(p => (
+                      <label key={p.key} className="flex items-center gap-2 text-sm cursor-pointer">
+                        <Checkbox checked={!form.hidden_pages.includes(p.key)} onCheckedChange={() => toggleHiddenPage(p.key)} />
+                        {p.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Visible Pages — Core Pages</Label>
+                  <div className="space-y-2">
+                    {TOGGLEABLE_PAGES.filter(p => p.group === "core").map(p => (
+                      <label key={p.key} className="flex items-center gap-2 text-sm cursor-pointer">
+                        <Checkbox checked={!form.hidden_pages.includes(p.key)} onCheckedChange={() => toggleHiddenPage(p.key)} />
+                        {p.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Visible Pages — Dealer & Business Tools</Label>
+                  <div className="space-y-2">
+                    {TOGGLEABLE_PAGES.filter(p => p.group === "tools").map(p => (
+                      <label key={p.key} className="flex items-center gap-2 text-sm cursor-pointer">
+                        <Checkbox checked={!form.hidden_pages.includes(p.key)} onCheckedChange={() => toggleHiddenPage(p.key)} />
+                        {p.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
               </div>
               <DialogFooter>
                 <Button onClick={handleSave} disabled={saving || !form.domain || !form.site_name || form.services.length === 0}>
@@ -278,9 +424,10 @@ export default function CustomDomainsPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Domain</TableHead>
-                    <TableHead>Services</TableHead>
+                    <TableHead>Services / Shop</TableHead>
                     <TableHead>Site Name</TableHead>
                     <TableHead>Active</TableHead>
+                    <TableHead>Hidden</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -289,13 +436,22 @@ export default function CustomDomainsPage() {
                     <TableRow key={row.id}>
                       <TableCell className="font-medium">{row.domain}</TableCell>
                       <TableCell className="space-x-1">
-                        {row.services.map(s => <Badge key={s} variant="outline">{SERVICE_LABELS[s]}</Badge>)}
+                        {row.wildcard_shops_enabled ? (
+                          <Badge variant="secondary">Wildcard — any shop</Badge>
+                        ) : row.linked_shop_id ? (
+                          <Badge>{shops.find(s => s.id === row.linked_shop_id)?.shop_name || "Linked Shop"}</Badge>
+                        ) : (
+                          row.services.map(s => <Badge key={s} variant="outline">{SERVICE_LABELS[s]}</Badge>)
+                        )}
                       </TableCell>
                       <TableCell className="flex items-center gap-2">
                         {row.logo_url && <img src={row.logo_url} alt="" className="w-5 h-5 rounded object-cover" />}
                         {row.site_name}
                       </TableCell>
                       <TableCell><Switch checked={row.is_active} onCheckedChange={() => handleToggleActive(row)} /></TableCell>
+                      <TableCell>
+                        {row.hidden_pages.length > 0 && <Badge variant="secondary">{row.hidden_pages.length} hidden</Badge>}
+                      </TableCell>
                       <TableCell className="text-right space-x-2">
                         <Button variant="ghost" size="icon" onClick={() => openEdit(row)}><Pencil className="w-4 h-4" /></Button>
                         <Button variant="ghost" size="icon" onClick={() => handleDelete(row)}><Trash2 className="w-4 h-4 text-destructive" /></Button>

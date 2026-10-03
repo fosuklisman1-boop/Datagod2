@@ -4,7 +4,7 @@ import { generateShopSession } from "@/lib/shop-token-edge"
 import { Ratelimit } from "@upstash/ratelimit"
 import { Redis } from "@upstash/redis"
 import { resolveCustomDomain } from "@/lib/custom-domain-lookup"
-import { getServiceRedirect, normalizeDomainHost } from "@/lib/custom-domains"
+import { getServiceRedirect, isPageHidden, normalizeDomainHost } from "@/lib/custom-domains"
 
 // Per-IP cookie-issuance rate limit. Real customers refresh a handful of cookies
 // per browsing session (visit, navigate to checkout, etc.). Attackers harvesting
@@ -119,8 +119,79 @@ export async function middleware(request: NextRequest) {
       ? await resolveCustomDomain(hostname)
       : null
 
-  if (customDomainConfig) {
-    const serviceRedirectPath = getServiceRedirect(path, customDomainConfig.services)
+  // Shop mode: every OTHER path, including "/", rewrites into the linked
+  // shop's storefront — same guard conditions as the shop-subdomain rewrite
+  // above (excluding /shop/, /api, /_next, any path with a file extension
+  // like /robots.txt or /sitemap.xml which have no route under
+  // app/shop/[slug]/, and /auth, /dashboard, /admin — the shared
+  // account-system routes, which have no shop-scoped equivalent and must
+  // keep rendering normally on this host rather than 404ing via a rewrite
+  // into a nonexistent /shop/<sub>/auth/... path).
+  // This does NOT return early — like the shop-subdomain rewrite, it flows
+  // through the rest of the pipeline below so shop-mode pages still get CSP
+  // headers, the nonce, and __shop_sess.
+  // Under wildcard mode (every active, non-blocked shop usable as a
+  // subdomain of this one domain — see lib/custom-domain-lookup.ts), the
+  // rewrite target is the REQUESTED subdomain label itself — e.g. "kofi"
+  // from "kofi.clingshub.com" — not one fixed shop. resolveCustomDomain's
+  // own subdomain-fallback lookup already confirmed this exact label is an
+  // active, non-blocked shop's own subdomain before returning this config,
+  // so middleware only re-derives the same label; it doesn't re-verify it.
+  //
+  // This must NOT fire for a bare-domain visit (hostname IS the domain
+  // itself) or its "www." form: both resolve via resolveCustomDomain's
+  // exact-host/www-toggle paths, not the subdomain-fallback path, so a
+  // naive hostname.split(".")[0] there would wrongly extract "clingshub" or
+  // "www" as if it were a real shop subdomain. RESERVED_SUBDOMAINS (defined
+  // above for the ROOT_DOMAIN rewrite) already excludes "www" from ever
+  // being a valid shop label, so reusing it here closes that case; the
+  // `hostname === "<label>.<domain>"` reconstruction below is the
+  // authoritative guard regardless of which label is involved.
+  const strippedLabel = hostname && hostname.includes(".") ? hostname.slice(0, hostname.indexOf(".")) : null
+  const wildcardLabelValid =
+    !!customDomainConfig?.wildcard_shops_enabled &&
+    !!strippedLabel &&
+    !RESERVED_SUBDOMAINS.has(strippedLabel) &&
+    hostname === `${strippedLabel}.${customDomainConfig.domain}`
+
+  const shopModeSubdomain = wildcardLabelValid ? strippedLabel : customDomainConfig?.linked_shop_subdomain
+
+  const customDomainShopRewritePathname =
+    shopModeSubdomain &&
+    !path.startsWith("/shop/") &&
+    !path.startsWith("/api") &&
+    !path.startsWith("/_next") &&
+    !path.startsWith("/auth") &&
+    !path.startsWith("/dashboard") &&
+    !path.startsWith("/admin") &&
+    !PUBLIC_FILE.test(path)
+      ? `/shop/${shopModeSubdomain}${path === "/" ? "" : path}`
+      : null
+
+  // Account-mode checks below (landing-page-hide, service-redirect) are
+  // skipped only for a path that's actually being shop-rewritten — not for
+  // every request on a shop-linked domain. /auth and /dashboard are
+  // deliberately excluded from the shop rewrite above (they still render
+  // normally on a shop-linked domain, e.g. so a customer can still manage an
+  // existing account), so hidden_pages/services must still be enforced for
+  // THOSE paths even when this domain is shop-linked — otherwise a
+  // dealer-tool page an admin hid via the checklist would stay reachable by
+  // direct URL just because a shop happens to be linked. "/" itself is
+  // always covered by customDomainShopRewritePathname on a shop-linked
+  // domain, so the landing-page-hide check below naturally never fires
+  // there regardless of this guard.
+  if (customDomainConfig && !customDomainShopRewritePathname) {
+    // Landing-page-hide: "/" skips the marketing homepage entirely and goes
+    // straight to login, regardless of auth state. Checked before the
+    // service-redirect below since "/" would otherwise just fall through as
+    // an unrestricted account-wide path.
+    if (isPageHidden("landing_page", customDomainConfig.hidden_pages) && path === "/") {
+      const url = request.nextUrl.clone()
+      url.pathname = "/auth/login"
+      return NextResponse.redirect(url)
+    }
+
+    const serviceRedirectPath = getServiceRedirect(path, customDomainConfig.services, customDomainConfig.hidden_pages)
     if (serviceRedirectPath) {
       const url = request.nextUrl.clone()
       url.pathname = serviceRedirectPath
@@ -143,12 +214,14 @@ export async function middleware(request: NextRequest) {
     h.delete("x-domain-site-name")
     h.delete("x-domain-logo")
     h.delete("x-domain-color")
+    h.delete("x-domain-hidden-pages")
     if (customDomainConfig) {
       try {
         h.set("x-domain-services", customDomainConfig.services.join(","))
         h.set("x-domain-site-name", customDomainConfig.site_name)
         if (customDomainConfig.logo_url) h.set("x-domain-logo", customDomainConfig.logo_url)
         if (customDomainConfig.primary_color) h.set("x-domain-color", customDomainConfig.primary_color)
+        h.set("x-domain-hidden-pages", customDomainConfig.hidden_pages.join(","))
       } catch (e) {
         // A malformed branding value must never take down every request to this
         // domain — skip branding for this request rather than throwing out of
@@ -163,9 +236,10 @@ export async function middleware(request: NextRequest) {
   // subdomain (URL bar unchanged), or a normal passthrough on the main host.
   const makeResponse = () => {
     const init = { request: { headers: buildRequestHeaders() } }
-    if (rewritePathname) {
+    const effectiveRewrite = rewritePathname ?? customDomainShopRewritePathname
+    if (effectiveRewrite) {
       const url = request.nextUrl.clone()
-      url.pathname = rewritePathname
+      url.pathname = effectiveRewrite
       return NextResponse.rewrite(url, init)
     }
     return NextResponse.next(init)
@@ -265,7 +339,7 @@ export async function middleware(request: NextRequest) {
   // harvested cookie to attack multiple shops.
   // On a shop subdomain the public path is "/", "/checkout", etc., so match against
   // the rewritten internal path ("/shop/<subdomain>/…") to bind the cookie correctly.
-  const effectivePath = rewritePathname ?? path
+  const effectivePath = rewritePathname ?? customDomainShopRewritePathname ?? path
   const shopMatch = effectivePath.match(/^\/shop\/([^/]+)/)
   if (shopMatch) {
     const slug = decodeURIComponent(shopMatch[1])

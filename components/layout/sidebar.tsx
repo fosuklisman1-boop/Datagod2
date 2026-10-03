@@ -5,23 +5,16 @@ import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { supabase } from "@/lib/supabase"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
-import { isPathAllowedForService } from "@/lib/custom-domains"
+import { isPathAllowedForService, isPageHidden } from "@/lib/custom-domains"
+import { menuItems, shopItems } from "@/lib/dashboard-nav-items"
 import { useIsAdmin } from "@/hooks/use-admin"
 import { useAppSettings } from "@/hooks/use-app-settings"
 import { useAuth } from "@/hooks/use-auth"
 import { sidebarSkinClasses, type SidebarSkin } from "@/lib/sidebar-theme"
 import {
-  Layers,
-  Package,
-  ShoppingCart,
-  IdCard,
-  Wallet,
   History,
-  User,
-  AlertCircle,
   MessageCircle,
   LogOut,
-  Store,
   Settings,
   Download,
   ChevronLeft,
@@ -32,7 +25,6 @@ import {
   ArrowRightLeft,
   Clock,
   Users,
-  ShoppingBag,
   Zap,
   Crown,
   Sparkles,
@@ -47,9 +39,6 @@ import {
   Send,
   MessageSquare,
   Globe,
-  Code2,
-  Tag,
-  Banknote,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
@@ -66,37 +55,6 @@ const formatCount = (num: number): string => {
   return num.toLocaleString()
 }
 
-const menuItems = [
-  { href: "/dashboard", label: "Dashboard", icon: Layers, roles: ["user", "admin", "dealer"] },
-  { href: "/dashboard/data-packages", label: "Data Packages", icon: Package, roles: ["user", "admin", "dealer"] },
-  { href: "/dashboard/airtime", label: "Buy Airtime", icon: Smartphone, roles: ["user", "admin", "dealer"] },
-  { href: "/dashboard/results-checker", label: "Results Checker", icon: GraduationCap, roles: ["user", "admin", "dealer", "sub_agent"] },
-  { href: "/dashboard/results-check", label: "Check Results", icon: GraduationCap, roles: ["user", "admin", "dealer", "sub_agent"] },
-  { href: "/dashboard/my-orders", label: "My Orders", icon: ShoppingCart, roles: ["user", "admin", "dealer"] },
-  { href: "/dashboard/afa-orders", label: "AFA Orders", icon: IdCard, roles: ["user", "admin", "dealer"] },
-  { href: "/dashboard/wallet", label: "Wallet", icon: Wallet, roles: ["user", "admin", "sub_agent", "dealer"] },
-  { href: "/dashboard/transactions", label: "Transactions", icon: History, roles: ["user", "admin", "dealer"] },
-  { href: "/dashboard/profile", label: "Profile", icon: User, roles: ["user", "admin", "sub_agent", "dealer"] },
-  { href: "/dashboard/developer", label: "Developer / API", icon: Code2, roles: ["user", "admin", "sub_agent", "dealer"] },
-  { href: "/dashboard/complaints", label: "My Complaints", icon: AlertCircle, roles: ["user", "admin", "dealer"] },
-  { href: "/dashboard/upgrade", label: "Upgrade to Dealer", icon: Sparkles, roles: ["user", "admin", "dealer"] },
-]
-
-const shopItems = [
-  { href: "/dashboard/my-shop", label: "Overview", icon: Store, roles: ["user", "admin", "sub_agent", "dealer"] },
-  { href: "/dashboard/shop-orders", label: "Orders", icon: ShoppingCart, roles: ["user", "admin", "sub_agent", "dealer"] },
-  { href: "/dashboard/customers", label: "Customers", icon: Users, roles: ["user", "admin", "sub_agent", "dealer"] },
-  { href: "/dashboard/shop-profit-logs", label: "Profit Logs", icon: Activity, roles: ["user", "admin", "sub_agent", "dealer"] },
-  { href: "/dashboard/shop-pricing", label: "Pricing", icon: Tag, roles: ["user", "admin", "sub_agent", "dealer"] },
-  { href: "/dashboard/sms", label: "SMS", icon: Send, roles: ["user", "admin", "sub_agent", "dealer"] },
-  { href: "/dashboard/shop-withdraw", label: "Withdraw", icon: Banknote, roles: ["user", "admin", "sub_agent", "dealer"] },
-  { href: "/dashboard/shop-profile", label: "Shop Profile", icon: Settings, roles: ["user", "admin", "sub_agent", "dealer"] },
-  { href: "/dashboard/ussd-shop", label: "USSD/WhatsApp Bot", icon: Smartphone, roles: ["user", "admin", "sub_agent", "dealer"] },
-  { href: "/dashboard/payment-reverify", label: "Payment Reverify", icon: Zap, roles: ["user", "admin", "sub_agent", "dealer"] },
-  { href: "/dashboard/sub-agents", label: "Sub-Agents", icon: Users, roles: ["user", "admin", "dealer"] },
-  { href: "/dashboard/sub-agent-catalog", label: "Sub-Agent Catalog", icon: Package, roles: ["user", "admin", "dealer"] },
-  { href: "/dashboard/buy-stock", label: "Buy Data", icon: ShoppingBag, roles: ["sub_agent"] },
-]
 
 export function Sidebar() {
   const pathname = usePathname()
@@ -364,10 +322,11 @@ export function Sidebar() {
           ) : (
             menuItems.filter(item => {
             if (!userRole || !item.roles.includes(userRole)) return false
+            if (item.href === '/dashboard' && isPageHidden('dashboard_home', domainBranding.hiddenPages)) return false
             // Hide upgrade page for dealers with no subscription end-date (permanent dealers)
             if (item.href === '/dashboard/upgrade' && userRole === 'dealer' && !dealerHasSubscription) return false
             // On a custom domain scoped to one service, hide nav entries for the other services.
-            if (!isPathAllowedForService(item.href, domainBranding.services)) return false
+            if (!isPathAllowedForService(item.href, domainBranding.services, domainBranding.hiddenPages)) return false
             return true
           }).map((item) => {
               const Icon = item.icon
@@ -422,7 +381,7 @@ export function Sidebar() {
                   c.sectionLabelText
                 )}>SHOP</p>
               )}
-              {shopItems.filter(item => userRole && item.roles.includes(userRole) && isPathAllowedForService(item.href, domainBranding.services)).map((item) => {
+              {shopItems.filter(item => userRole && item.roles.includes(userRole) && isPathAllowedForService(item.href, domainBranding.services, domainBranding.hiddenPages)).map((item) => {
                 const Icon = item.icon
                 const isActive = pathname === item.href
                 const isLoading = loadingPath === item.href

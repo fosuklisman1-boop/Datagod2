@@ -6,6 +6,7 @@ import { verifyTurnstileToken, getRequestIp, isTurnstileEnabled } from "@/lib/tu
 import { isStorefrontOtpRequired, isPhoneOtpVerified } from "@/lib/storefront-otp"
 import { initializePayment } from "@/lib/paystack"
 import { resolveTrustedBaseUrl } from "@/lib/custom-domain-lookup"
+import { parseGhanaCardNumber } from "@/lib/ghana-card"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -53,6 +54,13 @@ export async function POST(request: NextRequest) {
 
     if (!fullName || !ghCardNumber || !location || !region || !phoneNumber || !customerEmail) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+    }
+
+    // Reject before taking payment — a malformed number here previously only
+    // surfaced as a fulfillment failure after the customer had already paid.
+    const normalizedGhCard = parseGhanaCardNumber(ghCardNumber)
+    if (!normalizedGhCard) {
+      return NextResponse.json({ error: `Ghana Card number must be in the format GHA-123456789-0. Got: "${ghCardNumber}"` }, { status: 400 })
     }
 
     const shopPrice = Number(shopRow.afa_price)
@@ -125,7 +133,7 @@ export async function POST(request: NextRequest) {
       .insert([{
         dialing_phone: cleanPhone,
         full_name: fullName,
-        gh_card_number: ghCardNumber,
+        gh_card_number: normalizedGhCard,
         location,
         region,
         occupation: "Farmer",

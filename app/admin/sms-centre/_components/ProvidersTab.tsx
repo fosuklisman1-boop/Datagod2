@@ -32,7 +32,12 @@ interface SenderId {
   sender_id: string
   moolre_status: string | null
   local_status: "pending" | "active" | "rejected"
+  moolre_pushed_at: string | null
   last_polled_at: string | null
+  mnotify_status: string | null
+  mnotify_local_status: "pending" | "active" | "rejected"
+  mnotify_pushed_at: string | null
+  mnotify_last_polled_at: string | null
   sms_account_id: string | null
 }
 
@@ -100,10 +105,73 @@ export default function ProvidersTab() {
     setBusy(false)
     if (res.success) {
       setNewSender("")
-      toast.success(`Submitted "${sid}". Approval is asynchronous — use "Poll now" to refresh status.`)
+      toast.success(`Submitted "${sid}". Push to a provider below to start approval.`)
       await load()
     } else {
       toast.error(res.error ?? "Failed to submit sender ID")
+    }
+  }
+
+  async function pushTo(id: string, provider: "moolre" | "mnotify") {
+    setBusy(true)
+    const res = await api("/api/admin/sms-sender-ids/push", {
+      method: "POST",
+      body: JSON.stringify({ id, provider }),
+    })
+    setBusy(false)
+    if (res.success) {
+      toast.success(`Pushed to ${provider === "moolre" ? "Moolre" : "mNotify"}.`)
+      await load()
+    } else {
+      toast.error(res.error ?? "Push failed")
+    }
+  }
+
+  async function rejectOn(id: string, provider: "moolre" | "mnotify" | "both") {
+    setBusy(true)
+    const res = await api("/api/admin/sms-sender-ids/reject", {
+      method: "POST",
+      body: JSON.stringify({ id, provider }),
+    })
+    setBusy(false)
+    if (res.success) {
+      toast.success("Rejected.")
+      await load()
+    } else {
+      toast.error(res.error ?? "Reject failed")
+    }
+  }
+
+  // Manual override for when the provider's own status-check API can't be
+  // trusted (e.g. Moolre's /sms/query outage) but the admin independently
+  // knows (their own dashboard, prior experience) that it's really approved.
+  async function approveOn(id: string, provider: "moolre" | "mnotify" | "both") {
+    setBusy(true)
+    const res = await api("/api/admin/sms-sender-ids/approve", {
+      method: "POST",
+      body: JSON.stringify({ id, provider }),
+    })
+    setBusy(false)
+    if (res.success) {
+      toast.success("Marked approved.")
+      await load()
+    } else {
+      toast.error(res.error ?? "Approve failed")
+    }
+  }
+
+  async function fetchStatusFor(id: string, provider: "moolre" | "mnotify") {
+    setBusy(true)
+    const res = await api("/api/admin/sms-sender-ids/fetch-status", {
+      method: "POST",
+      body: JSON.stringify({ id, provider }),
+    })
+    setBusy(false)
+    if (res.success) {
+      toast.success("Status refreshed.")
+      await load()
+    } else {
+      toast.error(res.error ?? "Fetch status failed")
     }
   }
 
@@ -241,9 +309,8 @@ export default function ProvidersTab() {
                   <tr className="border-b text-left text-muted-foreground">
                     <th className="py-2 font-medium">Sender ID</th>
                     <th className="py-2 font-medium">Owner</th>
-                    <th className="py-2 font-medium">Status</th>
-                    <th className="py-2 font-medium">Moolre status</th>
-                    <th className="py-2 font-medium">Last polled</th>
+                    <th className="py-2 font-medium">Moolre</th>
+                    <th className="py-2 font-medium">mNotify</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -256,13 +323,30 @@ export default function ProvidersTab() {
                         </Badge>
                       </td>
                       <td className="py-2">
-                        <Badge className={STATUS_VARIANT[s.local_status] ?? "bg-muted text-muted-foreground"} variant="secondary">
-                          {s.local_status}
-                        </Badge>
+                        <ProviderCell
+                          pushedAt={s.moolre_pushed_at}
+                          localStatus={s.local_status}
+                          rawStatus={s.moolre_status}
+                          lastPolledAt={s.last_polled_at}
+                          busy={busy}
+                          onPush={() => pushTo(s.id, "moolre")}
+                          onReject={() => rejectOn(s.id, "moolre")}
+                          onApprove={() => approveOn(s.id, "moolre")}
+                          onFetch={() => fetchStatusFor(s.id, "moolre")}
+                        />
                       </td>
-                      <td className="py-2 text-muted-foreground">{s.moolre_status ?? "—"}</td>
-                      <td className="py-2 text-muted-foreground">
-                        {s.last_polled_at ? new Date(s.last_polled_at).toLocaleString() : "—"}
+                      <td className="py-2">
+                        <ProviderCell
+                          pushedAt={s.mnotify_pushed_at}
+                          localStatus={s.mnotify_local_status}
+                          rawStatus={s.mnotify_status}
+                          lastPolledAt={s.mnotify_last_polled_at}
+                          busy={busy}
+                          onPush={() => pushTo(s.id, "mnotify")}
+                          onReject={() => rejectOn(s.id, "mnotify")}
+                          onApprove={() => approveOn(s.id, "mnotify")}
+                          onFetch={() => fetchStatusFor(s.id, "mnotify")}
+                        />
                       </td>
                     </tr>
                   ))}
@@ -281,6 +365,77 @@ function Stat({ label, value }: { label: string; value: string }) {
     <div className="rounded-lg border p-3">
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="text-xl font-bold">{value}</p>
+    </div>
+  )
+}
+
+function ProviderCell({
+  pushedAt,
+  localStatus,
+  rawStatus,
+  lastPolledAt,
+  busy,
+  onPush,
+  onReject,
+  onApprove,
+  onFetch,
+}: {
+  pushedAt: string | null
+  localStatus: "pending" | "active" | "rejected"
+  rawStatus: string | null
+  lastPolledAt: string | null
+  busy: boolean
+  onPush: () => void
+  onReject: () => void
+  onApprove: () => void
+  onFetch: () => void
+}) {
+  if (!pushedAt) {
+    return (
+      <div className="flex items-center gap-2">
+        <span className="text-muted-foreground text-xs">Not pushed</span>
+        <Button variant="outline" size="sm" onClick={onPush} disabled={busy}>
+          Push
+        </Button>
+        <Button variant="outline" size="sm" onClick={onApprove} disabled={busy}>
+          Mark approved
+        </Button>
+      </div>
+    )
+  }
+  return (
+    <div className="flex items-center gap-2">
+      <div>
+        <Badge className={STATUS_VARIANT[localStatus] ?? "bg-muted text-muted-foreground"} variant="secondary">
+          {localStatus}
+        </Badge>
+        <p className="text-[10px] text-muted-foreground mt-0.5">
+          {rawStatus ?? "—"} · {lastPolledAt ? new Date(lastPolledAt).toLocaleString() : "never polled"}
+        </p>
+      </div>
+      {localStatus === "pending" && (
+        <>
+          <Button variant="outline" size="sm" onClick={onFetch} disabled={busy}>
+            Fetch
+          </Button>
+          <Button variant="outline" size="sm" onClick={onApprove} disabled={busy}>
+            Mark approved
+          </Button>
+          <Button variant="outline" size="sm" onClick={onReject} disabled={busy}>
+            Reject
+          </Button>
+        </>
+      )}
+      {localStatus === "rejected" && (
+        <>
+          <Button variant="outline" size="sm" onClick={onPush} disabled={busy}>
+            Re-push
+          </Button>
+          <Button variant="outline" size="sm" onClick={onApprove} disabled={busy}>
+            Mark approved
+          </Button>
+        </>
+      )}
     </div>
   )
 }

@@ -588,6 +588,14 @@ export async function createMoolreSenderId(senderId: string): Promise<{ ok: bool
  * Query Moolre for the approval status of a sender-ID (type 1).
  * Maps "Approved" (code ASMQ02) → 'active', "Rejected" (code ASMQ07) → 'rejected',
  * anything else → 'pending'. Fail-soft: returns pending on any error, never throws.
+ *
+ * Moolre's own `status` field (0 = failure, 1 = success — confirmed live: a
+ * genuine internal error still comes back as HTTP 200 with
+ * `{status:0, code:"IE01", message:"INTERNAL ERROR"}`) must be checked BEFORE
+ * treating `code` as a real sender-ID status. Without this, an error code like
+ * "IE01" gets stored as if it were a legitimate (if unrecognized) status —
+ * exactly what happened in production: every poll for months quietly wrote
+ * "IE01" into moolre_status, which reads like real data, not an obvious error.
  */
 export async function queryMoolreSenderIdStatus(senderId: string): Promise<{
   rawStatus: string
@@ -600,6 +608,10 @@ export async function queryMoolreSenderIdStatus(senderId: string): Promise<{
       { type: 1, senderid: senderId },
       { headers: { 'X-API-VASKEY': MOOLRE_API_KEY, 'Content-Type': 'application/json' } }
     )
+    if (response.data?.status === 0) {
+      console.error('[SMS] Moolre querySenderIdStatus returned a failure status:', response.data?.code, response.data?.message)
+      return { rawStatus: 'error', localStatus: 'pending' }
+    }
     const rawStatus = response.data?.data?.status ?? response.data?.code ?? response.data?.status ?? 'unknown'
     const rawStr = String(rawStatus)
     const localStatus: 'pending' | 'active' | 'rejected' =
@@ -813,6 +825,25 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
   // De-dupe, keep only known + configured providers.
   order = [...new Set(order)].filter((p) => SMS_SENDERS[p] && isProviderConfigured(p))
   if (order.length === 0) order = [primaryProvider] // last resort — let it surface its own error
+
+  // A custom (non-default) sender ID may be approved on only one provider.
+  // Drop any provider from the chain that hasn't approved THIS sender ID,
+  // rather than attempting it and getting a provider-side rejection.
+  if (payload.senderId && payload.senderId.trim()) {
+    const sid = payload.senderId.trim().toUpperCase()
+    const { data: senderRow } = await supabase
+      .from('sms_sender_ids')
+      .select('local_status, mnotify_local_status')
+      .eq('sender_id', sid)
+      .maybeSingle()
+    if (senderRow) {
+      const approvedProviders = new Set<string>()
+      if (senderRow.local_status === 'active') approvedProviders.add('moolre')
+      if (senderRow.mnotify_local_status === 'active') approvedProviders.add('mnotify')
+      const narrowed = order.filter((p) => approvedProviders.size === 0 || approvedProviders.has(p))
+      if (narrowed.length > 0) order = narrowed
+    }
+  }
 
   let last: SendSMSResponse = { success: false, error: 'No SMS provider available' }
   for (const name of order) {

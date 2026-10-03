@@ -20,17 +20,33 @@ vi.mock("@upstash/redis", () => ({
 }))
 
 const maybeSingleMock = vi.fn()
+const shopExistsMaybeSingleMock = vi.fn()
 vi.mock("@/lib/supabase", () => ({
   supabaseAdmin: {
-    from: () => ({
-      select: () => ({
-        eq: () => ({
+    from: (table: string) => {
+      if (table === "user_shops") {
+        return {
+          select: () => ({
+            eq: () => ({
+              eq: () => ({
+                eq: () => ({
+                  maybeSingle: shopExistsMaybeSingleMock,
+                }),
+              }),
+            }),
+          }),
+        }
+      }
+      return {
+        select: () => ({
           eq: () => ({
-            maybeSingle: maybeSingleMock,
+            eq: () => ({
+              maybeSingle: maybeSingleMock,
+            }),
           }),
         }),
-      }),
-    }),
+      }
+    },
   },
 }))
 
@@ -58,6 +74,21 @@ const sampleConfig: CustomDomainConfig = {
   logo_url: null,
   primary_color: "#059669",
   is_active: true,
+  hidden_pages: [],
+  linked_shop_subdomain: null,
+  wildcard_shops_enabled: false,
+}
+
+const sampleRawRow = {
+  domain: sampleConfig.domain,
+  services: sampleConfig.services,
+  site_name: sampleConfig.site_name,
+  logo_url: sampleConfig.logo_url,
+  primary_color: sampleConfig.primary_color,
+  is_active: sampleConfig.is_active,
+  hidden_pages: sampleConfig.hidden_pages,
+  wildcard_shops_enabled: sampleConfig.wildcard_shops_enabled,
+  linked_shop: null as { subdomain: string } | null,
 }
 
 describe("resolveCustomDomain", () => {
@@ -71,15 +102,72 @@ describe("resolveCustomDomain", () => {
     expect(maybeSingleMock).not.toHaveBeenCalled()
   })
 
+  it("treats a cached config missing hidden_pages (from before this field existed) as a miss, not a crash", async () => {
+    // A stale cache entry written by pre-this-feature code would have every
+    // field EXCEPT hidden_pages — simulate that shape directly rather than
+    // spreading sampleConfig, which already includes it.
+    const staleConfig = {
+      domain: sampleConfig.domain,
+      services: sampleConfig.services,
+      site_name: sampleConfig.site_name,
+      logo_url: sampleConfig.logo_url,
+      primary_color: sampleConfig.primary_color,
+      is_active: sampleConfig.is_active,
+    }
+    redisGetMock.mockResolvedValueOnce(staleConfig)
+    maybeSingleMock.mockResolvedValueOnce({ data: sampleConfig, error: null })
+    const { resolveCustomDomain } = await import("./custom-domain-lookup")
+
+    const result = await resolveCustomDomain("checkresults.com")
+
+    // Falls through to Supabase instead of returning the malformed cached
+    // value, and the result has a real hidden_pages array.
+    expect(maybeSingleMock).toHaveBeenCalled()
+    expect(result).toEqual(sampleConfig)
+  })
+
+  it("treats a cached config missing linked_shop_subdomain (from before it existed) as a miss, not a crash", async () => {
+    // A cache entry written after hidden_pages shipped but before shop-linking
+    // deployed would have hidden_pages present but linked_shop_subdomain
+    // missing entirely.
+    const staleConfig = {
+      domain: sampleConfig.domain,
+      services: sampleConfig.services,
+      site_name: sampleConfig.site_name,
+      logo_url: sampleConfig.logo_url,
+      primary_color: sampleConfig.primary_color,
+      is_active: sampleConfig.is_active,
+      hidden_pages: sampleConfig.hidden_pages,
+    }
+    redisGetMock.mockResolvedValueOnce(staleConfig)
+    maybeSingleMock.mockResolvedValueOnce({ data: sampleRawRow, error: null })
+    const { resolveCustomDomain } = await import("./custom-domain-lookup")
+
+    const result = await resolveCustomDomain("checkresults.com")
+
+    expect(maybeSingleMock).toHaveBeenCalled()
+    expect(result).toEqual(sampleConfig)
+  })
+
   it("queries Supabase and fills the cache on a Redis miss", async () => {
     redisGetMock.mockResolvedValueOnce(null)
-    maybeSingleMock.mockResolvedValueOnce({ data: sampleConfig, error: null })
+    maybeSingleMock.mockResolvedValueOnce({ data: sampleRawRow, error: null })
     const { resolveCustomDomain } = await import("./custom-domain-lookup")
 
     const result = await resolveCustomDomain("checkresults.com")
 
     expect(result).toEqual(sampleConfig)
     expect(redisSetMock).toHaveBeenCalledWith("custom_domain:checkresults.com", sampleConfig, { ex: 300 })
+  })
+
+  it("round-trips a non-empty hidden_pages array through a fresh Supabase read", async () => {
+    redisGetMock.mockResolvedValueOnce(null)
+    maybeSingleMock.mockResolvedValueOnce({ data: { ...sampleConfig, hidden_pages: ["wallet", "upgrade"] }, error: null })
+    const { resolveCustomDomain } = await import("./custom-domain-lookup")
+
+    const result = await resolveCustomDomain("checkresults.com")
+
+    expect(result?.hidden_pages).toEqual(["wallet", "upgrade"])
   })
 
   it("negative-caches a definitive miss on both the exact host and its www-toggled variant", async () => {
@@ -121,7 +209,7 @@ describe("resolveCustomDomain", () => {
     redisGetMock.mockResolvedValue(null) // no cache hit for either form
     maybeSingleMock
       .mockResolvedValueOnce({ data: null, error: null }) // miss for "checkresults.com"
-      .mockResolvedValueOnce({ data: sampleConfig, error: null }) // hit for "www.checkresults.com"
+      .mockResolvedValueOnce({ data: sampleRawRow, error: null }) // hit for "www.checkresults.com"
     const { resolveCustomDomain } = await import("./custom-domain-lookup")
 
     const result = await resolveCustomDomain("checkresults.com")
@@ -132,7 +220,7 @@ describe("resolveCustomDomain", () => {
 
   it("falls back to Supabase and still returns a result when Redis throws", async () => {
     redisGetMock.mockRejectedValueOnce(new Error("redis down"))
-    maybeSingleMock.mockResolvedValueOnce({ data: sampleConfig, error: null })
+    maybeSingleMock.mockResolvedValueOnce({ data: sampleRawRow, error: null })
     const { resolveCustomDomain } = await import("./custom-domain-lookup")
 
     const result = await resolveCustomDomain("checkresults.com")
@@ -148,6 +236,138 @@ describe("resolveCustomDomain", () => {
     const result = await resolveCustomDomain("checkresults.com")
 
     expect(result).toBeNull()
+  })
+
+  it("maps a joined linked_shop row to linked_shop_subdomain", async () => {
+    redisGetMock.mockResolvedValueOnce(null)
+    maybeSingleMock.mockResolvedValueOnce({
+      data: { ...sampleRawRow, linked_shop: { subdomain: "clings" } },
+      error: null,
+    })
+    const { resolveCustomDomain } = await import("./custom-domain-lookup")
+
+    const result = await resolveCustomDomain("checkresults.com")
+
+    expect(result?.linked_shop_subdomain).toBe("clings")
+  })
+
+  it("maps a null linked_shop join to a null linked_shop_subdomain", async () => {
+    redisGetMock.mockResolvedValueOnce(null)
+    maybeSingleMock.mockResolvedValueOnce({ data: sampleRawRow, error: null })
+    const { resolveCustomDomain } = await import("./custom-domain-lookup")
+
+    const result = await resolveCustomDomain("checkresults.com")
+
+    expect(result?.linked_shop_subdomain).toBeNull()
+  })
+
+  it("resolves <linked shop's own subdomain>.<a registered, shop-linked domain> to that domain's config", async () => {
+    redisGetMock.mockResolvedValue(null) // no cache hit for any host form tried
+    maybeSingleMock
+      .mockResolvedValueOnce({ data: null, error: null }) // miss for "theirshop.clingshub.com" itself
+      .mockResolvedValueOnce({ data: null, error: null }) // miss for its www-toggled form
+      .mockResolvedValueOnce({ data: { ...sampleRawRow, domain: "clingshub.com", linked_shop: { subdomain: "theirshop" } }, error: null }) // hit for the stripped remainder "clingshub.com"
+    const { resolveCustomDomain } = await import("./custom-domain-lookup")
+
+    const result = await resolveCustomDomain("theirshop.clingshub.com")
+
+    expect(result?.domain).toBe("clingshub.com")
+    expect(result?.linked_shop_subdomain).toBe("theirshop")
+  })
+
+  it("does NOT resolve a subdomain whose label doesn't match the linked shop's own subdomain", async () => {
+    redisGetMock.mockResolvedValue(null)
+    maybeSingleMock
+      .mockResolvedValueOnce({ data: null, error: null }) // miss for "wrongshop.clingshub.com"
+      .mockResolvedValueOnce({ data: null, error: null }) // miss for its www-toggled form
+      .mockResolvedValueOnce({ data: { ...sampleRawRow, domain: "clingshub.com", linked_shop: { subdomain: "theirshop" } }, error: null }) // "clingshub.com" IS shop-linked, but to a DIFFERENT subdomain
+    const { resolveCustomDomain } = await import("./custom-domain-lookup")
+
+    const result = await resolveCustomDomain("wrongshop.clingshub.com")
+
+    expect(result).toBeNull()
+  })
+
+  it("treats a cached config missing wildcard_shops_enabled (from before it existed) as a miss, not a crash", async () => {
+    const staleConfig = {
+      domain: sampleConfig.domain,
+      services: sampleConfig.services,
+      site_name: sampleConfig.site_name,
+      logo_url: sampleConfig.logo_url,
+      primary_color: sampleConfig.primary_color,
+      is_active: sampleConfig.is_active,
+      hidden_pages: sampleConfig.hidden_pages,
+      linked_shop_subdomain: sampleConfig.linked_shop_subdomain,
+    }
+    redisGetMock.mockResolvedValueOnce(staleConfig)
+    maybeSingleMock.mockResolvedValueOnce({ data: sampleRawRow, error: null })
+    const { resolveCustomDomain } = await import("./custom-domain-lookup")
+
+    const result = await resolveCustomDomain("checkresults.com")
+
+    expect(maybeSingleMock).toHaveBeenCalled()
+    expect(result).toEqual(sampleConfig)
+  })
+
+  it("resolves an active shop's own subdomain under a wildcard-enabled domain", async () => {
+    redisGetMock.mockResolvedValue(null)
+    maybeSingleMock
+      .mockResolvedValueOnce({ data: null, error: null }) // miss for "kofi.clingshub.com" itself
+      .mockResolvedValueOnce({ data: null, error: null }) // miss for its www-toggled form
+      .mockResolvedValueOnce({
+        data: { ...sampleRawRow, domain: "clingshub.com", wildcard_shops_enabled: true },
+        error: null,
+      }) // hit for the stripped remainder "clingshub.com", wildcard mode on
+    shopExistsMaybeSingleMock.mockResolvedValueOnce({ data: { id: "shop-1" }, error: null }) // "kofi" is an active, non-blocked shop
+    const { resolveCustomDomain } = await import("./custom-domain-lookup")
+
+    const result = await resolveCustomDomain("kofi.clingshub.com")
+
+    expect(result?.domain).toBe("clingshub.com")
+    expect(result?.wildcard_shops_enabled).toBe(true)
+  })
+
+  it("does NOT resolve a label under a wildcard-enabled domain when no active shop has that subdomain", async () => {
+    redisGetMock.mockResolvedValue(null)
+    maybeSingleMock
+      .mockResolvedValueOnce({ data: null, error: null }) // miss for "nosuchshop.clingshub.com"
+      .mockResolvedValueOnce({ data: null, error: null }) // miss for its www-toggled form
+      .mockResolvedValueOnce({
+        data: { ...sampleRawRow, domain: "clingshub.com", wildcard_shops_enabled: true },
+        error: null,
+      })
+    shopExistsMaybeSingleMock.mockResolvedValueOnce({ data: null, error: null }) // no active shop named "nosuchshop"
+    const { resolveCustomDomain } = await import("./custom-domain-lookup")
+
+    const result = await resolveCustomDomain("nosuchshop.clingshub.com")
+
+    expect(result).toBeNull()
+  })
+
+  it("still resolves a bare wildcard-enabled domain directly, without running the shop-existence check at all", async () => {
+    redisGetMock.mockResolvedValueOnce(null)
+    maybeSingleMock.mockResolvedValueOnce({
+      data: { ...sampleRawRow, domain: "clingshub.com", wildcard_shops_enabled: true },
+      error: null,
+    }) // exact hit on "clingshub.com" itself
+    const { resolveCustomDomain } = await import("./custom-domain-lookup")
+
+    const result = await resolveCustomDomain("clingshub.com")
+
+    expect(result?.domain).toBe("clingshub.com")
+    expect(maybeSingleMock).toHaveBeenCalledTimes(1)
+    expect(shopExistsMaybeSingleMock).not.toHaveBeenCalled()
+  })
+
+  it("still resolves a bare registered custom domain directly, undisturbed by the new subdomain fallback", async () => {
+    redisGetMock.mockResolvedValueOnce(null)
+    maybeSingleMock.mockResolvedValueOnce({ data: sampleRawRow, error: null }) // exact hit on "checkresults.com" itself — no further lookups should happen
+    const { resolveCustomDomain } = await import("./custom-domain-lookup")
+
+    const result = await resolveCustomDomain("checkresults.com")
+
+    expect(result).toEqual(sampleConfig)
+    expect(maybeSingleMock).toHaveBeenCalledTimes(1)
   })
 })
 

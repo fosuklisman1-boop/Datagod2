@@ -10,21 +10,12 @@ import { Store, ChevronLeft, Loader2, AlertCircle, IdCard, ShieldCheck } from "l
 import { shopService } from "@/lib/shop-service"
 import { useShopBasePath } from "@/lib/shop-url"
 import { toast } from "sonner"
+import { formatGhanaCardInput, parseGhanaCardNumber } from "@/lib/ghana-card"
 
 const REGIONS = [
   "Greater Accra", "Ashanti", "Central", "Eastern", "Northern", "Oti", "Savanna",
   "Upper East", "Upper West", "Volta", "Western", "Western North", "North East",
 ]
-
-function formatGhanaCard(raw: string): string {
-  const clean = raw.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 13)
-  const letters = clean.slice(0, 3)
-  const digits = clean.slice(3)
-  if (!digits) return letters
-  const firstGroup = digits.slice(0, 9)
-  const lastDigit = digits.slice(9, 10)
-  return lastDigit ? `${letters}-${firstGroup}-${lastDigit}` : `${letters}-${firstGroup}`
-}
 
 export default function ShopAfaPage() {
   const params = useParams()
@@ -65,6 +56,11 @@ export default function ShopAfaPage() {
       toast.error("Please fill in all fields")
       return
     }
+    const normalizedGhCard = parseGhanaCardNumber(ghCardNumber)
+    if (!normalizedGhCard) {
+      toast.error("Ghana Card number must be in the format GHA-123456789-0")
+      return
+    }
     try {
       setSubmitting(true)
       const res = await fetch("/api/shop/afa/initialize", {
@@ -74,7 +70,7 @@ export default function ShopAfaPage() {
           shopSlug,
           fullName: fullName.trim(),
           phoneNumber: phoneNumber.replace(/\s/g, ""),
-          ghCardNumber,
+          ghCardNumber: normalizedGhCard,
           location: location.trim(),
           region,
           customerEmail: customerEmail.trim(),
@@ -150,7 +146,7 @@ export default function ShopAfaPage() {
             </div>
             <div>
               <Label htmlFor="ghCard">Ghana Card Number *</Label>
-              <Input id="ghCard" value={ghCardNumber} onChange={(e) => setGhCardNumber(formatGhanaCard(e.target.value))} placeholder="GHA-123456789-0" className="mt-1 font-mono" />
+              <Input id="ghCard" value={ghCardNumber} onChange={(e) => setGhCardNumber(formatGhanaCardInput(e.target.value))} placeholder="GHA-123456789-0" className="mt-1 font-mono" />
             </div>
             <div>
               <Label htmlFor="phone">Phone Number *</Label>

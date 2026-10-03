@@ -46,6 +46,7 @@ interface Supply { wholesaleBalance: number; totalUsable: number; totalPending: 
 interface SenderIdRow {
   id: string; sender_id: string; local_status: string; moolre_status: string | null
   sms_account_id: string | null; last_polled_at: string | null
+  mnotify_status: string | null; mnotify_local_status: string
 }
 
 export default function AdminSmsPage() {
@@ -300,6 +301,7 @@ export default function AdminSmsPage() {
                       <th className="py-1.5 font-medium">Owner</th>
                       <th className="py-1.5 font-medium">Status</th>
                       <th className="py-1.5 font-medium">Moolre</th>
+                      <th className="py-1.5 font-medium">mNotify status</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -314,6 +316,13 @@ export default function AdminSmsPage() {
                             : "bg-warning/15 text-warning"}`}>{s.local_status}</span>
                         </td>
                         <td className="py-1.5 text-muted-foreground">{s.moolre_status ?? "—"}</td>
+                        <td className="py-1.5">
+                          <span className={`rounded px-2 py-0.5 text-xs font-medium ${
+                            s.mnotify_local_status === "active" ? "bg-success/15 text-success"
+                            : s.mnotify_local_status === "rejected" ? "bg-destructive/15 text-destructive"
+                            : "bg-warning/15 text-warning"}`}>{s.mnotify_local_status}</span>
+                          <span className="ml-2 text-muted-foreground">{s.mnotify_status ?? "—"}</span>
+                        </td>
                       </tr>
                     ))}
                   </tbody>

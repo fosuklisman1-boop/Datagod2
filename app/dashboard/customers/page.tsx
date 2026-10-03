@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth-context"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { supabase } from "@/lib/supabase"
+import { shopService } from "@/lib/shop-service"
 import { shopOrigin } from "@/lib/shop-url"
 import {
   Users, RefreshCw, Search, Copy, Share2, QrCode, X,
@@ -64,7 +65,8 @@ export default function CustomersPage() {
       if (!token) { toast.error("Your session expired. Please refresh and sign in again."); return }
 
       const { data: shopRow } = await supabase.from("user_shops").select("*").eq("user_id", user!.id).maybeSingle()
-      setShop(shopRow)
+      const linkedCustomDomain = shopRow ? await shopService.getLinkedCustomDomain(shopRow.subdomain) : null
+      setShop(shopRow ? { ...shopRow, linked_custom_domain: linkedCustomDomain } : shopRow)
 
       const [listRes, analyticsRes] = await Promise.all([
         fetch(`/api/admin/customers/list?limit=100&offset=0`, { headers: { Authorization: `Bearer ${token}` } }),
@@ -109,7 +111,7 @@ export default function CustomersPage() {
     return list
   }, [customers, search, sortTab])
 
-  const shopLink = shop ? (shop.subdomain ? shopOrigin(shop.subdomain) : `${typeof window !== "undefined" ? window.location.origin : ""}/shop/${shop.shop_slug}`) : ""
+  const shopLink = shop ? (shop.subdomain ? shopOrigin(shop.subdomain, shop.linked_custom_domain) : `${typeof window !== "undefined" ? window.location.origin : ""}/shop/${shop.shop_slug}`) : ""
 
   const copyLink = () => {
     navigator.clipboard.writeText(shopLink)

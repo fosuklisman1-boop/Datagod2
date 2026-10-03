@@ -1,3 +1,5 @@
+import { TOGGLEABLE_PAGES } from "./custom-domain-pages"
+
 export type DomainService = "data_bundles" | "airtime" | "results_checker" | "bulk_sms"
 
 export interface CustomDomainConfig {
@@ -7,6 +9,19 @@ export interface CustomDomainConfig {
   logo_url: string | null
   primary_color: string | null
   is_active: boolean
+  hidden_pages: string[]
+  // Non-null when this domain is linked to an existing shop — the shop's own
+  // `subdomain` (not `shop_slug`), used directly as the middleware rewrite
+  // target. Null means this domain stays in dashboard/account mode. (Showing
+  // the guest-purchase button and the landing page itself are both already
+  // covered by hidden_pages' own "guest_purchase"/"landing_page" keys — no
+  // separate fields needed for those.)
+  linked_shop_subdomain: string | null
+  // True when every active, non-blocked shop platform-wide is reachable as
+  // <that shop's own subdomain>.<this domain> — mutually exclusive with
+  // linked_shop_subdomain being non-null (enforced in the admin API route,
+  // not here; see migration 0104).
+  wildcard_shops_enabled: boolean
 }
 
 const SERVICE_PATH_PREFIXES: Record<DomainService, string[]> = {
@@ -15,22 +30,6 @@ const SERVICE_PATH_PREFIXES: Record<DomainService, string[]> = {
   results_checker: ["/dashboard/results-checker", "/dashboard/results-check"],
   bulk_sms: ["/dashboard/sms"],
 }
-
-// Dealer/business-management tools that aren't tied to any one of the four
-// core services — hidden and blocked on any branded domain, regardless of
-// which services are selected, unless a selected service's own path already
-// covers the route (e.g. bulk_sms already covers /dashboard/sms).
-const NON_SERVICE_GATED_PATHS = [
-  "/dashboard/afa-orders",
-  "/dashboard/upgrade",
-  "/dashboard/my-shop",
-  "/dashboard/shop-dashboard",
-  "/dashboard/sub-agents",
-  "/dashboard/sub-agent-catalog",
-  "/dashboard/ussd-shop",
-  "/dashboard/payment-reverify",
-  "/dashboard/buy-stock",
-]
 
 /**
  * Returns a service's own first/primary path — the target used both as the
@@ -42,13 +41,16 @@ export function getServicePrimaryPath(service: DomainService): string {
 }
 
 /**
- * Given the requested path and the domain's selected services, return the
- * path to redirect to if this path belongs to a service NOT selected, or to
- * a non-service dealer/business-management route, else null (the path is
- * either account-wide — wallet, orders, auth, admin — or already belongs to
- * one of this domain's own selected services).
+ * Given the requested path, the domain's selected services, and its hidden
+ * TOGGLEABLE_PAGES keys, return the path to redirect to if this path belongs
+ * to a service NOT selected or to a page the admin has hidden, else null
+ * (the path is either account-wide — wallet, orders, auth, admin — or
+ * already belongs to one of this domain's own selected services and isn't
+ * hidden). `hiddenPages` is required, not optional, so a call site that
+ * forgets to thread it through fails to compile instead of silently
+ * behaving as if nothing is hidden.
  */
-export function getServiceRedirect(path: string, services: DomainService[]): string | null {
+export function getServiceRedirect(path: string, services: DomainService[], hiddenPages: string[]): string | null {
   if (!services || services.length === 0) return null
 
   // Recognized-service check first, filtering out any unrecognized value
@@ -62,16 +64,22 @@ export function getServiceRedirect(path: string, services: DomainService[]): str
 
   const belongsToOtherService = (Object.entries(SERVICE_PATH_PREFIXES) as [DomainService, string[]][])
     .some(([s, prefixes]) => !validServices.includes(s) && prefixes.some(p => path.startsWith(p)))
-  const belongsToNonServiceGated = NON_SERVICE_GATED_PATHS.some(p => path.startsWith(p))
-  if (!belongsToOtherService && !belongsToNonServiceGated) return null
+  const hiddenPaths = TOGGLEABLE_PAGES.filter(p => p.paths && hiddenPages.includes(p.key)).flatMap(p => p.paths!)
+  const belongsToHiddenPage = hiddenPaths.some(p => path.startsWith(p))
+  if (!belongsToOtherService && !belongsToHiddenPage) return null
 
   return getServicePrimaryPath(validServices[0])
 }
 
 /** Convenience wrapper for nav filtering: true when `path` should be shown for `services`. */
-export function isPathAllowedForService(path: string, services: DomainService[] | null): boolean {
+export function isPathAllowedForService(path: string, services: DomainService[] | null, hiddenPages: string[]): boolean {
   if (!services || services.length === 0) return true
-  return getServiceRedirect(path, services) === null
+  return getServiceRedirect(path, services, hiddenPages) === null
+}
+
+/** True when `key` (a TOGGLEABLE_PAGES key) is hidden for the current domain. */
+export function isPageHidden(key: string, hiddenPages: string[]): boolean {
+  return hiddenPages.includes(key)
 }
 
 export function normalizeDomainHost(host: string | null): string | null {

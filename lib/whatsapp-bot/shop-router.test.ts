@@ -186,7 +186,7 @@ describe("shopWaRouter", () => {
     vi.stubEnv("WHATSAPP_SHOP_PHONE_NUMBER_ID", SHOP_PNID)
     vi.mocked(sendWhatsAppText).mockResolvedValue("wamid.OUT")
     vi.mocked(logMessage).mockResolvedValue({
-      conversationId: "conv1", humanTakeover: false, takenOverAt: null, takenOverBy: null, conversationCreatedAt: null,
+      conversationId: "conv1", humanTakeover: false, takenOverAt: null, takenOverBy: null, conversationCreatedAt: null, duplicate: false,
     })
     // Sane defaults so steps that don't specifically test these don't crash on
     // an unmocked destructure/undefined.

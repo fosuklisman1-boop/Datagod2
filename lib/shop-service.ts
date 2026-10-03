@@ -29,6 +29,7 @@ export interface PublicShop {
   custom_color_2: string | null
   section_divider_style: string | null
   created_at: string
+  linked_custom_domain: string | null
 }
 
 // Shop operations
@@ -81,7 +82,10 @@ export const shopService = {
       .single()
 
     if (error && error.code !== "PGRST116") throw error
-    return data
+    if (!data) return data
+
+    const linked_custom_domain = await shopService.getLinkedCustomDomain(data.subdomain)
+    return { ...data, linked_custom_domain }
   },
 
   // Get shop by public handle — matches EITHER the clean subdomain OR the legacy
@@ -102,7 +106,34 @@ export const shopService = {
       .single()
 
     if (error && error.code !== "PGRST116") throw error
-    return (data as unknown as PublicShop) ?? null
+    if (!data) return null
+
+    const shop = data as unknown as PublicShop
+    const linked_custom_domain = await shopService.getLinkedCustomDomain(shop.subdomain)
+    return { ...shop, linked_custom_domain }
+  },
+
+  // Reverse lookup: is this shop (identified by its own, already-globally-
+  // unique subdomain — never its internal id, which anonymous storefront
+  // visitors can't read under RLS) linked to an active custom domain?
+  // Goes through a SECURITY DEFINER RPC (migration 0103) rather than a
+  // direct embedded-join select, because the join needs user_shops.id
+  // internally to evaluate the FK condition even though id is never
+  // returned — and anon/authenticated have no column grant on
+  // user_shops.id at all, so a direct embedded select fails outright with
+  // "permission denied for table user_shops" for a real anonymous caller.
+  // The RPC's definer privileges do the id-based join internally and
+  // expose only the derived domain string. Fails open to null on any
+  // error — a shop's displayed URL must never break just because this
+  // lookup had a bad day.
+  async getLinkedCustomDomain(subdomain: string): Promise<string | null> {
+    const { data, error } = await supabase.rpc("get_linked_custom_domain", { p_subdomain: subdomain })
+
+    if (error) {
+      console.error("[SHOP-SERVICE] Failed to resolve linked custom domain:", error)
+      return null
+    }
+    return data ?? null
   },
 
   // Update shop

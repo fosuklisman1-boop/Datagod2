@@ -18,7 +18,9 @@ import {
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 import { supabase } from "@/lib/supabase"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
-import { getServicePrimaryPath } from "@/lib/custom-domains"
+import { getServicePrimaryPath, isPageHidden } from "@/lib/custom-domains"
+import { useFirstVisiblePath } from "@/hooks/use-first-visible-path"
+import { TOGGLEABLE_PAGES } from "@/lib/custom-domain-pages"
 import { LatestOrderCard } from "@/components/dashboard/latest-order-card"
 import { NetworkHealthCard, NETWORK_BADGE } from "@/components/dashboard/network-health-card"
 // Type-only: order-health-service.ts pulls in mtn-hold.ts -> sms-service.ts
@@ -145,6 +147,21 @@ export default function DashboardPage() {
   const { isDealer } = useUserRole()
   const domainBranding = useDomainBranding()
   const primaryService = domainBranding.services?.[0] ?? null
+  const { path: firstVisiblePath, loading: firstVisiblePathLoading } = useFirstVisiblePath()
+  const dashboardHomeHidden = isPageHidden("dashboard_home", domainBranding.hiddenPages)
+
+  useEffect(() => {
+    if (!dashboardHomeHidden || firstVisiblePathLoading) return
+    router.replace(firstVisiblePath ?? "/dashboard/unavailable")
+  }, [dashboardHomeHidden, firstVisiblePathLoading, firstVisiblePath, router])
+  // Drops any promo tile whose destination is a hidden toggleable page (e.g.
+  // "Own Shop" when my_shop is hidden, "Wallet Top Up" when wallet is
+  // hidden) — matched generically by href against the registry's path, so
+  // this stays correct without hardcoding each promo's gating key.
+  const visiblePromoServices = PROMO_SERVICES.filter(svc => {
+    const page = TOGGLEABLE_PAGES.find(p => p.paths?.includes(svc.href))
+    return !page || !isPageHidden(page.key, domainBranding.hiddenPages)
+  })
   const [firstName, setFirstName] = useState("")
   const [userEmail, setUserEmail] = useState("")
   const [joinDate, setJoinDate] = useState("")
@@ -244,7 +261,7 @@ export default function DashboardPage() {
   useEffect(() => {
     const interval = setInterval(() => {
       setPromoIndex((i) => {
-        const next = (i + 1) % PROMO_SERVICES.length
+        const next = (i + 1) % visiblePromoServices.length
         const el = promoScrollRef.current
         if (el) el.scrollTo({ left: next * el.clientWidth, behavior: "smooth" })
         return next
@@ -448,6 +465,18 @@ export default function DashboardPage() {
     )
   }
 
+  // dashboard_home is hidden for this domain — useEffect above is
+  // redirecting onward; render nothing but a spinner while that resolves.
+  if (dashboardHomeHidden) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-screen">
+          <Loader2 className="w-8 h-8 animate-spin text-[#1b388b]" />
+        </div>
+      </DashboardLayout>
+    )
+  }
+
   const getGreeting = () => {
     const hour = new Date().getHours()
     if (hour < 12) return "Good Morning"
@@ -464,7 +493,7 @@ export default function DashboardPage() {
   return (
     <DashboardLayout>
       <WalletOnboardingModal
-        open={showOnboarding && !onboardingLoading}
+        open={showOnboarding && !onboardingLoading && !isPageHidden("wallet", domainBranding.hiddenPages)}
         onComplete={completeOnboarding}
       />
       <PhoneVerifyModal
@@ -529,7 +558,7 @@ export default function DashboardPage() {
                   Buy SMS
                 </Button>
               )}
-              {!domainBranding.services && (
+              {!isPageHidden("my_shop", domainBranding.hiddenPages) && (
                 <Button onClick={() => router.push("/dashboard/my-shop")} className="bg-white/15 text-white hover:bg-white/25 border-0 font-semibold">
                   Create Shop
                 </Button>
@@ -542,9 +571,11 @@ export default function DashboardPage() {
               <Button onClick={() => router.push("/dashboard/my-orders")} className="bg-white/15 text-white hover:bg-white/25 border-0 font-semibold">
                 My Orders
               </Button>
-              <Button onClick={() => router.push("/dashboard/wallet")} className="bg-white/15 text-white hover:bg-white/25 border-0 font-semibold">
-                ＋ Top Up
-              </Button>
+              {!isPageHidden("wallet", domainBranding.hiddenPages) && (
+                <Button onClick={() => router.push("/dashboard/wallet")} className="bg-white/15 text-white hover:bg-white/25 border-0 font-semibold">
+                  ＋ Top Up
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -562,7 +593,7 @@ export default function DashboardPage() {
             className="flex overflow-x-auto snap-x snap-mandatory scroll-smooth rounded-2xl [&::-webkit-scrollbar]:hidden"
             style={{ scrollbarWidth: "none" }}
           >
-            {PROMO_SERVICES.map((svc) => (
+            {visiblePromoServices.map((svc) => (
               <button
                 key={svc.title}
                 onClick={() => router.push(svc.href)}
@@ -592,7 +623,7 @@ export default function DashboardPage() {
           <button
             type="button"
             aria-label="Previous service"
-            onClick={() => scrollPromoTo((promoIndex - 1 + PROMO_SERVICES.length) % PROMO_SERVICES.length)}
+            onClick={() => scrollPromoTo((promoIndex - 1 + visiblePromoServices.length) % visiblePromoServices.length)}
             className="absolute left-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/25 text-white hover:bg-black/40"
           >
             <ChevronLeft className="h-4 w-4" />
@@ -600,14 +631,14 @@ export default function DashboardPage() {
           <button
             type="button"
             aria-label="Next service"
-            onClick={() => scrollPromoTo((promoIndex + 1) % PROMO_SERVICES.length)}
+            onClick={() => scrollPromoTo((promoIndex + 1) % visiblePromoServices.length)}
             className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/25 text-white hover:bg-black/40"
           >
             <ChevronRight className="h-4 w-4" />
           </button>
         </div>
         <div className="-mt-3 flex justify-center gap-1.5">
-          {PROMO_SERVICES.map((svc, i) => (
+          {visiblePromoServices.map((svc, i) => (
             <button
               key={svc.title}
               aria-label={`Show ${svc.title}`}

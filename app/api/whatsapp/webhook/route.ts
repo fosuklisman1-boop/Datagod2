@@ -145,15 +145,6 @@ async function processInbound(body: unknown): Promise<void> {
     const mediaId: string | undefined = mediaNode?.id
     if (!mediaId) return // a non-media, non-text type we don't handle (location, reaction, …)
 
-    // Media skips the text-path dedup below, so guard duplicates here too.
-    if (msg.id) {
-      const { count } = await supabase
-        .from("whatsapp_messages")
-        .select("id", { count: "exact", head: true })
-        .eq("meta_message_id", msg.id)
-      if ((count ?? 0) > 0) return
-    }
-
     try {
       const { buffer, mimeType: rawMime } = await downloadWaMedia(mediaId)
       // WhatsApp reports params like "audio/ogg; codecs=opus" — strip them so the
@@ -209,6 +200,10 @@ async function processInbound(body: unknown): Promise<void> {
         msg.type === "sticker" ? "🌟 Sticker" :
         "📄 Document"
       const imgLog = await logMessage(from, "inbound", caption || typeLabel, msg.id, { url: publicUrl, type: displayType }, profileName)
+      // The insert above IS the dedup check (idx_whatsapp_messages_inbound_meta_id_unique) —
+      // a Meta webhook redelivery lands here as duplicate:true. Bail out before any
+      // complaint/AI processing runs twice for the same event.
+      if (imgLog.duplicate) return
 
       // Complaint proof (screenshots/PDF only — not voice notes/videos). When the
       // image satisfies a complaint (staged, or attached to a recent open one) we
@@ -283,20 +278,16 @@ async function processInbound(body: unknown): Promise<void> {
   // Immediate feedback: fire-and-forget (never block reply processing)
   if (msg.id) void markWaMessageRead(msg.id)
 
-  // Dedup: skip if we already processed this Meta message ID
-  if (msg.id) {
-    const { count } = await supabase
-      .from("whatsapp_messages")
-      .select("id", { count: "exact", head: true })
-      .eq("meta_message_id", msg.id)
-    if ((count ?? 0) > 0) {
-      console.log("[WA-WEBHOOK] Duplicate message, skipping:", msg.id)
-      return
-    }
+  // Log inbound message (also returns this conversation's takeover state).
+  // The insert itself IS the dedup check (idx_whatsapp_messages_inbound_meta_id_unique) —
+  // atomic at the DB level, unlike a separate SELECT-then-insert, which a Meta
+  // webhook redelivery arriving milliseconds apart could race past (confirmed
+  // live: 4,829 duplicate deliveries had slipped through that way).
+  const { humanTakeover, takenOverAt, takenOverBy, conversationCreatedAt, duplicate } = await logMessage(from, "inbound", text, msg.id, null, profileName)
+  if (duplicate) {
+    console.log("[WA-WEBHOOK] Duplicate message, skipping:", msg.id)
+    return
   }
-
-  // Log inbound message (also returns this conversation's takeover state)
-  const { humanTakeover, takenOverAt, takenOverBy, conversationCreatedAt } = await logMessage(from, "inbound", text, msg.id, null, profileName)
 
   // Dedicated shop WhatsApp number: a second Meta phone_number_id reserved for
   // the shop bot (Phase 3 fills in the real state machine). When the receiving
@@ -575,13 +566,6 @@ async function handleWithAI(phone: string, text: string): Promise<string> {
     }
   }
 
-  // Snapshot session state up front. handleWithAI only runs when no bot/USSD session is
-  // active, so if a confirm session exists AFTER the loop it was necessarily seeded by
-  // place_whatsapp_order THIS turn. Capturing it makes the post-loop confirm-menu return
-  // robust — we never echo a stale confirm screen in place of the AI's actual reply (e.g.
-  // when the tool returned a validation error rather than staging an order).
-  const sessionAtStart = await getWaSession(phone)
-
   // Load AI config
   const aiConfig = await loadAiConfig()
 
@@ -737,12 +721,17 @@ STYLE:
     return "Sorry, I'm having trouble right now — I've alerted our team and someone will get back to you here shortly."
   }
 
-  // If place_whatsapp_order staged an order THIS run (data / airtime / RC voucher), show
-  // the confirm screen verbatim — the customer needs the exact "1=Wallet / 2=MoMo /
-  // 0=Cancel" gate the waRouter expects. Any confirm session here is necessarily fresh
-  // from this turn (handleWithAI only runs when no session was active), so payment happens
-  // only when they reply on this screen — never silently.
-  if (result.toolsUsed.includes("place_whatsapp_order") && !sessionAtStart) {
+  // If place_whatsapp_order was called THIS run (data / airtime / RC voucher), show the
+  // confirm screen verbatim — the customer needs the exact "1=Wallet / 2=MoMo / 0=Cancel"
+  // gate the waRouter expects, never the AI's own paraphrase of it. This fires whether the
+  // tool freshly staged a session OR found one already pending (its own duplicate-order
+  // guard) — in BOTH cases a real CONFIRM-type session now exists and the customer must see
+  // its actual contents. Previously this only fired on a freshly-staged session, so the
+  // duplicate-order case fell through to the AI's own text — which, having no idea what the
+  // real screen looks like, would invent fictional UI language ("tap the card above")
+  // instead of relaying the real numbered menu. That was the root cause of a customer-
+  // reported "nonsense response" complaint (confirmed live).
+  if (result.toolsUsed.includes("place_whatsapp_order")) {
     const stagedSession = await getWaSession(phone)
     if (stagedSession) {
       const { waConfirmMenu, waAirtimeConfirmMenu, waRcConfirmMenu } = await import("@/lib/ussd/menus")

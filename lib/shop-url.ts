@@ -44,7 +44,10 @@ export function useShopBasePath(slug: string): string {
 }
 
 // Builds the canonical external storefront URL for a shop, e.g.
-// "https://my-shop.datagod.store". Use for share links, sitemap, and metadata.
-export function shopOrigin(subdomain: string): string {
-  return `https://${subdomain}.${ROOT_DOMAIN}`
+// "https://my-shop.datagod.store" — or, when this shop is linked to an
+// active custom domain (shopService.getLinkedCustomDomain), a subdomain of
+// that domain instead, e.g. "https://my-shop.clingshub.com". Use for share
+// links, sitemap, and metadata.
+export function shopOrigin(subdomain: string, linkedCustomDomain?: string | null): string {
+  return `https://${subdomain}.${linkedCustomDomain || ROOT_DOMAIN}`
 }

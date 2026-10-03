@@ -85,7 +85,7 @@ export async function enqueueSend(
       .select("sender_id")
       .eq("sms_account_id", accountId)
       .eq("sender_id", sid)
-      .eq("local_status", "active")
+      .or("local_status.eq.active,mnotify_local_status.eq.active")
       .maybeSingle()
     if (!active) return { ok: false, error: "INVALID_SENDER_ID" }
     resolvedSenderId = sid

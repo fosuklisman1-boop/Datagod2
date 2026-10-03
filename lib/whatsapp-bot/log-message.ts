@@ -20,6 +20,14 @@ export interface LogMessageResult {
   // created_at of the conversation row — lets callers detect a brand-new
   // conversation (created_at ≈ now) without a separate count query.
   conversationCreatedAt: string | null
+  // True only when this was an inbound message whose meta_message_id collided
+  // with the partial unique index (idx_whatsapp_messages_inbound_meta_id_unique)
+  // — i.e. Meta redelivered a webhook event we already processed. The insert
+  // itself is the atomic dedup check (closes a check-then-act race a separate
+  // SELECT-before-insert can't: two near-simultaneous deliveries could both
+  // pass a "not yet seen" check before either had inserted). Callers that care
+  // about duplicates (the inbound webhook) should bail out immediately on true.
+  duplicate: boolean
 }
 
 export async function logMessage(
@@ -56,7 +64,7 @@ export async function logMessage(
 
     const conversationId = conv?.id ?? null
 
-    await supabase.from("whatsapp_messages").insert({
+    const { error: insertError } = await supabase.from("whatsapp_messages").insert({
       conversation_id: conversationId,
       direction,
       phone_number: phone,
@@ -65,6 +73,23 @@ export async function logMessage(
       status: "sent",
       tool_context: media ? { media_url: media.url, media_type: media.type } : null,
     })
+
+    // 23505 = unique_violation. For an inbound message this means Meta
+    // redelivered a webhook event already logged — the insert hitting
+    // idx_whatsapp_messages_inbound_meta_id_unique IS the atomic dedup check.
+    if (insertError) {
+      if (insertError.code === "23505") {
+        return {
+          conversationId,
+          humanTakeover: conv?.human_takeover === true,
+          takenOverAt: conv?.taken_over_at ?? null,
+          takenOverBy: conv?.taken_over_by ?? null,
+          conversationCreatedAt: conv?.created_at ?? null,
+          duplicate: true,
+        }
+      }
+      throw insertError
+    }
 
     // Push the admin inbox so it updates instantly instead of on the next poll.
     const { notifyInboxChange } = await import("./realtime-notify")
@@ -76,9 +101,10 @@ export async function logMessage(
       takenOverAt: conv?.taken_over_at ?? null,
       takenOverBy: conv?.taken_over_by ?? null,
       conversationCreatedAt: conv?.created_at ?? null,
+      duplicate: false,
     }
   } catch (e) {
     console.warn("[WA-LOG] logMessage failed (non-fatal):", e)
-    return { conversationId: null, humanTakeover: false, takenOverAt: null, takenOverBy: null, conversationCreatedAt: null }
+    return { conversationId: null, humanTakeover: false, takenOverAt: null, takenOverBy: null, conversationCreatedAt: null, duplicate: false }
   }
 }

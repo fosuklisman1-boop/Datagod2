@@ -372,7 +372,7 @@ export default function ShopPricingPage() {
     }
   }
 
-  const shopLink = shop ? (shop.subdomain ? shopOrigin(shop.subdomain) : `${typeof window !== "undefined" ? window.location.origin : ""}/shop/${shop.shop_slug}`) : ""
+  const shopLink = shop ? (shop.subdomain ? shopOrigin(shop.subdomain, shop.linked_custom_domain) : `${typeof window !== "undefined" ? window.location.origin : ""}/shop/${shop.shop_slug}`) : ""
 
   if (loading) {
     return (

@@ -64,7 +64,21 @@ async function lookupExact(host: string): Promise<LookupResult> {
     try {
       const cached = await redis.get<CustomDomainConfig | typeof NOT_FOUND_MARKER>(cacheKey(host))
       if (cached === NOT_FOUND_MARKER) return { kind: "not_found", fromNegativeCache: true }
-      if (cached) return { kind: "found", config: cached }
+      // A cache entry written before any of these fields existed on this
+      // interface (hidden_pages, or linked_shop_subdomain — each added by a
+      // separate feature) would otherwise come back with some fields
+      // undefined, and isPageHidden(key, config.hidden_pages) would throw on
+      // a non-array. Treat any such shape as a miss instead of a hit — it
+      // falls through to Supabase below, which refills the cache with the
+      // correct shape, for up to CACHE_TTL_SECONDS after this deploys.
+      if (
+        cached &&
+        Array.isArray(cached.hidden_pages) &&
+        (cached.linked_shop_subdomain === null || typeof cached.linked_shop_subdomain === "string") &&
+        typeof cached.wildcard_shops_enabled === "boolean"
+      ) {
+        return { kind: "found", config: cached }
+      }
     } catch (e) {
       console.error("[CUSTOM-DOMAIN-LOOKUP] Redis read failed, falling back to Supabase:", e instanceof Error ? e.message : e)
     }
@@ -73,7 +87,7 @@ async function lookupExact(host: string): Promise<LookupResult> {
   try {
     const { data, error } = await supabaseAdmin
       .from("custom_domains")
-      .select("domain, services, site_name, logo_url, primary_color, is_active")
+      .select("domain, services, site_name, logo_url, primary_color, is_active, hidden_pages, wildcard_shops_enabled, linked_shop:user_shops!linked_shop_id(subdomain)")
       .eq("domain", host)
       .eq("is_active", true)
       .maybeSingle()
@@ -84,12 +98,49 @@ async function lookupExact(host: string): Promise<LookupResult> {
     }
     if (!data) return { kind: "not_found", fromNegativeCache: false }
 
-    const config = data as CustomDomainConfig
+    const row = data as typeof data & { linked_shop: { subdomain: string } | null }
+    const config: CustomDomainConfig = {
+      domain: row.domain,
+      services: row.services,
+      site_name: row.site_name,
+      logo_url: row.logo_url,
+      primary_color: row.primary_color,
+      is_active: row.is_active,
+      hidden_pages: row.hidden_pages,
+      linked_shop_subdomain: row.linked_shop?.subdomain ?? null,
+      wildcard_shops_enabled: row.wildcard_shops_enabled,
+    }
     cacheSetPositive(host, config)
     return { kind: "found", config }
   } catch (e) {
     console.error("[CUSTOM-DOMAIN-LOOKUP] Supabase lookup failed:", e instanceof Error ? e.message : e)
     return { kind: "error" }
+  }
+}
+
+// Direct, non-embedded existence check against user_shops — safe to call
+// with supabaseAdmin (service-role; no RLS/column-grant concern here,
+// unlike the anon-facing RPC built this morning for the reverse shop->domain
+// lookup). Used only by resolveCustomDomain's wildcard fallback below, to
+// confirm a stripped host label is a real, currently-usable shop subdomain
+// before treating a wildcard-enabled domain's visitor as that shop.
+async function wildcardShopExists(subdomain: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("user_shops")
+      .select("id")
+      .eq("subdomain", subdomain)
+      .eq("is_active", true)
+      .eq("is_blocked", false)
+      .maybeSingle()
+    if (error) {
+      console.error("[CUSTOM-DOMAIN-LOOKUP] Wildcard shop existence check failed:", error)
+      return false
+    }
+    return !!data
+  } catch (e) {
+    console.error("[CUSTOM-DOMAIN-LOOKUP] Wildcard shop existence check failed:", e instanceof Error ? e.message : e)
+    return false
   }
 }
 
@@ -126,6 +177,32 @@ export async function resolveCustomDomain(host: string): Promise<CustomDomainCon
     // so a repeat request in this exact form is a straight cache hit next time.
     cacheSetPositive(host, alt.config)
     return alt.config
+  }
+
+  // Neither the exact host nor its www-toggled variant matched directly. One
+  // more possibility: host is <a shop's own subdomain>.<a registered,
+  // shop-linked domain> — e.g. "theirshop.clingshub.com", where
+  // "clingshub.com" is linked to a shop whose own subdomain is "theirshop".
+  // Strip the first label and retry the lookup against the remainder; only
+  // treat it as a hit if the remainder is itself an active, shop-linked
+  // domain AND the stripped label exactly matches that linked shop's own
+  // subdomain — anything else (a typo, an unrelated label, a domain that
+  // isn't shop-linked at all) falls through to the ordinary not-found path
+  // below, same as today.
+  const firstDot = host.indexOf(".")
+  if (firstDot > 0) {
+    const label = host.slice(0, firstDot)
+    const remainder = host.slice(firstDot + 1)
+    const parent = await lookupExact(remainder)
+    if (parent.kind === "found" && parent.config.linked_shop_subdomain === label) {
+      cacheSetPositive(host, parent.config)
+      return parent.config
+    }
+    if (parent.kind === "found" && parent.config.wildcard_shops_enabled && (await wildcardShopExists(label))) {
+      cacheSetPositive(host, parent.config)
+      return parent.config
+    }
+    if (parent.kind === "error") return null
   }
 
   // Both forms are either genuinely absent or unreachable — negative-cache only

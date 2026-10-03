@@ -158,7 +158,7 @@ export default function ShopOverviewPage() {
   const recentOrders = useMemo(() => orders.slice(0, 3), [orders])
 
   const copyShopLink = () => {
-    const link = shop.subdomain ? shopOrigin(shop.subdomain) : `${window.location.origin}/shop/${shop.shop_slug}`
+    const link = shop.subdomain ? shopOrigin(shop.subdomain, shop.linked_custom_domain) : `${window.location.origin}/shop/${shop.shop_slug}`
     navigator.clipboard.writeText(link)
     toast.success("Shop link copied to clipboard")
   }
@@ -322,7 +322,7 @@ export default function ShopOverviewPage() {
   }
 
   const isDealer = userRole === "dealer" || userRole === "admin"
-  const storefrontHref = shop.subdomain ? shopOrigin(shop.subdomain) : `/shop/${shop.shop_slug}`
+  const storefrontHref = shop.subdomain ? shopOrigin(shop.subdomain, shop.linked_custom_domain) : `/shop/${shop.shop_slug}`
   const ussdNeedsActivation = !ussdCode || !ussdCode.activation_fee_paid
 
   return (
@@ -352,7 +352,7 @@ export default function ShopOverviewPage() {
 
           <div className="mt-4 flex items-center gap-2 rounded-2xl border border-border bg-muted/40 p-3">
             <code className="flex-1 truncate font-mono text-xs sm:text-sm text-foreground">
-              {shop.subdomain ? shopOrigin(shop.subdomain) : `${typeof window !== "undefined" ? window.location.origin : ""}/shop/${shop.shop_slug}`}
+              {shop.subdomain ? shopOrigin(shop.subdomain, shop.linked_custom_domain) : `${typeof window !== "undefined" ? window.location.origin : ""}/shop/${shop.shop_slug}`}
             </code>
             <Button variant="outline" size="sm" className="shrink-0 rounded-full" onClick={copyShopLink}>
               <Copy className="h-3.5 w-3.5 mr-1.5" /> Copy

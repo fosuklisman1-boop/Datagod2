@@ -221,7 +221,7 @@ export function afaEnterNamePrompt(): string {
 }
 
 export function afaEnterCardPrompt(): string {
-  return 'Enter your Ghana\nCard Number:\n(e.g. GHA-12345-6)\n\n0. Back'
+  return 'Enter your Ghana\nCard Number:\n(e.g. GHA-123456789-0)\n\n0. Back'
 }
 
 export function afaEnterLocationPrompt(): string {

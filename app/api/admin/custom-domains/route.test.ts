@@ -128,6 +128,110 @@ describe("POST /api/admin/custom-domains", () => {
     const res = await POST(postRequest({ domain: "checkresults.com", services: ["results_checker"], site_name: "CheckResults" }))
     expect(res.status).toBe(409)
   })
+
+  it("rejects a linked_shop_id that doesn't exist in user_shops", async () => {
+    // Every fromMock() call in this test resolves the same way — the
+    // validation lookup finds nothing, and the route must return 400 before
+    // ever reaching a second, differently-shaped call (the custom_domains
+    // insert), so a single uniform mock is sufficient here.
+    fromMock.mockReturnValue(makeBuilder({ data: null, error: null }))
+    const res = await POST(postRequest({ domain: "checkresults.com", services: ["data_bundles"], site_name: "X", linked_shop_id: "11111111-1111-1111-1111-111111111111" }))
+    expect(res.status).toBe(400)
+  })
+
+  it("accepts a valid linked_shop_id and caches the shop's subdomain", async () => {
+    fromMock.mockImplementation((table: string) =>
+      table === "user_shops"
+        ? makeBuilder({ data: { id: "11111111-1111-1111-1111-111111111111", subdomain: "myshop", is_active: true, is_blocked: false }, error: null })
+        : makeBuilder({
+            data: { id: "1", domain: "checkresults.com", services: ["data_bundles"], site_name: "X", logo_url: null, primary_color: null, is_active: true, linked_shop_id: "11111111-1111-1111-1111-111111111111" },
+            error: null,
+          })
+    )
+    const res = await POST(postRequest({ domain: "checkresults.com", services: ["data_bundles"], site_name: "X", linked_shop_id: "11111111-1111-1111-1111-111111111111" }))
+    const body = await res.json()
+    expect(res.status).toBe(201)
+    expect(setCacheMock).toHaveBeenCalledWith(expect.objectContaining({ linked_shop_subdomain: "myshop" }))
+  })
+
+  it("rejects a non-array hidden_pages", async () => {
+    const res = await POST(postRequest({ domain: "checkresults.com", services: ["results_checker"], site_name: "CheckResults", hidden_pages: "wallet" }))
+    expect(res.status).toBe(400)
+  })
+
+  it("rejects an unknown hidden_pages key", async () => {
+    const res = await POST(postRequest({ domain: "checkresults.com", services: ["results_checker"], site_name: "CheckResults", hidden_pages: ["not_a_real_key"] }))
+    expect(res.status).toBe(400)
+  })
+
+  it("accepts a valid hidden_pages array and write-throughs it to the cache", async () => {
+    fromMock.mockReturnValue(makeBuilder({
+      data: { id: "1", domain: "checkresults.com", services: ["results_checker"], site_name: "CheckResults", logo_url: null, primary_color: null, is_active: true, hidden_pages: ["wallet"] },
+      error: null,
+    }))
+    const res = await POST(postRequest({ domain: "checkresults.com", services: ["results_checker"], site_name: "CheckResults", hidden_pages: ["wallet"] }))
+    expect(res.status).toBe(201)
+    expect(setCacheMock).toHaveBeenCalledWith(expect.objectContaining({ hidden_pages: ["wallet"] }))
+  })
+
+  it("omits hidden_pages from the insert row when not provided, relying on the column default", async () => {
+    const builder = makeBuilder({
+      data: { id: "1", domain: "checkresults.com", services: ["results_checker"], site_name: "CheckResults", logo_url: null, primary_color: null, is_active: true, hidden_pages: ["afa_orders"] },
+      error: null,
+    })
+    fromMock.mockReturnValue(builder)
+
+    const res = await POST(postRequest({ domain: "checkresults.com", services: ["results_checker"], site_name: "CheckResults" }))
+    expect(res.status).toBe(201)
+
+    const insertedRow = builder.insert.mock.calls[0][0]
+    expect(Object.keys(insertedRow)).not.toContain("hidden_pages")
+    // The cache write uses the DB-returned value (the column's own default), not an empty array.
+    expect(setCacheMock).toHaveBeenCalledWith(expect.objectContaining({ hidden_pages: ["afa_orders"] }))
+  })
+
+  it("rejects a non-boolean wildcard_shops_enabled on create", async () => {
+    const res = await POST(postRequest({ domain: "clingshub.com", services: ["data_bundles"], site_name: "ClingsHub", wildcard_shops_enabled: "yes" }))
+    expect(res.status).toBe(400)
+  })
+
+  it("accepts wildcard_shops_enabled and writes it to the inserted row and cache", async () => {
+    const builder = makeBuilder({
+      data: { id: "1", domain: "clingshub.com", services: ["data_bundles"], site_name: "ClingsHub", logo_url: null, primary_color: null, is_active: true, linked_shop_id: null, wildcard_shops_enabled: true },
+      error: null,
+    })
+    fromMock.mockReturnValue(builder)
+
+    const res = await POST(postRequest({ domain: "clingshub.com", services: ["data_bundles"], site_name: "ClingsHub", wildcard_shops_enabled: true }))
+
+    expect(res.status).toBe(201)
+    const insertedRow = builder.insert.mock.calls[0][0]
+    expect(insertedRow.wildcard_shops_enabled).toBe(true)
+    expect(insertedRow.linked_shop_id).toBeNull()
+    expect(setCacheMock).toHaveBeenCalledWith(expect.objectContaining({ wildcard_shops_enabled: true }))
+  })
+
+  it("forces linked_shop_id to null when wildcard_shops_enabled is also set true in the same POST", async () => {
+    const builder = makeBuilder({
+      data: { id: "1", domain: "clingshub.com", services: ["data_bundles"], site_name: "ClingsHub", logo_url: null, primary_color: null, is_active: true, linked_shop_id: null, wildcard_shops_enabled: true },
+      error: null,
+    })
+    fromMock.mockImplementation((table: string) =>
+      table === "user_shops"
+        ? makeBuilder({ data: { id: "11111111-1111-1111-1111-111111111111", subdomain: "myshop", is_active: true, is_blocked: false }, error: null })
+        : builder
+    )
+
+    const res = await POST(postRequest({
+      domain: "clingshub.com", services: ["data_bundles"], site_name: "ClingsHub",
+      wildcard_shops_enabled: true, linked_shop_id: "11111111-1111-1111-1111-111111111111",
+    }))
+
+    expect(res.status).toBe(201)
+    const insertedRow = builder.insert.mock.calls[0][0]
+    expect(insertedRow.linked_shop_id).toBeNull()
+    expect(insertedRow.wildcard_shops_enabled).toBe(true)
+  })
 })
 
 describe("PATCH /api/admin/custom-domains", () => {
@@ -152,6 +256,100 @@ describe("PATCH /api/admin/custom-domains", () => {
     expect(res.status).toBe(200)
     expect(clearCacheMock).toHaveBeenCalledWith("checkresults.com")
     expect(setCacheMock).not.toHaveBeenCalled()
+  })
+
+  it("re-resolves and caches the correct linked_shop_subdomain on a PATCH that doesn't touch linked_shop_id", async () => {
+    // This domain is ALREADY shop-linked (linked_shop_id present in the
+    // post-update row) even though this PATCH's body only renames site_name —
+    // the cache write must still carry the real subdomain, not null, or live
+    // shop-mode traffic on this domain gets silently misrouted for up to 5
+    // minutes (the bug this fix round addresses).
+    fromMock.mockImplementation((table: string) =>
+      table === "user_shops"
+        ? makeBuilder({ data: { subdomain: "myshop" }, error: null })
+        : makeBuilder({
+            data: { id: "1", domain: "checkresults.com", services: ["data_bundles"], site_name: "Renamed", logo_url: null, primary_color: null, is_active: true, linked_shop_id: "11111111-1111-1111-1111-111111111111" },
+            error: null,
+          })
+    )
+    const res = await PATCH(postRequest({ id: "1", site_name: "Renamed" }, "PATCH"))
+    expect(res.status).toBe(200)
+    expect(setCacheMock).toHaveBeenCalledWith(expect.objectContaining({ linked_shop_subdomain: "myshop" }))
+  })
+
+  it("rejects an unknown hidden_pages key on update", async () => {
+    const res = await PATCH(postRequest({ id: "1", hidden_pages: ["bogus"] }, "PATCH"))
+    expect(res.status).toBe(400)
+  })
+
+  it("clears the derived <shop subdomain>.<domain> cache entry when unlinking an already-linked domain", async () => {
+    // Before this fix, resolveCustomDomain's subdomain fallback can leave a
+    // cache entry keyed under "myshop.checkresults.com" (the shop's own
+    // subdomain + the linked domain) that this route never touched — only
+    // the bare "checkresults.com" key was ever cleared. Unlinking the shop
+    // must also invalidate that derived key, or stale routing survives for
+    // up to 5 minutes.
+    let customDomainsCallCount = 0
+    fromMock.mockImplementation((table: string) => {
+      if (table === "user_shops") {
+        return makeBuilder({ data: { subdomain: "myshop" }, error: null })
+      }
+      customDomainsCallCount += 1
+      // 1st custom_domains call = the pre-update "beforeRow" select, where
+      // the shop is still linked. 2nd = update().select(), where this
+      // PATCH's body (linked_shop_id: null) has already cleared it.
+      if (customDomainsCallCount === 1) {
+        return makeBuilder({ data: { domain: "checkresults.com", linked_shop_id: "11111111-1111-1111-1111-111111111111" }, error: null })
+      }
+      return makeBuilder({
+        data: { id: "1", domain: "checkresults.com", services: ["data_bundles"], site_name: "CheckResults", logo_url: null, primary_color: null, is_active: true, linked_shop_id: null },
+        error: null,
+      })
+    })
+
+    const res = await PATCH(postRequest({ id: "1", linked_shop_id: null }, "PATCH"))
+
+    expect(res.status).toBe(200)
+    expect(clearCacheMock).toHaveBeenCalledWith("myshop.checkresults.com")
+  })
+
+  it("rejects a non-boolean wildcard_shops_enabled on update", async () => {
+    const res = await PATCH(postRequest({ id: "1", wildcard_shops_enabled: "yes" }, "PATCH"))
+    expect(res.status).toBe(400)
+  })
+
+  it("clears linked_shop_id in the same update when PATCH turns wildcard_shops_enabled on", async () => {
+    const builder = makeBuilder({
+      data: { id: "1", domain: "clingshub.com", services: ["data_bundles"], site_name: "ClingsHub", logo_url: null, primary_color: null, is_active: true, linked_shop_id: null, wildcard_shops_enabled: true },
+      error: null,
+    })
+    fromMock.mockReturnValue(builder)
+
+    const res = await PATCH(postRequest({ id: "1", wildcard_shops_enabled: true }, "PATCH"))
+
+    expect(res.status).toBe(200)
+    const updatePayload = builder.update.mock.calls[0][0]
+    expect(updatePayload.wildcard_shops_enabled).toBe(true)
+    expect(updatePayload.linked_shop_id).toBeNull()
+  })
+
+  it("clears wildcard_shops_enabled in the same update when PATCH sets a linked_shop_id", async () => {
+    const builder = makeBuilder({
+      data: { id: "1", domain: "clingshub.com", services: ["data_bundles"], site_name: "ClingsHub", logo_url: null, primary_color: null, is_active: true, linked_shop_id: "11111111-1111-1111-1111-111111111111", wildcard_shops_enabled: false },
+      error: null,
+    })
+    fromMock.mockImplementation((table: string) =>
+      table === "user_shops"
+        ? makeBuilder({ data: { id: "11111111-1111-1111-1111-111111111111", subdomain: "myshop", is_active: true, is_blocked: false }, error: null })
+        : builder
+    )
+
+    const res = await PATCH(postRequest({ id: "1", linked_shop_id: "11111111-1111-1111-1111-111111111111" }, "PATCH"))
+
+    expect(res.status).toBe(200)
+    const updatePayload = builder.update.mock.calls[0][0]
+    expect(updatePayload.linked_shop_id).toBe("11111111-1111-1111-1111-111111111111")
+    expect(updatePayload.wildcard_shops_enabled).toBe(false)
   })
 })
 
