@@ -166,6 +166,10 @@ export async function PUT(request: NextRequest) {
       'upgrades_enabled',
       'signup_default_role',
       'terms_content',
+      'terms_content_data',
+      'terms_content_airtime',
+      'terms_content_results_checker',
+      'terms_content_bulk_sms',
       'ussd_price_tier',
       'ussd_shop_dial_code',
       'ussd_shop_activation_fee',
@@ -176,8 +180,14 @@ export async function PUT(request: NextRequest) {
       'storefront_show_ussd_card',
     ]
 
-    // Auto-stamp terms_last_updated when terms_content changes
-    if (body.terms_content !== undefined) {
+    // Auto-stamp terms_last_updated when any terms section changes
+    if (
+      body.terms_content !== undefined ||
+      body.terms_content_data !== undefined ||
+      body.terms_content_airtime !== undefined ||
+      body.terms_content_results_checker !== undefined ||
+      body.terms_content_bulk_sms !== undefined
+    ) {
       updates.terms_last_updated = new Date().toISOString()
     }
 

@@ -196,6 +196,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
   const [ussdDialCode, setUssdDialCode] = useState<string | null>(null)
   const [shopUssdCode, setShopUssdCode] = useState<string | null>(null)
   const [termsContent, setTermsContent] = useState("")
+  const [termsContentByService, setTermsContentByService] = useState<{ data: string; airtime: string; results_checker: string; bulk_sms: string }>({ data: "", airtime: "", results_checker: "", bulk_sms: "" })
   const [termsLastUpdated, setTermsLastUpdated] = useState<string | null>(null)
   const packagesRef = useRef<HTMLDivElement>(null)
   // Guards against in-flight order-create/charge-initialize/poll/OTP calls
@@ -417,6 +418,12 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
         if (data.terms_content) {
           setTermsContent(data.terms_content)
         }
+        setTermsContentByService({
+          data: data.terms_content_data || "",
+          airtime: data.terms_content_airtime || "",
+          results_checker: data.terms_content_results_checker || "",
+          bulk_sms: data.terms_content_bulk_sms || "",
+        })
         if (data.terms_last_updated) {
           setTermsLastUpdated(data.terms_last_updated)
         }
@@ -1031,7 +1038,10 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
     }] : []),
   ]
   const accountItems: Array<{ label: string; icon: React.ReactNode; onClick: () => void; isActive: boolean }> = [
-    { label: "Track My Orders", icon: <Package className="w-4 h-4" />, onClick: () => { setActiveTab("track-order"); setSidebarOpen(false) }, isActive: activeTab === "track-order" },
+    // Track My Orders looks up Data/Airtime orders by phone number -- not
+    // Results Checker vouchers, which have their own "Retrieve Voucher" flow
+    // below. On a domain scoped to RC only, there's nothing for it to find.
+    ...(allowedServices.includes("data") || allowedServices.includes("airtime") ? [{ label: "Track My Orders", icon: <Package className="w-4 h-4" />, onClick: () => { setActiveTab("track-order"); setSidebarOpen(false) }, isActive: activeTab === "track-order" }] : []),
     ...(allowedServices.includes("vouchers") ? [{ label: "Retrieve Voucher", icon: <GraduationCap className="w-4 h-4" />, onClick: () => { setActiveTab("home"); setSelectedService("vouchers"); setRcTab("retrieve"); setSidebarOpen(false) }, isActive: activeTab === "home" && selectedService === "vouchers" && rcTab === "retrieve" }] : []),
     { label: "About Shop & Terms", icon: <AlertCircle className="w-4 h-4" />, onClick: () => { setActiveTab("about"); setSidebarOpen(false) }, isActive: activeTab === "about" },
   ]
@@ -1653,7 +1663,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
                 </div>
 
                 {/* Platform Terms of Service */}
-                <ShopTermsSection termsContent={termsContent} termsLastUpdated={termsLastUpdated} />
+                <ShopTermsSection termsContent={termsContent} termsContentByService={termsContentByService} allowedServices={allowedServices} termsLastUpdated={termsLastUpdated} />
               </div>
             )}
 
@@ -2116,12 +2126,10 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
   )
 }
 
-function ShopTermsSection({ termsContent, termsLastUpdated }: { termsContent: string; termsLastUpdated: string | null }) {
-  const [expanded, setExpanded] = useState(false)
-
-  if (!termsContent) return null
-
-  const lines = termsContent.split("\n")
+// Parses the "intro paragraph, then N. Title / body" convention admins
+// author terms content in (see /admin/settings' Terms Content textareas).
+function parseTermsBlob(content: string): { intro: string; sections: Array<{ title: string; body: string }> } {
+  const lines = content.split("\n")
   let intro = ""
   const sections: Array<{ title: string; body: string }> = []
   let current: { title: string; lines: string[] } | null = null
@@ -2139,6 +2147,34 @@ function ShopTermsSection({ termsContent, termsLastUpdated }: { termsContent: st
     }
   }
   if (current) sections.push({ title: current.title, body: current.lines.join(" ").trim() })
+  return { intro, sections }
+}
+
+function ShopTermsSection({
+  termsContent,
+  termsContentByService,
+  allowedServices,
+  termsLastUpdated,
+}: {
+  termsContent: string
+  termsContentByService: { data: string; airtime: string; results_checker: string; bulk_sms: string }
+  allowedServices: Array<"data" | "airtime" | "vouchers">
+  termsLastUpdated: string | null
+}) {
+  const [expanded, setExpanded] = useState(false)
+
+  if (!termsContent) return null
+
+  const { intro, sections: generalSections } = parseTermsBlob(termsContent)
+  // Only append a service's addendum when that service is actually enabled
+  // for this storefront/domain -- a domain scoped to Data only, for example,
+  // should never show Results Checker voucher terms.
+  const serviceSections = [
+    ...(allowedServices.includes("data") ? parseTermsBlob(termsContentByService.data).sections : []),
+    ...(allowedServices.includes("airtime") ? parseTermsBlob(termsContentByService.airtime).sections : []),
+    ...(allowedServices.includes("vouchers") ? parseTermsBlob(termsContentByService.results_checker).sections : []),
+  ]
+  const sections = [...generalSections, ...serviceSections]
 
   const formattedDate = termsLastUpdated
     ? new Date(termsLastUpdated).toLocaleDateString("en-GB", { month: "long", year: "numeric" })
