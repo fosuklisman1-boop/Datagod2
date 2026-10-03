@@ -59,6 +59,11 @@ export function DashboardAIChatWidget() {
   const [balance, setBalance] = useState<string | null>(null)
   const [hintIndex, setHintIndex] = useState(0)
   const [hintVisible, setHintVisible] = useState(true)
+  // Admin-level kill switch (app_settings.ai_widget_enabled) -- overrides the
+  // user's own hide/show preference below. Optimistically true so the widget
+  // doesn't flash-hide while this loads; a disabled admin setting hides it
+  // for real once the fetch resolves.
+  const [adminEnabled, setAdminEnabled] = useState(true)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -109,6 +114,15 @@ export function DashboardAIChatWidget() {
       }
     }
     init()
+  }, [])
+
+  useEffect(() => {
+    fetch("/api/public/config")
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.ai_widget_enabled === false) setAdminEnabled(false)
+      })
+      .catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -251,6 +265,8 @@ export function DashboardAIChatWidget() {
     if (style === "secondary") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-border bg-card text-muted-foreground hover:bg-accent transition-colors"
     return "px-3 py-1.5 rounded-xl text-xs font-medium border border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 transition-colors"
   }
+
+  if (!adminEnabled) return null
 
   return (
     <>

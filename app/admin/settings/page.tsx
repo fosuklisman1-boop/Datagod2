@@ -39,6 +39,7 @@ export default function AdminSettingsPage() {
   const [signupsEnabled, setSignupsEnabled] = useState(true)
   const [walletTopupsEnabled, setWalletTopupsEnabled] = useState(true)
   const [upgradesEnabled, setUpgradesEnabled] = useState(true)
+  const [aiWidgetEnabled, setAiWidgetEnabled] = useState(true)
   const [signupDefaultRole, setSignupDefaultRole] = useState<'user' | 'dealer'>('user')
 
   // USSD price tier
@@ -183,6 +184,9 @@ export default function AdminSettingsPage() {
         }
         if (data.upgrades_enabled !== undefined) {
           setUpgradesEnabled(data.upgrades_enabled)
+        }
+        if (data.ai_widget_enabled !== undefined) {
+          setAiWidgetEnabled(data.ai_widget_enabled)
         }
 
         // Load announcement settings
@@ -914,6 +918,7 @@ export default function AdminSettingsPage() {
           signups_enabled: signupsEnabled,
           wallet_topups_enabled: walletTopupsEnabled,
           upgrades_enabled: upgradesEnabled,
+          ai_widget_enabled: aiWidgetEnabled,
           signup_default_role: signupDefaultRole,
         }),
       })
@@ -1063,6 +1068,20 @@ export default function AdminSettingsPage() {
               <Switch
                 checked={upgradesEnabled}
                 onCheckedChange={setUpgradesEnabled}
+                className="data-[state=checked]:bg-success"
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium text-foreground">AI Assistant Button</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Show the floating "Ask" AI assistant button on the customer dashboard. Disabling this hides it for everyone, overriding each user's own show/hide preference.
+                </p>
+              </div>
+              <Switch
+                checked={aiWidgetEnabled}
+                onCheckedChange={setAiWidgetEnabled}
                 className="data-[state=checked]:bg-success"
               />
             </div>

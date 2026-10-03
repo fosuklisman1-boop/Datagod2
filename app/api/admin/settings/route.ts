@@ -164,6 +164,7 @@ export async function PUT(request: NextRequest) {
       'signups_enabled',
       'wallet_topups_enabled',
       'upgrades_enabled',
+      'ai_widget_enabled',
       'signup_default_role',
       'terms_content',
       'terms_content_data',
