@@ -14,6 +14,7 @@ import { shopOrigin } from "@/lib/shop-url"
 import { generateProductSchema } from "@/lib/structured-data"
 import { supabase } from "@/lib/supabase"
 import { useShopSettings } from "@/hooks/use-shop-settings"
+import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 import { validatePhoneNumber } from "@/lib/phone-validation"
 import { DEFAULT_NETWORK_PREFIXES, type NetworkPrefixMap } from "@/lib/phone-format"
 import { normalizeWhatsAppLink } from "@/lib/whatsapp-link"
@@ -108,6 +109,14 @@ export default function ShopStorefront() {
   const params = useParams()
   const router = useRouter()
   const shopSlug = params.slug as string
+  // Null on a normal shop subdomain/path -- only set when this storefront is
+  // being viewed through an admin-configured custom domain restricted to a
+  // subset of services (see lib/custom-domains.ts). Gates which product tiles
+  // this storefront advertises, same mechanism the dashboard sidebar and the
+  // site's own link-preview metadata already use.
+  const domainBranding = useDomainBranding()
+  const isServiceVisible = (service: "data_bundles" | "airtime" | "results_checker") =>
+    !domainBranding.services || domainBranding.services.includes(service)
 
   const [shop, setShop] = useState<any>(null)
   const [packages, setPackages] = useState<any[]>([])
@@ -120,7 +129,13 @@ export default function ShopStorefront() {
   // Which service's content shows below the persistent "Choose a Service"
   // picker -- picking a service no longer navigates away from it (previously
   // it did, via a separate activeTab value, which made the picker disappear).
-  const [selectedService, setSelectedService] = useState<"data" | "airtime" | "vouchers">("data")
+  const [selectedService, setSelectedService] = useState<"data" | "airtime" | "vouchers">(() => {
+    if (!domainBranding.services) return "data"
+    if (domainBranding.services.includes("data_bundles")) return "data"
+    if (domainBranding.services.includes("airtime")) return "airtime"
+    if (domainBranding.services.includes("results_checker")) return "vouchers"
+    return "data"
+  })
   const [rcTab, setRcTab] = useState<"buy" | "retrieve" | "check">("buy")
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [orderData, setOrderData] = useState({
@@ -983,9 +998,9 @@ export default function ShopStorefront() {
   // confirmed no real product behind it (same call as the Pricing page
   // earlier this session).
   const productItems: Array<{ label: string; icon: React.ReactNode; onClick?: () => void; href?: string; isActive: boolean }> = [
-    { label: "Data Packages", icon: <ShoppingCart className="w-4 h-4" />, onClick: () => { setActiveTab("home"); setSelectedService("data"); setSidebarOpen(false) }, isActive: activeTab === "home" && selectedService === "data" },
-    { label: "Airtime Recharge", icon: <Zap className="w-4 h-4" />, onClick: () => { setActiveTab("home"); setSelectedService("airtime"); setSidebarOpen(false) }, isActive: activeTab === "home" && selectedService === "airtime" },
-    { label: "Results Checker", icon: <GraduationCap className="w-4 h-4" />, onClick: () => { setActiveTab("home"); setSelectedService("vouchers"); setRcTab("buy"); setSidebarOpen(false) }, isActive: activeTab === "home" && selectedService === "vouchers" && rcTab === "buy" },
+    ...(isServiceVisible("data_bundles") ? [{ label: "Data Packages", icon: <ShoppingCart className="w-4 h-4" />, onClick: () => { setActiveTab("home"); setSelectedService("data"); setSidebarOpen(false) }, isActive: activeTab === "home" && selectedService === "data" }] : []),
+    ...(isServiceVisible("airtime") ? [{ label: "Airtime Recharge", icon: <Zap className="w-4 h-4" />, onClick: () => { setActiveTab("home"); setSelectedService("airtime"); setSidebarOpen(false) }, isActive: activeTab === "home" && selectedService === "airtime" }] : []),
+    ...(isServiceVisible("results_checker") ? [{ label: "Results Checker", icon: <GraduationCap className="w-4 h-4" />, onClick: () => { setActiveTab("home"); setSelectedService("vouchers"); setRcTab("buy"); setSidebarOpen(false) }, isActive: activeTab === "home" && selectedService === "vouchers" && rcTab === "buy" }] : []),
     ...(shop?.afa_price != null ? [{
       label: "AFA Registration", icon: <IdCard className="w-4 h-4" />,
       href: shop.subdomain ? `${shopOrigin(shop.subdomain)}/afa` : `/shop/${shopSlug}/afa`,
@@ -994,7 +1009,7 @@ export default function ShopStorefront() {
   ]
   const accountItems: Array<{ label: string; icon: React.ReactNode; onClick: () => void; isActive: boolean }> = [
     { label: "Track My Orders", icon: <Package className="w-4 h-4" />, onClick: () => { setActiveTab("track-order"); setSidebarOpen(false) }, isActive: activeTab === "track-order" },
-    { label: "Retrieve Voucher", icon: <GraduationCap className="w-4 h-4" />, onClick: () => { setActiveTab("home"); setSelectedService("vouchers"); setRcTab("retrieve"); setSidebarOpen(false) }, isActive: activeTab === "home" && selectedService === "vouchers" && rcTab === "retrieve" },
+    ...(isServiceVisible("results_checker") ? [{ label: "Retrieve Voucher", icon: <GraduationCap className="w-4 h-4" />, onClick: () => { setActiveTab("home"); setSelectedService("vouchers"); setRcTab("retrieve"); setSidebarOpen(false) }, isActive: activeTab === "home" && selectedService === "vouchers" && rcTab === "retrieve" }] : []),
     { label: "About Shop & Terms", icon: <AlertCircle className="w-4 h-4" />, onClick: () => { setActiveTab("about"); setSidebarOpen(false) }, isActive: activeTab === "about" },
   ]
 
@@ -1009,21 +1024,21 @@ export default function ShopStorefront() {
 
   const helpWhatsAppLink = normalizeWhatsAppLink(shopSettings?.whatsapp_link)
   const carouselSlides: StorefrontCarouselSlide[] = [
-    {
+    ...(isServiceVisible("data_bundles") ? [{
       key: "data", badge: "DATA", title: "Data Bundles", description: "Fast, affordable data for every network.",
       cta: "Shop Data", icon: ShoppingCart, gradient: "from-[#0f172a] to-[#2563eb]",
       onClick: () => { setSelectedService("data"); setActiveTab("home"); scrollToServiceTabs() },
-    },
-    {
+    }] : []),
+    ...(isServiceVisible("airtime") ? [{
       key: "airtime", badge: "AIRTIME", title: "Airtime Recharge", description: "Top up any network instantly.",
       cta: "Buy Airtime", icon: Zap, gradient: "from-[#431407] to-[#d97706]",
       onClick: () => { setSelectedService("airtime"); setActiveTab("home"); scrollToServiceTabs() },
-    },
-    {
+    }] : []),
+    ...(isServiceVisible("results_checker") ? [{
       key: "vouchers", badge: "EDUCATION", title: "Results Checker", description: "Buy checker vouchers or check your results online.",
       cta: "Get Checker", icon: GraduationCap, gradient: "from-[#052e16] to-[#059669]",
       onClick: () => { setSelectedService("vouchers"); setRcTab("buy"); setActiveTab("home"); scrollToServiceTabs() },
-    },
+    }] : []),
     ...(shop?.afa_price != null ? [{
       key: "afa", badge: "AFA", title: "AFA Registration", description: "Register your line for AFA data bundles.",
       cta: "Register Now", icon: IdCard, gradient: "from-[#3b0764] to-[#7c3aed]",

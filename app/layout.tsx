@@ -32,9 +32,7 @@ export const viewport: Viewport = {
   themeColor: "#030303",
 };
 
-export const metadata: Metadata = {
-  title: "DATAGOD - Buy Affordable Data Packages & Airtime | Instant Delivery",
-  description: "Get instant mobile data packages, airtime, and digital services for MTN, Telecel, AT, and other networks in Ghana. Fast delivery, secure payment, 24/7 support.",
+const BASE_METADATA: Omit<Metadata, "title" | "description" | "openGraph" | "twitter"> = {
   keywords: [
     "data packages Ghana",
     "mobile data",
@@ -80,32 +78,94 @@ export const metadata: Metadata = {
   alternates: {
     canonical: "https://www.datagod.store",
   },
-  openGraph: {
-    type: "website",
-    locale: "en_US",
-    url: "https://www.datagod.store",
-    siteName: "DATAGOD",
-    title: "DATAGOD - Buy Affordable Data Packages & Airtime | Instant Delivery",
-    description: "Get instant mobile data packages, airtime, and digital services for MTN, Telecel, AT, and other networks. Fast delivery, secure payment.",
-    images: [
-      {
-        url: "https://www.datagod.store/og-image.png",
-        width: 1200,
-        height: 630,
-        alt: "DATAGOD - Affordable Data Packages & Airtime",
-        type: "image/png",
+}
+
+// Human-readable label for each gated service, used to build a domain's link
+// preview so it only ever mentions services that domain actually has enabled.
+const SERVICE_LABELS: Record<DomainService, string> = {
+  data_bundles: "data bundles",
+  airtime: "airtime",
+  results_checker: "results checker vouchers",
+  bulk_sms: "bulk SMS",
+}
+
+function joinLabels(labels: string[]): string {
+  if (labels.length <= 1) return labels[0] ?? "digital services"
+  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`
+  return `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`
+}
+
+// A custom domain restricted to a subset of services (see lib/custom-domains.ts)
+// must never advertise a service it doesn't actually offer in its link preview —
+// previously this was a static, title/description that always mentioned every
+// service regardless of which ones that domain's visitors can actually reach.
+export async function generateMetadata(): Promise<Metadata> {
+  const headersList = await headers()
+  const VALID_DOMAIN_SERVICES: DomainService[] = ["data_bundles", "airtime", "results_checker", "bulk_sms"]
+  const rawServices = headersList.get("x-domain-services")
+  const services = rawServices
+    ? rawServices.split(",").filter((s): s is DomainService => VALID_DOMAIN_SERVICES.includes(s as DomainService))
+    : []
+  const domainSiteName = headersList.get("x-domain-site-name")
+
+  if (services.length === 0 || !domainSiteName) {
+    return {
+      ...BASE_METADATA,
+      title: "DATAGOD - Buy Affordable Data Packages & Airtime | Instant Delivery",
+      description: "Get instant mobile data packages, airtime, and digital services for MTN, Telecel, AT, and other networks in Ghana. Fast delivery, secure payment, 24/7 support.",
+      openGraph: {
+        type: "website",
+        locale: "en_US",
+        url: "https://www.datagod.store",
+        siteName: "DATAGOD",
+        title: "DATAGOD - Buy Affordable Data Packages & Airtime | Instant Delivery",
+        description: "Get instant mobile data packages, airtime, and digital services for MTN, Telecel, AT, and other networks. Fast delivery, secure payment.",
+        images: [
+          {
+            url: "https://www.datagod.store/og-image.png",
+            width: 1200,
+            height: 630,
+            alt: "DATAGOD - Affordable Data Packages & Airtime",
+            type: "image/png",
+          },
+        ],
       },
-    ],
-  },
-  twitter: {
-    card: "summary_large_image",
-    site: "@datagodstore",
-    creator: "@datagodstore",
-    title: "DATAGOD - Buy Data Packages & Airtime Online",
-    description: "Instant mobile data, airtime, and digital services for Ghana. Fast delivery, secure payment.",
-    images: ["https://www.datagod.store/og-image.png"],
-  },
-};
+      twitter: {
+        card: "summary_large_image",
+        site: "@datagodstore",
+        creator: "@datagodstore",
+        title: "DATAGOD - Buy Data Packages & Airtime Online",
+        description: "Instant mobile data, airtime, and digital services for Ghana. Fast delivery, secure payment.",
+        images: ["https://www.datagod.store/og-image.png"],
+      },
+    }
+  }
+
+  const serviceLabels = joinLabels(services.map(s => SERVICE_LABELS[s]))
+  const title = `${domainSiteName} - Buy ${serviceLabels.charAt(0).toUpperCase() + serviceLabels.slice(1)} Online`
+  const description = `Get instant ${serviceLabels} from ${domainSiteName}. Fast delivery, secure payment.`
+  const image = headersList.get("x-domain-logo") || "https://www.datagod.store/og-image.png"
+
+  return {
+    ...BASE_METADATA,
+    title,
+    description,
+    openGraph: {
+      type: "website",
+      locale: "en_US",
+      siteName: domainSiteName,
+      title,
+      description,
+      images: [{ url: image, width: 1200, height: 630, alt: domainSiteName, type: "image/png" }],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+      images: [image],
+    },
+  }
+}
 
 export default async function RootLayout({
   children,
