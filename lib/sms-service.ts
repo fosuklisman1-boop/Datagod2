@@ -826,6 +826,25 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
   order = [...new Set(order)].filter((p) => SMS_SENDERS[p] && isProviderConfigured(p))
   if (order.length === 0) order = [primaryProvider] // last resort — let it surface its own error
 
+  // A custom (non-default) sender ID may be approved on only one provider.
+  // Drop any provider from the chain that hasn't approved THIS sender ID,
+  // rather than attempting it and getting a provider-side rejection.
+  if (payload.senderId && payload.senderId.trim()) {
+    const sid = payload.senderId.trim().toUpperCase()
+    const { data: senderRow } = await supabase
+      .from('sms_sender_ids')
+      .select('local_status, mnotify_local_status')
+      .eq('sender_id', sid)
+      .maybeSingle()
+    if (senderRow) {
+      const approvedProviders = new Set<string>()
+      if (senderRow.local_status === 'active') approvedProviders.add('moolre')
+      if (senderRow.mnotify_local_status === 'active') approvedProviders.add('mnotify')
+      const narrowed = order.filter((p) => approvedProviders.size === 0 || approvedProviders.has(p))
+      if (narrowed.length > 0) order = narrowed
+    }
+  }
+
   let last: SendSMSResponse = { success: false, error: 'No SMS provider available' }
   for (const name of order) {
     const result = await (SMS_SENDERS[name] || sendSMSViaMoolre)(payload)

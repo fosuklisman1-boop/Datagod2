@@ -10,7 +10,11 @@ const h = vi.hoisted(() => {
     insertLogId: "log-1",               // id returned from sms_send_logs insert
     insertLogError: null as null | string,
     insertMsgError: null as null | string,
-    senderActive: true,                 // sms_sender_ids validation finds an active row for the account
+    // sms_sender_ids validation: null → no matching row; otherwise the row's
+    // per-provider local statuses, matched against the gate's .or(...) clause.
+    senderRow: { local_status: "active", mnotify_local_status: "active" } as
+      | { local_status: string; mnotify_local_status: string }
+      | null,
     bulkOk: true,                        // sendSMSBulkViaMoolre result
     msgUpdates: [] as { patch: any; ids: string[] }[], // captured .update().in() (mark-sent)
     msgIdSeq: 0,                         // id generator for inserted sms_messages
@@ -66,12 +70,26 @@ const h = vi.hoisted(() => {
           if (state.insertMsgError) return Promise.resolve({ data: null, error: { message: state.insertMsgError } })
           return Promise.resolve({ data: null, error: null })
         },
-        // sms_sender_ids validation: .select("sender_id").eq().eq().eq().maybeSingle()
+        // sms_sender_ids validation: .select("sender_id").eq().eq().or(clause).maybeSingle()
         select: (_cols?: string) => {
+          let orClause: string | null = null
           const chain: any = {
             eq: () => chain,
-            maybeSingle: () =>
-              Promise.resolve({ data: state.senderActive ? { sender_id: "MYSHOP" } : null, error: null }),
+            or: (clause: string) => {
+              orClause = clause
+              return chain
+            },
+            maybeSingle: () => {
+              if (!state.senderRow) return Promise.resolve({ data: null, error: null })
+              let matched = true
+              if (orClause) {
+                matched = orClause.split(",").some((part) => {
+                  const [col, , val] = part.split(".")
+                  return (state.senderRow as any)[col] === val
+                })
+              }
+              return Promise.resolve({ data: matched ? { sender_id: "MYSHOP" } : null, error: null })
+            },
           }
           return chain
         },
@@ -107,7 +125,7 @@ beforeEach(() => {
   h.state.insertLogId = "log-1"
   h.state.insertLogError = null
   h.state.insertMsgError = null
-  h.state.senderActive = true
+  h.state.senderRow = { local_status: "active", mnotify_local_status: "active" }
   h.state.bulkOk = true
   h.state.msgUpdates.length = 0
   h.state.msgIdSeq = 0
@@ -260,12 +278,27 @@ describe("enqueueSend", () => {
   })
 
   it("senderId that isn't an active sender for the account → INVALID_SENDER_ID, no debit", async () => {
-    h.state.senderActive = false
+    h.state.senderRow = null
     const result = await enqueueSend("u1", "acc1", "Hello world", ["0241234567"], undefined, "ghost")
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error).toBe("INVALID_SENDER_ID")
     expect(rpcs().map((c) => c.fn)).not.toContain("debit_sms_for_send")
     expect(inserts("sms_messages")).toHaveLength(0)
+  })
+
+  it("senderId active on mNotify only (pending on Moolre) → accepted, debit proceeds", async () => {
+    h.state.senderRow = { local_status: "pending", mnotify_local_status: "active" }
+    const result = await enqueueSend("u1", "acc1", "Hello world", ["0241234567"], undefined, "myshop")
+    expect(result.ok).toBe(true)
+    expect(rpcs().some((c) => c.fn === "debit_sms_for_send")).toBe(true)
+  })
+
+  it("senderId pending on BOTH providers → still INVALID_SENDER_ID, no debit", async () => {
+    h.state.senderRow = { local_status: "pending", mnotify_local_status: "pending" }
+    const result = await enqueueSend("u1", "acc1", "Hello world", ["0241234567"], undefined, "myshop")
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toBe("INVALID_SENDER_ID")
+    expect(rpcs().map((c) => c.fn)).not.toContain("debit_sms_for_send")
   })
 
   it("no senderId → sender_id null on the log, default-sender path (back-compat)", async () => {
