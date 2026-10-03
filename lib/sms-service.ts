@@ -588,6 +588,14 @@ export async function createMoolreSenderId(senderId: string): Promise<{ ok: bool
  * Query Moolre for the approval status of a sender-ID (type 1).
  * Maps "Approved" (code ASMQ02) → 'active', "Rejected" (code ASMQ07) → 'rejected',
  * anything else → 'pending'. Fail-soft: returns pending on any error, never throws.
+ *
+ * Moolre's own `status` field (0 = failure, 1 = success — confirmed live: a
+ * genuine internal error still comes back as HTTP 200 with
+ * `{status:0, code:"IE01", message:"INTERNAL ERROR"}`) must be checked BEFORE
+ * treating `code` as a real sender-ID status. Without this, an error code like
+ * "IE01" gets stored as if it were a legitimate (if unrecognized) status —
+ * exactly what happened in production: every poll for months quietly wrote
+ * "IE01" into moolre_status, which reads like real data, not an obvious error.
  */
 export async function queryMoolreSenderIdStatus(senderId: string): Promise<{
   rawStatus: string
@@ -600,6 +608,10 @@ export async function queryMoolreSenderIdStatus(senderId: string): Promise<{
       { type: 1, senderid: senderId },
       { headers: { 'X-API-VASKEY': MOOLRE_API_KEY, 'Content-Type': 'application/json' } }
     )
+    if (response.data?.status === 0) {
+      console.error('[SMS] Moolre querySenderIdStatus returned a failure status:', response.data?.code, response.data?.message)
+      return { rawStatus: 'error', localStatus: 'pending' }
+    }
     const rawStatus = response.data?.data?.status ?? response.data?.code ?? response.data?.status ?? 'unknown'
     const rawStr = String(rawStatus)
     const localStatus: 'pending' | 'active' | 'rejected' =
