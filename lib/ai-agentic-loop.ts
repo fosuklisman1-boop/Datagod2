@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk"
 import { AIProvider } from "@/lib/ai-providers"
 import { aiTools, executeToolCall } from "@/lib/ai-tools"
-import type { AIChatContext } from "@/lib/ai-tools"
+import type { AIChatContext, StorefrontServiceFlags } from "@/lib/ai-tools"
 
 export interface AgenticToolCtx {
   userId?: string
@@ -23,6 +23,8 @@ export interface RunAgenticLoopParams {
   context: AIChatContext
   messages: Anthropic.MessageParam[]
   toolCtx: AgenticToolCtx
+  /** context === "storefront" only: which services this shop/domain actually sells, gating the tool list to match. */
+  storefrontServices?: StorefrontServiceFlags
   maxIterations?: number
   maxTokens?: number
   /** Called for each SSE-style event (text, tool_call, action_buttons, etc.) — omit for silent/cron runs */
@@ -45,12 +47,13 @@ export async function runAgenticLoop({
   context,
   messages,
   toolCtx,
+  storefrontServices,
   maxIterations = 10,
   maxTokens = 1500,
   onEvent,
 }: RunAgenticLoopParams): Promise<AgenticLoopResult> {
   const emit = onEvent ?? (() => {})
-  const tools = aiTools(context)
+  const tools = aiTools(context, storefrontServices)
   const currentMessages: Anthropic.MessageParam[] = [...messages]
   const toolsUsed: string[] = []
   let finalText = ""

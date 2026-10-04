@@ -1015,9 +1015,21 @@ const verifyAccountCodeTool: Anthropic.Tool = {
   },
 }
 
+// A custom domain or shop can be restricted to a subset of services (see
+// lib/custom-domains.ts DomainService) -- when that's the case the storefront
+// tool list must match, not just the system prompt wording. Without this, the
+// model still has get_available_packages/prepare_checkout (data-only tools)
+// in its toolbox on a results-checker-only shop, reasons about them out loud
+// to the customer, and leaks "data packages" into otherwise-correct refusals.
+export interface StorefrontServiceFlags {
+  sellsData?: boolean
+  sellsAirtime?: boolean
+  sellsResultsChecker?: boolean
+}
+
 // ─── Tool list by context ────────────────────────────────────────────────────
 
-export function aiTools(context: AIChatContext): Anthropic.Tool[] {
+export function aiTools(context: AIChatContext, storefrontServices?: StorefrontServiceFlags): Anthropic.Tool[] {
   // Home: public receptionist — no auth required, visitors may be guests
   if (context === "home") return [
     getAvailablePackagesTool,
@@ -1027,16 +1039,20 @@ export function aiTools(context: AIChatContext): Anthropic.Tool[] {
     showActionButtonsTool,
   ]
 
-  // Storefront: guest-facing, Paystack checkout flow
-  if (context === "storefront") return [
-    getAvailablePackagesTool,
-    searchOrderStatusTool,
-    prepareCheckoutTool,
-    getAirtimeAvailabilityTool,
-    getResultsCheckerAvailabilityTool,
-    getKnowledgeBaseTool,
-    showActionButtonsTool,
-  ]
+  // Storefront: guest-facing, Paystack checkout flow. Defaults (no flags
+  // passed) keep every tool, for any caller that hasn't been updated to
+  // resolve the domain's service restriction yet.
+  if (context === "storefront") {
+    const { sellsData = true, sellsAirtime = true, sellsResultsChecker = true } = storefrontServices ?? {}
+    return [
+      ...(sellsData ? [getAvailablePackagesTool, prepareCheckoutTool] : []),
+      ...(sellsData || sellsAirtime ? [searchOrderStatusTool] : []),
+      ...(sellsAirtime ? [getAirtimeAvailabilityTool] : []),
+      ...(sellsResultsChecker ? [getResultsCheckerAvailabilityTool] : []),
+      getKnowledgeBaseTool,
+      showActionButtonsTool,
+    ]
+  }
 
   // Dashboard: authenticated dealer/user, wallet-based ordering
   if (context === "dashboard") return [

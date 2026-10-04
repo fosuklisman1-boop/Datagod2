@@ -719,6 +719,9 @@ ${formattingRules}`
           context,
           messages,
           toolCtx,
+          storefrontServices: context === "storefront"
+            ? { sellsData, sellsAirtime, sellsResultsChecker: sellsRC }
+            : undefined,
           maxTokens: context === "admin" ? 2048 : 1500,
           maxIterations: context === "admin" ? 20 : 10,
           onEvent: send,
