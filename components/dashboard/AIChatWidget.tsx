@@ -59,10 +59,14 @@ export function DashboardAIChatWidget() {
   const [balance, setBalance] = useState<string | null>(null)
   const [hintIndex, setHintIndex] = useState(0)
   const [hintVisible, setHintVisible] = useState(true)
-  // Admin-level kill switch (app_settings.ai_widget_enabled) -- overrides the
-  // user's own hide/show preference below. Optimistically true so the widget
-  // doesn't flash-hide while this loads; a disabled admin setting hides it
-  // for real once the fetch resolves.
+  // Admin-level kill switch (app_settings.ai_widget_services) -- overrides
+  // the user's own hide/show preference below. The dashboard isn't scoped to
+  // any one shop's services, so it shows as long as the admin has AI enabled
+  // for at least one product area; a shop/domain-restricted storefront's own
+  // widget (components/shop/AIChatWidget.tsx) does the finer per-service
+  // intersection check. Optimistically true so the widget doesn't flash-hide
+  // while this loads; an empty admin list hides it for real once the fetch
+  // resolves.
   const [adminEnabled, setAdminEnabled] = useState(true)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -120,7 +124,8 @@ export function DashboardAIChatWidget() {
     fetch("/api/public/config")
       .then(r => r.ok ? r.json() : null)
       .then(data => {
-        if (data?.ai_widget_enabled === false) setAdminEnabled(false)
+        const services: string[] | undefined = data?.app_settings?.ai_widget_services
+        if (Array.isArray(services) && services.length === 0) setAdminEnabled(false)
       })
       .catch(() => {})
   }, [])

@@ -39,7 +39,7 @@ export default function AdminSettingsPage() {
   const [signupsEnabled, setSignupsEnabled] = useState(true)
   const [walletTopupsEnabled, setWalletTopupsEnabled] = useState(true)
   const [upgradesEnabled, setUpgradesEnabled] = useState(true)
-  const [aiWidgetEnabled, setAiWidgetEnabled] = useState(true)
+  const [aiWidgetServices, setAiWidgetServices] = useState<string[]>(["data_bundles", "airtime", "results_checker", "bulk_sms"])
   const [signupDefaultRole, setSignupDefaultRole] = useState<'user' | 'dealer'>('user')
 
   // USSD price tier
@@ -186,8 +186,8 @@ export default function AdminSettingsPage() {
         if (data.upgrades_enabled !== undefined) {
           setUpgradesEnabled(data.upgrades_enabled)
         }
-        if (data.ai_widget_enabled !== undefined) {
-          setAiWidgetEnabled(data.ai_widget_enabled)
+        if (Array.isArray(data.ai_widget_services)) {
+          setAiWidgetServices(data.ai_widget_services)
         }
 
         // Load announcement settings
@@ -923,7 +923,7 @@ export default function AdminSettingsPage() {
           signups_enabled: signupsEnabled,
           wallet_topups_enabled: walletTopupsEnabled,
           upgrades_enabled: upgradesEnabled,
-          ai_widget_enabled: aiWidgetEnabled,
+          ai_widget_services: aiWidgetServices,
           signup_default_role: signupDefaultRole,
         }),
       })
@@ -1077,18 +1077,32 @@ export default function AdminSettingsPage() {
               />
             </div>
 
-            <div className="flex items-center justify-between">
+            <div className="space-y-3">
               <div>
                 <p className="font-medium text-foreground">AI Assistant Button</p>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Show the floating "Ask" AI assistant button on the customer dashboard. Disabling this hides it for everyone, overriding each user's own show/hide preference.
+                  Enable the floating "Ask" AI assistant per product area. A shop or custom domain's own widget only shows if it offers at least one of the services enabled below; the customer dashboard's widget shows if any are enabled. Overrides each user's own show/hide preference.
                 </p>
               </div>
-              <Switch
-                checked={aiWidgetEnabled}
-                onCheckedChange={setAiWidgetEnabled}
-                className="data-[state=checked]:bg-success"
-              />
+              <div className="space-y-2 rounded-xl border border-border bg-card p-3">
+                {[
+                  { value: "data_bundles", label: "Data Bundles" },
+                  { value: "airtime", label: "Airtime" },
+                  { value: "results_checker", label: "Results Checker" },
+                  { value: "bulk_sms", label: "Bulk SMS" },
+                ].map(({ value, label }) => (
+                  <div key={value} className="flex items-center justify-between">
+                    <p className="text-sm text-foreground">{label}</p>
+                    <Switch
+                      checked={aiWidgetServices.includes(value)}
+                      onCheckedChange={(checked) =>
+                        setAiWidgetServices(prev => checked ? [...prev, value] : prev.filter(s => s !== value))
+                      }
+                      className="data-[state=checked]:bg-success"
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
 
             <div className="flex justify-end pt-2">

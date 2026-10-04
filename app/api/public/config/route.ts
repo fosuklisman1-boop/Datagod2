@@ -27,7 +27,7 @@ const SAFE_APP_COLUMNS = [
   "terms_content_results_checker",
   "terms_content_bulk_sms",
   "terms_last_updated",
-  "ai_widget_enabled",
+  "ai_widget_services",
   "ussd_shop_dial_code",
   "ussd_shop_activation_fee",
   "ussd_shop_session_price",

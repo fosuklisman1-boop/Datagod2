@@ -5,6 +5,7 @@ import { Sparkles, X, Send, Trash2, ChevronDown, RefreshCw, EyeOff } from "lucid
 import ReactMarkdown from "react-markdown"
 import { ChatMessage } from "@/components/ui/chat-message"
 import { useDraggableFloatingPosition } from "@/hooks/use-draggable-floating-position"
+import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 
 interface Message {
   role: "user" | "assistant"
@@ -60,12 +61,16 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
       return false
     }
   })
-  // Admin-level kill switch (app_settings.ai_widget_enabled) -- same one
-  // used for the customer dashboard's AI widget, so a single admin toggle
-  // disables the AI assistant everywhere (dashboard + every shop
-  // storefront), overriding the user's own hide/show preference below.
-  // Optimistically true so the widget doesn't flash-hide while this loads.
+  // Admin-level kill switch (app_settings.ai_widget_services) -- same list
+  // used for the customer dashboard's AI widget, but here also checked
+  // against THIS shop/domain's own allowed services (null = unrestricted,
+  // same convention as lib/custom-domains.ts elsewhere): the widget only
+  // shows if at least one service this storefront actually offers is also
+  // AI-enabled by admin. Overrides the user's own hide/show preference
+  // below. Optimistically true so the widget doesn't flash-hide while this
+  // loads.
   const [adminEnabled, setAdminEnabled] = useState(true)
+  const domainBranding = useDomainBranding()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [isStreaming, setIsStreaming] = useState(false)
@@ -85,10 +90,18 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
     fetch("/api/public/config")
       .then(r => r.ok ? r.json() : null)
       .then(data => {
-        if (data?.ai_widget_enabled === false) setAdminEnabled(false)
+        const aiServices: string[] | undefined = data?.app_settings?.ai_widget_services
+        if (!Array.isArray(aiServices)) return
+        // null/absent domainBranding.services means this storefront isn't
+        // restricted to a subset -- treat it as offering all 4 known
+        // services for this check, same as isPathAllowedForService does
+        // elsewhere for "unrestricted = everything allowed."
+        const shopServices = domainBranding.services ?? ["data_bundles", "airtime", "results_checker", "bulk_sms"]
+        const hasOverlap = shopServices.some(s => aiServices.includes(s))
+        if (!hasOverlap) setAdminEnabled(false)
       })
       .catch(() => {})
-  }, [])
+  }, [domainBranding.services])
 
   useEffect(() => {
     try {
