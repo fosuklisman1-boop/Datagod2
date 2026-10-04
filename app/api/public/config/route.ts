@@ -21,6 +21,7 @@ const DENY_ADMIN_KEYS = new Set(["results_check_admin_phones"])
 // app_settings COLUMNS that are safe to expose.
 const SAFE_APP_COLUMNS = [
   "terms_content",
+  "terms_content_account",
   "terms_content_data",
   "terms_content_airtime",
   "terms_content_results_checker",

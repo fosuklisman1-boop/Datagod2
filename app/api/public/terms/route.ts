@@ -12,12 +12,13 @@ export async function GET() {
 
     const { data } = await supabase
       .from("app_settings")
-      .select("terms_content, terms_content_data, terms_content_airtime, terms_content_results_checker, terms_content_bulk_sms, terms_last_updated")
+      .select("terms_content, terms_content_account, terms_content_data, terms_content_airtime, terms_content_results_checker, terms_content_bulk_sms, terms_last_updated")
       .is("key", null)
       .single()
 
     return NextResponse.json({
       terms_content: data?.terms_content ?? "",
+      terms_content_account: data?.terms_content_account ?? "",
       terms_content_data: data?.terms_content_data ?? "",
       terms_content_airtime: data?.terms_content_airtime ?? "",
       terms_content_results_checker: data?.terms_content_results_checker ?? "",
@@ -27,6 +28,7 @@ export async function GET() {
   } catch {
     return NextResponse.json({
       terms_content: "",
+      terms_content_account: "",
       terms_content_data: "",
       terms_content_airtime: "",
       terms_content_results_checker: "",

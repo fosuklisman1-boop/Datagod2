@@ -167,6 +167,7 @@ export async function PUT(request: NextRequest) {
       'ai_widget_enabled',
       'signup_default_role',
       'terms_content',
+      'terms_content_account',
       'terms_content_data',
       'terms_content_airtime',
       'terms_content_results_checker',
@@ -184,6 +185,7 @@ export async function PUT(request: NextRequest) {
     // Auto-stamp terms_last_updated when any terms section changes
     if (
       body.terms_content !== undefined ||
+      body.terms_content_account !== undefined ||
       body.terms_content_data !== undefined ||
       body.terms_content_airtime !== undefined ||
       body.terms_content_results_checker !== undefined ||

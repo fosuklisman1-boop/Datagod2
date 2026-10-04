@@ -115,6 +115,7 @@ export default function AdminSettingsPage() {
 
   // Terms of Service
   const [termsContent, setTermsContent] = useState("")
+  const [termsContentAccount, setTermsContentAccount] = useState("")
   const [termsContentData, setTermsContentData] = useState("")
   const [termsContentAirtime, setTermsContentAirtime] = useState("")
   const [termsContentResultsChecker, setTermsContentResultsChecker] = useState("")
@@ -231,6 +232,9 @@ export default function AdminSettingsPage() {
         // Load terms content
         if (data.terms_content !== undefined) {
           setTermsContent(data.terms_content || "")
+        }
+        if (data.terms_content_account !== undefined) {
+          setTermsContentAccount(data.terms_content_account || "")
         }
         if (data.terms_content_data !== undefined) {
           setTermsContentData(data.terms_content_data || "")
@@ -422,6 +426,7 @@ export default function AdminSettingsPage() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
         body: JSON.stringify({
           terms_content: termsContent,
+          terms_content_account: termsContentAccount,
           terms_content_data: termsContentData,
           terms_content_airtime: termsContentAirtime,
           terms_content_results_checker: termsContentResultsChecker,
@@ -2439,17 +2444,33 @@ export default function AdminSettingsPage() {
 
             <div className="space-y-2">
               <Label htmlFor="termsContent" className="text-sm font-medium">
-                General Terms (account, payment, wallet, agent/dealer policies)
+                General Terms (delivery, accuracy, payment, agent/dealer policies)
               </Label>
               <p className="text-xs text-muted-foreground">
-                Shown on every /terms page and shop "About" tab, regardless of which services a shop or custom domain offers. Format: start with an intro paragraph, then number sections like "1. Section Title" on their own line, followed by the section body.
+                Shown on every /terms page and shop storefront, regardless of which services a shop or custom domain offers. Format: start with an intro paragraph, then number sections like "1. Section Title" on their own line, followed by the section body.
               </p>
               <Textarea
                 id="termsContent"
                 value={termsContent}
                 onChange={(e) => setTermsContent(e.target.value)}
-                placeholder={`Welcome to DATAGOD. By accessing or using our platform, you agree to be bound by these Terms of Service.\n\n1. General Account Registration & Security\nBy creating an account on DATAGOD, you agree to provide accurate information...\n\n2. Instant, Non-Refundable Delivery\nAll digital products are processed and delivered instantly upon successful payment or Wallet deduction...`}
+                placeholder={`Welcome to DATAGOD. By accessing or using our platform, you agree to be bound by these Terms of Service.\n\n1. Instant, Non-Refundable Delivery\nAll digital products are processed and delivered instantly upon successful payment or Wallet deduction...`}
                 className="min-h-[400px] resize-y font-mono text-sm"
+              />
+            </div>
+
+            <div className="border-t border-border pt-4 space-y-2">
+              <Label htmlFor="termsContentAccount" className="text-sm font-medium">
+                Account & Wallet (registration, top-ups, withdrawals)
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Only shown on the main /terms page — never on a shop storefront. A guest customer buying from a shop never creates an account or touches a wallet, so this doesn't apply there.
+              </p>
+              <Textarea
+                id="termsContentAccount"
+                value={termsContentAccount}
+                onChange={(e) => setTermsContentAccount(e.target.value)}
+                placeholder={`1. General Account Registration & Security\nBy creating an account on DATAGOD, you agree to provide accurate information...\n\n2. Wallet Top-Ups & Withdrawals\nWallet top-ups are processed via Paystack...`}
+                className="min-h-[200px] resize-y font-mono text-sm"
               />
             </div>
 

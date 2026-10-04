@@ -1663,7 +1663,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
                 </div>
 
                 {/* Platform Terms of Service */}
-                <ShopTermsSection termsContent={termsContent} termsContentByService={termsContentByService} allowedServices={allowedServices} termsLastUpdated={termsLastUpdated} />
+                <ShopTermsSection shopName={shop?.shop_name || shop?.name || "this shop"} termsContent={termsContent} termsContentByService={termsContentByService} allowedServices={allowedServices} termsLastUpdated={termsLastUpdated} />
               </div>
             )}
 
@@ -2151,28 +2151,44 @@ function parseTermsBlob(content: string): { intro: string; sections: Array<{ tit
 }
 
 function ShopTermsSection({
+  shopName,
   termsContent,
   termsContentByService,
   allowedServices,
   termsLastUpdated,
 }: {
+  shopName: string
   termsContent: string
   termsContentByService: { data: string; airtime: string; results_checker: string; bulk_sms: string }
   allowedServices: Array<"data" | "airtime" | "vouchers">
   termsLastUpdated: string | null
 }) {
   const [expanded, setExpanded] = useState(false)
+  const domainBranding = useDomainBranding()
 
   if (!termsContent) return null
 
-  const { intro, sections: generalSections } = parseTermsBlob(termsContent)
+  // A shop reached through its own custom domain is white-labeled (see
+  // app/shop/[slug]/layout.tsx's "Powered by DATAGOD" fix) -- the terms text
+  // itself, authored with literal "DATAGOD" mentions throughout, needs the
+  // same treatment so it doesn't break that illusion. Uses the shop's own
+  // name (matching the hero banner/nav, which brand everything as this
+  // specific shop), not the custom domain's own generic site_name -- under
+  // wildcard mode one domain covers many different shops, so that name
+  // wouldn't match what the rest of the page calls this storefront. Only
+  // rebrands at all when actually on a custom domain (domainBranding.services
+  // is null on the plain <shop>.datagod.store subdomain) -- the admin's
+  // original wording is left untouched there.
+  const rebrand = (text: string) => (domainBranding.services ? text.replace(/DATAGOD/gi, shopName) : text)
+
+  const { intro, sections: generalSections } = parseTermsBlob(rebrand(termsContent))
   // Only append a service's addendum when that service is actually enabled
   // for this storefront/domain -- a domain scoped to Data only, for example,
   // should never show Results Checker voucher terms.
   const serviceSections = [
-    ...(allowedServices.includes("data") ? parseTermsBlob(termsContentByService.data).sections : []),
-    ...(allowedServices.includes("airtime") ? parseTermsBlob(termsContentByService.airtime).sections : []),
-    ...(allowedServices.includes("vouchers") ? parseTermsBlob(termsContentByService.results_checker).sections : []),
+    ...(allowedServices.includes("data") ? parseTermsBlob(rebrand(termsContentByService.data)).sections : []),
+    ...(allowedServices.includes("airtime") ? parseTermsBlob(rebrand(termsContentByService.airtime)).sections : []),
+    ...(allowedServices.includes("vouchers") ? parseTermsBlob(rebrand(termsContentByService.results_checker)).sections : []),
   ]
   const sections = [...generalSections, ...serviceSections]
 
