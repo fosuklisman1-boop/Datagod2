@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect, useCallback } from "react"
+import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { Sparkles, X, Send, Trash2, ChevronDown, RefreshCw, EyeOff } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import { ChatMessage } from "@/components/ui/chat-message"
@@ -36,12 +36,24 @@ const STORAGE_KEY = (slug: string) => `storefront_chat_${slug}`
 const HIDDEN_KEY = "datagod_shop_ai_widget_hidden"
 const MAX_STORED = 20
 
-const hints = [
-  "Find the perfect data bundle",
-  "Check your order status",
-  "Instant delivery after payment",
-  "MTN · Telecel · AirtelTigo",
-]
+// Universal: true of any purchase regardless of which services this
+// storefront offers.
+const UNIVERSAL_HINTS = ["Check your order status", "Instant delivery after payment"]
+// Service-specific: only relevant if that service is actually offered here.
+// Network coverage applies to Data and Airtime alike (both go through
+// network/provider selection) -- Results Checker doesn't, it's exam-board
+// based, not telco-based.
+const SERVICE_HINTS: Record<"data_bundles" | "airtime" | "results_checker", string[]> = {
+  data_bundles: ["Find the perfect data bundle", "MTN · Telecel · AirtelTigo"],
+  airtime: ["Top up airtime instantly", "MTN · Telecel · AirtelTigo"],
+  results_checker: ["Get your results checker voucher"],
+}
+
+function joinWithOr(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? ""
+  if (items.length === 2) return `${items[0]} or ${items[1]}`
+  return `${items.slice(0, -1).join(", ")}, or ${items[items.length - 1]}`
+}
 
 const mdComponents = {
   p: ({ children }: any) => <p className="mb-1 last:mb-0">{children}</p>,
@@ -78,6 +90,31 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
   const [actionButtons, setActionButtons] = useState<ActionButton[] | null>(null)
   const [hintIndex, setHintIndex] = useState(0)
   const [hintVisible, setHintVisible] = useState(true)
+  // null/absent domainBranding.services means this storefront isn't
+  // restricted to a subset -- treat it as offering all 3 storefront-facing
+  // services for this, same convention used for the admin-toggle check
+  // above and everywhere else in this file.
+  const hints = useMemo(() => {
+    const shopServices = domainBranding.services ?? ["data_bundles", "airtime", "results_checker"]
+    const serviceSpecific = (["data_bundles", "airtime", "results_checker"] as const)
+      .filter(s => shopServices.includes(s))
+      .flatMap(s => SERVICE_HINTS[s])
+    return [...UNIVERSAL_HINTS, ...Array.from(new Set(serviceSpecific))]
+  }, [domainBranding.services])
+
+  // Same "unrestricted = all 3" convention as `hints` above, for the opening
+  // greeting -- a results-checker-only storefront shouldn't invite customers
+  // to "find data packages" when there are none to find here.
+  const greetingPhrases = useMemo(() => {
+    const shopServices = domainBranding.services ?? ["data_bundles", "airtime", "results_checker"]
+    const phrases: string[] = []
+    if (shopServices.includes("data_bundles")) phrases.push("find data packages")
+    if (shopServices.includes("airtime")) phrases.push("top up airtime")
+    if (shopServices.includes("results_checker")) phrases.push("get a results checker voucher")
+    if (shopServices.includes("data_bundles") || shopServices.includes("airtime")) phrases.push("check your order status")
+    phrases.push("answer any questions")
+    return joinWithOr(phrases)
+  }, [domainBranding.services])
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -116,10 +153,10 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
     } catch {}
     setMessages([{
       role: "assistant",
-      content: `Hi! I'm the ${shop.shop_name} assistant. I can help you find data packages, check your order status, or answer any questions. What do you need?`,
+      content: `Hi! I'm the ${shop.shop_name} assistant. I can help you ${greetingPhrases}. What do you need?`,
       timestamp: Date.now(),
     }])
-  }, [shopSlug, shop.shop_name])
+  }, [shopSlug, shop.shop_name, greetingPhrases])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -151,7 +188,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
       }, 300)
     }, 3000)
     return () => clearInterval(id)
-  }, [isOpen])
+  }, [isOpen, hints])
 
   function persist(msgs: Message[]) {
     try {
