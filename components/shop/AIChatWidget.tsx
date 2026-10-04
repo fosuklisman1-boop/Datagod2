@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect, useCallback } from "react"
-import { Sparkles, X, Send, Trash2, ChevronDown, RefreshCw } from "lucide-react"
+import { Sparkles, X, Send, Trash2, ChevronDown, RefreshCw, EyeOff } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import { ChatMessage } from "@/components/ui/chat-message"
 import { useDraggableFloatingPosition } from "@/hooks/use-draggable-floating-position"
@@ -32,6 +32,7 @@ interface Props {
 }
 
 const STORAGE_KEY = (slug: string) => `storefront_chat_${slug}`
+const HIDDEN_KEY = "datagod_shop_ai_widget_hidden"
 const MAX_STORED = 20
 
 const hints = [
@@ -52,6 +53,19 @@ const mdComponents = {
 
 export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
   const [isOpen, setIsOpen] = useState(false)
+  const [hidden, setHidden] = useState(() => {
+    try {
+      return typeof window !== "undefined" && localStorage.getItem(HIDDEN_KEY) === "1"
+    } catch {
+      return false
+    }
+  })
+  // Admin-level kill switch (app_settings.ai_widget_enabled) -- same one
+  // used for the customer dashboard's AI widget, so a single admin toggle
+  // disables the AI assistant everywhere (dashboard + every shop
+  // storefront), overriding the user's own hide/show preference below.
+  // Optimistically true so the widget doesn't flash-hide while this loads.
+  const [adminEnabled, setAdminEnabled] = useState(true)
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [isStreaming, setIsStreaming] = useState(false)
@@ -66,6 +80,15 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
   const [showScrollBtn, setShowScrollBtn] = useState(false)
   const { position: fabPosition, containerRef: fabContainerRef, onPointerDown: onFabPointerDown, onClickCapture: onFabClickCapture } =
     useDraggableFloatingPosition("datagod_ai_widget_position")
+
+  useEffect(() => {
+    fetch("/api/public/config")
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.ai_widget_enabled === false) setAdminEnabled(false)
+      })
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     try {
@@ -220,6 +243,8 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
     return "px-3 py-1.5 rounded-xl text-xs font-medium border border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 transition-colors"
   }
 
+  if (!adminEnabled) return null
+
   return (
     <>
       {isOpen && (
@@ -319,6 +344,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
         </div>
       )}
 
+      {!hidden && (
       <div
         ref={fabContainerRef}
         onPointerDown={onFabPointerDown}
@@ -353,6 +379,20 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
         {!isOpen && (
           <span className="absolute inset-0 rounded-full bg-primary animate-ping opacity-15 pointer-events-none" />
         )}
+        {!isOpen && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setHidden(true)
+              try { localStorage.setItem(HIDDEN_KEY, "1") } catch {}
+            }}
+            className="absolute -left-2 -top-2 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-sm hover:bg-destructive/10 hover:text-destructive transition-colors"
+            aria-label="Hide AI assistant button"
+            title="Hide this button"
+          >
+            <X size={11} />
+          </button>
+        )}
         <button
           onClick={() => setIsOpen(o => !o)}
           className="relative flex items-center gap-2 bg-primary border border-primary/60 text-primary-foreground rounded-full px-5 py-2.5 shadow-lg shadow-primary/30 hover:shadow-primary/50 hover:bg-primary/90 hover:border-border transition-all duration-300 hover:scale-105 active:scale-95"
@@ -365,6 +405,21 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
         </button>
       </div>
       </div>
+      )}
+
+      {hidden && (
+        <button
+          onClick={() => {
+            setHidden(false)
+            try { localStorage.removeItem(HIDDEN_KEY) } catch {}
+          }}
+          className="fixed bottom-32 md:bottom-10 right-6 z-50 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card/90 backdrop-blur-sm text-muted-foreground shadow-sm hover:bg-accent hover:text-foreground transition-all active:scale-95"
+          aria-label="Show AI assistant button"
+          title="Show AI assistant"
+        >
+          <EyeOff size={15} />
+        </button>
+      )}
     </>
   )
 }
