@@ -253,6 +253,7 @@ export interface StoredRefund {
   status: string
   clawbacks: RefundNotification["clawbacks"]
   updated_at: string
+  created_at?: string
 }
 
 async function contextFor(deps: RefundDeps, stored: StoredRefund): Promise<RefundContext> {

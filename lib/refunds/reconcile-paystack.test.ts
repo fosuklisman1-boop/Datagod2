@@ -2,6 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const fetchRefund = vi.fn()
 vi.mock("@/lib/paystack", () => ({ refundTransaction: vi.fn(), fetchRefund: (...a: unknown[]) => fetchRefund(...a) }))
+const getTransferStatus = vi.fn()
+vi.mock("@/lib/paystack-transfer", () => ({
+  createRecipient: vi.fn(), initiateTransfer: vi.fn(), finalizeTransfer: vi.fn(), mapNetworkToPaystackBankCode: vi.fn(),
+  getTransferStatus: (...a: unknown[]) => getTransferStatus(...a),
+}))
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => ({}) }))
 
 import { MAX_PER_RUN, reconcileProcessingPaystackRefunds } from "./reconcile-paystack"
@@ -14,7 +19,7 @@ const order = { table: "ussd_shop_orders", id: "o1", payment: { gateway: "paysta
 const row = (o: Partial<StoredRefund> = {}): StoredRefund => ({
   id: "rf1", order_table: "ussd_shop_orders", order_id: "o1", gateway: "paystack", amount: 9.8,
   destination_phone: null, gateway_ref: "99", status: "processing", clawbacks: [],
-  updated_at: new Date(NOW - 10 * 60_000).toISOString(), ...o,
+  updated_at: new Date(NOW - 10 * 60_000).toISOString(), created_at: new Date(NOW - 20 * 60_000).toISOString(), ...o,
 })
 
 type RpcResult = { data: unknown; error: { message: string } | null }
@@ -123,12 +128,16 @@ describe("reconcileProcessingPaystackRefunds", () => {
     const r = await reconcileProcessingPaystackRefunds(deps, [row({ id: "a" }), row({ id: "b" })], NOW)
     expect(r).toMatchObject({ checked: 2, errors: 1, completed: 1 })
   })
-  it("counts and logs processing rows older than 24h as needing attention", async () => {
+  it("counts and logs rows processing for >24h since CREATION as needing attention, even if updated_at was just bumped", async () => {
     fetchRefund.mockResolvedValue({ id: 99, status: "needs-attention" })
     const { deps } = setup()
-    const r = await reconcileProcessingPaystackRefunds(deps, [row({ id: "old", updated_at: new Date(NOW - 25 * 3_600_000).toISOString() }), row({ id: "new" })], NOW)
+    const r = await reconcileProcessingPaystackRefunds(deps, [
+      row({ id: "old", created_at: new Date(NOW - 25 * 3_600_000).toISOString(), updated_at: new Date(NOW - 10 * 60_000).toISOString() }),
+      row({ id: "new" }),
+    ], NOW)
     expect(r.stale24h).toBe(1)
     expect(errSpy().mock.calls.some((c) => c[0] === "[REFUND-CRON] needs attention: old")).toBe(true)
+    expect(errSpy().mock.calls.some((c) => c[0] === "[REFUND-CRON] needs attention: new")).toBe(false)
   })
   it("processes at most MAX_PER_RUN rows, sequentially", async () => {
     let active = 0
@@ -138,5 +147,79 @@ describe("reconcileProcessingPaystackRefunds", () => {
     const rows = Array.from({ length: MAX_PER_RUN + 10 }, (_, i) => row({ id: `r${i}` }))
     expect((await reconcileProcessingPaystackRefunds(deps, rows, NOW)).checked).toBe(MAX_PER_RUN)
     expect(maxActive).toBe(1)
+  })
+  it("MAX_PER_RUN is a total across both gateways", async () => {
+    fetchRefund.mockResolvedValue({ id: 99, status: "pending" })
+    getTransferStatus.mockResolvedValue({ status: "pending", rawStatus: "pending", transferCode: "TRF_x" })
+    const { deps } = setup()
+    const rows = Array.from({ length: MAX_PER_RUN + 10 }, (_, i) => (i % 2 ? row({ id: `r${i}` }) : payout({ id: `p${i}` })))
+    expect((await reconcileProcessingPaystackRefunds(deps, rows, NOW)).checked).toBe(MAX_PER_RUN)
+    expect(fetchRefund.mock.calls.length + getTransferStatus.mock.calls.length).toBe(MAX_PER_RUN)
+  })
+})
+
+const payout = (o: Partial<StoredRefund> = {}) => row({ id: "po1", gateway: "paystack_payout", gateway_ref: "TRF_abc123", destination_phone: "0241234567", ...o })
+
+describe("reconcileProcessingPaystackRefunds on Paystack payouts", () => {
+  it("success -> completed via complete_order_refund, looked up by refund id", async () => {
+    getTransferStatus.mockResolvedValue({ status: "success", rawStatus: "success", transferCode: "TRF_abc123" })
+    const { deps, calls } = setup()
+    const r = await reconcileProcessingPaystackRefunds(deps, [payout()], NOW)
+    expect(r).toMatchObject({ checked: 1, completed: 1, failed: 0 })
+    expect(getTransferStatus).toHaveBeenCalledWith("po1")
+    expect(calls.map((c) => c.name)).toEqual(["complete_order_refund"])
+    expect(deps.notify).toHaveBeenCalledTimes(1)
+  })
+  it("failed/reversed -> failed (compensated), no notify", async () => {
+    getTransferStatus.mockResolvedValue({ status: "failed", rawStatus: "reversed", transferCode: "TRF_abc123" })
+    const { deps, calls } = setup()
+    const r = await reconcileProcessingPaystackRefunds(deps, [payout()], NOW)
+    expect(r).toMatchObject({ checked: 1, failed: 1, completed: 0 })
+    expect(calls.map((c) => c.name)).toEqual(["fail_order_refund"])
+    expect(deps.notify).not.toHaveBeenCalled()
+  })
+  it("pending -> still processing, never compensates", async () => {
+    getTransferStatus.mockResolvedValue({ status: "pending", rawStatus: "pending", transferCode: "TRF_abc123" })
+    const { deps, calls } = setup()
+    const r = await reconcileProcessingPaystackRefunds(deps, [payout()], NOW)
+    expect(r).toMatchObject({ checked: 1, stillProcessing: 1, completed: 0, failed: 0 })
+    expect(calls.map((c) => c.name)).toEqual(["mark_refund_processing"])
+  })
+  it("unknown (null / timeout) leaves the row processing, never compensates", async () => {
+    getTransferStatus.mockResolvedValue(null)
+    const { deps, calls } = setup()
+    const r = await reconcileProcessingPaystackRefunds(deps, [payout()], NOW)
+    expect(r).toMatchObject({ checked: 1, stillProcessing: 1, completed: 0, failed: 0 })
+    expect(calls.map((c) => c.name)).toEqual(["mark_refund_processing"])
+  })
+  it.each([["TRF_abc123"], [null], ["not-numeric"]])("payout with gateway_ref %s is processed (no numeric ref needed)", async (ref) => {
+    getTransferStatus.mockResolvedValue({ status: "success", rawStatus: "success", transferCode: "TRF_abc123" })
+    const { deps } = setup()
+    const r = await reconcileProcessingPaystackRefunds(deps, [payout({ gateway_ref: ref })], NOW)
+    expect(r).toMatchObject({ checked: 1, completed: 1, skipped: 0 })
+  })
+  it("payout stale24h is measured from created_at", async () => {
+    getTransferStatus.mockResolvedValue({ status: "pending", rawStatus: "pending", transferCode: "TRF_abc123" })
+    const { deps } = setup()
+    const r = await reconcileProcessingPaystackRefunds(deps, [payout({ id: "oldpo", created_at: new Date(NOW - 30 * 3_600_000).toISOString() })], NOW)
+    expect(r.stale24h).toBe(1)
+    expect(errSpy().mock.calls.some((c) => c[0] === "[REFUND-CRON] needs attention: oldpo")).toBe(true)
+  })
+  it("skips reversal with non-numeric ref, awaiting_otp / reserved payouts and moolre rows", async () => {
+    const { deps } = setup()
+    const r = await reconcileProcessingPaystackRefunds(deps, [
+      row({ gateway_ref: "TRF_abc" }), payout({ status: "awaiting_otp" }), payout({ status: "reserved" }), row({ gateway: "moolre", gateway_ref: "123" }),
+    ], NOW)
+    expect(r).toMatchObject({ checked: 0, skipped: 4 })
+    expect(fetchRefund).not.toHaveBeenCalled()
+    expect(getTransferStatus).not.toHaveBeenCalled()
+  })
+  it("SETTLE_FAILED on a payout is logged with the refund id and the loop continues", async () => {
+    getTransferStatus.mockResolvedValue({ status: "success", rawStatus: "success", transferCode: "TRF_x" })
+    let n = 0
+    const { deps } = setup((name) => (name === "complete_order_refund" && ++n === 1 ? { data: null, error: { message: "db down" } } : undefined))
+    const r = await reconcileProcessingPaystackRefunds(deps, [payout({ id: "badpo" }), payout({ id: "goodpo" })], NOW)
+    expect(r).toMatchObject({ checked: 2, errors: 1, completed: 1 })
+    expect(errSpy().mock.calls.some((c) => String(c[0]).includes("SETTLE_FAILED") && String(c[0]).includes("badpo"))).toBe(true)
   })
 })
