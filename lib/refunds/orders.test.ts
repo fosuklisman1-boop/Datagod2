@@ -87,7 +87,8 @@ describe("loadRefundableOrders", () => {
       user_shops: [{ id: "shopA", shop_name: "Alpha", user_id: "uA" }],
     })
     const [o] = await loadRefundableOrders(db, [{ table: "shop_orders", id: "s1" }])
-    expect(o.payment).toEqual({ gateway: "paystack", reference: "WALLET-1", payerPhone: "0241112222", walletUserId: "uBuyer" })
+    expect(o.payment).toEqual({ gateway: "paystack", reference: "WALLET-1", payerPhone: null, walletUserId: "uBuyer" })
+    expect(o.recipientPhone).toBe("0241112222")
     expect(o.paid).toBe(10.3)
     expect(o.gatewayFee).toBe(0.3)
     expect(o.packageLabel).toBe("2GB")
@@ -107,6 +108,7 @@ describe("loadRefundableOrders", () => {
     })
     const [o] = await loadRefundableOrders(db, [{ table: "shop_orders", id: "s2" }])
     expect(o.payment).toMatchObject({ gateway: "wallet", walletUserId: "uW" })
+    expect(o.payment.payerPhone).toBeNull()
     expect(o.paid).toBe(5)
     expect(o.gatewayFee).toBe(0)
   })

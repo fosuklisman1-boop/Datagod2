@@ -134,6 +134,8 @@ async function enrich(db: SupabaseClient, table: OrderTable, rows: any[]): Promi
     let paid: number
     let fee = 0
     if (table === "shop_orders") {
+      // customer_phone is the data RECIPIENT; the payer MoMo number is not stored for shop orders,
+      // so payerPhone stays null (payout gateways must refuse; Paystack reversal / wallet still work).
       // wallet_payments.amount is the TOTAL charged (order price + fee); .fee is the fee part.
       const wp = walletPayments.find((w) => w.order_id === id && w.status === "completed")
       if (wp) {
@@ -142,17 +144,17 @@ async function enrich(db: SupabaseClient, table: OrderTable, rows: any[]): Promi
         payment = {
           gateway: "paystack",
           reference: wp.reference ?? null,
-          payerPhone: r.customer_phone ?? null,
+          payerPhone: null,
           walletUserId: await resolveWalletUser(db, { phone: r.customer_phone, email: r.customer_email }),
         }
       } else {
         paid = Number(r.total_price)
         payment = debit
-          ? { gateway: "wallet", reference: null, payerPhone: r.customer_phone ?? null, walletUserId: debit.user_id }
+          ? { gateway: "wallet", reference: null, payerPhone: null, walletUserId: debit.user_id }
           : {
               gateway: null,
               reference: null,
-              payerPhone: r.customer_phone ?? null,
+              payerPhone: null,
               walletUserId: await resolveWalletUser(db, { phone: r.customer_phone, email: r.customer_email }),
             }
       }
