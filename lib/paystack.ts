@@ -398,6 +398,29 @@ export async function refundTransaction(reference: string, amountGhs?: number) {
   return data.data
 }
 
+/**
+ * Fetch one refund by its Paystack refund id (GET /refund/:id). data.status is
+ * pending | processing | needs-attention | processed | failed (OPEN VERIFICATION: from docs, not live-tested).
+ * Throws an Error carrying httpStatus on a non-2xx / status:false response.
+ */
+export async function fetchRefund(id: string) {
+  const response = await fetch(`${PAYSTACK_BASE_URL}/refund/${encodeURIComponent(id)}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+      "Content-Type": "application/json",
+    },
+  })
+
+  const data: PaymentResponse = await response.json()
+
+  if (!response.ok || !data.status) {
+    throw Object.assign(new Error(data.message || `Refund lookup failed (HTTP ${response.status})`), { httpStatus: response.status })
+  }
+
+  return data.data
+}
+
 // Ghana MoMo provider from a phone prefix → Paystack provider code. Shared by every
 // direct-charge surface so the mapping stays in one place.
 const MOMO_PREFIX: Record<string, "mtn" | "vod" | "tgo"> = {
@@ -512,6 +535,7 @@ export default {
   createTransferRecipient,
   initiateTransfer,
   refundTransaction,
+  fetchRefund,
   chargeMobileMoney,
   submitOtp,
 }

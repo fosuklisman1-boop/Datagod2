@@ -22,7 +22,7 @@ import { RefundDialog } from "@/components/admin/refunds/refund-dialog"
 import { OtpDialog } from "@/components/admin/refunds/otp-dialog"
 import { SettleFailedDialog } from "@/components/admin/refunds/settle-failed-dialog"
 import { postRefundAction } from "@/components/admin/refunds/api"
-import { ATTENTION_STATUSES, isAttentionStatus, isCancelledRefund, attentionHint, type RefundAction, type RefundOutcome, type SettleFailedDetail } from "@/lib/refunds/ui-outcome"
+import { ATTENTION_STATUSES, describeVerification, type VerificationSeverity, isAttentionStatus, isCancelledRefund, attentionHint, type RefundAction, type RefundOutcome, type SettleFailedDetail } from "@/lib/refunds/ui-outcome"
 
 interface PendingRow {
   order: {
@@ -93,6 +93,8 @@ export default function AdminRefundsPage() {
   const [cancelFor, setCancelFor] = useState<string | null>(null)
   const [retryFor, setRetryFor] = useState<HistoryRow | null>(null)
   const [tab, setTab] = useState("pending")
+  const [verifyingId, setVerifyingId] = useState<string | null>(null)
+  const [verified, setVerified] = useState<Record<string, { severity: VerificationSeverity; text: string }>>({})
   const loadSeq = useRef(0)
   const otpFromExecute = useRef(false)
   const [settleFailed, setSettleFailed] = useState<{ message: string; detail: SettleFailedDetail } | null>(null)
@@ -180,6 +182,25 @@ export default function AdminRefundsPage() {
       toast.error(e instanceof Error ? e.message : "Request failed")
     } finally {
       setBusyId(null)
+    }
+  }
+
+  // Read-only: asks Paystack about this refund; settles nothing.
+  const verify = async (r: HistoryRow) => {
+    if (verifyingId) return
+    setVerifyingId(r.id)
+    try {
+      const res = await fetch(`/api/admin/refunds/${r.id}/gateway-status`, { headers: { Authorization: `Bearer ${await getToken()}` } })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(res.status === 403 ? "Sign in as an admin" : json.error || "Verification failed")
+      const v = describeVerification({ ledgerStatus: json.ledgerStatus ?? r.status, gatewayStatus: json.gatewayStatus ?? null, rawStatus: json.rawStatus ?? null, message: json.message ?? null })
+      setVerified((m) => ({ ...m, [r.id]: v }))
+      if (v.severity === "destructive") toast.error(v.text)
+      else toast.info(v.text)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Verification failed")
+    } finally {
+      setVerifyingId(null)
     }
   }
 
@@ -294,11 +315,21 @@ export default function AdminRefundsPage() {
                           {attention && <div className="text-destructive">{hint.text}</div>}
                           {r.error && <div className="truncate">{r.error}</div>}
                           {r.gateway_ref && <div className="truncate font-mono text-muted-foreground">{r.gateway_ref}</div>}
+                          {verified[r.id] && (
+                            <div className={verified[r.id].severity === "destructive" ? "mt-1 font-medium text-destructive" : verified[r.id].severity === "warning" ? "mt-1 text-amber-600" : "mt-1 text-muted-foreground"}>
+                              {verified[r.id].text}
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex flex-wrap justify-end gap-2">
                             {attention && (
                               <Button size="sm" variant="outline" disabled={busy || hint.inFlight} onClick={() => act(r.id, "reconcile")}>Check status</Button>
+                            )}
+                            {r.gateway === "paystack" && (r.status === "completed" || r.status === "processing") && (
+                              <Button size="sm" variant="ghost" disabled={verifyingId !== null} onClick={() => verify(r)}>
+                                {verifyingId === r.id ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}Verify at gateway
+                              </Button>
                             )}
                             {r.status === "awaiting_otp" && (
                               <>

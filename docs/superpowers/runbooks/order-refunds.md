@@ -36,6 +36,34 @@ WHERE c.last_outcome = 'claimed' AND c.last_claimed_at < now() - interval '15 mi
     OR EXISTS (SELECT 1 FROM ussd_shop_orders o WHERE o.id = c.order_id AND o.order_status = 'pending'));
 ```
 
+## Paystack reversal statuses and "Verify at gateway"
+
+A Paystack reversal (gateway `paystack`) is only *accepted* when we call it; the refund then moves through Paystack statuses. OPEN VERIFICATION: this vocabulary is from Paystack docs, not live-tested.
+
+| Paystack status | Adapter outcome | Ledger |
+|---|---|---|
+| `pending`, `processing` | pending | `processing` (clawback kept; "Check status" re-checks `GET /refund/:id`) |
+| `needs-attention` | pending | `processing`; NOT compensated and NOT done: handle it at the Paystack dashboard (customer bank details needed / retry) |
+| `processed` | completed | `completed` (order `refunded`) |
+| `failed` | failed | `failed` (owner cut restored, order back to `pending`; the amount returns to our Paystack balance) |
+| anything else, or an HTTP/network error on lookup | unknown | unchanged, never compensated |
+
+- `gateway_ref` of a reversal is the numeric Paystack **refund id**. If Paystack returns no id the refund is parked as `processing` with no ref and cannot be auto re-checked: find it in the Paystack dashboard by the order's transaction reference.
+- Refunds completed before this change were marked `completed` on mere acceptance and may never have been confirmed. Use **Verify at gateway** on completed/processing Paystack rows in History (read-only: `GET /api/admin/refunds/<id>/gateway-status`, settles nothing). It shows "Paystack says: <status>".
+- **Mismatch** ("Ledger says completed but Paystack says failed — the customer was NOT paid"): the money is back in our Paystack balance. Confirm in the Paystack dashboard. The app will not auto-flip a completed row (`fail_order_refund` refuses on `completed`), so an engineer decides: issue a fresh refund (payout/wallet) and correct the ledger by hand.
+- **failed** on a `processing` row: press "Check status"; reconcile compensates (owner cut restored, order pending), after which a new refund may be created.
+- **needs-attention**: do NOT cancel in our ledger. Act at the Paystack dashboard; compensate only once Paystack reports `failed`.
+- The 5-minute in-flight window only blocks "Check status" for the first 5 minutes after the row was last updated; a legitimately pending Paystack refund stays reconcilable after that for as long as it takes.
+
+One-off: list completed Paystack reversals for manual verification (no phone numbers):
+
+```sql
+SELECT id, gateway_ref, amount, created_at
+FROM order_refunds
+WHERE gateway = 'paystack' AND status = 'completed'
+ORDER BY created_at;
+```
+
 ## Resolving a stuck refund by hand
 
 First look at the gateway dashboard for the payout (search by `gateway_ref`, or the refund id / `REFUND_<id>` reference, or the amount + destination + time). Then:
@@ -66,7 +94,7 @@ If (a) returns `failed` or (b) returns `completed` the row was already settled t
 7. **Shortfall test**: owner with insufficient profit + wallet -> refund blocked, nothing changed.
 8. **Moolre**: small payout; also OPEN VERIFICATION: probe `/status` with a random never-used externalref and record what it returns (the adapter assumes an unknown ref is not a success; unconfirmed).
 9. **Paystack payout**: wrong OTP (row stays `awaiting_otp`), right OTP (completes), and Cancel. OPEN VERIFICATION: the full Paystack transfer status vocabulary the adapter maps.
-10. **Paystack reversal**: small refund of a Paystack-paid order. OPEN VERIFICATION: a `pending` API status is treated as completed; confirm it settles.
+10. **Paystack reversal**: small refund of a Paystack-paid order. A `pending` API status now lands in `processing`. OPEN VERIFICATION: confirm it later flips to `processed` and "Check status" settles it to `completed`; also confirm what `needs-attention` looks like in practice.
 11. **Business sign-off**: a PARTIAL refund still removes the shop owner's FULL cut (clawback is per order, not pro-rata).
 12. **Monitoring**: schedule the three queries above; add them to the daily check.
 

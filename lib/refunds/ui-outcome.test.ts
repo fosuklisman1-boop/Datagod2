@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { interpretRefundResponse, isAttentionStatus, treatAsAmbiguous, parseRefundAmount, isCancelledRefund, attentionHint } from "./ui-outcome"
+import { interpretRefundResponse, isAttentionStatus, treatAsAmbiguous, parseRefundAmount, isCancelledRefund, attentionHint, describeVerification, LEDGER_MISMATCH_TEXT } from "./ui-outcome"
 
 describe("interpretRefundResponse", () => {
   it("completed => success", () => {
@@ -127,5 +127,28 @@ describe("attentionHint / inFlight (I-1)", () => {
   })
   it("IN_FLIGHT 409 on an action is a stale-type, non-ambiguous error", () => {
     expect(treatAsAmbiguous({ kind: "error", message: "m", code: "IN_FLIGHT", status: 409 })).toBe("stale")
+  })
+})
+
+describe("describeVerification", () => {
+  it("flags ledger completed + gateway failed as destructive with the runbook text", () => {
+    expect(describeVerification({ ledgerStatus: "completed", gatewayStatus: "failed", rawStatus: "failed" })).toEqual({ severity: "destructive", text: LEDGER_MISMATCH_TEXT })
+    expect(LEDGER_MISMATCH_TEXT).toBe("Ledger says completed but Paystack says failed — the customer was NOT paid. See runbook.")
+  })
+  it("completed + processed is ok", () => {
+    expect(describeVerification({ ledgerStatus: "completed", gatewayStatus: "completed", rawStatus: "processed" })).toEqual({ severity: "ok", text: "Paystack says: processed" })
+  })
+  it("completed ledger but Paystack still pending is a warning", () => {
+    const r = describeVerification({ ledgerStatus: "completed", gatewayStatus: "pending", rawStatus: "needs-attention" })
+    expect(r.severity).toBe("warning")
+    expect(r.text).toContain("Paystack says: needs-attention")
+  })
+  it("processing ledger + terminal gateway tells the admin to Check status", () => {
+    expect(describeVerification({ ledgerStatus: "processing", gatewayStatus: "completed", rawStatus: "processed" }).text).toContain("Check status")
+    expect(describeVerification({ ledgerStatus: "processing", gatewayStatus: "failed", rawStatus: "failed" }).text).toContain("Check status")
+  })
+  it("unknown / unavailable is a warning, never destructive", () => {
+    expect(describeVerification({ ledgerStatus: "completed", gatewayStatus: "unknown", message: "boom" }).severity).toBe("warning")
+    expect(describeVerification({ ledgerStatus: "completed", gatewayStatus: null }).severity).toBe("warning")
   })
 })
