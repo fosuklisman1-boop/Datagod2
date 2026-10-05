@@ -330,15 +330,26 @@ export async function GET(request: NextRequest) {
     let notFound = 0
     const results: Array<{ id: string; mtn_order_id: number; oldStatus: string; newStatus: string | null; error?: string }> = []
 
+    // Every provider below has its OWN dedicated cron (sync-mtn-status/<provider>)
+    // that already polls its pending orders. Processing them here too was pure
+    // duplication: this loop can't match them in sykesOrderMap, so it fell through
+    // to an individual checkMTNOrderStatus call per order — a second, slower, fully
+    // redundant round of provider API calls on top of each provider's own cron,
+    // every single minute. bundleportal has NO dedicated cron (it's the one
+    // provider still relying on this generic sweep as its polling fallback), so
+    // it's deliberately NOT in this set.
+    const PROVIDERS_WITH_DEDICATED_CRON = new Set([
+      "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft",
+      "agentportalgh", "apexprime", "spfastit", "spfastit_telecel",
+    ])
+
     // Step 3: Process each pending order by looking up in the CORRECT provider map
     for (const order of ordersToProcess) {
       try {
         // Determine which provider this order used (default to sykes for backward compatibility)
         const orderProvider = order.provider || "sykes"
 
-        // Skip DataKazina sync to reduce rate limits as requested.
-        // DataKazina relies on webhooks or manual status checks.
-        if (orderProvider === "datakazina") {
+        if (PROVIDERS_WITH_DEDICATED_CRON.has(orderProvider)) {
           continue
         }
 
