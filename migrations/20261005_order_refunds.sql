@@ -55,7 +55,7 @@ CREATE INDEX IF NOT EXISTS idx_shop_profits_refund_id ON public.shop_profits (re
 -- ───────────────────── dispatch claim RPCs ─────────────────────
 CREATE OR REPLACE FUNCTION public.claim_order_dispatch(p_order_id uuid)
 RETURNS boolean
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended(p_order_id::text, 0));
   IF EXISTS (SELECT 1 FROM order_refunds WHERE order_id = p_order_id AND status <> 'failed') THEN
@@ -71,7 +71,7 @@ END $$;
 
 CREATE OR REPLACE FUNCTION public.record_dispatch_outcome(p_order_id uuid, p_outcome text)
 RETURNS void
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 BEGIN
   IF p_outcome NOT IN ('submitted','failed','unknown') THEN
     RAISE EXCEPTION 'BAD_OUTCOME';
@@ -86,7 +86,7 @@ CREATE OR REPLACE FUNCTION public.reserve_order_refund(
   p_paid numeric, p_fee numeric, p_amount numeric,
   p_destination text, p_wallet_user uuid, p_admin uuid
 ) RETURNS jsonb
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
   v_fk text;
   v_status text; v_pay text;
@@ -160,6 +160,8 @@ BEGIN
       END IF;
     END IF;
 
+    -- NOTE: 'pending'-status profit rows are legacy (the only writer, createProfitRecord, has no callers;
+    -- live paths insert 'credited'). A per-order pending->credited flip elsewhere would not honour this reversal.
     IF r.pending <> 0 THEN
       INSERT INTO shop_profits (shop_id, profit_amount, status, refund_id, notes, created_at, updated_at)
       VALUES (r.shop_id, -r.pending, 'pending', v_refund_id, 'Order refund reversal (pending portion)', now(), now());
@@ -185,9 +187,15 @@ END $$;
 CREATE OR REPLACE FUNCTION public.mark_refund_processing(
   p_refund_id uuid, p_gateway_ref text, p_note text, p_status text DEFAULT 'processing')
 RETURNS void
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE v_table text; v_order uuid; v_locked int;
 BEGIN
   IF p_status NOT IN ('processing','awaiting_otp') THEN RAISE EXCEPTION 'BAD_STATUS'; END IF;
+  -- Lock order: advisory -> order row -> refund row (same as reserve/complete/fail and the guard trigger path).
+  SELECT order_table, order_id INTO v_table, v_order FROM order_refunds WHERE id = p_refund_id;
+  IF v_table IS NULL THEN RETURN; END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended(v_order::text, 0));
+  EXECUTE format('SELECT 1 FROM %I WHERE id = $1 FOR UPDATE', v_table) INTO v_locked USING v_order;
   UPDATE order_refunds
      SET status = p_status, gateway_ref = COALESCE(p_gateway_ref, gateway_ref),
          error = p_note, updated_at = now()
@@ -196,10 +204,16 @@ END $$;
 
 CREATE OR REPLACE FUNCTION public.complete_order_refund(p_refund_id uuid, p_gateway_ref text)
 RETURNS void
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
-DECLARE v_table text; v_order uuid;
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE v_table text; v_order uuid; v_locked int;
 BEGIN
-  SELECT order_table, order_id INTO v_table, v_order FROM order_refunds
+  -- Lock order: advisory -> order row -> refund row (a late webhook locks the order row first, then the
+  -- guard trigger touches order_refunds; locking the refund row first here would deadlock against it).
+  SELECT order_table, order_id INTO v_table, v_order FROM order_refunds WHERE id = p_refund_id;
+  IF v_table IS NULL THEN RETURN; END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended(v_order::text, 0));
+  EXECUTE format('SELECT 1 FROM %I WHERE id = $1 FOR UPDATE', v_table) INTO v_locked USING v_order;
+  SELECT order_table INTO v_table FROM order_refunds
    WHERE id = p_refund_id AND status IN ('reserved','processing','awaiting_otp') FOR UPDATE;
   IF v_table IS NULL THEN RETURN; END IF;
   UPDATE order_refunds SET status = 'completed', gateway_ref = COALESCE(p_gateway_ref, gateway_ref),
@@ -211,14 +225,19 @@ END $$;
 
 CREATE OR REPLACE FUNCTION public.fail_order_refund(p_refund_id uuid, p_error text)
 RETURNS void
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
   v_table text; v_order uuid; v_lines jsonb;
-  l jsonb; v_wallet_new numeric;
+  l jsonb; v_wallet_new numeric; v_locked int;
 BEGIN
-  SELECT order_table, order_id, clawbacks INTO v_table, v_order, v_lines FROM order_refunds
+  -- Lock order: advisory -> order row -> refund row (see complete_order_refund).
+  SELECT order_table, order_id INTO v_table, v_order FROM order_refunds WHERE id = p_refund_id;
+  IF v_table IS NULL THEN RETURN; END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended(v_order::text, 0));
+  EXECUTE format('SELECT 1 FROM %I WHERE id = $1 FOR UPDATE', v_table) INTO v_locked USING v_order;
+  SELECT clawbacks INTO v_lines FROM order_refunds
    WHERE id = p_refund_id AND status IN ('reserved','processing','awaiting_otp') FOR UPDATE;
-  IF v_table IS NULL THEN RETURN; END IF;   -- already failed/completed: idempotent
+  IF NOT FOUND THEN RETURN; END IF;   -- already failed/completed: idempotent
 
   FOR l IN SELECT * FROM jsonb_array_elements(v_lines) LOOP
     IF (l->>'from_profit')::numeric > 0 THEN
@@ -234,6 +253,7 @@ BEGIN
     IF (l->>'from_wallet')::numeric > 0 THEN
       UPDATE wallets SET balance = balance + (l->>'from_wallet')::numeric, updated_at = now()
        WHERE user_id = (l->>'owner_user_id')::uuid RETURNING balance INTO v_wallet_new;
+      IF NOT FOUND THEN RAISE EXCEPTION 'WALLET_NOT_FOUND'; END IF;
       INSERT INTO transactions (user_id, amount, type, status, description, reference_id, source,
                                 balance_before, balance_after, created_at)
       VALUES ((l->>'owner_user_id')::uuid, (l->>'from_wallet')::numeric, 'credit', 'completed',
@@ -250,8 +270,11 @@ END $$;
 
 -- ───────────────────── status guard trigger ─────────────────────
 -- A late provider webhook / cron must not move a refunding/refunded order.
+-- Note: BEFORE triggers fire in name order; the prod shop_orders_state_machine trigger sorts before this one
+-- and runs first. That is harmless: it only blocks transitions OUT of 'completed', never out of refunding/refunded.
+-- (The trg_00 name does not guarantee this trigger runs first.)
 CREATE OR REPLACE FUNCTION public.guard_refund_status()
-RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 BEGIN
   IF OLD.order_status IN ('refunding','refunded')
      AND NEW.order_status IS DISTINCT FROM OLD.order_status
