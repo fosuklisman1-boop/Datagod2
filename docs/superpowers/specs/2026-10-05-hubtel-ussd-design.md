@@ -29,7 +29,7 @@ Add a Hubtel Programmable Services USSD channel to Datagod. One Hubtel USSD code
 - **Fulfilment callback** (we → Hubtel): `POST https://gs-callback.hubtel.com:9055/callback` with `{SessionId, OrderId, ServiceStatus, MetaData}`, **within 1 hour**. Endpoint is IP-whitelisted.
 - **Transaction Status Check** (mandatory): `GET https://api-txnstatus.hubtel.com/transactions/{Collection_Account_Number}/status?clientReference={SessionId}` with Basic auth, IP-whitelisted; used when no final status within 5 minutes.
 - Hubtel source IPs for fulfilment payloads: `52.50.116.54`, `18.202.122.131`, `52.31.15.68`.
-- Platforms `Webstore` / `Hubtel-App` also hit the interaction URL (see Open Questions).
+- Platforms `Webstore` / `Hubtel-App` also hit the interaction URL. **Decision: v1 serves all three platforms** (see §5.1).
 
 ## 4. Architecture
 
@@ -56,7 +56,8 @@ Cron: callback retry (≤1h) · status check (no final status after 5 min) via D
 - `ClientState` echoes the current step name as a fallback if Redis misses.
 
 ### 4.4 Reuse boundaries
-- Reused unchanged: menu text builders, bundle/catalog fetch + price-tier logic, `getUssdServiceVisibility`, phone-format/prefix validation, whitelist/MTN-registration gates, network nicknames.
+- Reused unchanged: bundle/catalog fetch + price-tier logic, `getUssdServiceVisibility` (as default only; Hubtel has its own visibility settings), phone-format/prefix validation, whitelist/MTN-registration gates.
+- **Not reused: the Uzo "Browse Services" rebrand.** The Uzo menus use network nicknames (Yellow Plans/Tele/Instant Blue/Delay Blue) and avoid "data"/"bundle" wording and package-size units. The Hubtel menus use **real network names** (MTN, Telecel, AT-iShare, AT-BigTime), normal wording, and package sizes with units. Hubtel menu text therefore lives in its own `lib/ussd-hubtel/menus.ts` instead of importing `lib/ussd/menus.ts` or `network-labels.ts`.
 - New: Hubtel request/response mapper, router, session wrapper, AddToCart builder, fulfilment webhook, relay client, crons, admin page + APIs.
 - **Refactor:** extract the post-payment block currently inline in the Paystack webhook (mark paid → transaction row → shop profit credit → SMS → fulfil) into a shared function consumed by both webhooks. Uzo flows' behaviour must not change (covered by existing tests + new regression tests).
 
@@ -77,6 +78,14 @@ Cron: callback retry (≤1h) · status check (no final status after 5 min) via D
 - Field typing: `phone` for number entry, `decimal` for airtime amount, `number` for menu picks, `display` for info screens.
 - `Type: Timeout` → delete session; any pending order stays pending.
 
+### 5.1 All platforms (USSD, Hubtel-App, Webstore)
+- The router is platform-agnostic; the mapper reads `Platform` and sets `Label`, `DataType` and `FieldType` meaningfully on every reply (they are mandatory fields), since App/Webstore render rich UI from them (title, input vs display, keyboard type).
+- Menu replies stay numbered-text for all platforms (works everywhere); `FieldType` gives App/Webstore the right input control.
+- Shop mode on App/Webstore still uses the "enter shop code" step.
+- `AddToCart` is identical across platforms.
+- Risk: App/Webstore behaviour cannot be exercised locally. The simulator script sends all three `Platform` values, and the plan must include a manual test pass on each platform in Hubtel's environment before enabling.
+- Platform is stored on `hubtel_transactions` for diagnostics.
+
 ## 6. Orders and payment lifecycle
 
 **At CONFIRM:** insert order into the same table the Uzo flow uses (`ussd_orders`, `ussd_shop_orders`, `airtime_orders`, `results_checker_orders`, AFA table) with `payment_status='pending'`, a Hubtel channel marker, and a row in new `hubtel_transactions` keyed by `SessionId`.
@@ -86,7 +95,7 @@ Cron: callback retry (≤1h) · status check (no final status after 5 min) via D
 **Fulfilment webhook order of operations:**
 1. Verify IP/secret.
 2. Look up `hubtel_transactions` by `SessionId`; if already processed → 200, no-op (idempotent).
-3. Verify `Payment.IsSuccessful` and amount match (`AmountAfterCharges` vs `expected_amount`). Mismatch → mark `needs_review`, do **not** auto-fulfil, surface in admin page.
+3. Verify `Payment.IsSuccessful` and amount match (`AmountAfterCharges` vs `expected_amount`). Mismatch → mark `needs_review`, do **not** auto-fulfil, surface in admin page. **The `success` callback is still sent** (decision: hold for review, send callback), so Hubtel is not left waiting inside its 1-hour window; the order is resolved manually.
 4. Record the payment, then run the shared post-payment function.
 5. Queue the callback for the relay (immediate attempt + cron retry).
 
@@ -129,14 +138,14 @@ Mirrors the style of the current USSD admin settings:
 ## 12. Out of scope (v1)
 
 - Wallet / Paystack payment on the Hubtel channel
-- Hubtel-App / Webstore rich UI beyond correct `Label`/`DataType`/`FieldType` (see Open Questions)
+- Custom App/Webstore-specific layouts beyond correct `Label`/`DataType`/`FieldType`
 - Replacing the Uzo codes
 - A durable queue on the droplet
 
 ## 13. Open questions (need answers before the plan)
 
-1. **Platforms:** Hubtel also sends `Platform: Hubtel-App` / `Webstore` to the same interaction URL. Do we serve only USSD and release others with a message, or support them?
-2. **Amount mismatch:** for `needs_review` (paid amount ≠ expected), should we still send the callback (`success`) or hold it until admin resolves?
+1. ~~Platforms~~ — resolved: serve all three (§5.1).
+2. ~~Amount mismatch~~ — resolved: hold fulfilment, still send callback (§6).
 3. **Payer number:** Hubtel prompts the dialing number for payment. Is that acceptable for all flows (recipient number may differ from payer — same as today's WhatsApp "ask MoMo number" rule)?
 4. **Extraction scope:** confirm the Paystack webhook post-payment block can be extracted without changing Uzo behaviour (to be verified when planning; may force a smaller shared helper).
 5. **Collection Account Number and Hubtel merchant onboarding** (service creation, code request, whitelisting) are manual steps on your side; the plan will list them.
