@@ -149,3 +149,14 @@ Mirrors the style of the current USSD admin settings:
 3. **Payer number:** Hubtel prompts the dialing number for payment. Is that acceptable for all flows (recipient number may differ from payer — same as today's WhatsApp "ask MoMo number" rule)?
 4. **Extraction scope:** confirm the Paystack webhook post-payment block can be extracted without changing Uzo behaviour (to be verified when planning; may force a smaller shared helper).
 5. **Collection Account Number and Hubtel merchant onboarding** (service creation, code request, whitelisting) are manual steps on your side; the plan will list them.
+
+## 14. Revisions made during implementation planning (2026-10-05)
+
+Decided after reading the code; supersede the sections they name. Details in `docs/superpowers/plans/2026-10-05-hubtel-ussd-core-and-data-bundles.md`.
+
+- **§4.4 / Open Q4 (extract Paystack post-payment):** resolved — NOT extracted. `app/api/webhooks/paystack/route.ts` is 1,642 lines with six order types inline and coupled to Paystack's `reference`/pesewa amounts. Hubtel gets its own `lib/ussd-hubtel/order-handlers.ts` reusing the exported fulfil functions; the small ussd_orders profit/SMS block is duplicated (dedupe is a follow-up).
+- **§4.1 (IP checks):** secret required on both endpoints; the three Hubtel IPs are enforced only on the fulfilment endpoint (flag `HUBTEL_ENFORCE_FULFILLMENT_IP`), since interaction-request IPs are unpublished.
+- **§9 (admin page):** secrets stay in env vars; the page shows configured/missing status only.
+- **§6 (mismatch):** only under-payment is held; over-payment is fulfilled.
+- **Decomposition:** delivered as three plans — (1) core + main-mode data bundles, (2) airtime / results checker / AFA, (3) shop mode. Until built, those services are hidden on the Hubtel menu and `mode=shop` is rejected.
+- **Open items to confirm with Hubtel (runbook):** that `AmountAfterCharges` equals the AddToCart `Price`; that status-check `transactionId` is accepted as the callback `OrderId`.
