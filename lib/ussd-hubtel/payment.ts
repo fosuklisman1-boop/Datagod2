@@ -25,6 +25,7 @@ export function parseFulfillmentPayload(body: unknown): HubtelFulfillmentInfo | 
 /** Under-payment (beyond one pesewa) is held; over-payment is fulfilled. */
 export function decidePayment(expected: number, info: HubtelFulfillmentInfo): "fulfil" | "needs_review" | "unsuccessful" {
   if (!info.isSuccessful) return "unsuccessful"
+  if (!Number.isFinite(info.amountAfterCharges)) return "needs_review" // fail closed on NaN/Infinity
   if (info.amountAfterCharges < expected - 0.01) return "needs_review"
   return "fulfil"
 }

@@ -36,37 +36,18 @@ export async function runStatusChecks(args: {
   // invisible in 'processing'. Surface it for review; the callback is still due.
   const stale = await args.store.listStaleProcessing(STALE_PROCESSING_MINUTES, args.limit ?? 50)
   for (const row of stale) {
-    await args.store.update(row.session_id, { state: "needs_review", callback_status: "pending" })
-    out.swept++
+    try {
+      await args.store.update(row.session_id, { state: "needs_review", callback_status: "pending" })
+      out.swept++
+    } catch (e) { console.error("[HUBTEL-STATUS] sweep error:", row.session_id, e) }
   }
 
   const rows = await args.store.listAwaitingPayment(args.limit ?? 50)
 
-  for (const row of rows) {
-    const disposition = statusCheckDisposition(row, now)
-    if (disposition === "skip") continue
-
-    if (disposition === "expire") {
-      // Race-safe: only expire if we win the claim; otherwise a webhook owns the row.
-      if (!(await args.store.claim(row.session_id))) continue
-      // Never paid ⇒ no fulfilment, so no callback is due.
-      await args.store.update(row.session_id, { state: "failed", callback_status: "not_due" })
-      try {
-        const fail = args.failHandlers[row.order_table]
-        if (fail) await fail(row.order_id)
-      } catch (e) { console.error("[HUBTEL-STATUS] fail handler error:", row.session_id, e) }
-      out.expired++
-      continue
-    }
-
-    out.checked++
-    const res = await args.check(row.session_id)
-    await args.store.update(row.session_id, {
-      status_check_attempts: row.status_check_attempts + 1,
-      last_status_check_at: new Date(now).toISOString(),
-    })
-    if (!res.ok || res.status !== "Paid") continue
-
+  // Shared Paid handling for the normal check path and the final pre-expiry check.
+  // Returns true when the row was resolved as paid (fulfilled or held for review).
+  const handlePaid = async (row: HubtelTxRow, res: Awaited<ReturnType<StatusChecker>>): Promise<boolean> => {
+    if (!res.ok || res.status !== "Paid") return false
     const d = res.data ?? {}
     const outcome = await processFulfillment(args.store, args.handlers, {
       sessionId: row.session_id,
@@ -75,7 +56,54 @@ export async function runStatusChecks(args: {
       amountAfterCharges: Number(d.amountAfterCharges ?? 0),
       isSuccessful: true,
     })
-    if (outcome === "fulfilled" || outcome === "needs_review") out.paid++
+    if (outcome === "duplicate") {
+      const cur = await args.store.findBySession(row.session_id).catch(() => null)
+      console.warn("[HUBTEL-STATUS] Paid but duplicate (row already claimed):", row.session_id, "state:", cur?.state)
+    }
+    return outcome === "fulfilled" || outcome === "needs_review"
+  }
+
+  for (const row of rows) {
+    try {
+      const disposition = statusCheckDisposition(row, now)
+      if (disposition === "skip") continue
+
+      if (disposition === "expire") {
+        // One last look: the customer may have paid and the webhook never arrived.
+        let finalRes: Awaited<ReturnType<StatusChecker>> | null = null
+        try { finalRes = await args.check(row.session_id) } catch (e) {
+          console.error("[HUBTEL-STATUS] final check error:", row.session_id, e)
+        }
+        if (finalRes && (await handlePaid(row, finalRes))) { out.paid++; continue }
+
+        // Race-safe: only expire if we win the claim; otherwise a webhook owns the row.
+        if (!(await args.store.claim(row.session_id))) continue
+        try {
+          // Never paid ⇒ no fulfilment, so no callback is due.
+          await args.store.update(row.session_id, { state: "failed", callback_status: "not_due" })
+        } catch (e) {
+          console.error("[HUBTEL-STATUS] expiry update failed, reverting:", row.session_id, e)
+          try { await args.store.update(row.session_id, { state: "awaiting_payment" }) } catch (e2) {
+            console.error("[HUBTEL-STATUS] expiry revert failed:", row.session_id, e2)
+          }
+          continue
+        }
+        try {
+          const fail = args.failHandlers[row.order_table]
+          if (fail) await fail(row.order_id)
+        } catch (e) { console.error("[HUBTEL-STATUS] fail handler error:", row.session_id, e) }
+        out.expired++
+        continue
+      }
+
+      out.checked++
+      const res = await args.check(row.session_id)
+      await args.store.update(row.session_id, {
+        status_check_attempts: row.status_check_attempts + 1,
+        last_status_check_at: new Date(now).toISOString(),
+      })
+      if (await handlePaid(row, res)) out.paid++
+    } catch (e) { console.error("[HUBTEL-STATUS] row error:", row.session_id, e) }
   }
   return out
 }

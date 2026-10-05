@@ -36,6 +36,10 @@ describe("decidePayment", () => {
   it("holds under-payment for review (review focus #6)", () => {
     expect(decidePayment(10, info({ amountAfterCharges: 9 }))).toBe("needs_review")
   })
+  it("fails closed on a non-finite amount", () => {
+    expect(decidePayment(10, info({ amountAfterCharges: NaN }))).toBe("needs_review")
+    expect(decidePayment(10, info({ amountAfterCharges: Infinity }))).toBe("needs_review")
+  })
   it("never fulfils an unsuccessful payment", () => {
     expect(decidePayment(10, info({ isSuccessful: false }))).toBe("unsuccessful")
   })
