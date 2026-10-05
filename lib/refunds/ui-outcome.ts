@@ -108,3 +108,26 @@ export function parseRefundAmount(input: string): number | null {
 /** A refund the admin cancelled (stored as failed with a "Cancelled by admin" error). */
 export const isCancelledRefund = (r: { status: string; error: string | null }): boolean =>
   r.status === "failed" && (r.error ?? "").startsWith("Cancelled by admin")
+
+export type VerificationSeverity = "ok" | "info" | "warning" | "destructive"
+
+export const LEDGER_MISMATCH_TEXT = "Ledger says completed but Paystack says failed — the customer was NOT paid. See runbook."
+
+/** Pure: turns a gateway-status response into the text + severity the history row shows. */
+export function describeVerification(r: { ledgerStatus: string; gatewayStatus: string | null; rawStatus?: string | null; message?: string | null }): { severity: VerificationSeverity; text: string } {
+  const raw = r.rawStatus ? r.rawStatus : r.gatewayStatus ?? "unknown"
+  const says = `Paystack says: ${raw}`
+  if (r.gatewayStatus === "failed") {
+    if (r.ledgerStatus === "completed") return { severity: "destructive", text: LEDGER_MISMATCH_TEXT }
+    if (r.ledgerStatus === "processing") return { severity: "warning", text: `${says}. Use "Check status" to restore the owner's cut.` }
+    return { severity: "info", text: says }
+  }
+  if (r.gatewayStatus === "completed") {
+    if (r.ledgerStatus === "processing") return { severity: "warning", text: `${says}. Use "Check status" to settle the ledger.` }
+    return { severity: "ok", text: says }
+  }
+  if (r.gatewayStatus === "pending") {
+    return { severity: "warning", text: r.ledgerStatus === "completed" ? `${says}. Ledger says completed but Paystack has not finished it yet; re-verify later (needs-attention means act at the Paystack dashboard).` : `${says}. Still in progress at Paystack.` }
+  }
+  return { severity: "warning", text: r.message ? `Could not confirm: ${r.message}` : "Could not confirm the status at Paystack" }
+}

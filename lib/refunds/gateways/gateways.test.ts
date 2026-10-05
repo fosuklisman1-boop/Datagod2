@@ -1,11 +1,15 @@
 import type { RefundableOrder, RefundContext } from "../types"
 
 const refundTransaction = vi.fn()
+const fetchRefund = vi.fn()
 const moolreTransfer = vi.fn()
 const moolreStatus = vi.fn()
 const rpc = vi.fn()
 
-vi.mock("@/lib/paystack", () => ({ refundTransaction: (...a: unknown[]) => refundTransaction(...a) }))
+vi.mock("@/lib/paystack", () => ({
+  refundTransaction: (...a: unknown[]) => refundTransaction(...a),
+  fetchRefund: (...a: unknown[]) => fetchRefund(...a),
+}))
 vi.mock("@/lib/moolre-transfer", () => ({
   initiateTransfer: (...a: unknown[]) => moolreTransfer(...a),
   getTransferStatus: (...a: unknown[]) => moolreStatus(...a),
@@ -24,7 +28,7 @@ vi.mock("@/lib/paystack-transfer", () => ({
   mapNetworkToPaystackBankCode: (n: string) => ({ MTN: "MTN", TELECEL: "VOD", AT: "ATL" } as Record<string, string>)[n.toUpperCase()],
 }))
 
-import { paystackGateway } from "./paystack"
+import { paystackGateway, mapPaystackRefundStatus, describePaystackRefund } from "./paystack"
 import { paystackPayoutGateway } from "./paystack-payout"
 import { moolreGateway, momoNetworkForMoolre } from "./moolre"
 import { walletGateway } from "./wallet"
@@ -62,7 +66,31 @@ describe("paystackGateway", () => {
     refundTransaction.mockResolvedValue({ id: 99, status: "pending" })
     const out = await paystackGateway.refund(ctx())
     expect(refundTransaction).toHaveBeenCalledWith("ref-1", 9.5)
-    expect(out).toEqual({ kind: "completed", ref: "99" })
+    expect(out).toEqual({ kind: "pending", ref: "99" })
+  })
+  it.each([
+    ["pending", { kind: "pending", ref: "99" }],
+    ["processing", { kind: "pending", ref: "99" }],
+    ["needs-attention", { kind: "pending", ref: "99" }],
+    ["processed", { kind: "completed", ref: "99" }],
+    ["failed", { kind: "failed", error: "Paystack could not process the refund" }],
+  ])("refund() with initial status %s", async (status, expected) => {
+    refundTransaction.mockResolvedValue({ id: 99, status })
+    expect(await paystackGateway.refund(ctx())).toEqual(expected)
+  })
+  it("refund() with an unknown/missing status is unknown", async () => {
+    refundTransaction.mockResolvedValue({ id: 99, status: "weird" })
+    expect((await paystackGateway.refund(ctx())).kind).toBe("unknown")
+    refundTransaction.mockResolvedValue({ id: 99 })
+    expect((await paystackGateway.refund(ctx())).kind).toBe("unknown")
+  })
+  it("refund() without a refund id is unknown (cannot be re-checked), whatever the status", async () => {
+    for (const data of [{ status: "processed" }, { status: "failed" }, { id: null, status: "pending" }, { id: "", status: "pending" }, null, undefined]) {
+      refundTransaction.mockResolvedValue(data)
+      const out = await paystackGateway.refund(ctx())
+      expect(out.kind).toBe("unknown")
+      expect((out as { error: string }).error).toMatch(/no refund id/)
+    }
   })
   it("maps an API rejection to failed", async () => {
     refundTransaction.mockRejectedValue(Object.assign(new Error("Transaction has already been fully reversed"), { httpStatus: 422 }))
@@ -81,6 +109,64 @@ describe("paystackGateway", () => {
     expect((await paystackGateway.refund(ctx())).kind).toBe("unknown")
     refundTransaction.mockRejectedValue(new Error("no status attached"))
     expect((await paystackGateway.refund(ctx())).kind).toBe("unknown")
+  })
+})
+
+describe("mapPaystackRefundStatus", () => {
+  it.each([
+    ["processed", "completed"], ["PROCESSED", "completed"], ["  Processed ", "completed"],
+    ["pending", "pending"], ["Processing", "pending"], ["needs-attention", "pending"], ["needs_attention", "pending"], [" NEEDS-ATTENTION ", "pending"],
+    ["failed", "failed"], ["FAILED", "failed"],
+    ["reversed", "unknown"], ["", "unknown"], ["success", "unknown"],
+    [undefined, "unknown"], [null, "unknown"], [42, "unknown"], [{}, "unknown"], [["processed"], "unknown"],
+  ])("%j -> %s", (status, kind) => {
+    expect(mapPaystackRefundStatus(status, "7").kind).toBe(kind)
+  })
+  it("carries the ref on completed/pending", () => {
+    expect(mapPaystackRefundStatus("processed", "7")).toEqual({ kind: "completed", ref: "7" })
+    expect(mapPaystackRefundStatus("pending", "7")).toEqual({ kind: "pending", ref: "7" })
+  })
+})
+
+describe("paystackGateway.checkStatus", () => {
+  const check = (ref: string | null) => paystackGateway.checkStatus!(ctx(), ref)
+  it("fetches the refund by id and maps its status", async () => {
+    fetchRefund.mockResolvedValue({ id: 99, status: "processed" })
+    expect(await check("99")).toEqual({ kind: "completed", ref: "99" })
+    expect(fetchRefund).toHaveBeenCalledWith("99")
+    fetchRefund.mockResolvedValue({ id: 99, status: "processing" })
+    expect(await check("99")).toEqual({ kind: "pending", ref: "99" })
+    fetchRefund.mockResolvedValue({ id: 99, status: "failed" })
+    expect((await check("99")).kind).toBe("failed")
+  })
+  it("missing / non-numeric refs are unknown and never call Paystack", async () => {
+    for (const ref of [null, "", "  ", "ref-1", "12abc", "../x", "1 2"]) expect((await check(ref)).kind).toBe("unknown")
+    expect(fetchRefund).not.toHaveBeenCalled()
+  })
+  it("HTTP / network errors are unknown, never failed", async () => {
+    for (const err of [
+      Object.assign(new Error("not found"), { httpStatus: 404 }),
+      Object.assign(new Error("bad request"), { httpStatus: 400 }),
+      Object.assign(new Error("server"), { httpStatus: 500 }),
+      new TypeError("fetch failed"), new SyntaxError("Unexpected token <"),
+    ]) {
+      fetchRefund.mockRejectedValue(err)
+      expect((await check("99")).kind).toBe("unknown")
+    }
+  })
+  it("an unrecognised or missing status is unknown", async () => {
+    fetchRefund.mockResolvedValue({ id: 99, status: "mystery" })
+    expect((await check("99")).kind).toBe("unknown")
+    fetchRefund.mockResolvedValue(null)
+    expect((await check("99")).kind).toBe("unknown")
+  })
+  it("describePaystackRefund exposes the raw status", async () => {
+    fetchRefund.mockResolvedValue({ id: 99, status: "needs-attention" })
+    const d = await describePaystackRefund("99")
+    expect(d.rawStatus).toBe("needs-attention")
+    expect(d.outcome.kind).toBe("pending")
+    fetchRefund.mockRejectedValue(new Error("x"))
+    expect((await describePaystackRefund("99")).rawStatus).toBeNull()
   })
 })
 
