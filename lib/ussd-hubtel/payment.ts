@@ -37,25 +37,34 @@ export async function processFulfillment(
   const tx = await store.findBySession(info.sessionId)
   if (!tx) return "unknown_session"
   // Atomic awaiting_payment → processing. Only the winner proceeds (idempotency).
-  if (!(await store.claim(info.sessionId))) return "duplicate"
-
   const base = {
     hubtel_order_id: info.hubtelOrderId,
     amount_paid: info.amountPaid,
     amount_after_charges: info.amountAfterCharges,
     paid_at: new Date().toISOString(),
   }
-  const decision = decidePayment(Number(tx.expected_amount), info)
-
-  if (decision === "unsuccessful") {
-    await store.update(info.sessionId, { ...base, state: "failed" })
-    return "unsuccessful"
-  }
-
   const needsReview = async () => {
     // Callback is still due: always-success policy (spec §8); the order is resolved manually.
     await store.update(info.sessionId, { ...base, state: "needs_review", callback_status: "pending" })
     return "needs_review" as const
+  }
+
+  if (!(await store.claim(info.sessionId))) {
+    // Paid after the status-check window expired the row (customer was told it failed):
+    // record the payment and hold for a human; never auto-fulfil.
+    if (tx.state === "failed" && tx.amount_paid == null && info.isSuccessful &&
+        (await store.claim(info.sessionId, ["failed"]))) {
+      return needsReview()
+    }
+    return "duplicate"
+  }
+
+  const decision = decidePayment(Number(tx.expected_amount), info)
+
+  if (decision === "unsuccessful") {
+    const { paid_at: _omit, ...failedBase } = base
+    await store.update(info.sessionId, { ...failedBase, state: "failed" })
+    return "unsuccessful"
   }
 
   if (decision === "needs_review") return needsReview()

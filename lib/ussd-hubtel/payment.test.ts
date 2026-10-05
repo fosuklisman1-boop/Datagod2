@@ -52,10 +52,11 @@ function memoryStore(row: Partial<HubtelTxRow> | null) {
     : null
   const store: HubtelTxStore = {
     findBySession: async () => current,
-    claim: async () => {
-      if (current && current.state === "awaiting_payment") { current = { ...current, state: "processing" }; return true }
+    claim: async (_id, from = ["awaiting_payment"]) => {
+      if (current && from.includes(current.state)) { current = { ...current, state: "processing" }; return true }
       return false
     },
+    listStaleProcessing: async () => [],
     update: async (_id, patch) => { if (current) current = { ...current, ...patch } },
     listPendingCallbacks: async () => [],
     listAwaitingPayment: async () => [],
@@ -114,6 +115,41 @@ describe("processFulfillment", () => {
     const h = vi.fn()
     expect(await processFulfillment(m.store, { ussd_orders: h }, info({ isSuccessful: false }))).toBe("unsuccessful")
     expect(m.get()).toMatchObject({ state: "failed", callback_status: "not_due" })
+  })
+
+  it("unsuccessful payment leaves paid_at null", async () => {
+    const m = memoryStore({})
+    await processFulfillment(m.store, { ussd_orders: vi.fn() }, info({ isSuccessful: false }))
+    expect(m.get().paid_at).toBeNull()
+  })
+
+  it("late payment on an expired (failed) row: recorded, held for review, handler not called", async () => {
+    const m = memoryStore({ state: "failed" })
+    const h = vi.fn()
+    expect(await processFulfillment(m.store, { ussd_orders: h }, info())).toBe("needs_review")
+    expect(h).not.toHaveBeenCalled()
+    expect(m.get()).toMatchObject({
+      state: "needs_review", callback_status: "pending", hubtel_order_id: "O1", amount_paid: 11.5, amount_after_charges: 10,
+    })
+  })
+
+  it("failed row already declined by Hubtel (amount_paid set) stays a duplicate", async () => {
+    const m = memoryStore({ state: "failed", amount_paid: 10 })
+    const h = vi.fn()
+    expect(await processFulfillment(m.store, { ussd_orders: h }, info())).toBe("duplicate")
+    expect(h).not.toHaveBeenCalled()
+    expect(m.get()).toMatchObject({ state: "failed", amount_paid: 10 })
+  })
+
+  it("two concurrent late-payment deliveries: one needs_review, one duplicate", async () => {
+    const m = memoryStore({ state: "failed" })
+    const h = vi.fn()
+    const results = await Promise.all([
+      processFulfillment(m.store, { ussd_orders: h }, info()),
+      processFulfillment(m.store, { ussd_orders: h }, info()),
+    ])
+    expect(results.sort()).toEqual(["duplicate", "needs_review"])
+    expect(h).not.toHaveBeenCalled()
   })
 
   it("a throwing handler → needs_review with callback pending (always-success policy)", async () => {

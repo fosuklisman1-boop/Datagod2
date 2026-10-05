@@ -9,12 +9,12 @@ export function createSupabaseTxStore(supabase: SupabaseClient): HubtelTxStore {
       if (error) throw error
       return (data as HubtelTxRow | null) ?? null
     },
-    async claim(sessionId) {
+    async claim(sessionId, from = ["awaiting_payment"]) {
       const { data, error } = await supabase
         .from("hubtel_transactions")
         .update({ state: "processing", updated_at: new Date().toISOString() })
         .eq("session_id", sessionId)
-        .eq("state", "awaiting_payment")
+        .in("state", from)
         .select("session_id")
       if (error) throw error
       return (data?.length ?? 0) === 1
@@ -37,6 +37,14 @@ export function createSupabaseTxStore(supabase: SupabaseClient): HubtelTxStore {
       const { data, error } = await supabase
         .from("hubtel_transactions").select("*").eq("state", "awaiting_payment")
         .order("created_at", { ascending: true }).limit(limit)
+      if (error) throw error
+      return (data ?? []) as HubtelTxRow[]
+    },
+    async listStaleProcessing(olderThanMinutes, limit) {
+      const cutoff = new Date(Date.now() - olderThanMinutes * 60_000).toISOString()
+      const { data, error } = await supabase
+        .from("hubtel_transactions").select("*").eq("state", "processing").lt("updated_at", cutoff)
+        .order("updated_at", { ascending: true }).limit(limit)
       if (error) throw error
       return (data ?? []) as HubtelTxRow[]
     },

@@ -5,17 +5,22 @@ import type { OrderHandlers } from "./payment"
 const last9 = (p: string | null | undefined) => (p || "").replace(/\D/g, "").slice(-9)
 
 async function ussdOrderPostPayment(supabase: SupabaseClient, orderId: string): Promise<void> {
-  const { data: order } = await supabase.from("ussd_orders").select("*").eq("id", orderId).maybeSingle()
+  const { data: order, error: lookupErr } = await supabase.from("ussd_orders").select("*").eq("id", orderId).maybeSingle()
+  if (lookupErr) console.error("[HUBTEL-ORDER] ussd_orders lookup failed:", orderId, lookupErr)
   if (!order) throw new Error(`ussd_orders ${orderId} not found`)
   if (order.payment_status === "completed") return // already processed
 
   // Mark paid; order_status stays pending until fulfilment resolves (same as the Paystack path).
-  const { error: markErr } = await supabase
+  const { data: marked, error: markErr } = await supabase
     .from("ussd_orders")
     .update({ payment_status: "completed", updated_at: new Date().toISOString() })
     .eq("id", orderId)
     .in("payment_status", ["pending", "otp_required"])
+    .select("id")
   if (markErr) throw markErr
+  if (!marked || marked.length === 0) {
+    throw new Error(`ussd_orders ${orderId} not in a payable state: ${order.payment_status}`)
+  }
 
   let fulfillResult: { success: boolean; message: string; held?: boolean } | undefined
   try {

@@ -72,10 +72,11 @@ export interface HubtelTxRow {
 export interface HubtelTxStore {
   findBySession(sessionId: string): Promise<HubtelTxRow | null>
   /** Atomically moves awaiting_payment → processing. true only for the caller that won. */
-  claim(sessionId: string): Promise<boolean>
+  claim(sessionId: string, from?: HubtelTxState[]): Promise<boolean>
   update(sessionId: string, patch: Partial<HubtelTxRow>): Promise<void>
   listPendingCallbacks(limit: number): Promise<HubtelTxRow[]>
   listAwaitingPayment(limit: number): Promise<HubtelTxRow[]>
+  listStaleProcessing(olderThanMinutes: number, limit: number): Promise<HubtelTxRow[]>
 }
 
 /** What we extract from a fulfilment webhook or a status-check "Paid" response. */
