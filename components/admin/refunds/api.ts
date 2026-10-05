@@ -2,12 +2,13 @@ import { interpretRefundResponse, type RefundAction, type RefundOutcome } from "
 
 /** POSTs a refund action and maps the HTTP response to a UI outcome. Never throws. */
 export async function postRefundAction(
-  token: string,
+  getToken: () => Promise<string>,
   path: string,
   action: RefundAction,
   body: Record<string, unknown> = {},
 ): Promise<RefundOutcome> {
   try {
+    const token = await getToken()
     const res = await fetch(path, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },

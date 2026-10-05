@@ -19,6 +19,8 @@ export function SettleFailedDialog({ info, onAcknowledge }: Props) {
         ["Ledger status", info.detail.ledgerStatus],
         ["Note", info.detail.note],
         ["Error", info.detail.error],
+        ["Outcome", info.detail.outcome],
+        ["Conflict", info.detail.conflict],
       ]
     : []
   return (

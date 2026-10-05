@@ -1,7 +1,7 @@
 "use client"
 /* eslint-disable @typescript-eslint/no-explicit-any -- untrusted JSON rows */
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Loader2, RefreshCw } from "lucide-react"
 import { toast } from "sonner"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
@@ -22,7 +22,7 @@ import { RefundDialog } from "@/components/admin/refunds/refund-dialog"
 import { OtpDialog } from "@/components/admin/refunds/otp-dialog"
 import { SettleFailedDialog } from "@/components/admin/refunds/settle-failed-dialog"
 import { postRefundAction } from "@/components/admin/refunds/api"
-import { ATTENTION_STATUSES, isAttentionStatus, type RefundAction, type RefundOutcome, type SettleFailedDetail } from "@/lib/refunds/ui-outcome"
+import { ATTENTION_STATUSES, isAttentionStatus, isCancelledRefund, type RefundAction, type RefundOutcome, type SettleFailedDetail } from "@/lib/refunds/ui-outcome"
 
 interface PendingRow {
   order: {
@@ -94,9 +94,14 @@ export default function AdminRefundsPage() {
   const [otp, setOtp] = useState("")
   const [otpMessage, setOtpMessage] = useState<string | null>(null)
   const [cancelFor, setCancelFor] = useState<string | null>(null)
+  const [retryFor, setRetryFor] = useState<HistoryRow | null>(null)
+  const [tab, setTab] = useState("pending")
+  const loadSeq = useRef(0)
+  const otpFromExecute = useRef(false)
   const [settleFailed, setSettleFailed] = useState<{ message: string; detail: SettleFailedDetail } | null>(null)
 
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current
     setLoading(true)
     try {
       const token = await getToken()
@@ -110,47 +115,72 @@ export default function AdminRefundsPage() {
               rs.flatMap((r) => r.rows as HistoryRow[]).sort((a, b) => b.created_at.localeCompare(a.created_at)))
           : getJson(hq(`page=${historyPage}${statusFilter === "all" ? "" : `&status=${statusFilter}`}`), token).then((r) => r.rows as HistoryRow[]),
       ])
+      if (seq !== loadSeq.current) return // a newer load superseded this one
       setPending(p.rows)
       setHistory(h)
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to load refunds")
+      if (seq === loadSeq.current) toast.error(e instanceof Error ? e.message : "Failed to load refunds")
     } finally {
-      setLoading(false)
+      if (seq === loadSeq.current) setLoading(false)
     }
   }, [appliedQ, pendingPage, historyPage, statusFilter])
 
   useEffect(() => { if (isAdmin) void load() }, [isAdmin, load])
 
-  const handleOutcome = useCallback((o: RefundOutcome) => {
+  const showAttention = useCallback(() => {
+    setHistoryPage(1)
+    setStatusFilter("attention")
+    setTab("history")
+  }, [])
+
+  const handleOutcome = useCallback((o: RefundOutcome, from: RefundAction = "execute") => {
     switch (o.kind) {
       case "success": toast.success(o.message); break
       case "info": toast.info(o.message); break
-      case "warning": toast.warning(o.message); break
+      case "warning":
+        toast.warning(o.message)
+        if (from === "execute") showAttention() // processing/reserved: make the refund visible
+        break
       case "payout_failed": toast.error(o.message); break
       case "auth": toast.error(o.message); break
       case "error": toast.error(o.message); break
       case "settle_failed": setSettleFailed({ message: o.message, detail: o.detail }); break
       case "awaiting_otp":
-        if (o.refundId) { setOtp(""); setOtpMessage(o.wrongOtp ? o.message : null); setOtpFor(o.refundId) }
+        if (o.refundId) {
+          otpFromExecute.current = from === "execute"
+          setOtp(""); setOtpMessage(o.wrongOtp ? o.message : null); setOtpFor(o.refundId)
+        }
         toast.info(o.message)
         break
     }
-  }, [])
+  }, [showAttention])
+
+  const closeOtp = () => {
+    setOtpFor(null)
+    setOtp("")
+    setOtpMessage(null)
+    if (otpFromExecute.current) { otpFromExecute.current = false; showAttention() }
+  }
 
   const act = async (id: string, action: Exclude<RefundAction, "execute">, body: Record<string, unknown> = {}) => {
     if (busyId) return
     setBusyId(id)
     try {
-      const o = await postRefundAction(await getToken(), `/api/admin/refunds/${id}/${action}`, action, body)
-      if (action === "otp" && o.kind === "awaiting_otp") {
-        // Wrong code: keep the OTP dialog open, show the message, clear the input.
-        setOtp("")
-        setOtpMessage(o.message)
-        return
+      const o = await postRefundAction(getToken, `/api/admin/refunds/${id}/${action}`, action, body)
+      if (action === "otp") {
+        if (o.kind === "awaiting_otp" || o.kind === "error") {
+          // Wrong code / BAD_OTP / 409: keep the OTP dialog open, show the message, clear the input.
+          setOtp("")
+          setOtpMessage(o.message)
+          return
+        }
+        otpFromExecute.current = false
+        setOtpFor(null); setOtp(""); setOtpMessage(null)
       }
-      if (action === "otp") { setOtpFor(null); setOtp(""); setOtpMessage(null) }
-      handleOutcome(o)
+      handleOutcome(o, action)
       await load()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Request failed")
     } finally {
       setBusyId(null)
     }
@@ -163,7 +193,7 @@ export default function AdminRefundsPage() {
   return (
     <DashboardLayout>
       <PageHeaderBanner title="Refunds" subtitle="Refund paid orders that have not been delivered" />
-      <Tabs defaultValue="pending" className="mt-4">
+      <Tabs value={tab} onValueChange={setTab} className="mt-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <TabsList>
             <TabsTrigger value="pending">Pending orders</TabsTrigger>
@@ -256,7 +286,9 @@ export default function AdminRefundsPage() {
                         <TableCell>{r.gateway}</TableCell>
                         <TableCell>GHS {Number(r.amount).toFixed(2)}</TableCell>
                         <TableCell>
-                          <Badge variant={r.status === "completed" ? "secondary" : attention || r.status === "failed" ? "destructive" : "outline"}>{r.status}</Badge>
+                          <Badge variant={r.status === "completed" || isCancelledRefund(r) ? "secondary" : attention || r.status === "failed" ? "destructive" : "outline"}>
+                            {isCancelledRefund(r) ? "Cancelled" : r.status === "failed" ? "Failed" : r.status}
+                          </Badge>
                           {attention && <div className="mt-1 text-xs font-medium text-destructive">Needs attention</div>}
                           {(r.late_events?.length ?? 0) > 0 && <Badge variant="destructive" className="ml-1">late update blocked</Badge>}
                         </TableCell>
@@ -277,7 +309,7 @@ export default function AdminRefundsPage() {
                               </>
                             )}
                             {r.status === "failed" && (
-                              <Button size="sm" variant="outline" disabled={busy} onClick={() => act(r.id, "retry")}>Retry</Button>
+                              <Button size="sm" variant="outline" disabled={busy} onClick={() => setRetryFor(r)}>Retry</Button>
                             )}
                           </div>
                         </TableCell>
@@ -297,7 +329,7 @@ export default function AdminRefundsPage() {
         </TabsContent>
       </Tabs>
 
-      <RefundDialog target={target} getToken={getToken} onClose={() => setTarget(null)} onOutcome={(o) => { handleOutcome(o); void load() }} />
+      <RefundDialog target={target} getToken={getToken} onClose={() => setTarget(null)} onOutcome={(o) => { handleOutcome(o); void load() }} onReload={() => void load()} />
 
       <OtpDialog
         open={!!otpFor}
@@ -306,10 +338,36 @@ export default function AdminRefundsPage() {
         busy={busyId !== null}
         onChange={setOtp}
         onSubmit={() => otpFor && act(otpFor, "otp", { otp: otp.trim() })}
-        onClose={() => { setOtpFor(null); setOtpMessage(null) }}
+        onClose={closeOtp}
       />
 
       <SettleFailedDialog info={settleFailed} onAcknowledge={() => setSettleFailed(null)} />
+
+      <AlertDialog open={!!retryFor} onOpenChange={(o) => !o && busyId === null && setRetryFor(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Retry this refund?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {retryFor
+                ? `This will send GHS ${Number(retryFor.amount).toFixed(2)} via ${retryFor.gateway} again and removes the shop owner's cut again. This moves real money.${isCancelledRefund(retryFor) ? " Note: this refund was cancelled earlier." : ""}`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busyId !== null}>Do not retry</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busyId !== null}
+              onClick={(e) => {
+                e.preventDefault()
+                const row = retryFor
+                if (row) void act(row.id, "retry").then(() => setRetryFor(null))
+              }}
+            >
+              {busyId !== null ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Retry refund
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={!!cancelFor} onOpenChange={(o) => !o && busyId === null && setCancelFor(null)}>
         <AlertDialogContent>

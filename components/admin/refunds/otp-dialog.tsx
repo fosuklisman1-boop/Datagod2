@@ -26,9 +26,9 @@ export function OtpDialog({ open, otp, message, busy, onChange, onSubmit, onClos
           </DialogDescription>
         </DialogHeader>
         {message && <p className="rounded-md border border-destructive/50 p-2 text-sm text-destructive">{message}</p>}
-        <Input inputMode="numeric" autoComplete="one-time-code" placeholder="OTP code" value={otp} disabled={busy} onChange={(e) => onChange(e.target.value)} />
+        <Input aria-label="Payout OTP code" inputMode="numeric" autoComplete="one-time-code" placeholder="OTP code" value={otp} disabled={busy} onChange={(e) => onChange(e.target.value)} />
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={busy}>Later</Button>
+          <Button variant="outline" onClick={() => { onChange(""); onClose() }} disabled={busy}>Later</Button>
           <Button disabled={busy || otp.trim().length < 4} onClick={onSubmit}>
             {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Release payout
           </Button>

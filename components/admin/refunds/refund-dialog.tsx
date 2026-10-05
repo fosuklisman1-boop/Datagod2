@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { postRefundAction } from "./api"
-import type { RefundOutcome } from "@/lib/refunds/ui-outcome"
+import { parseRefundAmount, treatAsAmbiguous, type RefundOutcome } from "@/lib/refunds/ui-outcome"
 
 export interface PreviewPayload {
   order: { table: string; id: string; paid: number; gatewayFee: number; packageLabel: string; network: string; payment: { payerPhone: string | null } }
@@ -23,9 +23,10 @@ interface Props {
   getToken: () => Promise<string>
   onClose: () => void
   onOutcome: (outcome: RefundOutcome) => void
+  onReload: () => void
 }
 
-export function RefundDialog({ target, getToken, onClose, onOutcome }: Props) {
+export function RefundDialog({ target, getToken, onClose, onOutcome, onReload }: Props) {
   const [preview, setPreview] = useState<PreviewPayload | null>(null)
   const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -66,8 +67,9 @@ export function RefundDialog({ target, getToken, onClose, onOutcome }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target, getToken])
 
-  const amountNum = Number(amount)
-  const amountOk = Number.isFinite(amountNum) && amountNum > 0 && (!preview || amountNum <= preview.order.paid)
+  const parsed = parseRefundAmount(amount)
+  const amountNum = parsed ?? 0
+  const amountOk = parsed !== null && (!preview || parsed <= preview.order.paid)
   const gw = preview?.gateways.find((g) => g.id === gateway)
   const cutTotal = preview ? preview.clawback.lines.reduce((s, l) => s + l.credited + l.pending, 0) : 0
   const eligible = preview?.eligibility.eligible === true
@@ -81,16 +83,29 @@ export function RefundDialog({ target, getToken, onClose, onOutcome }: Props) {
     setSubmitting(true)
     setError(null)
     try {
-      const outcome = await postRefundAction(await getToken(), "/api/admin/refunds", "execute", {
+      const outcome = await postRefundAction(getToken, "/api/admin/refunds", "execute", {
         table: target.table, orderId: target.id, gateway, amount: amountNum,
       })
-      if (outcome.kind === "error" || outcome.kind === "auth") {
-        // Rejected before any money moved (SHORTFALL, 409, ...): keep the dialog open.
+      if (outcome.kind === "error" || outcome.kind === "auth" || outcome.kind === "settle_failed") {
+        setConfirmed(false)
+        const t = treatAsAmbiguous(outcome)
+        if (outcome.kind === "settle_failed") onOutcome(outcome)
+        else if (t === "ambiguous") toast.error("Outcome unknown — check History before retrying")
+        if (t === "ambiguous") {
+          // Cannot tell whether money moved: never leave the dialog armed.
+          onReload()
+          onClose()
+          return
+        }
         setError(outcome.message)
+        if (t === "stale") onReload()
         return
       }
       onOutcome(outcome)
       onClose()
+    } catch (e) {
+      setConfirmed(false)
+      toast.error(e instanceof Error ? e.message : "Refund request failed")
     } finally {
       setSubmitting(false)
     }
