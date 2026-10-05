@@ -1,20 +1,25 @@
 import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
-import { auditRefund, badRequest, isUuid, loadStoredRefund, refundDb, refundErrorResponse, settledStatus } from "@/lib/refunds/http"
+import { auditRefund, badRequest, isUuid, loadStoredRefund, refundDb, refundErrorResponse, requireAdminUser, auditRefundError, settledHttpStatus } from "@/lib/refunds/http"
 import { defaultDeps, reconcileRefund } from "@/lib/refunds/service"
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { isAdmin, userId, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse
+  const denied = requireAdminUser(userId)
+  if (denied) return denied
+  let idForAudit: string | undefined
+  const db = refundDb()
   try {
     const { id } = await params
+    idForAudit = isUuid(id) ? id : undefined
     if (!isUuid(id)) return badRequest("Invalid refund id")
-    const db = refundDb()
     const stored = await loadStoredRefund(db, id)
     const result = await reconcileRefund(defaultDeps(db), stored)
     await auditRefund(db, userId, "order_refund_reconcile", { refundId: id, ...result })
-    return NextResponse.json({ refundId: id, ...result }, { status: settledStatus(result.status) })
+    return NextResponse.json({ refundId: id, ...result }, { status: settledHttpStatus("reconcile", result.status) })
   } catch (err) {
+    await auditRefundError(db, userId, "order_refund_reconcile", err, { refundId: idForAudit })
     return refundErrorResponse(err)
   }
 }

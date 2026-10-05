@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     if (shopId && !isUuid(shopId)) return badRequest("Invalid shopId")
     const q = sp.get("q")
     if (q && q.length > 100) return badRequest("Search term too long")
-    const page = parsePage(sp.get("page"))
+    const page = parsePage(sp.get("page"), 100)
     if (page === null) return badRequest("Invalid page")
     const db = refundDb()
 

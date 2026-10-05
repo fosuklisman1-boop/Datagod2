@@ -20,10 +20,21 @@ export function refundErrorResponse(err: unknown): NextResponse {
   return NextResponse.json({ error: "Refund request failed" }, { status: 500 })
 }
 
-/** HTTP status for a settled refund: a definitively failed payout is 502, everything else 200. */
-export const settledStatus = (status: Settled["status"]): number => (status === "failed" ? 502 : 200)
+export type RefundRoute = "execute" | "retry" | "otp" | "cancel" | "reconcile"
 
-export const badRequest = (error: string) => NextResponse.json({ error }, { status: 400 })
+/**
+ * HTTP status for a Settled result a route returned. A failed payout is 502, except on cancel where a returned
+ * "failed" only means "cancelled and the clawback restored" (real problems throw).
+ */
+export const settledHttpStatus = (route: RefundRoute, status: Settled["status"]): number =>
+  status === "failed" && route !== "cancel" ? 502 : 200
+
+export const badRequest = (error: string) => NextResponse.json({ error, code: "BAD_REQUEST" }, { status: 400 })
+
+/** Money-moving routes need a real signed-in admin (a CRON_SECRET caller has no userId). */
+export function requireAdminUser(userId: string | undefined): NextResponse | null {
+  return userId ? null : NextResponse.json({ error: "A signed-in admin is required", code: "ADMIN_REQUIRED" }, { status: 403 })
+}
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 export const isUuid = (v: unknown): v is string => typeof v === "string" && UUID_RE.test(v)
@@ -47,11 +58,11 @@ export function parseGateway(v: unknown): string | null {
 export const MAX_PAGE = 1000
 
 /** Absent -> 1; a positive integer <= MAX_PAGE -> that; anything else -> null (caller returns 400). */
-export function parsePage(v: string | null): number | null {
+export function parsePage(v: string | null, max: number = MAX_PAGE): number | null {
   if (v === null || v === "") return 1
   if (!/^\d+$/.test(v)) return null
   const n = Number(v)
-  return n >= 1 && n <= MAX_PAGE ? n : null
+  return n >= 1 && n <= max ? n : null
 }
 
 /** Non-fatal admin_audit_log write. Never include OTPs or secrets in `newValue`. */
@@ -67,6 +78,19 @@ export async function auditRefund(
   } catch (e) {
     console.error("[REFUND] audit log threw (non-fatal):", e)
   }
+}
+
+/**
+ * Records a failed money action in admin_audit_log as "<action>_error" when it matters for reconciliation
+ * (SETTLE_FAILED, or any RefundError whose detail names a refundId). Non-fatal; never changes the response.
+ */
+export async function auditRefundError(
+  db: ReturnType<typeof refundDb>, adminId: string | undefined, action: string, err: unknown, context: Record<string, unknown> = {},
+): Promise<void> {
+  if (!(err instanceof RefundError)) return
+  const d = err.detail as { refundId?: unknown } | undefined
+  if (err.code !== "SETTLE_FAILED" && !(d && typeof d === "object" && d.refundId)) return
+  await auditRefund(db, adminId, `${action}_error`, { ...context, code: err.code, error: err.message, detail: err.detail ?? null })
 }
 
 /** Loads a stored refund by id for the [id] routes. Throws RefundError NOT_FOUND. */
