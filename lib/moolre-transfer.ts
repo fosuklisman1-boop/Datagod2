@@ -157,6 +157,8 @@ export interface MoolreTransferResult {
   fee: number            // amountfee charged
   insufficientBalance?: boolean  // true when Moolre wallet has no funds
   errorMessage?: string          // Moolre's raw error text
+  httpStatus?: number            // HTTP status of the response (additive; used by refunds)
+  parsed?: boolean               // false when the body was not JSON (additive; used by refunds)
 }
 
 /**
@@ -225,6 +227,8 @@ export async function initiateTransfer(params: {
         externalref: params.externalref,
         fee: 0,
         errorMessage: `Unexpected response from payment provider (HTTP ${response.status})`,
+        httpStatus: response.status,
+        parsed: false,
       }
     }
 
@@ -255,6 +259,8 @@ export async function initiateTransfer(params: {
         fee: 0,
         insufficientBalance: isInsufficientBalance,
         errorMessage: message || (code ? `Error: ${code}` : "Transfer rejected by provider"),
+        httpStatus: response.status,
+        parsed: true,
       }
     }
 
@@ -273,6 +279,8 @@ export async function initiateTransfer(params: {
       transactionId: String(data?.transactionid ?? json.transactionid ?? ""),
       externalref: String(data?.externalref ?? json.externalref ?? params.externalref),
       fee: parseFloat(String(data?.amountfee ?? json.amountfee ?? "0")),
+      httpStatus: response.status,
+      parsed: true,
     }
   } catch (error) {
     console.error("[MOOLRE-TRANSFER] Error:", error)

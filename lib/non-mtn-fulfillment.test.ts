@@ -1,3 +1,7 @@
+vi.mock("@/lib/refunds/dispatch-guard", () => ({
+  withDispatchGuard: async (_id: unknown, run: () => Promise<unknown>) => run(),
+}))
+
 vi.mock("@/lib/mtn-providers/factory", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./mtn-providers/factory")>()
   return {

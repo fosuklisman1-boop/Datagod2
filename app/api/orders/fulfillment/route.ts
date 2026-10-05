@@ -145,12 +145,16 @@ async function handleTriggerFulfillment(
     // provider selection.
     let result: { success: boolean; message?: string; reference?: string; errorCode?: string }
     if (normalizedNetwork === "MTN") {
-      result = await atishareService.fulfillOrder({
+      const { withDispatchGuard } = await import("@/lib/refunds/dispatch-guard").catch((err): { withDispatchGuard: typeof import("@/lib/refunds/dispatch-guard").withDispatchGuard } => {
+        console.error("[DISPATCH-GUARD] unavailable — running unguarded:", err)
+        return { withDispatchGuard: (_id, run) => run() }
+      })
+      result = await withDispatchGuard(orderId, () => atishareService.fulfillOrder({
         phoneNumber: order.phone_number,
         sizeGb,
         orderId,
         network: "MTN",
-      })
+      }), { success: false, message: "Order is being refunded" })
     } else {
       const { createNonMTNOrder } = await import("@/lib/non-mtn-fulfillment")
       result = await createNonMTNOrder({
@@ -330,14 +334,18 @@ async function handleRetryFulfillment(
     // fallback path as handleTriggerFulfillment above, unchanged here.
     let result: { success: boolean; message?: string; reference?: string; errorCode?: string }
     if (networkLower.includes("mtn")) {
-      result = await atishareService.fulfillOrder({
+      const { withDispatchGuard } = await import("@/lib/refunds/dispatch-guard").catch((err): { withDispatchGuard: typeof import("@/lib/refunds/dispatch-guard").withDispatchGuard } => {
+        console.error("[DISPATCH-GUARD] unavailable — running unguarded:", err)
+        return { withDispatchGuard: (_id, run) => run() }
+      })
+      result = await withDispatchGuard(orderId, () => atishareService.fulfillOrder({
         phoneNumber: order.phone_number,
         sizeGb,
         orderId,
         network: "MTN",
         orderType,
         isBigTime,
-      })
+      }), { success: false, message: "Order is being refunded" })
     } else {
       const { createNonMTNOrder } = await import("@/lib/non-mtn-fulfillment")
       result = await createNonMTNOrder({

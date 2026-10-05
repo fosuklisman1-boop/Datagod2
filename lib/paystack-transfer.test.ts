@@ -101,7 +101,7 @@ describe("initiateTransfer", () => {
   it("parses an OTP-required response", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ data: { status: "otp", transfer_code: "TRF_1", reference: "wd-123", fee: 5000 } }))
     const result = await initiateTransfer(params)
-    expect(result).toEqual({ status: "otp", transferCode: "TRF_1", transactionReference: "wd-123", fee: 50, errorMessage: undefined })
+    expect(result).toEqual({ status: "otp", rawStatus: "otp", transferCode: "TRF_1", transactionReference: "wd-123", fee: 50, errorMessage: undefined })
     const body = JSON.parse(fetchMock.mock.calls[0][1].body)
     expect(body.recipient).toBe("RCP_abc")
     expect(body.reference).toBe("wd-123")
