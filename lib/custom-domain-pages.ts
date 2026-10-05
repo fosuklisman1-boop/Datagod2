@@ -44,4 +44,9 @@ export const TOGGLEABLE_PAGES: ToggleablePage[] = [
   { key: "ussd_shop",          label: "USSD Shop",              group: "tools", paths: ["/dashboard/ussd-shop"] },
   { key: "payment_reverify",   label: "Payment Re-verify",      group: "tools", paths: ["/dashboard/payment-reverify"] },
   { key: "buy_stock",          label: "Buy Stock",              group: "tools", paths: ["/dashboard/buy-stock"] },
+  // Storefront-side only -- the "Become a Sub-Agent" carousel slide + request
+  // form shown to GUEST visitors on /shop/[slug]. Not to be confused with
+  // sub_agents/sub_agent_catalog above, which gate the shop OWNER's own
+  // dashboard pages for managing sub-agents they already have.
+  { key: "sub_agent_recruit",  label: "Become a Sub-Agent (storefront)", group: "tools" },
 ]

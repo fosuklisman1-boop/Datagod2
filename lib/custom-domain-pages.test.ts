@@ -7,10 +7,10 @@ describe("TOGGLEABLE_PAGES", () => {
     expect(new Set(keys).size).toBe(keys.length)
   })
 
-  it("has exactly 19 entries: 3 auth, 6 core, 10 tools", () => {
+  it("has exactly 20 entries: 3 auth, 6 core, 11 tools", () => {
     expect(TOGGLEABLE_PAGES.filter(p => p.group === "auth")).toHaveLength(3)
     expect(TOGGLEABLE_PAGES.filter(p => p.group === "core")).toHaveLength(6)
-    expect(TOGGLEABLE_PAGES.filter(p => p.group === "tools")).toHaveLength(10)
+    expect(TOGGLEABLE_PAGES.filter(p => p.group === "tools")).toHaveLength(11)
   })
 
   it("includes exactly the 9 original dealer-tool paths plus the new Developer/API tool", () => {
