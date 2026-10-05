@@ -7,7 +7,7 @@ import { reconcileProcessingPaystackRefunds } from "@/lib/refunds/reconcile-pays
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
 
-// Fetch a wider window than we process: rows with a non-numeric ref are skipped and must not starve the rest.
+// Per gateway: fetch a wider window than we process (MAX_PER_RUN) so skipped rows (e.g. non-numeric reversal refs) cannot starve the rest.
 const FETCH_LIMIT = 100
 
 export async function GET(request: NextRequest) {
@@ -17,19 +17,23 @@ export async function GET(request: NextRequest) {
   try {
     const db = refundDb()
     const cutoff = new Date(Date.now() - 5 * 60_000).toISOString()
-    const { data, error } = await db
-      .from("order_refunds")
-      .select("*")
-      .eq("gateway", "paystack")
-      .eq("status", "processing")
-      .lt("updated_at", cutoff)
-      .order("updated_at", { ascending: true })
-      .limit(FETCH_LIMIT)
+    // Two queries so neither gateway can starve the other, and so null-ref reversals (unprocessable) never
+    // occupy fetch slots. Payouts are looked up by refund id, so a null/TRF_ gateway_ref is fine for them.
+    // Each processed row gets updated_at bumped, so oldest-first rotates through the queue across runs.
+    const base = () => db.from("order_refunds").select("*").eq("status", "processing").lt("updated_at", cutoff)
+      .order("updated_at", { ascending: true }).limit(FETCH_LIMIT)
+    const [reversals, payouts] = await Promise.all([
+      base().eq("gateway", "paystack").not("gateway_ref", "is", null),
+      base().eq("gateway", "paystack_payout"),
+    ])
+    const error = reversals.error ?? payouts.error
     if (error) {
       console.error("[REFUND-CRON] load failed:", error.message)
       return NextResponse.json({ error: "load failed" }, { status: 500 })
     }
-    const result = await reconcileProcessingPaystackRefunds(defaultDeps(db), (data ?? []) as StoredRefund[])
+    const rows = [...(reversals.data ?? []), ...(payouts.data ?? [])] as StoredRefund[]
+    rows.sort((a, b) => Date.parse(a.updated_at) - Date.parse(b.updated_at))
+    const result = await reconcileProcessingPaystackRefunds(defaultDeps(db), rows)
     console.log("[REFUND-CRON]", JSON.stringify(result))
     return NextResponse.json({ ok: true, ...result })
   } catch (err) {
