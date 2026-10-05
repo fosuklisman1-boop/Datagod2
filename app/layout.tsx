@@ -129,10 +129,18 @@ export async function generateMetadata(): Promise<Metadata> {
   const serviceLabels = joinServiceLabels(services.map(s => SERVICE_LABELS[s]))
   const title = `${domainSiteName} - Buy ${serviceLabels.charAt(0).toUpperCase() + serviceLabels.slice(1)} Online`
   const description = `Get instant ${serviceLabels} from ${domainSiteName}. Fast delivery, secure payment.`
-  const image = headersList.get("x-domain-logo") || "https://www.datagod.store/og-image.png"
+  const domainLogo = headersList.get("x-domain-logo")
+  const image = domainLogo || "https://www.datagod.store/og-image.png"
+  // A custom domain's browser-tab icon must be its own logo, not DATAGOD's —
+  // BASE_METADATA.icons is the DATAGOD-brand fallback, only right when this
+  // domain hasn't uploaded a logo of its own.
+  const icons: Metadata["icons"] = domainLogo
+    ? { icon: [{ url: domainLogo, type: "image/png" }], apple: domainLogo, shortcut: domainLogo }
+    : BASE_METADATA.icons
 
   return {
     ...BASE_METADATA,
+    icons,
     title,
     description,
     openGraph: {
