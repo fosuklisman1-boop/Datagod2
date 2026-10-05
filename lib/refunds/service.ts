@@ -55,7 +55,7 @@ export function defaultDeps(db: SupabaseClient): RefundDeps {
 
 const eligibilityOf = (o: RefundableOrder): Eligibility =>
   evaluateEligibility({
-    orderStatus: o.orderStatus, paymentStatus: o.paymentStatus, hasActiveRefund: o.evidence.hasActiveRefund,
+    table: o.table, orderStatus: o.orderStatus, paymentStatus: o.paymentStatus, hasActiveRefund: o.evidence.hasActiveRefund,
     dispatchOutcome: o.evidence.dispatchOutcome, trackingStatuses: o.evidence.trackingStatuses,
     externalOrderId: o.evidence.externalOrderId,
   })

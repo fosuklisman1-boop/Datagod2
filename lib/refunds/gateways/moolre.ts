@@ -1,6 +1,6 @@
 import { initiateTransfer, getTransferStatus } from "@/lib/moolre-transfer"
 import { detectGhanaNetwork } from "@/lib/phone-format"
-import type { GatewayOutcome, RefundGateway } from "../types"
+import { isWalletOnlyTable, WALLET_ONLY_REASON, type GatewayOutcome, type RefundGateway } from "../types"
 
 export function momoNetworkForMoolre(phone: string): "MTN" | "TELECEL" | "AT" | null {
   const n = detectGhanaNetwork(phone)
@@ -18,6 +18,7 @@ export const moolreGateway: RefundGateway = {
   id: "moolre",
   label: "Moolre (MoMo payout to payer)",
   supports(order) {
+    if (isWalletOnlyTable(order.table)) return { ok: false, reason: WALLET_ONLY_REASON }
     const phone = order.payment.payerPhone
     if (!phone) return { ok: false, reason: "No payer number on the order" }
     if (!momoNetworkForMoolre(phone)) return { ok: false, reason: "Payer number is not a recognised MoMo network" }

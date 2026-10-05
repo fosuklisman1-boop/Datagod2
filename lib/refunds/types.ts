@@ -1,5 +1,12 @@
-export type OrderTable = "shop_orders" | "ussd_orders" | "ussd_shop_orders"
-export const ORDER_TABLES: OrderTable[] = ["shop_orders", "ussd_orders", "ussd_shop_orders"]
+export type OrderTable = "shop_orders" | "ussd_orders" | "ussd_shop_orders" | "orders" | "api_orders"
+export const ORDER_TABLES: OrderTable[] = ["shop_orders", "ussd_orders", "ussd_shop_orders", "orders", "api_orders"]
+
+/** Dashboard/bulk (`orders`) and API (`api_orders`) orders: paid from the buyer's wallet, no shop owners, wallet refund only. */
+export const WALLET_ONLY_TABLES: readonly OrderTable[] = ["orders", "api_orders"]
+export const isWalletOnlyTable = (t: OrderTable): boolean => WALLET_ONLY_TABLES.includes(t)
+
+/** Shown for every non-wallet gateway on a wallet-only order. */
+export const WALLET_ONLY_REASON = "Paid from wallet — refund goes back to the buyer's wallet"
 
 export interface OwnerCut {
   shopId: string
@@ -29,6 +36,8 @@ export interface RefundableOrder {
   packageLabel: string
   network: string
   recipientPhone: string | null
+  /** The account that paid (orders/api_orders only): its phone receives the refund SMS, never the data recipient. */
+  buyerUserId?: string | null
   createdAt: string
   paid: number
   gatewayFee: number

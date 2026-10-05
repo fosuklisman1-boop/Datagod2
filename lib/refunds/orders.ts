@@ -1,17 +1,45 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { refundableStatuses } from "./eligibility"
 import { loadPayerPhones } from "./payer-phone"
-import type { DispatchOutcome, OrderTable, OwnerCut, PaymentSource, RefundableOrder } from "./types"
+import { isWalletOnlyTable, type DispatchOutcome, type OrderTable, type OwnerCut, type PaymentSource, type RefundableOrder } from "./types"
 
 const CHUNK = 100
-const PROFIT_FK: Record<OrderTable, string> = {
+// orders / api_orders have no shop_profits FK columns (no owners, no clawback).
+const PROFIT_FK: Record<OrderTable, string | null> = {
   shop_orders: "shop_order_id",
   ussd_orders: "ussd_order_id",
   ussd_shop_orders: "ussd_shop_order_id",
+  orders: null,
+  api_orders: null,
 }
+// Debit sources that prove a wallet payment of ONE specific order (a 'bulk_order' batch debit does not reference order ids).
+const WALLET_DEBIT_SOURCES = ["data_purchase", "api_order"]
 const TRACKING_COL: Record<OrderTable, string> = {
   shop_orders: "shop_order_id",
   ussd_orders: "order_id",
   ussd_shop_orders: "order_id",
+  orders: "order_id",
+  api_orders: "api_order_id",
+}
+// Phone columns searched by the pending list.
+const SEARCH_COLS: Record<OrderTable, string[]> = {
+  shop_orders: ["customer_phone"],
+  ussd_orders: ["dialing_phone", "recipient_phone"],
+  ussd_shop_orders: ["dialing_phone", "recipient_phone"],
+  orders: ["phone_number"],
+  api_orders: ["recipient_phone"],
+}
+
+/** orders.created_at is timestamp WITHOUT time zone, stored in UTC: PostgREST returns it with no offset, so mark it UTC. */
+const toUtcIso = (v: unknown, naive: boolean): string => {
+  const s = String(v ?? "")
+  if (!naive || !s || /(Z|[+-]\d\d(:?\d\d)?)$/i.test(s)) return s
+  return s.replace(" ", "T") + "Z"
+}
+const cmpNewestFirst = (a: string, b: string): number => {
+  const ta = Date.parse(a), tb = Date.parse(b)
+  if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return tb - ta
+  return a === b ? 0 : a < b ? 1 : -1
 }
 
 const SELECT: Record<OrderTable, string> = {
@@ -21,6 +49,8 @@ const SELECT: Record<OrderTable, string> = {
     "id, dialing_phone, recipient_phone, network, package_size, amount, order_status, payment_status, paystack_reference, created_at",
   ussd_shop_orders:
     "id, shop_id, dialing_phone, recipient_phone, network, package_size, amount, order_status, payment_status, paystack_reference, created_at",
+  orders: "id, user_id, network, size, price, status, phone_number, created_at",
+  api_orders: "id, user_id, network, volume_gb, price, status, recipient_phone, created_at",
 }
 
 const chunk = <T,>(arr: T[], n = CHUNK): T[][] => {
@@ -84,14 +114,19 @@ export async function loadRefundableOrders(
 async function enrich(db: SupabaseClient, table: OrderTable, rows: any[]): Promise<RefundableOrder[]> {
   if (rows.length === 0) return []
   const ids = rows.map((r) => r.id as string)
+  const walletOnly = isWalletOnlyTable(table)
+  const fk = PROFIT_FK[table]
 
-  const [profits, tracking, claims, refunds, walletDebits, walletPayments] = await Promise.all([
-    inRows<any>(db, "shop_profits", `shop_id, profit_amount, status, ${PROFIT_FK[table]}`, PROFIT_FK[table], ids, (q) => q.is("refund_id", null)),
+  const [profits, tracking, claims, refunds, walletDebits, walletPayments, fulfillmentLogs] = await Promise.all([
+    fk ? inRows<any>(db, "shop_profits", `shop_id, profit_amount, status, ${fk}`, fk, ids, (q) => q.is("refund_id", null)) : Promise.resolve([] as any[]),
     inRows<any>(db, "mtn_fulfillment_tracking", `status, ${TRACKING_COL[table]}`, TRACKING_COL[table], ids),
     inRows<any>(db, "order_dispatch_claims", "order_id, last_outcome, attempts", "order_id", ids),
     inRows<any>(db, "order_refunds", "order_id, status", "order_id", ids, (q) => q.neq("status", "failed")),
-    inRows<any>(db, "transactions", "reference_id, user_id, type, amount", "reference_id", ids, (q) => q.eq("type", "debit")),
+    inRows<any>(db, "transactions", walletOnly ? "reference_id, user_id, type, amount, source" : "reference_id, user_id, type, amount", "reference_id", ids, (q) => (walletOnly ? q.eq("type", "debit").in("source", WALLET_DEBIT_SOURCES) : q.eq("type", "debit"))),
     table === "shop_orders" ? inRows<any>(db, "wallet_payments", "order_id, reference, amount, fee, status", "order_id", ids) : Promise.resolve([] as any[]),
+    // CodeCraft (AT-iShare/Telecel/BigTime) logs its dispatch here, not in mtn_fulfillment_tracking. For api orders the
+    // log also carries order_id = the api order id (legacy column), so one lookup by order_id covers both tables.
+    walletOnly ? inRows<any>(db, "fulfillment_logs", "order_id, status", "order_id", ids) : Promise.resolve([] as any[]),
   ])
 
   const shopIds = [...new Set([
@@ -107,7 +142,7 @@ async function enrich(db: SupabaseClient, table: OrderTable, rows: any[]): Promi
 
   const paymentRefs = [
     ...walletPayments.map((w) => w.reference as string),
-    ...rows.map((r) => (table === "shop_orders" ? null : (r.paystack_reference ?? r.id)) as string | null).filter(Boolean) as string[],
+    ...rows.map((r) => (table === "shop_orders" || walletOnly ? null : (r.paystack_reference ?? r.id)) as string | null).filter(Boolean) as string[],
   ]
   const attempts = paymentRefs.length ? await inRows<any>(db, "payment_attempts", "reference, fee", "reference", paymentRefs) : []
   // Payer MoMo number (storefront direct-charge only), in its own query so a missing column cannot break the load.
@@ -123,7 +158,7 @@ async function enrich(db: SupabaseClient, table: OrderTable, rows: any[]): Promi
   const result: RefundableOrder[] = []
   for (const r of rows) {
     const id = r.id as string
-    const orderProfits = profits.filter((p) => p[PROFIT_FK[table]] === id)
+    const orderProfits = fk ? profits.filter((p) => p[fk] === id) : []
     const byShop = new Map<string, { credited: number; pending: number }>()
     for (const p of orderProfits) {
       const cur = byShop.get(p.shop_id) ?? { credited: 0, pending: 0 } // integer pesewas
@@ -153,7 +188,16 @@ async function enrich(db: SupabaseClient, table: OrderTable, rows: any[]): Promi
     let payment: PaymentSource
     let paid: number
     let fee = 0
-    if (table === "shop_orders") {
+    if (walletOnly) {
+      // Paid from the buyer's wallet at purchase. Proof of WHO paid = exactly one per-order debit (source
+      // data_purchase / api_order, reference_id = this order, amount = price) on the order's own user. A bulk-batch
+      // debit does not reference order ids, so such orders get no gateway at all.
+      paid = Math.round(Number(r.price) * 100) / 100
+      const debit = qualifyingDebit(paid)
+      payment = debit && debit.user_id === r.user_id
+        ? { gateway: "wallet", reference: null, payerPhone: null, walletUserId: r.user_id as string }
+        : { gateway: null, reference: null, payerPhone: null, walletUserId: null }
+    } else if (table === "shop_orders") {
       // customer_phone is the data RECIPIENT and is NEVER used as the payer. payerPhone comes only from
       // payment_attempts.payer_phone (recorded at direct MoMo charge time); otherwise null (payout gateways
       // refuse; Paystack reversal / wallet still work).
@@ -201,21 +245,28 @@ async function enrich(db: SupabaseClient, table: OrderTable, rows: any[]): Promi
     if (payment.gateway === "wallet") fee = 0
 
     const claim = claims.find((c) => c.order_id === id)
+    const trackingStatuses = tracking.filter((t) => t[TRACKING_COL[table]] === id).map((t) => t.status as string)
+    for (const l of fulfillmentLogs.filter((x) => x.order_id === id)) {
+      // success => completed (delivered); failed => failed; pending/processing/anything else => pending (a retry may be queued).
+      trackingStatuses.push(l.status === "success" ? "completed" : l.status === "failed" ? "failed" : "pending")
+    }
     result.push({
       table, id,
-      orderStatus: r.order_status, paymentStatus: r.payment_status,
+      orderStatus: (walletOnly ? r.status : r.order_status) as string,
+      paymentStatus: walletOnly ? "completed" : r.payment_status, // wallet orders were paid at purchase
+      buyerUserId: walletOnly ? ((r.user_id as string | undefined) ?? null) : undefined,
       shopId: (r.shop_id as string | undefined) ?? null,
       shopName: r.shop_id ? (shopById.get(r.shop_id)?.shop_name as string | undefined) ?? null : null,
-      packageLabel: table === "shop_orders" ? `${r.volume_gb}GB` : String(r.package_size ?? ""),
+      packageLabel: table === "shop_orders" || table === "api_orders" ? `${r.volume_gb}GB` : String(r.package_size ?? r.size ?? ""),
       network: r.network,
-      recipientPhone: (r.recipient_phone ?? r.customer_phone ?? null) as string | null,
-      createdAt: r.created_at,
+      recipientPhone: (r.recipient_phone ?? r.customer_phone ?? r.phone_number ?? null) as string | null,
+      createdAt: toUtcIso(r.created_at, table === "orders"),
       paid, gatewayFee: fee, payment, owners,
       evidence: {
         hasActiveRefund: refunds.some((x) => x.order_id === id),
         dispatchOutcome: (claim?.last_outcome as DispatchOutcome | undefined) ?? null,
         dispatchAttempts: claim ? Number(claim.attempts ?? 0) : null,
-        trackingStatuses: tracking.filter((t) => t[TRACKING_COL[table]] === id).map((t) => t.status as string),
+        trackingStatuses,
         externalOrderId: (r.external_order_id as string | null | undefined) != null ? String(r.external_order_id) : null,
       },
     })
@@ -233,23 +284,25 @@ export interface PendingQuery {
 
 /** Newest-first merged page of paid+pending orders. Each table's top (page*pageSize) rows contain the global top. */
 export async function listPendingOrderRefs(db: SupabaseClient, opts: PendingQuery): Promise<{ table: OrderTable; id: string; createdAt: string }[]> {
-  const tables = (opts.table ? [opts.table] : (Object.keys(SELECT) as OrderTable[])).filter((t) => !(opts.shopId && t === "ussd_orders")) // ussd_orders has no shop_id: never return it unscoped
+  const tables = (opts.table ? [opts.table] : (Object.keys(SELECT) as OrderTable[])).filter((t) => !(opts.shopId && (t === "ussd_orders" || isWalletOnlyTable(t)))) // these have no shop_id: never return them unscoped
   const need = opts.pageSize * opts.page
   const all: { table: OrderTable; id: string; createdAt: string }[] = []
   for (const table of tables) {
-    let q: any = db.from(table).select("id, created_at").eq("order_status", "pending").eq("payment_status", "completed")
+    let q: any = isWalletOnlyTable(table)
+      ? db.from(table).select("id, created_at").in("status", [...refundableStatuses(table)])
+      : db.from(table).select("id, created_at").eq("order_status", "pending").eq("payment_status", "completed")
     if (opts.shopId) q = q.eq("shop_id", opts.shopId)
     if (opts.q) {
       const term = opts.q.replace(/[^0-9a-zA-Z-]/g, "")
       if (term) {
-        const cols = table === "shop_orders" ? ["customer_phone"] : ["dialing_phone", "recipient_phone"]
+        const cols = SEARCH_COLS[table]
         q = q.or(cols.map((c) => `${c}.ilike.%${term}%`).join(",") + (/^[0-9a-f-]{36}$/i.test(term) ? `,id.eq.${term}` : ""))
       }
     }
     const { data, error } = await q.order("created_at", { ascending: false }).order("id", { ascending: false }).range(0, need - 1)
     if (error) throw new Error(`[REFUND] pending list failed for ${table}: ${error.message}`)
-    for (const row of data ?? []) all.push({ table, id: row.id, createdAt: row.created_at })
+    for (const row of data ?? []) all.push({ table, id: row.id, createdAt: toUtcIso(row.created_at, table === "orders") })
   }
-  all.sort((a, b) => (a.createdAt !== b.createdAt ? (a.createdAt < b.createdAt ? 1 : -1) : `${a.table}:${a.id}` < `${b.table}:${b.id}` ? -1 : 1))
+  all.sort((a, b) => cmpNewestFirst(a.createdAt, b.createdAt) || (`${a.table}:${a.id}` < `${b.table}:${b.id}` ? -1 : 1))
   return all.slice((opts.page - 1) * opts.pageSize, opts.page * opts.pageSize)
 }

@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
     const rows = orders.map((o) => ({
       order: o,
       eligibility: evaluateEligibility({
-        orderStatus: o.orderStatus, paymentStatus: o.paymentStatus, hasActiveRefund: o.evidence.hasActiveRefund,
+        table: o.table, orderStatus: o.orderStatus, paymentStatus: o.paymentStatus, hasActiveRefund: o.evidence.hasActiveRefund,
         dispatchOutcome: o.evidence.dispatchOutcome, trackingStatuses: o.evidence.trackingStatuses,
         externalOrderId: o.evidence.externalOrderId,
       }),

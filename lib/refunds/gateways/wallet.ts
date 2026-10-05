@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js"
-import type { RefundContext, RefundGateway, GatewayOutcome } from "../types"
+import { isWalletOnlyTable, type RefundContext, type RefundGateway, type GatewayOutcome } from "../types"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -26,6 +26,7 @@ export const walletGateway: RefundGateway = {
   label: "Customer wallet",
   supports(order) {
     if (order.payment.walletUserId) return { ok: true }
+    if (isWalletOnlyTable(order.table)) return { ok: false, reason: "No single per-order wallet debit proves who paid (e.g. paid via a bulk batch debit) — cannot refund automatically" }
     return { ok: false, reason: "Payer has no Datagod account/wallet" }
   },
   refund: credit,

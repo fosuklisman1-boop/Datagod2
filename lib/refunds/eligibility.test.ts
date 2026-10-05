@@ -1,4 +1,4 @@
-import { evaluateEligibility, type EligibilityInput } from "./eligibility"
+import { evaluateEligibility, refundableStatuses, type EligibilityInput } from "./eligibility"
 
 const base: EligibilityInput = {
   orderStatus: "pending", paymentStatus: "completed", hasActiveRefund: false,
@@ -30,5 +30,29 @@ describe("evaluateEligibility", () => {
   })
   it("rejects an order with an external id and no tracking rows (pre-guard dispatch)", () => {
     expect(code({ externalOrderId: "12345" })).toBe("SENT_TO_PROVIDER")
+  })
+})
+
+describe("refundableStatuses / per-table status", () => {
+  it("lists the refundable statuses per table", () => {
+    expect(refundableStatuses("shop_orders")).toEqual(["pending"])
+    expect(refundableStatuses("ussd_orders")).toEqual(["pending"])
+    expect(refundableStatuses("ussd_shop_orders")).toEqual(["pending"])
+    expect(refundableStatuses("orders")).toEqual(["pending"])
+    expect(refundableStatuses("api_orders")).toEqual(["pending", "held_registration"])
+  })
+  it("a held_registration api order with no tracking is eligible", () => {
+    expect(code({ table: "api_orders", orderStatus: "held_registration" })).toBe("ok")
+  })
+  it("held_registration is not refundable on orders or the original tables", () => {
+    expect(code({ table: "orders", orderStatus: "held_registration" })).toBe("NOT_PENDING")
+    expect(code({ table: "shop_orders", orderStatus: "held_registration" })).toBe("NOT_PENDING")
+  })
+  it("processing is NOT_PENDING on the new tables", () => {
+    expect(code({ table: "orders", orderStatus: "processing" })).toBe("NOT_PENDING")
+    expect(code({ table: "api_orders", orderStatus: "processing" })).toBe("NOT_PENDING")
+  })
+  it("a table-less input behaves like the original tables (pending only)", () => {
+    expect(code({ orderStatus: "held_registration" })).toBe("NOT_PENDING")
   })
 })

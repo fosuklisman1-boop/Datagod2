@@ -55,3 +55,46 @@ describe("notifyRefund", () => {
     expect(insert).toHaveBeenCalledTimes(1)
   })
 })
+
+describe("notifyRefund: orders / api_orders", () => {
+  const mkDb2 = (phone: string | null | undefined, lookupError: any = null) => {
+    const insert = vi.fn(async () => ({ error: null }))
+    const eq = vi.fn(() => ({ maybeSingle: async () => ({ data: phone === undefined ? null : { phone_number: phone }, error: lookupError }) }))
+    const from = vi.fn((t: string) => (t === "users" ? { select: () => ({ eq }) } : { insert }))
+    return { db: { from } as any, insert, eq, from }
+  }
+  const wev = (table = "orders"): RefundNotification => ({
+    refundId: "rf1", amount: 20, gateway: "wallet", clawbacks: [],
+    order: { id: "o1", table, packageLabel: "5", network: "MTN", buyerUserId: "uB", recipientPhone: "0243334444", payment: { payerPhone: null } } as any,
+  })
+
+  it.each(["orders", "api_orders"])("%s: SMS goes to the account phone, never the data recipient", async (t) => {
+    const { db, eq } = mkDb2("0201112222")
+    await notifyRefund(db, wev(t))
+    expect(eq).toHaveBeenCalledWith("id", "uB")
+    expect(h.calls).toHaveLength(1)
+    expect(h.calls[0]).toMatchObject({ phone: "0201112222", type: "order_refund", reference: "o1" })
+  })
+  it("skips the SMS (does not fall back to the recipient) when the account has no phone or the lookup fails", async () => {
+    await notifyRefund(mkDb2(null).db, wev())
+    await notifyRefund(mkDb2(undefined).db, wev())
+    await notifyRefund(mkDb2("0201112222", { message: "boom" }).db, wev())
+    expect(h.calls).toEqual([])
+  })
+  it("inserts an in-app notice for the buyer", async () => {
+    const { db, insert } = mkDb2("0201112222")
+    await notifyRefund(db, wev())
+    expect(insert).toHaveBeenCalledTimes(1)
+    expect(insert).toHaveBeenCalledWith(expect.objectContaining({
+      user_id: "uB", title: "Order refunded", type: "balance_updated", reference_id: "o1", read: false,
+      message: "Your order of 5 MTN was refunded: GHS 20.00 credited to your wallet.",
+    }))
+  })
+  it("original tables get no buyer notice and no users lookup", async () => {
+    const { db, insert, from } = mkDb2("0201112222")
+    await notifyRefund(db, { ...wev("shop_orders"), order: { ...wev().order, table: "shop_orders", payment: { payerPhone: "0241112222" } } as any })
+    expect(from).not.toHaveBeenCalledWith("users")
+    expect(insert).not.toHaveBeenCalled()
+    expect(h.calls[0]).toMatchObject({ phone: "0241112222" })
+  })
+})
