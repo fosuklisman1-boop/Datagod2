@@ -75,13 +75,45 @@ export async function previewRefund(deps: RefundDeps, ref: { table: OrderTable; 
 
 export type Settled = { status: "completed" | "processing" | "awaiting_otp" | "failed"; message?: string }
 
-async function settleRpc(deps: RefundDeps, name: string, args: Record<string, unknown>, outcome: GatewayOutcome): Promise<void> {
-  const { error } = await deps.rpc(name, args)
+const refOf = (o: GatewayOutcome): string | null => ("ref" in o ? o.ref : null)
+
+async function callRpc(deps: RefundDeps, name: string, args: Record<string, unknown>) {
+  try {
+    return await deps.rpc(name, args)
+  } catch (e) {
+    return { data: null, error: { message: e instanceof Error ? e.message : "rpc threw" } }
+  }
+}
+
+/** Best-effort: make a row whose gateway result we could not record reconcilable. Never throws. */
+async function parkForReconcile(deps: RefundDeps, refundId: string, ref: string | null): Promise<void> {
+  const { error } = await callRpc(deps, "mark_refund_processing", {
+    p_refund_id: refundId, p_gateway_ref: ref,
+    p_note: "Payout done but ledger settle failed — reconcile", p_status: "processing",
+  })
+  if (error) console.error("[REFUND] could not park refund for reconcile:", refundId, error.message)
+}
+
+async function settleRpc(deps: RefundDeps, name: string, args: Record<string, unknown>, outcome: GatewayOutcome): Promise<unknown> {
+  const { data, error } = await callRpc(deps, name, args)
   if (error) {
     throw new RefundError(
       "SETTLE_FAILED",
       `The payout result was "${outcome.kind}" but recording it failed (${error.message}). The refund ledger needs a manual look before any retry.`,
-      { outcome: outcome.kind, rpc: name, refundId: args.p_refund_id, error: error.message },
+      { outcome: outcome.kind, rpc: name, refundId: args.p_refund_id, ref: refOf(outcome), error: error.message },
+    )
+  }
+  return data
+}
+
+/** fail_order_refund must report 'failed'; anything else means the refund had already completed. */
+async function compensate(deps: RefundDeps, refundId: string, error: string, outcome: GatewayOutcome): Promise<void> {
+  const ledgerStatus = await settleRpc(deps, "fail_order_refund", { p_refund_id: refundId, p_error: error }, outcome)
+  if (ledgerStatus !== "failed") {
+    throw new RefundError(
+      "SETTLE_FAILED",
+      `Could not mark the refund failed: the ledger says it is "${String(ledgerStatus)}". Nothing was restored.`,
+      { conflict: true, ledgerStatus, outcome: outcome.kind, ref: refOf(outcome), refundId },
     )
   }
 }
@@ -89,7 +121,21 @@ async function settleRpc(deps: RefundDeps, name: string, args: Record<string, un
 async function settle(deps: RefundDeps, refundId: string, outcome: GatewayOutcome): Promise<Settled> {
   switch (outcome.kind) {
     case "completed": {
-      await settleRpc(deps, "complete_order_refund", { p_refund_id: refundId, p_gateway_ref: outcome.ref }, outcome)
+      let ledgerStatus: unknown
+      try {
+        ledgerStatus = await settleRpc(deps, "complete_order_refund", { p_refund_id: refundId, p_gateway_ref: outcome.ref }, outcome)
+      } catch (e) {
+        await parkForReconcile(deps, refundId, outcome.ref)
+        throw e
+      }
+      if (ledgerStatus !== "completed") {
+        throw new RefundError(
+          "SETTLE_FAILED",
+          `The gateway reports the payout completed but the ledger is "${String(ledgerStatus)}" — money has left; manual reconciliation required.`,
+          { conflict: true, ledgerStatus, outcome: outcome.kind, ref: outcome.ref, refundId,
+            note: `gateway reports the payout completed but the ledger is ${String(ledgerStatus)} — money has left; manual reconciliation required` },
+        )
+      }
       return { status: "completed" }
     }
     case "pending": {
@@ -102,7 +148,7 @@ async function settle(deps: RefundDeps, refundId: string, outcome: GatewayOutcom
       return { status: "awaiting_otp", message: "Enter the OTP to release the payout" }
     }
     case "failed": {
-      await settleRpc(deps, "fail_order_refund", { p_refund_id: refundId, p_error: outcome.error }, outcome)
+      await compensate(deps, refundId, outcome.error, outcome)
       return { status: "failed", message: outcome.error }
     }
     default: {
@@ -110,6 +156,26 @@ async function settle(deps: RefundDeps, refundId: string, outcome: GatewayOutcom
       await settleRpc(deps, "mark_refund_processing", { p_refund_id: refundId, p_gateway_ref: null, p_note: outcome.error, p_status: "processing" }, outcome)
       return { status: "processing", message: `Result unknown (${outcome.error}) — use "Check status" before retrying` }
     }
+  }
+}
+
+/** settle() that never lets an unexpected throw escape without parking the row for reconcile. */
+async function settleSafely(deps: RefundDeps, refundId: string, outcome: GatewayOutcome): Promise<Settled> {
+  try {
+    return await settle(deps, refundId, outcome)
+  } catch (e) {
+    if (e instanceof RefundError) throw e
+    await parkForReconcile(deps, refundId, refOf(outcome))
+    throw new RefundError("SETTLE_FAILED", `Unexpected error while recording the payout result: ${e instanceof Error ? e.message : String(e)}`,
+      { outcome: outcome.kind, ref: refOf(outcome), refundId })
+  }
+}
+
+async function notifySafely(deps: RefundDeps, event: RefundNotification): Promise<void> {
+  try {
+    await deps.notify(event)
+  } catch (e) {
+    console.error("[REFUND] notification failed (non-fatal):", e)
   }
 }
 
@@ -157,10 +223,9 @@ export async function executeRefund(deps: RefundDeps, input: ExecuteInput): Prom
     outcome = { kind: "unknown", error: err instanceof Error ? err.message : "gateway error" }
   }
 
-  const settled = await settle(deps, refundId, outcome)
+  const settled = await settleSafely(deps, refundId, outcome)
   if (settled.status === "completed") {
-    deps.notify({ refundId, order, amount: input.amount, gateway: gateway.id, clawbacks: Array.isArray(data.clawbacks) ? data.clawbacks : [] })
-      .catch((e) => console.error("[REFUND] notification failed (non-fatal):", e))
+    await notifySafely(deps, { refundId, order, amount: input.amount, gateway: gateway.id, clawbacks: Array.isArray(data.clawbacks) ? data.clawbacks : [] })
   }
   return { refundId, ...settled }
 }
@@ -184,21 +249,20 @@ async function contextFor(deps: RefundDeps, stored: StoredRefund): Promise<Refun
 }
 
 async function settleStored(deps: RefundDeps, stored: StoredRefund, ctx: RefundContext, outcome: GatewayOutcome): Promise<Settled> {
-  const settled = await settle(deps, stored.id, outcome)
+  const settled = await settleSafely(deps, stored.id, outcome)
   if (settled.status === "completed") {
-    deps.notify({ refundId: stored.id, order: ctx.order, amount: ctx.amount, gateway: stored.gateway, clawbacks: stored.clawbacks ?? [] })
-      .catch((e) => console.error("[REFUND] notification failed (non-fatal):", e))
+    await notifySafely(deps, { refundId: stored.id, order: ctx.order, amount: ctx.amount, gateway: stored.gateway, clawbacks: stored.clawbacks ?? [] })
   }
   return settled
 }
 
-/** Re-checks a refund stuck in `processing` / `awaiting_otp` against its gateway and settles it. */
+/** Re-checks a refund stuck in `reserved` / `processing` / `awaiting_otp` against its gateway and settles it. */
 export async function reconcileRefund(deps: RefundDeps, stored: StoredRefund): Promise<Settled> {
-  if (stored.status !== "processing" && stored.status !== "awaiting_otp") {
+  if (stored.status !== "processing" && stored.status !== "awaiting_otp" && stored.status !== "reserved") {
     throw new RefundError("ORDER_NOT_PENDING", "Only processing refunds can be reconciled")
   }
   const gateway = deps.getGateway(stored.gateway)
-  if (!gateway?.checkStatus) return { status: "processing", message: "This gateway cannot be re-checked automatically" }
+  if (!gateway?.checkStatus) return { status: stored.status as Settled["status"], message: "This gateway cannot be re-checked automatically" }
   const ctx = await contextFor(deps, stored)
   let outcome: GatewayOutcome
   try {
@@ -252,7 +316,7 @@ export async function cancelRefund(deps: RefundDeps, stored: StoredRefund): Prom
     outcome = { kind: "unknown", error: err instanceof Error ? err.message : "status check failed" }
   }
   if (outcome.kind === "otp" || outcome.kind === "failed") {
-    await settleRpc(deps, "fail_order_refund", { p_refund_id: stored.id, p_error: "Cancelled by admin before the payout OTP was entered" }, outcome)
+    await compensate(deps, stored.id, "Cancelled by admin before the payout OTP was entered", outcome)
     return { status: "failed", message: "Refund cancelled and the owner's cut restored" }
   }
   if (outcome.kind === "unknown") {

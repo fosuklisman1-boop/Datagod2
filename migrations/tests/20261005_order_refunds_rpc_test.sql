@@ -189,6 +189,39 @@ BEGIN
   ASSERT pg_temp.ostatus(v_order) = 'refunded', 'order stays refunded';
   ASSERT pg_temp.avail(v_shop) = 990, 'clawback stays after complete + late fail';
 
+  -- (10b) settle RPCs report the resulting status
+  ASSERT complete_order_refund(v_rid, 'AGAIN') = 'completed', 'repeat complete returns completed';
+  ASSERT fail_order_refund(v_rid, 'late fail 2') = 'completed', 'fail on completed returns completed';
+  ASSERT pg_temp.avail(v_shop) = 990, 'fail on completed did not restore balances';
+
+  v_order := pg_temp.mk_order(12);
+  INSERT INTO shop_profits (shop_id, ussd_order_id, profit_amount, status) VALUES (v_shop, v_order, 10, 'credited');
+  PERFORM pg_temp.set_avail(v_shop, 1000);
+  v_res := reserve_order_refund('ussd_orders', v_order, 'wallet', 12, 0, 12, NULL, NULL, NULL);
+  v_rid := (v_res->>'refund_id')::uuid;
+  ASSERT fail_order_refund(v_rid, 'cancelled') = 'failed', 'fail returns failed';
+  ASSERT fail_order_refund(v_rid, 'again') = 'failed', 'repeat fail returns failed';
+  ASSERT pg_temp.ostatus(v_order) = 'pending', 'order back to pending';
+  v_n := pg_temp.avail(v_shop);
+  ASSERT complete_order_refund(v_rid, 'LATE') = 'failed', 'complete on failed returns failed';
+  ASSERT (SELECT status FROM order_refunds WHERE id = v_rid) = 'failed', 'failed row stays failed';
+  ASSERT pg_temp.ostatus(v_order) = 'pending', 'complete on failed did not change the order';
+  ASSERT pg_temp.avail(v_shop) = v_n, 'complete on failed did not change balances';
+  BEGIN
+    PERFORM complete_order_refund(gen_random_uuid(), 'x');
+    ASSERT false, 'REFUND_NOT_FOUND expected (complete)';
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_err = MESSAGE_TEXT;
+    ASSERT v_err = 'REFUND_NOT_FOUND', 'got: ' || v_err;
+  END;
+  BEGIN
+    PERFORM fail_order_refund(gen_random_uuid(), 'x');
+    ASSERT false, 'REFUND_NOT_FOUND expected (fail)';
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_err = MESSAGE_TEXT;
+    ASSERT v_err = 'REFUND_NOT_FOUND', 'got: ' || v_err;
+  END;
+
   -- (11) validation errors
   BEGIN
     PERFORM reserve_order_refund('bogus_table', v_order, 'wallet', 12, 0, 12, NULL, NULL, NULL);

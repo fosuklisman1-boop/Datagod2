@@ -14,6 +14,8 @@ const order = (o: Partial<RefundableOrder> = {}): RefundableOrder => ({
   ...o,
 })
 
+const settleData = (name: string) => (name === "complete_order_refund" ? "completed" : name === "fail_order_refund" ? "failed" : null)
+
 function setup(outcome: GatewayOutcome, ord: RefundableOrder | null = order(), reserve?: { data?: any; error?: { message: string } | null }) {
   const calls: { name: string; args: any }[] = []
   const gateway: RefundGateway = {
@@ -24,7 +26,7 @@ function setup(outcome: GatewayOutcome, ord: RefundableOrder | null = order(), r
     rpc: async (name, args) => {
       calls.push({ name, args })
       if (name === "reserve_order_refund") return reserve ? { data: reserve.data ?? null, error: reserve.error ?? null } : { data: { refund_id: "rf1", clawbacks: [] }, error: null }
-      return { data: null, error: null }
+      return { data: settleData(name), error: null }
     },
     loadOrder: async () => ord,
     getGateway: (id) => (id === "paystack" ? gateway : undefined),
@@ -130,7 +132,7 @@ function otpSetup(over: Partial<RefundGateway>) {
     refund: vi.fn(), ...over,
   }
   const deps: RefundDeps = {
-    rpc: async (name, args) => { calls.push({ name, args }); return { data: null, error: null } },
+    rpc: async (name, args) => { calls.push({ name, args }); return { data: settleData(name), error: null } },
     loadOrder: async () => order(),
     getGateway: (id) => (id === "paystack_payout" ? gateway : undefined),
     notify: vi.fn(async () => {}),
@@ -275,5 +277,143 @@ describe("SETTLE_FAILED / malformed reserve", () => {
     deps.rpc = async () => ({ data: null, error: null })
     await expect(executeRefund(deps, input)).rejects.toMatchObject({ code: "RESERVE_FAILED" })
     expect(gateway.refund).not.toHaveBeenCalled()
+  })
+})
+
+describe("fix round 1: settle conflicts and stranded rows", () => {
+  const rpcWith = (s: ReturnType<typeof setup>, over: Record<string, any>) => {
+    const base = s.deps.rpc
+    s.deps.rpc = async (name, args) => {
+      if (name in over) { s.calls.push({ name, args }); return over[name] }
+      return base(name, args)
+    }
+    return s
+  }
+
+  it("completed + complete_order_refund error: parks the row (with ref) then throws SETTLE_FAILED carrying the ref", async () => {
+    const s = rpcWith(setup({ kind: "completed", ref: "R9" }), { complete_order_refund: { data: null, error: { message: "db down" } } })
+    await expect(executeRefund(s.deps, input)).rejects.toMatchObject({ code: "SETTLE_FAILED", detail: { outcome: "completed", ref: "R9" } })
+    expect(names(s.calls)).toEqual(["reserve_order_refund", "complete_order_refund", "mark_refund_processing"])
+    expect(s.calls[2].args).toMatchObject({ p_refund_id: "rf1", p_gateway_ref: "R9", p_status: "processing" })
+    expect(s.deps.notify).not.toHaveBeenCalled()
+  })
+
+  it("park failure is swallowed; SETTLE_FAILED still thrown", async () => {
+    const s = rpcWith(setup({ kind: "completed", ref: "R9" }), {
+      complete_order_refund: { data: null, error: { message: "db down" } },
+      mark_refund_processing: { data: null, error: { message: "still down" } },
+    })
+    await expect(executeRefund(s.deps, input)).rejects.toMatchObject({ code: "SETTLE_FAILED" })
+  })
+
+  it("an rpc that throws after a completed payout is parked and surfaced as SETTLE_FAILED", async () => {
+    const s = setup({ kind: "completed", ref: "R9" })
+    const base = s.deps.rpc
+    s.deps.rpc = async (name, args) => {
+      if (name === "complete_order_refund") throw new Error("network")
+      return base(name, args)
+    }
+    await expect(executeRefund(s.deps, input)).rejects.toMatchObject({ code: "SETTLE_FAILED" })
+    expect(names(s.calls)).toContain("mark_refund_processing")
+  })
+
+  it("complete on a failed ledger row is a conflict: SETTLE_FAILED, no customer SMS", async () => {
+    const s = rpcWith(setup({ kind: "completed", ref: "R9" }), { complete_order_refund: { data: "failed", error: null } })
+    await expect(executeRefund(s.deps, input)).rejects.toMatchObject({
+      code: "SETTLE_FAILED", detail: { conflict: true, ledgerStatus: "failed", outcome: "completed", ref: "R9" },
+    })
+    expect(s.deps.notify).not.toHaveBeenCalled()
+  })
+
+  it("fail_order_refund returning completed is a conflict", async () => {
+    const s = rpcWith(setup({ kind: "failed", error: "declined" }), { fail_order_refund: { data: "completed", error: null } })
+    await expect(executeRefund(s.deps, input)).rejects.toMatchObject({ code: "SETTLE_FAILED", detail: { conflict: true, ledgerStatus: "completed" } })
+  })
+
+  it("cancel: fail_order_refund returning completed is a conflict", async () => {
+    const { deps } = otpSetup({ checkStatus: vi.fn(async () => ({ kind: "otp", ref: "T" } as GatewayOutcome)) })
+    deps.rpc = async () => ({ data: "completed", error: null })
+    await expect(cancelRefund(deps, stored())).rejects.toMatchObject({ code: "SETTLE_FAILED", detail: { conflict: true, ledgerStatus: "completed" } })
+  })
+
+  it("submitRefundOtp: complete conflict throws and sends no SMS", async () => {
+    const { deps } = otpSetup({ finalizeOtp: vi.fn(async () => ({ kind: "completed", ref: "T" } as GatewayOutcome)) })
+    deps.rpc = async () => ({ data: "failed", error: null })
+    await expect(submitRefundOtp(deps, stored(), "123456")).rejects.toMatchObject({ code: "SETTLE_FAILED", detail: { conflict: true } })
+    expect(deps.notify).not.toHaveBeenCalled()
+  })
+})
+
+describe("rpc argument contracts", () => {
+  it("reserve args", async () => {
+    const { deps, calls } = setup({ kind: "completed", ref: "R1" })
+    await executeRefund(deps, input)
+    expect(calls[0].args).toEqual({
+      p_order_table: "ussd_shop_orders", p_order_id: "o1", p_gateway: "paystack", p_paid: 10, p_fee: 0.2,
+      p_amount: 9.8, p_destination: "0241112222", p_wallet_user: null, p_admin: "admin1",
+    })
+    expect(calls[1]).toMatchObject({ name: "complete_order_refund", args: { p_refund_id: "rf1", p_gateway_ref: "R1" } })
+  })
+  it("fail args", async () => {
+    const { deps, calls } = setup({ kind: "failed", error: "declined" })
+    await executeRefund(deps, input)
+    expect(calls[1].args).toEqual({ p_refund_id: "rf1", p_error: "declined" })
+  })
+  it("unknown path args", async () => {
+    const { deps, calls } = setup({ kind: "unknown", error: "timeout" })
+    await executeRefund(deps, input)
+    expect(calls[1].args).toMatchObject({ p_refund_id: "rf1", p_gateway_ref: null, p_status: "processing" })
+  })
+  it("notify payload passes clawbacks through", async () => {
+    const cb = [{ shop_id: "sA", owner_user_id: "uA", from_profit: 3, from_wallet: 0, credited: 3 }]
+    const { deps } = setup({ kind: "completed", ref: "R1" }, order(), { data: { refund_id: "rf1", clawbacks: cb } })
+    await executeRefund(deps, input)
+    expect(deps.notify).toHaveBeenCalledWith(expect.objectContaining({ refundId: "rf1", amount: 9.8, gateway: "paystack", clawbacks: cb }))
+  })
+  it("awaits notify and swallows its failure", async () => {
+    const { deps } = setup({ kind: "completed", ref: "R1" })
+    let done = false
+    ;(deps.notify as any).mockImplementation(async () => { await new Promise((r) => setTimeout(r, 5)); done = true; throw new Error("x") })
+    await executeRefund(deps, input)
+    expect(done).toBe(true)
+  })
+  it("unsupported gateway (supports ok:false) -> GATEWAY_UNSUPPORTED before reserve", async () => {
+    const { deps, calls, gateway } = setup({ kind: "completed", ref: "x" })
+    gateway.supports = () => ({ ok: false, reason: "no phone" })
+    await expect(executeRefund(deps, input)).rejects.toMatchObject({ code: "GATEWAY_UNSUPPORTED", message: "no phone" })
+    expect(calls).toEqual([])
+  })
+})
+
+describe("reconcile / otp extras", () => {
+  it.each(["completed", "failed"])("rejects a %s row", async (status) => {
+    const { deps } = otpSetup({ checkStatus: vi.fn() })
+    await expect(reconcileRefund(deps, stored({ status }))).rejects.toMatchObject({ code: "ORDER_NOT_PENDING" })
+  })
+  it("accepts a reserved row", async () => {
+    const { deps, calls } = otpSetup({ checkStatus: vi.fn(async () => ({ kind: "completed", ref: "T" } as GatewayOutcome)) })
+    expect((await reconcileRefund(deps, stored({ status: "reserved" }))).status).toBe("completed")
+    expect(calls[0].name).toBe("complete_order_refund")
+  })
+  it("gateway without checkStatus returns the stored status", async () => {
+    const { deps, calls } = otpSetup({})
+    expect((await reconcileRefund(deps, stored({ status: "reserved" }))).status).toBe("reserved")
+    expect((await reconcileRefund(deps, stored({ status: "awaiting_otp" }))).status).toBe("awaiting_otp")
+    expect(calls).toEqual([])
+  })
+  it("failed outcome compensates", async () => {
+    const { deps, calls } = otpSetup({ checkStatus: vi.fn(async () => ({ kind: "failed", error: "nope" } as GatewayOutcome)) })
+    expect((await reconcileRefund(deps, stored({ status: "processing" }))).status).toBe("failed")
+    expect(calls[0]).toMatchObject({ name: "fail_order_refund", args: { p_error: "nope" } })
+  })
+  it("unknown outcome never compensates", async () => {
+    const { deps, calls } = otpSetup({ checkStatus: vi.fn(async () => ({ kind: "unknown", error: "t" } as GatewayOutcome)) })
+    await reconcileRefund(deps, stored({ status: "processing" }))
+    expect(calls.map((c) => c.name)).not.toContain("fail_order_refund")
+  })
+  it("finalizeOtp throwing => processing, never fail_order_refund", async () => {
+    const { deps, calls } = otpSetup({ finalizeOtp: vi.fn(async () => { throw new Error("boom") }) })
+    expect((await submitRefundOtp(deps, stored(), "123456")).status).toBe("processing")
+    expect(calls.map((c) => c.name)).toEqual(["mark_refund_processing"])
   })
 })

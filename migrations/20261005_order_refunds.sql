@@ -202,42 +202,47 @@ BEGIN
    WHERE id = p_refund_id AND status IN ('reserved','processing','awaiting_otp');
 END $$;
 
-CREATE OR REPLACE FUNCTION public.complete_order_refund(p_refund_id uuid, p_gateway_ref text)
-RETURNS void
+DROP FUNCTION IF EXISTS public.complete_order_refund(uuid, text);
+CREATE FUNCTION public.complete_order_refund(p_refund_id uuid, p_gateway_ref text)
+RETURNS text
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
-DECLARE v_table text; v_order uuid; v_locked int;
+DECLARE v_table text; v_order uuid; v_locked int; v_status text;
 BEGIN
+  -- Returns the refund's resulting status: 'completed' (applied or already), or 'failed' if the row
+  -- was already compensated (caller must treat that as a conflict: money has left).
   -- Lock order: advisory -> order row -> refund row (a late webhook locks the order row first, then the
   -- guard trigger touches order_refunds; locking the refund row first here would deadlock against it).
   SELECT order_table, order_id INTO v_table, v_order FROM order_refunds WHERE id = p_refund_id;
-  IF v_table IS NULL THEN RETURN; END IF;
+  IF v_table IS NULL THEN RAISE EXCEPTION 'REFUND_NOT_FOUND'; END IF;
   PERFORM pg_advisory_xact_lock(hashtextextended(v_order::text, 0));
   EXECUTE format('SELECT 1 FROM %I WHERE id = $1 FOR UPDATE', v_table) INTO v_locked USING v_order;
-  SELECT order_table INTO v_table FROM order_refunds
-   WHERE id = p_refund_id AND status IN ('reserved','processing','awaiting_otp') FOR UPDATE;
-  IF v_table IS NULL THEN RETURN; END IF;
+  SELECT status INTO v_status FROM order_refunds WHERE id = p_refund_id FOR UPDATE;
+  IF v_status IN ('completed','failed') THEN RETURN v_status; END IF;
   UPDATE order_refunds SET status = 'completed', gateway_ref = COALESCE(p_gateway_ref, gateway_ref),
          error = NULL, completed_at = now(), updated_at = now() WHERE id = p_refund_id;
   PERFORM set_config('app.refund_rpc', 'on', true);
   EXECUTE format('UPDATE %I SET order_status = ''refunded'', updated_at = now() WHERE id = $1', v_table) USING v_order;
   PERFORM set_config('app.refund_rpc', 'off', true);
+  RETURN 'completed';
 END $$;
 
-CREATE OR REPLACE FUNCTION public.fail_order_refund(p_refund_id uuid, p_error text)
-RETURNS void
+DROP FUNCTION IF EXISTS public.fail_order_refund(uuid, text);
+CREATE FUNCTION public.fail_order_refund(p_refund_id uuid, p_error text)
+RETURNS text
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
-  v_table text; v_order uuid; v_lines jsonb;
+  v_table text; v_order uuid; v_lines jsonb; v_status text;
   l jsonb; v_wallet_new numeric; v_locked int;
 BEGIN
+  -- Returns the refund's resulting status: 'failed' (applied or already), or 'completed' if the
+  -- refund had already completed (nothing is restored; caller must treat that as a conflict).
   -- Lock order: advisory -> order row -> refund row (see complete_order_refund).
   SELECT order_table, order_id INTO v_table, v_order FROM order_refunds WHERE id = p_refund_id;
-  IF v_table IS NULL THEN RETURN; END IF;
+  IF v_table IS NULL THEN RAISE EXCEPTION 'REFUND_NOT_FOUND'; END IF;
   PERFORM pg_advisory_xact_lock(hashtextextended(v_order::text, 0));
   EXECUTE format('SELECT 1 FROM %I WHERE id = $1 FOR UPDATE', v_table) INTO v_locked USING v_order;
-  SELECT clawbacks INTO v_lines FROM order_refunds
-   WHERE id = p_refund_id AND status IN ('reserved','processing','awaiting_otp') FOR UPDATE;
-  IF NOT FOUND THEN RETURN; END IF;   -- already failed/completed: idempotent
+  SELECT status, clawbacks INTO v_status, v_lines FROM order_refunds WHERE id = p_refund_id FOR UPDATE;
+  IF v_status IN ('completed','failed') THEN RETURN v_status; END IF;
 
   FOR l IN SELECT * FROM jsonb_array_elements(v_lines) LOOP
     IF (l->>'from_profit')::numeric > 0 THEN
@@ -266,6 +271,7 @@ BEGIN
   PERFORM set_config('app.refund_rpc', 'on', true);
   EXECUTE format('UPDATE %I SET order_status = ''pending'', updated_at = now() WHERE id = $1', v_table) USING v_order;
   PERFORM set_config('app.refund_rpc', 'off', true);
+  RETURN 'failed';
 END $$;
 
 -- ───────────────────── status guard trigger ─────────────────────

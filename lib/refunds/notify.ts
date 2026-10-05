@@ -14,12 +14,16 @@ export interface RefundNotification {
 export async function notifyRefund(db: SupabaseClient, e: RefundNotification): Promise<void> {
   const phone = e.order.payment.payerPhone ?? e.order.recipientPhone
   if (phone) {
-    await sendSMS({
-      phone,
-      message: `Your order of ${e.order.packageLabel} ${e.order.network} could not be completed. GHS ${e.amount.toFixed(2)} has been refunded to you.`,
-      type: "order_refund",
-      reference: e.order.id,
-    })
+    try {
+      await sendSMS({
+        phone,
+        message: `Your order of ${e.order.packageLabel} ${e.order.network} could not be completed. GHS ${e.amount.toFixed(2)} has been refunded to you.`,
+        type: "order_refund",
+        reference: e.order.id,
+      })
+    } catch (err) {
+      console.error("[REFUND] customer SMS failed (owner notifications continue):", err instanceof Error ? err.message : err)
+    }
   }
   for (const line of e.clawbacks) {
     if (!line.owner_user_id || Number(line.credited) <= 0) continue
