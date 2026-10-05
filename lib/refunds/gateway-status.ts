@@ -3,7 +3,7 @@
  * (no ledger RPCs). Used by GET /api/admin/refunds/[id]/gateway-status and the history UI.
  */
 import { describePaystackRefund } from "./gateways/paystack"
-import { RefundError, type RefundDeps, type StoredRefund } from "./service"
+import type { RefundDeps, StoredRefund } from "./service"
 import type { GatewayOutcome } from "./types"
 
 export interface GatewayStatusResult {
@@ -20,30 +20,17 @@ export interface GatewayStatusResult {
 const messageOf = (o: GatewayOutcome): string =>
   "error" in o ? o.error : o.kind === "completed" ? "Gateway reports the refund as done" : o.kind === "otp" ? "Gateway is waiting for the payout OTP" : "Gateway reports the refund as still in progress"
 
-/** Wallet's checkStatus is an idempotent CREDIT (it moves money), so it must never run from a read-only verify. */
-const NOT_READ_ONLY = new Set(["wallet"])
+export const PAYSTACK_ONLY_MESSAGE = "Verification is only available for Paystack reversals"
 
-export async function inspectGatewayStatus(deps: RefundDeps, stored: StoredRefund): Promise<GatewayStatusResult> {
+/** Read-only lookup at Paystack. Callers must check stored.gateway === "paystack" first (the route returns 400 otherwise). */
+export async function inspectGatewayStatus(_deps: RefundDeps, stored: StoredRefund): Promise<GatewayStatusResult> {
   const base = { refundId: stored.id, ledgerStatus: stored.status, gateway: stored.gateway }
-  const gateway = deps.getGateway(stored.gateway)
-  if (!gateway?.checkStatus || NOT_READ_ONLY.has(stored.gateway) || !stored.gateway_ref) {
-    return { ...base, gatewayStatus: null, rawStatus: null, message: !gateway?.checkStatus || NOT_READ_ONLY.has(stored.gateway) ? "This gateway cannot be verified automatically" : "No gateway reference is stored for this refund, so it cannot be looked up" }
+  if (stored.gateway !== "paystack") {
+    return { ...base, gatewayStatus: null, rawStatus: null, message: PAYSTACK_ONLY_MESSAGE }
   }
-  let outcome: GatewayOutcome
-  let rawStatus: string | null = null
-  try {
-    if (stored.gateway === "paystack") {
-      const d = await describePaystackRefund(stored.gateway_ref)
-      outcome = d.outcome
-      rawStatus = d.rawStatus
-    } else {
-      const order = await deps.loadOrder(stored.order_table, stored.order_id)
-      if (!order) throw new RefundError("NOT_FOUND", "Order not found")
-      outcome = await gateway.checkStatus({ refundId: stored.id, order, amount: Number(stored.amount), destinationPhone: stored.destination_phone }, stored.gateway_ref)
-    }
-  } catch (err) {
-    if (err instanceof RefundError) throw err
-    outcome = { kind: "unknown", error: err instanceof Error ? err.message : "status check failed" }
+  if (!stored.gateway_ref) {
+    return { ...base, gatewayStatus: null, rawStatus: null, message: "No gateway reference is stored for this refund, so it cannot be looked up" }
   }
-  return { ...base, gatewayStatus: outcome.kind, rawStatus, message: messageOf(outcome) }
+  const d = await describePaystackRefund(stored.gateway_ref)
+  return { ...base, gatewayStatus: d.outcome.kind, rawStatus: d.rawStatus, message: messageOf(d.outcome) }
 }

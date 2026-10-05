@@ -45,15 +45,17 @@ A Paystack reversal (gateway `paystack`) is only *accepted* when we call it; the
 | `pending`, `processing` | pending | `processing` (clawback kept; "Check status" re-checks `GET /refund/:id`) |
 | `needs-attention` | pending | `processing`; NOT compensated and NOT done: handle it at the Paystack dashboard (customer bank details needed / retry) |
 | `processed` | completed | `completed` (order `refunded`) |
-| `failed` | failed | `failed` (owner cut restored, order back to `pending`; the amount returns to our Paystack balance) |
+| `failed` | failed | `failed` (owner cut restored, order back to `pending`; OPEN VERIFICATION: Paystack docs say the amount returns to our Paystack balance, not live-confirmed) |
 | anything else, or an HTTP/network error on lookup | unknown | unchanged, never compensated |
 
 - `gateway_ref` of a reversal is the numeric Paystack **refund id**. If Paystack returns no id the refund is parked as `processing` with no ref and cannot be auto re-checked: find it in the Paystack dashboard by the order's transaction reference.
 - Refunds completed before this change were marked `completed` on mere acceptance and may never have been confirmed. Use **Verify at gateway** on completed/processing Paystack rows in History (read-only: `GET /api/admin/refunds/<id>/gateway-status`, settles nothing). It shows "Paystack says: <status>".
-- **Mismatch** ("Ledger says completed but Paystack says failed — the customer was NOT paid"): the money is back in our Paystack balance. Confirm in the Paystack dashboard. The app will not auto-flip a completed row (`fail_order_refund` refuses on `completed`), so an engineer decides: issue a fresh refund (payout/wallet) and correct the ledger by hand.
+- **Mismatch** ("Ledger says completed but Paystack says failed — the customer was NOT paid"): the money should be back in our Paystack balance (OPEN VERIFICATION). Confirm in the Paystack dashboard. The app will not auto-flip a completed row (`fail_order_refund` refuses on `completed`), so an engineer decides: issue a fresh refund (payout/wallet) and correct the ledger by hand.
 - **failed** on a `processing` row: press "Check status"; reconcile compensates (owner cut restored, order pending), after which a new refund may be created.
 - **needs-attention**: do NOT cancel in our ledger. Act at the Paystack dashboard; compensate only once Paystack reports `failed`.
 - The 5-minute in-flight window only blocks "Check status" for the first 5 minutes after the row was last updated; a legitimately pending Paystack refund stays reconcilable after that for as long as it takes.
+
+**Cron `/api/cron/reconcile-paystack-refunds` (every 5 minutes, `vercel.json`).** Picks up to 25 `processing` Paystack reversals with a numeric `gateway_ref` and `updated_at` older than 5 minutes (oldest first), and runs the same `reconcileRefund` as the "Check status" button, one at a time. It settles ONLY on an explicit Paystack `processed` (-> `completed` + customer SMS) or `failed` (-> compensate). `pending` / `processing` / `needs-attention` / unknown / lookup errors leave the row `processing`. It never settles from an HTTP error and has no other write path. Response/log line: `{checked, completed, failed, stillProcessing, errors, stale24h}`. `needs-attention` rows sit in `processing` by design: any row older than 24h is counted in `stale24h` and logged at error level as `[REFUND-CRON] needs attention: <refund id>`; handle it at the Paystack dashboard. `SETTLE_FAILED` is logged as `[REFUND-CRON] SETTLE_FAILED ...` with the refund id and needs a manual look. Admins can still use "Check status" and "Verify at gateway" at any time; Verify is available only for Paystack reversals.
 
 One-off: list completed Paystack reversals for manual verification (no phone numbers):
 
@@ -95,6 +97,7 @@ If (a) returns `failed` or (b) returns `completed` the row was already settled t
 8. **Moolre**: small payout; also OPEN VERIFICATION: probe `/status` with a random never-used externalref and record what it returns (the adapter assumes an unknown ref is not a success; unconfirmed).
 9. **Paystack payout**: wrong OTP (row stays `awaiting_otp`), right OTP (completes), and Cancel. OPEN VERIFICATION: the full Paystack transfer status vocabulary the adapter maps.
 10. **Paystack reversal**: small refund of a Paystack-paid order. A `pending` API status now lands in `processing`. OPEN VERIFICATION: confirm it later flips to `processed` and "Check status" settles it to `completed`; also confirm what `needs-attention` looks like in practice.
+10b. **After deploy**: click "Verify at gateway" on one existing completed Paystack refund to confirm the `GET /refund/:id` path, the id type (numeric `gateway_ref`) and the status vocabulary. OPEN VERIFICATION (I-2). Also confirm the `reconcile-paystack-refunds` cron appears in Vercel and runs.
 11. **Business sign-off**: a PARTIAL refund still removes the shop owner's FULL cut (clawback is per order, not pro-rata).
 12. **Monitoring**: schedule the three queries above; add them to the daily check.
 
