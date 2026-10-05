@@ -16,6 +16,16 @@ const DEFAULT_CONFIG: HubtelUssdConfig = {
   visibility: { data: true, afa: true, airtime: true, resultsChecker: true },
 }
 
+const REQUIRED_ENV = ["HUBTEL_WEBHOOK_SECRET", "HUBTEL_RELAY_URL", "HUBTEL_RELAY_SECRET"] as const
+
+/** The channel may only be enabled when every Hubtel env var is set (empty counts as missing). */
+export function hubtelEnvReady(
+  env: Record<string, string | undefined> = process.env
+): { ready: boolean; missing: string[] } {
+  const missing = REQUIRED_ENV.filter(k => !env[k])
+  return { ready: missing.length === 0, missing }
+}
+
 export async function getHubtelUssdConfig(supabase: SupabaseClient): Promise<HubtelUssdConfig> {
   const { data, error } = await supabase
     .from("admin_settings")

@@ -31,8 +31,8 @@ async function authed(path: string, init?: RequestInit) {
     ...init,
     headers: { ...(init?.headers ?? {}), Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
   })
-  const json = await res.json()
-  if (!res.ok) throw new Error(json.error || "Request failed")
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(json.error || res.statusText || "Request failed")
   return json
 }
 
@@ -129,7 +129,7 @@ export default function AdminUssdHubtelPage() {
                 {counts.awaiting_payment} awaiting · {counts.needs_review} need review · {counts.callback_pending} callbacks pending · {counts.callback_failed} callbacks failed
               </CardDescription>}
             </div>
-            <Button variant="outline" size="sm" onClick={load}><RefreshCw className="w-4 h-4" /></Button>
+            <Button variant="outline" size="sm" onClick={load} aria-label="Refresh"><RefreshCw className="w-4 h-4" /></Button>
           </CardHeader>
           <CardContent className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -148,7 +148,7 @@ export default function AdminUssdHubtelPage() {
                     <td className="p-2"><Badge variant={t.state === "needs_review" || t.state === "failed" ? "destructive" : "secondary"}>{t.state}</Badge></td>
                     <td className="p-2" title={t.callback_last_error ?? ""}><Badge variant={t.callback_status === "failed" ? "destructive" : "outline"}>{t.callback_status}</Badge></td>
                     <td className="p-2">
-                      {(t.callback_status === "pending" || t.callback_status === "failed") && (
+                      {(t.state === "fulfilled" || t.state === "needs_review") && (t.callback_status === "pending" || t.callback_status === "failed") && (
                         <Button size="sm" variant="outline" disabled={busy === t.session_id} onClick={() => retry(t.session_id)}>Retry callback</Button>
                       )}
                     </td>

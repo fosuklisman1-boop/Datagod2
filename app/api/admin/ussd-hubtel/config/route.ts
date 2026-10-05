@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
-import { getHubtelUssdConfig, setHubtelUssdConfig } from "@/lib/ussd-hubtel/config"
+import { getHubtelUssdConfig, setHubtelUssdConfig, hubtelEnvReady } from "@/lib/ussd-hubtel/config"
 
 const adminClient = () =>
   createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
@@ -13,12 +13,13 @@ export async function GET(request: NextRequest) {
   if (!isAdmin) return errorResponse!
   try {
     const config = await getHubtelUssdConfig(adminClient())
+    const { missing } = hubtelEnvReady()
     return NextResponse.json({
       config,
       env: {
-        webhookSecret: !!process.env.HUBTEL_WEBHOOK_SECRET,
-        relayUrl: !!process.env.HUBTEL_RELAY_URL,
-        relaySecret: !!process.env.HUBTEL_RELAY_SECRET,
+        webhookSecret: !missing.includes("HUBTEL_WEBHOOK_SECRET"),
+        relayUrl: !missing.includes("HUBTEL_RELAY_URL"),
+        relaySecret: !missing.includes("HUBTEL_RELAY_SECRET"),
       },
     })
   } catch (e) {
@@ -33,11 +34,20 @@ export async function POST(request: NextRequest) {
   let body: any
   try { body = await request.json() } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }) }
 
+  if (typeof body !== "object" || body === null) {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+  }
   if (body?.mode !== undefined && body.mode !== "main") {
     return NextResponse.json({ error: "Only 'main' mode is available yet" }, { status: 400 })
   }
   if (body?.enabled !== undefined && typeof body.enabled !== "boolean") {
     return NextResponse.json({ error: "enabled must be a boolean" }, { status: 400 })
+  }
+  if (body.enabled === true && !hubtelEnvReady().ready) {
+    return NextResponse.json(
+      { error: "Cannot enable: HUBTEL_WEBHOOK_SECRET, HUBTEL_RELAY_URL and HUBTEL_RELAY_SECRET must all be set" },
+      { status: 400 }
+    )
   }
   const vis = body?.visibility
   if (vis !== undefined) {
