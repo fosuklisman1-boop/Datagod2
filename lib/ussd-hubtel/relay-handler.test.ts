@@ -2,7 +2,7 @@
 import { describe, it, expect, vi } from "vitest"
 import { createRelayHandler } from "./relay-handler"
 
-function setup(upstream = { status: 200, json: { ok: 1 } }) {
+function setup(upstream: { status: number; json: unknown } = { status: 200, json: { ok: 1 } }) {
   const fetchImpl = vi.fn(async () => new Response(JSON.stringify(upstream.json), { status: upstream.status }))
   const handler = createRelayHandler({
     secret: "s3cret", collectionAccount: "11684", statusBasicAuth: "BASICXYZ", fetchImpl: fetchImpl as any,

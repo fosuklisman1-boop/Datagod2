@@ -1,8 +1,9 @@
 // scripts/hubtel-relay/server.ts
-// Run on the DigitalOcean droplet:  npx tsx server.ts
-// Copy this file and lib/ussd-hubtel/relay-handler.ts side by side and fix the import below.
+// Run on the DigitalOcean droplet:  npx tsx scripts/hubtel-relay/server.ts
+// On the droplet keep the repo-relative layout: copy only this file and
+// lib/ussd-hubtel/relay-handler.ts, preserving both paths, so the import below resolves.
 import http from "http"
-import { createRelayHandler } from "./relay-handler"
+import { createRelayHandler } from "../../lib/ussd-hubtel/relay-handler"
 
 const required = ["RELAY_SECRET", "HUBTEL_COLLECTION_ACCOUNT", "HUBTEL_STATUS_BASIC_AUTH"] as const
 for (const k of required) if (!process.env[k]) { console.error(`Missing env ${k}`); process.exit(1) }
