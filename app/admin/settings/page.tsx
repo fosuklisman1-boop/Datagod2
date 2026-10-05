@@ -39,6 +39,7 @@ export default function AdminSettingsPage() {
   const [signupsEnabled, setSignupsEnabled] = useState(true)
   const [walletTopupsEnabled, setWalletTopupsEnabled] = useState(true)
   const [upgradesEnabled, setUpgradesEnabled] = useState(true)
+  const [aiWidgetServices, setAiWidgetServices] = useState<string[]>(["data_bundles", "airtime", "results_checker", "bulk_sms"])
   const [signupDefaultRole, setSignupDefaultRole] = useState<'user' | 'dealer'>('user')
 
   // USSD price tier
@@ -114,6 +115,11 @@ export default function AdminSettingsPage() {
 
   // Terms of Service
   const [termsContent, setTermsContent] = useState("")
+  const [termsContentAccount, setTermsContentAccount] = useState("")
+  const [termsContentData, setTermsContentData] = useState("")
+  const [termsContentAirtime, setTermsContentAirtime] = useState("")
+  const [termsContentResultsChecker, setTermsContentResultsChecker] = useState("")
+  const [termsContentBulkSms, setTermsContentBulkSms] = useState("")
   const [termsLastUpdated, setTermsLastUpdated] = useState<string | null>(null)
   const [savingTerms, setSavingTerms] = useState(false)
 
@@ -180,6 +186,9 @@ export default function AdminSettingsPage() {
         if (data.upgrades_enabled !== undefined) {
           setUpgradesEnabled(data.upgrades_enabled)
         }
+        if (Array.isArray(data.ai_widget_services)) {
+          setAiWidgetServices(data.ai_widget_services)
+        }
 
         // Load announcement settings
         if (data.announcement_enabled !== undefined) {
@@ -223,6 +232,21 @@ export default function AdminSettingsPage() {
         // Load terms content
         if (data.terms_content !== undefined) {
           setTermsContent(data.terms_content || "")
+        }
+        if (data.terms_content_account !== undefined) {
+          setTermsContentAccount(data.terms_content_account || "")
+        }
+        if (data.terms_content_data !== undefined) {
+          setTermsContentData(data.terms_content_data || "")
+        }
+        if (data.terms_content_airtime !== undefined) {
+          setTermsContentAirtime(data.terms_content_airtime || "")
+        }
+        if (data.terms_content_results_checker !== undefined) {
+          setTermsContentResultsChecker(data.terms_content_results_checker || "")
+        }
+        if (data.terms_content_bulk_sms !== undefined) {
+          setTermsContentBulkSms(data.terms_content_bulk_sms || "")
         }
         if (data.terms_last_updated) {
           setTermsLastUpdated(data.terms_last_updated)
@@ -400,7 +424,14 @@ export default function AdminSettingsPage() {
       const response = await fetch("/api/admin/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ terms_content: termsContent }),
+        body: JSON.stringify({
+          terms_content: termsContent,
+          terms_content_account: termsContentAccount,
+          terms_content_data: termsContentData,
+          terms_content_airtime: termsContentAirtime,
+          terms_content_results_checker: termsContentResultsChecker,
+          terms_content_bulk_sms: termsContentBulkSms,
+        }),
       })
       if (!response.ok) throw new Error("Failed to save terms")
       const result = await response.json()
@@ -892,6 +923,7 @@ export default function AdminSettingsPage() {
           signups_enabled: signupsEnabled,
           wallet_topups_enabled: walletTopupsEnabled,
           upgrades_enabled: upgradesEnabled,
+          ai_widget_services: aiWidgetServices,
           signup_default_role: signupDefaultRole,
         }),
       })
@@ -1043,6 +1075,34 @@ export default function AdminSettingsPage() {
                 onCheckedChange={setUpgradesEnabled}
                 className="data-[state=checked]:bg-success"
               />
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <p className="font-medium text-foreground">AI Assistant Button</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Enable the floating "Ask" AI assistant per product area. A shop or custom domain's own widget only shows if it offers at least one of the services enabled below; the customer dashboard's widget shows if any are enabled. Overrides each user's own show/hide preference.
+                </p>
+              </div>
+              <div className="space-y-2 rounded-xl border border-border bg-card p-3">
+                {[
+                  { value: "data_bundles", label: "Data Bundles" },
+                  { value: "airtime", label: "Airtime" },
+                  { value: "results_checker", label: "Results Checker" },
+                  { value: "bulk_sms", label: "Bulk SMS" },
+                ].map(({ value, label }) => (
+                  <div key={value} className="flex items-center justify-between">
+                    <p className="text-sm text-foreground">{label}</p>
+                    <Switch
+                      checked={aiWidgetServices.includes(value)}
+                      onCheckedChange={(checked) =>
+                        setAiWidgetServices(prev => checked ? [...prev, value] : prev.filter(s => s !== value))
+                      }
+                      className="data-[state=checked]:bg-success"
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
 
             <div className="flex justify-end pt-2">
@@ -2398,18 +2458,85 @@ export default function AdminSettingsPage() {
 
             <div className="space-y-2">
               <Label htmlFor="termsContent" className="text-sm font-medium">
-                Terms Content
+                General Terms (delivery, accuracy, payment, agent/dealer policies)
               </Label>
               <p className="text-xs text-muted-foreground">
-                Format: Start with an intro paragraph. Number sections like "1. Section Title" on their own line, followed by the section body.
+                Shown on every /terms page and shop storefront, regardless of which services a shop or custom domain offers. Format: start with an intro paragraph, then number sections like "1. Section Title" on their own line, followed by the section body.
               </p>
               <Textarea
                 id="termsContent"
                 value={termsContent}
                 onChange={(e) => setTermsContent(e.target.value)}
-                placeholder={`Welcome to DATAGOD. By accessing or using our platform, you agree to be bound by these Terms of Service.\n\n1. General Account Registration & Security\nBy creating an account on DATAGOD, you agree to provide accurate information...\n\n2. Instant, Non-Refundable Delivery\nAll digital products are processed and delivered instantly upon successful payment or Wallet deduction...`}
+                placeholder={`Welcome to DATAGOD. By accessing or using our platform, you agree to be bound by these Terms of Service.\n\n1. Instant, Non-Refundable Delivery\nAll digital products are processed and delivered instantly upon successful payment or Wallet deduction...`}
                 className="min-h-[400px] resize-y font-mono text-sm"
               />
+            </div>
+
+            <div className="border-t border-border pt-4 space-y-2">
+              <Label htmlFor="termsContentAccount" className="text-sm font-medium">
+                Account & Wallet (registration, top-ups, withdrawals)
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Only shown on the main /terms page — never on a shop storefront. A guest customer buying from a shop never creates an account or touches a wallet, so this doesn't apply there.
+              </p>
+              <Textarea
+                id="termsContentAccount"
+                value={termsContentAccount}
+                onChange={(e) => setTermsContentAccount(e.target.value)}
+                placeholder={`1. General Account Registration & Security\nBy creating an account on DATAGOD, you agree to provide accurate information...\n\n2. Wallet Top-Ups & Withdrawals\nWallet top-ups are processed via Paystack...`}
+                className="min-h-[200px] resize-y font-mono text-sm"
+              />
+            </div>
+
+            <div className="border-t border-border pt-4 space-y-4">
+              <p className="text-sm font-medium">Per-service addenda</p>
+              <p className="text-xs text-muted-foreground">
+                Optional. Only shown on a shop/domain that actually offers that service — a Results Checker-only custom domain, for example, never shows the Data or Airtime addendum. Same "N. Section Title" format, numbered independently from the general terms above.
+              </p>
+
+              <div className="space-y-2">
+                <Label htmlFor="termsContentData" className="text-xs font-medium">Data Bundles</Label>
+                <Textarea
+                  id="termsContentData"
+                  value={termsContentData}
+                  onChange={(e) => setTermsContentData(e.target.value)}
+                  placeholder="1. Data Bundle Validity\n..."
+                  className="min-h-[120px] resize-y font-mono text-sm"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="termsContentAirtime" className="text-xs font-medium">Airtime</Label>
+                <Textarea
+                  id="termsContentAirtime"
+                  value={termsContentAirtime}
+                  onChange={(e) => setTermsContentAirtime(e.target.value)}
+                  placeholder="1. Airtime Top-Ups\n..."
+                  className="min-h-[120px] resize-y font-mono text-sm"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="termsContentResultsChecker" className="text-xs font-medium">Results Checker</Label>
+                <Textarea
+                  id="termsContentResultsChecker"
+                  value={termsContentResultsChecker}
+                  onChange={(e) => setTermsContentResultsChecker(e.target.value)}
+                  placeholder="1. Results Checker Vouchers\n..."
+                  className="min-h-[120px] resize-y font-mono text-sm"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="termsContentBulkSms" className="text-xs font-medium">Bulk SMS</Label>
+                <Textarea
+                  id="termsContentBulkSms"
+                  value={termsContentBulkSms}
+                  onChange={(e) => setTermsContentBulkSms(e.target.value)}
+                  placeholder="1. Bulk SMS Usage\n..."
+                  className="min-h-[120px] resize-y font-mono text-sm"
+                />
+              </div>
             </div>
 
             <div className="flex gap-3 pt-2">

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect, useCallback } from "react"
-import { Sparkles, X, Send, Trash2, ChevronDown, RefreshCw } from "lucide-react"
+import { Sparkles, X, Send, Trash2, ChevronDown, RefreshCw, EyeOff } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import { supabase } from "@/lib/supabase"
 import { ChatMessage } from "@/components/ui/chat-message"
@@ -21,6 +21,7 @@ interface ActionButton {
 }
 
 const STORAGE_KEY = (uid: string) => `dashboard_chat_${uid}`
+const HIDDEN_KEY = "datagod_ai_widget_hidden"
 const MAX_STORED = 20
 
 const hints = [
@@ -41,6 +42,13 @@ const mdComponents = {
 
 export function DashboardAIChatWidget() {
   const [isOpen, setIsOpen] = useState(false)
+  const [hidden, setHidden] = useState(() => {
+    try {
+      return typeof window !== "undefined" && localStorage.getItem(HIDDEN_KEY) === "1"
+    } catch {
+      return false
+    }
+  })
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [isStreaming, setIsStreaming] = useState(false)
@@ -51,6 +59,15 @@ export function DashboardAIChatWidget() {
   const [balance, setBalance] = useState<string | null>(null)
   const [hintIndex, setHintIndex] = useState(0)
   const [hintVisible, setHintVisible] = useState(true)
+  // Admin-level kill switch (app_settings.ai_widget_services) -- overrides
+  // the user's own hide/show preference below. The dashboard isn't scoped to
+  // any one shop's services, so it shows as long as the admin has AI enabled
+  // for at least one product area; a shop/domain-restricted storefront's own
+  // widget (components/shop/AIChatWidget.tsx) does the finer per-service
+  // intersection check. Optimistically true so the widget doesn't flash-hide
+  // while this loads; an empty admin list hides it for real once the fetch
+  // resolves.
+  const [adminEnabled, setAdminEnabled] = useState(true)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -101,6 +118,16 @@ export function DashboardAIChatWidget() {
       }
     }
     init()
+  }, [])
+
+  useEffect(() => {
+    fetch("/api/public/config")
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        const services: string[] | undefined = data?.app_settings?.ai_widget_services
+        if (Array.isArray(services) && services.length === 0) setAdminEnabled(false)
+      })
+      .catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -244,6 +271,8 @@ export function DashboardAIChatWidget() {
     return "px-3 py-1.5 rounded-xl text-xs font-medium border border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 transition-colors"
   }
 
+  if (!adminEnabled) return null
+
   return (
     <>
       {isOpen && (
@@ -353,6 +382,7 @@ export function DashboardAIChatWidget() {
         </div>
       )}
 
+      {!hidden && (
       <div
         ref={fabContainerRef}
         onPointerDown={onFabPointerDown}
@@ -387,6 +417,20 @@ export function DashboardAIChatWidget() {
         {!isOpen && (
           <span className="absolute inset-0 rounded-full bg-primary animate-ping opacity-15 pointer-events-none" />
         )}
+        {!isOpen && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setHidden(true)
+              try { localStorage.setItem(HIDDEN_KEY, "1") } catch {}
+            }}
+            className="absolute -left-2 -top-2 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-sm hover:bg-destructive/10 hover:text-destructive transition-colors"
+            aria-label="Hide AI assistant button"
+            title="Hide this button"
+          >
+            <X size={11} />
+          </button>
+        )}
         <button
           onClick={() => setIsOpen(o => !o)}
           className="relative flex items-center gap-2 bg-primary border border-primary/60 text-primary-foreground rounded-full px-5 py-2.5 shadow-lg shadow-primary/30 hover:shadow-primary/50 hover:bg-primary/90 hover:border-border transition-all duration-300 hover:scale-105 active:scale-95"
@@ -399,6 +443,21 @@ export function DashboardAIChatWidget() {
         </button>
       </div>
       </div>
+      )}
+
+      {hidden && (
+        <button
+          onClick={() => {
+            setHidden(false)
+            try { localStorage.removeItem(HIDDEN_KEY) } catch {}
+          }}
+          className="fixed bottom-32 md:bottom-10 right-6 z-50 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card/90 backdrop-blur-sm text-muted-foreground shadow-sm hover:bg-accent hover:text-foreground transition-all active:scale-95"
+          aria-label="Show AI assistant button"
+          title="Show AI assistant"
+        >
+          <EyeOff size={15} />
+        </button>
+      )}
     </>
   )
 }

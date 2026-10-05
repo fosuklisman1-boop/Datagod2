@@ -1,5 +1,8 @@
 import type { Metadata } from 'next'
+import { headers } from 'next/headers'
 import { shopService } from '@/lib/shop-service'
+import { resolveCustomDomain } from '@/lib/custom-domain-lookup'
+import { SERVICE_LABELS, joinServiceLabels, normalizeDomainHost } from '@/lib/custom-domains'
 import ShopClientWrapper from './shop-client-wrapper'
 
 // Mirrors the ROOT_DOMAIN used by middleware.ts and app/sitemap.ts. Not
@@ -30,15 +33,45 @@ export async function generateMetadata({
     }
   }
 
+  // Resolve the custom domain (if any) by the ACTUAL request host, not
+  // shop.linked_custom_domain -- that field only covers a domain directly
+  // linked to one shop (get_linked_custom_domain), not a wildcard-mode
+  // domain (any active shop's subdomain reachable under it), which is how
+  // middleware itself decides whether this request is custom-domain-scoped.
+  const headersList = await headers()
+  const requestHost = normalizeDomainHost(headersList.get('host'))
+  const domainConfig = requestHost ? await resolveCustomDomain(requestHost).catch(() => null) : null
+
   // Some shops predate the subdomain backfill and have no subdomain yet —
   // same fallback as app/sitemap.ts, so canonical and sitemap never disagree.
   const canonicalUrl = shop.subdomain
-    ? `https://${shop.subdomain}.${shop.linked_custom_domain || ROOT_DOMAIN}`
+    ? `https://${shop.subdomain}.${domainConfig?.domain || ROOT_DOMAIN}`
     : `https://www.${ROOT_DOMAIN}/shop/${shop.shop_slug}`
-  const title = `${shop.shop_name} - Buy Data & Airtime Online | Powered by DATAGOD`
+
+  // A shop reached through a custom domain restricted to a subset of
+  // services (see lib/custom-domains.ts) must never advertise a service it
+  // doesn't actually offer there -- this previously always said "Buy Data &
+  // Airtime Online" regardless of what that domain's visitors can reach.
+  const restrictedServices = domainConfig?.services?.length ? domainConfig.services : null
+  const serviceLabel = restrictedServices
+    ? joinServiceLabels(restrictedServices.map(s => SERVICE_LABELS[s]))
+    : null
+  const serviceLabelCapitalized = serviceLabel ? serviceLabel.charAt(0).toUpperCase() + serviceLabel.slice(1) : null
+
+  // A shop reached through its own custom domain is deliberately
+  // white-labeled -- the whole point of attaching one's own domain is to not
+  // reveal the underlying platform, so "Powered by DATAGOD" only appears on
+  // the plain <shop>.datagod.store subdomain.
+  const poweredBySuffix = domainConfig ? '' : ' | Powered by DATAGOD'
+
+  const title = serviceLabelCapitalized
+    ? `${shop.shop_name} - Buy ${serviceLabelCapitalized} Online${poweredBySuffix}`
+    : `${shop.shop_name} - Buy Data & Airtime Online${poweredBySuffix}`
   const description =
     shop.description ||
-    `Buy affordable data bundles, airtime, and results checker vouchers from ${shop.shop_name}. Instant delivery, secure payment.`
+    (serviceLabel
+      ? `Get instant ${serviceLabel} from ${shop.shop_name}. Instant delivery, secure payment.`
+      : `Buy affordable data bundles, airtime, and results checker vouchers from ${shop.shop_name}. Instant delivery, secure payment.`)
   const image = shop.banner_url || shop.logo_url || 'https://www.datagod.store/og-image.png'
 
   return {

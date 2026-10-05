@@ -1,10 +1,11 @@
 "use client"
 
-import { useState, useRef, useEffect, useCallback } from "react"
-import { Sparkles, X, Send, Trash2, ChevronDown, RefreshCw } from "lucide-react"
+import { useState, useRef, useEffect, useCallback, useMemo } from "react"
+import { Sparkles, X, Send, Trash2, ChevronDown, RefreshCw, EyeOff } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import { ChatMessage } from "@/components/ui/chat-message"
 import { useDraggableFloatingPosition } from "@/hooks/use-draggable-floating-position"
+import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 
 interface Message {
   role: "user" | "assistant"
@@ -32,14 +33,27 @@ interface Props {
 }
 
 const STORAGE_KEY = (slug: string) => `storefront_chat_${slug}`
+const HIDDEN_KEY = "datagod_shop_ai_widget_hidden"
 const MAX_STORED = 20
 
-const hints = [
-  "Find the perfect data bundle",
-  "Check your order status",
-  "Instant delivery after payment",
-  "MTN · Telecel · AirtelTigo",
-]
+// Universal: true of any purchase regardless of which services this
+// storefront offers.
+const UNIVERSAL_HINTS = ["Check your order status", "Instant delivery after payment"]
+// Service-specific: only relevant if that service is actually offered here.
+// Network coverage applies to Data and Airtime alike (both go through
+// network/provider selection) -- Results Checker doesn't, it's exam-board
+// based, not telco-based.
+const SERVICE_HINTS: Record<"data_bundles" | "airtime" | "results_checker", string[]> = {
+  data_bundles: ["Find the perfect data bundle", "MTN · Telecel · AirtelTigo"],
+  airtime: ["Top up airtime instantly", "MTN · Telecel · AirtelTigo"],
+  results_checker: ["Get your results checker voucher"],
+}
+
+function joinWithOr(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? ""
+  if (items.length === 2) return `${items[0]} or ${items[1]}`
+  return `${items.slice(0, -1).join(", ")}, or ${items[items.length - 1]}`
+}
 
 const mdComponents = {
   p: ({ children }: any) => <p className="mb-1 last:mb-0">{children}</p>,
@@ -52,6 +66,23 @@ const mdComponents = {
 
 export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
   const [isOpen, setIsOpen] = useState(false)
+  const [hidden, setHidden] = useState(() => {
+    try {
+      return typeof window !== "undefined" && localStorage.getItem(HIDDEN_KEY) === "1"
+    } catch {
+      return false
+    }
+  })
+  // Admin-level kill switch (app_settings.ai_widget_services) -- same list
+  // used for the customer dashboard's AI widget, but here also checked
+  // against THIS shop/domain's own allowed services (null = unrestricted,
+  // same convention as lib/custom-domains.ts elsewhere): the widget only
+  // shows if at least one service this storefront actually offers is also
+  // AI-enabled by admin. Overrides the user's own hide/show preference
+  // below. Optimistically true so the widget doesn't flash-hide while this
+  // loads.
+  const [adminEnabled, setAdminEnabled] = useState(true)
+  const domainBranding = useDomainBranding()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [isStreaming, setIsStreaming] = useState(false)
@@ -59,6 +90,31 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
   const [actionButtons, setActionButtons] = useState<ActionButton[] | null>(null)
   const [hintIndex, setHintIndex] = useState(0)
   const [hintVisible, setHintVisible] = useState(true)
+  // null/absent domainBranding.services means this storefront isn't
+  // restricted to a subset -- treat it as offering all 3 storefront-facing
+  // services for this, same convention used for the admin-toggle check
+  // above and everywhere else in this file.
+  const hints = useMemo(() => {
+    const shopServices = domainBranding.services ?? ["data_bundles", "airtime", "results_checker"]
+    const serviceSpecific = (["data_bundles", "airtime", "results_checker"] as const)
+      .filter(s => shopServices.includes(s))
+      .flatMap(s => SERVICE_HINTS[s])
+    return [...UNIVERSAL_HINTS, ...Array.from(new Set(serviceSpecific))]
+  }, [domainBranding.services])
+
+  // Same "unrestricted = all 3" convention as `hints` above, for the opening
+  // greeting -- a results-checker-only storefront shouldn't invite customers
+  // to "find data packages" when there are none to find here.
+  const greetingPhrases = useMemo(() => {
+    const shopServices = domainBranding.services ?? ["data_bundles", "airtime", "results_checker"]
+    const phrases: string[] = []
+    if (shopServices.includes("data_bundles")) phrases.push("find data packages")
+    if (shopServices.includes("airtime")) phrases.push("top up airtime")
+    if (shopServices.includes("results_checker")) phrases.push("get a results checker voucher")
+    if (shopServices.includes("data_bundles") || shopServices.includes("airtime")) phrases.push("check your order status")
+    phrases.push("answer any questions")
+    return joinWithOr(phrases)
+  }, [domainBranding.services])
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -66,6 +122,23 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
   const [showScrollBtn, setShowScrollBtn] = useState(false)
   const { position: fabPosition, containerRef: fabContainerRef, onPointerDown: onFabPointerDown, onClickCapture: onFabClickCapture } =
     useDraggableFloatingPosition("datagod_ai_widget_position")
+
+  useEffect(() => {
+    fetch("/api/public/config")
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        const aiServices: string[] | undefined = data?.app_settings?.ai_widget_services
+        if (!Array.isArray(aiServices)) return
+        // null/absent domainBranding.services means this storefront isn't
+        // restricted to a subset -- treat it as offering all 4 known
+        // services for this check, same as isPathAllowedForService does
+        // elsewhere for "unrestricted = everything allowed."
+        const shopServices = domainBranding.services ?? ["data_bundles", "airtime", "results_checker", "bulk_sms"]
+        const hasOverlap = shopServices.some(s => aiServices.includes(s))
+        if (!hasOverlap) setAdminEnabled(false)
+      })
+      .catch(() => {})
+  }, [domainBranding.services])
 
   useEffect(() => {
     try {
@@ -80,10 +153,10 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
     } catch {}
     setMessages([{
       role: "assistant",
-      content: `Hi! I'm the ${shop.shop_name} assistant. I can help you find data packages, check your order status, or answer any questions. What do you need?`,
+      content: `Hi! I'm the ${shop.shop_name} assistant. I can help you ${greetingPhrases}. What do you need?`,
       timestamp: Date.now(),
     }])
-  }, [shopSlug, shop.shop_name])
+  }, [shopSlug, shop.shop_name, greetingPhrases])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -115,7 +188,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
       }, 300)
     }, 3000)
     return () => clearInterval(id)
-  }, [isOpen])
+  }, [isOpen, hints])
 
   function persist(msgs: Message[]) {
     try {
@@ -220,6 +293,8 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
     return "px-3 py-1.5 rounded-xl text-xs font-medium border border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 transition-colors"
   }
 
+  if (!adminEnabled) return null
+
   return (
     <>
       {isOpen && (
@@ -319,6 +394,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
         </div>
       )}
 
+      {!hidden && (
       <div
         ref={fabContainerRef}
         onPointerDown={onFabPointerDown}
@@ -353,6 +429,20 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
         {!isOpen && (
           <span className="absolute inset-0 rounded-full bg-primary animate-ping opacity-15 pointer-events-none" />
         )}
+        {!isOpen && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setHidden(true)
+              try { localStorage.setItem(HIDDEN_KEY, "1") } catch {}
+            }}
+            className="absolute -left-2 -top-2 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-sm hover:bg-destructive/10 hover:text-destructive transition-colors"
+            aria-label="Hide AI assistant button"
+            title="Hide this button"
+          >
+            <X size={11} />
+          </button>
+        )}
         <button
           onClick={() => setIsOpen(o => !o)}
           className="relative flex items-center gap-2 bg-primary border border-primary/60 text-primary-foreground rounded-full px-5 py-2.5 shadow-lg shadow-primary/30 hover:shadow-primary/50 hover:bg-primary/90 hover:border-border transition-all duration-300 hover:scale-105 active:scale-95"
@@ -365,6 +455,21 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
         </button>
       </div>
       </div>
+      )}
+
+      {hidden && (
+        <button
+          onClick={() => {
+            setHidden(false)
+            try { localStorage.removeItem(HIDDEN_KEY) } catch {}
+          }}
+          className="fixed bottom-32 md:bottom-10 right-6 z-50 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card/90 backdrop-blur-sm text-muted-foreground shadow-sm hover:bg-accent hover:text-foreground transition-all active:scale-95"
+          aria-label="Show AI assistant button"
+          title="Show AI assistant"
+        >
+          <EyeOff size={15} />
+        </button>
+      )}
     </>
   )
 }

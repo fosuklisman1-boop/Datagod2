@@ -42,7 +42,7 @@ async function getTerms() {
     )
     const { data } = await supabase
       .from("app_settings")
-      .select("terms_content, terms_last_updated")
+      .select("terms_content, terms_content_account, terms_content_data, terms_content_airtime, terms_content_results_checker, terms_content_bulk_sms, terms_last_updated")
       .is("key", null)
       .single()
     return data
@@ -84,7 +84,20 @@ export default async function TermsPage() {
     ? new Date(data.terms_last_updated).toLocaleDateString("en-GB", { month: "long", year: "numeric" })
     : "April 2026"
 
-  const { intro, sections } = parseTerms(rawContent)
+  const { intro, sections: generalSections } = parseTerms(rawContent)
+  // Account registration and wallet top-ups/withdrawals only apply here --
+  // the full account-level platform page -- not on a shop storefront, where
+  // a guest customer never creates an account or touches a wallet.
+  const accountSections = data?.terms_content_account ? parseTerms(data.terms_content_account).sections : []
+  // The main site offers every service, so unlike a service-restricted shop
+  // storefront, this page always shows the full set of per-service addenda.
+  const serviceSections = [
+    data?.terms_content_data ? parseTerms(data.terms_content_data).sections : [],
+    data?.terms_content_airtime ? parseTerms(data.terms_content_airtime).sections : [],
+    data?.terms_content_results_checker ? parseTerms(data.terms_content_results_checker).sections : [],
+    data?.terms_content_bulk_sms ? parseTerms(data.terms_content_bulk_sms).sections : [],
+  ].flat()
+  const sections = [...generalSections, ...accountSections, ...serviceSections]
 
   return (
     <div className="min-h-screen bg-card">

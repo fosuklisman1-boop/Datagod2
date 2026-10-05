@@ -347,6 +347,10 @@ export async function GET(request: NextRequest) {
       ordering_enabled: orderingEnabled,
       announcement: activeAnnouncement,
       terms_content: settings?.terms_content ?? "",
+      terms_content_data: settings?.terms_content_data ?? "",
+      terms_content_airtime: settings?.terms_content_airtime ?? "",
+      terms_content_results_checker: settings?.terms_content_results_checker ?? "",
+      terms_content_bulk_sms: settings?.terms_content_bulk_sms ?? "",
       terms_last_updated: settings?.terms_last_updated ?? null,
     }, {
       headers: {

@@ -7,6 +7,8 @@ import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
 import { AIProviderConfig, DEFAULT_CONFIG, resolveProviderForContext } from "@/lib/ai-providers"
 import { runAgenticLoop } from "@/lib/ai-agentic-loop"
+import { resolveCustomDomain } from "@/lib/custom-domain-lookup"
+import { normalizeDomainHost, joinServiceLabels, DomainService } from "@/lib/custom-domains"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -267,6 +269,20 @@ export async function POST(req: NextRequest) {
     shopId = ownedShop?.id
   }
 
+  // ── Storefront service restriction ────────────────────────────────────────
+  // Resolved server-side from the request Host header (same mechanism
+  // middleware and app/shop/[slug]/layout.tsx use) rather than trusted from
+  // the client — null means unrestricted (shop/main site offers everything).
+  let storefrontServices: DomainService[] | null = null
+  if (context === "storefront") {
+    const requestHost = normalizeDomainHost(req.headers.get("host"))
+    const domainConfig = requestHost ? await resolveCustomDomain(requestHost).catch(() => null) : null
+    storefrontServices = domainConfig?.services?.length ? domainConfig.services : null
+  }
+  const sellsData = !storefrontServices || storefrontServices.includes("data_bundles")
+  const sellsAirtime = !storefrontServices || storefrontServices.includes("airtime")
+  const sellsRC = !storefrontServices || storefrontServices.includes("results_checker")
+
   // ── Storefront shop USSD code ─────────────────────────────────────────────
   // So the storefront AI can tell guests how to order THIS shop's bundles by
   // phone: dial the shop dial code, then enter this shop's own code at the prompt.
@@ -395,29 +411,40 @@ ${channelNote}
 ${knowledgeBaseRule}
 ${formattingRules}`
   } else if (context === "storefront") {
-    systemPrompt = `You are the AI assistant for ${shopName}'s online data bundle shop.
-Customers here are guests — no account needed, payment is via card or mobile money through Paystack.
+    // Scoped to whichever services this storefront actually offers — a custom
+    // domain or shop can be restricted to a subset (e.g. results-checker-only),
+    // and the AI must never offer, price, or promise a service that isn't
+    // actually sold here (storefrontServices/sellsData/sellsAirtime/sellsRC
+    // computed above from the resolved domain config, same source of truth
+    // the storefront UI itself uses to show/hide service tabs).
+    const soldLabels = [
+      sellsData ? "data bundles" : null,
+      sellsAirtime ? "airtime" : null,
+      sellsRC ? "results checker vouchers" : null,
+    ].filter((l): l is string => Boolean(l))
+    const shopKindPhrase = storefrontServices ? `online shop for ${joinServiceLabels(soldLabels)}` : "online data bundle shop"
 
-WHAT THIS SHOP SELLS:
-- Mobile data bundles for MTN, Telecel (Vodafone), and AT (AirtelTigo)
-- Airtime top-up (if enabled by the shop owner — use get_airtime_availability to check)
-- Exam results checker vouchers for WAEC, BECE, and NOVDEC (use get_results_checker_availability to check stock)
+    const sellsSection = [
+      sellsData ? "- Mobile data bundles for MTN, Telecel (Vodafone), and AT (AirtelTigo)" : null,
+      sellsAirtime ? "- Airtime top-up (if enabled by the shop owner — use get_airtime_availability to check)" : null,
+      sellsRC ? "- Exam results checker vouchers for WAEC, BECE, and NOVDEC (use get_results_checker_availability to check stock)" : null,
+    ].filter(Boolean).join("\n")
 
-HOW BUYING WORKS:
-1. Customer picks a package → you call prepare_checkout → a payment form opens on the page
-2. Customer fills phone number and pays via Paystack (card or MoMo)
-3. Data is delivered automatically after payment confirmation
-4. No account or login required at any point
+    const orderTrackingSection = (sellsData || sellsAirtime) ? `
 
 ORDER TRACKING:
 - Customers track their order using their phone number — call search_order_status
-- Delivery is usually instant after payment but can take a few minutes during high traffic
+- Delivery is usually instant after payment but can take a few minutes during high traffic` : ""
+
+    const airtimeSection = sellsAirtime ? `
 
 AIRTIME TOP-UP:
 - Check availability first with get_airtime_availability
 - If available, a fee percentage applies (e.g. 5–10%) on top of the airtime amount
 - Customer pays total (airtime + fee) via Paystack
-- Direct them to the Airtime section on the page if they want to proceed
+- Direct them to the Airtime section on the page if they want to proceed` : ""
+
+    const rcSection = sellsRC ? `
 
 RESULTS CHECKER VOUCHERS:
 - Buy WASSCE/BECE/NOVDEC voucher codes — customer uses them on the WAEC portal to check results themselves
@@ -429,13 +456,30 @@ RESULTS CHECK SERVICE ("Check My Results" tab):
 - Customer provides: exam board, candidate type (school/private), index number, date of birth, exam year, WhatsApp number, and payment
 - Two modes: "Combo" — Datagod supplies the voucher + checks (higher fee); "Own Voucher" — customer already has a PIN and serial number (lower fee)
 - Results delivered by email (with file attachment if available) and WhatsApp
-- Customer should check spam folder if email doesn't arrive in inbox
+- Customer should check spam folder if email doesn't arrive in inbox` : ""
+
+    const unavailableServiceRule = storefrontServices ? `
+
+SCOPE: This storefront ONLY sells ${joinServiceLabels(soldLabels)} — nothing else, even if you know Datagod offers it elsewhere. If a customer asks about a service not in that list, tell them politely it isn't available on this shop — never say you'll check, never imply it might be available.` : ""
+
+    systemPrompt = `You are the AI assistant for ${shopName}'s ${shopKindPhrase}.
+Customers here are guests — no account needed, payment is via card or mobile money through Paystack.
+
+WHAT THIS SHOP SELLS:
+${sellsSection}
+
+HOW BUYING WORKS:
+1. Customer picks what they want → you call prepare_checkout → a payment form opens on the page
+2. Customer fills phone number and pays via Paystack (card or MoMo)
+3. Delivery happens automatically after payment confirmation
+4. No account or login required at any point
+${orderTrackingSection}${airtimeSection}${rcSection}
 
 PAYMENT & REFUNDS:
 - All payments go through Paystack — the shop owner does not handle card details
 - For payment issues, customers can use the payment re-verify option on the site
 - Refund and dispute processes: call get_knowledge_base for policy details
-${storefrontUssdSection}
+${storefrontUssdSection}${unavailableServiceRule}
 
 ${knowledgeBaseRule}
 ${formattingRules}`
@@ -675,6 +719,9 @@ ${formattingRules}`
           context,
           messages,
           toolCtx,
+          storefrontServices: context === "storefront"
+            ? { sellsData, sellsAirtime, sellsResultsChecker: sellsRC }
+            : undefined,
           maxTokens: context === "admin" ? 2048 : 1500,
           maxIterations: context === "admin" ? 20 : 10,
           onEvent: send,

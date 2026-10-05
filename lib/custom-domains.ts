@@ -82,6 +82,22 @@ export function isPageHidden(key: string, hiddenPages: string[]): boolean {
   return hiddenPages.includes(key)
 }
 
+// Human-readable label for each gated service, used to build a domain's or
+// shop's link preview so it only ever mentions services that are actually
+// enabled, instead of a generic "Data & Airtime" that may not apply.
+export const SERVICE_LABELS: Record<DomainService, string> = {
+  data_bundles: "data bundles",
+  airtime: "airtime",
+  results_checker: "results checker vouchers",
+  bulk_sms: "bulk SMS",
+}
+
+export function joinServiceLabels(labels: string[]): string {
+  if (labels.length <= 1) return labels[0] ?? "digital services"
+  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`
+  return `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`
+}
+
 export function normalizeDomainHost(host: string | null): string | null {
   if (!host) return null
   return host.split(":")[0].toLowerCase()

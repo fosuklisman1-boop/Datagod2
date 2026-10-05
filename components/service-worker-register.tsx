@@ -1,8 +1,12 @@
 "use client"
 
 import { useEffect } from "react"
+import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 
 export function ServiceWorkerRegister() {
+  const domainBranding = useDomainBranding()
+  const siteName = domainBranding.siteName || "DATAGOD"
+
   useEffect(() => {
     if (typeof window === "undefined" || !("serviceWorker" in navigator)) return
 
@@ -43,7 +47,7 @@ export function ServiceWorkerRegister() {
             })
 
             const msg = document.createElement("span")
-            msg.textContent = "🔄 A new version of DATAGOD is ready."
+            msg.textContent = `🔄 A new version of ${siteName} is ready.`
 
             const refreshBtn = document.createElement("button")
             refreshBtn.textContent = "Refresh"
@@ -83,7 +87,7 @@ export function ServiceWorkerRegister() {
         })
       })
       .catch((err) => console.error("[SW] Registration failed:", err))
-  }, [])
+  }, [siteName])
 
   return null
 }

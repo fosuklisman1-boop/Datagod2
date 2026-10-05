@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter, DM_Sans, JetBrains_Mono } from "next/font/google";
 import { headers } from "next/headers";
 import { DomainBrandingProvider, type DomainBranding } from "@/components/providers/domain-branding-provider";
-import type { DomainService } from "@/lib/custom-domains";
+import { SERVICE_LABELS, joinServiceLabels, type DomainService } from "@/lib/custom-domains";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
@@ -32,9 +32,7 @@ export const viewport: Viewport = {
   themeColor: "#030303",
 };
 
-export const metadata: Metadata = {
-  title: "DATAGOD - Buy Affordable Data Packages & Airtime | Instant Delivery",
-  description: "Get instant mobile data packages, airtime, and digital services for MTN, Telecel, AT, and other networks in Ghana. Fast delivery, secure payment, 24/7 support.",
+const BASE_METADATA: Omit<Metadata, "title" | "description" | "openGraph" | "twitter"> = {
   keywords: [
     "data packages Ghana",
     "mobile data",
@@ -80,32 +78,87 @@ export const metadata: Metadata = {
   alternates: {
     canonical: "https://www.datagod.store",
   },
-  openGraph: {
-    type: "website",
-    locale: "en_US",
-    url: "https://www.datagod.store",
-    siteName: "DATAGOD",
-    title: "DATAGOD - Buy Affordable Data Packages & Airtime | Instant Delivery",
-    description: "Get instant mobile data packages, airtime, and digital services for MTN, Telecel, AT, and other networks. Fast delivery, secure payment.",
-    images: [
-      {
-        url: "https://www.datagod.store/og-image.png",
-        width: 1200,
-        height: 630,
-        alt: "DATAGOD - Affordable Data Packages & Airtime",
-        type: "image/png",
+}
+
+// A custom domain restricted to a subset of services (see lib/custom-domains.ts)
+// must never advertise a service it doesn't actually offer in its link preview —
+// previously this was a static, title/description that always mentioned every
+// service regardless of which ones that domain's visitors can actually reach.
+export async function generateMetadata(): Promise<Metadata> {
+  const headersList = await headers()
+  const VALID_DOMAIN_SERVICES: DomainService[] = ["data_bundles", "airtime", "results_checker", "bulk_sms"]
+  const rawServices = headersList.get("x-domain-services")
+  const services = rawServices
+    ? rawServices.split(",").filter((s): s is DomainService => VALID_DOMAIN_SERVICES.includes(s as DomainService))
+    : []
+  const domainSiteName = headersList.get("x-domain-site-name")
+
+  if (services.length === 0 || !domainSiteName) {
+    return {
+      ...BASE_METADATA,
+      title: "DATAGOD - Buy Affordable Data Packages & Airtime | Instant Delivery",
+      description: "Get instant mobile data packages, airtime, and digital services for MTN, Telecel, AT, and other networks in Ghana. Fast delivery, secure payment, 24/7 support.",
+      openGraph: {
+        type: "website",
+        locale: "en_US",
+        url: "https://www.datagod.store",
+        siteName: "DATAGOD",
+        title: "DATAGOD - Buy Affordable Data Packages & Airtime | Instant Delivery",
+        description: "Get instant mobile data packages, airtime, and digital services for MTN, Telecel, AT, and other networks. Fast delivery, secure payment.",
+        images: [
+          {
+            url: "https://www.datagod.store/og-image.png",
+            width: 1200,
+            height: 630,
+            alt: "DATAGOD - Affordable Data Packages & Airtime",
+            type: "image/png",
+          },
+        ],
       },
-    ],
-  },
-  twitter: {
-    card: "summary_large_image",
-    site: "@datagodstore",
-    creator: "@datagodstore",
-    title: "DATAGOD - Buy Data Packages & Airtime Online",
-    description: "Instant mobile data, airtime, and digital services for Ghana. Fast delivery, secure payment.",
-    images: ["https://www.datagod.store/og-image.png"],
-  },
-};
+      twitter: {
+        card: "summary_large_image",
+        site: "@datagodstore",
+        creator: "@datagodstore",
+        title: "DATAGOD - Buy Data Packages & Airtime Online",
+        description: "Instant mobile data, airtime, and digital services for Ghana. Fast delivery, secure payment.",
+        images: ["https://www.datagod.store/og-image.png"],
+      },
+    }
+  }
+
+  const serviceLabels = joinServiceLabels(services.map(s => SERVICE_LABELS[s]))
+  const title = `${domainSiteName} - Buy ${serviceLabels.charAt(0).toUpperCase() + serviceLabels.slice(1)} Online`
+  const description = `Get instant ${serviceLabels} from ${domainSiteName}. Fast delivery, secure payment.`
+  const domainLogo = headersList.get("x-domain-logo")
+  const image = domainLogo || "https://www.datagod.store/og-image.png"
+  // A custom domain's browser-tab icon must be its own logo, not DATAGOD's —
+  // BASE_METADATA.icons is the DATAGOD-brand fallback, only right when this
+  // domain hasn't uploaded a logo of its own.
+  const icons: Metadata["icons"] = domainLogo
+    ? { icon: [{ url: domainLogo, type: "image/png" }], apple: domainLogo, shortcut: domainLogo }
+    : BASE_METADATA.icons
+
+  return {
+    ...BASE_METADATA,
+    icons,
+    title,
+    description,
+    openGraph: {
+      type: "website",
+      locale: "en_US",
+      siteName: domainSiteName,
+      title,
+      description,
+      images: [{ url: image, width: 1200, height: 630, alt: domainSiteName, type: "image/png" }],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+      images: [image],
+    },
+  }
+}
 
 export default async function RootLayout({
   children,
