@@ -20,7 +20,7 @@ import { normalizeWhatsAppLink } from "@/lib/whatsapp-link"
 import { redirectToPayment } from "@/lib/payment-redirect"
 import { useResendCooldown } from "@/lib/use-resend-cooldown"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
-import type { DomainService } from "@/lib/custom-domains"
+import { isPageHidden, type DomainService } from "@/lib/custom-domains"
 import {
   Store,
   ShoppingCart,
@@ -147,6 +147,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
         return mapped.length > 0 ? mapped : ["data", "airtime", "vouchers"]
       })()
     : ["data", "airtime", "vouchers"]
+  const subAgentRecruitHidden = isPageHidden("sub_agent_recruit", domainBranding.hiddenPages)
 
   const [activeTab, setActiveTab] = useState<"home" | "about" | "track-order">("home")
   // Which service's content shows below the persistent "Choose a Service"
@@ -1082,11 +1083,11 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
       cta: "Contact Us", icon: MessageCircle, gradient: "from-[#1e1b4b] to-[#4f46e5]",
       onClick: () => { if (helpWhatsAppLink) window.open(helpWhatsAppLink, "_blank"); else if (shop?.phone) window.location.href = `tel:${shop.phone}` },
     }] : []),
-    {
+    ...(!subAgentRecruitHidden ? [{
       key: "sub-agent", badge: "PARTNER", title: "Become a Sub-Agent", description: "Start your own shop under this business and earn commission.",
       cta: "Apply Now", icon: UserPlus, gradient: "from-[#083344] to-[#0891b2]",
       onClick: goToSubAgentForm,
-    },
+    }] : []),
   ]
 
   return (
@@ -1654,13 +1655,15 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
 
                 {/* Become a sub-agent under this shop — customer-initiated
                     request queue, reviewed by the shop owner in their dashboard. */}
-                <div ref={subAgentCardRef}>
-                  <Card className="border-0 shadow-md">
-                    <CardContent className="pt-6">
-                      <SubAgentRequestForm shopSlug={shopSlug} />
-                    </CardContent>
-                  </Card>
-                </div>
+                {!subAgentRecruitHidden && (
+                  <div ref={subAgentCardRef}>
+                    <Card className="border-0 shadow-md">
+                      <CardContent className="pt-6">
+                        <SubAgentRequestForm shopSlug={shopSlug} />
+                      </CardContent>
+                    </Card>
+                  </div>
+                )}
 
                 {/* Platform Terms of Service */}
                 <ShopTermsSection shopName={shop?.shop_name || shop?.name || "this shop"} termsContent={termsContent} termsContentByService={termsContentByService} allowedServices={allowedServices} termsLastUpdated={termsLastUpdated} />
