@@ -1,6 +1,8 @@
 // lib/ussd-hubtel/catalog.ts
 import type { SupabaseClient } from "@supabase/supabase-js"
 
+import { toLocalPhone } from "./protocol"
+
 // Bundle listing is shared with the Uzo flow (pure DB read, no payment coupling).
 export { fetchBundles, PAGE_SIZE } from "@/lib/ussd/handlers/bundles"
 
@@ -39,7 +41,7 @@ export function priceForTier(
 }
 
 export async function resolveCaller(supabase: SupabaseClient, dialingPhone: string): Promise<CallerContext> {
-  const local = dialingPhone.startsWith("+233") ? "0" + dialingPhone.slice(4) : dialingPhone
+  const local = toLocalPhone(dialingPhone)
   const [{ data: userRow }, { data: settingsRow }] = await Promise.all([
     supabase.from("users").select("id, role").eq("phone_number", local).maybeSingle(),
     supabase.from("app_settings").select("ussd_price_tier").is("key", null).single(),
@@ -57,7 +59,7 @@ export async function resolveCaller(supabase: SupabaseClient, dialingPhone: stri
 
 /** Same whitelist gate the Uzo main menu applies at initiation. */
 export async function isDataBlocked(supabase: SupabaseClient, msisdn: string): Promise<boolean> {
-  const local = msisdn.startsWith("+233") ? "0" + msisdn.slice(4) : msisdn.startsWith("233") ? "0" + msisdn.slice(3) : msisdn
+  const local = toLocalPhone(msisdn)
   const [{ data: setting }, { data: purchased }] = await Promise.all([
     supabase.from("admin_settings").select("value").eq("key", "ussd_data_whitelist_enabled").maybeSingle(),
     supabase.rpc("has_completed_purchase", { local_phone: local, msisdn }),
