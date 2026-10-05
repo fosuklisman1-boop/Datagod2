@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js"
 import { notificationTemplates, type NotificationType } from "@/lib/notification-service"
 import { sendPushToUser } from "@/lib/push-service"
 import { verifyAdminAccess } from "@/lib/admin-auth"
+import { splitRefundLocked } from "@/lib/refunds/bulk-guard"
 
 // Initialize Supabase with service role key
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -169,7 +170,7 @@ export async function POST(request: NextRequest) {
       throw new Error(`Failed to check bulk orders: ${bulkError.message}`)
     }
 
-    const { data: shopOrders, error: shopError } = await inChunks(orderIds, (chunk) =>
+    const { data: shopOrdersAll, error: shopError } = await inChunks(orderIds, (chunk) =>
       supabase.from("shop_orders").select("id, order_status").in("id", chunk))
     if (shopError) {
       throw new Error(`Failed to check shop orders: ${shopError.message}`)
@@ -181,16 +182,30 @@ export async function POST(request: NextRequest) {
       throw new Error(`Failed to check api orders: ${apiError.message}`)
     }
 
-    const { data: ussdOrders, error: ussdError } = await inChunks(orderIds, (chunk) =>
+    const { data: ussdOrdersAll, error: ussdError } = await inChunks(orderIds, (chunk) =>
       supabase.from("ussd_orders").select("id, order_status").in("id", chunk))
     if (ussdError) {
       throw new Error(`Failed to check ussd orders: ${ussdError.message}`)
     }
 
-    const { data: ussdShopOrders, error: ussdShopError } = await inChunks(orderIds, (chunk) =>
+    const { data: ussdShopOrdersAll, error: ussdShopError } = await inChunks(orderIds, (chunk) =>
       supabase.from("ussd_shop_orders").select("id, order_status").in("id", chunk))
     if (ussdShopError) {
       throw new Error(`Failed to check ussd shop orders: ${ussdShopError.message}`)
+    }
+
+    // Orders owned by the refund flow (refunding/refunded) cannot be moved by this route: the DB guard trigger
+    // silently reverts the order status, but the tracking/log updates and "completed/failed" notifications below
+    // would still go out. Drop them up front and report them back as skipped.
+    const shopSplit = splitRefundLocked(shopOrdersAll)
+    const ussdSplit = splitRefundLocked(ussdOrdersAll)
+    const ussdShopSplit = splitRefundLocked(ussdShopOrdersAll)
+    const shopOrders = shopSplit.allowed
+    const ussdOrders = ussdSplit.allowed
+    const ussdShopOrders = ussdShopSplit.allowed
+    const skippedRefunding = [...shopSplit.locked, ...ussdSplit.locked, ...ussdShopSplit.locked]
+    if (skippedRefunding.length > 0) {
+      console.warn(`[BULK-UPDATE] Skipping ${skippedRefunding.length} orders that are refunding/refunded`)
     }
 
     // Filter out restricted transitions: pending -> completed
@@ -853,7 +868,8 @@ export async function POST(request: NextRequest) {
       apiCount: finalApiOrderIds.length,
       ussdCount: finalUssdOrderIds.length,
       ussdShopCount: finalUssdShopOrderIds.length,
-      skippedPending: skippedPendingCount
+      skippedPending: skippedPendingCount,
+      skippedRefunding
     })
   } catch (error) {
     console.error("[BULK-UPDATE] Error in bulk update status:", error)
