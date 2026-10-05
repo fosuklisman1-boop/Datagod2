@@ -57,6 +57,7 @@ If (a) returns `failed` or (b) returns `completed` the row was already settled t
 ## Go-live checklist (human, in order)
 
 1. **Discovery queries** on prod: CHECK constraints on `order_status` of the three order tables allow `refunding`/`refunded`; `shop_orders_state_machine` allows `pending -> refunding -> refunded`; table/column names used by the migration exist.
+1b. **Apply** `migrations/20261006_payment_attempts_payer_phone.sql` (adds nullable `payment_attempts.payer_phone`; apply before or together with the refunds migration, either order is safe; the code degrades to "no payer number" if it is missing).
 2. **Apply** `migrations/20261005_order_refunds.sql` off-peak (single transaction, 5s lock_timeout; re-run if it aborts on lock contention).
 3. **Privilege checks**: the 6 refund RPCs (note `reserve_order_refund` has 10 args) and both new tables are NOT executable/selectable by `anon`/`authenticated`; `service_role` can execute.
 4. **Run `migrations/tests/20261005_order_refunds_rpc_test.sql`** (it ends in ROLLBACK; read the NOTICEs: the two-owner case needs a second shop/owner).
@@ -69,4 +70,4 @@ If (a) returns `failed` or (b) returns `completed` the row was already settled t
 11. **Business sign-off**: a PARTIAL refund still removes the shop owner's FULL cut (clawback is per order, not pro-rata).
 12. **Monitoring**: schedule the three queries above; add them to the daily check.
 
-Known limits: storefront (`shop_orders`) payer MoMo number is not stored, so payout gateways are unavailable for them (reversal / wallet only); a wallet debit counts as proof of wallet payment only if its amount matches the order and it is the only such debit; refunded orders still count in revenue/reporting (out of scope for v1).
+Known limits: storefront (`shop_orders`) payer MoMo number is recorded in `payment_attempts.payer_phone` ONLY for orders paid via the direct MoMo flow AFTER this deploy and migration; older orders and Paystack-hosted checkouts have none, so payout gateways are unavailable for them (Paystack reversal / wallet only; customer_phone is never used as the payer); a wallet debit counts as proof of wallet payment only if its amount matches the order and it is the only such debit; refunded orders still count in revenue/reporting (out of scope for v1).

@@ -9,6 +9,7 @@ import { isPhoneOtpVerified, isWalletOtpRequired, isStorefrontOtpRequired, isSto
 import { logSecurityEvent } from "@/lib/security-log"
 import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 import { resolveTrustedBaseUrl } from "@/lib/custom-domain-lookup"
+import { recordPayerPhone } from "@/lib/refunds/payer-phone"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -600,6 +601,27 @@ export async function POST(request: NextRequest) {
         recipient,
         ip: clientIp,
       })
+
+      // [REFUND] Record the payer MoMo number for storefront shop orders so refund payout gateways know
+      // where to pay. Non-fatal and never throws (see recordPayerPhone).
+      if (shopId && orderId && !isTopup && !isUpgrade) {
+        await recordPayerPhone(supabase, {
+          reference,
+          rawPhone: payPhone,
+          baseRow: {
+            user_id: userId,
+            reference,
+            amount: finalAmount,
+            fee: paystackFee,
+            email,
+            status: "pending",
+            payment_type: orderType === "airtime" ? "shop_airtime" : (orderType === "results_checker" ? "results_checker" : "shop_order"),
+            shop_id: shopId,
+            order_id: orderId,
+            created_at: new Date().toISOString(),
+          },
+        })
+      }
 
       const corsHeaders = getCorsHeaders(request.headers.get("origin"))
       const resp = NextResponse.json({

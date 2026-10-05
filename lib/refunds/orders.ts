@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { loadPayerPhones } from "./payer-phone"
 import type { DispatchOutcome, OrderTable, OwnerCut, PaymentSource, RefundableOrder } from "./types"
 
 const CHUNK = 100
@@ -109,6 +110,10 @@ async function enrich(db: SupabaseClient, table: OrderTable, rows: any[]): Promi
     ...rows.map((r) => (table === "shop_orders" ? null : (r.paystack_reference ?? r.id)) as string | null).filter(Boolean) as string[],
   ]
   const attempts = paymentRefs.length ? await inRows<any>(db, "payment_attempts", "reference, fee", "reference", paymentRefs) : []
+  // Payer MoMo number (storefront direct-charge only), in its own query so a missing column cannot break the load.
+  const payerByRef = table === "shop_orders" && walletPayments.length
+    ? await loadPayerPhones(db, walletPayments.map((w) => w.reference as string))
+    : new Map<string, string>()
 
   const shopById = new Map(shops.map((s) => [s.id as string, s]))
   const balanceByShop = new Map(balances.map((b) => [b.shop_id as string, Number(b.available_balance)]))
@@ -149,8 +154,9 @@ async function enrich(db: SupabaseClient, table: OrderTable, rows: any[]): Promi
     let paid: number
     let fee = 0
     if (table === "shop_orders") {
-      // customer_phone is the data RECIPIENT; the payer MoMo number is not stored for shop orders,
-      // so payerPhone stays null (payout gateways must refuse; Paystack reversal / wallet still work).
+      // customer_phone is the data RECIPIENT and is NEVER used as the payer. payerPhone comes only from
+      // payment_attempts.payer_phone (recorded at direct MoMo charge time); otherwise null (payout gateways
+      // refuse; Paystack reversal / wallet still work).
       // wallet_payments.amount is the TOTAL charged (order price + fee); .fee is the fee part.
       const wp = walletPayments.find((w) => w.order_id === id && w.status === "completed")
       if (wp) {
@@ -160,7 +166,7 @@ async function enrich(db: SupabaseClient, table: OrderTable, rows: any[]): Promi
         payment = {
           gateway: "paystack",
           reference: wp.reference ?? null,
-          payerPhone: null,
+          payerPhone: (wp.reference ? payerByRef.get(wp.reference as string) : undefined) ?? null,
           walletUserId: debit?.user_id ?? null, // only a proving wallet debit; never buyer-typed phone/email
         }
       } else {

@@ -7,11 +7,13 @@ type Rows = Record<string, unknown[]>
 function fakeDb(rows: Rows, calls: unknown[][] = [], errors: Record<string, string> = {}) {
   const make = (table: string) => {
     const rec = (m: string) => (...a: unknown[]) => { calls.push([table, m, ...a]); return q }
+    let key = table
     const q: any = {
-      select: rec("select"), eq: rec("eq"), in: rec("in"), is: rec("is"), neq: rec("neq"),
+      // errors may be keyed "table" or "table:<select string>" to fail one specific query
+      select: (...a: unknown[]) => { calls.push([table, "select", ...a]); if (errors[`${table}:${a[0]}`]) key = `${table}:${a[0]}`; return q }, eq: rec("eq"), in: rec("in"), is: rec("is"), neq: rec("neq"),
       order: rec("order"), range: rec("range"), limit: rec("limit"), ilike: rec("ilike"), or: rec("or"),
-      maybeSingle: async () => ({ data: (rows[table] ?? [])[0] ?? null, error: errors[table] ? { message: errors[table] } : null }),
-      then: (res: (v: unknown) => unknown) => Promise.resolve({ data: rows[table] ?? [], error: errors[table] ? { message: errors[table] } : null }).then(res),
+      maybeSingle: async () => ({ data: (rows[table] ?? [])[0] ?? null, error: errors[key] ? { message: errors[key] } : null }),
+      then: (res: (v: unknown) => unknown) => Promise.resolve({ data: rows[table] ?? [], error: errors[key] ? { message: errors[key] } : null }).then(res),
     }
     return q
   }
@@ -94,6 +96,48 @@ describe("loadRefundableOrders", () => {
     expect(o.packageLabel).toBe("2GB")
     expect(o.shopName).toBe("Alpha")
     expect(o.evidence.externalOrderId).toBe("ext-9")
+  })
+
+  describe("shop order payer number", () => {
+    const shopRows = (attempt: unknown[]): Rows => ({
+      ...EMPTY,
+      shop_orders: [{
+        id: "s1", shop_id: "shopA", customer_phone: "0249999999", customer_email: "c@x.com", network: "MTN",
+        volume_gb: 2, total_price: 10, order_status: "pending", payment_status: "completed",
+        external_order_id: null, created_at: "2026-10-05T00:00:00Z",
+      }],
+      wallet_payments: [{ order_id: "s1", reference: "WALLET-1", amount: 10.3, fee: 0.3, status: "completed" }],
+      payment_attempts: attempt,
+      user_shops: [{ id: "shopA", shop_name: "Alpha", user_id: "uA" }],
+    })
+
+    it("uses the recorded payer_phone (normalised), never customer_phone", async () => {
+      const db = fakeDb(shopRows([{ reference: "WALLET-1", fee: 0.3, payer_phone: "+233 24 111 2222" }]))
+      const [o] = await loadRefundableOrders(db, [{ table: "shop_orders", id: "s1" }])
+      expect(o.payment.payerPhone).toBe("0241112222")
+      expect(o.recipientPhone).toBe("0249999999")
+    })
+
+    it("is null when payer_phone is absent or null", async () => {
+      for (const attempt of [[], [{ reference: "WALLET-1", fee: 0.3, payer_phone: null }]]) {
+        const [o] = await loadRefundableOrders(fakeDb(shopRows(attempt)), [{ table: "shop_orders", id: "s1" }])
+        expect(o.payment.payerPhone).toBeNull()
+      }
+    })
+
+    it("degrades to null when the payer_phone column does not exist yet", async () => {
+      const db = fakeDb(shopRows([{ reference: "WALLET-1", fee: 0.3 }]), [], {
+        "payment_attempts:reference, payer_phone": "column payment_attempts.payer_phone does not exist",
+      })
+      const [o] = await loadRefundableOrders(db, [{ table: "shop_orders", id: "s1" }])
+      expect(o.payment.payerPhone).toBeNull()
+      expect(o.gatewayFee).toBe(0.3)
+    })
+
+    it("throws on any other payer lookup error", async () => {
+      const db = fakeDb(shopRows([]), [], { "payment_attempts:reference, payer_phone": "connection reset" })
+      await expect(loadRefundableOrders(db, [{ table: "shop_orders", id: "s1" }])).rejects.toThrow(/payer lookup failed/)
+    })
   })
 
   it("detects a wallet-paid shop order (dashboard stock purchase) from the wallet debit", async () => {
