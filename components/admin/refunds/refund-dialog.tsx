@@ -128,7 +128,7 @@ export function RefundDialog({ target, getToken, onClose, onOutcome, onReload }:
             <div className="rounded-md border p-3">
               <div className="font-medium">{preview.order.packageLabel} {preview.order.network}</div>
               <div className="text-muted-foreground">
-                Paid GHS {preview.order.paid.toFixed(2)} · gateway fee GHS {preview.order.gatewayFee.toFixed(2)} · payer {preview.order.payment.payerPhone ?? "unknown"}
+                Paid GHS {preview.order.paid.toFixed(2)} · gateway fee GHS {preview.order.gatewayFee.toFixed(2)} · {preview.order.table === "orders" || preview.order.table === "api_orders" ? "paid from the buyer's wallet" : `payer ${preview.order.payment.payerPhone ?? "unknown"}`}
               </div>
             </div>
 
