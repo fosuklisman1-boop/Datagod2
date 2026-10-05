@@ -4,14 +4,14 @@ type Rows = Record<string, unknown[]>
 
 // Minimal chainable fake: every query builder is thenable and returns the canned rows for its table.
 // `calls` records every builder method invocation as [table, method, ...args] for assertions.
-function fakeDb(rows: Rows, calls: unknown[][] = []) {
+function fakeDb(rows: Rows, calls: unknown[][] = [], errors: Record<string, string> = {}) {
   const make = (table: string) => {
     const rec = (m: string) => (...a: unknown[]) => { calls.push([table, m, ...a]); return q }
     const q: any = {
       select: rec("select"), eq: rec("eq"), in: rec("in"), is: rec("is"), neq: rec("neq"),
       order: rec("order"), range: rec("range"), ilike: rec("ilike"), or: rec("or"),
-      maybeSingle: async () => ({ data: (rows[table] ?? [])[0] ?? null, error: null }),
-      then: (res: (v: unknown) => unknown) => Promise.resolve({ data: rows[table] ?? [], error: null }).then(res),
+      maybeSingle: async () => ({ data: (rows[table] ?? [])[0] ?? null, error: errors[table] ? { message: errors[table] } : null }),
+      then: (res: (v: unknown) => unknown) => Promise.resolve({ data: rows[table] ?? [], error: errors[table] ? { message: errors[table] } : null }).then(res),
     }
     return q
   }
@@ -70,7 +70,7 @@ describe("loadRefundableOrders", () => {
     expect(o.owners).toEqual([])
   })
 
-  it("builds a shop order from the completed wallet_payments row (amount incl. fee) and matches the user by phone", async () => {
+  it("builds a shop order from the completed wallet_payments row (amount incl. fee) and never resolves the wallet user from buyer-typed phone/email", async () => {
     const db = fakeDb({
       ...EMPTY,
       shop_orders: [{
@@ -87,7 +87,7 @@ describe("loadRefundableOrders", () => {
       user_shops: [{ id: "shopA", shop_name: "Alpha", user_id: "uA" }],
     })
     const [o] = await loadRefundableOrders(db, [{ table: "shop_orders", id: "s1" }])
-    expect(o.payment).toEqual({ gateway: "paystack", reference: "WALLET-1", payerPhone: null, walletUserId: "uBuyer" })
+    expect(o.payment).toEqual({ gateway: "paystack", reference: "WALLET-1", payerPhone: null, walletUserId: null })
     expect(o.recipientPhone).toBe("0241112222")
     expect(o.paid).toBe(10.3)
     expect(o.gatewayFee).toBe(0.3)
@@ -182,13 +182,13 @@ describe("listPendingOrderRefs", () => {
     expect(ors[1][2]).toBe("dialing_phone.ilike.%024ideqx%,recipient_phone.ilike.%024ideqx%")
   })
 
-  it("adds an id match for a full uuid and scopes shopId (not for ussd_orders)", async () => {
+  it("adds an id match for a full uuid and scopes shopId, skipping ussd_orders entirely", async () => {
     const calls: unknown[][] = []
     const db = fakeDb({ shop_orders: [], ussd_orders: [], ussd_shop_orders: [] }, calls)
     const uuid = "123e4567-e89b-12d3-a456-426614174000"
     await listPendingOrderRefs(db, { pageSize: 10, page: 1, q: uuid, shopId: "shopA" })
     expect(calls.find((c) => c[0] === "shop_orders" && c[1] === "or")![2]).toContain(`,id.eq.${uuid}`)
-    expect(calls.some((c) => c[0] === "ussd_orders" && c[1] === "eq" && c[2] === "shop_id")).toBe(false)
+    expect(calls.some((c) => c[0] === "ussd_orders")).toBe(false)
     expect(calls.some((c) => c[0] === "shop_orders" && c[1] === "eq" && c[2] === "shop_id" && c[3] === "shopA")).toBe(true)
   })
 })
@@ -201,5 +201,104 @@ describe("resolveWalletUser", () => {
   })
   it("returns null with no inputs", async () => {
     expect(await resolveWalletUser(fakeDb({}), {})).toBeNull()
+  })
+})
+
+describe("fix round 1", () => {
+  const shopRow = {
+    id: "s1", shop_id: "shopA", customer_phone: "0241112222", customer_email: "c@x.com", network: "MTN",
+    volume_gb: 1, total_price: 5, order_status: "pending", payment_status: "completed",
+    external_order_id: null, created_at: "2026-10-05T00:00:00Z",
+  }
+
+  it("sums profits in integer pesewas (0.1 + 0.2 => exactly 0.3)", async () => {
+    const db = fakeDb({
+      ...EMPTY,
+      shop_orders: [shopRow],
+      user_shops: [{ id: "shopA", shop_name: "A", user_id: "uA" }],
+      shop_profits: [
+        { shop_order_id: "s1", shop_id: "shopA", profit_amount: 0.1, status: "credited" },
+        { shop_order_id: "s1", shop_id: "shopA", profit_amount: 0.2, status: "credited" },
+        { shop_order_id: "s1", shop_id: "shopA", profit_amount: 0.1, status: "pending" },
+        { shop_order_id: "s1", shop_id: "shopA", profit_amount: 0.2, status: "pending" },
+      ],
+    })
+    const [o] = await loadRefundableOrders(db, [{ table: "shop_orders", id: "s1" }])
+    expect(o.owners[0].credited).toBe(0.3)
+    expect(o.owners[0].pending).toBe(0.3)
+  })
+
+  it("shop order walletUserId comes only from a proving debit, never from a matching user", async () => {
+    const none = fakeDb({ ...EMPTY, shop_orders: [shopRow], users: [{ id: "uSomeone" }] })
+    const [a] = await loadRefundableOrders(none, [{ table: "shop_orders", id: "s1" }])
+    expect(a.payment.walletUserId).toBeNull()
+    const withDebit = fakeDb({ ...EMPTY, shop_orders: [shopRow], users: [{ id: "uSomeone" }], transactions: [{ reference_id: "s1", user_id: "uPayer", type: "debit" }] })
+    const [b] = await loadRefundableOrders(withDebit, [{ table: "shop_orders", id: "s1" }])
+    expect(b.payment.walletUserId).toBe("uPayer")
+  })
+
+  it("ussd orders still resolve the wallet user by dialing phone", async () => {
+    const db = fakeDb({
+      ...EMPTY,
+      ussd_orders: [{ id: "o9", dialing_phone: "0241112222", recipient_phone: "0241112222", network: "MTN", package_size: "1", amount: 6, order_status: "pending", payment_status: "completed", paystack_reference: "o9", created_at: "2026-10-05T00:00:00Z" }],
+      users: [{ id: "uDialer" }],
+    })
+    const [o] = await loadRefundableOrders(db, [{ table: "ussd_orders", id: "o9" }])
+    expect(o.payment.walletUserId).toBe("uDialer")
+  })
+
+  it("throws when a result set reaches 1000 rows", async () => {
+    const many = Array.from({ length: 1000 }, (_, i) => ({ order_id: "s1", shop_order_id: "s1", status: "failed", i }))
+    const db = fakeDb({ ...EMPTY, shop_orders: [shopRow], mtn_fulfillment_tracking: many })
+    await expect(loadRefundableOrders(db, [{ table: "shop_orders", id: "s1" }])).rejects.toThrow(/mtn_fulfillment_tracking/)
+  })
+
+  it("uses 50-id chunks for mtn_fulfillment_tracking", async () => {
+    const calls: unknown[][] = []
+    const rows = Array.from({ length: 100 }, (_, i) => ({ ...shopRow, id: `s${i}` }))
+    const db = fakeDb({ ...EMPTY, shop_orders: rows }, calls)
+    await loadRefundableOrders(db, rows.map((r) => ({ table: "shop_orders" as const, id: r.id })))
+    const ins = calls.filter((c) => c[0] === "mtn_fulfillment_tracking" && c[1] === "in")
+    expect(ins.map((c) => (c[3] as string[]).length)).toEqual([50, 50])
+  })
+
+  it("throws on a query error", async () => {
+    const db = fakeDb({ ...EMPTY, shop_orders: [shopRow] }, [], { order_refunds: "boom" })
+    await expect(loadRefundableOrders(db, [{ table: "shop_orders", id: "s1" }])).rejects.toThrow(/order_refunds lookup failed: boom/)
+  })
+
+  it("flags hasActiveRefund for a processing refund and reports shop_orders tracking + claim evidence", async () => {
+    const db = fakeDb({
+      ...EMPTY,
+      shop_orders: [shopRow],
+      order_refunds: [{ order_id: "s1", status: "processing" }],
+      mtn_fulfillment_tracking: [{ shop_order_id: "s1", status: "failed" }, { shop_order_id: "other", status: "completed" }],
+      order_dispatch_claims: [{ order_id: "s1", last_outcome: "unknown" }],
+    })
+    const [o] = await loadRefundableOrders(db, [{ table: "shop_orders", id: "s1" }])
+    expect(o.evidence).toMatchObject({ hasActiveRefund: true, trackingStatuses: ["failed"], dispatchOutcome: "unknown" })
+  })
+
+  it("list: ussd_orders is skipped when shopId is set, and [] for table ussd_orders + shopId", async () => {
+    const db = fakeDb({
+      shop_orders: [{ id: "s1", created_at: "2026-10-05T10:00:00Z" }],
+      ussd_orders: [{ id: "u1", created_at: "2026-10-05T11:00:00Z" }],
+      ussd_shop_orders: [],
+    })
+    const r = await listPendingOrderRefs(db, { pageSize: 10, page: 1, shopId: "shopA" })
+    expect(r.map((x) => x.id)).toEqual(["s1"])
+    expect(await listPendingOrderRefs(db, { pageSize: 10, page: 1, shopId: "shopA", table: "ussd_orders" })).toEqual([])
+  })
+
+  it("list: ties on createdAt are ordered deterministically by table:id", async () => {
+    const ts = "2026-10-05T10:00:00Z"
+    const db = fakeDb({ shop_orders: [{ id: "b", created_at: ts }], ussd_orders: [{ id: "a", created_at: ts }], ussd_shop_orders: [{ id: "c", created_at: ts }] })
+    const r = await listPendingOrderRefs(db, { pageSize: 10, page: 1 })
+    expect(r.map((x) => `${x.table}:${x.id}`)).toEqual(["shop_orders:b", "ussd_orders:a", "ussd_shop_orders:c"])
+  })
+
+  it("resolveWalletUser throws on a real query error", async () => {
+    const db = fakeDb({}, [], { users: "db down" })
+    await expect(resolveWalletUser(db, { phone: "0241112222" })).rejects.toThrow(/users lookup failed/)
   })
 })

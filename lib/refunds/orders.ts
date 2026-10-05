@@ -30,11 +30,13 @@ const chunk = <T,>(arr: T[], n = CHUNK): T[][] => {
 
 async function inRows<T>(db: SupabaseClient, table: string, select: string, col: string, ids: string[], extra?: (q: any) => any): Promise<T[]> {
   const out: T[] = []
-  for (const part of chunk(ids)) {
+  for (const part of chunk(ids, table === "mtn_fulfillment_tracking" ? 50 : CHUNK)) {
     let q: any = db.from(table).select(select).in(col, part)
     if (extra) q = extra(q)
     const { data, error } = await q
     if (error) throw new Error(`[REFUND] ${table} lookup failed: ${error.message}`)
+    // PostgREST silently truncates at 1000 rows; refuse rather than hide evidence.
+    if ((data ?? []).length >= 1000) throw new Error(`[REFUND] ${table} lookup hit the 1000-row cap; refusing to proceed on possibly truncated data`)
     out.push(...((data ?? []) as T[]))
   }
   return out
@@ -47,12 +49,14 @@ export async function resolveWalletUser(
   if (who.phone) {
     const d = who.phone.replace(/\D/g, "").slice(-9)
     if (d.length === 9) {
-      const { data } = await db.from("users").select("id").eq("phone_number", "0" + d).maybeSingle()
+      const { data, error } = await db.from("users").select("id").eq("phone_number", "0" + d).maybeSingle()
+      if (error) throw new Error(`[REFUND] users lookup failed: ${error.message}`)
       if (data?.id) return data.id as string
     }
   }
   if (who.email) {
-    const { data } = await db.from("users").select("id").eq("email", who.email.toLowerCase()).maybeSingle()
+    const { data, error } = await db.from("users").select("id").eq("email", who.email.toLowerCase()).maybeSingle()
+    if (error) throw new Error(`[REFUND] users lookup failed: ${error.message}`)
     if (data?.id) return data.id as string
   }
   return null
@@ -113,9 +117,10 @@ async function enrich(db: SupabaseClient, table: OrderTable, rows: any[]): Promi
     const orderProfits = profits.filter((p) => p[PROFIT_FK[table]] === id)
     const byShop = new Map<string, { credited: number; pending: number }>()
     for (const p of orderProfits) {
-      const cur = byShop.get(p.shop_id) ?? { credited: 0, pending: 0 }
-      if (p.status === "credited") cur.credited += Number(p.profit_amount)
-      else if (p.status === "pending") cur.pending += Number(p.profit_amount)
+      const cur = byShop.get(p.shop_id) ?? { credited: 0, pending: 0 } // integer pesewas
+      const pesewas = Math.round(Number(p.profit_amount) * 100)
+      if (p.status === "credited") cur.credited += pesewas
+      else if (p.status === "pending") cur.pending += pesewas
       byShop.set(p.shop_id, cur)
     }
     const owners: OwnerCut[] = [...byShop.entries()]
@@ -123,7 +128,7 @@ async function enrich(db: SupabaseClient, table: OrderTable, rows: any[]): Promi
       .map(([shopId, v]) => {
         const ownerUserId = (shopById.get(shopId)?.user_id as string | undefined) ?? null
         return {
-          shopId, ownerUserId, credited: v.credited, pending: v.pending,
+          shopId, ownerUserId, credited: v.credited / 100, pending: v.pending / 100,
           availableBalance: balanceByShop.get(shopId) ?? 0,
           walletBalance: ownerUserId ? walletByUser.get(ownerUserId) ?? 0 : 0,
         }
@@ -145,7 +150,7 @@ async function enrich(db: SupabaseClient, table: OrderTable, rows: any[]): Promi
           gateway: "paystack",
           reference: wp.reference ?? null,
           payerPhone: null,
-          walletUserId: await resolveWalletUser(db, { phone: r.customer_phone, email: r.customer_email }),
+          walletUserId: debit?.user_id ?? null, // only a proving wallet debit; never buyer-typed phone/email
         }
       } else {
         paid = Number(r.total_price)
@@ -155,7 +160,7 @@ async function enrich(db: SupabaseClient, table: OrderTable, rows: any[]): Promi
               gateway: null,
               reference: null,
               payerPhone: null,
-              walletUserId: await resolveWalletUser(db, { phone: r.customer_phone, email: r.customer_email }),
+              walletUserId: null,
             }
       }
     } else {
@@ -205,12 +210,12 @@ export interface PendingQuery {
 
 /** Newest-first merged page of paid+pending orders. Each table's top (page*pageSize) rows contain the global top. */
 export async function listPendingOrderRefs(db: SupabaseClient, opts: PendingQuery): Promise<{ table: OrderTable; id: string; createdAt: string }[]> {
-  const tables = (opts.table ? [opts.table] : (Object.keys(SELECT) as OrderTable[]))
+  const tables = (opts.table ? [opts.table] : (Object.keys(SELECT) as OrderTable[])).filter((t) => !(opts.shopId && t === "ussd_orders")) // ussd_orders has no shop_id: never return it unscoped
   const need = opts.pageSize * opts.page
   const all: { table: OrderTable; id: string; createdAt: string }[] = []
   for (const table of tables) {
     let q: any = db.from(table).select("id, created_at").eq("order_status", "pending").eq("payment_status", "completed")
-    if (opts.shopId && table !== "ussd_orders") q = q.eq("shop_id", opts.shopId)
+    if (opts.shopId) q = q.eq("shop_id", opts.shopId)
     if (opts.q) {
       const term = opts.q.replace(/[^0-9a-zA-Z-]/g, "")
       if (term) {
@@ -218,10 +223,10 @@ export async function listPendingOrderRefs(db: SupabaseClient, opts: PendingQuer
         q = q.or(cols.map((c) => `${c}.ilike.%${term}%`).join(",") + (/^[0-9a-f-]{36}$/i.test(term) ? `,id.eq.${term}` : ""))
       }
     }
-    const { data, error } = await q.order("created_at", { ascending: false }).range(0, need - 1)
+    const { data, error } = await q.order("created_at", { ascending: false }).order("id", { ascending: false }).range(0, need - 1)
     if (error) throw new Error(`[REFUND] pending list failed for ${table}: ${error.message}`)
     for (const row of data ?? []) all.push({ table, id: row.id, createdAt: row.created_at })
   }
-  all.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+  all.sort((a, b) => (a.createdAt !== b.createdAt ? (a.createdAt < b.createdAt ? 1 : -1) : `${a.table}:${a.id}` < `${b.table}:${b.id}` ? -1 : 1))
   return all.slice((opts.page - 1) * opts.pageSize, opts.page * opts.pageSize)
 }
