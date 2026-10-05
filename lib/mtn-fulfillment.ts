@@ -339,7 +339,13 @@ export function isInsufficientFundsError(message: string): boolean {
  * based on admin settings, while maintaining backward compatibility.
  */
 export async function createMTNOrder(order: MTNOrderRequest): Promise<MTNOrderResponse> {
-  const { withDispatchGuard } = await import("@/lib/refunds/dispatch-guard")
+  let withDispatchGuard: typeof import("@/lib/refunds/dispatch-guard").withDispatchGuard
+  try {
+    ;({ withDispatchGuard } = await import("@/lib/refunds/dispatch-guard"))
+  } catch (err) {
+    console.error("[DISPATCH-GUARD] unavailable — running unguarded:", err)
+    return createMTNOrderUnguarded(order)
+  }
   return withDispatchGuard(order.client_ref, () => createMTNOrderUnguarded(order), {
     success: false,
     message: "Order is being refunded",
