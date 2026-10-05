@@ -492,3 +492,22 @@ describe("orders / api_orders (wallet-paid)", () => {
     expect(calls.some((c) => c[0] === "orders" || c[0] === "api_orders")).toBe(false)
   })
 })
+
+describe("external_order_id on orders / api_orders", () => {
+  it("orders: selects external_order_id and exposes it as evidence (so a pre-guard dispatch with no tracking is not refundable)", async () => {
+    const calls: unknown[][] = []
+    const row = { id: "b1", user_id: "uB", network: "MTN", size: "5", price: 20, status: "pending", phone_number: "0241112222", external_order_id: "ext-77", created_at: "2026-10-05T10:00:00" }
+    const [o] = await loadRefundableOrders(fakeDb({ ...EMPTY, orders: [row] }, calls), [{ table: "orders", id: "b1" }])
+    expect(o.evidence.externalOrderId).toBe("ext-77")
+    const sel = calls.find((c) => c[0] === "orders" && c[1] === "select")![2] as string
+    expect(sel).toContain("external_order_id")
+  })
+  it("api_orders: never selects external_order_id (column does not exist) and reports null", async () => {
+    const calls: unknown[][] = []
+    const row = { id: "a1", user_id: "uA", network: "MTN", volume_gb: 2, price: 9.5, status: "pending", recipient_phone: "0243334444", created_at: "2026-10-05T10:00:00+00:00" }
+    const [o] = await loadRefundableOrders(fakeDb({ ...EMPTY, api_orders: [row] }, calls), [{ table: "api_orders", id: "a1" }])
+    expect(o.evidence.externalOrderId).toBeNull()
+    const sel = calls.find((c) => c[0] === "api_orders" && c[1] === "select")![2] as string
+    expect(sel).not.toContain("external_order_id")
+  })
+})

@@ -233,6 +233,8 @@ END $$;
 -- ───────────────────── status guard for tables whose column is `status` ─────────────────────
 -- Same logic as guard_refund_status() (which reads NEW.order_status, a column orders/api_orders do not have).
 -- A late provider webhook / cron / bulk update must not move a refunding/refunded order.
+-- The triggers carry a WHEN clause so this SECURITY DEFINER function only runs for rows already in a refund state
+-- (the body re-checks the condition).
 CREATE OR REPLACE FUNCTION public.guard_refund_status_status()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 BEGIN
@@ -250,10 +252,10 @@ END $$;
 
 DROP TRIGGER IF EXISTS trg_00_refund_status_guard ON public.orders;
 CREATE TRIGGER trg_00_refund_status_guard BEFORE UPDATE ON public.orders
-  FOR EACH ROW EXECUTE FUNCTION public.guard_refund_status_status();
+  FOR EACH ROW WHEN (OLD.status IN ('refunding','refunded')) EXECUTE FUNCTION public.guard_refund_status_status();
 DROP TRIGGER IF EXISTS trg_00_refund_status_guard ON public.api_orders;
 CREATE TRIGGER trg_00_refund_status_guard BEFORE UPDATE ON public.api_orders
-  FOR EACH ROW EXECUTE FUNCTION public.guard_refund_status_status();
+  FOR EACH ROW WHEN (OLD.status IN ('refunding','refunded')) EXECUTE FUNCTION public.guard_refund_status_status();
 
 -- ───────────────────── privileges ─────────────────────
 REVOKE EXECUTE ON FUNCTION public.guard_refund_status_status() FROM PUBLIC, anon, authenticated;

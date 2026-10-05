@@ -49,7 +49,8 @@ const SELECT: Record<OrderTable, string> = {
     "id, dialing_phone, recipient_phone, network, package_size, amount, order_status, payment_status, paystack_reference, created_at",
   ussd_shop_orders:
     "id, shop_id, dialing_phone, recipient_phone, network, package_size, amount, order_status, payment_status, paystack_reference, created_at",
-  orders: "id, user_id, network, size, price, status, phone_number, created_at",
+  // orders.external_order_id: added by migrations/fix_external_order_id_types.sql. api_orders has no such column in the repo (provider_reference only), so it is NOT selected.
+  orders: "id, user_id, network, size, price, status, phone_number, external_order_id, created_at",
   api_orders: "id, user_id, network, volume_gb, price, status, recipient_phone, created_at",
 }
 

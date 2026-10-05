@@ -46,13 +46,14 @@ DO $$
 DECLARE
   v_user uuid; v_pkg uuid; v_key uuid;
   v_o uuid; v_a uuid; v_o2 uuid; v_a2 uuid; v_x uuid;
-  v_res jsonb; v_rid uuid; v_rid2 uuid; v_err text; v_w numeric;
+  v_res jsonb; v_rid uuid; v_rid2 uuid; v_err text; v_w numeric; v_u uuid; v_n int;
 BEGIN
   SELECT user_id INTO v_user FROM wallets ORDER BY user_id LIMIT 1;
   ASSERT v_user IS NOT NULL, 'need at least one wallet to run this test';
   SELECT id INTO v_pkg FROM packages ORDER BY id LIMIT 1;
   ASSERT v_pkg IS NOT NULL, 'need at least one package to run this test';
-  SELECT id INTO v_key FROM user_api_keys ORDER BY id LIMIT 1; -- may be NULL if the live column is nullable
+  SELECT id INTO v_key FROM user_api_keys ORDER BY id LIMIT 1;
+  IF v_key IS NULL THEN RAISE EXCEPTION 'test needs at least one user_api_keys row'; END IF;
 
   PERFORM pg_temp.set_wallet(v_user, 50);
 
@@ -196,6 +197,56 @@ BEGIN
   EXCEPTION WHEN check_violation THEN
     NULL;
   END;
+
+  -- (13) regression: an ORIGINAL table still behaves (ussd_orders, no shop profits)
+  INSERT INTO ussd_orders (dialing_phone, recipient_phone, network, paystack_provider, amount, order_status, payment_status)
+    VALUES ('0240000003', '0240000003', 'MTN', 'mtn', 12, 'pending', 'completed') RETURNING id INTO v_u;
+  v_res := reserve_order_refund('ussd_orders', v_u, 'wallet', 12, 0, 12, '0240000003', NULL, NULL);
+  v_rid := (v_res->>'refund_id')::uuid;
+  ASSERT v_res->'clawbacks' = '[]'::jsonb, 'ussd: no profits => no clawbacks';
+  ASSERT (SELECT order_status::text FROM ussd_orders WHERE id = v_u) = 'refunding', 'ussd: refunding';
+  ASSERT (SELECT prev_status FROM order_refunds WHERE id = v_rid) = 'pending', 'ussd: prev_status pending';
+  ASSERT fail_order_refund(v_rid, 'cleanup') = 'failed', 'ussd: fail returns failed';
+  ASSERT (SELECT order_status::text FROM ussd_orders WHERE id = v_u) = 'pending', 'ussd: restored to pending';
+  UPDATE ussd_orders SET payment_status = 'pending' WHERE id = v_u;
+  BEGIN
+    PERFORM reserve_order_refund('ussd_orders', v_u, 'wallet', 12, 0, 12, NULL, NULL, NULL);
+    ASSERT false, 'unpaid ussd order must not be refundable';
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_err = MESSAGE_TEXT;
+    ASSERT v_err = 'ORDER_NOT_PENDING', 'got: ' || v_err;
+  END;
+
+  -- (14) p_expected_attempts: mismatch => DISPATCH_ACTIVE, matching value succeeds (new table)
+  v_x := pg_temp.mk_orders_row(v_user, v_pkg, 'pending');
+  ASSERT claim_order_dispatch(v_x) = true, 'claim for the attempts test';
+  PERFORM record_dispatch_outcome(v_x, 'failed');
+  BEGIN
+    PERFORM reserve_order_refund('orders', v_x, 'wallet', 5, 0, 5, NULL, v_user, NULL, 0);
+    ASSERT false, 'wrong p_expected_attempts must fail';
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_err = MESSAGE_TEXT;
+    ASSERT v_err = 'DISPATCH_ACTIVE', 'got: ' || v_err;
+  END;
+  v_res := reserve_order_refund('orders', v_x, 'wallet', 5, 0, 5, NULL, v_user, NULL,
+    (SELECT attempts FROM order_dispatch_claims WHERE order_id = v_x));
+  ASSERT v_res->>'refund_id' IS NOT NULL, 'matching p_expected_attempts succeeds';
+  v_rid := (v_res->>'refund_id')::uuid;
+
+  -- (15) NULL prev_status (a refund reserved before this migration) restores 'pending'
+  UPDATE order_refunds SET prev_status = NULL WHERE id = v_rid;
+  ASSERT fail_order_refund(v_rid, 'null prev') = 'failed', 'null prev: fail returns failed';
+  ASSERT pg_temp.st('orders', v_x) = 'pending', 'null prev_status falls back to pending';
+
+  -- (16) privileges: none of the refund functions is executable by anon / authenticated
+  SELECT count(*) INTO v_n FROM unnest(ARRAY[
+      'public.reserve_order_refund(text, uuid, text, numeric, numeric, numeric, text, uuid, uuid, integer)',
+      'public.complete_order_refund(uuid, text)',
+      'public.fail_order_refund(uuid, text)',
+      'public.guard_refund_status_status()']) f
+    CROSS JOIN unnest(ARRAY['anon','authenticated']) r
+   WHERE has_function_privilege(r, f, 'execute');
+  ASSERT v_n = 0, 'anon/authenticated must not have EXECUTE on the refund functions, got ' || v_n;
 
   SELECT balance INTO v_w FROM wallets WHERE user_id = v_user;
   ASSERT v_w = 50, 'no RPC in this file moves any wallet balance';
