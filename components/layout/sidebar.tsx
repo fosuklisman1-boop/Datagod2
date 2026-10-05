@@ -29,6 +29,7 @@ import {
   Crown,
   Sparkles,
   Smartphone,
+  RotateCcw,
   Activity,
   Shield,
   GraduationCap,
@@ -782,6 +783,27 @@ export function Sidebar() {
                     <Smartphone className="w-5 h-5 flex-shrink-0" />
                   )}
                   {isOpen && "MTN Registration"}
+                </Button>
+              </Link>
+
+              <Link href="/admin/refunds" onClick={() => handleNavigation("/admin/refunds")}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    pathname === "/admin/refunds" ? c.navLinkActive : c.navLinkInactive,
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/refunds" && "opacity-70"
+                  )}
+                  title={!isOpen ? "Refunds" : undefined}
+                  disabled={loadingPath === "/admin/refunds"}
+                >
+                  {loadingPath === "/admin/refunds" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <RotateCcw className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && "Refunds"}
                 </Button>
               </Link>
 
