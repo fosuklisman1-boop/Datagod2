@@ -3,6 +3,8 @@
  * Maps an admin refund API response to what the UI should do. Pure so the money-critical
  * branches (SETTLE_FAILED, wrong OTP, cancel) are unit tested.
  */
+import { isInFlight } from "./staleness"
+
 export type RefundAction = "execute" | "retry" | "reconcile" | "otp" | "cancel"
 
 export interface SettleFailedDetail {
@@ -63,9 +65,21 @@ export function interpretRefundResponse(action: RefundAction, httpStatus: number
 export const ATTENTION_STATUSES = ["reserved", "processing", "awaiting_otp"] as const
 export const isAttentionStatus = (s: string): boolean => (ATTENTION_STATUSES as readonly string[]).includes(s)
 
+const ATTENTION_TEXT: Record<string, string> = {
+  reserved: "Stuck after a crash. The payout may have gone out. Check status before doing anything else.",
+  processing: "Awaiting gateway confirmation. Check status.",
+  awaiting_otp: "Waiting for the payout OTP. Enter it, check status, or cancel.",
+}
+
+/** Hint for a refund needing attention; reserved/processing rows under 5 minutes old may still have the payout call running. */
+export function attentionHint(r: { status: string; updated_at?: string | null }, now: number): { inFlight: boolean; text: string } {
+  if (isInFlight(r, now)) return { inFlight: true, text: "In flight — retry in a few minutes" }
+  return { inFlight: false, text: ATTENTION_TEXT[r.status] ?? "" }
+}
+
 export type ErrorTreatment = "ambiguous" | "stale" | "rejected"
 
-const STALE_CODES = ["ORDER_NOT_PENDING", "ALREADY_REFUNDED", "DISPATCH_ACTIVE", "NOT_ELIGIBLE"]
+const STALE_CODES = ["ORDER_NOT_PENDING", "ALREADY_REFUNDED", "DISPATCH_ACTIVE", "NOT_ELIGIBLE", "IN_FLIGHT"]
 
 /**
  * How the refund dialog must treat a non-success execute outcome.

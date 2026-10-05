@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { interpretRefundResponse, isAttentionStatus, treatAsAmbiguous, parseRefundAmount, isCancelledRefund } from "./ui-outcome"
+import { interpretRefundResponse, isAttentionStatus, treatAsAmbiguous, parseRefundAmount, isCancelledRefund, attentionHint } from "./ui-outcome"
 
 describe("interpretRefundResponse", () => {
   it("completed => success", () => {
@@ -103,5 +103,29 @@ describe("isCancelledRefund", () => {
     expect(isCancelledRefund({ status: "failed", error: "Cancelled by admin" })).toBe(true)
     expect(isCancelledRefund({ status: "failed", error: "Payout rejected" })).toBe(false)
     expect(isCancelledRefund({ status: "completed", error: null })).toBe(false)
+  })
+})
+
+describe("attentionHint / inFlight (I-1)", () => {
+  const NOW = Date.parse("2026-10-05T12:00:00Z")
+  const row = (status: string, ageMs: number) => ({ status, updated_at: new Date(NOW - ageMs).toISOString() })
+  it("reserved/processing under 5 min => in flight, no check-status, no crash hint", () => {
+    for (const status of ["reserved", "processing"]) {
+      const h = attentionHint(row(status, 60_000), NOW)
+      expect(h.inFlight).toBe(true)
+      expect(h.text).toBe("In flight — retry in a few minutes")
+    }
+  })
+  it("reserved older than 5 min => stuck-after-a-crash hint, check status allowed", () => {
+    const h = attentionHint(row("reserved", 6 * 60_000), NOW)
+    expect(h.inFlight).toBe(false)
+    expect(h.text).toMatch(/Stuck after a crash/)
+  })
+  it("old processing => awaiting-confirmation hint; awaiting_otp never in flight", () => {
+    expect(attentionHint(row("processing", 6 * 60_000), NOW)).toMatchObject({ inFlight: false, text: expect.stringMatching(/Awaiting gateway/) })
+    expect(attentionHint(row("awaiting_otp", 1000), NOW)).toMatchObject({ inFlight: false, text: expect.stringMatching(/OTP/) })
+  })
+  it("IN_FLIGHT 409 on an action is a stale-type, non-ambiguous error", () => {
+    expect(treatAsAmbiguous({ kind: "error", message: "m", code: "IN_FLIGHT", status: 409 })).toBe("stale")
   })
 })

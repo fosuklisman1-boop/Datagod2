@@ -22,7 +22,7 @@ import { RefundDialog } from "@/components/admin/refunds/refund-dialog"
 import { OtpDialog } from "@/components/admin/refunds/otp-dialog"
 import { SettleFailedDialog } from "@/components/admin/refunds/settle-failed-dialog"
 import { postRefundAction } from "@/components/admin/refunds/api"
-import { ATTENTION_STATUSES, isAttentionStatus, isCancelledRefund, type RefundAction, type RefundOutcome, type SettleFailedDetail } from "@/lib/refunds/ui-outcome"
+import { ATTENTION_STATUSES, isAttentionStatus, isCancelledRefund, attentionHint, type RefundAction, type RefundOutcome, type SettleFailedDetail } from "@/lib/refunds/ui-outcome"
 
 interface PendingRow {
   order: {
@@ -40,19 +40,13 @@ type RefundStatus = "reserved" | "processing" | "awaiting_otp" | "completed" | "
 interface HistoryRow {
   id: string; order_table: string; order_id: string; gateway: string; amount: number
   status: RefundStatus; error: string | null; gateway_ref: string | null
-  created_at: string; late_events: unknown[] | null
+  created_at: string; updated_at: string; late_events: unknown[] | null
 }
 
 type StatusFilter = "all" | "attention" | "completed" | "failed"
 
 const TABLE_LABEL: Record<string, string> = { shop_orders: "Storefront", ussd_orders: "USSD", ussd_shop_orders: "USSD shop" }
 const PAGE_SIZE = 50
-
-const ATTENTION_HINT: Record<string, string> = {
-  reserved: "Stuck after a crash. The payout may have gone out. Check status before doing anything else.",
-  processing: "Awaiting gateway confirmation. Check status.",
-  awaiting_otp: "Waiting for the payout OTP. Enter it, check status, or cancel.",
-}
 
 async function getToken(): Promise<string> {
   const { data: { session } } = await supabase.auth.getSession()
@@ -83,6 +77,9 @@ export default function AdminRefundsPage() {
   const [pending, setPending] = useState<PendingRow[]>([])
   const [history, setHistory] = useState<HistoryRow[]>([])
   const [loading, setLoading] = useState(true)
+  // Re-evaluated every 15s so "In flight" rows become checkable without a manual reload.
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 15_000); return () => clearInterval(t) }, [])
   const [q, setQ] = useState("")
   const [appliedQ, setAppliedQ] = useState("")
   const [pendingPage, setPendingPage] = useState(1)
@@ -279,6 +276,7 @@ export default function AdminRefundsPage() {
                   {history.map((r) => {
                     const attention = isAttentionStatus(r.status)
                     const busy = busyId !== null
+                    const hint = attentionHint(r, now)
                     return (
                       <TableRow key={r.id} className={attention ? "bg-destructive/5" : ""}>
                         <TableCell>{new Date(r.created_at).toLocaleString()}</TableCell>
@@ -293,14 +291,14 @@ export default function AdminRefundsPage() {
                           {(r.late_events?.length ?? 0) > 0 && <Badge variant="destructive" className="ml-1">late update blocked</Badge>}
                         </TableCell>
                         <TableCell className="max-w-xs text-xs" title={r.error ?? ""}>
-                          {attention && <div className="text-destructive">{ATTENTION_HINT[r.status]}</div>}
+                          {attention && <div className="text-destructive">{hint.text}</div>}
                           {r.error && <div className="truncate">{r.error}</div>}
                           {r.gateway_ref && <div className="truncate font-mono text-muted-foreground">{r.gateway_ref}</div>}
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex flex-wrap justify-end gap-2">
                             {attention && (
-                              <Button size="sm" variant="outline" disabled={busy} onClick={() => act(r.id, "reconcile")}>Check status</Button>
+                              <Button size="sm" variant="outline" disabled={busy || hint.inFlight} onClick={() => act(r.id, "reconcile")}>Check status</Button>
                             )}
                             {r.status === "awaiting_otp" && (
                               <>
