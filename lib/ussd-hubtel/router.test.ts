@@ -4,17 +4,27 @@ import { hubtelRouter, type RouterDeps } from "./router"
 import type { HubtelRequest, HubtelSession } from "./types"
 import { DEFAULT_NETWORK_PREFIXES } from "@/lib/phone-format"
 
-function fakeSupabase(opts: { pkg?: any; txError?: boolean } = {}) {
+function fakeSupabase(opts: { pkg?: any; txError?: boolean; txRow?: any; orderRow?: any } = {}) {
   const inserts: Record<string, any[]> = {}
   const updates: Array<{ table: string; patch: any }> = []
+  // Successful inserts become readable, so a replayed CONFIRM sees what the first one wrote.
+  const stored: Record<string, any> = {}
   const client: any = {
     from(table: string) {
       const b: any = {
         select() { return b }, eq() { return b }, is() { return b }, not() { return b }, in() { return b },
-        single: async () => ({ data: table === "packages" ? opts.pkg : null, error: null }),
-        maybeSingle: async () => ({ data: null, error: null }),
+        single: async () => ({
+          data: table === "packages" ? opts.pkg : table === "ussd_orders" ? (opts.orderRow ?? stored.ussd_orders ?? null) : null,
+          error: null,
+        }),
+        maybeSingle: async () => ({
+          data: table === "hubtel_transactions" ? (opts.txRow ?? stored.hubtel_transactions ?? null) : null,
+          error: null,
+        }),
         insert(rows: any) {
-          ;(inserts[table] ??= []).push(...([] as any[]).concat(rows))
+          const list = ([] as any[]).concat(rows)
+          ;(inserts[table] ??= []).push(...list)
+          if (!(table === "hubtel_transactions" && opts.txError)) stored[table] = { ...list[0], state: "awaiting_payment" }
           const ib: any = {
             select() { return ib },
             single: async () => ({ data: { id: "11111111-1111-1111-1111-111111111111" }, error: null }),
@@ -141,6 +151,12 @@ describe("hubtelRouter: bad input keeps the session (review focus #5)", () => {
     await hubtelRouter(req({ Message: "233244123456" }), deps)
     expect(store.get("S1")).toMatchObject({ step: "CONFIRM", recipientPhone: "0244123456" })
   })
+  it("normalises a +233… recipient to local", async () => {
+    const { deps, store } = makeDeps()
+    await walkTo("ENTER_RECIPIENT", deps)
+    await hubtelRouter(req({ Message: "+233244123456" }), deps)
+    expect(store.get("S1")).toMatchObject({ step: "CONFIRM", recipientPhone: "0244123456" })
+  })
 })
 
 describe("hubtelRouter: confirm → AddToCart", () => {
@@ -184,7 +200,87 @@ describe("hubtelRouter: confirm → AddToCart", () => {
     await walkTo("CONFIRM", deps)
     const r = await hubtelRouter(req({ Message: "1" }), deps)
     expect(r.Type).toBe("release")
-    expect(sup.updates.some(u => u.table === "ussd_orders" && u.patch.order_status === "failed")).toBe(true)
+    expect(r.Type).not.toBe("AddToCart")
+    expect(sup.updates.some(u => u.table === "ussd_orders" && u.patch.order_status === "failed" && u.patch.payment_status === "failed")).toBe(true)
+  })
+})
+
+describe("hubtelRouter: idempotent CONFIRM", () => {
+  const okPkg = { price: 10, dealer_price: null, is_available: true }
+  it("a duplicate '1' creates ONE order + ONE tx and replays the same AddToCart", async () => {
+    const sup = fakeSupabase({ pkg: okPkg })
+    const { deps } = makeDeps({}, sup)
+    await walkTo("CONFIRM", deps)
+    const first = await hubtelRouter(req({ Message: "1" }), deps)
+    const second = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(first.Type).toBe("AddToCart")
+    expect(second.Type).toBe("AddToCart")
+    expect(second.Item).toEqual(first.Item)
+    expect(sup.inserts["ussd_orders"]).toHaveLength(1)
+    expect(sup.inserts["hubtel_transactions"]).toHaveLength(1)
+  })
+  it("a concurrent duplicate while the session still exists replays instead of inserting", async () => {
+    const sup = fakeSupabase({
+      pkg: okPkg,
+      txRow: { order_table: "ussd_orders", order_id: "o1", expected_amount: 10, state: "awaiting_payment" },
+      orderRow: { package_size: "5", network: "MTN" },
+    })
+    const { deps } = makeDeps({}, sup)
+    await walkTo("CONFIRM", deps)
+    const r = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(r.Type).toBe("AddToCart")
+    expect(r.Item).toEqual({ ItemName: "5GB MTN Data", Qty: 1, Price: 10 })
+    expect(sup.inserts["ussd_orders"]).toBeUndefined()
+    expect(sup.inserts["hubtel_transactions"]).toBeUndefined()
+  })
+  it("no session but an awaiting_payment tx exists: replays AddToCart, not the menu", async () => {
+    const sup = fakeSupabase({
+      txRow: { order_table: "ussd_orders", order_id: "o1", expected_amount: 10, state: "awaiting_payment" },
+      orderRow: { package_size: "5", network: "MTN" },
+    })
+    const { deps } = makeDeps({}, sup)
+    const r = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(r.Type).toBe("AddToCart")
+    expect(r.Item).toEqual({ ItemName: "5GB MTN Data", Qty: 1, Price: 10 })
+    expect(r.Message).not.toContain("Buy Data Bundle")
+  })
+  it("an existing tx in another state releases 'already submitted'", async () => {
+    const sup = fakeSupabase({
+      txRow: { order_table: "ussd_orders", order_id: "o1", expected_amount: 10, state: "fulfilled" },
+    })
+    const { deps } = makeDeps({}, sup)
+    const r = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(r.Type).toBe("release")
+    expect(r.Message).toContain("already submitted")
+  })
+})
+
+describe("hubtelRouter: back navigation and pagination", () => {
+  it("'0' at SELECT_BUNDLE returns the network menu", async () => {
+    const { deps, store } = makeDeps()
+    await walkTo("SELECT_BUNDLE", deps)
+    const r = await hubtelRouter(req({ Message: "0" }), deps)
+    expect(r.Message).toContain("MTN")
+    expect(store.get("S1")?.step).toBe("SELECT_NETWORK")
+  })
+  it("'0' at ENTER_RECIPIENT returns the bundle menu", async () => {
+    const { deps, store } = makeDeps()
+    await walkTo("ENTER_RECIPIENT", deps)
+    const r = await hubtelRouter(req({ Message: "0" }), deps)
+    expect(r.Message).toContain("Select Package")
+    expect(store.get("S1")?.step).toBe("SELECT_BUNDLE")
+  })
+  it("pages through bundles: 'More' shows page 2 numbering and '7' picks its 2nd bundle", async () => {
+    const all = Array.from({ length: 12 }, (_, i) => ({ id: `p${i + 1}`, size: String(i + 1), price: 10 }))
+    const { deps, store } = makeDeps({
+      fetchBundles: async (_n, page) => ({ bundles: all.slice(page * 5, page * 5 + 5), total: 12 }),
+    })
+    await walkTo("SELECT_BUNDLE", deps)
+    const more = await hubtelRouter(req({ Message: "6" }), deps)
+    expect(more.Message).toContain("6. 6GB")
+    expect(store.get("S1")?.bundlePage).toBe(1)
+    await hubtelRouter(req({ Message: "7" }), deps)
+    expect(store.get("S1")).toMatchObject({ step: "ENTER_RECIPIENT", bundleId: "p7" })
   })
 })
 

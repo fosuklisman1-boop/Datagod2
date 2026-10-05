@@ -57,7 +57,12 @@ export async function hubtelRouter(req: HubtelRequest, deps: RouterDeps): Promis
   if (req.Type === "Initiation") return startSession(req, deps, config, "")
 
   const session = await deps.sessions.get(sid)
-  if (!session) return startSession(req, deps, config, "Session expired.\n")
+  if (!session) {
+    // A retry after our first reply was lost: the session is already gone but the order exists.
+    const replay = await replaySubmittedOrder(deps, sid, platform)
+    if (replay) return replay
+    return startSession(req, deps, config, "Session expired.\n")
+  }
 
   const input = req.Message.trim()
   switch (session.step) {
@@ -71,7 +76,46 @@ export async function hubtelRouter(req: HubtelRequest, deps: RouterDeps): Promis
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
-const cs = (step: string) => step // ClientState mirrors the step name (safety net if Redis blips)
+const cs = (step: string) => step // ClientState is echoed for Hubtel; the router does not read it back
+
+function cartItemName(size: string, networkDbName: string | null | undefined): string {
+  const net = HUBTEL_NETWORKS.find(n => n.dbName === networkDbName)
+  const sizeLabel = size.match(/^\d+(\.\d+)?$/) ? size + "GB" : size
+  return `${sizeLabel} ${net?.label ?? networkDbName} Data`
+}
+
+const CART_MESSAGE = "Request submitted. Approve the payment prompt on your phone to complete your order."
+
+/**
+ * Idempotency guard shared by CONFIRM and the no-session path. If this Hubtel session already
+ * produced an order: replay the identical AddToCart while awaiting payment, else say it was
+ * already submitted. Returns null when no order exists for the session.
+ */
+async function replaySubmittedOrder(deps: RouterDeps, sid: string, platform: HubtelPlatform): Promise<HubtelReply | null> {
+  const { supabase } = deps
+  const { data: tx } = await supabase
+    .from("hubtel_transactions")
+    .select("order_table, order_id, expected_amount, state")
+    .eq("session_id", sid)
+    .maybeSingle()
+  if (!tx) return null
+  if (tx.state !== "awaiting_payment") {
+    await deps.sessions.del(sid)
+    return release(sid, "This order was already submitted.", { platform })
+  }
+  const { data: order } = await supabase.from("ussd_orders").select("package_size, network").eq("id", tx.order_id).single()
+  if (!order) {
+    await deps.sessions.del(sid)
+    return release(sid, "This order was already submitted.", { platform })
+  }
+  await deps.sessions.del(sid)
+  return addToCart(sid, {
+    itemName: cartItemName(String(order.package_size), order.network),
+    price: Number(tx.expected_amount),
+    message: CART_MESSAGE,
+    platform,
+  })
+}
 
 function menuFor(config: HubtelUssdConfig, dataBlocked: boolean) {
   return resolveMainMenu(config.visibility as Record<MainMenuKey, boolean>, dataBlocked)
@@ -205,6 +249,9 @@ async function handleConfirm(input: string, req: HubtelRequest, deps: RouterDeps
     )
   }
 
+  const replay = await replaySubmittedOrder(deps, sid, platform)
+  if (replay) return replay
+
   const { supabase } = deps
   const { data: pkg } = await supabase.from("packages").select("price, dealer_price, is_available").eq("id", session.bundleId!).single()
   if (!pkg || !pkg.is_available) {
@@ -249,6 +296,7 @@ async function handleConfirm(input: string, req: HubtelRequest, deps: RouterDeps
 
   if (orderError || !order) {
     console.error("[HUBTEL-CONFIRM] Failed to create order:", orderError)
+    await deps.sessions.del(sid)
     return release(sid, "Error creating order. Please try again.", { platform })
   }
 
@@ -262,18 +310,18 @@ async function handleConfirm(input: string, req: HubtelRequest, deps: RouterDeps
   })
   if (txError) {
     console.error("[HUBTEL-CONFIRM] hubtel_transactions insert failed:", txError)
-    await supabase.from("ussd_orders")
+    const { error: rollbackError } = await supabase.from("ussd_orders")
       .update({ order_status: "failed", payment_status: "failed", updated_at: new Date().toISOString() })
       .eq("id", order.id)
+    if (rollbackError) console.error("[HUBTEL-CONFIRM] Failed to mark order failed after tx insert error:", order.id, rollbackError)
     return release(sid, "Error creating order. Please try again.", { platform })
   }
 
   await deps.sessions.del(sid)
-  const net = HUBTEL_NETWORKS.find(n => n.dbName === session.network)
   return addToCart(sid, {
-    itemName: `${session.bundleSize!.match(/^\d+(\.\d+)?$/) ? session.bundleSize + "GB" : session.bundleSize} ${net?.label ?? session.network} Data`,
+    itemName: cartItemName(session.bundleSize!, session.network),
     price,
-    message: "Request submitted. Approve the payment prompt on your phone to complete your order.",
+    message: CART_MESSAGE,
     platform,
   })
 }
