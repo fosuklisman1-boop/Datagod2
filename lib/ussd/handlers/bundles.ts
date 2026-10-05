@@ -20,7 +20,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const PAGE_SIZE = 5
+export const PAGE_SIZE = 5
 
 const NETWORK_OPTIONS: Record<string, { dbName: string; paystackProvider: 'mtn' | 'vod' | 'tgo' }> = {
   '1': { dbName: 'MTN', paystackProvider: 'mtn' },
@@ -29,7 +29,7 @@ const NETWORK_OPTIONS: Record<string, { dbName: string; paystackProvider: 'mtn' 
   '4': { dbName: 'AT-BigTime', paystackProvider: 'tgo' },
 }
 
-async function fetchBundles(
+export async function fetchBundles(
   network: string,
   page: number,
   priceTier: string,
