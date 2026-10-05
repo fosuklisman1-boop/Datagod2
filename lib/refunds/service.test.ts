@@ -10,7 +10,7 @@ const order = (o: Partial<RefundableOrder> = {}): RefundableOrder => ({
   createdAt: "2026-10-05", paid: 10, gatewayFee: 0.2,
   payment: { gateway: "paystack", reference: "o1", payerPhone: "0241112222", walletUserId: null },
   owners: [{ shopId: "sA", ownerUserId: "uA", credited: 3, pending: 0, availableBalance: 10, walletBalance: 0 }],
-  evidence: { hasActiveRefund: false, dispatchOutcome: null, trackingStatuses: [], externalOrderId: null },
+  evidence: { hasActiveRefund: false, dispatchOutcome: null, dispatchAttempts: null, trackingStatuses: [], externalOrderId: null },
   ...o,
 })
 
@@ -92,7 +92,7 @@ describe("executeRefund", () => {
   })
 
   it("rejects ineligible orders before touching the database", async () => {
-    const { deps, calls } = setup({ kind: "completed", ref: "x" }, order({ evidence: { hasActiveRefund: false, dispatchOutcome: "submitted", trackingStatuses: ["completed"], externalOrderId: null } }))
+    const { deps, calls } = setup({ kind: "completed", ref: "x" }, order({ evidence: { hasActiveRefund: false, dispatchOutcome: "submitted", dispatchAttempts: 1, trackingStatuses: ["completed"], externalOrderId: null } }))
     await expect(executeRefund(deps, input)).rejects.toMatchObject({ code: "NOT_ELIGIBLE" })
     expect(calls).toEqual([])
   })
@@ -120,9 +120,12 @@ describe("executeRefund", () => {
   })
 })
 
+const NOW = Date.parse("2026-10-05T12:00:00Z")
+const agoIso = (ms: number) => new Date(NOW - ms).toISOString()
 const stored = (o: Partial<StoredRefund> = {}): StoredRefund => ({
   id: "rf1", order_table: "ussd_shop_orders", order_id: "o1", gateway: "paystack_payout",
-  amount: 9.8, destination_phone: "0241112222", gateway_ref: "TRF_1", status: "awaiting_otp", clawbacks: [], ...o,
+  amount: 9.8, destination_phone: "0241112222", gateway_ref: "TRF_1", status: "awaiting_otp", clawbacks: [],
+  updated_at: new Date(NOW - 60 * 60_000).toISOString(), ...o,
 })
 
 function otpSetup(over: Partial<RefundGateway>) {
@@ -136,6 +139,7 @@ function otpSetup(over: Partial<RefundGateway>) {
     loadOrder: async () => order(),
     getGateway: (id) => (id === "paystack_payout" ? gateway : undefined),
     notify: vi.fn(async () => {}),
+    now: () => NOW,
   }
   return { deps, calls }
 }
@@ -217,6 +221,7 @@ describe("mapReserveError", () => {
   it.each([
     ["ALREADY_REFUNDED", "ALREADY_REFUNDED"], ["ORDER_NOT_PENDING", "ORDER_NOT_PENDING"],
     ["DISPATCH_ACTIVE", "DISPATCH_ACTIVE"], ["SHORTFALL:abc:3.5", "SHORTFALL"], ["weird", "RESERVE_FAILED"],
+    ["ORDER_NOT_FOUND", "NOT_FOUND"], ["BAD_AMOUNT", "BAD_AMOUNT"], ["BAD_TABLE", "BAD_AMOUNT"],
   ])("%s → %s", (msg, code) => expect(mapReserveError(msg).code).toBe(code))
   it("keeps shortfall detail", () => {
     expect(mapReserveError("SHORTFALL:shop-1:3.5").detail).toEqual({ shopId: "shop-1", amount: 3.5 })
@@ -350,7 +355,7 @@ describe("rpc argument contracts", () => {
     await executeRefund(deps, input)
     expect(calls[0].args).toEqual({
       p_order_table: "ussd_shop_orders", p_order_id: "o1", p_gateway: "paystack", p_paid: 10, p_fee: 0.2,
-      p_amount: 9.8, p_destination: "0241112222", p_wallet_user: null, p_admin: "admin1",
+      p_amount: 9.8, p_destination: "0241112222", p_wallet_user: null, p_admin: "admin1", p_expected_attempts: 0,
     })
     expect(calls[1]).toMatchObject({ name: "complete_order_refund", args: { p_refund_id: "rf1", p_gateway_ref: "R1" } })
   })
@@ -415,5 +420,62 @@ describe("reconcile / otp extras", () => {
     const { deps, calls } = otpSetup({ finalizeOtp: vi.fn(async () => { throw new Error("boom") }) })
     expect((await submitRefundOtp(deps, stored(), "123456")).status).toBe("processing")
     expect(calls.map((c) => c.name)).toEqual(["mark_refund_processing"])
+  })
+})
+
+describe("p_expected_attempts (dispatch finished between read and reserve)", () => {
+  it("passes the loaded claim count", async () => {
+    const { deps, calls } = setup({ kind: "completed", ref: "R1" }, order({ evidence: { hasActiveRefund: false, dispatchOutcome: "failed", dispatchAttempts: 3, trackingStatuses: [], externalOrderId: null } }))
+    await executeRefund(deps, input)
+    expect(calls[0].args.p_expected_attempts).toBe(3)
+  })
+  it("expects 0 when there was no claims row", async () => {
+    const { deps, calls } = setup({ kind: "completed", ref: "R1" })
+    await executeRefund(deps, input)
+    expect(calls[0].args.p_expected_attempts).toBe(0)
+  })
+  it("a DISPATCH_ACTIVE from the reserve maps to DISPATCH_ACTIVE and the gateway is never called", async () => {
+    const { deps, gateway } = setup({ kind: "completed", ref: "x" }, order(), { error: { message: "DISPATCH_ACTIVE" } })
+    await expect(executeRefund(deps, input)).rejects.toMatchObject({ code: "DISPATCH_ACTIVE" })
+    expect(gateway.refund).not.toHaveBeenCalled()
+  })
+})
+
+describe("in-flight protection (I-1)", () => {
+  it.each(["reserved", "processing"])("reconcile refuses a %s row updated 1 minute ago", async (status) => {
+    const checkStatus = vi.fn(async () => ({ kind: "failed", error: "x" } as GatewayOutcome))
+    const { deps, calls } = otpSetup({ checkStatus })
+    await expect(reconcileRefund(deps, stored({ status, updated_at: agoIso(60_000) }))).rejects.toMatchObject({ code: "IN_FLIGHT" })
+    expect(checkStatus).not.toHaveBeenCalled()
+    expect(calls).toEqual([])
+  })
+  it("reconcile proceeds on a processing row older than 5 minutes", async () => {
+    const { deps, calls } = otpSetup({ checkStatus: vi.fn(async () => ({ kind: "completed", ref: "T" } as GatewayOutcome)) })
+    expect((await reconcileRefund(deps, stored({ status: "processing", updated_at: agoIso(5 * 60_000 + 1) }))).status).toBe("completed")
+    expect(calls[0].name).toBe("complete_order_refund")
+  })
+  it("reconcile of a fresh awaiting_otp row is not age-gated", async () => {
+    const { deps } = otpSetup({ checkStatus: vi.fn(async () => ({ kind: "otp", ref: "TRF_1" } as GatewayOutcome)) })
+    await expect(reconcileRefund(deps, stored({ updated_at: agoIso(1000) }))).resolves.toBeDefined()
+  })
+  it("cancel refuses an awaiting_otp row younger than 60 seconds", async () => {
+    const checkStatus = vi.fn()
+    const { deps, calls } = otpSetup({ checkStatus })
+    await expect(cancelRefund(deps, stored({ updated_at: agoIso(30_000) }))).rejects.toMatchObject({ code: "IN_FLIGHT" })
+    expect(checkStatus).not.toHaveBeenCalled()
+    expect(calls).toEqual([])
+  })
+  it("cancel proceeds once the awaiting_otp row is 60s old", async () => {
+    const { deps, calls } = otpSetup({ checkStatus: vi.fn(async () => ({ kind: "otp", ref: "TRF_1" } as GatewayOutcome)) })
+    expect((await cancelRefund(deps, stored({ updated_at: agoIso(60_000) }))).status).toBe("failed")
+    expect(calls[0].name).toBe("fail_order_refund")
+  })
+  it("OTP submit is not age-gated", async () => {
+    const { deps } = otpSetup({ finalizeOtp: vi.fn(async () => ({ kind: "completed", ref: "TRF_1" } as GatewayOutcome)) })
+    expect((await submitRefundOtp(deps, stored({ updated_at: agoIso(1000) }), "123456")).status).toBe("completed")
+  })
+  it("a missing updated_at on a processing row is treated as in flight", async () => {
+    const { deps } = otpSetup({ checkStatus: vi.fn() })
+    await expect(reconcileRefund(deps, stored({ status: "processing", updated_at: undefined as any }))).rejects.toMatchObject({ code: "IN_FLIGHT" })
   })
 })

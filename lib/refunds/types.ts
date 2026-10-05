@@ -37,6 +37,8 @@ export interface RefundableOrder {
   evidence: {
     hasActiveRefund: boolean
     dispatchOutcome: DispatchOutcome | null
+    /** order_dispatch_claims.attempts at load time (null = no claims row). */
+    dispatchAttempts: number | null
     trackingStatuses: string[]
     externalOrderId: string | null
   }

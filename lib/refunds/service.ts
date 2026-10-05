@@ -5,11 +5,12 @@ import { defaultRefundAmount, validateRefundAmount } from "./amounts"
 import { loadRefundableOrders } from "./orders"
 import { getGateway, listGateways } from "./gateways"
 import { notifyRefund, type RefundNotification } from "./notify"
+import { FRESH_OTP_MS, isInFlight, isStale } from "./staleness"
 import type { GatewayOutcome, OrderTable, RefundContext, RefundGateway, RefundableOrder } from "./types"
 
 export const REFUND_ERROR_CODES = [
   "NOT_FOUND", "NOT_ELIGIBLE", "GATEWAY_UNSUPPORTED", "BAD_AMOUNT", "BAD_OTP", "SHORTFALL",
-  "ALREADY_REFUNDED", "ORDER_NOT_PENDING", "DISPATCH_ACTIVE", "RESERVE_FAILED", "SETTLE_FAILED",
+  "ALREADY_REFUNDED", "ORDER_NOT_PENDING", "DISPATCH_ACTIVE", "IN_FLIGHT", "RESERVE_FAILED", "SETTLE_FAILED",
 ] as const
 export type RefundErrorCode = (typeof REFUND_ERROR_CODES)[number]
 
@@ -23,6 +24,9 @@ export class RefundError extends Error {
 export function mapReserveError(message: string): RefundError {
   const short = message.match(/SHORTFALL:([\w-]+):([0-9.]+)/i)
   if (short) return new RefundError("SHORTFALL", `Shop owner cannot cover their cut (short by GHS ${short[2]})`, { shopId: short[1], amount: Number(short[2]) })
+  if (message.includes("ORDER_NOT_FOUND")) return new RefundError("NOT_FOUND", "Order not found")
+  if (message.includes("BAD_AMOUNT")) return new RefundError("BAD_AMOUNT", "Refund amount was rejected")
+  if (message.includes("BAD_TABLE")) return new RefundError("BAD_AMOUNT", "Unsupported order table")
   if (message.includes("ALREADY_REFUNDED")) return new RefundError("ALREADY_REFUNDED", "This order already has a refund")
   if (message.includes("ORDER_NOT_PENDING")) return new RefundError("ORDER_NOT_PENDING", "Order is no longer a paid, pending order")
   if (message.includes("DISPATCH_ACTIVE")) return new RefundError("DISPATCH_ACTIVE", "Order is being sent to a provider right now")
@@ -34,7 +38,11 @@ export interface RefundDeps {
   loadOrder(table: OrderTable, id: string): Promise<RefundableOrder | null>
   getGateway(id: string): RefundGateway | undefined
   notify(event: RefundNotification): Promise<void>
+  /** Injectable clock (ms epoch) so age checks are deterministic in tests. */
+  now?(): number
 }
+
+const nowOf = (deps: RefundDeps): number => (deps.now ? deps.now() : Date.now())
 
 export function defaultDeps(db: SupabaseClient): RefundDeps {
   return {
@@ -209,6 +217,8 @@ export async function executeRefund(deps: RefundDeps, input: ExecuteInput): Prom
     p_order_table: input.table, p_order_id: input.orderId, p_gateway: gateway.id,
     p_paid: order.paid, p_fee: order.gatewayFee, p_amount: input.amount,
     p_destination: destination, p_wallet_user: order.payment.walletUserId, p_admin: input.adminId,
+    // No claims row => 0: a dispatch that claims after this read changes the count and the reserve refuses.
+    p_expected_attempts: order.evidence.dispatchAttempts ?? 0,
   })
   if (error) throw mapReserveError(error.message)
   if (!data || typeof data.refund_id !== "string") {
@@ -242,6 +252,7 @@ export interface StoredRefund {
   gateway_ref: string | null
   status: string
   clawbacks: RefundNotification["clawbacks"]
+  updated_at: string
 }
 
 async function contextFor(deps: RefundDeps, stored: StoredRefund): Promise<RefundContext> {
@@ -262,6 +273,9 @@ async function settleStored(deps: RefundDeps, stored: StoredRefund, ctx: RefundC
 export async function reconcileRefund(deps: RefundDeps, stored: StoredRefund): Promise<Settled> {
   if (stored.status !== "processing" && stored.status !== "awaiting_otp" && stored.status !== "reserved") {
     throw new RefundError("ORDER_NOT_PENDING", "Only processing refunds can be reconciled")
+  }
+  if (isInFlight(stored, nowOf(deps))) {
+    throw new RefundError("IN_FLIGHT", "The original payout request may still be running. Wait a few minutes before checking status.")
   }
   const gateway = deps.getGateway(stored.gateway)
   if (!gateway?.checkStatus) return { status: stored.status as Settled["status"], message: "This gateway cannot be re-checked automatically" }
@@ -307,6 +321,9 @@ export async function submitRefundOtp(deps: RefundDeps, stored: StoredRefund, ot
  */
 export async function cancelRefund(deps: RefundDeps, stored: StoredRefund): Promise<Settled> {
   if (stored.status !== "awaiting_otp") throw new RefundError("ORDER_NOT_PENDING", "Only refunds waiting for an OTP can be cancelled")
+  if (!isStale(stored.updated_at, nowOf(deps), FRESH_OTP_MS)) {
+    throw new RefundError("IN_FLIGHT", "This payout was only just created. Wait a minute before cancelling.")
+  }
   const gateway = deps.getGateway(stored.gateway)
   if (!gateway?.checkStatus) throw new RefundError("GATEWAY_UNSUPPORTED", "This gateway cannot confirm the payout state")
   const ctx = await contextFor(deps, stored)

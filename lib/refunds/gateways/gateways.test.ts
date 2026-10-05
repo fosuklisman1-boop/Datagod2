@@ -35,7 +35,7 @@ const order = (o: Partial<RefundableOrder> = {}): RefundableOrder => ({
   shopId: null, shopName: null, packageLabel: "2", network: "MTN", recipientPhone: "0241112222",
   createdAt: "2026-10-05", paid: 10, gatewayFee: 0,
   payment: { gateway: "paystack", reference: "ref-1", payerPhone: "0241112222", walletUserId: null },
-  owners: [], evidence: { hasActiveRefund: false, dispatchOutcome: null, trackingStatuses: [], externalOrderId: null },
+  owners: [], evidence: { hasActiveRefund: false, dispatchOutcome: null, dispatchAttempts: null, trackingStatuses: [], externalOrderId: null },
   ...o,
 })
 const ctx = (o: Partial<RefundableOrder> = {}, amount = 9.5): RefundContext => ({

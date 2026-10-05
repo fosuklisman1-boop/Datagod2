@@ -49,15 +49,19 @@ export async function resolveWalletUser(
   if (who.phone) {
     const d = who.phone.replace(/\D/g, "").slice(-9)
     if (d.length === 9) {
-      const { data, error } = await db.from("users").select("id").eq("phone_number", "0" + d).maybeSingle()
+      // Phone-verified accounts only (an unverified account can claim any number), and an ambiguous
+      // number (2+ accounts) is never a refund target. A real query error still throws.
+      const { data, error } = await db.from("users").select("id").eq("phone_number", "0" + d).eq("phone_verified", true).limit(2)
       if (error) throw new Error(`[REFUND] users lookup failed: ${error.message}`)
-      if (data?.id) return data.id as string
+      if ((data ?? []).length > 1) return null
+      if (data?.[0]?.id) return data[0].id as string
     }
   }
   if (who.email) {
-    const { data, error } = await db.from("users").select("id").eq("email", who.email.toLowerCase()).maybeSingle()
+    const { data, error } = await db.from("users").select("id").eq("email", who.email.toLowerCase()).limit(2)
     if (error) throw new Error(`[REFUND] users lookup failed: ${error.message}`)
-    if (data?.id) return data.id as string
+    if ((data ?? []).length > 1) return null
+    if (data?.[0]?.id) return data[0].id as string
   }
   return null
 }
@@ -83,9 +87,9 @@ async function enrich(db: SupabaseClient, table: OrderTable, rows: any[]): Promi
   const [profits, tracking, claims, refunds, walletDebits, walletPayments] = await Promise.all([
     inRows<any>(db, "shop_profits", `shop_id, profit_amount, status, ${PROFIT_FK[table]}`, PROFIT_FK[table], ids, (q) => q.is("refund_id", null)),
     inRows<any>(db, "mtn_fulfillment_tracking", `status, ${TRACKING_COL[table]}`, TRACKING_COL[table], ids),
-    inRows<any>(db, "order_dispatch_claims", "order_id, last_outcome", "order_id", ids),
+    inRows<any>(db, "order_dispatch_claims", "order_id, last_outcome, attempts", "order_id", ids),
     inRows<any>(db, "order_refunds", "order_id, status", "order_id", ids, (q) => q.neq("status", "failed")),
-    inRows<any>(db, "transactions", "reference_id, user_id, type", "reference_id", ids, (q) => q.eq("type", "debit")),
+    inRows<any>(db, "transactions", "reference_id, user_id, type, amount", "reference_id", ids, (q) => q.eq("type", "debit")),
     table === "shop_orders" ? inRows<any>(db, "wallet_payments", "order_id, reference, amount, fee, status", "order_id", ids) : Promise.resolve([] as any[]),
   ])
 
@@ -134,7 +138,13 @@ async function enrich(db: SupabaseClient, table: OrderTable, rows: any[]): Promi
         }
       })
 
-    const debit = walletDebits.find((t) => t.reference_id === id)
+    // A wallet debit is only proof of wallet payment when its amount matches what the order cost and it is the
+    // ONLY such debit: /api/wallet/debit takes a client-supplied orderId, so any user could otherwise attach a
+    // token debit to someone else's order and become the refund target.
+    const qualifyingDebit = (paidAmount: number) => {
+      const matches = walletDebits.filter((t) => t.reference_id === id && Math.abs(Number(t.amount) - paidAmount) < 0.01)
+      return matches.length === 1 ? matches[0] : undefined
+    }
     let payment: PaymentSource
     let paid: number
     let fee = 0
@@ -145,6 +155,7 @@ async function enrich(db: SupabaseClient, table: OrderTable, rows: any[]): Promi
       const wp = walletPayments.find((w) => w.order_id === id && w.status === "completed")
       if (wp) {
         paid = Number(wp.amount)
+        const debit = qualifyingDebit(paid)
         fee = Number(wp.fee ?? feeByRef.get(wp.reference) ?? 0)
         payment = {
           gateway: "paystack",
@@ -154,6 +165,7 @@ async function enrich(db: SupabaseClient, table: OrderTable, rows: any[]): Promi
         }
       } else {
         paid = Number(r.total_price)
+        const debit = qualifyingDebit(paid)
         payment = debit
           ? { gateway: "wallet", reference: null, payerPhone: null, walletUserId: debit.user_id }
           : {
@@ -167,14 +179,18 @@ async function enrich(db: SupabaseClient, table: OrderTable, rows: any[]): Promi
       paid = Number(r.amount)
       const reference = (r.paystack_reference as string | null) ?? null
       fee = reference ? feeByRef.get(reference) ?? 0 : 0
-      payment = debit
-        ? { gateway: "wallet", reference: null, payerPhone: r.dialing_phone, walletUserId: debit.user_id }
-        : {
-            gateway: reference ? "paystack" : null,
-            reference,
-            payerPhone: r.dialing_phone ?? null,
-            walletUserId: await resolveWalletUser(db, { phone: r.dialing_phone }),
-          }
+      const debit = qualifyingDebit(paid)
+      if (debit && !reference) {
+        payment = { gateway: "wallet", reference: null, payerPhone: r.dialing_phone, walletUserId: debit.user_id }
+      } else {
+        // A Paystack-referenced order stays 'paystack' even if a (qualifying) debit exists: a debit never reclassifies it.
+        payment = {
+          gateway: reference ? "paystack" : null,
+          reference,
+          payerPhone: r.dialing_phone ?? null,
+          walletUserId: await resolveWalletUser(db, { phone: r.dialing_phone }),
+        }
+      }
     }
     if (payment.gateway === "wallet") fee = 0
 
@@ -192,6 +208,7 @@ async function enrich(db: SupabaseClient, table: OrderTable, rows: any[]): Promi
       evidence: {
         hasActiveRefund: refunds.some((x) => x.order_id === id),
         dispatchOutcome: (claim?.last_outcome as DispatchOutcome | undefined) ?? null,
+        dispatchAttempts: claim ? Number(claim.attempts ?? 0) : null,
         trackingStatuses: tracking.filter((t) => t[TRACKING_COL[table]] === id).map((t) => t.status as string),
         externalOrderId: (r.external_order_id as string | null | undefined) != null ? String(r.external_order_id) : null,
       },

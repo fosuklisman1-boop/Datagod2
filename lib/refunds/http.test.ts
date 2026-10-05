@@ -6,7 +6,7 @@ import { REFUND_ERROR_CODES, RefundError } from "./service"
 describe("refundErrorResponse", () => {
   it.each([
     ["NOT_FOUND", 404], ["NOT_ELIGIBLE", 409], ["ALREADY_REFUNDED", 409], ["ORDER_NOT_PENDING", 409],
-    ["DISPATCH_ACTIVE", 409], ["SHORTFALL", 422], ["BAD_AMOUNT", 400], ["BAD_OTP", 400],
+    ["DISPATCH_ACTIVE", 409], ["IN_FLIGHT", 409], ["SHORTFALL", 422], ["BAD_AMOUNT", 400], ["BAD_OTP", 400],
     ["GATEWAY_UNSUPPORTED", 400], ["RESERVE_FAILED", 500], ["SETTLE_FAILED", 500],
   ] as const)("%s -> %i", async (code, status) => {
     const res = refundErrorResponse(new RefundError(code, "msg", { x: 1 }))

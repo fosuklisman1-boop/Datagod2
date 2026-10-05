@@ -9,7 +9,7 @@ function fakeDb(rows: Rows, calls: unknown[][] = [], errors: Record<string, stri
     const rec = (m: string) => (...a: unknown[]) => { calls.push([table, m, ...a]); return q }
     const q: any = {
       select: rec("select"), eq: rec("eq"), in: rec("in"), is: rec("is"), neq: rec("neq"),
-      order: rec("order"), range: rec("range"), ilike: rec("ilike"), or: rec("or"),
+      order: rec("order"), range: rec("range"), limit: rec("limit"), ilike: rec("ilike"), or: rec("or"),
       maybeSingle: async () => ({ data: (rows[table] ?? [])[0] ?? null, error: errors[table] ? { message: errors[table] } : null }),
       then: (res: (v: unknown) => unknown) => Promise.resolve({ data: rows[table] ?? [], error: errors[table] ? { message: errors[table] } : null }).then(res),
     }
@@ -42,7 +42,7 @@ describe("loadRefundableOrders", () => {
       transactions: [],
       payment_attempts: [{ reference: "o1", fee: 0.18 }],
       mtn_fulfillment_tracking: [{ order_id: "o1", status: "failed" }],
-      order_dispatch_claims: [{ order_id: "o1", last_outcome: "submitted" }],
+      order_dispatch_claims: [{ order_id: "o1", last_outcome: "submitted", attempts: 2 }],
       order_refunds: [],
     })
     const [o] = await loadRefundableOrders(db, [{ table: "ussd_shop_orders", id: "o1" }])
@@ -52,7 +52,7 @@ describe("loadRefundableOrders", () => {
     expect(o.owners.map((x) => [x.shopId, x.credited, x.availableBalance, x.walletBalance])).toEqual([
       ["shopA", 3, 10, 0], ["shopP", 2, 0, 5],
     ])
-    expect(o.evidence).toMatchObject({ trackingStatuses: ["failed"], dispatchOutcome: "submitted", hasActiveRefund: false })
+    expect(o.evidence).toMatchObject({ trackingStatuses: ["failed"], dispatchOutcome: "submitted", dispatchAttempts: 2, hasActiveRefund: false })
   })
 
   it("detects a wallet-paid ussd order from the wallet debit transaction", async () => {
@@ -61,7 +61,7 @@ describe("loadRefundableOrders", () => {
         id: "o2", dialing_phone: "0241112222", recipient_phone: "0241112222", network: "MTN", package_size: "1",
         amount: 6, order_status: "pending", payment_status: "completed", paystack_reference: null, created_at: "2026-10-05T00:00:00Z",
       }],
-      transactions: [{ reference_id: "o2", user_id: "uW", type: "debit" }],
+      transactions: [{ reference_id: "o2", user_id: "uW", type: "debit", amount: 6 }],
       user_shops: [], shop_profits: [], shop_available_balance: [], wallets: [],
       payment_attempts: [], mtn_fulfillment_tracking: [], order_dispatch_claims: [], order_refunds: [],
     })
@@ -104,7 +104,7 @@ describe("loadRefundableOrders", () => {
         volume_gb: 1, total_price: 5, order_status: "pending", payment_status: "completed",
         external_order_id: null, created_at: "2026-10-05T00:00:00Z",
       }],
-      transactions: [{ reference_id: "s2", user_id: "uW", type: "debit" }],
+      transactions: [{ reference_id: "s2", user_id: "uW", type: "debit", amount: 5 }],
     })
     const [o] = await loadRefundableOrders(db, [{ table: "shop_orders", id: "s2" }])
     expect(o.payment).toMatchObject({ gateway: "wallet", walletUserId: "uW" })
@@ -196,8 +196,24 @@ describe("listPendingOrderRefs", () => {
 describe("resolveWalletUser", () => {
   it("falls back to email when the phone does not match", async () => {
     let n = 0
-    const db = { from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => (n++ === 0 ? { data: null } : { data: { id: "uE" } }) }) }) }) } as any
+    const chain: any = { eq: () => chain, limit: async () => (n++ === 0 ? { data: [], error: null } : { data: [{ id: "uE" }], error: null }) }
+    const db = { from: () => ({ select: () => chain }) } as any
     expect(await resolveWalletUser(db, { phone: "+233241112222", email: "A@B.com" })).toBe("uE")
+  })
+  it("treats 2+ accounts on one phone as no wallet user (never throws)", async () => {
+    const db = fakeDb({ users: [{ id: "u1" }, { id: "u2" }] })
+    expect(await resolveWalletUser(db, { phone: "0241112222" })).toBeNull()
+  })
+  it("only matches phone-verified accounts and uses limit(2)", async () => {
+    const calls: unknown[][] = []
+    const db = fakeDb({ users: [{ id: "u1" }] }, calls)
+    expect(await resolveWalletUser(db, { phone: "0241112222" })).toBe("u1")
+    expect(calls).toContainEqual(["users", "eq", "phone_verified", true])
+    expect(calls).toContainEqual(["users", "limit", 2])
+  })
+  it("treats 2+ accounts on one email as no wallet user", async () => {
+    const db = fakeDb({ users: [{ id: "u1" }, { id: "u2" }] })
+    expect(await resolveWalletUser(db, { email: "a@b.com" })).toBeNull()
   })
   it("returns null with no inputs", async () => {
     expect(await resolveWalletUser(fakeDb({}), {})).toBeNull()
@@ -232,7 +248,7 @@ describe("fix round 1", () => {
     const none = fakeDb({ ...EMPTY, shop_orders: [shopRow], users: [{ id: "uSomeone" }] })
     const [a] = await loadRefundableOrders(none, [{ table: "shop_orders", id: "s1" }])
     expect(a.payment.walletUserId).toBeNull()
-    const withDebit = fakeDb({ ...EMPTY, shop_orders: [shopRow], users: [{ id: "uSomeone" }], transactions: [{ reference_id: "s1", user_id: "uPayer", type: "debit" }] })
+    const withDebit = fakeDb({ ...EMPTY, shop_orders: [shopRow], users: [{ id: "uSomeone" }], transactions: [{ reference_id: "s1", user_id: "uPayer", type: "debit", amount: 5 }] })
     const [b] = await loadRefundableOrders(withDebit, [{ table: "shop_orders", id: "s1" }])
     expect(b.payment.walletUserId).toBe("uPayer")
   })
@@ -273,7 +289,7 @@ describe("fix round 1", () => {
       shop_orders: [shopRow],
       order_refunds: [{ order_id: "s1", status: "processing" }],
       mtn_fulfillment_tracking: [{ shop_order_id: "s1", status: "failed" }, { shop_order_id: "other", status: "completed" }],
-      order_dispatch_claims: [{ order_id: "s1", last_outcome: "unknown" }],
+      order_dispatch_claims: [{ order_id: "s1", last_outcome: "unknown", attempts: 1 }],
     })
     const [o] = await loadRefundableOrders(db, [{ table: "shop_orders", id: "s1" }])
     expect(o.evidence).toMatchObject({ hasActiveRefund: true, trackingStatuses: ["failed"], dispatchOutcome: "unknown" })
@@ -300,5 +316,53 @@ describe("fix round 1", () => {
   it("resolveWalletUser throws on a real query error", async () => {
     const db = fakeDb({}, [], { users: "db down" })
     await expect(resolveWalletUser(db, { phone: "0241112222" })).rejects.toThrow(/users lookup failed/)
+  })
+})
+
+describe("I-2: wallet-debit proof rules", () => {
+  const ussd = (over: Record<string, unknown> = {}) => ({
+    id: "o7", dialing_phone: "0241112222", recipient_phone: "0241112222", network: "MTN", package_size: "1", amount: 6,
+    order_status: "pending", payment_status: "completed", paystack_reference: null, created_at: "2026-10-05T00:00:00Z", ...over,
+  })
+  const shop = {
+    id: "s7", shop_id: "shopA", customer_phone: "0241112222", customer_email: null, network: "MTN", volume_gb: 1, total_price: 5,
+    order_status: "pending", payment_status: "completed", external_order_id: null, created_at: "2026-10-05T00:00:00Z",
+  }
+  const load = async (table: "ussd_orders" | "shop_orders", id: string, rows: Rows) => (await loadRefundableOrders(fakeDb({ ...EMPTY, ...rows }), [{ table, id }]))[0]
+
+  it("a token debit (amount mismatch) does not make the user the wallet payer of a ussd order", async () => {
+    const o = await load("ussd_orders", "o7", { ussd_orders: [ussd()], transactions: [{ reference_id: "o7", user_id: "uEvil", type: "debit", amount: 0.01 }] })
+    expect(o.payment.gateway).toBeNull()
+    expect(o.payment.walletUserId).toBeNull()
+  })
+  it("a matching single debit proves wallet payment (within 0.01)", async () => {
+    const o = await load("ussd_orders", "o7", { ussd_orders: [ussd()], transactions: [{ reference_id: "o7", user_id: "uW", type: "debit", amount: "6.005" }] })
+    expect(o.payment).toMatchObject({ gateway: "wallet", walletUserId: "uW" })
+  })
+  it("two qualifying debits => no wallet proof", async () => {
+    const o = await load("ussd_orders", "o7", { ussd_orders: [ussd()], transactions: [
+      { reference_id: "o7", user_id: "uA", type: "debit", amount: 6 }, { reference_id: "o7", user_id: "uB", type: "debit", amount: 6 }] })
+    expect(o.payment.gateway).toBeNull()
+  })
+  it("a mismatching debit next to one matching debit does not count as a second", async () => {
+    const o = await load("ussd_orders", "o7", { ussd_orders: [ussd()], transactions: [
+      { reference_id: "o7", user_id: "uW", type: "debit", amount: 6 }, { reference_id: "o7", user_id: "uEvil", type: "debit", amount: 0.01 }] })
+    expect(o.payment).toMatchObject({ gateway: "wallet", walletUserId: "uW" })
+  })
+  it("a paystack-referenced ussd order is never reclassified to wallet by a matching debit", async () => {
+    const o = await load("ussd_orders", "o7", { ussd_orders: [ussd({ paystack_reference: "ref7" })], users: [{ id: "uDialer" }],
+      transactions: [{ reference_id: "o7", user_id: "uEvil", type: "debit", amount: 6 }] })
+    expect(o.payment).toMatchObject({ gateway: "paystack", reference: "ref7", walletUserId: "uDialer" })
+  })
+  it("shop order: a mismatching debit gives no wallet gateway and no walletUserId", async () => {
+    const o = await load("shop_orders", "s7", { shop_orders: [shop], transactions: [{ reference_id: "s7", user_id: "uEvil", type: "debit", amount: 0.01 }] })
+    expect(o.payment).toMatchObject({ gateway: null, walletUserId: null })
+  })
+  it("shop order paid by paystack: walletUserId only from a qualifying debit", async () => {
+    const wp = [{ order_id: "s7", reference: "W1", amount: 5.3, fee: 0.3, status: "completed" }]
+    const bad = await load("shop_orders", "s7", { shop_orders: [shop], wallet_payments: wp, transactions: [{ reference_id: "s7", user_id: "uEvil", type: "debit", amount: 0.01 }] })
+    expect(bad.payment).toMatchObject({ gateway: "paystack", walletUserId: null })
+    const good = await load("shop_orders", "s7", { shop_orders: [shop], wallet_payments: wp, transactions: [{ reference_id: "s7", user_id: "uPayer", type: "debit", amount: 5.3 }] })
+    expect(good.payment.walletUserId).toBe("uPayer")
   })
 })
