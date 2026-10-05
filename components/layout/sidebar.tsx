@@ -1057,6 +1057,26 @@ export function Sidebar() {
                   {isOpen && "USSD Shops"}
                 </Button>
               </Link>
+              <Link href="/admin/ussd-hubtel" onClick={() => handleNavigation("/admin/ussd-hubtel")}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    pathname === "/admin/ussd-hubtel" ? c.navLinkActive : c.navLinkInactive,
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/ussd-hubtel" && "opacity-70"
+                  )}
+                  title={!isOpen ? "Hubtel USSD" : undefined}
+                  disabled={loadingPath === "/admin/ussd-hubtel"}
+                >
+                  {loadingPath === "/admin/ussd-hubtel" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <Smartphone className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && "Hubtel USSD"}
+                </Button>
+              </Link>
             </div>
           )}
 
