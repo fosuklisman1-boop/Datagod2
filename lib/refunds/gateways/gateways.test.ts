@@ -319,3 +319,25 @@ describe("walletGateway", () => {
     expect((await walletGateway.refund({ ...ctx(walletOrder), destinationPhone: null })).kind).toBe("unknown")
   })
 })
+
+describe("wallet-only tables (orders / api_orders)", () => {
+  const walletOrder = (table: "orders" | "api_orders", walletUserId: string | null = "u1") =>
+    order({ table, payment: { gateway: walletUserId ? "wallet" : null, reference: null, payerPhone: null, walletUserId } })
+  it.each(["orders", "api_orders"] as const)("%s: only the wallet gateway is offered", (t) => {
+    const o = walletOrder(t)
+    expect(walletGateway.supports(o)).toEqual({ ok: true })
+    for (const g of [paystackGateway, paystackPayoutGateway, moolreGateway]) {
+      expect(g.supports(o)).toEqual({ ok: false, reason: "Paid from wallet — refund goes back to the buyer's wallet" })
+    }
+  })
+  it("a payer number never enables a payout gateway on these tables", () => {
+    const o = order({ table: "orders", payment: { gateway: "wallet", reference: null, payerPhone: "0241112222", walletUserId: "u1" } })
+    expect(paystackPayoutGateway.supports(o).ok).toBe(false)
+    expect(moolreGateway.supports(o).ok).toBe(false)
+  })
+  it("no proving debit => wallet gateway unsupported with a clear reason", () => {
+    const s = walletGateway.supports(walletOrder("orders", null))
+    expect(s.ok).toBe(false)
+    expect(!s.ok && s.reason).toMatch(/per-order wallet debit/)
+  })
+})

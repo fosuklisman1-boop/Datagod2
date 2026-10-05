@@ -1,5 +1,5 @@
 import { fetchRefund, refundTransaction } from "@/lib/paystack"
-import type { GatewayOutcome, RefundGateway } from "../types"
+import { isWalletOnlyTable, WALLET_ONLY_REASON, type GatewayOutcome, type RefundGateway } from "../types"
 
 /**
  * Maps a Paystack refund `status` to a gateway outcome. OPEN VERIFICATION: the vocabulary below comes from
@@ -49,6 +49,7 @@ export const paystackGateway: RefundGateway = {
   id: "paystack",
   label: "Paystack (reverse original charge)",
   supports(order) {
+    if (isWalletOnlyTable(order.table)) return { ok: false, reason: WALLET_ONLY_REASON }
     if (order.payment.gateway === "paystack" && order.payment.reference) return { ok: true }
     return { ok: false, reason: "Order was not paid through Paystack" }
   },

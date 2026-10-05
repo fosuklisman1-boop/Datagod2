@@ -23,3 +23,14 @@ describe("splitRefundLocked", () => {
     expect(isRefundLocked(undefined)).toBe(false)
   })
 })
+
+describe("splitRefundLocked: tables whose column is `status` (orders / api_orders)", () => {
+  it("locks refunding/refunded by status", () => {
+    const { allowed, locked } = splitRefundLocked([
+      { id: "a", status: "pending" }, { id: "b", status: "refunding" }, { id: "c", status: "refunded" }, { id: "d", status: "held_registration" },
+    ])
+    expect(allowed.map((r) => r.id)).toEqual(["a", "d"])
+    expect(locked.map((r) => r.id)).toEqual(["b", "c"])
+    expect(locked[0].reason).toMatch(/refunding/)
+  })
+})

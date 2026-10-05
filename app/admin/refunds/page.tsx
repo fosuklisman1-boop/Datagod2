@@ -45,7 +45,7 @@ interface HistoryRow {
 
 type StatusFilter = "all" | "attention" | "completed" | "failed"
 
-const TABLE_LABEL: Record<string, string> = { shop_orders: "Storefront", ussd_orders: "USSD", ussd_shop_orders: "USSD shop" }
+const TABLE_LABEL: Record<string, string> = { shop_orders: "Storefront", ussd_orders: "USSD", ussd_shop_orders: "USSD shop", orders: "Dashboard (bulk)", api_orders: "API" }
 const PAGE_SIZE = 50
 
 async function getToken(): Promise<string> {

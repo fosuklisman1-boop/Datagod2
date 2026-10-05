@@ -479,3 +479,29 @@ describe("in-flight protection (I-1)", () => {
     await expect(reconcileRefund(deps, stored({ status: "processing", updated_at: undefined as any }))).rejects.toMatchObject({ code: "IN_FLIGHT" })
   })
 })
+
+describe("wallet-only tables (orders / api_orders)", () => {
+  const wOrder = (o: Partial<RefundableOrder> = {}) => order({
+    table: "api_orders", orderStatus: "held_registration", shopId: null, shopName: null, owners: [], gatewayFee: 0, paid: 9.5,
+    payment: { gateway: "wallet", reference: null, payerPhone: null, walletUserId: "uA" }, buyerUserId: "uA", ...o,
+  })
+  it("a held_registration api order is refundable via wallet: reserve gets the table, payer user and a null destination", async () => {
+    const { deps, calls } = setup({ kind: "completed", ref: "REFUND_rf1" }, wOrder())
+    ;(deps as any).getGateway = () => ({ id: "wallet", label: "w", supports: () => ({ ok: true }), refund: async () => ({ kind: "completed", ref: "REFUND_rf1" }) })
+    const res = await executeRefund(deps, { table: "api_orders", orderId: "o1", gateway: "wallet", amount: 9.5, adminId: "a" })
+    expect(res.status).toBe("completed")
+    expect(calls[0].args).toMatchObject({ p_order_table: "api_orders", p_wallet_user: "uA", p_destination: null, p_paid: 9.5, p_fee: 0 })
+  })
+  it("a processing order is NOT_ELIGIBLE and never reserves", async () => {
+    const { deps, calls } = setup({ kind: "completed", ref: "x" }, wOrder({ orderStatus: "processing" }))
+    await expect(executeRefund(deps, { table: "api_orders", orderId: "o1", gateway: "wallet", amount: 9.5, adminId: "a" })).rejects.toMatchObject({ code: "NOT_ELIGIBLE" })
+    expect(calls).toEqual([])
+  })
+  it("preview offers only the wallet gateway for these tables and shows no clawback", async () => {
+    const { deps } = setup({ kind: "completed", ref: "x" }, wOrder())
+    const p = await previewRefund(deps, { table: "api_orders", id: "o1" })
+    expect(p.eligibility).toEqual({ eligible: true })
+    expect(p.gateways.filter((g) => g.ok).map((g) => g.id)).toEqual(["wallet"])
+    expect(p.clawback.lines).toEqual([])
+  })
+})

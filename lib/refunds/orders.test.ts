@@ -220,7 +220,9 @@ describe("listPendingOrderRefs", () => {
     const db = fakeDb({ shop_orders: [], ussd_orders: [], ussd_shop_orders: [] }, calls)
     await listPendingOrderRefs(db, { pageSize: 10, page: 1, q: "024),id.eq.x(%" })
     const ors = calls.filter((c) => c[1] === "or")
-    expect(ors.map((c) => c[0])).toEqual(["shop_orders", "ussd_orders", "ussd_shop_orders"])
+    expect(ors.map((c) => c[0])).toEqual(["shop_orders", "ussd_orders", "ussd_shop_orders", "orders", "api_orders"])
+    expect(ors[3][2]).toBe("phone_number.ilike.%024ideqx%")
+    expect(ors[4][2]).toBe("recipient_phone.ilike.%024ideqx%")
     // only [0-9a-zA-Z-] survive: no commas/parens/dots/percent from user input can alter the filter structure
     expect(ors[0][2]).toBe("customer_phone.ilike.%024ideqx%")
     expect(ors[1][2]).toBe("dialing_phone.ilike.%024ideqx%,recipient_phone.ilike.%024ideqx%")
@@ -408,5 +410,104 @@ describe("I-2: wallet-debit proof rules", () => {
     expect(bad.payment).toMatchObject({ gateway: "paystack", walletUserId: null })
     const good = await load("shop_orders", "s7", { shop_orders: [shop], wallet_payments: wp, transactions: [{ reference_id: "s7", user_id: "uPayer", type: "debit", amount: 5.3 }] })
     expect(good.payment.walletUserId).toBe("uPayer")
+  })
+})
+
+describe("orders / api_orders (wallet-paid)", () => {
+  const ordersRow = (o: Record<string, unknown> = {}) => ({
+    id: "b1", user_id: "uB", network: "MTN", size: "5", price: 20, status: "pending", phone_number: "0241112222",
+    created_at: "2026-10-05T10:00:00", ...o,
+  })
+  const apiRow = (o: Record<string, unknown> = {}) => ({
+    id: "a1", user_id: "uA", network: "MTN", volume_gb: 2, price: 9.5, status: "held_registration", recipient_phone: "0243334444",
+    created_at: "2026-10-05T10:00:00+00:00", ...o,
+  })
+  const debit = (o: Record<string, unknown> = {}) => ({ reference_id: "b1", user_id: "uB", type: "debit", amount: 20, source: "data_purchase", ...o })
+
+  it("orders: wallet payment proven by exactly one per-order debit; no owners; synthetic payment status; UTC created_at", async () => {
+    const calls: unknown[][] = []
+    const db = fakeDb({ ...EMPTY, orders: [ordersRow()], transactions: [debit()] }, calls)
+    const [o] = await loadRefundableOrders(db, [{ table: "orders", id: "b1" }])
+    expect(o.payment).toEqual({ gateway: "wallet", reference: null, payerPhone: null, walletUserId: "uB" })
+    expect(o).toMatchObject({ orderStatus: "pending", paymentStatus: "completed", paid: 20, gatewayFee: 0, owners: [], shopId: null, packageLabel: "5", recipientPhone: "0241112222", buyerUserId: "uB" })
+    expect(o.createdAt).toBe("2026-10-05T10:00:00Z")
+    expect(calls).toContainEqual(["transactions", "in", "source", ["data_purchase", "api_order"]])
+    expect(calls.some((c) => c[0] === "shop_profits")).toBe(false)
+  })
+
+  it("orders: no per-order debit (e.g. bulk batch) => no gateway, no wallet user", async () => {
+    const db = fakeDb({ ...EMPTY, orders: [ordersRow()], transactions: [] })
+    const [o] = await loadRefundableOrders(db, [{ table: "orders", id: "b1" }])
+    expect(o.payment).toEqual({ gateway: null, reference: null, payerPhone: null, walletUserId: null })
+  })
+
+  it("two qualifying debits, a mismatching amount, or a debit on another user => no proof", async () => {
+    for (const txs of [[debit(), debit()], [debit({ amount: 1 })], [debit({ user_id: "someoneElse" })]]) {
+      const [o] = await loadRefundableOrders(fakeDb({ ...EMPTY, orders: [ordersRow()], transactions: txs }), [{ table: "orders", id: "b1" }])
+      expect(o.payment.walletUserId).toBeNull()
+      expect(o.payment.gateway).toBeNull()
+    }
+  })
+
+  it("api_orders: status, label, recipient and tracking via api_order_id", async () => {
+    const calls: unknown[][] = []
+    const db = fakeDb({
+      ...EMPTY, api_orders: [apiRow()],
+      transactions: [debit({ reference_id: "a1", user_id: "uA", amount: 9.5, source: "api_order" })],
+      mtn_fulfillment_tracking: [{ api_order_id: "a1", status: "failed" }],
+    }, calls)
+    const [o] = await loadRefundableOrders(db, [{ table: "api_orders", id: "a1" }])
+    expect(o).toMatchObject({ orderStatus: "held_registration", packageLabel: "2GB", recipientPhone: "0243334444", paid: 9.5 })
+    expect(o.payment.walletUserId).toBe("uA")
+    expect(o.evidence.trackingStatuses).toEqual(["failed"])
+    expect(o.createdAt).toBe("2026-10-05T10:00:00+00:00")
+    expect(calls).toContainEqual(["mtn_fulfillment_tracking", "select", "status, api_order_id"])
+  })
+
+  it("orders: fulfillment_logs rows map into tracking statuses", async () => {
+    const mk = (status: string) => fakeDb({ ...EMPTY, orders: [ordersRow()], transactions: [debit()], fulfillment_logs: [{ order_id: "b1", status }] })
+    const st = async (s: string) => (await loadRefundableOrders(mk(s), [{ table: "orders", id: "b1" }]))[0].evidence.trackingStatuses
+    expect(await st("success")).toEqual(["completed"])
+    expect(await st("failed")).toEqual(["failed"])
+    expect(await st("processing")).toEqual(["pending"])
+    expect(await st("pending")).toEqual(["pending"])
+    expect(await st("weird")).toEqual(["pending"])
+  })
+
+  it("list: orders pending only, api_orders pending + held_registration; skipped when shopId is set", async () => {
+    const calls: unknown[][] = []
+    const db = fakeDb({
+      shop_orders: [], ussd_orders: [], ussd_shop_orders: [],
+      orders: [{ id: "b1", created_at: "2026-10-05T10:00:00" }],
+      api_orders: [{ id: "a1", created_at: "2026-10-05T11:00:00+00:00" }],
+    }, calls)
+    const r = await listPendingOrderRefs(db, { pageSize: 10, page: 1 })
+    expect(r.map((x) => x.id)).toEqual(["a1", "b1"]) // newest first across mixed timestamp formats
+    expect(r[1].createdAt).toBe("2026-10-05T10:00:00Z")
+    expect(calls).toContainEqual(["orders", "in", "status", ["pending"]])
+    expect(calls).toContainEqual(["api_orders", "in", "status", ["pending", "held_registration"]])
+    expect(calls.some((c) => (c[0] === "orders" || c[0] === "api_orders") && c[1] === "eq" && c[2] === "payment_status")).toBe(false)
+    calls.length = 0
+    expect(await listPendingOrderRefs(db, { pageSize: 10, page: 1, shopId: "s" })).toEqual([])
+    expect(calls.some((c) => c[0] === "orders" || c[0] === "api_orders")).toBe(false)
+  })
+})
+
+describe("external_order_id on orders / api_orders", () => {
+  it("orders: selects external_order_id and exposes it as evidence (so a pre-guard dispatch with no tracking is not refundable)", async () => {
+    const calls: unknown[][] = []
+    const row = { id: "b1", user_id: "uB", network: "MTN", size: "5", price: 20, status: "pending", phone_number: "0241112222", external_order_id: "ext-77", created_at: "2026-10-05T10:00:00" }
+    const [o] = await loadRefundableOrders(fakeDb({ ...EMPTY, orders: [row] }, calls), [{ table: "orders", id: "b1" }])
+    expect(o.evidence.externalOrderId).toBe("ext-77")
+    const sel = calls.find((c) => c[0] === "orders" && c[1] === "select")![2] as string
+    expect(sel).toContain("external_order_id")
+  })
+  it("api_orders: never selects external_order_id (column does not exist) and reports null", async () => {
+    const calls: unknown[][] = []
+    const row = { id: "a1", user_id: "uA", network: "MTN", volume_gb: 2, price: 9.5, status: "pending", recipient_phone: "0243334444", created_at: "2026-10-05T10:00:00+00:00" }
+    const [o] = await loadRefundableOrders(fakeDb({ ...EMPTY, api_orders: [row] }, calls), [{ table: "api_orders", id: "a1" }])
+    expect(o.evidence.externalOrderId).toBeNull()
+    const sel = calls.find((c) => c[0] === "api_orders" && c[1] === "select")![2] as string
+    expect(sel).not.toContain("external_order_id")
   })
 })

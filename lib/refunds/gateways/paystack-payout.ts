@@ -3,7 +3,7 @@ import {
   mapNetworkToPaystackBankCode, type PaystackTransferResult,
 } from "@/lib/paystack-transfer"
 import { momoNetworkForMoolre } from "./moolre"
-import type { GatewayOutcome, RefundGateway } from "../types"
+import { isWalletOnlyTable, WALLET_ONLY_REASON, type GatewayOutcome, type RefundGateway } from "../types"
 
 const DEFINITIVE_FAILURE = new Set(["failed", "reversed", "rejected", "blocked"])
 const IN_FLIGHT = new Set(["pending", "processing", "queued", "received"])
@@ -32,6 +32,7 @@ export const paystackPayoutGateway: RefundGateway = {
   id: "paystack_payout",
   label: "Paystack (MoMo payout, needs OTP)",
   supports(order) {
+    if (isWalletOnlyTable(order.table)) return { ok: false, reason: WALLET_ONLY_REASON }
     const phone = order.payment.payerPhone
     if (!phone) return { ok: false, reason: "No payer number on the order" }
     const network = momoNetworkForMoolre(phone)

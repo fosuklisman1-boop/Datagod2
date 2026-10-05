@@ -164,7 +164,7 @@ export async function POST(request: NextRequest) {
     // used to be swallowed — leaving every target list empty so NOTHING updated while
     // the route still returned success. A real error here now aborts (a failed check
     // means we cannot know what to update, so we must not report a phantom success).
-    const { data: bulkOrders, error: bulkError } = await inChunks(orderIds, (chunk) =>
+    const { data: bulkOrdersAll, error: bulkError } = await inChunks(orderIds, (chunk) =>
       supabase.from("orders").select("id, status").in("id", chunk))
     if (bulkError) {
       throw new Error(`Failed to check bulk orders: ${bulkError.message}`)
@@ -176,7 +176,7 @@ export async function POST(request: NextRequest) {
       throw new Error(`Failed to check shop orders: ${shopError.message}`)
     }
 
-    const { data: apiOrders, error: apiError } = await inChunks(orderIds, (chunk) =>
+    const { data: apiOrdersAll, error: apiError } = await inChunks(orderIds, (chunk) =>
       supabase.from("api_orders").select("id, status").in("id", chunk))
     if (apiError) {
       throw new Error(`Failed to check api orders: ${apiError.message}`)
@@ -197,13 +197,17 @@ export async function POST(request: NextRequest) {
     // Orders owned by the refund flow (refunding/refunded) cannot be moved by this route: the DB guard trigger
     // silently reverts the order status, but the tracking/log updates and "completed/failed" notifications below
     // would still go out. Drop them up front and report them back as skipped.
+    const bulkSplit = splitRefundLocked(bulkOrdersAll)
+    const apiSplit = splitRefundLocked(apiOrdersAll)
+    const bulkOrders = bulkSplit.allowed
+    const apiOrders = apiSplit.allowed
     const shopSplit = splitRefundLocked(shopOrdersAll)
     const ussdSplit = splitRefundLocked(ussdOrdersAll)
     const ussdShopSplit = splitRefundLocked(ussdShopOrdersAll)
     const shopOrders = shopSplit.allowed
     const ussdOrders = ussdSplit.allowed
     const ussdShopOrders = ussdShopSplit.allowed
-    const skippedRefunding = [...shopSplit.locked, ...ussdSplit.locked, ...ussdShopSplit.locked]
+    const skippedRefunding = [...bulkSplit.locked, ...apiSplit.locked, ...shopSplit.locked, ...ussdSplit.locked, ...ussdShopSplit.locked]
     if (skippedRefunding.length > 0) {
       console.warn(`[BULK-UPDATE] Skipping ${skippedRefunding.length} orders that are refunding/refunded`)
     }
