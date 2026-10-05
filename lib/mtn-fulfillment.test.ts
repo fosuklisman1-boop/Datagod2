@@ -26,6 +26,10 @@ function fakeSupabase(settingsByKey: Record<string, any>) {
   } as any
 }
 
+vi.mock("@/lib/refunds/dispatch-guard", () => ({
+  withDispatchGuard: async (_id: unknown, run: () => Promise<unknown>) => run(),
+}))
+
 vi.mock("@/lib/supabase", () => ({
   supabaseAdmin: fakeSupabase({
     // Registration gate OFF isolates these tests to the whitelist pre-check

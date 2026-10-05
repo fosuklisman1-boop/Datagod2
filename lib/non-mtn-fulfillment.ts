@@ -49,6 +49,15 @@ function toTrackingOrderType(orderType: NonMTNOrderParams["orderType"]): "shop" 
  * filter by provider, not network) can resolve it.
  */
 export async function createNonMTNOrder(params: NonMTNOrderParams): Promise<NonMTNOrderResult> {
+  const { withDispatchGuard } = await import("@/lib/refunds/dispatch-guard")
+  return withDispatchGuard(params.orderId, () => createNonMTNOrderUnguarded(params), {
+    success: false,
+    message: "Order is being refunded",
+    provider: "refund-guard",
+  })
+}
+
+async function createNonMTNOrderUnguarded(params: NonMTNOrderParams): Promise<NonMTNOrderResult> {
   const { phoneNumber, sizeGb, orderId, network, orderType, providerOverride } = params
   const normalizedKey = normalizeNetworkKey(network)
 
