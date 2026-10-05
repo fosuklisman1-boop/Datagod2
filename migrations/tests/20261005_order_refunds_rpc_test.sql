@@ -113,8 +113,18 @@ BEGIN
     ASSERT v_err = 'DISPATCH_ACTIVE', 'got: ' || v_err;
   END;
   PERFORM record_dispatch_outcome(v_order, 'failed');
-  v_res := reserve_order_refund('ussd_orders', v_order, 'wallet', 12, 0, 12, NULL, NULL, NULL);
-  ASSERT v_res->>'refund_id' IS NOT NULL, 'refund allowed once dispatch outcome is failed';
+  -- (6b) p_expected_attempts: a dispatch that claimed+finished since the eligibility read is caught
+  BEGIN
+    PERFORM reserve_order_refund('ussd_orders', v_order, 'wallet', 12, 0, 12, NULL, NULL, NULL,
+      (SELECT attempts FROM order_dispatch_claims WHERE order_id = v_order) - 1);
+    ASSERT false, 'reserve must fail when the claim count changed';
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_err = MESSAGE_TEXT;
+    ASSERT v_err = 'DISPATCH_ACTIVE', 'wrong p_expected_attempts got: ' || v_err;
+  END;
+  v_res := reserve_order_refund('ussd_orders', v_order, 'wallet', 12, 0, 12, NULL, NULL, NULL,
+    (SELECT attempts FROM order_dispatch_claims WHERE order_id = v_order));
+  ASSERT v_res->>'refund_id' IS NOT NULL, 'refund allowed once dispatch outcome is failed (right p_expected_attempts)';
   PERFORM fail_order_refund((v_res->>'refund_id')::uuid, 'cleanup');
 
   -- (7) shortfall: available 0 and wallet 0 cannot cover the cut => blocked, no trace

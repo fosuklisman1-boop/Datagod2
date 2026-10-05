@@ -1,5 +1,9 @@
 -- Admin order refunds: ledger, dispatch claims, atomic RPCs, status guard.
 -- Additive. Safe to apply before the app deploy (app code fails open if RPCs are missing).
+-- One transaction: either everything applies or nothing does. Idempotent (re-runnable).
+BEGIN;
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '120s';
 
 -- ───────────────────────── tables ─────────────────────────
 CREATE TABLE IF NOT EXISTS public.order_refunds (
@@ -81,10 +85,13 @@ BEGIN
 END $$;
 
 -- ───────────────────── reserve + clawback ─────────────────────
+-- The 9-arg version must go: next to a 10-arg one with a default it would make 9-arg calls ambiguous.
+DROP FUNCTION IF EXISTS public.reserve_order_refund(text, uuid, text, numeric, numeric, numeric, text, uuid, uuid);
 CREATE OR REPLACE FUNCTION public.reserve_order_refund(
   p_order_table text, p_order_id uuid, p_gateway text,
   p_paid numeric, p_fee numeric, p_amount numeric,
-  p_destination text, p_wallet_user uuid, p_admin uuid
+  p_destination text, p_wallet_user uuid, p_admin uuid,
+  p_expected_attempts integer DEFAULT NULL
 ) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
@@ -115,6 +122,12 @@ BEGIN
   END IF;
   SELECT last_outcome INTO v_outcome FROM order_dispatch_claims WHERE order_id = p_order_id;
   IF v_outcome IN ('claimed','unknown') THEN RAISE EXCEPTION 'DISPATCH_ACTIVE'; END IF;
+  -- A dispatch may have claimed (and finished) between the caller's eligibility read and now:
+  -- the claim count the admin saw must still be the claim count.
+  IF p_expected_attempts IS NOT NULL
+     AND COALESCE((SELECT attempts FROM order_dispatch_claims WHERE order_id = p_order_id), 0) <> p_expected_attempts THEN
+    RAISE EXCEPTION 'DISPATCH_ACTIVE';
+  END IF;
 
   -- refund row first: shop_profits.refund_id references it
   INSERT INTO order_refunds (id, order_table, order_id, gateway, paid_amount, gateway_fee, amount,
@@ -307,13 +320,17 @@ CREATE TRIGGER trg_00_refund_status_guard BEFORE UPDATE ON public.ussd_shop_orde
 -- ───────────────────── privileges ─────────────────────
 REVOKE EXECUTE ON FUNCTION public.claim_order_dispatch(uuid) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.record_dispatch_outcome(uuid, text) FROM PUBLIC, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public.reserve_order_refund(text, uuid, text, numeric, numeric, numeric, text, uuid, uuid) FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.reserve_order_refund(text, uuid, text, numeric, numeric, numeric, text, uuid, uuid, integer) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.mark_refund_processing(uuid, text, text, text) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.complete_order_refund(uuid, text) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.fail_order_refund(uuid, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.claim_order_dispatch(uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.record_dispatch_outcome(uuid, text) TO service_role;
-GRANT EXECUTE ON FUNCTION public.reserve_order_refund(text, uuid, text, numeric, numeric, numeric, text, uuid, uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.reserve_order_refund(text, uuid, text, numeric, numeric, numeric, text, uuid, uuid, integer) TO service_role;
 GRANT EXECUTE ON FUNCTION public.mark_refund_processing(uuid, text, text, text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.complete_order_refund(uuid, text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.fail_order_refund(uuid, text) TO service_role;
+
+COMMIT;
+
+NOTIFY pgrst, 'reload schema';
