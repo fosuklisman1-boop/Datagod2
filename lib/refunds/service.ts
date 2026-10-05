@@ -7,9 +7,11 @@ import { getGateway, listGateways } from "./gateways"
 import { notifyRefund, type RefundNotification } from "./notify"
 import type { GatewayOutcome, OrderTable, RefundContext, RefundGateway, RefundableOrder } from "./types"
 
-export type RefundErrorCode =
-  | "NOT_FOUND" | "NOT_ELIGIBLE" | "GATEWAY_UNSUPPORTED" | "BAD_AMOUNT" | "BAD_OTP" | "SHORTFALL"
-  | "ALREADY_REFUNDED" | "ORDER_NOT_PENDING" | "DISPATCH_ACTIVE" | "RESERVE_FAILED" | "SETTLE_FAILED"
+export const REFUND_ERROR_CODES = [
+  "NOT_FOUND", "NOT_ELIGIBLE", "GATEWAY_UNSUPPORTED", "BAD_AMOUNT", "BAD_OTP", "SHORTFALL",
+  "ALREADY_REFUNDED", "ORDER_NOT_PENDING", "DISPATCH_ACTIVE", "RESERVE_FAILED", "SETTLE_FAILED",
+] as const
+export type RefundErrorCode = (typeof REFUND_ERROR_CODES)[number]
 
 export class RefundError extends Error {
   constructor(public code: RefundErrorCode, message: string, public detail?: unknown) {
