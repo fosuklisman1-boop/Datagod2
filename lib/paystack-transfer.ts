@@ -123,6 +123,8 @@ export interface PaystackTransferResult {
   transactionReference: string
   fee: number             // GHS
   errorMessage?: string
+  rawStatus?: string      // Paystack's own data.status, before collapsing to `status`
+  httpStatus?: number     // set on failures synthesized from a non-OK HTTP response
 }
 
 function parseTransferResponse(json: any, fallbackReference: string): PaystackTransferResult {
@@ -132,6 +134,7 @@ function parseTransferResponse(json: any, fallbackReference: string): PaystackTr
     rawStatus === "success" || rawStatus === "otp" || rawStatus === "pending" ? rawStatus : "failed"
   return {
     status,
+    rawStatus,
     transferCode: String(data?.transfer_code ?? ""),
     transactionReference: String(data?.reference ?? fallbackReference),
     fee: Number(data?.fee ?? 0) / 100,
@@ -166,7 +169,7 @@ export async function initiateTransfer(params: InitiateTransferParams): Promise<
     const json = await response.json()
     if (!response.ok && !json?.data) {
       console.error("[PAYSTACK-TRANSFER] Transfer error:", json)
-      return { status: "failed", transferCode: "", transactionReference: params.reference, fee: 0, errorMessage: String(json?.message ?? `HTTP ${response.status}`) }
+      return { status: "failed", transferCode: "", transactionReference: params.reference, fee: 0, errorMessage: String(json?.message ?? `HTTP ${response.status}`), httpStatus: response.status }
     }
     return parseTransferResponse(json, params.reference)
   } catch (error) {
@@ -186,7 +189,7 @@ export async function finalizeTransfer(transferCode: string, otp: string): Promi
     const json = await response.json()
     if (!response.ok && !json?.data) {
       console.error("[PAYSTACK-TRANSFER] Finalize error:", json)
-      return { status: "failed", transferCode, transactionReference: "", fee: 0, errorMessage: String(json?.message ?? `HTTP ${response.status}`) }
+      return { status: "failed", transferCode, transactionReference: "", fee: 0, errorMessage: String(json?.message ?? `HTTP ${response.status}`), httpStatus: response.status }
     }
     return parseTransferResponse(json, "")
   } catch (error) {

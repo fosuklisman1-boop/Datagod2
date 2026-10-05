@@ -32,11 +32,17 @@ export const moolreGateway: RefundGateway = {
       reference: `Datagod refund ${ctx.refundId.slice(0, 8)}`,
     })
     if (!result) return { kind: "unknown", error: "Moolre did not answer — check status before retrying" }
-    return fromTxStatus(result.txstatus, result.transactionId, result.errorMessage)
+    // "failed" must mean money definitely did not move: only an insufficient-balance rejection or a
+    // parsed (JSON), non-5xx rejection. A txstatus 2 synthesized from a non-JSON body or a 5xx is ambiguous.
+    if (result.txstatus === 2) {
+      const definitive = result.insufficientBalance === true || (result.parsed === true && (result.httpStatus ?? 0) < 500)
+      if (!definitive) return { kind: "unknown", error: result.errorMessage || "Moolre response was ambiguous — check status before retrying" }
+    }
+    return fromTxStatus(result.txstatus, result.transactionId || ctx.refundId, result.errorMessage)
   },
   async checkStatus(ctx) {
     const result = await getTransferStatus(ctx.refundId)
     if (!result) return { kind: "unknown", error: "Could not reach Moolre to check status" }
-    return fromTxStatus(result.txstatus, result.transactionId)
+    return fromTxStatus(result.txstatus, result.transactionId || ctx.refundId)
   },
 }

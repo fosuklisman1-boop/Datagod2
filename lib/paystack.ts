@@ -392,7 +392,7 @@ export async function refundTransaction(reference: string, amountGhs?: number) {
   const data: PaymentResponse = await response.json()
 
   if (!response.ok || !data.status) {
-    throw new Error(data.message || `Refund failed (HTTP ${response.status})`)
+    throw Object.assign(new Error(data.message || `Refund failed (HTTP ${response.status})`), { httpStatus: response.status })
   }
 
   return data.data

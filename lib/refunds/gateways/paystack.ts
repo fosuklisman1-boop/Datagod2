@@ -14,9 +14,11 @@ export const paystackGateway: RefundGateway = {
       return { kind: "completed", ref: String(data?.id ?? ctx.order.payment.reference) }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Paystack refund failed"
-      // fetch() throws TypeError when the request never got an answer: the refund may or may not exist.
-      if (err instanceof TypeError) return { kind: "unknown", error: message }
-      return { kind: "failed", error: message }
+      // "failed" must mean money definitely did not move. Only a 4xx rejection that Paystack answered
+      // guarantees that; a network error, timeout, non-JSON body or 5xx may still have created the refund.
+      const httpStatus = (err as { httpStatus?: number } | null)?.httpStatus
+      if (typeof httpStatus === "number" && httpStatus >= 400 && httpStatus < 500) return { kind: "failed", error: message }
+      return { kind: "unknown", error: message }
     }
   },
 }

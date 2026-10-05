@@ -65,11 +65,21 @@ describe("paystackGateway", () => {
     expect(out).toEqual({ kind: "completed", ref: "99" })
   })
   it("maps an API rejection to failed", async () => {
-    refundTransaction.mockRejectedValue(new Error("Transaction has already been fully reversed"))
+    refundTransaction.mockRejectedValue(Object.assign(new Error("Transaction has already been fully reversed"), { httpStatus: 422 }))
     expect(await paystackGateway.refund(ctx())).toEqual({ kind: "failed", error: "Transaction has already been fully reversed" })
   })
   it("maps a network failure to unknown (money may have moved)", async () => {
     refundTransaction.mockRejectedValue(new TypeError("fetch failed"))
+    expect((await paystackGateway.refund(ctx())).kind).toBe("unknown")
+  })
+  it("treats anything but a 4xx rejection as unknown", async () => {
+    refundTransaction.mockRejectedValue(Object.assign(new Error("Bad gateway"), { httpStatus: 502 }))
+    expect((await paystackGateway.refund(ctx())).kind).toBe("unknown")
+    refundTransaction.mockRejectedValue(new SyntaxError("Unexpected token <"))
+    expect((await paystackGateway.refund(ctx())).kind).toBe("unknown")
+    refundTransaction.mockRejectedValue(new DOMException("aborted", "AbortError"))
+    expect((await paystackGateway.refund(ctx())).kind).toBe("unknown")
+    refundTransaction.mockRejectedValue(new Error("no status attached"))
     expect((await paystackGateway.refund(ctx())).kind).toBe("unknown")
   })
 })
@@ -83,7 +93,7 @@ describe("paystackPayoutGateway", () => {
 
   it("creates a mobile_money recipient, then a transfer keyed by the refund id, and returns otp", async () => {
     createRecipient.mockResolvedValue({ recipientCode: "RCP_1" })
-    psTransfer.mockResolvedValue({ status: "otp", transferCode: "TRF_1", transactionReference: "rf-1", fee: 0 })
+    psTransfer.mockResolvedValue({ status: "otp", rawStatus: "otp", transferCode: "TRF_1", transactionReference: "rf-1", fee: 0 })
     const out = await paystackPayoutGateway.refund(ctx())
     expect(createRecipient).toHaveBeenCalledWith(expect.objectContaining({ accountNumber: "0241112222", bankCode: "MTN", type: "mobile_money" }))
     expect(psTransfer).toHaveBeenCalledWith(expect.objectContaining({ recipientCode: "RCP_1", amount: 9.5, reference: "rf-1" }))
@@ -92,14 +102,31 @@ describe("paystackPayoutGateway", () => {
 
   it("maps the other transfer statuses", async () => {
     createRecipient.mockResolvedValue({ recipientCode: "RCP_1" })
-    psTransfer.mockResolvedValue({ status: "success", transferCode: "TRF_2", transactionReference: "rf-1", fee: 0 })
+    psTransfer.mockResolvedValue({ status: "success", rawStatus: "success", transferCode: "TRF_2", transactionReference: "rf-1", fee: 0 })
     expect(await paystackPayoutGateway.refund(ctx())).toEqual({ kind: "completed", ref: "TRF_2" })
-    psTransfer.mockResolvedValue({ status: "pending", transferCode: "TRF_3", transactionReference: "rf-1", fee: 0 })
+    psTransfer.mockResolvedValue({ status: "pending", rawStatus: "pending", transferCode: "TRF_3", transactionReference: "rf-1", fee: 0 })
     expect(await paystackPayoutGateway.refund(ctx())).toEqual({ kind: "pending", ref: "TRF_3" })
-    psTransfer.mockResolvedValue({ status: "failed", transferCode: "", transactionReference: "rf-1", fee: 0, errorMessage: "Insufficient balance" })
+    psTransfer.mockResolvedValue({ status: "failed", rawStatus: "failed", transferCode: "", transactionReference: "rf-1", fee: 0, errorMessage: "Insufficient balance" })
     expect(await paystackPayoutGateway.refund(ctx())).toEqual({ kind: "failed", error: "Insufficient balance" })
     psTransfer.mockResolvedValue(null)
     expect((await paystackPayoutGateway.refund(ctx())).kind).toBe("unknown")
+  })
+
+  it("only calls it failed on a definitive rejection; ambiguity is unknown", async () => {
+    createRecipient.mockResolvedValue({ recipientCode: "RCP_1" })
+    const t = (r: object) => { psTransfer.mockResolvedValue({ transferCode: "TRF_9", transactionReference: "rf-1", fee: 0, ...r }) }
+    t({ status: "failed", rawStatus: "reversed", errorMessage: "x" })
+    expect((await paystackPayoutGateway.refund(ctx())).kind).toBe("failed")
+    t({ status: "failed", rawStatus: "processing" })
+    expect(await paystackPayoutGateway.refund(ctx())).toEqual({ kind: "pending", ref: "TRF_9" })
+    t({ status: "failed", rawStatus: "weird" })
+    expect((await paystackPayoutGateway.refund(ctx())).kind).toBe("unknown")
+    t({ status: "failed", rawStatus: "", httpStatus: 502, errorMessage: "Bad gateway" })
+    expect((await paystackPayoutGateway.refund(ctx())).kind).toBe("unknown")
+    t({ status: "failed", rawStatus: "", httpStatus: 400, errorMessage: "Transfer with this reference already exists" })
+    expect((await paystackPayoutGateway.refund(ctx())).kind).toBe("unknown")
+    t({ status: "failed", rawStatus: "", httpStatus: 422, errorMessage: "Insufficient balance" })
+    expect(await paystackPayoutGateway.refund(ctx())).toEqual({ kind: "failed", error: "Insufficient balance" })
   })
 
   it("fails definitively (nothing sent) when the recipient cannot be created", async () => {
@@ -109,25 +136,25 @@ describe("paystackPayoutGateway", () => {
   })
 
   it("finalizes with the admin's OTP; a rejected OTP stays awaiting (never failed)", async () => {
-    psFinalize.mockResolvedValue({ status: "success", transferCode: "TRF_1", transactionReference: "rf-1", fee: 0 })
+    psFinalize.mockResolvedValue({ status: "success", rawStatus: "success", transferCode: "TRF_1", transactionReference: "rf-1", fee: 0 })
     expect(await paystackPayoutGateway.finalizeOtp!(ctx(), "TRF_1", "123456")).toEqual({ kind: "completed", ref: "TRF_1" })
     expect(psFinalize).toHaveBeenCalledWith("TRF_1", "123456")
 
     psFinalize.mockResolvedValue({ status: "failed", transferCode: "TRF_1", transactionReference: "", fee: 0, errorMessage: "Invalid OTP" })
     expect(await paystackPayoutGateway.finalizeOtp!(ctx(), "TRF_1", "000000")).toEqual({ kind: "otp", ref: "TRF_1" })
 
-    psFinalize.mockResolvedValue({ status: "pending", transferCode: "TRF_1", transactionReference: "rf-1", fee: 0 })
+    psFinalize.mockResolvedValue({ status: "pending", rawStatus: "pending", transferCode: "TRF_1", transactionReference: "rf-1", fee: 0 })
     expect(await paystackPayoutGateway.finalizeOtp!(ctx(), "TRF_1", "123456")).toEqual({ kind: "pending", ref: "TRF_1" })
     psFinalize.mockResolvedValue(null)
     expect((await paystackPayoutGateway.finalizeOtp!(ctx(), "TRF_1", "123456")).kind).toBe("unknown")
   })
 
   it("reconciles by transfer reference (the refund id)", async () => {
-    psStatus.mockResolvedValue({ status: "success", transferCode: "TRF_1", transactionReference: "rf-1", fee: 0 })
+    psStatus.mockResolvedValue({ status: "success", rawStatus: "success", transferCode: "TRF_1", transactionReference: "rf-1", fee: 0 })
     expect(await paystackPayoutGateway.checkStatus!(ctx(), "TRF_1")).toEqual({ kind: "completed", ref: "TRF_1" })
-    psStatus.mockResolvedValue({ status: "otp", transferCode: "TRF_1", transactionReference: "rf-1", fee: 0 })
+    psStatus.mockResolvedValue({ status: "otp", rawStatus: "otp", transferCode: "TRF_1", transactionReference: "rf-1", fee: 0 })
     expect((await paystackPayoutGateway.checkStatus!(ctx(), "TRF_1")).kind).toBe("otp")
-    psStatus.mockResolvedValue({ status: "failed", transferCode: "TRF_1", transactionReference: "rf-1", fee: 0, errorMessage: "reversed" })
+    psStatus.mockResolvedValue({ status: "failed", rawStatus: "reversed", transferCode: "TRF_1", transactionReference: "rf-1", fee: 0, errorMessage: "reversed" })
     expect(await paystackPayoutGateway.checkStatus!(ctx(), "TRF_1")).toEqual({ kind: "failed", error: "reversed" })
     psStatus.mockResolvedValue(null)
     expect((await paystackPayoutGateway.checkStatus!(ctx(), "TRF_1")).kind).toBe("unknown")
@@ -151,12 +178,33 @@ describe("moolreGateway", () => {
 
     moolreTransfer.mockResolvedValue({ txstatus: 0, transactionId: "T2", externalref: "rf-1", fee: 0 })
     expect((await moolreGateway.refund(ctx())).kind).toBe("pending")
-    moolreTransfer.mockResolvedValue({ txstatus: 2, transactionId: "", externalref: "rf-1", fee: 0, errorMessage: "rejected" })
+    moolreTransfer.mockResolvedValue({ txstatus: 2, transactionId: "", externalref: "rf-1", fee: 0, errorMessage: "rejected", parsed: true, httpStatus: 200 })
     expect(await moolreGateway.refund(ctx())).toEqual({ kind: "failed", error: "rejected" })
     moolreTransfer.mockResolvedValue({ txstatus: 3, transactionId: "", externalref: "rf-1", fee: 0 })
     expect((await moolreGateway.refund(ctx())).kind).toBe("unknown")
     moolreTransfer.mockResolvedValue(null)
     expect((await moolreGateway.refund(ctx())).kind).toBe("unknown")
+  })
+  it("only calls it failed on a parsed, non-5xx rejection; ambiguity is unknown", async () => {
+    const m = (r: object) => moolreTransfer.mockResolvedValue({ txstatus: 2, transactionId: "", externalref: "rf-1", fee: 0, errorMessage: "e", ...r })
+    m({ parsed: false, httpStatus: 200 })
+    expect((await moolreGateway.refund(ctx())).kind).toBe("unknown")
+    m({ parsed: false, httpStatus: 502 })
+    expect((await moolreGateway.refund(ctx())).kind).toBe("unknown")
+    m({ parsed: true, httpStatus: 502 })
+    expect((await moolreGateway.refund(ctx())).kind).toBe("unknown")
+    m({ insufficientBalance: true, parsed: true, httpStatus: 500 })
+    expect((await moolreGateway.refund(ctx())).kind).toBe("failed")
+    m({ parsed: true, httpStatus: 400 })
+    expect((await moolreGateway.refund(ctx())).kind).toBe("failed")
+  })
+  it("falls back to the refund id when Moolre returns no transaction id", async () => {
+    moolreTransfer.mockResolvedValue({ txstatus: 1, transactionId: "", externalref: "rf-1", fee: 0, parsed: true, httpStatus: 200 })
+    expect(await moolreGateway.refund(ctx())).toEqual({ kind: "completed", ref: "rf-1" })
+    moolreTransfer.mockResolvedValue({ txstatus: 0, transactionId: "", externalref: "rf-1", fee: 0, parsed: true, httpStatus: 200 })
+    expect(await moolreGateway.refund(ctx())).toEqual({ kind: "pending", ref: "rf-1" })
+    moolreStatus.mockResolvedValue({ txstatus: 1, transactionId: "", externalref: "rf-1" })
+    expect(await moolreGateway.checkStatus!(ctx(), null)).toEqual({ kind: "completed", ref: "rf-1" })
   })
   it("reconciles by external reference", async () => {
     moolreStatus.mockResolvedValue({ txstatus: 1, transactionId: "T9", externalref: "rf-1" })
