@@ -59,6 +59,24 @@ export async function processFulfillment(
       // An unsuccessful delivery held the claim and has just released it: process normally.
       tx = fresh
     } else {
+      // An indeterminate-expiry row that an admin resolved 'fulfilled' (delivered manually, no
+      // Hubtel OrderId known then) is fulfilled + paid_at null + callback not_due + resolved_at.
+      // Hubtel's late success must still be recorded and called back: keep the state, record the
+      // OrderId/amounts/paid_at, make the callback due; the order handler is NOT run (the goods were
+      // already delivered by hand). The guarded update is the compare-and-set: one winner only.
+      if (info.isSuccessful && fresh?.state === "fulfilled" && fresh.paid_at == null &&
+          fresh.callback_status === "not_due" && fresh.resolved_at != null) {
+        const won = await store.updateIf(
+          sid,
+          { state: "fulfilled", callback_status: "not_due", paid_atIsNull: true },
+          { ...base, callback_status: "pending" },
+        )
+        if (won) {
+          console.warn("[HUBTEL-PAYMENT] late payment recorded on an admin-resolved fulfilled row; callback due:", sid)
+          return "fulfilled"
+        }
+        return "duplicate"
+      }
       // Paid after the status-check window expired the row (customer was told it failed), or
       // after expiry parked it because the status check was indeterminate (needs_review with no
       // callback due): record the payment and hold for a human, callback now due; never

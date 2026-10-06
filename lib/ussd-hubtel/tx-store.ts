@@ -29,6 +29,18 @@ export function createSupabaseTxStore(supabase: SupabaseClient): HubtelTxStore {
         .eq("session_id", sessionId)
       if (error) throw error
     },
+    async updateIf(sessionId, expect, patch) {
+      let q = supabase
+        .from("hubtel_transactions")
+        .update({ ...patch, updated_at: new Date().toISOString() })
+        .eq("session_id", sessionId)
+        .eq("state", expect.state)
+      if (expect.callback_status) q = q.eq("callback_status", expect.callback_status)
+      if (expect.paid_atIsNull) q = q.is("paid_at", null)
+      const { data, error } = await q.select("session_id")
+      if (error) throw error
+      return (data?.length ?? 0) === 1
+    },
     async listPendingCallbacks(limit) {
       const { data, error } = await supabase
         .from("hubtel_transactions").select("*").eq("callback_status", "pending")

@@ -116,6 +116,10 @@ export interface HubtelClaimGuard {
   paid_atIsNull?: boolean
 }
 
+export interface HubtelUpdateGuard extends HubtelClaimGuard {
+  state: HubtelTxState
+}
+
 export interface HubtelTxStore {
   findBySession(sessionId: string): Promise<HubtelTxRow | null>
   /**
@@ -124,6 +128,11 @@ export interface HubtelTxStore {
    */
   claim(sessionId: string, from?: HubtelTxState[], where?: HubtelClaimGuard): Promise<boolean>
   update(sessionId: string, patch: Partial<HubtelTxRow>): Promise<void>
+  /**
+   * Compare-and-set: applies `patch` only while the row is in state `expect.state` and matches the
+   * extra guards. Never changes state unless the patch does. true only for the caller that won.
+   */
+  updateIf(sessionId: string, expect: HubtelUpdateGuard, patch: Partial<HubtelTxRow>): Promise<boolean>
   listPendingCallbacks(limit: number): Promise<HubtelTxRow[]>
   listAwaitingPayment(limit: number): Promise<HubtelTxRow[]>
   listStaleProcessing(olderThanMinutes: number, limit: number): Promise<HubtelTxRow[]>

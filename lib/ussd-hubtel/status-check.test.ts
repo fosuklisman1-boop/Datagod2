@@ -37,6 +37,12 @@ function store(rows: Partial<HubtelTxRow>[]) {
       return false
     },
     update: async (id, p) => { const r = state.get(id); if (r) state.set(id, { ...r, ...p }) },
+    updateIf: async (id, g, p) => {
+      const r = state.get(id)
+      const ok = r && r.state === g.state && (!g.callback_status || r.callback_status === g.callback_status) && (!g.paid_atIsNull || r.paid_at == null)
+      if (ok) { state.set(id, { ...r, ...p }); return true }
+      return false
+    },
     listPendingCallbacks: async () => [],
     listAwaitingPayment: async () => [...state.values()].filter(r => r.state === "awaiting_payment"),
     listStaleProcessing: async (olderThanMinutes, limit) => {

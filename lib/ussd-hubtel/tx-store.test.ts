@@ -42,6 +42,26 @@ describe("createSupabaseTxStore", () => {
     expect(calls).toContainEqual(["is", "paid_at", null])
   })
 
+  it("updateIf is a compare-and-set on state + guards and never changes state itself", async () => {
+    const { client, calls } = recordingClient({ data: [{ session_id: "S1" }], error: null })
+    const won = await createSupabaseTxStore(client).updateIf(
+      "S1", { state: "fulfilled", callback_status: "not_due", paid_atIsNull: true }, { hubtel_order_id: "O1", callback_status: "pending" },
+    )
+    expect(won).toBe(true)
+    const upd = calls.find(c => c[0] === "update")!
+    expect(upd[1]).toMatchObject({ hubtel_order_id: "O1", callback_status: "pending" })
+    expect(upd[1]).not.toHaveProperty("state")
+    expect(calls).toContainEqual(["eq", "session_id", "S1"])
+    expect(calls).toContainEqual(["eq", "state", "fulfilled"])
+    expect(calls).toContainEqual(["eq", "callback_status", "not_due"])
+    expect(calls).toContainEqual(["is", "paid_at", null])
+  })
+
+  it("updateIf returns false when no row matched", async () => {
+    const { client } = recordingClient({ data: [], error: null })
+    expect(await createSupabaseTxStore(client).updateIf("S1", { state: "fulfilled" }, { callback_status: "pending" })).toBe(false)
+  })
+
   it("claim without a where guard adds no extra filters", async () => {
     const { client, calls } = recordingClient({ data: [{ session_id: "S1" }], error: null })
     await createSupabaseTxStore(client).claim("S1")

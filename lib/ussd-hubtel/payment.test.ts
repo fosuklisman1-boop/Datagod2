@@ -64,6 +64,10 @@ function memoryStore(row: Partial<HubtelTxRow> | null) {
       if (current && from.includes(current.state) && whereOk(current, where)) { current = { ...current, state: "processing" }; return true }
       return false
     },
+    updateIf: async (_id, g, patch) => {
+      if (current && current.state === g.state && whereOk(current, g)) { current = { ...current, ...patch }; return true }
+      return false
+    },
     listStaleProcessing: async () => [],
     listIndeterminate: async () => [],
     update: async (_id, patch) => { if (current) current = { ...current, ...patch } },
@@ -207,6 +211,7 @@ describe("processFulfillment", () => {
         return false
       },
       update: async (_id, p) => { cur = { ...cur, ...p } },
+      updateIf: async () => false,
       listPendingCallbacks: async () => [], listAwaitingPayment: async () => [], listStaleProcessing: async () => [], listIndeterminate: async () => [],
     }
     const h = vi.fn()
@@ -297,6 +302,68 @@ describe("processFulfillment", () => {
     expect(await processFulfillment(m.store, { ussd_orders: vi.fn() }, info())).toBe("duplicate")
     expect(err).not.toHaveBeenCalled()
     err.mockRestore()
+  })
+
+  // I1: an indeterminate-expiry row (needs_review, paid_at null, callback not_due, no OrderId)
+  // that an admin resolved 'fulfilled' ends as fulfilled + paid_at null + not_due + resolved_at.
+  // A late Hubtel success must still record the payment and make the callback due.
+  const resolvedParked = {
+    state: "fulfilled" as const, callback_status: "not_due" as const, paid_at: null, hubtel_order_id: null,
+    resolved_at: "2026-10-06T10:00:00.000Z", resolved_by: "admin-1", resolution_note: "Delivered manually",
+  }
+
+  it("(I1) late success on a parked row an admin resolved 'fulfilled': payment recorded, state kept, callback pending, handler NOT called", async () => {
+    const m = memoryStore(resolvedParked)
+    const h = vi.fn()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    expect(await processFulfillment(m.store, { ussd_orders: h }, info())).toBe("fulfilled")
+    warn.mockRestore()
+    expect(h).not.toHaveBeenCalled()
+    expect(m.get()).toMatchObject({
+      state: "fulfilled", callback_status: "pending", hubtel_order_id: "O1", amount_paid: 11.5, amount_after_charges: 10,
+      resolved_at: resolvedParked.resolved_at, resolved_by: "admin-1", resolution_note: "Delivered manually",
+    })
+    expect(m.get().paid_at).toBeTruthy()
+  })
+
+  it("(I1) a normal fulfilled row (no resolved_at) stays duplicate, untouched", async () => {
+    const m = memoryStore({ ...resolvedParked, resolved_at: null })
+    const h = vi.fn()
+    expect(await processFulfillment(m.store, { ussd_orders: h }, info())).toBe("duplicate")
+    expect(h).not.toHaveBeenCalled()
+    expect(m.get()).toMatchObject({ state: "fulfilled", callback_status: "not_due", hubtel_order_id: null, paid_at: null })
+  })
+
+  it("(I1) a resolved fulfilled row that already has paid_at (or a due callback) stays duplicate", async () => {
+    for (const over of [
+      { paid_at: "2026-10-06T09:00:00.000Z" },
+      { callback_status: "pending" as const, hubtel_order_id: "H1" },
+    ]) {
+      const m = memoryStore({ ...resolvedParked, ...over })
+      const before = { ...m.get() }
+      expect(await processFulfillment(m.store, { ussd_orders: vi.fn() }, info({ hubtelOrderId: "O2" }))).toBe("duplicate")
+      expect(m.get()).toEqual(before)
+    }
+  })
+
+  it("(I1) an unsuccessful late delivery on a resolved row records nothing", async () => {
+    const m = memoryStore(resolvedParked)
+    expect(await processFulfillment(m.store, { ussd_orders: vi.fn() }, info({ isSuccessful: false }))).toBe("duplicate")
+    expect(m.get()).toMatchObject({ state: "fulfilled", callback_status: "not_due", paid_at: null, hubtel_order_id: null })
+  })
+
+  it("(I1) two concurrent late successes on a resolved row: the guarded update is the CAS (one fulfilled, one duplicate)", async () => {
+    const m = memoryStore(resolvedParked)
+    const h = vi.fn()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const results = await Promise.all([
+      processFulfillment(m.store, { ussd_orders: h }, info()),
+      processFulfillment(m.store, { ussd_orders: h }, info({ hubtelOrderId: "O2", amountPaid: 99 })),
+    ])
+    warn.mockRestore()
+    expect(results.sort()).toEqual(["duplicate", "fulfilled"])
+    expect(h).not.toHaveBeenCalled()
+    expect(m.get()).toMatchObject({ state: "fulfilled", callback_status: "pending", hubtel_order_id: "O1", amount_paid: 11.5 })
   })
 
   it("two concurrent late-payment deliveries: one needs_review, one duplicate", async () => {

@@ -34,6 +34,7 @@ function store(row: Partial<HubtelTxRow>) {
     findBySession: async () => cur,
     claim: async () => false,
     update: async (_id, p) => { cur = { ...cur, ...p } },
+    updateIf: async () => false,
     listPendingCallbacks: async () => [],
     listAwaitingPayment: async () => [],
     listStaleProcessing: async () => [],
