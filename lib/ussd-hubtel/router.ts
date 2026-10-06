@@ -5,6 +5,8 @@ import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import { getHubtelUssdConfig, type HubtelUssdConfig } from "./config"
 import { defaultAfaServices, defaultAirtimeServices, defaultRcServices, resolveDialer } from "./services"
 import { sessionStore } from "./session"
+import { defaultShopServices } from "./shop-services"
+import { shopBillingGuard } from "./billing-guard"
 import { fetchBundles, PAGE_SIZE, resolveCaller, isDataBlocked } from "./catalog"
 import { mainMenuText, type MainMenuKey } from "./menus"
 import { release, respond, toE164 } from "./protocol"
@@ -35,6 +37,8 @@ export function defaultRouterDeps(supabase: SupabaseClient): RouterDeps {
     airtime: defaultAirtimeServices(),
     rc: defaultRcServices(supabase),
     afa: defaultAfaServices(supabase),
+    shop: defaultShopServices(supabase),
+    shopBilling: shopBillingGuard,
   }
 }
 

@@ -3,6 +3,8 @@
 import { DEFAULT_NETWORK_PREFIXES } from "@/lib/phone-format"
 import type { RouterDeps } from "../flow-kit"
 import type { AfaServices, AirtimeServices, RcServices } from "../services"
+import type { BillingClaim, ShopBillingGuard } from "../billing-guard"
+import type { ResolvedShopCode, ShopServices } from "../shop-services"
 import type { HubtelRequest, HubtelSession } from "../types"
 
 export const NEW_ID = "11111111-1111-1111-1111-111111111111"
@@ -85,6 +87,8 @@ export function makeDeps(over: Partial<RouterDeps> = {}, sup = fakeSupabase({ pk
     airtime: fakeAirtime(),
     rc: fakeRc(),
     afa: fakeAfa(),
+    shop: fakeShop(),
+    shopBilling: fakeShopBilling(),
     ...over,
   }
   return { deps, store, sup }
@@ -122,4 +126,45 @@ export function fakeRc(over: Partial<RcServices> = {}): RcServices {
 
 export function fakeAfa(over: Partial<AfaServices> = {}): AfaServices {
   return { getPrice: async () => 50, ...over }
+}
+
+/** An active shop code with tokens, owned by a regular (non-sub-agent) shop. */
+export const SHOP_CODE: ResolvedShopCode = {
+  shopCodeId: "code-1", shopId: "shop-1", shopName: "Ama Data Hub", parentShopId: null,
+  status: "active", tokenBalance: 50, whatsappActivated: false,
+}
+
+/** Shop lookups. Only code "1234" resolves (to SHOP_CODE). Numbers are chosen for readable assertions. */
+export function fakeShop(over: Partial<ShopServices> = {}): ShopServices {
+  return {
+    resolveCode: async code => (code === "1234" ? { ...SHOP_CODE } : null),
+    deductToken: async () => true,
+    notifyLowTokens: async () => {},
+    networks: async () => ["MTN", "Telecel"],
+    bundles: async () => [{ id: "pkg-1", size: "5", price: 12 }],
+    verifyBundlePrice: async () => ({ verifiedPrice: 12, profitAmount: 2, parentProfitAmount: 0 }),
+    orderContext: async () => ({ shopName: "Ama Data Hub Ltd", customerEmail: "0200585542@ussd.datagod.com", shopOwnerEmail: "owner@example.com" }),
+    airtimeFeeRate: async () => ({ totalFeeRate: 7, merchantCommissionRate: 2 }),
+    rcPrice: async (_board, qty) => ({ unitPrice: 22, totalPaid: 22 * qty, bulkApplied: false, merchantCommission: 2 * qty }),
+    ...over,
+  }
+}
+
+/**
+ * Same SET NX semantics as the Redis guard (claim body runs synchronously, so concurrent calls
+ * race exactly like the real thing). `fixed` forces every claim result (e.g. "error").
+ */
+export function fakeShopBilling(fixed?: BillingClaim): ShopBillingGuard & { claimed: Set<string> } {
+  const claimed = new Set<string>()
+  return {
+    claimed,
+    claim: async (sid, code) => {
+      if (fixed) return fixed
+      const k = `${sid}:${code}`
+      if (claimed.has(k)) return "already"
+      claimed.add(k)
+      return "claimed"
+    },
+    release: async (sid, code) => { claimed.delete(`${sid}:${code}`) },
+  }
 }
