@@ -37,8 +37,8 @@ export async function POST(request: NextRequest) {
   if (typeof body !== "object" || body === null) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
   }
-  if (body?.mode !== undefined && body.mode !== "main") {
-    return NextResponse.json({ error: "Only 'main' mode is available yet" }, { status: 400 })
+  if (body?.mode !== undefined && body.mode !== "main" && body.mode !== "shop") {
+    return NextResponse.json({ error: "mode must be 'main' or 'shop'" }, { status: 400 })
   }
   if (body?.enabled !== undefined && typeof body.enabled !== "boolean") {
     return NextResponse.json({ error: "enabled must be a boolean" }, { status: 400 })

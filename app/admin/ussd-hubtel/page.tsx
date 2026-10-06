@@ -137,7 +137,7 @@ export default function AdminUssdHubtelPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <PageHeaderBanner title="Hubtel USSD" subtitle="One Hubtel code serving the main menu. Configure the channel and watch payments." />
+        <PageHeaderBanner title="Hubtel USSD" subtitle="One Hubtel code serving the main menu or the shop menu. Configure the channel and watch payments." />
 
         <Card>
           <CardHeader>
@@ -155,14 +155,26 @@ export default function AdminUssdHubtelPage() {
                 {!envOk && <p className="text-xs text-amber-600">Cannot enable until all environment variables below are configured.</p>}
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium">Mode</span>
-                  <Select value={config.mode} onValueChange={v => save({ mode: v }, "mode")}>
+                  <Select value={config.mode} onValueChange={v => {
+                    if (v === config.mode) return
+                    const label = v === "shop" ? "Shop USSD" : "Main USSD"
+                    if (!window.confirm(`Switch the Hubtel code to ${label}? Calls already in progress keep the mode they started with; new dials use ${label}.`)) return
+                    save({ mode: v }, "mode")
+                  }}>
                     <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="main">Main USSD</SelectItem>
-                      <SelectItem value="shop" disabled>Shop USSD (coming soon)</SelectItem>
+                      <SelectItem value="shop">Shop USSD (shop code first)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
+                {config.mode === "shop" && (
+                  <p className="text-xs text-muted-foreground">
+                    Shop mode: callers enter a shop code first, and each Hubtel session costs that shop one session token (billed once
+                    per session, when the code is accepted). Services follow the shop&apos;s catalogue and the toggles below. AFA is not
+                    offered in shop mode. Calls already in progress keep the mode they started with.
+                  </p>
+                )}
                 <div className="divide-y rounded-lg border">
                   {SERVICES.map(s => (
                     <div key={s.key} className="flex items-center justify-between p-3">
