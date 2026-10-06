@@ -1,6 +1,7 @@
 // lib/ussd-hubtel/order-handlers.ts
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { OrderHandlers } from "./payment"
+import { ORDER_TABLES } from "./order-tables"
 
 const last9 = (p: string | null | undefined) => (p || "").replace(/\D/g, "").slice(-9)
 
@@ -77,15 +78,19 @@ export function createOrderHandlers(supabase: SupabaseClient): OrderHandlers {
   }
 }
 
-/** Used when an AddToCart never gets paid (status-check window expired). */
+/** Used when an AddToCart never gets paid (definite expiry, or an admin "not paid" resolution). */
 export function createFailHandlers(supabase: SupabaseClient): OrderHandlers {
-  return {
-    ussd_orders: async orderId => {
-      await supabase
-        .from("ussd_orders")
-        .update({ order_status: "failed", payment_status: "failed", updated_at: new Date().toISOString() })
+  const handlers: OrderHandlers = {}
+  for (const [table, spec] of Object.entries(ORDER_TABLES)) {
+    handlers[table] = async orderId => {
+      // Only an order that is still unpaid may be failed: a paid order is never touched here.
+      const { error } = await supabase
+        .from(table)
+        .update(spec.failPatch())
         .eq("id", orderId)
-        .in("payment_status", ["pending", "otp_required"])
-    },
+        .in("payment_status", [...spec.payableStatuses])
+      if (error) console.error("[HUBTEL-ORDER] fail handler update error:", table, orderId, error)
+    }
   }
+  return handlers
 }

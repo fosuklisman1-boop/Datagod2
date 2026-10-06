@@ -10,8 +10,8 @@ describe("main menu", () => {
     expect(mainMenuText(r)).toContain("1. Buy Data Bundle")
   })
   it("hides data when the caller is whitelist-blocked or admin-hidden", () => {
-    expect(resolveMainMenu(allOn, true)).toEqual([])
-    expect(resolveMainMenu({ ...allOn, data: false }, false)).toEqual([])
+    expect(resolveMainMenu(allOn, true).map(i => i.key)).not.toContain("data")
+    expect(resolveMainMenu({ ...allOn, data: false }, false).map(i => i.key)).not.toContain("data")
   })
 })
 

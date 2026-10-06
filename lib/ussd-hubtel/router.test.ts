@@ -1,75 +1,8 @@
 // lib/ussd-hubtel/router.test.ts
 import { describe, it, expect, vi } from "vitest"
-import { hubtelRouter, type RouterDeps } from "./router"
-import type { HubtelRequest, HubtelSession } from "./types"
-import { DEFAULT_NETWORK_PREFIXES } from "@/lib/phone-format"
-
-function fakeSupabase(opts: { pkg?: any; txError?: boolean; txRow?: any; orderRow?: any; txConflictRow?: any } = {}) {
-  const inserts: Record<string, any[]> = {}
-  const updates: Array<{ table: string; patch: any }> = []
-  // Successful inserts become readable, so a replayed CONFIRM sees what the first one wrote.
-  const stored: Record<string, any> = {}
-  const client: any = {
-    from(table: string) {
-      const b: any = {
-        select() { return b }, eq() { return b }, is() { return b }, not() { return b }, in() { return b },
-        single: async () => ({
-          data: table === "packages" ? opts.pkg : table === "ussd_orders" ? (opts.orderRow ?? stored.ussd_orders ?? null) : null,
-          error: null,
-        }),
-        maybeSingle: async () => ({
-          data: table === "hubtel_transactions" ? (opts.txRow ?? stored.hubtel_transactions ?? null) : null,
-          error: null,
-        }),
-        insert(rows: any) {
-          const list = ([] as any[]).concat(rows)
-          ;(inserts[table] ??= []).push(...list)
-          const conflict = table === "hubtel_transactions" && opts.txConflictRow
-          // Unique violation: a concurrent request already wrote the tx row for this session.
-          if (conflict) stored[table] = opts.txConflictRow
-          else if (!(table === "hubtel_transactions" && opts.txError)) stored[table] = { ...list[0], state: "awaiting_payment" }
-          const txErr = conflict ? { code: "23505", message: "duplicate key value violates unique constraint" }
-            : table === "hubtel_transactions" && opts.txError ? { message: "boom" } : null
-          const ib: any = {
-            select() { return ib },
-            single: async () => ({ data: { id: "11111111-1111-1111-1111-111111111111" }, error: null }),
-            then: (res: any) => res({ error: txErr }),
-          }
-          return ib
-        },
-        update(patch: any) { updates.push({ table, patch }); return b },
-        then: (res: any) => res({ error: null }),
-      }
-      return b
-    },
-  }
-  return { client, inserts, updates }
-}
-
-function makeDeps(over: Partial<RouterDeps> = {}, sup = fakeSupabase({ pkg: { price: 10, dealer_price: null, is_available: true } })) {
-  const store = new Map<string, HubtelSession>()
-  const deps: RouterDeps = {
-    supabase: sup.client,
-    getConfig: async () => ({ enabled: true, mode: "main", visibility: { data: true, afa: true, airtime: true, resultsChecker: true } }),
-    sessions: {
-      get: async id => store.get(id) ?? null,
-      set: async (id, s) => { store.set(id, s) },
-      del: async id => { store.delete(id) },
-    },
-    fetchBundles: async () => ({ bundles: [{ id: "pkg-1", size: "5", price: 10 }], total: 1 }),
-    resolveCaller: async () => ({ effectivePriceTier: "regular" }),
-    isDataBlocked: async () => false,
-    getPrefixConfig: async () => ({ enabled: true, map: DEFAULT_NETWORK_PREFIXES }),
-    pageSize: 5,
-    ...over,
-  }
-  return { deps, store, sup }
-}
-
-const req = (over: Partial<HubtelRequest>): HubtelRequest => ({
-  Type: "Response", Mobile: "233200585542", SessionId: "S1", ServiceCode: "713",
-  Message: "", Operator: "vodafone", Sequence: 2, ClientState: "", Platform: "USSD", ...over,
-})
+import { hubtelRouter, MAIN_MENU_ENTRIES, type RouterDeps } from "./router"
+import { IMPLEMENTED_SERVICES, type MainMenuKey } from "./menus"
+import { fakeSupabase, makeDeps, req } from "./testing/fakes"
 
 describe("hubtelRouter: entry guards", () => {
   it("releases when the channel is disabled", async () => {
@@ -100,7 +33,10 @@ describe("hubtelRouter: initiation and recovery", () => {
     expect(store.get("S1")).toMatchObject({ step: "MAIN", dialingPhone: "+233200585542", platform: "USSD" })
   })
   it("releases politely when no service is available to this caller", async () => {
-    const { deps } = makeDeps({ isDataBlocked: async () => true })
+    const { deps } = makeDeps({
+      isDataBlocked: async () => true,
+      getConfig: async () => ({ enabled: true, mode: "main", visibility: { data: true, afa: false, airtime: false, resultsChecker: false } }),
+    })
     const r = await hubtelRouter(req({ Type: "Initiation" }), deps)
     expect(r.Type).toBe("release")
     expect(r.Message).toMatch(/no services/i)
@@ -150,13 +86,13 @@ describe("hubtelRouter: bad input keeps the session (review focus #5)", () => {
     expect(r.Type).toBe("response")
     expect(r.Message).toContain("looks like a Telecel number")
   })
-  it("accepts 233… and +233… recipient formats, normalised to local", async () => {
+  it("accepts 233â€¦ and +233â€¦ recipient formats, normalised to local", async () => {
     const { deps, store } = makeDeps()
     await walkTo("ENTER_RECIPIENT", deps)
     await hubtelRouter(req({ Message: "233244123456" }), deps)
     expect(store.get("S1")).toMatchObject({ step: "CONFIRM", recipientPhone: "0244123456" })
   })
-  it("normalises a +233… recipient to local", async () => {
+  it("normalises a +233â€¦ recipient to local", async () => {
     const { deps, store } = makeDeps()
     await walkTo("ENTER_RECIPIENT", deps)
     await hubtelRouter(req({ Message: "+233244123456" }), deps)
@@ -164,7 +100,7 @@ describe("hubtelRouter: bad input keeps the session (review focus #5)", () => {
   })
 })
 
-describe("hubtelRouter: confirm → AddToCart", () => {
+describe("hubtelRouter: confirm â†’ AddToCart", () => {
   it("creates the order + hubtel_transactions and returns AddToCart at our price", async () => {
     const sup = fakeSupabase({ pkg: { price: 10, dealer_price: null, is_available: true } })
     const { deps, store } = makeDeps({}, sup)
@@ -322,5 +258,39 @@ describe("hubtelRouter: other platforms", () => {
     const r = await bundleScreen("Webstore", "SW")
     expect(r.Message.endsWith("...")).toBe(false)
     expect(r.Message.length).toBeGreaterThan(182)
+  })
+})
+
+describe("hubtelRouter: flow registry", () => {
+  it("every implemented main-menu service has an entry handler", () => {
+    for (const [key, on] of Object.entries(IMPLEMENTED_SERVICES)) {
+      if (on) expect(MAIN_MENU_ENTRIES[key as MainMenuKey], key).toBeTypeOf("function")
+    }
+  })
+  it("replay with an unknown order table says already submitted instead of crashing (review focus #6)", async () => {
+    const sup = fakeSupabase({ txRow: { order_table: "nope", order_id: "o1", expected_amount: 10, state: "awaiting_payment" } })
+    const { deps } = makeDeps({}, sup)
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    const r = await hubtelRouter(req({ Message: "1" }), deps)
+    err.mockRestore()
+    expect(r.Type).toBe("release")
+    expect(r.Message).toContain("already submitted")
+  })
+  it("refuses to AddToCart a zero price and creates no order", async () => {
+    const sup = fakeSupabase({ pkg: { price: 0, dealer_price: null, is_available: true } })
+    const { deps } = makeDeps({ fetchBundles: async () => ({ bundles: [{ id: "pkg-1", size: "5", price: 0 }], total: 1 }) }, sup)
+    await walkTo("CONFIRM", deps)
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    const r = await hubtelRouter(req({ Message: "1" }), deps)
+    err.mockRestore()
+    expect(r.Type).toBe("release")
+    expect(sup.inserts["ussd_orders"]).toBeUndefined()
+  })
+  it("an unknown step in a stored session restarts at the main menu", async () => {
+    const { deps, store } = makeDeps()
+    store.set("S1", { step: "NOT_A_STEP" as any, dialingPhone: "+233200585542", platform: "USSD" })
+    const r = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(r.Type).toBe("response")
+    expect(r.Message).toContain("Buy Data Bundle")
   })
 })
