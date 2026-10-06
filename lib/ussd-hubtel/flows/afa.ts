@@ -31,8 +31,10 @@ export function afaRegionPromptText(): string {
   return "Enter your region:\n(e.g. Ashanti,\nGreater Accra)\n0. Back"
 }
 export function afaConfirmText(name: string, card: string, price: number, payerLocal: string): string {
+  // Display only: a long name must never push "1. Pay now / 2. Cancel" past the 182-char limit.
+  const shown = name.length > 40 ? name.slice(0, 40) + "..." : name
   return (
-    `AFA Registration\n${name}\nCard: ${card}\nGHS ${price.toFixed(2)} from ${payerLocal}\n` +
+    `AFA Registration\n${shown}\nCard: ${card}\nGHS ${price.toFixed(2)} from ${payerLocal}\n` +
     `Takes 12-24hrs to reflect\n1. Pay now\n2. Cancel`
   )
 }
@@ -49,7 +51,7 @@ export async function startAfa(ctx: FlowCtx): Promise<HubtelReply> {
 async function enterName(ctx: FlowCtx): Promise<HubtelReply> {
   if (ctx.input === "0") return backToMain(ctx)
   const name = ctx.input.replace(/\s+/g, " ")
-  if (!NAME_RE.test(name)) return say(ctx, "Enter your full name\n(letters only).\n" + afaNamePromptText(), "AFA_ENTER_NAME", NAME)
+  if (!NAME_RE.test(name)) return say(ctx, "Use letters only\n(3-100 characters).\n" + afaNamePromptText(), "AFA_ENTER_NAME", NAME)
   return goto(ctx, { step: "AFA_ENTER_CARD", afaFullName: name }, afaCardPromptText(), CARD)
 }
 
@@ -80,11 +82,11 @@ async function enterRegion(ctx: FlowCtx): Promise<HubtelReply> {
 
 async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   const { deps, req, session: s } = ctx
+  if (ctx.input === "2") return finish(ctx, "Registration cancelled.")
   // A session missing any collected field cannot be confirmed (fail closed, never submit partial data).
   if (!s.afaFullName || !s.afaGhCard || !s.afaLocation || !s.afaRegion || s.afaPrice === undefined) {
     return finish(ctx, UNAVAILABLE)
   }
-  if (ctx.input === "2") return finish(ctx, "Registration cancelled.")
   if (ctx.input !== "1") {
     return say(ctx, afaConfirmText(s.afaFullName, s.afaGhCard, s.afaPrice, toLocalPhone(s.dialingPhone)), "AFA_CONFIRM", CONFIRM)
   }

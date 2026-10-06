@@ -192,13 +192,22 @@ async function checkRequestPostPayment(supabase: SupabaseClient, orderId: string
 }
 
 /**
+ * fulfillment_status values lib/ussd/fulfill-afa.ts leaves behind on a SUCCESSFUL provider submission.
+ * Everything else ('failed', a still-'unfulfilled' claim error, unexpected) is a failure.
+ *  - 'fulfilled': Sykes accepted (line 141).
+ *  - 'pending': Apex Prime accepted; the claim set 'pending' (line 63) and only fulfillment_ref is
+ *    written on success (lines 96-108), so the sync cron confirms it later.
+ */
+export const OK_FULFILMENT_STATUSES: ReadonlySet<string> = new Set(["fulfilled", "pending"])
+
+/**
  * Mirrors the Paystack webhook's USSD AFA branch: mark paid → fulfillUssdAfaOrder (it has its own
  * atomic fulfilment claim) → payer SMS. The mark is conditional (pending→completed) and is the
- * once-only gate. A provider failure is logged, not thrown: the order stays visible to the AFA
- * retry/manual tools exactly as on the Paystack path. Shop-scoped rows are refused because that
- * branch's inline shop-profit credit is not ported (the Hubtel main router never sets shop_id).
- * The library is not trusted to have persisted state: the row is re-read afterwards and anything
- * other than payment_status 'completed' throws (=> needs_review) before the payer is SMSed.
+ * once-only gate. Shop-scoped rows are refused because that branch's inline shop-profit credit is
+ * not ported (the Hubtel main router never sets shop_id). Provider failures are recorded by the
+ * library in fulfillment_status only; no admin queue reads ussd_afa_orders, so the handler re-reads
+ * fulfillment_status and, unless it is in OK_FULFILMENT_STATUSES, throws (=> needs_review for manual
+ * follow-up; the Hubtel callback is still sent) without SMSing the payer.
  */
 async function afaOrderPostPayment(supabase: SupabaseClient, orderId: string): Promise<void> {
   const { data: order, error: lookupErr } = await supabase
@@ -232,14 +241,19 @@ async function afaOrderPostPayment(supabase: SupabaseClient, orderId: string): P
     console.error("[HUBTEL-ORDER] Failed to trigger AFA fulfilment:", orderId, e)
   }
 
+  // fulfillUssdAfaOrder records the provider outcome in fulfillment_status and never throws on a
+  // provider failure, so its return value is not trusted: re-read the row. Anything outside
+  // OK_FULFILMENT_STATUSES (failed, still unfulfilled, unreadable, unexpected) throws => needs_review
+  // for manual follow-up, and the payer is NOT told the registration was received.
   const { data: after, error: afterErr } = await supabase
     .from("ussd_afa_orders")
-    .select("id, payment_status")
+    .select("id, fulfillment_status")
     .eq("id", orderId)
     .maybeSingle()
   if (afterErr) console.error("[HUBTEL-ORDER] ussd_afa_orders re-read failed:", orderId, afterErr)
-  if (after?.payment_status !== "completed") {
-    throw new Error(`ussd_afa_orders ${orderId} not completed after fulfilment (is ${after?.payment_status ?? "unreadable"}): needs manual review`)
+  const fulfilment: unknown = after?.fulfillment_status
+  if (typeof fulfilment !== "string" || !OK_FULFILMENT_STATUSES.has(fulfilment)) {
+    throw new Error(`ussd_afa_orders ${orderId} paid but fulfillment_status is ${typeof fulfilment === "string" ? `'${fulfilment}'` : "unreadable"} after fulfilment: needs manual follow-up`)
   }
 
   const { sendSMS, SMSTemplates } = await import("@/lib/sms-service")

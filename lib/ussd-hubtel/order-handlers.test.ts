@@ -25,14 +25,14 @@ vi.mock("@/lib/results-checker-service", () => ({
 }))
 vi.mock("@/lib/ussd/fulfill-afa", () => ({ fulfillUssdAfaOrder: (...a: any[]) => fulfillUssdAfaOrder(...a) }))
 
-import { createOrderHandlers, createFailHandlers } from "./order-handlers"
+import { createOrderHandlers, createFailHandlers, OK_FULFILMENT_STATUSES } from "./order-handlers"
 
 /**
  * Table-aware fake. select(...).eq(...).maybeSingle() returns rows[table] (the same object every
  * time, so a mocked library call may mutate it). An update chain ending in .select() only matches
  * when the row's in() column value is in the list, like the real conditional update; an awaited
- * update without .select() always applies. `updates` holds applied patches in order; `log` also
- * records the table and the in() filter.
+ * update without .select() always applies. Applied patches are merged into the served row.
+ * `updates` holds applied patches in order; `log` also records the table and the in() filter.
  */
 function fakeDb(rows: Record<string, any>) {
   const updates: any[] = []
@@ -49,10 +49,10 @@ function fakeDb(rows: Record<string, any>) {
             select: async () => {
               const row = rows[table]
               const ok = !!row && (!rec.inCol || (rec.inVals ?? []).includes(row[rec.inCol]))
-              if (ok) { updates.push(patch); log.push(rec) }
+              if (ok) { updates.push(patch); log.push(rec); Object.assign(row, patch) } // applied to the served row, like the real db
               return { data: ok ? [{ id: row.id }] : [], error: null }
             },
-            then: (res: any) => { updates.push(patch); log.push(rec); return res({ error: null }) },
+            then: (res: any) => { updates.push(patch); log.push(rec); if (rows[table]) Object.assign(rows[table], patch); return res({ error: null }) },
           }
           return chain
         },
@@ -279,10 +279,12 @@ describe("results_check_requests post-payment handler", () => {
 })
 
 describe("ussd_afa_orders post-payment handler", () => {
-  const base = { id: "a1", dialing_phone: "+233244123456", shop_id: null }
-  // The fake db does not apply the conditional mark to the row it serves back; this stands in for a
-  // library whose own update persisted, so the handler's post-fulfilment re-read sees "completed".
-  const persistingFulfil = (row: any) => async () => { row.payment_status = "completed"; return { success: true, message: "ok" } }
+  const base = { id: "a1", dialing_phone: "+233244123456", shop_id: null, fulfillment_status: "unfulfilled" }
+  // fulfill-afa.ts records the provider outcome in fulfillment_status; mimic what it leaves behind.
+  const leaves = (row: any, status: string, result = { success: true, message: "ok" }) => async () => {
+    row.fulfillment_status = status
+    return result
+  }
 
   it("failed order (late payment after expiry) → throws, no fulfilment, no SMS (review focus #5)", async () => {
     const { client } = fakeDb({ ussd_afa_orders: { ...base, payment_status: "failed" } })
@@ -290,46 +292,65 @@ describe("ussd_afa_orders post-payment handler", () => {
     expect(fulfillUssdAfaOrder).not.toHaveBeenCalled()
     expect(sendSMS).not.toHaveBeenCalled()
   })
-  it("pending → marked completed (conditional), registration submitted once, payer SMSed", async () => {
+  it("pending → marked completed (conditional, applied to the row), registration submitted once, payer SMSed", async () => {
     const row = { ...base, payment_status: "pending" }
-    fulfillUssdAfaOrder.mockImplementation(persistingFulfil(row))
+    fulfillUssdAfaOrder.mockImplementation(leaves(row, "fulfilled"))
     const { client, log } = fakeDb({ ussd_afa_orders: row })
     await createOrderHandlers(client).ussd_afa_orders("a1")
     expect(log[0]).toMatchObject({ table: "ussd_afa_orders", patch: { payment_status: "completed" }, inVals: ["pending"] })
+    expect(row.payment_status).toBe("completed")
     expect(fulfillUssdAfaOrder).toHaveBeenCalledTimes(1)
     expect(fulfillUssdAfaOrder).toHaveBeenCalledWith("a1")
     expect(sendSMS).toHaveBeenCalledTimes(1)
     expect(sendSMS.mock.calls[0][0]).toMatchObject({ phone: "+233244123456", message: "afa-paid" })
   })
-  it("a provider failure does not throw (the AFA manual queue owns it); payer still SMSed", async () => {
+  // Success paths of fulfill-afa.ts: Sykes accepted => 'fulfilled'; Apex accepted => 'pending' (sync cron confirms).
+  for (const ok of [...OK_FULFILMENT_STATUSES]) {
+    it(`fulfillment_status '${ok}' (provider accepted) → payer SMSed exactly once, no throw`, async () => {
+      const row = { ...base, payment_status: "pending" }
+      fulfillUssdAfaOrder.mockImplementation(leaves(row, ok))
+      const { client } = fakeDb({ ussd_afa_orders: row })
+      await expect(createOrderHandlers(client).ussd_afa_orders("a1")).resolves.toBeUndefined()
+      expect(sendSMS).toHaveBeenCalledTimes(1)
+    })
+  }
+  it("provider failure left fulfillment_status 'failed' → throws naming the status, no SMS (needs_review)", async () => {
     const row = { ...base, payment_status: "pending" }
-    fulfillUssdAfaOrder.mockImplementation(async () => { row.payment_status = "completed"; return { success: false, message: "provider down" } })
+    fulfillUssdAfaOrder.mockImplementation(leaves(row, "failed", { success: false, message: "provider down" }))
     const err = vi.spyOn(console, "error").mockImplementation(() => {})
     const { client } = fakeDb({ ussd_afa_orders: row })
-    await createOrderHandlers(client).ussd_afa_orders("a1")
+    await expect(createOrderHandlers(client).ussd_afa_orders("a1")).rejects.toThrow(/fulfillment_status.*failed/)
     err.mockRestore()
-    expect(sendSMS).toHaveBeenCalledTimes(1)
+    expect(sendSMS).not.toHaveBeenCalled()
   })
-  it("fulfilment library throws → not thrown (manual queue owns it); payer still SMSed", async () => {
-    const row = { ...base, payment_status: "pending" }
-    fulfillUssdAfaOrder.mockImplementation(async () => { row.payment_status = "completed"; throw new Error("boom") })
+  it("claim DB error left fulfillment_status 'unfulfilled' → throws, no SMS", async () => {
+    fulfillUssdAfaOrder.mockResolvedValue({ success: false, message: "Failed to claim order for fulfillment" })
     const err = vi.spyOn(console, "error").mockImplementation(() => {})
-    const { client } = fakeDb({ ussd_afa_orders: row })
-    await createOrderHandlers(client).ussd_afa_orders("a1")
-    err.mockRestore()
-    expect(sendSMS).toHaveBeenCalledTimes(1)
-  })
-  it("order not completed when re-read after fulfilment (mark not persisted) → throws, no SMS", async () => {
-    fulfillUssdAfaOrder.mockResolvedValue({ success: true, message: "ok" }) // row stays 'pending'
     const { client } = fakeDb({ ussd_afa_orders: { ...base, payment_status: "pending" } })
-    await expect(createOrderHandlers(client).ussd_afa_orders("a1")).rejects.toThrow(/not completed after fulfilment/)
+    await expect(createOrderHandlers(client).ussd_afa_orders("a1")).rejects.toThrow(/fulfillment_status.*unfulfilled/)
+    err.mockRestore()
+    expect(sendSMS).not.toHaveBeenCalled()
+  })
+  it("an unexpected fulfillment_status → throws, no SMS", async () => {
+    const row = { ...base, payment_status: "pending" }
+    fulfillUssdAfaOrder.mockImplementation(leaves(row, "weird"))
+    const { client } = fakeDb({ ussd_afa_orders: row })
+    await expect(createOrderHandlers(client).ussd_afa_orders("a1")).rejects.toThrow(/weird/)
+    expect(sendSMS).not.toHaveBeenCalled()
+  })
+  it("fulfilment library throws and nothing was submitted → throws, no SMS", async () => {
+    fulfillUssdAfaOrder.mockRejectedValue(new Error("boom"))
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    const { client } = fakeDb({ ussd_afa_orders: { ...base, payment_status: "pending" } })
+    await expect(createOrderHandlers(client).ussd_afa_orders("a1")).rejects.toThrow(/fulfillment_status/)
+    err.mockRestore()
     expect(sendSMS).not.toHaveBeenCalled()
   })
   it("order unreadable after fulfilment → throws, no SMS", async () => {
     const rows: Record<string, any> = { ussd_afa_orders: { ...base, payment_status: "pending" } }
     fulfillUssdAfaOrder.mockImplementation(async () => { delete rows.ussd_afa_orders; return { success: true, message: "ok" } })
     const { client } = fakeDb(rows)
-    await expect(createOrderHandlers(client).ussd_afa_orders("a1")).rejects.toThrow(/after fulfilment/)
+    await expect(createOrderHandlers(client).ussd_afa_orders("a1")).rejects.toThrow(/unreadable/)
     expect(sendSMS).not.toHaveBeenCalled()
   })
   it("a shop-scoped AFA row is refused (shop profit is not ported) → throws, nothing marked", async () => {
