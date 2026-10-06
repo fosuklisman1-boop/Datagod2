@@ -24,6 +24,40 @@ const SERVICES: { key: keyof HubtelUssdConfig["visibility"]; label: string; live
   { key: "resultsChecker", label: "Results Checker", live: false },
 ]
 
+type TxFilter = "all" | "attention" | "awaiting_payment" | "fulfilled" | "failed"
+const TX_FILTERS: { value: TxFilter; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "attention", label: "Needs attention" },
+  { value: "awaiting_payment", label: "Awaiting payment" },
+  { value: "fulfilled", label: "Fulfilled" },
+  { value: "failed", label: "Failed" },
+]
+
+function matchesFilter(t: HubtelTxRow, f: TxFilter): boolean {
+  if (f === "all") return true
+  if (f === "attention") return t.state === "needs_review" || t.callback_status === "failed"
+  return t.state === f
+}
+
+/** Short id with the full value on hover; click copies the full value. */
+function IdCell({ value, label }: { value: string | null; label: string }) {
+  if (!value) return <span className="text-muted-foreground">-</span>
+  const short = value.length > 12 ? `${value.slice(0, 8)}…${value.slice(-4)}` : value
+  return (
+    <button
+      type="button"
+      title={`${value} (click to copy)`}
+      aria-label={`Copy ${label} ${value}`}
+      className="font-mono text-xs underline decoration-dotted underline-offset-2 hover:text-foreground"
+      onClick={() => {
+        navigator.clipboard?.writeText(value).then(() => toast.success(`${label} copied`), () => toast.error("Copy failed"))
+      }}
+    >
+      {short}
+    </button>
+  )
+}
+
 async function authed(path: string, init?: RequestInit) {
   const { data: { session } } = await supabase.auth.getSession()
   if (!session?.access_token) throw new Error("No authentication token available")
@@ -42,6 +76,8 @@ export default function AdminUssdHubtelPage() {
   const [txs, setTxs] = useState<HubtelTxRow[]>([])
   const [counts, setCounts] = useState<Counts | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const [filter, setFilter] = useState<TxFilter>("all")
+  const shown = txs.filter(t => matchesFilter(t, filter))
 
   const load = useCallback(async () => {
     try {
@@ -122,30 +158,53 @@ export default function AdminUssdHubtelPage() {
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
+          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle>Payments</CardTitle>
               {counts && <CardDescription>
                 {counts.awaiting_payment} awaiting · {counts.needs_review} need review · {counts.callback_pending} callbacks pending · {counts.callback_failed} callbacks failed
               </CardDescription>}
+              <CardDescription className="mt-1 text-xs">
+                Shows the 50 most recent sessions plus every row needing attention (needs review or callback failed).
+              </CardDescription>
             </div>
-            <Button variant="outline" size="sm" onClick={load} aria-label="Refresh"><RefreshCw className="w-4 h-4" /></Button>
+            <div className="flex items-center gap-2">
+              <Select value={filter} onValueChange={v => setFilter(v as TxFilter)}>
+                <SelectTrigger className="w-44" aria-label="Filter by state"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {TX_FILTERS.map(f => <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Button variant="outline" size="sm" onClick={load} aria-label="Refresh"><RefreshCw className="w-4 h-4" /></Button>
+            </div>
           </CardHeader>
           <CardContent className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr className="text-left text-muted-foreground">
-                <th className="p-2">Time</th><th className="p-2">Platform</th><th className="p-2">Mobile</th><th className="p-2">Expected</th>
+                <th className="p-2">Time</th><th className="p-2">Session</th><th className="p-2">Order</th><th className="p-2">Hubtel order</th>
+                <th className="p-2">Platform</th><th className="p-2">Mobile</th><th className="p-2">Expected</th>
                 <th className="p-2">Paid</th><th className="p-2">State</th><th className="p-2">Callback</th><th className="p-2" />
               </tr></thead>
               <tbody>
-                {txs.map(t => (
+                {shown.map(t => (
                   <tr key={t.session_id} className="border-t">
-                    <td className="p-2">{new Date(t.created_at).toLocaleString()}</td>
+                    <td className="p-2 whitespace-nowrap">{new Date(t.created_at).toLocaleString()}</td>
+                    <td className="p-2"><IdCell value={t.session_id} label="Session id" /></td>
+                    <td className="p-2">
+                      <div className="text-xs text-muted-foreground">{t.order_table}</div>
+                      <IdCell value={t.order_id} label="Order id" />
+                    </td>
+                    <td className="p-2"><IdCell value={t.hubtel_order_id} label="Hubtel order id" /></td>
                     <td className="p-2">{t.platform}</td>
-                    <td className="p-2">{t.mobile}</td>
+                    <td className="p-2 whitespace-nowrap">{t.mobile ?? "-"}</td>
                     <td className="p-2">GHS {Number(t.expected_amount).toFixed(2)}</td>
                     <td className="p-2">{t.amount_after_charges != null ? `GHS ${Number(t.amount_after_charges).toFixed(2)}` : "-"}</td>
-                    <td className="p-2"><Badge variant={t.state === "needs_review" || t.state === "failed" ? "destructive" : "secondary"}>{t.state}</Badge></td>
+                    <td className="p-2">
+                      <Badge variant={t.state === "needs_review" || t.state === "failed" ? "destructive" : "secondary"}>{t.state}</Badge>
+                      {t.state === "needs_review" && t.callback_last_error && (
+                        <div className="mt-1 max-w-[16rem] text-xs text-muted-foreground">{t.callback_last_error}</div>
+                      )}
+                    </td>
                     <td className="p-2" title={t.callback_last_error ?? ""}><Badge variant={t.callback_status === "failed" ? "destructive" : "outline"}>{t.callback_status}</Badge></td>
                     <td className="p-2">
                       {(t.state === "fulfilled" || t.state === "needs_review") && (t.callback_status === "pending" || t.callback_status === "failed") && (
@@ -154,7 +213,11 @@ export default function AdminUssdHubtelPage() {
                     </td>
                   </tr>
                 ))}
-                {txs.length === 0 && <tr><td colSpan={8} className="p-6 text-center text-muted-foreground">No Hubtel transactions yet.</td></tr>}
+                {shown.length === 0 && (
+                  <tr><td colSpan={11} className="p-6 text-center text-muted-foreground">
+                    {txs.length === 0 ? "No Hubtel transactions yet." : "No transactions match this filter."}
+                  </td></tr>
+                )}
               </tbody>
             </table>
           </CardContent>

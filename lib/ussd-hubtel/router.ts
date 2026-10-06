@@ -314,6 +314,12 @@ async function handleConfirm(input: string, req: HubtelRequest, deps: RouterDeps
       .update({ order_status: "failed", payment_status: "failed", updated_at: new Date().toISOString() })
       .eq("id", order.id)
     if (rollbackError) console.error("[HUBTEL-CONFIRM] Failed to mark order failed after tx insert error:", order.id, rollbackError)
+    if ((txError as { code?: string }).code === "23505") {
+      // A concurrent CONFIRM for this session won the insert: answer exactly as it did, so the
+      // customer gets the same cart (and pays for the order that is actually tracked).
+      const replay = await replaySubmittedOrder(deps, sid, platform)
+      if (replay) return replay
+    }
     return release(sid, "Error creating order. Please try again.", { platform })
   }
 

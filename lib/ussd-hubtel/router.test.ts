@@ -4,7 +4,7 @@ import { hubtelRouter, type RouterDeps } from "./router"
 import type { HubtelRequest, HubtelSession } from "./types"
 import { DEFAULT_NETWORK_PREFIXES } from "@/lib/phone-format"
 
-function fakeSupabase(opts: { pkg?: any; txError?: boolean; txRow?: any; orderRow?: any } = {}) {
+function fakeSupabase(opts: { pkg?: any; txError?: boolean; txRow?: any; orderRow?: any; txConflictRow?: any } = {}) {
   const inserts: Record<string, any[]> = {}
   const updates: Array<{ table: string; patch: any }> = []
   // Successful inserts become readable, so a replayed CONFIRM sees what the first one wrote.
@@ -24,11 +24,16 @@ function fakeSupabase(opts: { pkg?: any; txError?: boolean; txRow?: any; orderRo
         insert(rows: any) {
           const list = ([] as any[]).concat(rows)
           ;(inserts[table] ??= []).push(...list)
-          if (!(table === "hubtel_transactions" && opts.txError)) stored[table] = { ...list[0], state: "awaiting_payment" }
+          const conflict = table === "hubtel_transactions" && opts.txConflictRow
+          // Unique violation: a concurrent request already wrote the tx row for this session.
+          if (conflict) stored[table] = opts.txConflictRow
+          else if (!(table === "hubtel_transactions" && opts.txError)) stored[table] = { ...list[0], state: "awaiting_payment" }
+          const txErr = conflict ? { code: "23505", message: "duplicate key value violates unique constraint" }
+            : table === "hubtel_transactions" && opts.txError ? { message: "boom" } : null
           const ib: any = {
             select() { return ib },
             single: async () => ({ data: { id: "11111111-1111-1111-1111-111111111111" }, error: null }),
-            then: (res: any) => res({ error: table === "hubtel_transactions" && opts.txError ? { message: "boom" } : null }),
+            then: (res: any) => res({ error: txErr }),
           }
           return ib
         },
@@ -233,6 +238,22 @@ describe("hubtelRouter: idempotent CONFIRM", () => {
     expect(sup.inserts["ussd_orders"]).toBeUndefined()
     expect(sup.inserts["hubtel_transactions"]).toBeUndefined()
   })
+  it("(M2) tx insert hits a unique violation (concurrent CONFIRM won): orphan order failed, replays AddToCart", async () => {
+    const sup = fakeSupabase({
+      pkg: okPkg,
+      txConflictRow: { order_table: "ussd_orders", order_id: "o-winner", expected_amount: 10, state: "awaiting_payment" },
+      orderRow: { package_size: "5", network: "MTN" },
+    })
+    const { deps } = makeDeps({}, sup)
+    await walkTo("CONFIRM", deps)
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    const r = await hubtelRouter(req({ Message: "1" }), deps)
+    err.mockRestore()
+    expect(r.Type).toBe("AddToCart")
+    expect(r.Item).toEqual({ ItemName: "5GB MTN Data", Qty: 1, Price: 10 })
+    expect(sup.updates.some(u => u.table === "ussd_orders" && u.patch.order_status === "failed")).toBe(true)
+  })
+
   it("no session but an awaiting_payment tx exists: replays AddToCart, not the menu", async () => {
     const sup = fakeSupabase({
       txRow: { order_table: "ussd_orders", order_id: "o1", expected_amount: 10, state: "awaiting_payment" },

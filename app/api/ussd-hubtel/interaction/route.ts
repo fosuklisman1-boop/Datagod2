@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
   const req = parseHubtelRequest(body)
   if (!req) return NextResponse.json({ error: "Invalid request" }, { status: 400 })
 
-  console.log("[HUBTEL] Incoming:", { sid: req.SessionId, type: req.Type, platform: req.Platform, seq: req.Sequence, input: req.Message })
+  console.log("[HUBTEL] Incoming:", { sid: req.SessionId, type: req.Type, platform: req.Platform, seq: req.Sequence, inputLen: req.Message.length })
   try {
     const reply = await hubtelRouter(req, defaultRouterDeps(supabase))
     console.log("[HUBTEL] Reply:", { type: reply.Type, msg: reply.Message.slice(0, 60) })

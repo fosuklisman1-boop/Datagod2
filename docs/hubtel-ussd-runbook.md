@@ -4,7 +4,7 @@
 - [ ] Hubtel merchant account; note the **Collection Account Number** and API credentials.
 - [ ] DigitalOcean droplet running the relay (`scripts/hubtel-relay/README.md`); give its **public IPv4** to your Hubtel Retail Systems Engineer to whitelist for the callback + status-check endpoints. Deploy layout is repo-relative: copy only `scripts/hubtel-relay/server.ts` and `lib/ussd-hubtel/relay-handler.ts` into `/opt/hubtel-relay/`, preserving those paths (the README has the full steps).
 - [ ] Vercel env (production): `HUBTEL_WEBHOOK_SECRET` (long random), `HUBTEL_RELAY_URL`, `HUBTEL_RELAY_SECRET`. Optional `HUBTEL_ENFORCE_FULFILLMENT_IP=true` once the callbacks are confirmed arriving from `52.50.116.54 / 18.202.122.131 / 52.31.15.68`.
-- [ ] Migration `0106_hubtel_ussd.sql` applied.
+- [ ] **Migration `0106_hubtel_ussd.sql` MUST be applied to the PRODUCTION database BEFORE this branch is merged/deployed.** The two Hubtel crons (`hubtel-callbacks` every minute, `hubtel-status-check` every 2 minutes) start running on deploy and will error on every run until the `hubtel_transactions` table exists.
 - [ ] Crons (already in `vercel.json`, nothing to configure): `/api/cron/hubtel-callbacks` runs every minute; `/api/cron/hubtel-status-check` runs every 2 minutes.
 
 ## 1. Register the service in Hubtel
@@ -36,6 +36,10 @@
 
 ### PHASE B — production live checks
 Phase B **REQUIRES briefly enabling the channel on production**. Safe procedure:
+0. **Prove the status-check path BEFORE trusting any expiry decision.** From your machine (export the secret in your shell first, do not type it inline):
+   `curl -s -H "Authorization: Bearer $HUBTEL_RELAY_SECRET" "https://relay.<domain>/status?clientReference=<SessionId>"`
+   using the SessionId of a known paid session (or of the owner's test session after step 3). Expect `{"ok":true,"upstreamStatus":200,"body":{...,"data":{...,"status":"Paid"}}}` (or `"Unpaid"` for an abandoned session). This proves the Hubtel Basic-auth credentials, the whitelisted relay IP, and the response shape (`body.data.status`) the status-check cron depends on. `ok:false`/`upstreamStatus` 401/403 means credentials or IP whitelisting are wrong; a 200 without `data.status` means the response shape differs from what the code reads — STOP and fix before going live.
+   Note: when the final status check at expiry cannot determine the status (relay down, 401, IP not whitelisted, timeout, unexpected shape), the row is NOT expired: it lands in `needs_review` with `callback_last_error` starting "status check indeterminate at expiry". A burst of these means this path is broken.
 1. Enable only after Phase A passes and the three env vars (`HUBTEL_WEBHOOK_SECRET`, `HUBTEL_RELAY_URL`, `HUBTEL_RELAY_SECRET`) are set to real values. Enable via `/admin/ussd-hubtel` → toggle **Hubtel USSD enabled**.
 2. Attach the Hubtel code to a test/restricted audience, or ensure the owner is the only caller during the window.
 3. Make exactly ONE small owner-made purchase (e.g. GHS 1).
@@ -56,9 +60,12 @@ After Phase B passes cleanly, leave the channel enabled and widen the audience (
   - under-payment (`AmountAfterCharges` below the expected amount);
   - a failing order handler;
   - a non-payable order (e.g. the order had already failed);
-  - a stale `processing` row (stuck >10 minutes, swept by the status-check cron);
+  - a stale `processing` row (stuck >10 minutes, swept by the status-check cron; `callback_last_error` says "recovered from stale processing");
+  - an **indeterminate status check at expiry** (`callback_status=not_due`, `callback_last_error` "status check indeterminate at expiry: ..."): we could not ask Hubtel whether the customer paid. Check the transaction on the Hubtel dashboard (or the relay `/status` call above): if paid, fulfil manually; if not, mark the order failed. No callback is sent automatically for these rows;
   - a **late payment**: Hubtel reports a successful payment for a session we had already expired (state `failed`, never paid). The customer was told it failed; an admin must fulfil or refund manually — it is never auto-fulfilled.
-- Status-check cron (every 2 min): processes up to 50 awaiting-payment rows per run, oldest first; sweeps `processing` rows older than 10 minutes into `needs_review`; makes one final status check before expiring an unpaid row.
+- Status-check cron (every 2 min): processes up to 50 awaiting-payment rows per run, oldest first; sweeps `processing` rows older than 10 minutes into `needs_review`; makes one final status check before expiring an unpaid row, and expires only when Hubtel definitely says not paid (otherwise `needs_review`). Both Hubtel crons stop starting new rows after ~4 minutes (maxDuration 300s); the next run continues.
+- Clearing a worked `needs_review` row: there is no "mark resolved" button yet (follow-up); update the row's `state` via SQL after resolving the order.
+- `/admin/ussd-hubtel` always lists every `needs_review` / callback-failed row (plus the 50 most recent); use the "Needs attention" filter. Session, order and Hubtel order ids are shown short — hover for the full value, click to copy.
 - Callbacks cron (every minute) retries pending callbacks.
 - `callback_failed`: Retry callback button (re-arms a fresh window; Hubtel may reject after 1 hour).
 - Rollback: toggle the channel OFF; Uzo codes are unaffected.
