@@ -31,6 +31,20 @@ export function decidePayment(expected: number, info: HubtelFulfillmentInfo): "f
   return "fulfil"
 }
 
+/**
+ * Best-effort write of the durable needs_review reason (hubtel_transactions.review_reason, migration
+ * 0108). Always a SEPARATE update made AFTER the state change, and never throws: code deployed before
+ * 0108 is applied still lands the row in needs_review (this update then fails and is logged once).
+ * `reason` must already be short and sanitised (ids and fixed text only, never row data).
+ */
+export async function recordReviewReason(store: HubtelTxStore, sid: string, reason: string): Promise<void> {
+  try {
+    await store.update(sid, { review_reason: reason })
+  } catch (e) {
+    console.error("[HUBTEL-PAYMENT] could not store review_reason (is migration 0108 applied?):", sid, safeDbError(e))
+  }
+}
+
 export async function processFulfillment(
   store: HubtelTxStore,
   handlers: OrderHandlers,
@@ -45,9 +59,10 @@ export async function processFulfillment(
     amount_after_charges: info.amountAfterCharges,
     paid_at: new Date().toISOString(),
   }
-  const needsReview = async () => {
+  const needsReview = async (reason?: string) => {
     // Callback is still due: always-success policy (spec §8); the order is resolved manually.
     await store.update(sid, { ...base, state: "needs_review", callback_status: "pending" })
+    if (reason) await recordReviewReason(store, sid, reason)
     return "needs_review" as const
   }
 
@@ -88,7 +103,7 @@ export async function processFulfillment(
       // be re-won by a recoverer holding a stale read: guard on the still-parked shape as well.
       const guard = fresh?.state === "needs_review" ? { callback_status: "not_due" as const, paid_atIsNull: true } : undefined
       if (lateRecoverable && (await store.claim(sid, [fresh.state], guard))) {
-        return needsReview()
+        return needsReview(fresh.state === "failed" ? "late success after expiry" : "late success after indeterminate park")
       }
       if (info.isSuccessful && (fresh?.state === "processing" || fresh?.state === "failed")) {
         // Not a normal already-processed row: this money may not be recorded anywhere else.
@@ -114,17 +129,20 @@ export async function processFulfillment(
   // the Hubtel OrderId and paid_at on the row (callback possible, window bounded).
   await store.update(sid, base)
 
-  if (decision === "needs_review") return needsReview()
+  if (decision === "needs_review") {
+    return needsReview(`underpaid: after_charges ${info.amountAfterCharges} < expected ${Number(tx.expected_amount)}`)
+  }
   const handler = handlers[tx.order_table]
   if (!handler) {
     console.error("[HUBTEL-PAYMENT] No handler for order table:", tx.order_table, "session:", sid)
-    return needsReview()
+    return needsReview(`no handler for order table ${tx.order_table}`)
   }
   try {
     await handler(tx.order_id)
   } catch (e) {
-    console.error("[HUBTEL-PAYMENT] Order handler failed:", sid, safeDbError(e))
-    return needsReview()
+    const safe = safeDbError(e) // trimmed to SAFE_DB_ERROR_MAX, row details redacted
+    console.error("[HUBTEL-PAYMENT] Order handler failed:", sid, safe)
+    return needsReview(safe.message)
   }
   await store.update(sid, { ...base, state: "fulfilled", callback_status: "pending" })
   return "fulfilled"

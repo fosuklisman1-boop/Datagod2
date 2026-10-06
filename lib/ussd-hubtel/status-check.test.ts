@@ -24,7 +24,7 @@ function store(rows: Partial<HubtelTxRow>[]) {
     rows.map(r => [r.session_id!, {
       hubtel_order_id: null, platform: "USSD", order_table: "ussd_orders", order_id: "ord-" + r.session_id, mobile: null,
       expected_amount: 10, amount_paid: null, amount_after_charges: null, state: "awaiting_payment",
-      callback_status: "not_due", callback_attempts: 0, callback_last_error: null, callback_sent_at: null,
+      callback_status: "not_due", callback_attempts: 0, callback_last_error: null, callback_sent_at: null, review_reason: null,
       status_check_attempts: 0, last_status_check_at: null, paid_at: null, updated_at: new Date(NOW).toISOString(), ...r,
     } as HubtelTxRow])
   )
@@ -245,6 +245,34 @@ describe("runStatusChecks", () => {
     expect(m.state.get("N2")!.callback_last_error).toMatch(/recovered from stale processing/)
   })
 
+  it("(final I1) the sweep writes a durable review_reason and a neutral callback_last_error", async () => {
+    const m = store([{ session_id: "W1", state: "processing", created_at: mins(30), updated_at: mins(20), hubtel_order_id: "H1" }])
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    await runStatusChecks({ store: m.s, handlers: {}, failHandlers: {}, check: vi.fn(), now: NOW })
+    err.mockRestore()
+    const row = m.state.get("W1")!
+    expect(row.state).toBe("needs_review")
+    expect(row.review_reason).toBe(
+      "handler did not finish (crash/timeout after payment was recorded): check the order's payment status, shop/parent profit and fulfilment"
+    )
+    expect(row.callback_last_error).toBe("recovered from stale processing")
+    expect(row.hubtel_order_id).toBe("H1")
+  })
+
+  it("(final I1) a failing review_reason write (pre-0108 schema) does not undo or block the sweep", async () => {
+    const m = store([{ session_id: "W2", state: "processing", created_at: mins(30), updated_at: mins(20) }])
+    const realUpdate = m.s.update
+    m.s.update = async (id, p) => {
+      if ("review_reason" in p) throw Object.assign(new Error("column review_reason does not exist"), { code: "42703" })
+      return realUpdate(id, p)
+    }
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    const res = await runStatusChecks({ store: m.s, handlers: {}, failHandlers: {}, check: vi.fn(), now: NOW })
+    err.mockRestore()
+    expect(res.swept).toBe(1)
+    expect(m.state.get("W2")).toMatchObject({ state: "needs_review", callback_status: "pending" })
+  })
+
   it("(M7) the sweep re-reads and skips a row that is no longer processing", async () => {
     const m = store([{ session_id: "Q1", state: "processing", created_at: mins(30), updated_at: mins(20) }])
     // The webhook finishes the row between the list and the sweep update.
@@ -273,6 +301,8 @@ describe("runStatusChecks: indeterminate final check at expiry (I1)", () => {
     expect(fail).not.toHaveBeenCalled()
     expect(m.state.get("I1")).toMatchObject({ state: "needs_review", callback_status: "not_due" })
     expect(m.state.get("I1")!.callback_last_error).toBe("status check indeterminate at expiry: relay 401")
+    // (final I1) the same reason is also stored durably.
+    expect(m.state.get("I1")!.review_reason).toBe("status check indeterminate at expiry: relay 401")
     expect(JSON.stringify(err.mock.calls)).toContain("I1")
     err.mockRestore()
   })

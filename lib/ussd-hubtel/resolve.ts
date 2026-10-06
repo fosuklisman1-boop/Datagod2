@@ -110,6 +110,7 @@ export async function resolveNeedsReview(args: {
       session_id: row.session_id, order_table: row.order_table, order_id: row.order_id,
       state: row.state, callback_status: row.callback_status, callback_last_error: row.callback_last_error,
       paid_at: row.paid_at, hubtel_order_id: row.hubtel_order_id, amount_paid: row.amount_paid ?? null,
+      review_reason: row.review_reason ?? null,
     },
     new_value: { outcome: args.outcome, state, callback_status: callbackStatus, note, ...(warning ? { warning } : {}) },
     created_at: nowIso,

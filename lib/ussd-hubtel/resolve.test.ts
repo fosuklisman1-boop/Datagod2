@@ -141,6 +141,14 @@ describe("resolveNeedsReview", () => {
     await p
     expect(db.audits[0].old_value).toMatchObject({ paid_at: paidHeld.paid_at, hubtel_order_id: "H1", amount_paid: 10.5 })
   })
+  it("(final I1) audit old_value includes review_reason (null when the row has none / pre-0108)", async () => {
+    const a = run({ ...paidHeld, review_reason: "underpaid: after_charges 5 < expected 10" })
+    await a.p
+    expect(a.db.audits[0].old_value).toMatchObject({ review_reason: "underpaid: after_charges 5 < expected 10" })
+    const b = run(paidHeld)
+    await b.p
+    expect(b.db.audits[0].old_value).toHaveProperty("review_reason", null)
+  })
   it("(M2) an audit insert error does not fail the resolution and is logged without details", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     const r = await run(paidHeld, {}, { auditError: { code: "23502", message: "null value", details: "Failing row contains (secret-note)" } }).p

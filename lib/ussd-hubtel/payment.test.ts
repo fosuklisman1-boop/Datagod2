@@ -54,7 +54,7 @@ function memoryStore(row: Partial<HubtelTxRow> | null) {
     ? ({
         session_id: "S1", hubtel_order_id: null, platform: "USSD", order_table: "ussd_orders", order_id: "ord-1",
         mobile: null, expected_amount: 10, amount_paid: null, amount_after_charges: null, state: "awaiting_payment",
-        callback_status: "not_due", callback_attempts: 0, callback_last_error: null, callback_sent_at: null,
+        callback_status: "not_due", callback_attempts: 0, callback_last_error: null, callback_sent_at: null, review_reason: null,
         status_check_attempts: 0, last_status_check_at: null, paid_at: null, created_at: "", updated_at: "", ...row,
       } as HubtelTxRow)
     : null
@@ -388,5 +388,89 @@ describe("processFulfillment", () => {
     const m = memoryStore({ order_table: "airtime_orders" })
     expect(await processFulfillment(m.store, { ussd_orders: vi.fn() }, info())).toBe("needs_review")
     expect(m.get()).toMatchObject({ state: "needs_review", callback_status: "pending" })
+  })
+})
+
+describe("processFulfillment: durable review_reason (final wave I1)", () => {
+  const quietErr = () => vi.spyOn(console, "error").mockImplementation(() => {})
+
+  it("handler throw: needs_review with a sanitised, capped review_reason (no row details)", async () => {
+    const m = memoryStore({})
+    const err = quietErr()
+    const h = vi.fn().mockRejectedValue(Object.assign(
+      new Error("duplicate key value violates unique constraint Failing row contains (0244123456, Ama, GHA-1)"),
+      { code: "23505" },
+    ))
+    expect(await processFulfillment(m.store, { ussd_orders: h }, info())).toBe("needs_review")
+    err.mockRestore()
+    const reason = m.get().review_reason!
+    expect(m.get()).toMatchObject({ state: "needs_review", callback_status: "pending" })
+    expect(reason).toContain("duplicate key value violates unique constraint")
+    expect(reason).toContain("[row details redacted]")
+    expect(reason).not.toContain("0244123456")
+    expect(reason).not.toContain("GHA-1")
+  })
+
+  it("handler throw with a very long message: review_reason is capped (~200 chars)", async () => {
+    const m = memoryStore({})
+    const err = quietErr()
+    await processFulfillment(m.store, { ussd_orders: vi.fn().mockRejectedValue(new Error("x".repeat(1000))) }, info())
+    err.mockRestore()
+    expect(m.get().review_reason!.length).toBeLessThanOrEqual(210)
+  })
+
+  it("missing handler: review_reason names the order table", async () => {
+    const m = memoryStore({ order_table: "airtime_orders" })
+    const err = quietErr()
+    await processFulfillment(m.store, { ussd_orders: vi.fn() }, info())
+    err.mockRestore()
+    expect(m.get().review_reason).toBe("no handler for order table airtime_orders")
+  })
+
+  it("under-payment: review_reason states after_charges vs expected", async () => {
+    const m = memoryStore({})
+    await processFulfillment(m.store, { ussd_orders: vi.fn() }, info({ amountAfterCharges: 5 }))
+    expect(m.get().review_reason).toBe("underpaid: after_charges 5 < expected 10")
+  })
+
+  it("late success after expiry (failed row): review_reason says so", async () => {
+    const m = memoryStore({ state: "failed" })
+    await processFulfillment(m.store, { ussd_orders: vi.fn() }, info())
+    expect(m.get()).toMatchObject({ state: "needs_review", review_reason: "late success after expiry" })
+  })
+
+  it("late success on an indeterminate-parked row: review_reason says so", async () => {
+    const m = memoryStore({ state: "needs_review", callback_status: "not_due", paid_at: null })
+    await processFulfillment(m.store, { ussd_orders: vi.fn() }, info())
+    expect(m.get().review_reason).toBe("late success after indeterminate park")
+  })
+
+  it("review_reason write fails (column missing before 0108): row still needs_review with the callback due, failure logged once", async () => {
+    const m = memoryStore({})
+    const realUpdate = m.store.update
+    m.store.update = async (sid, patch) => {
+      if ("review_reason" in patch) throw Object.assign(new Error("column \"review_reason\" does not exist"), { code: "42703" })
+      return realUpdate(sid, patch)
+    }
+    const err = quietErr()
+    const h = vi.fn().mockRejectedValue(new Error("provider down"))
+    expect(await processFulfillment(m.store, { ussd_orders: h }, info())).toBe("needs_review")
+    const reasonLogs = err.mock.calls.filter(c => String(c[0]).includes("review_reason"))
+    err.mockRestore()
+    expect(m.get()).toMatchObject({ state: "needs_review", callback_status: "pending", hubtel_order_id: "O1" })
+    expect(m.get().paid_at).toBeTruthy()
+    expect(reasonLogs).toHaveLength(1)
+  })
+
+  it("the state update does not carry review_reason (so it never fails because of the new column)", async () => {
+    const m = memoryStore({})
+    const patches: Array<Record<string, unknown>> = []
+    const realUpdate = m.store.update
+    m.store.update = async (sid, patch) => { patches.push(patch); return realUpdate(sid, patch) }
+    await processFulfillment(m.store, { ussd_orders: vi.fn() }, info({ amountAfterCharges: 5 }))
+    const statePatch = patches.find(p => p.state === "needs_review")!
+    expect(statePatch).toBeDefined()
+    expect("review_reason" in statePatch).toBe(false)
+    expect(patches.filter(p => "review_reason" in p)).toEqual([{ review_reason: "underpaid: after_charges 5 < expected 10" }])
   })
 })

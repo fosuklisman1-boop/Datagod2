@@ -50,6 +50,7 @@ export interface HubtelSession {
   parentShopId?: string // sub-agent shops: the catalog lives under the parent shop
   shopName?: string // display name (ussd_display_name || shop_name), screen header only
   shopNetworks?: string[] // packages.network values the shop sells, in menu order
+  shopCodeAttempts?: number // wrong / invalid / inactive codes entered in this session (capped)
   dataBlocked?: boolean
   network?: string // packages.network value: MTN | Telecel | AT-iShare | AT-BigTime
   effectivePriceTier?: string // regular | dealer | sub_agent
@@ -121,6 +122,8 @@ export interface HubtelTxRow {
   resolution_note?: string | null
   resolved_by?: string | null
   resolved_at?: string | null
+  /** Why the row is in needs_review (migration 0108). Short, sanitised; written best-effort. */
+  review_reason?: string | null
 }
 
 export interface HubtelClaimGuard {

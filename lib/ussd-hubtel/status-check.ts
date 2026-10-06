@@ -1,5 +1,5 @@
 // lib/ussd-hubtel/status-check.ts
-import { processFulfillment, type OrderHandlers } from "./payment"
+import { processFulfillment, recordReviewReason, type OrderHandlers } from "./payment"
 import type { HubtelTxRow, HubtelTxStore } from "./types"
 import { safeDbError } from "./log-safe"
 
@@ -8,6 +8,8 @@ export const STATUS_CHECK_MAX_AGE_MS = 60 * 60_000
 export const STATUS_CHECK_MAX_ATTEMPTS = 6
 export const STATUS_CHECK_GAP_MS = 5 * 60_000
 const STALE_PROCESSING_MINUTES = 10
+export const SWEEP_REVIEW_REASON =
+  "handler did not finish (crash/timeout after payment was recorded): check the order's payment status, shop/parent profit and fulfilment"
 
 export type StatusChecker = (sessionId: string) => Promise<{ ok: boolean; status?: string; data?: any; error?: string }>
 type CheckResult = Awaited<ReturnType<StatusChecker>>
@@ -79,8 +81,10 @@ export async function runStatusChecks(args: {
         callback_status: "pending",
         // Bounds the callback window (callbacks expire 55 min after paid_at).
         paid_at: fresh.paid_at ?? new Date().toISOString(),
-        callback_last_error: "recovered from stale processing; Hubtel order id may be missing",
+        // hubtel_order_id is saved before the handler runs, so it is NOT missing here.
+        callback_last_error: "recovered from stale processing",
       })
+      await recordReviewReason(args.store, row.session_id, SWEEP_REVIEW_REASON)
       console.error("[HUBTEL-STATUS] stale processing row moved to needs_review:", row.session_id)
       out.swept++
     } catch (e) { console.error("[HUBTEL-STATUS] sweep error:", row.session_id, safeDbError(e)) }
@@ -183,6 +187,8 @@ export async function runStatusChecks(args: {
           continue
         }
         if (!definite) {
+          // callback_last_error keeps the reason too (compatibility); review_reason is the durable copy.
+          await recordReviewReason(args.store, row.session_id, String(patch.callback_last_error))
           console.error("[HUBTEL-STATUS] status indeterminate at expiry, held for review:", JSON.stringify({
             session_id: row.session_id, order_table: row.order_table, order_id: row.order_id, reason: patch.callback_last_error,
           }))

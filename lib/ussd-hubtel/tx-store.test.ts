@@ -62,6 +62,21 @@ describe("createSupabaseTxStore", () => {
     expect(await createSupabaseTxStore(client).updateIf("S1", { state: "fulfilled" }, { callback_status: "pending" })).toBe(false)
   })
 
+  it("(final I1) update with review_reason is a plain update of that one column, keyed by session only", async () => {
+    const { client, calls } = recordingClient({ data: null, error: null })
+    await createSupabaseTxStore(client).update("S1", { review_reason: "underpaid: after_charges 5 < expected 10" })
+    const upd = calls.find(c => c[0] === "update")!
+    expect(Object.keys(upd[1] as object).sort()).toEqual(["review_reason", "updated_at"])
+    expect(upd[1]).toMatchObject({ review_reason: "underpaid: after_charges 5 < expected 10" })
+    expect(calls.filter(c => c[0] === "eq")).toEqual([["eq", "session_id", "S1"]])
+  })
+
+  it("update surfaces an error (e.g. column missing before 0108) so the caller's best-effort catch can log it", async () => {
+    const builder: any = { update: () => builder, eq: () => builder, then: (res: any) => res({ error: { code: "42703", message: "column review_reason does not exist" } }) }
+    const client = { from: () => builder } as never
+    await expect(createSupabaseTxStore(client).update("S1", { review_reason: "x" })).rejects.toMatchObject({ code: "42703" })
+  })
+
   it("claim without a where guard adds no extra filters", async () => {
     const { client, calls } = recordingClient({ data: [{ session_id: "S1" }], error: null })
     await createSupabaseTxStore(client).claim("S1")
