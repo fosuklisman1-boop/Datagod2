@@ -2,12 +2,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { OrderHandlers } from "./payment"
 import { ORDER_TABLES } from "./order-tables"
+import { safeDbError } from "./log-safe"
 
 const last9 = (p: string | null | undefined) => (p || "").replace(/\D/g, "").slice(-9)
 
 async function ussdOrderPostPayment(supabase: SupabaseClient, orderId: string): Promise<void> {
   const { data: order, error: lookupErr } = await supabase.from("ussd_orders").select("*").eq("id", orderId).maybeSingle()
-  if (lookupErr) console.error("[HUBTEL-ORDER] ussd_orders lookup failed:", orderId, lookupErr)
+  if (lookupErr) console.error("[HUBTEL-ORDER] ussd_orders lookup failed:", orderId, safeDbError(lookupErr))
   if (!order) throw new Error(`ussd_orders ${orderId} not found`)
   if (order.payment_status === "completed") return // already processed
 
@@ -29,7 +30,7 @@ async function ussdOrderPostPayment(supabase: SupabaseClient, orderId: string): 
     fulfillResult = await fulfillUssdOrder(orderId, order.network, order.recipient_phone, order.package_size ?? "")
     if (!fulfillResult.success) console.error("[HUBTEL-ORDER] USSD fulfilment failed:", fulfillResult.message)
   } catch (e) {
-    console.error("[HUBTEL-ORDER] Failed to trigger USSD fulfilment:", e)
+    console.error("[HUBTEL-ORDER] Failed to trigger USSD fulfilment:", safeDbError(e))
     await supabase.from("ussd_orders").update({ order_status: "pending", updated_at: new Date().toISOString() }).eq("id", orderId)
   }
 
@@ -41,7 +42,7 @@ async function ussdOrderPostPayment(supabase: SupabaseClient, orderId: string): 
       status: "credited",
       created_at: new Date().toISOString(),
     }])
-    if (profitErr) console.error("[HUBTEL-ORDER] Failed to insert parent profit:", profitErr)
+    if (profitErr) console.error("[HUBTEL-ORDER] Failed to insert parent profit:", safeDbError(profitErr))
   }
 
   const { sendSMS, SMSTemplates } = await import("@/lib/sms-service")
@@ -54,7 +55,7 @@ async function ussdOrderPostPayment(supabase: SupabaseClient, orderId: string): 
         type: "order_confirmation",
         reference: orderId,
       })
-    } catch (e) { console.warn("[HUBTEL-ORDER] recipient SMS failed:", e) }
+    } catch (e) { console.warn("[HUBTEL-ORDER] recipient SMS failed:", safeDbError(e)) }
   }
   if (order.dialing_phone && last9(order.dialing_phone) && last9(order.dialing_phone) !== last9(order.recipient_phone)) {
     try {
@@ -67,7 +68,7 @@ async function ussdOrderPostPayment(supabase: SupabaseClient, orderId: string): 
         type: "order_confirmation",
         reference: orderId,
       })
-    } catch (e) { console.warn("[HUBTEL-ORDER] payer SMS failed:", e) }
+    } catch (e) { console.warn("[HUBTEL-ORDER] payer SMS failed:", safeDbError(e)) }
   }
 }
 
@@ -85,7 +86,7 @@ async function airtimeOrderPostPayment(supabase: SupabaseClient, orderId: string
     .select("id, payment_status, beneficiary_phone, dialing_phone, network, airtime_amount")
     .eq("id", orderId)
     .maybeSingle()
-  if (lookupErr) console.error("[HUBTEL-ORDER] airtime_orders lookup failed:", orderId, lookupErr)
+  if (lookupErr) console.error("[HUBTEL-ORDER] airtime_orders lookup failed:", orderId, safeDbError(lookupErr))
   if (!order) throw new Error(`airtime_orders ${orderId} not found`)
   if (order.payment_status === "completed") return // already processed
   if (!ORDER_TABLES.airtime_orders.payableStatuses.includes(order.payment_status)) {
@@ -106,7 +107,7 @@ async function airtimeOrderPostPayment(supabase: SupabaseClient, orderId: string
     .select("id, payment_status")
     .eq("id", orderId)
     .maybeSingle()
-  if (afterErr) console.error("[HUBTEL-ORDER] airtime_orders re-read failed:", orderId, afterErr)
+  if (afterErr) console.error("[HUBTEL-ORDER] airtime_orders re-read failed:", orderId, safeDbError(afterErr))
   if (after?.payment_status !== "completed") {
     throw new Error(`airtime_orders ${orderId} not marked paid after markAirtimeOrderPaid (still ${afterErr ? "unreadable" : after?.payment_status ?? "unreadable"}): needs manual review`)
   }
@@ -117,12 +118,12 @@ async function airtimeOrderPostPayment(supabase: SupabaseClient, orderId: string
   const msg = SMSTemplates.ussdAirtimePaymentReceived(Number(order.airtime_amount).toFixed(2), order.network, benef)
   try {
     await sendSMS({ phone: benef, message: msg, type: "airtime_order_created", reference: orderId })
-  } catch (e) { console.warn("[HUBTEL-ORDER] airtime recipient SMS failed:", e) }
+  } catch (e) { console.warn("[HUBTEL-ORDER] airtime recipient SMS failed:", safeDbError(e)) }
   const payer = order.dialing_phone as string | null
   if (payer && last9(payer) && last9(payer) !== last9(benef)) {
     try {
       await sendSMS({ phone: payer, message: msg, type: "airtime_order_created", reference: orderId })
-    } catch (e) { console.warn("[HUBTEL-ORDER] airtime payer SMS failed:", e) }
+    } catch (e) { console.warn("[HUBTEL-ORDER] airtime payer SMS failed:", safeDbError(e)) }
   }
 }
 
@@ -139,7 +140,7 @@ async function rcOrderPostPayment(supabase: SupabaseClient, orderId: string): Pr
     .select("id, status, payment_status")
     .eq("id", orderId)
     .maybeSingle()
-  if (lookupErr) console.error("[HUBTEL-ORDER] results_checker_orders lookup failed:", orderId, lookupErr)
+  if (lookupErr) console.error("[HUBTEL-ORDER] results_checker_orders lookup failed:", orderId, safeDbError(lookupErr))
   if (!order) throw new Error(`results_checker_orders ${orderId} not found`)
   if (order.status === "completed") return // already processed
   const payable = ORDER_TABLES.results_checker_orders.payableStatuses
@@ -178,7 +179,7 @@ async function checkRequestPostPayment(supabase: SupabaseClient, orderId: string
     .select("id, payment_status, status, mode")
     .eq("id", orderId)
     .maybeSingle()
-  if (lookupErr) console.error("[HUBTEL-ORDER] results_check_requests lookup failed:", orderId, lookupErr)
+  if (lookupErr) console.error("[HUBTEL-ORDER] results_check_requests lookup failed:", orderId, safeDbError(lookupErr))
   if (!request) throw new Error(`results_check_requests ${orderId} not found`)
   if (request.payment_status === "paid") return // already processed
   const payable = ORDER_TABLES.results_check_requests.payableStatuses
@@ -229,7 +230,7 @@ async function afaOrderPostPayment(supabase: SupabaseClient, orderId: string): P
     .select("id, payment_status, dialing_phone, shop_id")
     .eq("id", orderId)
     .maybeSingle()
-  if (lookupErr) console.error("[HUBTEL-ORDER] ussd_afa_orders lookup failed:", orderId, lookupErr)
+  if (lookupErr) console.error("[HUBTEL-ORDER] ussd_afa_orders lookup failed:", orderId, safeDbError(lookupErr))
   if (!order) throw new Error(`ussd_afa_orders ${orderId} not found`)
   if (order.payment_status === "completed") return // already processed
   const payable = ORDER_TABLES.ussd_afa_orders.payableStatuses
@@ -252,7 +253,7 @@ async function afaOrderPostPayment(supabase: SupabaseClient, orderId: string): P
     const result = await fulfillUssdAfaOrder(orderId)
     if (!result.success) console.error("[HUBTEL-ORDER] AFA fulfilment failed:", orderId, result.message)
   } catch (e) {
-    console.error("[HUBTEL-ORDER] Failed to trigger AFA fulfilment:", orderId, e)
+    console.error("[HUBTEL-ORDER] Failed to trigger AFA fulfilment:", orderId, safeDbError(e))
   }
 
   // fulfillUssdAfaOrder records the provider outcome in fulfillment_status and never throws on a
@@ -264,7 +265,7 @@ async function afaOrderPostPayment(supabase: SupabaseClient, orderId: string): P
     .select("id, fulfillment_status")
     .eq("id", orderId)
     .maybeSingle()
-  if (afterErr) console.error("[HUBTEL-ORDER] ussd_afa_orders re-read failed:", orderId, afterErr)
+  if (afterErr) console.error("[HUBTEL-ORDER] ussd_afa_orders re-read failed:", orderId, safeDbError(afterErr))
   const fulfilment: unknown = after?.fulfillment_status
   if (typeof fulfilment !== "string" || !OK_FULFILMENT_STATUSES.has(fulfilment)) {
     throw new Error(`ussd_afa_orders ${orderId} paid but fulfillment_status is ${typeof fulfilment === "string" ? `'${fulfilment}'` : "unreadable"} after fulfilment: needs manual follow-up`)
@@ -273,7 +274,7 @@ async function afaOrderPostPayment(supabase: SupabaseClient, orderId: string): P
   const { sendSMS, SMSTemplates } = await import("@/lib/sms-service")
   try {
     await sendSMS({ phone: order.dialing_phone, message: SMSTemplates.ussdAfaPaymentReceived(), type: "order_confirmation", reference: orderId })
-  } catch (e) { console.warn("[HUBTEL-ORDER] AFA payer SMS failed:", e) }
+  } catch (e) { console.warn("[HUBTEL-ORDER] AFA payer SMS failed:", safeDbError(e)) }
 }
 
 export function createOrderHandlers(supabase: SupabaseClient): OrderHandlers {
@@ -298,7 +299,7 @@ export function createFailHandlers(supabase: SupabaseClient): OrderHandlers {
         .update(spec.failPatch())
         .eq("id", orderId)
         .in("payment_status", [...spec.payableStatuses])
-      if (error) console.error("[HUBTEL-ORDER] fail handler update error:", table, orderId, error)
+      if (error) console.error("[HUBTEL-ORDER] fail handler update error:", table, orderId, safeDbError(error))
     }
   }
   return handlers

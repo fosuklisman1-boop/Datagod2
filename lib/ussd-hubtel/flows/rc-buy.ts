@@ -5,6 +5,7 @@ import { secureReference } from "@/lib/secure-random"
 import type { ExamBoard } from "@/lib/results-check-validation"
 import { rcMenuText } from "../menus"
 import { toLocalPhone } from "../protocol"
+import { safeDbError } from "../log-safe"
 import { startRcCheck } from "./rc-check"
 import { backToMain, finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable } from "../flow-kit"
 import type { MyVoucherOrder } from "../services"
@@ -181,7 +182,7 @@ async function voucherDetail(ctx: FlowCtx): Promise<HubtelReply> {
     const result = await ctx.deps.rc.resendVouchers(o.id)
     if (!result.success) return finish(ctx, result.message.length < 100 ? result.message : "Resend failed. Please contact support.")
   } catch (e) {
-    console.error("[HUBTEL-RC] resend failed:", o.id, e)
+    console.error("[HUBTEL-RC] resend failed:", o.id, safeDbError(e))
     return finish(ctx, "Resend failed. Please contact support.")
   }
   // Sent to the order's own customer_phone (which may not be this caller), so do not name a number.

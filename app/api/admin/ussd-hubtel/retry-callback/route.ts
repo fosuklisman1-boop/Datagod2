@@ -4,6 +4,7 @@ import { verifyAdminAccess } from "@/lib/admin-auth"
 import { createSupabaseTxStore } from "@/lib/ussd-hubtel/tx-store"
 import { dispatchCallback } from "@/lib/ussd-hubtel/callbacks"
 import { sendFulfillmentCallback } from "@/lib/ussd-hubtel/relay"
+import { safeDbError } from "@/lib/ussd-hubtel/log-safe"
 
 export async function POST(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
@@ -25,7 +26,7 @@ export async function POST(request: NextRequest) {
     const result = await dispatchCallback(store, sendFulfillmentCallback, sessionId)
     return NextResponse.json({ result })
   } catch (e) {
-    console.error("[HUBTEL-ADMIN] retry-callback error:", e)
+    console.error("[HUBTEL-ADMIN] retry-callback error:", safeDbError(e))
     return NextResponse.json({ error: "Failed to retry callback" }, { status: 500 })
   }
 }

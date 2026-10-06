@@ -4,6 +4,7 @@ import { verifyCronAuth } from "@/lib/cron-auth"
 import { createSupabaseTxStore } from "@/lib/ussd-hubtel/tx-store"
 import { dispatchCallback } from "@/lib/ussd-hubtel/callbacks"
 import { sendFulfillmentCallback } from "@/lib/ussd-hubtel/relay"
+import { safeDbError } from "@/lib/ussd-hubtel/log-safe"
 
 export const maxDuration = 300
 
@@ -29,7 +30,7 @@ export async function GET(request: NextRequest) {
     try {
       const r = await dispatchCallback(store, sendFulfillmentCallback, row.session_id)
       counts[r] = (counts[r] ?? 0) + 1
-    } catch (e) { console.error("[HUBTEL-CRON] callback error:", row.session_id, e) }
+    } catch (e) { console.error("[HUBTEL-CRON] callback error:", row.session_id, safeDbError(e)) }
   }
   return NextResponse.json({ listed: rows.length, processed, ...counts })
 }

@@ -1,5 +1,6 @@
 // lib/ussd-hubtel/payment.ts
 import type { HubtelFulfillmentInfo, HubtelTxStore } from "./types"
+import { safeDbError } from "./log-safe"
 
 export type OrderHandlers = Record<string, (orderId: string) => Promise<void>>
 export type FulfillmentOutcome = "unknown_session" | "duplicate" | "unsuccessful" | "needs_review" | "fulfilled"
@@ -122,7 +123,7 @@ export async function processFulfillment(
   try {
     await handler(tx.order_id)
   } catch (e) {
-    console.error("[HUBTEL-PAYMENT] Order handler failed:", sid, e)
+    console.error("[HUBTEL-PAYMENT] Order handler failed:", sid, safeDbError(e))
     return needsReview()
   }
   await store.update(sid, { ...base, state: "fulfilled", callback_status: "pending" })

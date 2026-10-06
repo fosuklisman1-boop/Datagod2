@@ -12,6 +12,7 @@ import type { CallerContext } from "./catalog"
 import { resolveMainMenu, mainMenuText, type MainMenuKey } from "./menus"
 import { ORDER_TABLES, isHubtelOrderTable, type HubtelOrderTable } from "./order-tables"
 import { addToCart, release, respond } from "./protocol"
+import { safeDbError } from "./log-safe"
 import type { HubtelFieldType, HubtelPlatform, HubtelReply, HubtelRequest, HubtelSession, HubtelStep } from "./types"
 
 export interface RouterDeps {
@@ -148,7 +149,7 @@ export async function submitOrder(
 
   const { data: order, error: orderError } = await deps.supabase.from(args.table).insert([args.row]).select("id").single()
   if (orderError || !order) {
-    console.error(`[${args.logTag}] Failed to create order:`, orderError)
+    console.error(`[${args.logTag}] Failed to create order:`, safeDbError(orderError))
     return finish(ctx, "Error creating order. Please try again.")
   }
 
@@ -161,9 +162,9 @@ export async function submitOrder(
     expected_amount: args.price,
   })
   if (txError) {
-    console.error(`[${args.logTag}] hubtel_transactions insert failed:`, txError)
+    console.error(`[${args.logTag}] hubtel_transactions insert failed:`, safeDbError(txError))
     const { error: rollbackError } = await deps.supabase.from(args.table).update(spec.failPatch()).eq("id", order.id)
-    if (rollbackError) console.error(`[${args.logTag}] Failed to mark order failed after tx insert error:`, order.id, rollbackError)
+    if (rollbackError) console.error(`[${args.logTag}] Failed to mark order failed after tx insert error:`, order.id, safeDbError(rollbackError))
     if ((txError as { code?: string }).code === "23505") {
       // A concurrent CONFIRM for this session won the insert: answer exactly as it did, so the
       // customer pays for the order that is actually tracked.

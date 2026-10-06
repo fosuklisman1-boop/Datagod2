@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { parseHubtelRequest, release, secretsMatch } from "@/lib/ussd-hubtel/protocol"
 import { hubtelRouter, defaultRouterDeps } from "@/lib/ussd-hubtel/router"
+import { safeDbError } from "@/lib/ussd-hubtel/log-safe"
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
@@ -26,10 +27,11 @@ export async function POST(request: NextRequest) {
   console.log("[HUBTEL] Incoming:", { sid: req.SessionId, type: req.Type, platform: req.Platform, seq: req.Sequence, inputLen: req.Message.length })
   try {
     const reply = await hubtelRouter(req, defaultRouterDeps(supabase))
-    console.log("[HUBTEL] Reply:", { type: reply.Type, msg: reply.Message.slice(0, 60) })
+    // Never log reply text: screens echo names, Ghana Card, index numbers and phone numbers.
+    console.log("[HUBTEL] Reply:", { type: reply.Type, len: reply.Message.length })
     return NextResponse.json(reply)
   } catch (e) {
-    console.error("[HUBTEL] Router error:", e)
+    console.error("[HUBTEL] Router error:", safeDbError(e))
     // Always answer with a well-formed reply so the user sees our message, not Hubtel's UUE error.
     return NextResponse.json(release(req.SessionId, "Service unavailable. Please try again.", { platform: req.Platform }))
   }

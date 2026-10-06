@@ -5,6 +5,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { OrderHandlers } from "./payment"
 import type { HubtelCallbackStatus, HubtelTxRow } from "./types"
+import { safeDbError } from "./log-safe"
 
 export type ResolveOutcome = "fulfilled" | "not_paid"
 
@@ -82,7 +83,7 @@ export async function resolveNeedsReview(args: {
     try {
       const fail = args.failHandlers[row.order_table]
       if (fail) await fail(row.order_id)
-    } catch (e) { console.error("[HUBTEL-RESOLVE] fail handler error:", args.sessionId, e) }
+    } catch (e) { console.error("[HUBTEL-RESOLVE] fail handler error:", args.sessionId, safeDbError(e)) }
   }
 
   const { error: auditErr } = await args.supabase.from("admin_audit_log").insert([{
@@ -96,7 +97,7 @@ export async function resolveNeedsReview(args: {
     new_value: { outcome: args.outcome, state, callback_status: callbackStatus, note },
     created_at: nowIso,
   }])
-  if (auditErr) console.warn("[ADMIN-AUDIT] hubtel_resolve_needs_review log insert failed:", auditErr.message)
+  if (auditErr) console.warn("[ADMIN-AUDIT] hubtel_resolve_needs_review log insert failed:", safeDbError(auditErr))
 
   return { ok: true, state, callbackStatus, callbackNote }
 }

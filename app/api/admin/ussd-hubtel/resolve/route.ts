@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { resolveNeedsReview, type ResolveOutcome } from "@/lib/ussd-hubtel/resolve"
 import { createFailHandlers } from "@/lib/ussd-hubtel/order-handlers"
+import { safeDbError } from "@/lib/ussd-hubtel/log-safe"
 
 export async function POST(request: NextRequest) {
   const { isAdmin, userId, errorResponse } = await verifyAdminAccess(request)
@@ -33,7 +34,7 @@ export async function POST(request: NextRequest) {
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
     return NextResponse.json(result)
   } catch (e) {
-    console.error("[HUBTEL-ADMIN] resolve error:", e)
+    console.error("[HUBTEL-ADMIN] resolve error:", safeDbError(e))
     return NextResponse.json({ error: "Failed to resolve" }, { status: 500 })
   }
 }

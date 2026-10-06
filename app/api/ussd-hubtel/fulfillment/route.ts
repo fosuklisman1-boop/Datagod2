@@ -6,6 +6,7 @@ import { createSupabaseTxStore } from "@/lib/ussd-hubtel/tx-store"
 import { createOrderHandlers } from "@/lib/ussd-hubtel/order-handlers"
 import { dispatchCallback } from "@/lib/ussd-hubtel/callbacks"
 import { sendFulfillmentCallback } from "@/lib/ussd-hubtel/relay"
+import { safeDbError } from "@/lib/ussd-hubtel/log-safe"
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
@@ -42,7 +43,7 @@ export async function POST(request: NextRequest) {
     // Immediate attempt; the callbacks cron retries if this fails.
     after(async () => {
       try { await dispatchCallback(store, sendFulfillmentCallback, info.sessionId) }
-      catch (e) { console.error("[HUBTEL-FULFILL] immediate callback error:", e) }
+      catch (e) { console.error("[HUBTEL-FULFILL] immediate callback error:", safeDbError(e)) }
     })
   }
   // Always 200 for handled/duplicate/unknown so Hubtel does not hammer retries.

@@ -9,6 +9,7 @@ import {
   calculateRCPrice, getAvailableCount, getMaxQuantity, getRCBulkHint, isExamBoardEnabled,
 } from "@/lib/results-checker-service"
 import { toLocalPhone } from "./protocol"
+import { safeDbError } from "./log-safe"
 import { isAirtimeEnabled, getAirtimeLimits, airtimeBaseFeeRate } from "@/lib/airtime-pricing"
 
 export { resolveDialer }
@@ -79,7 +80,7 @@ export async function listMyVouchers(supabase: SupabaseClient, dialingPhone: str
     .order("created_at", { ascending: false })
     .limit(5)
   if (error) {
-    console.error("[HUBTEL-RC] my vouchers query failed:", error)
+    console.error("[HUBTEL-RC] my vouchers query failed:", safeDbError(error))
     return []
   }
   return (data ?? []) as MyVoucherOrder[]
@@ -103,7 +104,7 @@ export async function getAfaPrice(supabase: SupabaseClient): Promise<number | nu
     .eq("name", "default")
     .maybeSingle()
   if (error) {
-    console.error("[HUBTEL-AFA] price lookup failed:", error)
+    console.error("[HUBTEL-AFA] price lookup failed:", safeDbError(error))
     return null
   }
   const price = data?.price != null ? Number(data.price) : NaN

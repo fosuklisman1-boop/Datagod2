@@ -1,6 +1,7 @@
 // lib/ussd-hubtel/status-check.ts
 import { processFulfillment, type OrderHandlers } from "./payment"
 import type { HubtelTxRow, HubtelTxStore } from "./types"
+import { safeDbError } from "./log-safe"
 
 export const STATUS_CHECK_MIN_AGE_MS = 5 * 60_000
 export const STATUS_CHECK_MAX_AGE_MS = 60 * 60_000
@@ -82,7 +83,7 @@ export async function runStatusChecks(args: {
       })
       console.error("[HUBTEL-STATUS] stale processing row moved to needs_review:", row.session_id)
       out.swept++
-    } catch (e) { console.error("[HUBTEL-STATUS] sweep error:", row.session_id, e) }
+    } catch (e) { console.error("[HUBTEL-STATUS] sweep error:", row.session_id, safeDbError(e)) }
   }
 
   // Re-check rows parked by an indeterminate expiry check (relay may have recovered). A Paid
@@ -117,7 +118,7 @@ export async function runStatusChecks(args: {
       } else {
         console.warn("[HUBTEL-STATUS] indeterminate row Paid but not recovered:", row.session_id, "outcome:", outcome)
       }
-    } catch (e) { console.error("[HUBTEL-STATUS] indeterminate re-check row error:", row.session_id, e) }
+    } catch (e) { console.error("[HUBTEL-STATUS] indeterminate re-check row error:", row.session_id, safeDbError(e)) }
   }
 
   if (outOfTime()) return out
@@ -175,9 +176,9 @@ export async function runStatusChecks(args: {
         try {
           await args.store.update(row.session_id, patch)
         } catch (e) {
-          console.error("[HUBTEL-STATUS] expiry update failed, reverting:", row.session_id, e)
+          console.error("[HUBTEL-STATUS] expiry update failed, reverting:", row.session_id, safeDbError(e))
           try { await args.store.update(row.session_id, { state: "awaiting_payment" }) } catch (e2) {
-            console.error("[HUBTEL-STATUS] expiry revert failed:", row.session_id, e2)
+            console.error("[HUBTEL-STATUS] expiry revert failed:", row.session_id, safeDbError(e2))
           }
           continue
         }
@@ -191,7 +192,7 @@ export async function runStatusChecks(args: {
         try {
           const fail = args.failHandlers[row.order_table]
           if (fail) await fail(row.order_id)
-        } catch (e) { console.error("[HUBTEL-STATUS] fail handler error:", row.session_id, e) }
+        } catch (e) { console.error("[HUBTEL-STATUS] fail handler error:", row.session_id, safeDbError(e)) }
         out.expired++
         continue
       }
@@ -203,7 +204,7 @@ export async function runStatusChecks(args: {
         last_status_check_at: new Date(now).toISOString(),
       })
       if (await handlePaid(row, res)) out.paid++
-    } catch (e) { console.error("[HUBTEL-STATUS] row error:", row.session_id, e) }
+    } catch (e) { console.error("[HUBTEL-STATUS] row error:", row.session_id, safeDbError(e)) }
   }
   return out
 }
