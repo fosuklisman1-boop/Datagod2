@@ -5,6 +5,9 @@
 // The secret is sent in the x-hubtel-secret header. NEVER point BASE_URL at production (see
 // docs/hubtel-ussd-runbook.md): the fulfilment step runs the REAL order handler (provider data,
 // Digiwapy airtime, voucher SMS, AFA registration).
+// SHOP=1 walks SHOP mode (set Mode = "Shop USSD" on /admin/ussd-hubtel first): it enters SHOP_CODE
+// (an ACTIVE code with tokens in that non-production project; each run spends one token), then
+// FLOW = data (default) | airtime | rc from the shop's menu (no afa / rccheck in shop mode).
 // REPLAY=1 posts the SAME fulfilment payload twice and prints both responses (duplicate-delivery check).
 // Optional env: MOBILE (caller, 233...), RECIPIENT, AMOUNT (airtime), VOUCHER (PIN/Serial), GHCARD.
 const BASE = process.env.BASE_URL ?? "http://localhost:3000"
@@ -49,6 +52,17 @@ const FLOWS: Record<string, { menu: string; steps: Step[] }> = {
   afa: { menu: "AFA Registration", steps: ["Test Customer", process.env.GHCARD ?? "GHA-123456789-0", "Accra", "Greater Accra"] },
 }
 
+const shop = process.env.SHOP === "1"
+const shopCode = process.env.SHOP_CODE ?? "1234"
+const SHOP_FLOWS: Record<string, { menu: string; steps: Step[] }> = {
+  // first network the shop sells, first package, recipient
+  data: { menu: "Buy Data Bundle", steps: ["1", "1", recipient] },
+  // recipient, amount the caller pays (an unknown prefix would add a network-pick screen)
+  airtime: { menu: "Buy Airtime", steps: [recipient, process.env.AMOUNT ?? "1"] },
+  // first board in stock, quantity 1
+  rc: { menu: "Results Checker", steps: ["1", "1"] },
+}
+
 let seq = 1
 async function interact(type: "Initiation" | "Response", message: string, clientState = "") {
   const res = await fetch(`${BASE}/api/ussd-hubtel/interaction`, {
@@ -61,10 +75,22 @@ async function interact(type: "Initiation" | "Response", message: string, client
 }
 
 async function main() {
-  const f = FLOWS[flow]
-  if (!f) throw new Error(`Unknown FLOW "${flow}". Use one of: ${Object.keys(FLOWS).join(", ")}`)
-  const first = await interact("Initiation", "*713#")
-  let reply = await interact("Response", pick(f.menu)(first.Message))
+  const flows = shop ? SHOP_FLOWS : FLOWS
+  const f = flows[flow]
+  if (!f) throw new Error(`Unknown FLOW "${flow}"${shop ? " in shop mode" : ""}. Use one of: ${Object.keys(flows).join(", ")}`)
+  let menu = await interact("Initiation", "*713#")
+  if (shop) {
+    if (menu.Type !== "response" || !menu.Message.includes("Enter shop code")) {
+      return console.log('Not in shop mode (set Mode = "Shop USSD" on /admin/ussd-hubtel) - stopping.')
+    }
+    menu = await interact("Response", shopCode)
+    if (menu.Type !== "response" || !menu.Message.includes("What would you like to buy?")) {
+      return console.log("Shop code refused (invalid, inactive, or no sessions left) - stopping.")
+    }
+  } else if (menu.Type !== "response" || menu.Message.includes("Enter shop code")) {
+    return console.log("The code is in shop mode: run with SHOP=1 SHOP_CODE=<code> - stopping.")
+  }
+  let reply = await interact("Response", pick(f.menu)(menu.Message))
   for (const step of f.steps) {
     if (reply.Type !== "response") return console.log("Session ended early - stopping.")
     const input = typeof step === "string" ? step : step(reply.Message)
