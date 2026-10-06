@@ -22,6 +22,9 @@ const SHOP_CODE_RE = /^[A-Za-z0-9]{1,8}$/
 const INVALID = "Invalid code. Try again."
 const UNAVAILABLE = "Shop unavailable. Try again."
 const NO_SESSIONS = "Shop has no sessions left."
+const TOO_MANY = "Too many attempts. Please try again later."
+/** Wrong codes allowed per Hubtel session; the third ends the session. */
+export const MAX_CODE_ATTEMPTS = 3
 
 export function shopMenuFor(config: HubtelUssdConfig, dataBlocked: boolean) {
   return resolveShopMenu(config.visibility as Record<MainMenuKey, boolean>, dataBlocked)
@@ -66,10 +69,17 @@ async function enterCode(ctx: FlowCtx): Promise<HubtelReply> {
   const { input, deps, req } = ctx
   if (input === "0") return finish(ctx, "Goodbye.")
   const retry = (reason: string) => say(ctx, shopCodeRetryText(reason), "SHOP_ENTER_CODE", CODE)
-  if (!SHOP_CODE_RE.test(input)) return retry(INVALID)
+  // A wrong / malformed / inactive code counts toward the per-session cap (no guessing codes in one
+  // session). "No sessions left" and "unavailable" are not wrong codes and do not count.
+  const wrongCode = async (): Promise<HubtelReply> => {
+    const attempts = (ctx.session.shopCodeAttempts ?? 0) + 1
+    if (attempts >= MAX_CODE_ATTEMPTS) return finish(ctx, TOO_MANY)
+    return goto(ctx, { step: "SHOP_ENTER_CODE", shopCodeAttempts: attempts }, shopCodeRetryText(INVALID), CODE)
+  }
+  if (!SHOP_CODE_RE.test(input)) return wrongCode()
 
   const shop = await deps.shop.resolveCode(input)
-  if (!shop || shop.status !== "active") return retry(INVALID)
+  if (!shop || shop.status !== "active") return wrongCode()
 
   // One token per (Hubtel session, shop code). The marker is taken BEFORE deducting, so two
   // concurrent deliveries cannot both deduct; "already" means this session has paid for this
@@ -107,9 +117,16 @@ async function enterCode(ctx: FlowCtx): Promise<HubtelReply> {
   }
 
   // A shop may sell only airtime / vouchers: an empty network list does not block entry (Uzo).
-  const networks = sortShopNetworks(await deps.shop.networks(shop.shopId, shop.parentShopId ?? undefined))
+  // The token may already be spent here, so a lookup failure must not fail the request: continue
+  // with no networks (the data flow then says there is nothing to buy) and log ids only.
+  const rawNetworks = await deps.shop.networks(shop.shopId, shop.parentShopId ?? undefined).catch((e: unknown) => {
+    console.error("[HUBTEL-SHOP] networks lookup failed after code acceptance for shop", shop.shopId, safeDbError(e))
+    return [] as string[]
+  })
+  const networks = sortShopNetworks(rawNetworks)
   return goto(ctx, {
     step: "SHOP_PRODUCT",
+    shopCodeAttempts: undefined,
     shopCodeId: shop.shopCodeId,
     shopId: shop.shopId,
     parentShopId: shop.parentShopId ?? undefined,

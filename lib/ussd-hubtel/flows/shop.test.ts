@@ -222,6 +222,78 @@ describe("shop mode: shop code (review focus #2)", () => {
   })
 })
 
+describe("shop mode: wrong-code cap (final wave M1)", () => {
+  const TOO_MANY = "Too many attempts. Please try again later."
+  it("3 wrong codes in a session: released with 'Too many attempts', session deleted, never billed", async () => {
+    const deductToken = vi.fn(async () => true)
+    const resolveCode = vi.fn(async () => null)
+    const { deps, store } = makeDeps({ getConfig: SHOP_CONFIG, shop: fakeShop({ resolveCode, deductToken }) })
+    const first = await enterShop(deps, "1111")
+    expect(first.Message).toBe("Invalid code. Try again.\nEnter shop code:\n0. Exit")
+    expect(store.get("S1")?.shopCodeAttempts).toBe(1)
+    const second = await hubtelRouter(req({ Message: "2222" }), deps)
+    expect(second.Type).toBe("response")
+    expect(store.get("S1")?.shopCodeAttempts).toBe(2)
+    const third = await hubtelRouter(req({ Message: "3333" }), deps)
+    expect(third.Type).toBe("release")
+    expect(third.Message).toBe(TOO_MANY)
+    expect(store.has("S1")).toBe(false)
+    expect(deductToken).not.toHaveBeenCalled()
+  })
+  it("malformed, unknown and inactive codes all count toward the cap", async () => {
+    const resolveCode = vi.fn(async (c: string) => (c === "5555" ? { ...SHOP_CODE, status: "inactive" } : null))
+    const { deps, store } = makeDeps({ getConfig: SHOP_CONFIG, shop: fakeShop({ resolveCode }) })
+    await enterShop(deps, "12#4") // malformed
+    await hubtelRouter(req({ Message: "5555" }), deps) // inactive
+    const r = await hubtelRouter(req({ Message: "9999" }), deps) // unknown
+    expect(r.Type).toBe("release")
+    expect(r.Message).toBe(TOO_MANY)
+    expect(store.has("S1")).toBe(false)
+  })
+  it("two wrong codes then the right one: accepted and billed once", async () => {
+    const deductToken = vi.fn(async () => true)
+    const resolveCode = vi.fn(async (c: string) => (c === "1234" ? { ...SHOP_CODE } : null))
+    const { deps, store } = makeDeps({ getConfig: SHOP_CONFIG, shop: fakeShop({ resolveCode, deductToken }) })
+    await enterShop(deps, "1111")
+    await hubtelRouter(req({ Message: "2222" }), deps)
+    const ok = await hubtelRouter(req({ Message: "1234" }), deps)
+    expect(ok.Message).toBe(PRODUCT_MENU)
+    expect(deductToken).toHaveBeenCalledTimes(1)
+    expect(store.get("S1")?.step).toBe("SHOP_PRODUCT")
+  })
+  it("'no sessions left' / 'unavailable' are not wrong codes: they do not count", async () => {
+    const { deps, store } = makeDeps({
+      getConfig: SHOP_CONFIG,
+      shop: fakeShop({ resolveCode: async () => ({ ...SHOP_CODE, tokenBalance: 0 }) }),
+    })
+    await enterShop(deps)
+    await hubtelRouter(req({ Message: "1234" }), deps)
+    const r = await hubtelRouter(req({ Message: "1234" }), deps)
+    expect(r.Type).toBe("response")
+    expect(r.Message).toBe(NO_SESSIONS_RETRY)
+    expect(store.get("S1")?.shopCodeAttempts ?? 0).toBe(0)
+  })
+})
+
+describe("shop mode: networks() failing after the deduction (final wave M4)", () => {
+  it("logs ids only and still shows the product menu (empty network list); the token stays spent once", async () => {
+    const deductToken = vi.fn(async () => true)
+    const networks = vi.fn(async () => { throw Object.assign(new Error("timeout Failing row contains (0244123456)"), { code: "57014" }) })
+    const { deps, store } = makeDeps({ getConfig: SHOP_CONFIG, shop: fakeShop({ deductToken, networks }) })
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    const r = await enterShop(deps)
+    const logged = JSON.stringify(err.mock.calls)
+    err.mockRestore()
+    expect(r.Type).toBe("response")
+    expect(r.Message).toBe(PRODUCT_MENU)
+    expect(store.get("S1")).toMatchObject({ step: "SHOP_PRODUCT", shopNetworks: [] })
+    expect(deductToken).toHaveBeenCalledTimes(1)
+    expect(logged).toContain("shop-1")
+    expect(logged).not.toContain("0244123456")
+    expect(logged).not.toContain("1234")
+  })
+})
+
 describe("shop mode: token billing per Hubtel session (review focus #1)", () => {
   it("the same code re-sent after acceptance (lost reply): product menu again, ONE deduction", async () => {
     const deductToken = vi.fn(async () => true)
