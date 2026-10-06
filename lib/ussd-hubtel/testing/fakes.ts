@@ -1,6 +1,7 @@
 // lib/ussd-hubtel/testing/fakes.ts
 // Test-only fakes shared by router.test.ts and flows/*.test.ts. Never imported by production code.
 import { DEFAULT_NETWORK_PREFIXES } from "@/lib/phone-format"
+import type { HubtelUssdConfig } from "../config"
 import type { RouterDeps } from "../flow-kit"
 import type { AfaServices, AirtimeServices, RcServices } from "../services"
 import type { BillingClaim, ShopBillingGuard } from "../billing-guard"
@@ -127,6 +128,11 @@ export function fakeRc(over: Partial<RcServices> = {}): RcServices {
 export function fakeAfa(over: Partial<AfaServices> = {}): AfaServices {
   return { getPrice: async () => 50, ...over }
 }
+
+/** Shop mode, every service visible. */
+export const SHOP_CONFIG = async (): Promise<HubtelUssdConfig> => ({
+  enabled: true, mode: "shop", visibility: { data: true, afa: true, airtime: true, resultsChecker: true },
+})
 
 /** An active shop code with tokens, owned by a regular (non-sub-agent) shop. */
 export const SHOP_CODE: ResolvedShopCode = {

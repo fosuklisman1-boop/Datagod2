@@ -94,3 +94,65 @@ export function airtimeLabel(network: string): string {
 export function rcMenuText(): string {
   return "Results Checker\n1. Buy Vouchers\n2. My Vouchers\n3. Check Results\n0. Back"
 }
+
+// -- Shop mode (Plan 3) -------------------------------------------------------
+// The shop product menu has no AFA (same as the Uzo shop code). Hubtel wording, not the Uzo
+// "Browse Services" rebrand.
+export type ShopMenuKey = "data" | "airtime" | "resultsChecker"
+
+const SHOP_ITEMS: MenuItemDef<ShopMenuKey>[] = [
+  { key: "data", label: "Buy Data Bundle" },
+  { key: "airtime", label: "Buy Airtime" },
+  { key: "resultsChecker", label: "Results Checker" },
+]
+
+/** Hubtel admin visibility (afa ignored) AND built AND, for data, not whitelist-blocked. */
+export function resolveShopMenu(
+  visibility: Record<MainMenuKey, boolean>,
+  dataBlocked: boolean
+): ResolvedMenuItem<ShopMenuKey>[] {
+  return resolveMenuItems(SHOP_ITEMS, {
+    data: visibility.data && IMPLEMENTED_SERVICES.data && !dataBlocked,
+    airtime: visibility.airtime && IMPLEMENTED_SERVICES.airtime,
+    resultsChecker: visibility.resultsChecker && IMPLEMENTED_SERVICES.resultsChecker,
+  })
+}
+
+export const SHOP_NAME_MAX = 30
+
+/** Shop display name for a screen header: printable ASCII, single spaces, at most 30 chars. */
+export function shopHeader(shopName: string): string {
+  const clean = shopName.replace(/[^\x20-\x7E]/g, "").replace(/\s+/g, " ").trim().slice(0, SHOP_NAME_MAX).trim()
+  return clean || "Shop"
+}
+
+export function shopCodePromptText(): string {
+  return "Welcome to Datagod\nEnter shop code:\n0. Exit"
+}
+
+export function shopCodeRetryText(reason: string): string {
+  return `${reason}\nEnter shop code:\n0. Exit`
+}
+
+export function shopMenuText(shopName: string, resolved: ResolvedMenuItem<ShopMenuKey>[]): string {
+  return renderMenuText(`${shopHeader(shopName)}\nWhat would you like to buy?`, resolved, "0. Exit")
+}
+
+/** Real name for a packages.network value; values Hubtel does not list are shown as stored. */
+export function shopNetworkLabel(dbName: string): string {
+  return HUBTEL_NETWORKS.find(n => n.dbName === dbName)?.label ?? dbName
+}
+
+/** HUBTEL_NETWORKS order first, anything else after it alphabetically. */
+export function sortShopNetworks(networks: string[]): string[] {
+  const rank = (n: string) => {
+    const i = HUBTEL_NETWORKS.findIndex(h => h.dbName === n)
+    return i === -1 ? HUBTEL_NETWORKS.length : i
+  }
+  return [...networks].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
+}
+
+export function shopNetworkMenuText(shopName: string, networks: string[]): string {
+  const lines = networks.map((n, i) => `${i + 1}. ${shopNetworkLabel(n)}`)
+  return `${shopHeader(shopName)}\nSelect Network:\n` + lines.join("\n") + "\n0. Back"
+}

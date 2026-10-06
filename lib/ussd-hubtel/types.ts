@@ -33,11 +33,23 @@ export type HubtelStep =
   | "RC_CHECK_BOARD" | "RC_CHECK_CANDIDATE_TYPE" | "RC_CHECK_MODE" | "RC_CHECK_VOUCHER" | "RC_CHECK_INDEX"
   | "RC_CHECK_YEAR" | "RC_CHECK_DOB" | "RC_CHECK_WA_NUMBER" | "RC_CHECK_CONFIRM"
   | "AFA_ENTER_NAME" | "AFA_ENTER_CARD" | "AFA_ENTER_LOCATION" | "AFA_ENTER_REGION" | "AFA_CONFIRM"
+  | "SHOP_ENTER_CODE" | "SHOP_PRODUCT"
+  | "SHOP_DATA_NETWORK" | "SHOP_DATA_BUNDLE" | "SHOP_DATA_RECIPIENT" | "SHOP_DATA_CONFIRM"
+  | "SHOP_AIRTIME_ENTER_RECIPIENT" | "SHOP_AIRTIME_SELECT_NETWORK" | "SHOP_AIRTIME_ENTER_AMOUNT" | "SHOP_AIRTIME_CONFIRM"
+  | "SHOP_RC_SELECT_BOARD" | "SHOP_RC_ENTER_QTY" | "SHOP_RC_CONFIRM"
 
 export interface HubtelSession {
   step: HubtelStep
   dialingPhone: string // E.164-style, e.g. +233200585542
   platform: HubtelPlatform
+  /** Pinned at Initiation (spec 4.2); absent = main (sessions written before Plan 3). */
+  mode?: "main" | "shop"
+  // Shop mode: set when the shop code is accepted
+  shopCodeId?: string
+  shopId?: string
+  parentShopId?: string // sub-agent shops: the catalog lives under the parent shop
+  shopName?: string // display name (ussd_display_name || shop_name), screen header only
+  shopNetworks?: string[] // packages.network values the shop sells, in menu order
   dataBlocked?: boolean
   network?: string // packages.network value: MTN | Telecel | AT-iShare | AT-BigTime
   effectivePriceTier?: string // regular | dealer | sub_agent

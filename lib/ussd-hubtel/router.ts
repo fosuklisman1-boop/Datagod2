@@ -8,7 +8,7 @@ import { sessionStore } from "./session"
 import { defaultShopServices } from "./shop-services"
 import { shopBillingGuard } from "./billing-guard"
 import { fetchBundles, PAGE_SIZE, resolveCaller, isDataBlocked } from "./catalog"
-import { mainMenuText, type MainMenuKey } from "./menus"
+import { mainMenuText, type MainMenuKey, type ShopMenuKey } from "./menus"
 import { release, respond, toE164 } from "./protocol"
 import {
   finish, mainMenuReply, menuFor, replaySubmittedOrder,
@@ -19,6 +19,7 @@ import { AIRTIME_STEPS, startAirtime } from "./flows/airtime"
 import { DATA_STEPS, startData } from "./flows/data"
 import { RC_BUY_STEPS, startRc } from "./flows/rc-buy"
 import { RC_CHECK_STEPS } from "./flows/rc-check"
+import { SHOP_ENTRY_STEPS, shopMenuFor, shopMenuReply, startShopSession } from "./flows/shop"
 import type { HubtelReply, HubtelRequest } from "./types"
 
 export type { RouterDeps } from "./flow-kit"
@@ -59,6 +60,15 @@ const STEPS: StepTable = {
   ...AFA_STEPS,
 }
 
+/** First screen of each shop product (Tasks 3, 5, 6 register theirs). Shop mode only. */
+export const SHOP_PRODUCT_ENTRIES: Partial<Record<ShopMenuKey, StepHandler>> = {}
+
+/** Steps of a session pinned to shop mode. Never mixed with STEPS: a session runs one table. */
+const SHOP_STEPS: StepTable = {
+  ...SHOP_ENTRY_STEPS,
+  SHOP_PRODUCT: handleShopProduct,
+}
+
 const UNAVAILABLE = "Service unavailable. Please try again later."
 
 export async function hubtelRouter(req: HubtelRequest, deps: RouterDeps): Promise<HubtelReply> {
@@ -71,21 +81,25 @@ export async function hubtelRouter(req: HubtelRequest, deps: RouterDeps): Promis
   }
 
   const config = await deps.getConfig()
-  // Shop mode ships in Plan 3; treat it as unavailable until then.
-  if (!config.enabled || config.mode !== "main") return release(sid, UNAVAILABLE, { platform })
+  // Kill switch: every request, including in-flight sessions of either mode (D2).
+  if (!config.enabled) return release(sid, UNAVAILABLE, { platform })
 
-  if (req.Type === "Initiation") return startSession(req, deps, config, "")
+  // Spec 4.2: the mode is read on Initiation and pinned into the session.
+  if (req.Type === "Initiation") return startForMode(req, deps, config, "")
 
   const session = await deps.sessions.get(sid)
   if (!session) {
     // A retry after our first reply was lost: the session is already gone but the order exists.
+    // Tried before any restart so a paid-for cart replays even across a mode flip.
     const replay = await replaySubmittedOrder(deps, sid, platform)
     if (replay) return replay
-    return startSession(req, deps, config, "Session expired.\n")
+    return startForMode(req, deps, config, "Session expired.\n")
   }
 
-  const handler = STEPS[session.step]
-  if (!handler) return startSession(req, deps, config, "")
+  // Dispatch by the PINNED mode, never the current config (a session without one is main).
+  const table = session.mode === "shop" ? SHOP_STEPS : STEPS
+  const handler = table[session.step]
+  if (!handler) return startForMode(req, deps, config, "")
   return handler({ input: req.Message.trim(), req, deps, config, session })
 }
 
@@ -96,8 +110,20 @@ async function startSession(req: HubtelRequest, deps: RouterDeps, config: Hubtel
     await deps.sessions.del(req.SessionId)
     return release(req.SessionId, "No services available right now. Please try again later.", { platform: req.Platform })
   }
-  await deps.sessions.set(req.SessionId, { step: "MAIN", dialingPhone: toE164(req.Mobile), platform: req.Platform, dataBlocked })
+  await deps.sessions.set(req.SessionId, { mode: "main", step: "MAIN", dialingPhone: toE164(req.Mobile), platform: req.Platform, dataBlocked })
   return respond(req.SessionId, prefix + mainMenuText(resolved), { label: "Main menu", clientState: "MAIN", platform: req.Platform })
+}
+
+/** New or restarted session: the CURRENT config mode decides, and is pinned by the start function. */
+function startForMode(req: HubtelRequest, deps: RouterDeps, config: HubtelUssdConfig, prefix: string): Promise<HubtelReply> {
+  return config.mode === "shop" ? startShopSession(req, deps, config, prefix) : startSession(req, deps, config, prefix)
+}
+
+async function handleShopProduct(ctx: FlowCtx): Promise<HubtelReply> {
+  if (ctx.input === "0") return finish(ctx, "Goodbye.")
+  const key = keyForDigit(shopMenuFor(ctx.config, ctx.session.dataBlocked === true), ctx.input)
+  const start = key ? SHOP_PRODUCT_ENTRIES[key] : undefined
+  return start ? start(ctx) : shopMenuReply(ctx)
 }
 
 async function handleMain(ctx: FlowCtx): Promise<HubtelReply> {

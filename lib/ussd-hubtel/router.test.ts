@@ -2,7 +2,7 @@
 import { describe, it, expect, vi } from "vitest"
 import { hubtelRouter, MAIN_MENU_ENTRIES, type RouterDeps } from "./router"
 import { IMPLEMENTED_SERVICES, type MainMenuKey } from "./menus"
-import { fakeSupabase, makeDeps, req } from "./testing/fakes"
+import { digitFor, fakeShop, fakeSupabase, makeDeps, req } from "./testing/fakes"
 
 describe("hubtelRouter: entry guards", () => {
   it("releases when the channel is disabled", async () => {
@@ -10,9 +10,17 @@ describe("hubtelRouter: entry guards", () => {
     const r = await hubtelRouter(req({ Type: "Initiation", Message: "*713#" }), deps)
     expect(r.Type).toBe("release")
   })
-  it("releases in shop mode (not built yet)", async () => {
+  it("shop mode answers Initiation with the shop-code prompt", async () => {
     const { deps } = makeDeps({ getConfig: async () => ({ enabled: true, mode: "shop", visibility: { data: true, afa: true, airtime: true, resultsChecker: true } }) })
-    expect((await hubtelRouter(req({ Type: "Initiation" }), deps)).Type).toBe("release")
+    const r = await hubtelRouter(req({ Type: "Initiation" }), deps)
+    expect(r.Type).toBe("response")
+    expect(r.Message).toContain("Enter shop code:")
+  })
+  it("releases a shop-mode Initiation when the channel is disabled", async () => {
+    const { deps, store } = makeDeps({ getConfig: async () => ({ enabled: false, mode: "shop", visibility: { data: true, afa: true, airtime: true, resultsChecker: true } }) })
+    const r = await hubtelRouter(req({ Type: "Initiation" }), deps)
+    expect(r.Type).toBe("release")
+    expect(store.has("S1")).toBe(false)
   })
   it("Timeout deletes the session", async () => {
     const { deps, store } = makeDeps()
@@ -292,5 +300,111 @@ describe("hubtelRouter: flow registry", () => {
     const r = await hubtelRouter(req({ Message: "1" }), deps)
     expect(r.Type).toBe("response")
     expect(r.Message).toContain("Buy Data Bundle")
+  })
+})
+
+describe("hubtelRouter: mode pinning (spec 4.2, review focus #3)", () => {
+  const ALL_ON = { data: true, afa: true, airtime: true, resultsChecker: true }
+
+  it("Initiation in main mode pins mode=main", async () => {
+    const { deps, store } = makeDeps()
+    await hubtelRouter(req({ Type: "Initiation" }), deps)
+    expect(store.get("S1")).toMatchObject({ mode: "main", step: "MAIN" })
+  })
+  it("a main session keeps running main after the admin flips to shop", async () => {
+    let mode: "main" | "shop" = "main"
+    const { deps, store } = makeDeps({ getConfig: async () => ({ enabled: true, mode, visibility: ALL_ON }) })
+    const menu = await hubtelRouter(req({ Type: "Initiation" }), deps)
+    expect(store.get("S1")?.mode).toBe("main")
+    mode = "shop"
+    const r = await hubtelRouter(req({ Message: digitFor(menu.Message, "Buy Data Bundle") }), deps)
+    expect(r.Message).toContain("Select Network:")
+    expect(store.get("S1")?.step).toBe("SELECT_NETWORK")
+  })
+  it("a shop session keeps running shop after the admin flips to main (code step and product menu)", async () => {
+    let mode: "main" | "shop" = "shop"
+    const deductToken = vi.fn(async () => true)
+    const { deps, store } = makeDeps({ getConfig: async () => ({ enabled: true, mode, visibility: ALL_ON }), shop: fakeShop({ deductToken }) })
+    await hubtelRouter(req({ Type: "Initiation" }), deps)
+    mode = "main"
+    const r = await hubtelRouter(req({ Message: "1234" }), deps)
+    expect(r.Message).toContain("What would you like to buy?")
+    expect(store.get("S1")).toMatchObject({ mode: "shop", step: "SHOP_PRODUCT" })
+    const again = await hubtelRouter(req({ Message: "9" }), deps)
+    expect(again.Message).toContain("What would you like to buy?")
+    expect(deductToken).toHaveBeenCalledTimes(1)
+  })
+  it("a NEW session uses the current mode", async () => {
+    let mode: "main" | "shop" = "main"
+    const { deps, store } = makeDeps({ getConfig: async () => ({ enabled: true, mode, visibility: ALL_ON }) })
+    await hubtelRouter(req({ Type: "Initiation", SessionId: "S1" }), deps)
+    mode = "shop"
+    const r = await hubtelRouter(req({ Type: "Initiation", SessionId: "S2" }), deps)
+    expect(r.Message).toContain("Enter shop code:")
+    expect(store.get("S1")?.mode).toBe("main")
+    expect(store.get("S2")?.mode).toBe("shop")
+  })
+  it("no session (expired, no order): restarts in the CURRENT mode", async () => {
+    const { deps, store } = makeDeps({ getConfig: async () => ({ enabled: true, mode: "shop", visibility: ALL_ON }) })
+    const r = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(r.Message).toBe("Session expired.\nWelcome to Datagod\nEnter shop code:\n0. Exit")
+    expect(store.get("S1")).toMatchObject({ mode: "shop", step: "SHOP_ENTER_CODE" })
+  })
+  it("no session but a main cart awaiting payment: the cart is replayed even after a flip to shop", async () => {
+    let mode: "main" | "shop" = "main"
+    const sup = fakeSupabase({ pkg: { price: 10, dealer_price: null, is_available: true } })
+    const { deps, store } = makeDeps({ getConfig: async () => ({ enabled: true, mode, visibility: ALL_ON }) }, sup)
+    await walkTo("CONFIRM", deps)
+    const first = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(first.Type).toBe("AddToCart")
+    expect(store.has("S1")).toBe(false)
+    mode = "shop"
+    const replay = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(replay.Type).toBe("AddToCart")
+    expect(replay.Item).toEqual(first.Item)
+    expect(store.has("S1")).toBe(false) // not restarted into the shop-code prompt
+  })
+  it("a session stored without a mode (written before Plan 3) runs as main even in shop mode", async () => {
+    const { deps, store } = makeDeps({ getConfig: async () => ({ enabled: true, mode: "shop", visibility: ALL_ON }) })
+    store.set("S1", { step: "MAIN", dialingPhone: "+233200585542", platform: "USSD" })
+    const menu = await hubtelRouter(req({ Type: "Initiation", SessionId: "S9" }), makeDeps().deps) // main menu text, for the digit
+    const r = await hubtelRouter(req({ Message: digitFor(menu.Message, "Buy Data Bundle") }), deps)
+    expect(r.Message).toContain("Select Network:")
+  })
+  it("a step unknown to the session's mode restarts in the current mode", async () => {
+    const { deps, store } = makeDeps({ getConfig: async () => ({ enabled: true, mode: "main", visibility: ALL_ON }) })
+    store.set("S1", { mode: "shop", step: "SELECT_NETWORK", dialingPhone: "+233200585542", platform: "USSD" })
+    const r = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(r.Message).toContain("Buy Data Bundle")
+    expect(store.get("S1")?.mode).toBe("main")
+  })
+  it("a shop step in a main (or mode-less) session is never dispatched to the shop table", async () => {
+    const deductToken = vi.fn(async () => true)
+    const { deps, store } = makeDeps({ getConfig: async () => ({ enabled: true, mode: "main", visibility: ALL_ON }), shop: fakeShop({ deductToken }) })
+    store.set("S1", { step: "SHOP_ENTER_CODE", dialingPhone: "+233200585542", platform: "USSD" })
+    const r = await hubtelRouter(req({ Message: "1234" }), deps)
+    expect(r.Message).toContain("Buy Data Bundle")
+    expect(deductToken).not.toHaveBeenCalled()
+  })
+  it("kill switch releases an in-flight shop session and bills nothing more (review focus #8)", async () => {
+    let enabled = true
+    const deductToken = vi.fn(async () => true)
+    const { deps } = makeDeps({ getConfig: async () => ({ enabled, mode: "shop", visibility: ALL_ON }), shop: fakeShop({ deductToken }) })
+    await hubtelRouter(req({ Type: "Initiation" }), deps)
+    enabled = false
+    const r = await hubtelRouter(req({ Message: "1234" }), deps)
+    expect(r.Type).toBe("release")
+    expect(r.Message).toContain("Service unavailable")
+    expect(deductToken).not.toHaveBeenCalled()
+  })
+  it("kill switch releases a shop session already on the product menu", async () => {
+    let enabled = true
+    const { deps } = makeDeps({ getConfig: async () => ({ enabled, mode: "shop", visibility: ALL_ON }) })
+    await hubtelRouter(req({ Type: "Initiation" }), deps)
+    await hubtelRouter(req({ Message: "1234" }), deps)
+    enabled = false
+    const r = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(r.Type).toBe("release")
+    expect(r.Message).toContain("Service unavailable")
   })
 })

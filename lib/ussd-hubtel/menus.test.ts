@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest"
-import { resolveMainMenu, mainMenuText, networkMenuText, bundleMenuText, confirmMenuText, formatSize, recipientPromptText, HUBTEL_NETWORKS, IMPLEMENTED_SERVICES } from "./menus"
+import { resolveMainMenu, mainMenuText, networkMenuText, bundleMenuText, confirmMenuText, formatSize, recipientPromptText, HUBTEL_NETWORKS, IMPLEMENTED_SERVICES,
+  resolveShopMenu, shopHeader, shopCodePromptText, shopCodeRetryText, shopMenuText, shopNetworkLabel, sortShopNetworks, shopNetworkMenuText,
+} from "./menus"
 
 const allOn = { data: true, afa: true, airtime: true, resultsChecker: true }
 
@@ -50,5 +52,39 @@ describe("confirm menu", () => {
     expect(t).toContain("GHS 20.00")
     expect(t).toContain("1. Pay now")
     expect(recipientPromptText()).toContain("recipient")
+  })
+})
+
+describe("shop menus", () => {
+  const on = { data: true, afa: true, airtime: true, resultsChecker: true }
+  it("lists data, airtime and results checker with real wording; never AFA", () => {
+    expect(resolveShopMenu(on, false).map(i => i.label)).toEqual(["Buy Data Bundle", "Buy Airtime", "Results Checker"])
+  })
+  it("hides data for a whitelist-blocked caller and each service the admin hides", () => {
+    expect(resolveShopMenu(on, true).map(i => i.key)).toEqual(["airtime", "resultsChecker"])
+    expect(resolveShopMenu({ ...on, airtime: false }, false).map(i => i.key)).toEqual(["data", "resultsChecker"])
+    expect(resolveShopMenu({ data: false, afa: true, airtime: false, resultsChecker: false }, false)).toEqual([])
+  })
+  it("shopHeader: printable ASCII, collapsed spaces, max 30 chars, never empty", () => {
+    expect(shopHeader("Ama \u{1F31F} Data Hub & More Super Long Name Ltd")).toBe("Ama Data Hub & More Super Long")
+    expect(shopHeader("\u{1F31F}\u{1F31F}")).toBe("Shop")
+    expect(shopHeader("  Kofi's   Shop ")).toBe("Kofi's Shop")
+  })
+  it("code prompts", () => {
+    expect(shopCodePromptText()).toBe("Welcome to Datagod\nEnter shop code:\n0. Exit")
+    expect(shopCodeRetryText("Invalid code. Try again.")).toBe("Invalid code. Try again.\nEnter shop code:\n0. Exit")
+  })
+  it("product menu text", () => {
+    expect(shopMenuText("Ama Data Hub", resolveShopMenu(on, false))).toBe(
+      "Ama Data Hub\nWhat would you like to buy?\n1. Buy Data Bundle\n2. Buy Airtime\n3. Results Checker\n0. Exit"
+    )
+  })
+  it("network labels and order: real names, known networks first, others as stored", () => {
+    expect(shopNetworkLabel("AT-iShare")).toBe("AT iShare")
+    expect(shopNetworkLabel("AirtelTigo")).toBe("AirtelTigo")
+    expect(sortShopNetworks(["AT-BigTime", "Zeta", "MTN", "AirtelTigo", "Telecel"])).toEqual(["MTN", "Telecel", "AT-BigTime", "AirtelTigo", "Zeta"])
+    const text = shopNetworkMenuText("Ama Data Hub", ["MTN", "AT-iShare"])
+    expect(text).toBe("Ama Data Hub\nSelect Network:\n1. MTN\n2. AT iShare\n0. Back")
+    for (const nick of ["Yellow Plans", "Tele\n", "Instant Blue", "Delay Blue"]) expect(text).not.toContain(nick)
   })
 })
