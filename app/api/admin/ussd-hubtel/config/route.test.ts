@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { NextRequest } from "next/server"
 
 const h = vi.hoisted(() => ({
@@ -17,7 +17,7 @@ vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({ from: () => ({ insert: () => Promise.resolve({ error: null }) }) }),
 }))
 
-import { POST } from "./route"
+import { GET, POST } from "./route"
 
 const base = { enabled: false, mode: "main", visibility: { data: true, afa: true, airtime: true, resultsChecker: true } }
 const post = (body: unknown) =>
@@ -63,11 +63,67 @@ describe("POST /api/admin/ussd-hubtel/config: mode", () => {
     expect(res.status).toBe(400)
     expect(h.set).not.toHaveBeenCalled()
   })
+  it("(I4) a rate-limited admin (isAdmin true + 429 errorResponse) gets the 429 and nothing is written", async () => {
+    const { NextResponse } = await import("next/server")
+    h.auth = { isAdmin: true, userId: "admin-1", errorResponse: NextResponse.json({ error: "Too many requests" }, { status: 429 }) }
+    const res = await POST(post({ mode: "shop" }))
+    expect(res.status).toBe(429)
+    expect(h.set).not.toHaveBeenCalled()
+    expect(h.get).not.toHaveBeenCalled()
+    const g = await GET(new NextRequest("http://localhost/api/admin/ussd-hubtel/config"))
+    expect(g.status).toBe(429)
+    expect(h.get).not.toHaveBeenCalled()
+  })
   it("returns the auth error response for non-admins", async () => {
     const { NextResponse } = await import("next/server")
     h.auth = { isAdmin: false, errorResponse: NextResponse.json({ error: "no" }, { status: 403 }) }
     const res = await POST(post({ mode: "shop" }))
     expect(res.status).toBe(403)
     expect(h.set).not.toHaveBeenCalled()
+  })
+})
+
+describe("(M3) shop mode needs Redis in production", () => {
+  const prod = (redis: boolean) => {
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", redis ? "https://redis.example" : "")
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", redis ? "tok" : "")
+  }
+  afterEach(() => { vi.unstubAllEnvs() })
+
+  it("production without Redis: mode 'shop' is refused with 400 and nothing is written", async () => {
+    prod(false)
+    const res = await POST(post({ mode: "shop" }))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(/UPSTASH_REDIS_REST_URL/)
+    expect(h.set).not.toHaveBeenCalled()
+  })
+  it("VERCEL set (preview) without Redis: also refused", async () => {
+    vi.stubEnv("VERCEL", "1")
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "")
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "")
+    const res = await POST(post({ mode: "shop" }))
+    expect(res.status).toBe(400)
+    expect(h.set).not.toHaveBeenCalled()
+  })
+  it("production with Redis: mode 'shop' accepted", async () => {
+    prod(true)
+    const res = await POST(post({ mode: "shop" }))
+    expect(res.status).toBe(200)
+  })
+  it("production without Redis: mode 'main' and other changes are still allowed", async () => {
+    prod(false)
+    h.set.mockResolvedValue(base)
+    expect((await POST(post({ mode: "main" }))).status).toBe(200)
+    expect((await POST(post({ visibility: { airtime: false } }))).status).toBe(200)
+  })
+  it("GET reports redis readiness alongside the existing env fields", async () => {
+    prod(false)
+    const res = await GET(new NextRequest("http://localhost/api/admin/ussd-hubtel/config"))
+    const json = await res.json()
+    expect(json.env).toEqual({ webhookSecret: true, relayUrl: true, relaySecret: true, redis: false })
+    prod(true)
+    const json2 = await (await GET(new NextRequest("http://localhost/api/admin/ussd-hubtel/config"))).json()
+    expect(json2.env.redis).toBe(true)
   })
 })

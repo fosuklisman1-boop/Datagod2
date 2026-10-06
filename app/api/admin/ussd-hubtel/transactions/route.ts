@@ -4,7 +4,8 @@ import { verifyAdminAccess } from "@/lib/admin-auth"
 
 export async function GET(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
-  if (!isAdmin) return errorResponse!
+  // A rate-limited admin comes back with isAdmin true AND a 429 errorResponse: honour it.
+  if (!isAdmin || errorResponse) return errorResponse ?? NextResponse.json({ error: "Admin access required" }, { status: 403 })
   try {
     const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
     const [recent, attention, review, cbPending, cbFailed, awaiting] = await Promise.all([

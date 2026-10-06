@@ -17,7 +17,7 @@ import { IMPLEMENTED_SERVICES } from "@/lib/ussd-hubtel/menus"
 import type { HubtelUssdConfig } from "@/lib/ussd-hubtel/config"
 import type { HubtelTxRow } from "@/lib/ussd-hubtel/types"
 
-type EnvStatus = { webhookSecret: boolean; relayUrl: boolean; relaySecret: boolean }
+type EnvStatus = { webhookSecret: boolean; relayUrl: boolean; relaySecret: boolean; redis?: boolean }
 type Counts = { needs_review: number; callback_pending: number; callback_failed: number; awaiting_payment: number }
 
 const SERVICES: { key: keyof HubtelUssdConfig["visibility"]; label: string }[] = [
@@ -155,13 +155,16 @@ export default function AdminUssdHubtelPage() {
                 {!envOk && <p className="text-xs text-amber-600">Cannot enable until all environment variables below are configured.</p>}
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium">Mode</span>
-                  <Select value={config.mode} onValueChange={v => {
+                  <Select value={config.mode} disabled={busy === "mode"} onValueChange={v => {
                     if (v === config.mode) return
                     const label = v === "shop" ? "Shop USSD" : "Main USSD"
-                    if (!window.confirm(`Switch the Hubtel code to ${label}? Calls already in progress keep the mode they started with; new dials use ${label}.`)) return
+                    const billing = v === "shop"
+                      ? " In shop mode callers must enter a shop code first, and each Hubtel session costs that shop ONE session token (billed when the code is accepted, never refunded)."
+                      : ""
+                    if (!window.confirm(`Switch the Hubtel code to ${label}?${billing} Calls already in progress keep the mode they started with; new dials use ${label}.`)) return
                     save({ mode: v }, "mode")
                   }}>
-                    <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="w-48" aria-label="Hubtel USSD mode"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="main">Main USSD</SelectItem>
                       <SelectItem value="shop">Shop USSD (shop code first)</SelectItem>
@@ -175,14 +178,26 @@ export default function AdminUssdHubtelPage() {
                     offered in shop mode. Calls already in progress keep the mode they started with.
                   </p>
                 )}
+                {env && env.redis === false && (
+                  <p className="text-xs text-amber-600">
+                    Redis (UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN) is not configured: shop mode cannot be selected in production.
+                  </p>
+                )}
                 <div className="divide-y rounded-lg border">
-                  {SERVICES.map(s => (
-                    <div key={s.key} className="flex items-center justify-between p-3">
-                      <span className="text-sm">{s.label}{!IMPLEMENTED_SERVICES[s.key] && <Badge variant="outline" className="ml-2">not built yet</Badge>}</span>
-                      <Switch checked={config.visibility[s.key]} disabled={busy === s.key} aria-label={`Toggle ${s.label}`}
-                        onCheckedChange={v => save({ visibility: { [s.key]: v } }, s.key)} />
-                    </div>
-                  ))}
+                  {SERVICES.map(s => {
+                    // The shop menu has no AFA: its toggle does nothing in shop mode.
+                    const deadInShop = config.mode === "shop" && s.key === "afa"
+                    return (
+                      <div key={s.key} className="flex items-center justify-between p-3">
+                        <span className="text-sm">
+                          {s.label}{!IMPLEMENTED_SERVICES[s.key] && <Badge variant="outline" className="ml-2">not built yet</Badge>}
+                          {deadInShop && <span className="ml-2 text-xs text-muted-foreground">AFA is not offered in shop mode</span>}
+                        </span>
+                        <Switch checked={config.visibility[s.key]} disabled={busy === s.key || deadInShop} aria-label={`Toggle ${s.label}`}
+                          onCheckedChange={v => save({ visibility: { [s.key]: v } }, s.key)} />
+                      </div>
+                    )
+                  })}
                 </div>
               </>
             )}
@@ -195,6 +210,11 @@ export default function AdminUssdHubtelPage() {
             {env && ([["HUBTEL_WEBHOOK_SECRET", env.webhookSecret], ["HUBTEL_RELAY_URL", env.relayUrl], ["HUBTEL_RELAY_SECRET", env.relaySecret]] as const).map(([k, ok]) => (
               <Badge key={k} variant={ok ? "default" : "destructive"}>{k}: {ok ? "set" : "missing"}</Badge>
             ))}
+            {env && env.redis !== undefined && (
+              <Badge variant={env.redis ? "default" : "destructive"} title="Needed for shop mode (token billing guard) and the USSD session store">
+                UPSTASH_REDIS (shop mode): {env.redis ? "set" : "missing"}
+              </Badge>
+            )}
           </CardContent>
         </Card>
 
@@ -242,7 +262,10 @@ export default function AdminUssdHubtelPage() {
                     <td className="p-2">{t.amount_after_charges != null ? `GHS ${Number(t.amount_after_charges).toFixed(2)}` : "-"}</td>
                     <td className="p-2">
                       <Badge variant={t.state === "needs_review" || t.state === "failed" ? "destructive" : "secondary"}>{t.state}</Badge>
-                      {t.state === "needs_review" && t.callback_last_error && (
+                      {t.state === "needs_review" && t.review_reason && (
+                        <div className="mt-1 max-w-[16rem] text-xs text-muted-foreground">Reason: {t.review_reason}</div>
+                      )}
+                      {t.state === "needs_review" && t.callback_last_error && t.callback_last_error !== t.review_reason && (
                         <div className="mt-1 max-w-[16rem] text-xs text-muted-foreground">{t.callback_last_error}</div>
                       )}
                       {t.resolved_at && (

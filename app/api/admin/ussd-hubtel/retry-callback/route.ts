@@ -8,7 +8,8 @@ import { safeDbError } from "@/lib/ussd-hubtel/log-safe"
 
 export async function POST(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
-  if (!isAdmin) return errorResponse!
+  // A rate-limited admin comes back with isAdmin true AND a 429 errorResponse: honour it.
+  if (!isAdmin || errorResponse) return errorResponse ?? NextResponse.json({ error: "Admin access required" }, { status: 403 })
   const { sessionId } = (await request.json().catch(() => ({}))) as { sessionId?: string }
   if (!sessionId) return NextResponse.json({ error: "sessionId required" }, { status: 400 })
 

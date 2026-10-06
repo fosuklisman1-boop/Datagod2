@@ -8,9 +8,17 @@ const adminClient = () =>
     auth: { autoRefreshToken: false, persistSession: false },
   })
 
+/** Redis configured (the shop-token billing guard and the session store need it). */
+const redisConfigured = () => !!process.env.UPSTASH_REDIS_REST_URL && !!process.env.UPSTASH_REDIS_REST_TOKEN
+/** Same rule as lib/ussd-hubtel/billing-guard.ts: production/Vercel never uses the in-process guard. */
+const isProductionLike = () => process.env.NODE_ENV === "production" || !!process.env.VERCEL
+
+const FORBIDDEN = () => NextResponse.json({ error: "Admin access required" }, { status: 403 })
+
 export async function GET(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
-  if (!isAdmin) return errorResponse!
+  // A rate-limited admin comes back with isAdmin true AND a 429 errorResponse: honour it.
+  if (!isAdmin || errorResponse) return errorResponse ?? FORBIDDEN()
   try {
     const config = await getHubtelUssdConfig(adminClient())
     const { missing } = hubtelEnvReady()
@@ -20,6 +28,7 @@ export async function GET(request: NextRequest) {
         webhookSecret: !missing.includes("HUBTEL_WEBHOOK_SECRET"),
         relayUrl: !missing.includes("HUBTEL_RELAY_URL"),
         relaySecret: !missing.includes("HUBTEL_RELAY_SECRET"),
+        redis: redisConfigured(),
       },
     })
   } catch (e) {
@@ -30,7 +39,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const { isAdmin, userId, errorResponse } = await verifyAdminAccess(request)
-  if (!isAdmin) return errorResponse!
+  if (!isAdmin || errorResponse) return errorResponse ?? FORBIDDEN()
   let body: any
   try { body = await request.json() } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }) }
 
@@ -46,6 +55,14 @@ export async function POST(request: NextRequest) {
   if (body.enabled === true && !hubtelEnvReady().ready) {
     return NextResponse.json(
       { error: "Cannot enable: HUBTEL_WEBHOOK_SECRET, HUBTEL_RELAY_URL and HUBTEL_RELAY_SECRET must all be set" },
+      { status: 400 }
+    )
+  }
+  // Without Redis in production the shop billing guard refuses every shop code: do not let the
+  // Hubtel code be switched into a mode that can only answer "Shop unavailable".
+  if (body.mode === "shop" && isProductionLike() && !redisConfigured()) {
+    return NextResponse.json(
+      { error: "Cannot switch to shop mode: UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN must be set in production" },
       { status: 400 }
     )
   }
