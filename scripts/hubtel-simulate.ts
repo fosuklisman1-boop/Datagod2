@@ -8,8 +8,11 @@
 // SHOP=1 walks SHOP mode (set Mode = "Shop USSD" on /admin/ussd-hubtel first): it enters SHOP_CODE
 // (an ACTIVE code with tokens in that non-production project; each run spends one token), then
 // FLOW = data (default) | airtime | rc from the shop's menu (no afa / rccheck in shop mode).
+// SHOP_CODE is REQUIRED with SHOP=1 (no default: a guessed code could spend a token on a real shop).
 // REPLAY=1 posts the SAME fulfilment payload twice and prints both responses (duplicate-delivery check).
-// Optional env: MOBILE (caller, 233...), RECIPIENT, AMOUNT (airtime), VOUCHER (PIN/Serial), GHCARD.
+// The SessionId is printed at start. SESSION_ID=<printed id> re-uses it: with SHOP=1 the script then
+// stops right after the code step (token-billing re-check: the balance must NOT drop again).
+// Optional env: MOBILE (caller, 233...), RECIPIENT, AMOUNT (airtime), VOUCHER (PIN/Serial), GHCARD, SESSION_ID.
 const BASE = process.env.BASE_URL ?? "http://localhost:3000"
 const SECRET = process.env.HUBTEL_WEBHOOK_SECRET ?? ""
 const platform = process.argv[2] ?? "USSD"
@@ -19,7 +22,8 @@ const mobile = process.env.MOBILE ?? (flow === "afa" ? "233244123456" : "2332005
 const recipient = process.env.RECIPIENT ?? "0244123456"
 const replay = process.env.REPLAY === "1"
 const authHeaders = { "Content-Type": "application/json", "x-hubtel-secret": SECRET }
-const sessionId = "sim" + Date.now().toString(16)
+const reusedSession = !!process.env.SESSION_ID
+const sessionId = process.env.SESSION_ID || "sim" + Date.now().toString(16)
 
 /** An input, or a function of the current screen returning the input ("" skips the step). */
 type Step = string | ((screen: string) => string)
@@ -53,7 +57,7 @@ const FLOWS: Record<string, { menu: string; steps: Step[] }> = {
 }
 
 const shop = process.env.SHOP === "1"
-const shopCode = process.env.SHOP_CODE ?? "1234"
+const shopCode = process.env.SHOP_CODE
 const SHOP_FLOWS: Record<string, { menu: string; steps: Step[] }> = {
   // first network the shop sells, first package, recipient
   data: { menu: "Buy Data Bundle", steps: ["1", "1", recipient] },
@@ -78,14 +82,21 @@ async function main() {
   const flows = shop ? SHOP_FLOWS : FLOWS
   const f = flows[flow]
   if (!f) throw new Error(`Unknown FLOW "${flow}"${shop ? " in shop mode" : ""}. Use one of: ${Object.keys(flows).join(", ")}`)
+  if (shop && !shopCode) {
+    throw new Error("SHOP=1 requires SHOP_CODE=<code> (an ACTIVE test shop's code in a NON-production project; each new session spends one token)")
+  }
+  console.log(`SessionId: ${sessionId}${reusedSession ? " (re-used from SESSION_ID)" : ""}\n`)
   let menu = await interact("Initiation", "*713#")
   if (shop) {
     if (menu.Type !== "response" || !menu.Message.includes("Enter shop code")) {
       return console.log('Not in shop mode (set Mode = "Shop USSD" on /admin/ussd-hubtel) - stopping.')
     }
-    menu = await interact("Response", shopCode)
+    menu = await interact("Response", shopCode!)
     if (menu.Type !== "response" || !menu.Message.includes("What would you like to buy?")) {
       return console.log("Shop code refused (invalid, inactive, or no sessions left) - stopping.")
+    }
+    if (reusedSession) {
+      return console.log("Re-used SessionId: shop menu shown. Check token_balance is UNCHANGED - stopping before any order.")
     }
   } else if (menu.Type !== "response" || menu.Message.includes("Enter shop code")) {
     return console.log("The code is in shop mode: run with SHOP=1 SHOP_CODE=<code> - stopping.")
