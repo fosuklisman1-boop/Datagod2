@@ -36,7 +36,7 @@ export async function notifyRefund(db: SupabaseClient, e: RefundNotification): P
     try {
       await sendSMS({
         phone,
-        message: `Your order of ${e.order.packageLabel} ${e.order.network} could not be completed. GHS ${e.amount.toFixed(2)} has been refunded to you.`,
+        message: `Your order of ${e.order.packageLabel} ${e.order.network} could not be completed. GHS ${e.amount.toFixed(2)} has been refunded to you. Please try again in a few hours or days.`,
         type: "order_refund",
         reference: e.order.id,
       })

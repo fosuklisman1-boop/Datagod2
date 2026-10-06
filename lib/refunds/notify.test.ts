@@ -31,6 +31,13 @@ describe("notifyRefund", () => {
     await notifyRefund(db, ev())
     expect(h.calls).toContainEqual(expect.objectContaining({ phone: "0241112222", type: "order_refund", reference: "o1" }))
   })
+  it("SMS says the refund was made and tells the customer to try again in a few hours or days", async () => {
+    const { db } = mkDb()
+    await notifyRefund(db, ev())
+    const msg = String(h.calls[0].message)
+    expect(msg).toContain("has been refunded to you")
+    expect(msg).toContain("Please try again in a few hours or days.")
+  })
   it("falls back to recipientPhone", async () => {
     const { db } = mkDb()
     await notifyRefund(db, ev(null))
