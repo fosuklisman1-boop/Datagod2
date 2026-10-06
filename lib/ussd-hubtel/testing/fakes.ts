@@ -2,7 +2,7 @@
 // Test-only fakes shared by router.test.ts and flows/*.test.ts. Never imported by production code.
 import { DEFAULT_NETWORK_PREFIXES } from "@/lib/phone-format"
 import type { RouterDeps } from "../flow-kit"
-import type { AirtimeServices } from "../services"
+import type { AirtimeServices, RcServices } from "../services"
 import type { HubtelRequest, HubtelSession } from "../types"
 
 export const NEW_ID = "11111111-1111-1111-1111-111111111111"
@@ -83,6 +83,7 @@ export function makeDeps(over: Partial<RouterDeps> = {}, sup = fakeSupabase({ pk
     pageSize: 5,
     resolveDialer: async () => ({}),
     airtime: fakeAirtime(),
+    rc: fakeRc(),
     ...over,
   }
   return { deps, store, sup }
@@ -102,4 +103,17 @@ export function digitFor(menu: string, label: string): string {
 
 export function fakeAirtime(over: Partial<AirtimeServices> = {}): AirtimeServices {
   return { isEnabled: async () => true, getLimits: async () => ({ min: 1, max: 500 }), feeRate: async () => 5, ...over }
+}
+
+export function fakeRc(over: Partial<RcServices> = {}): RcServices {
+  return {
+    isBoardEnabled: async () => true,
+    availableCount: async () => 10,
+    maxQuantity: async () => 50,
+    bulkHint: async () => null,
+    price: async (_board, qty) => ({ unitPrice: 20, totalPaid: 20 * qty, bulkApplied: false }),
+    listMyVouchers: async () => [],
+    resendVouchers: async () => ({ success: true, message: "ok" }),
+    ...over,
+  }
 }

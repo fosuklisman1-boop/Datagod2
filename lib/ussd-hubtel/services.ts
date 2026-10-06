@@ -2,6 +2,13 @@
 // Business lookups the Hubtel flows need, behind interfaces so router/flow tests use fakes.
 // Defaults delegate to the same modules the Uzo flows use.
 import { resolveDialer, type DialerInfo } from "@/lib/ussd/resolve-dialer"
+import type { SupabaseClient } from "@supabase/supabase-js"
+import { phoneVariants } from "@/lib/phone-format"
+import type { ExamBoard } from "@/lib/results-check-validation"
+import {
+  calculateRCPrice, getAvailableCount, getMaxQuantity, getRCBulkHint, isExamBoardEnabled,
+} from "@/lib/results-checker-service"
+import { toLocalPhone } from "./protocol"
 import { isAirtimeEnabled, getAirtimeLimits, airtimeBaseFeeRate } from "@/lib/airtime-pricing"
 
 export { resolveDialer }
@@ -16,4 +23,55 @@ export interface AirtimeServices {
 
 export function defaultAirtimeServices(): AirtimeServices {
   return { isEnabled: isAirtimeEnabled, getLimits: getAirtimeLimits, feeRate: airtimeBaseFeeRate }
+}
+
+export interface MyVoucherOrder { id: string; exam_board: string; reference_code: string; created_at: string }
+
+export interface RcServices {
+  isBoardEnabled(board: ExamBoard): Promise<boolean>
+  availableCount(board: ExamBoard): Promise<number>
+  maxQuantity(): Promise<number>
+  bulkHint(board: ExamBoard): Promise<{ minQty: number; bulkBasePrice: number } | null>
+  price(board: ExamBoard, quantity: number, applyBulk: boolean): Promise<{ unitPrice: number; totalPaid: number; bulkApplied: boolean }>
+  listMyVouchers(dialingPhone: string): Promise<MyVoucherOrder[]>
+  /** SMS the vouchers again to the order's own customer_phone. */
+  resendVouchers(orderId: string): Promise<{ success: boolean; message: string }>
+}
+
+export function defaultRcServices(supabase: SupabaseClient): RcServices {
+  return {
+    isBoardEnabled: isExamBoardEnabled,
+    availableCount: getAvailableCount,
+    maxQuantity: getMaxQuantity,
+    bulkHint: getRCBulkHint,
+    price: async (examBoard, quantity, applyBulk) => {
+      const r = await calculateRCPrice({ examBoard, quantity, applyBulk })
+      return { unitPrice: r.unitPrice, totalPaid: r.totalPaid, bulkApplied: r.bulkApplied }
+    },
+    listMyVouchers: dialingPhone => listMyVouchers(supabase, dialingPhone),
+    resendVouchers: async orderId => {
+      const { resendVouchers } = await import("@/lib/results-checker-notification-service")
+      return resendVouchers(orderId, "sms")
+    },
+  }
+}
+
+/** Same query as Uzo's "My Vouchers" (completed, last 30 days, newest 5), matching every stored phone format. */
+export async function listMyVouchers(supabase: SupabaseClient, dialingPhone: string): Promise<MyVoucherOrder[]> {
+  const local = toLocalPhone(dialingPhone)
+  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+  const filters = [...phoneVariants(dialingPhone).map(v => `dialing_phone.eq.${v}`), `customer_phone.eq.${local}`].join(",")
+  const { data, error } = await supabase
+    .from("results_checker_orders")
+    .select("id, exam_board, reference_code, created_at")
+    .or(filters)
+    .eq("status", "completed")
+    .gte("created_at", cutoff)
+    .order("created_at", { ascending: false })
+    .limit(5)
+  if (error) {
+    console.error("[HUBTEL-RC] my vouchers query failed:", error)
+    return []
+  }
+  return (data ?? []) as MyVoucherOrder[]
 }

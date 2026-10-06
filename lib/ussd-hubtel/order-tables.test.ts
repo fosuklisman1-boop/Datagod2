@@ -31,9 +31,15 @@ describe("ORDER_TABLES", () => {
     expect(s.failPatch()).toMatchObject({ status: "failed", payment_status: "failed" })
     expect(s.cartItemName({ network: "AT", beneficiary_phone: "0271234567" })).toBe("AT Airtime to 0271234567")
   })
+  it("results_checker_orders: payable statuses, fail patch and item name", () => {
+    const s = ORDER_TABLES.results_checker_orders
+    expect(s.payableStatuses).toEqual(["pending_payment", "otp_required"])
+    expect(s.failPatch()).toMatchObject({ status: "failed", payment_status: "failed" })
+    expect(s.cartItemName({ exam_board: "BECE", quantity: 3 })).toBe("BECE Checker x3")
+  })
   it("cartItemName works on a row narrowed to the table's cartColumns (a missing column would be caught)", () => {
     const fullRow: Record<string, unknown> = {
-      network: "Telecel", beneficiary_phone: "0201234567", package_size: "5", airtime_amount: 9.52, total_paid: 10, id: "x",
+      network: "Telecel", beneficiary_phone: "0201234567", package_size: "5", airtime_amount: 9.52, total_paid: 10, id: "x", exam_board: "WASSCE", quantity: 2,
     }
     for (const [t, s] of Object.entries(ORDER_TABLES)) {
       const cols = s.cartColumns.split(",").map(c => c.trim())
@@ -41,6 +47,7 @@ describe("ORDER_TABLES", () => {
       expect(s.cartItemName(narrowed), t).toBe(s.cartItemName(fullRow))
       expect(s.cartItemName(narrowed), t).not.toContain("undefined")
     }
+    expect(ORDER_TABLES.results_checker_orders.cartItemName({ exam_board: "WASSCE", quantity: 2 })).toBe("WASSCE Checker x2")
     expect(ORDER_TABLES.airtime_orders.cartItemName({ network: "Telecel", beneficiary_phone: "0201234567" })).toBe("Telecel Airtime to 0201234567")
   })
   it("every fail patch stamps updated_at and every spec names its cart columns", () => {

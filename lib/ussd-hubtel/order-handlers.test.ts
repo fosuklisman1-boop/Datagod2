@@ -158,3 +158,65 @@ describe("fail handlers only touch unpaid orders (review focus #5)", () => {
     expect(log[0]).toMatchObject({ table: "airtime_orders", patch: { status: "failed", payment_status: "failed" }, inCol: "payment_status", inVals: ["pending_payment", "otp_required"] })
   })
 })
+
+describe("results_checker_orders post-payment handler", () => {
+  const base = { id: "r1", exam_board: "WASSCE", quantity: 2 }
+
+  it("failed order (late payment after expiry) → throws, no fulfilment (review focus #5)", async () => {
+    const { client } = fakeDb({ results_checker_orders: { ...base, status: "failed", payment_status: "failed" } })
+    await expect(createOrderHandlers(client).results_checker_orders("r1")).rejects.toThrow(/not in a payable state/)
+    expect(fulfillPaidResultsCheckerOrder).not.toHaveBeenCalled()
+  })
+  it("status failed but payment_status still payable → throws, no mark, no fulfilment", async () => {
+    const { client, log } = fakeDb({ results_checker_orders: { ...base, status: "failed", payment_status: "pending_payment" } })
+    await expect(createOrderHandlers(client).results_checker_orders("r1")).rejects.toThrow(/not in a payable state/)
+    expect(fulfillPaidResultsCheckerOrder).not.toHaveBeenCalled()
+    expect(log).toHaveLength(0)
+  })
+  it("pending_payment → payment marked completed (conditional), then vouchers fulfilled once", async () => {
+    fulfillPaidResultsCheckerOrder.mockResolvedValue({ success: true, status: "completed", message: "ok", newlyPaid: true })
+    const { client, log } = fakeDb({ results_checker_orders: { ...base, status: "pending_payment", payment_status: "pending_payment" } })
+    await createOrderHandlers(client).results_checker_orders("r1")
+    expect(log[0]).toMatchObject({ table: "results_checker_orders", patch: { payment_status: "completed" }, inCol: "payment_status" })
+    expect(fulfillPaidResultsCheckerOrder).toHaveBeenCalledTimes(1)
+    expect(fulfillPaidResultsCheckerOrder).toHaveBeenCalledWith("r1")
+  })
+  it("paid but out of stock → throws so the row lands in needs_review (review focus #2)", async () => {
+    fulfillPaidResultsCheckerOrder.mockResolvedValue({ success: false, status: "pending", message: "Stock exhausted", newlyPaid: true })
+    const { client } = fakeDb({ results_checker_orders: { ...base, status: "pending_payment", payment_status: "pending_payment" } })
+    await expect(createOrderHandlers(client).results_checker_orders("r1")).rejects.toThrow(/out of stock/)
+  })
+  it("fulfilment reports failure (not pending) → throws", async () => {
+    fulfillPaidResultsCheckerOrder.mockResolvedValue({ success: false, status: "failed", message: "boom", newlyPaid: true })
+    const { client } = fakeDb({ results_checker_orders: { ...base, status: "pending_payment", payment_status: "pending_payment" } })
+    await expect(createOrderHandlers(client).results_checker_orders("r1")).rejects.toThrow(/fulfilment failed: boom/)
+  })
+  it("lost the conditional mark (row changed underneath) → throws, no fulfilment", async () => {
+    // The lookup sees a payable row, but another writer flips payment_status before our conditional update.
+    const rows: any = { results_checker_orders: { ...base, status: "pending_payment", payment_status: "pending_payment" } }
+    const { client } = fakeDb(rows)
+    const realFrom = client.from.bind(client)
+    client.from = (t: string) => {
+      const q = realFrom(t)
+      const upd = q.update
+      q.update = (patch: any) => { rows[t].payment_status = "completed"; return upd(patch) }
+      return q
+    }
+    await expect(createOrderHandlers(client).results_checker_orders("r1")).rejects.toThrow(/lost the mark/)
+    expect(fulfillPaidResultsCheckerOrder).not.toHaveBeenCalled()
+  })
+  it("missing order → throws", async () => {
+    const { client } = fakeDb({})
+    await expect(createOrderHandlers(client).results_checker_orders("r1")).rejects.toThrow(/not found/)
+  })
+  it("already completed → no-op", async () => {
+    const { client } = fakeDb({ results_checker_orders: { ...base, status: "completed", payment_status: "completed" } })
+    await createOrderHandlers(client).results_checker_orders("r1")
+    expect(fulfillPaidResultsCheckerOrder).not.toHaveBeenCalled()
+  })
+  it("fail handler fails only an unpaid RC order", async () => {
+    const { client, log } = fakeDb({ results_checker_orders: { id: "r1", payment_status: "pending_payment" } })
+    await createFailHandlers(client).results_checker_orders("r1")
+    expect(log[0]).toMatchObject({ patch: { status: "failed", payment_status: "failed" }, inVals: ["pending_payment", "otp_required"] })
+  })
+})

@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import { keyForDigit } from "@/lib/ussd/menu-items"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import { getHubtelUssdConfig, type HubtelUssdConfig } from "./config"
-import { defaultAirtimeServices, resolveDialer } from "./services"
+import { defaultAirtimeServices, defaultRcServices, resolveDialer } from "./services"
 import { sessionStore } from "./session"
 import { fetchBundles, PAGE_SIZE, resolveCaller, isDataBlocked } from "./catalog"
 import { mainMenuText, type MainMenuKey } from "./menus"
@@ -14,6 +14,7 @@ import {
 } from "./flow-kit"
 import { AIRTIME_STEPS, startAirtime } from "./flows/airtime"
 import { DATA_STEPS, startData } from "./flows/data"
+import { RC_BUY_STEPS, startRc } from "./flows/rc-buy"
 import type { HubtelReply, HubtelRequest } from "./types"
 
 export type { RouterDeps } from "./flow-kit"
@@ -30,6 +31,7 @@ export function defaultRouterDeps(supabase: SupabaseClient): RouterDeps {
     pageSize: PAGE_SIZE,
     resolveDialer,
     airtime: defaultAirtimeServices(),
+    rc: defaultRcServices(supabase),
   }
 }
 
@@ -37,12 +39,14 @@ export function defaultRouterDeps(supabase: SupabaseClient): RouterDeps {
 export const MAIN_MENU_ENTRIES: Partial<Record<MainMenuKey, StepHandler>> = {
   data: startData,
   airtime: startAirtime,
+  resultsChecker: startRc,
 }
 
 const STEPS: StepTable = {
   MAIN: handleMain,
   ...DATA_STEPS,
   ...AIRTIME_STEPS,
+  ...RC_BUY_STEPS,
 }
 
 const UNAVAILABLE = "Service unavailable. Please try again later."

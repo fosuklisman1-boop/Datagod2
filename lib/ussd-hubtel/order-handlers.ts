@@ -112,10 +112,49 @@ async function airtimeOrderPostPayment(supabase: SupabaseClient, orderId: string
   }
 }
 
+/**
+ * Mirrors the Paystack webhook's USSD results-checker branch. The atomic pending→completed
+ * payment mark is the once-only gate; fulfillPaidResultsCheckerOrder then assigns, finalises and
+ * SMSes the vouchers (it checks `status`, not payment_status, so the pre-mark does not block it).
+ * Stock exhausted after payment ⇒ throw ⇒ needs_review (the Paystack path leaves it silently
+ * pending): a human must deliver the vouchers.
+ */
+async function rcOrderPostPayment(supabase: SupabaseClient, orderId: string): Promise<void> {
+  const { data: order, error: lookupErr } = await supabase
+    .from("results_checker_orders")
+    .select("id, status, payment_status")
+    .eq("id", orderId)
+    .maybeSingle()
+  if (lookupErr) console.error("[HUBTEL-ORDER] results_checker_orders lookup failed:", orderId, lookupErr)
+  if (!order) throw new Error(`results_checker_orders ${orderId} not found`)
+  if (order.status === "completed") return // already processed
+  const payable = ORDER_TABLES.results_checker_orders.payableStatuses
+  if (order.status === "failed" || !payable.includes(order.payment_status)) {
+    throw new Error(`results_checker_orders ${orderId} not in a payable state: ${order.status}/${order.payment_status}`)
+  }
+
+  const { data: marked, error: markErr } = await supabase
+    .from("results_checker_orders")
+    .update({ payment_status: "completed", updated_at: new Date().toISOString() })
+    .eq("id", orderId)
+    .in("payment_status", [...payable])
+    .select("id")
+  if (markErr) throw markErr
+  if (!marked || marked.length === 0) throw new Error(`results_checker_orders ${orderId} not in a payable state (lost the mark)`)
+
+  const { fulfillPaidResultsCheckerOrder } = await import("@/lib/results-checker-service")
+  const result = await fulfillPaidResultsCheckerOrder(orderId)
+  if (result.status === "pending") {
+    throw new Error(`results_checker_orders ${orderId} paid but out of stock: deliver the vouchers manually`)
+  }
+  if (!result.success) throw new Error(`results_checker_orders ${orderId} fulfilment failed: ${result.message}`)
+}
+
 export function createOrderHandlers(supabase: SupabaseClient): OrderHandlers {
   return {
     ussd_orders: orderId => ussdOrderPostPayment(supabase, orderId),
     airtime_orders: orderId => airtimeOrderPostPayment(supabase, orderId),
+    results_checker_orders: orderId => rcOrderPostPayment(supabase, orderId),
     // Plan 3 registers ussd_shop_orders
   }
 }

@@ -17,7 +17,7 @@ export const IMPLEMENTED_SERVICES: Record<MainMenuKey, boolean> = {
   data: true,
   afa: false,
   airtime: true,
-  resultsChecker: false,
+  resultsChecker: true,
 }
 
 export function resolveMainMenu(
@@ -88,4 +88,9 @@ export const AIRTIME_NETWORKS: ReadonlyArray<{ digit: string; key: AirtimeNetwor
 
 export function airtimeLabel(network: string): string {
   return AIRTIME_NETWORKS.find(n => n.key === network)?.label ?? network
+}
+
+/** Results Checker sub-menu (Task 4 adds "3. Check Results"). */
+export function rcMenuText(): string {
+  return "Results Checker\n1. Buy Vouchers\n2. My Vouchers\n0. Back"
 }

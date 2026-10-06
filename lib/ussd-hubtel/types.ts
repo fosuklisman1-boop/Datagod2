@@ -29,6 +29,7 @@ export interface HubtelReply {
 export type HubtelStep =
   | "MAIN" | "SELECT_NETWORK" | "SELECT_BUNDLE" | "ENTER_RECIPIENT" | "CONFIRM"
   | "AIRTIME_ENTER_RECIPIENT" | "AIRTIME_SELECT_NETWORK" | "AIRTIME_ENTER_AMOUNT" | "AIRTIME_CONFIRM"
+  | "RC_MENU" | "RC_SELECT_BOARD" | "RC_ENTER_QTY" | "RC_CONFIRM" | "RC_MY_VOUCHERS" | "RC_VOUCHER_DETAIL"
 
 export interface HubtelSession {
   step: HubtelStep
@@ -50,6 +51,15 @@ export interface HubtelSession {
   airtimeAmount?: number // what the caller pays = order total_paid = Hubtel Price
   airtimeFee?: number
   airtimeToDeliver?: number // what the recipient gets (amount - fee)
+  // Results checker (buy / my vouchers)
+  rcBoardOptions?: string[] // boards shown on RC_SELECT_BOARD, in order
+  rcBoard?: string // WASSCE | BECE | NOVDEC
+  rcQty?: number
+  rcUnitPrice?: number
+  rcTotal?: number // = order total_paid = Hubtel Price
+  rcBulkApplied?: boolean
+  rcMyOrders?: Array<{ id: string; exam_board: string; reference_code: string; created_at: string }>
+  rcSelectedOrderId?: string
 }
 
 export type HubtelTxState = "awaiting_payment" | "processing" | "fulfilled" | "needs_review" | "failed"
