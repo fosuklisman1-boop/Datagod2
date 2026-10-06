@@ -59,11 +59,13 @@ export async function processFulfillment(
       // An unsuccessful delivery held the claim and has just released it: process normally.
       tx = fresh
     } else {
-      // Paid after the status-check window expired the row (customer was told it failed),
-      // or after a declined attempt: record the payment and hold for a human; never auto-fulfil.
-      // Keyed on paid_at: a declined attempt may have recorded amounts but never sets paid_at.
-      if (fresh?.state === "failed" && fresh.paid_at == null && info.isSuccessful &&
-          (await store.claim(sid, ["failed"]))) {
+      // Paid after the status-check window expired the row (customer was told it failed), or
+      // after expiry parked it because the status check was indeterminate (needs_review with no
+      // callback due): record the payment and hold for a human, callback now due; never
+      // auto-fulfil. Keyed on paid_at: a declined attempt may record amounts but never paid_at.
+      const lateRecoverable = info.isSuccessful && fresh != null && fresh.paid_at == null &&
+        (fresh.state === "failed" || (fresh.state === "needs_review" && fresh.callback_status === "not_due"))
+      if (lateRecoverable && (await store.claim(sid, [fresh.state]))) {
         return needsReview()
       }
       if (info.isSuccessful && (fresh?.state === "processing" || fresh?.state === "failed")) {

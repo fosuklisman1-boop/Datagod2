@@ -42,6 +42,11 @@ function store(rows: Partial<HubtelTxRow>[]) {
       const cutoff = NOW - olderThanMinutes * 60_000
       return [...state.values()].filter(r => r.state === "processing" && new Date(r.updated_at).getTime() < cutoff).slice(0, limit)
     },
+    listIndeterminate: async limit =>
+      [...state.values()]
+        .filter(r => r.state === "needs_review" && r.callback_status === "not_due" && r.paid_at == null)
+        .sort((a, b) => a.created_at.localeCompare(b.created_at))
+        .slice(0, limit),
   }
   return { s, state }
 }
@@ -353,5 +358,74 @@ describe("runStatusChecks: deadline (I4)", () => {
       expect(res.checked).toBe(1)
       expect(check).toHaveBeenCalledTimes(1)
     } finally { nowSpy.mockRestore() }
+  })
+})
+
+describe("runStatusChecks: re-check of indeterminate-expiry rows", () => {
+  const parked = (over: Partial<HubtelTxRow> = {}): Partial<HubtelTxRow> => ({
+    state: "needs_review", callback_status: "not_due", paid_at: null, created_at: mins(90),
+    status_check_attempts: 6, last_status_check_at: mins(30),
+    callback_last_error: "status check indeterminate at expiry: relay down", ...over,
+  })
+  const paidCheck = async () => ({ ok: true, status: "Paid", data: { transactionId: "TX9", amount: 11.5, amountAfterCharges: 10 } })
+
+  it("(d) check says Paid -> recovered (counted), amounts recorded, callback pending, order handler NOT called", async () => {
+    const m = store([{ session_id: "K1", ...parked() }])
+    const handler = vi.fn().mockResolvedValue(undefined)
+    const res = await runStatusChecks({ store: m.s, handlers: { ussd_orders: handler }, failHandlers: {}, check: paidCheck, now: NOW })
+    expect(res).toMatchObject({ recovered: 1 })
+    expect(handler).not.toHaveBeenCalled()
+    expect(m.state.get("K1")).toMatchObject({
+      state: "needs_review", callback_status: "pending", hubtel_order_id: "TX9", amount_paid: 11.5, amount_after_charges: 10,
+    })
+    expect(m.state.get("K1")!.paid_at).toBeTruthy()
+  })
+
+  it("(e) check says Unpaid or errors -> row untouched except attempts bumped", async () => {
+    for (const check of [unpaid, async () => ({ ok: false, error: "relay down" }), async () => { throw new Error("timeout") }]) {
+      const m = store([{ session_id: "K2", ...parked() }])
+      const err = vi.spyOn(console, "error").mockImplementation(() => {})
+      const res = await runStatusChecks({ store: m.s, handlers: {}, failHandlers: {}, check, now: NOW })
+      err.mockRestore()
+      expect(res).toMatchObject({ recovered: 0 })
+      expect(m.state.get("K2")).toMatchObject({
+        state: "needs_review", callback_status: "not_due", paid_at: null, hubtel_order_id: null,
+        status_check_attempts: 7, callback_last_error: "status check indeterminate at expiry: relay down",
+      })
+      expect(m.state.get("K2")!.last_status_check_at).toBe(new Date(NOW).toISOString())
+    }
+  })
+
+  it("(f) rows older than 24h, at 12 attempts, or checked within the gap are skipped", async () => {
+    const m = store([
+      { session_id: "K3", ...parked({ created_at: mins(24 * 60 + 1) }) },
+      { session_id: "K4", ...parked({ status_check_attempts: 12 }) },
+      { session_id: "K5", ...parked({ last_status_check_at: mins(2) }) },
+    ])
+    const check = vi.fn(paidCheck)
+    const res = await runStatusChecks({ store: m.s, handlers: {}, failHandlers: {}, check, now: NOW })
+    expect(res).toMatchObject({ recovered: 0 })
+    expect(check).not.toHaveBeenCalled()
+    for (const id of ["K3", "K4", "K5"]) expect(m.state.get(id)).toMatchObject({ callback_status: "not_due", paid_at: null })
+  })
+
+  it("(g) a past deadlineMs skips the phase", async () => {
+    const m = store([{ session_id: "K6", ...parked() }])
+    const check = vi.fn(paidCheck)
+    const res = await runStatusChecks({ store: m.s, handlers: {}, failHandlers: {}, check, now: NOW, deadlineMs: Date.now() - 1 })
+    expect(res).toMatchObject({ recovered: 0 })
+    expect(check).not.toHaveBeenCalled()
+    expect(m.state.get("K6")).toMatchObject({ status_check_attempts: 6, callback_status: "not_due" })
+  })
+
+  it("a throwing row does not stop the next one", async () => {
+    const m = store([{ session_id: "K7", ...parked({ created_at: mins(100) }) }, { session_id: "K8", ...parked() }])
+    const realUpdate = m.s.update
+    m.s.update = async (id, p) => { if (id === "K7") throw new Error("db down"); return realUpdate(id, p) }
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    const res = await runStatusChecks({ store: m.s, handlers: {}, failHandlers: {}, check: paidCheck, now: NOW })
+    err.mockRestore()
+    expect(res).toMatchObject({ recovered: 1 })
+    expect(m.state.get("K8")!.callback_status).toBe("pending")
   })
 })

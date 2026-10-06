@@ -22,6 +22,20 @@ export function statusCheckDisposition(
   return "check"
 }
 
+export const INDETERMINATE_RECHECK_MAX_AGE_MS = 24 * 60 * 60_000
+export const INDETERMINATE_RECHECK_MAX_ATTEMPTS = 12
+
+/** Re-check a parked (indeterminate-expiry) row only within 24h, under 12 attempts, and not within the gap. */
+export function indeterminateRecheckDisposition(
+  row: Pick<HubtelTxRow, "created_at" | "status_check_attempts" | "last_status_check_at">,
+  now: number
+): "skip" | "check" {
+  if (now - new Date(row.created_at).getTime() > INDETERMINATE_RECHECK_MAX_AGE_MS) return "skip"
+  if (row.status_check_attempts >= INDETERMINATE_RECHECK_MAX_ATTEMPTS) return "skip"
+  if (row.last_status_check_at && now - new Date(row.last_status_check_at).getTime() < STATUS_CHECK_GAP_MS) return "skip"
+  return "check"
+}
+
 /** A definite answer is Hubtel itself saying the transaction is not paid (e.g. Unpaid, Refunded). */
 function isDefiniteNotPaid(res: CheckResult | null): boolean {
   return res?.ok === true && typeof res.status === "string" && res.status !== "Paid"
@@ -44,9 +58,9 @@ export async function runStatusChecks(args: {
   limit?: number
   /** Absolute epoch ms. Once Date.now() passes it, no new row (sweep or check) is started. */
   deadlineMs?: number
-}): Promise<{ checked: number; paid: number; expired: number; swept: number; held: number }> {
+}): Promise<{ checked: number; paid: number; expired: number; swept: number; held: number; recovered: number }> {
   const now = args.now ?? Date.now()
-  const out = { checked: 0, paid: 0, expired: 0, swept: 0, held: 0 }
+  const out = { checked: 0, paid: 0, expired: 0, swept: 0, held: 0, recovered: 0 }
   const outOfTime = () => args.deadlineMs != null && Date.now() > args.deadlineMs
 
   // Sweep: a crash between claim and the final update would leave a paid order
@@ -69,6 +83,41 @@ export async function runStatusChecks(args: {
       console.error("[HUBTEL-STATUS] stale processing row moved to needs_review:", row.session_id)
       out.swept++
     } catch (e) { console.error("[HUBTEL-STATUS] sweep error:", row.session_id, e) }
+  }
+
+  // Re-check rows parked by an indeterminate expiry check (relay may have recovered). A Paid
+  // answer goes through processFulfillment, whose lost-claim recovery records the payment and
+  // makes the callback due WITHOUT running the order handler. Anything else leaves the row alone.
+  if (outOfTime()) return out
+  const parked = await args.store.listIndeterminate(args.limit ?? 50)
+  for (const row of parked) {
+    if (outOfTime()) return out
+    try {
+      if (indeterminateRecheckDisposition(row, now) !== "check") continue
+      let res: CheckResult | null = null
+      try { res = await args.check(row.session_id) } catch (e) {
+        console.error("[HUBTEL-STATUS] indeterminate re-check error:", row.session_id, e)
+      }
+      await args.store.update(row.session_id, {
+        status_check_attempts: row.status_check_attempts + 1,
+        last_status_check_at: new Date(now).toISOString(),
+      })
+      if (!res?.ok || res.status !== "Paid") continue
+      const d = res.data ?? {}
+      const outcome = await processFulfillment(args.store, args.handlers, {
+        sessionId: row.session_id,
+        hubtelOrderId: typeof d.transactionId === "string" ? d.transactionId : null,
+        amountPaid: Number(d.amount ?? 0),
+        amountAfterCharges: Number(d.amountAfterCharges ?? 0),
+        isSuccessful: true,
+      })
+      if (outcome === "needs_review") {
+        console.warn("[HUBTEL-STATUS] indeterminate row now Paid; payment recorded, callback due:", row.session_id)
+        out.recovered++
+      } else {
+        console.warn("[HUBTEL-STATUS] indeterminate row Paid but not recovered:", row.session_id, "outcome:", outcome)
+      }
+    } catch (e) { console.error("[HUBTEL-STATUS] indeterminate re-check row error:", row.session_id, e) }
   }
 
   if (outOfTime()) return out

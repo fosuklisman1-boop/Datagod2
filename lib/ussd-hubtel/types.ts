@@ -77,6 +77,8 @@ export interface HubtelTxStore {
   listPendingCallbacks(limit: number): Promise<HubtelTxRow[]>
   listAwaitingPayment(limit: number): Promise<HubtelTxRow[]>
   listStaleProcessing(olderThanMinutes: number, limit: number): Promise<HubtelTxRow[]>
+  /** Rows parked by an indeterminate expiry check: needs_review + callback not_due + paid_at null, oldest first. */
+  listIndeterminate(limit: number): Promise<HubtelTxRow[]>
 }
 
 /** What we extract from a fulfilment webhook or a status-check "Paid" response. */

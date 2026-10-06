@@ -48,5 +48,13 @@ export function createSupabaseTxStore(supabase: SupabaseClient): HubtelTxStore {
       if (error) throw error
       return (data ?? []) as HubtelTxRow[]
     },
+    async listIndeterminate(limit) {
+      const { data, error } = await supabase
+        .from("hubtel_transactions").select("*")
+        .eq("state", "needs_review").eq("callback_status", "not_due").is("paid_at", null)
+        .order("created_at", { ascending: true }).limit(limit)
+      if (error) throw error
+      return (data ?? []) as HubtelTxRow[]
+    },
   }
 }

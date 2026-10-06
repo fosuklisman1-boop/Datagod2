@@ -37,6 +37,7 @@ function store(row: Partial<HubtelTxRow>) {
     listPendingCallbacks: async () => [],
     listAwaitingPayment: async () => [],
     listStaleProcessing: async () => [],
+    listIndeterminate: async () => [],
   }
   return { s, get: () => cur }
 }
