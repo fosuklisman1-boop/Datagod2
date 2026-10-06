@@ -71,10 +71,52 @@ async function ussdOrderPostPayment(supabase: SupabaseClient, orderId: string): 
   }
 }
 
+/**
+ * Mirrors the Paystack webhook's USSD airtime branch (app/api/webhooks/paystack/route.ts, "Handle
+ * USSD airtime orders"). markAirtimeOrderPaid is that branch's own post-payment path (mark paid,
+ * shop profit, customer tracking, Digiwapy or a manual-airtime admin alert) and is its own
+ * idempotency gate, so it is called after a read-check rather than a conditional pre-mark (which
+ * would make it no-op). Once-only is guaranteed by processFulfillment's claim on this order's
+ * single tx row. WhatsApp-shop token deduction does not apply: channel is "ussd".
+ */
+async function airtimeOrderPostPayment(supabase: SupabaseClient, orderId: string): Promise<void> {
+  const { data: order, error: lookupErr } = await supabase
+    .from("airtime_orders")
+    .select("id, payment_status, beneficiary_phone, dialing_phone, network, airtime_amount")
+    .eq("id", orderId)
+    .maybeSingle()
+  if (lookupErr) console.error("[HUBTEL-ORDER] airtime_orders lookup failed:", orderId, lookupErr)
+  if (!order) throw new Error(`airtime_orders ${orderId} not found`)
+  if (order.payment_status === "completed") return // already processed
+  if (!ORDER_TABLES.airtime_orders.payableStatuses.includes(order.payment_status)) {
+    throw new Error(`airtime_orders ${orderId} not in a payable state: ${order.payment_status}`)
+  }
+
+  const { markAirtimeOrderPaid } = await import("@/lib/airtime-service")
+  const marked = await markAirtimeOrderPaid(orderId, null)
+  if (!marked.success) throw new Error(`airtime_orders ${orderId} could not be marked paid`)
+  if (marked.alreadyProcessed) return
+
+  // Same message as the Paystack branch: airtime may be fulfilled manually, so never claim it landed.
+  const { sendSMS, SMSTemplates } = await import("@/lib/sms-service")
+  const benef = String(order.beneficiary_phone)
+  const msg = SMSTemplates.ussdAirtimePaymentReceived(Number(order.airtime_amount).toFixed(2), order.network, benef)
+  try {
+    await sendSMS({ phone: benef, message: msg, type: "airtime_order_created", reference: orderId })
+  } catch (e) { console.warn("[HUBTEL-ORDER] airtime recipient SMS failed:", e) }
+  const payer = order.dialing_phone as string | null
+  if (payer && last9(payer) && last9(payer) !== last9(benef)) {
+    try {
+      await sendSMS({ phone: payer, message: msg, type: "airtime_order_created", reference: orderId })
+    } catch (e) { console.warn("[HUBTEL-ORDER] airtime payer SMS failed:", e) }
+  }
+}
+
 export function createOrderHandlers(supabase: SupabaseClient): OrderHandlers {
   return {
     ussd_orders: orderId => ussdOrderPostPayment(supabase, orderId),
-    // Plan 2/3 register: airtime_orders, results_checker_orders, results_check_requests, ussd_afa_orders, ussd_shop_orders
+    airtime_orders: orderId => airtimeOrderPostPayment(supabase, orderId),
+    // Plan 3 registers ussd_shop_orders
   }
 }
 

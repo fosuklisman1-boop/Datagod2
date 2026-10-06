@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import { keyForDigit } from "@/lib/ussd/menu-items"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import { getHubtelUssdConfig, type HubtelUssdConfig } from "./config"
+import { defaultAirtimeServices, resolveDialer } from "./services"
 import { sessionStore } from "./session"
 import { fetchBundles, PAGE_SIZE, resolveCaller, isDataBlocked } from "./catalog"
 import { mainMenuText, type MainMenuKey } from "./menus"
@@ -11,6 +12,7 @@ import {
   finish, mainMenuReply, menuFor, replaySubmittedOrder,
   type FlowCtx, type RouterDeps, type StepHandler, type StepTable,
 } from "./flow-kit"
+import { AIRTIME_STEPS, startAirtime } from "./flows/airtime"
 import { DATA_STEPS, startData } from "./flows/data"
 import type { HubtelReply, HubtelRequest } from "./types"
 
@@ -26,17 +28,21 @@ export function defaultRouterDeps(supabase: SupabaseClient): RouterDeps {
     isDataBlocked: msisdn => isDataBlocked(supabase, msisdn),
     getPrefixConfig: getPrefixValidationConfig,
     pageSize: PAGE_SIZE,
+    resolveDialer,
+    airtime: defaultAirtimeServices(),
   }
 }
 
 /** First screen of each main-menu service. Every IMPLEMENTED_SERVICES key must have one (tested). */
 export const MAIN_MENU_ENTRIES: Partial<Record<MainMenuKey, StepHandler>> = {
   data: startData,
+  airtime: startAirtime,
 }
 
 const STEPS: StepTable = {
   MAIN: handleMain,
   ...DATA_STEPS,
+  ...AIRTIME_STEPS,
 }
 
 const UNAVAILABLE = "Service unavailable. Please try again later."

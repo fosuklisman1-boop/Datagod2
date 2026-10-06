@@ -26,7 +26,9 @@ export interface HubtelReply {
   Item?: { ItemName: string; Qty: number; Price: number }
 }
 
-export type HubtelStep = "MAIN" | "SELECT_NETWORK" | "SELECT_BUNDLE" | "ENTER_RECIPIENT" | "CONFIRM"
+export type HubtelStep =
+  | "MAIN" | "SELECT_NETWORK" | "SELECT_BUNDLE" | "ENTER_RECIPIENT" | "CONFIRM"
+  | "AIRTIME_ENTER_RECIPIENT" | "AIRTIME_SELECT_NETWORK" | "AIRTIME_ENTER_AMOUNT" | "AIRTIME_CONFIRM"
 
 export interface HubtelSession {
   step: HubtelStep
@@ -42,6 +44,12 @@ export interface HubtelSession {
   bundleSize?: string
   bundlePrice?: number
   recipientPhone?: string // local 0XXXXXXXXX
+  // Airtime
+  airtimeRecipient?: string // local 0XXXXXXXXX
+  airtimeNetwork?: "MTN" | "Telecel" | "AT"
+  airtimeAmount?: number // what the caller pays = order total_paid = Hubtel Price
+  airtimeFee?: number
+  airtimeToDeliver?: number // what the recipient gets (amount - fee)
 }
 
 export type HubtelTxState = "awaiting_payment" | "processing" | "fulfilled" | "needs_review" | "failed"

@@ -2,6 +2,7 @@
 // Test-only fakes shared by router.test.ts and flows/*.test.ts. Never imported by production code.
 import { DEFAULT_NETWORK_PREFIXES } from "@/lib/phone-format"
 import type { RouterDeps } from "../flow-kit"
+import type { AirtimeServices } from "../services"
 import type { HubtelRequest, HubtelSession } from "../types"
 
 export const NEW_ID = "11111111-1111-1111-1111-111111111111"
@@ -80,6 +81,8 @@ export function makeDeps(over: Partial<RouterDeps> = {}, sup = fakeSupabase({ pk
     isDataBlocked: async () => false,
     getPrefixConfig: async () => ({ enabled: true, map: DEFAULT_NETWORK_PREFIXES }),
     pageSize: 5,
+    resolveDialer: async () => ({}),
+    airtime: fakeAirtime(),
     ...over,
   }
   return { deps, store, sup }
@@ -95,4 +98,8 @@ export function digitFor(menu: string, label: string): string {
   const line = menu.split("\n").find(l => l.replace(/^\d+\.\s*/, "") === label)
   if (!line) throw new Error(`"${label}" not in menu:\n${menu}`)
   return line.split(".")[0]
+}
+
+export function fakeAirtime(over: Partial<AirtimeServices> = {}): AirtimeServices {
+  return { isEnabled: async () => true, getLimits: async () => ({ min: 1, max: 500 }), feeRate: async () => 5, ...over }
 }

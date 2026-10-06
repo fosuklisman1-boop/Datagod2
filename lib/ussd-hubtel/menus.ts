@@ -16,7 +16,7 @@ const MAIN_ITEMS: MenuItemDef<MainMenuKey>[] = [
 export const IMPLEMENTED_SERVICES: Record<MainMenuKey, boolean> = {
   data: true,
   afa: false,
-  airtime: false,
+  airtime: true,
   resultsChecker: false,
 }
 
@@ -76,4 +76,16 @@ export function confirmMenuText(
     `Confirm order:\n${formatSize(size)} ${networkLabel}\nTo: ${recipientLocal}\n` +
     `GHS ${price.toFixed(2)} from ${dialingLocal}\n1. Pay now\n2. Cancel`
   )
+}
+
+// Airtime networks (lib/airtime-pricing.ts vocabulary: "AT" is AirtelTigo).
+export type AirtimeNetworkKey = "MTN" | "Telecel" | "AT"
+export const AIRTIME_NETWORKS: ReadonlyArray<{ digit: string; key: AirtimeNetworkKey; label: string }> = [
+  { digit: "1", key: "MTN", label: "MTN" },
+  { digit: "2", key: "Telecel", label: "Telecel" },
+  { digit: "3", key: "AT", label: "AT" },
+]
+
+export function airtimeLabel(network: string): string {
+  return AIRTIME_NETWORKS.find(n => n.key === network)?.label ?? network
 }
