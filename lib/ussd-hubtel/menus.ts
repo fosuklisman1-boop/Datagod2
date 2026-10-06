@@ -90,7 +90,7 @@ export function airtimeLabel(network: string): string {
   return AIRTIME_NETWORKS.find(n => n.key === network)?.label ?? network
 }
 
-/** Results Checker sub-menu (Task 4 adds "3. Check Results"). */
+/** Results Checker sub-menu. */
 export function rcMenuText(): string {
-  return "Results Checker\n1. Buy Vouchers\n2. My Vouchers\n0. Back"
+  return "Results Checker\n1. Buy Vouchers\n2. My Vouchers\n3. Check Results\n0. Back"
 }

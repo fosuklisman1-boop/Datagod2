@@ -36,6 +36,8 @@ export interface RcServices {
   listMyVouchers(dialingPhone: string): Promise<MyVoucherOrder[]>
   /** SMS the vouchers again to the order's own customer_phone. */
   resendVouchers(orderId: string): Promise<{ success: boolean; message: string }>
+  /** results_check_settings. A read error throws (the interaction route answers "Service unavailable"). */
+  checkSettings(): Promise<{ enabled: boolean; fee: number }>
 }
 
 export function defaultRcServices(supabase: SupabaseClient): RcServices {
@@ -52,6 +54,13 @@ export function defaultRcServices(supabase: SupabaseClient): RcServices {
     resendVouchers: async orderId => {
       const { resendVouchers } = await import("@/lib/results-checker-notification-service")
       return resendVouchers(orderId, "sms")
+    },
+    checkSettings: async () => {
+      const { data, error } = await supabase.from("admin_settings").select("value").eq("key", "results_check_settings").maybeSingle()
+      if (error) throw error
+      const v = (data?.value ?? null) as { enabled?: unknown; fee?: unknown } | null
+      // Same defaults as Uzo's getRcCheckSettings: enabled unless explicitly false; fee 2.00 unless a number.
+      return { enabled: v?.enabled !== false, fee: typeof v?.fee === "number" ? v.fee : 2.0 }
     },
   }
 }

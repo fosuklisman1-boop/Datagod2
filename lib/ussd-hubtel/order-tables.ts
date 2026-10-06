@@ -5,7 +5,7 @@
 // in migrations/0106_hubtel_ussd.sql (pinned by order-tables.test.ts).
 import { HUBTEL_NETWORKS, airtimeLabel, formatSize } from "./menus"
 
-export type HubtelOrderTable = "ussd_orders" | "airtime_orders" | "results_checker_orders"
+export type HubtelOrderTable = "ussd_orders" | "airtime_orders" | "results_checker_orders" | "results_check_requests"
 
 export interface OrderTableSpec {
   /** payment_status values of an order that is still unpaid (it may yet be paid or expired). */
@@ -41,6 +41,12 @@ export const ORDER_TABLES: Record<HubtelOrderTable, OrderTableSpec> = {
     failPatch: () => ({ status: "failed", payment_status: "failed", updated_at: now() }),
     cartColumns: "exam_board, quantity",
     cartItemName: r => `${r.exam_board} Checker x${r.quantity}`,
+  },
+  results_check_requests: {
+    payableStatuses: ["pending_payment", "otp_required"],
+    failPatch: () => ({ status: "failed", payment_status: "failed", updated_at: now() }),
+    cartColumns: "exam_board, mode",
+    cartItemName: r => (r.mode === "combo" ? `${r.exam_board} Voucher + Results Check` : `${r.exam_board} Results Check`),
   },
 }
 

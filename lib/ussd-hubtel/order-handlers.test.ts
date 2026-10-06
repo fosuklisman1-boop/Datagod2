@@ -220,3 +220,51 @@ describe("results_checker_orders post-payment handler", () => {
     expect(log[0]).toMatchObject({ patch: { status: "failed", payment_status: "failed" }, inVals: ["pending_payment", "otp_required"] })
   })
 })
+
+describe("results_check_requests post-payment handler", () => {
+  const paid = { success: true, status: "paid", message: "Payment confirmed" }
+
+  it("failed request (late payment after expiry) → throws, never marked paid (review focus #5)", async () => {
+    const { client } = fakeDb({ results_check_requests: { id: "q1", payment_status: "failed", status: "failed", mode: "own_voucher" } })
+    await expect(createOrderHandlers(client).results_check_requests("q1")).rejects.toThrow(/not in a payable state/)
+    expect(fulfillPaidResultsCheckRequest).not.toHaveBeenCalled()
+  })
+  it("pending own-voucher request → fulfillPaidResultsCheckRequest once", async () => {
+    fulfillPaidResultsCheckRequest.mockResolvedValue(paid)
+    const { client } = fakeDb({ results_check_requests: { id: "q1", payment_status: "pending_payment", status: "pending", mode: "own_voucher" } })
+    await createOrderHandlers(client).results_check_requests("q1")
+    expect(fulfillPaidResultsCheckRequest).toHaveBeenCalledTimes(1)
+    expect(fulfillPaidResultsCheckRequest).toHaveBeenCalledWith("q1")
+  })
+  it("combo with a voucher assigned → ok", async () => {
+    const row: any = { id: "q1", payment_status: "pending_payment", status: "pending", mode: "combo", voucher_pin: null }
+    fulfillPaidResultsCheckRequest.mockImplementation(async () => { row.voucher_pin = "123456789012"; return paid })
+    const { client } = fakeDb({ results_check_requests: row })
+    await createOrderHandlers(client).results_check_requests("q1")
+  })
+  it("combo paid but no voucher in stock → throws so the row lands in needs_review (review focus #2)", async () => {
+    fulfillPaidResultsCheckRequest.mockResolvedValue(paid)
+    const { client } = fakeDb({ results_check_requests: { id: "q1", payment_status: "pending_payment", status: "pending", mode: "combo", voucher_pin: null } })
+    await expect(createOrderHandlers(client).results_check_requests("q1")).rejects.toThrow(/no voucher/)
+  })
+  it("already paid → no-op", async () => {
+    const { client } = fakeDb({ results_check_requests: { id: "q1", payment_status: "paid", status: "pending", mode: "own_voucher" } })
+    await createOrderHandlers(client).results_check_requests("q1")
+    expect(fulfillPaidResultsCheckRequest).not.toHaveBeenCalled()
+  })
+  it("library reports not_found → throws", async () => {
+    fulfillPaidResultsCheckRequest.mockResolvedValue({ success: false, status: "not_found", message: "Results check request not found" })
+    const { client } = fakeDb({ results_check_requests: { id: "q1", payment_status: "pending_payment", status: "pending", mode: "own_voucher" } })
+    await expect(createOrderHandlers(client).results_check_requests("q1")).rejects.toThrow(/not marked paid/)
+  })
+  it("missing request → throws, nothing fulfilled", async () => {
+    const { client } = fakeDb({})
+    await expect(createOrderHandlers(client).results_check_requests("q1")).rejects.toThrow(/not found/)
+    expect(fulfillPaidResultsCheckRequest).not.toHaveBeenCalled()
+  })
+  it("fail handler fails only an unpaid request", async () => {
+    const { client, log } = fakeDb({ results_check_requests: { id: "q1", payment_status: "pending_payment" } })
+    await createFailHandlers(client).results_check_requests("q1")
+    expect(log[0]).toMatchObject({ patch: { status: "failed", payment_status: "failed" }, inVals: ["pending_payment", "otp_required"] })
+  })
+})

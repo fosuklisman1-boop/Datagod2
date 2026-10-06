@@ -37,9 +37,28 @@ describe("ORDER_TABLES", () => {
     expect(s.failPatch()).toMatchObject({ status: "failed", payment_status: "failed" })
     expect(s.cartItemName({ exam_board: "BECE", quantity: 3 })).toBe("BECE Checker x3")
   })
+  it("results_check_requests: payable statuses, fail patch and item names", () => {
+    const s = ORDER_TABLES.results_check_requests
+    expect(s.payableStatuses).toEqual(["pending_payment", "otp_required"])
+    expect(s.failPatch()).toMatchObject({ status: "failed", payment_status: "failed" })
+    expect(s.cartItemName({ exam_board: "BECE", mode: "combo" })).toBe("BECE Voucher + Results Check")
+    expect(s.cartItemName({ exam_board: "BECE", mode: "own_voucher" })).toBe("BECE Results Check")
+  })
+  it("results_check_requests: cartItemName works on a row narrowed to its cartColumns, both modes", () => {
+    const s = ORDER_TABLES.results_check_requests
+    const cols = s.cartColumns.split(",").map(c => c.trim())
+    const full = (mode: string): Record<string, unknown> => ({ id: "x", exam_board: "WASSCE", mode, fee: 22, index_number: "0070202043", voucher_pin: null })
+    for (const mode of ["combo", "own_voucher"]) {
+      const narrowed = Object.fromEntries(cols.map(c => [c, full(mode)[c]]))
+      expect(s.cartItemName(narrowed)).toBe(s.cartItemName(full(mode)))
+      expect(s.cartItemName(narrowed)).not.toContain("undefined")
+    }
+    expect(s.cartItemName(Object.fromEntries(cols.map(c => [c, full("combo")[c]])))).toBe("WASSCE Voucher + Results Check")
+    expect(s.cartItemName(Object.fromEntries(cols.map(c => [c, full("own_voucher")[c]])))).toBe("WASSCE Results Check")
+  })
   it("cartItemName works on a row narrowed to the table's cartColumns (a missing column would be caught)", () => {
     const fullRow: Record<string, unknown> = {
-      network: "Telecel", beneficiary_phone: "0201234567", package_size: "5", airtime_amount: 9.52, total_paid: 10, id: "x", exam_board: "WASSCE", quantity: 2,
+      network: "Telecel", beneficiary_phone: "0201234567", package_size: "5", airtime_amount: 9.52, total_paid: 10, id: "x", exam_board: "WASSCE", quantity: 2, mode: "own_voucher",
     }
     for (const [t, s] of Object.entries(ORDER_TABLES)) {
       const cols = s.cartColumns.split(",").map(c => c.trim())

@@ -15,6 +15,7 @@ import {
 import { AIRTIME_STEPS, startAirtime } from "./flows/airtime"
 import { DATA_STEPS, startData } from "./flows/data"
 import { RC_BUY_STEPS, startRc } from "./flows/rc-buy"
+import { RC_CHECK_STEPS } from "./flows/rc-check"
 import type { HubtelReply, HubtelRequest } from "./types"
 
 export type { RouterDeps } from "./flow-kit"
@@ -47,6 +48,7 @@ const STEPS: StepTable = {
   ...DATA_STEPS,
   ...AIRTIME_STEPS,
   ...RC_BUY_STEPS,
+  ...RC_CHECK_STEPS,
 }
 
 const UNAVAILABLE = "Service unavailable. Please try again later."

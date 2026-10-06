@@ -5,6 +5,7 @@ import { secureReference } from "@/lib/secure-random"
 import type { ExamBoard } from "@/lib/results-check-validation"
 import { rcMenuText } from "../menus"
 import { toLocalPhone } from "../protocol"
+import { startRcCheck } from "./rc-check"
 import { backToMain, finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable } from "../flow-kit"
 import type { MyVoucherOrder } from "../services"
 import type { HubtelReply } from "../types"
@@ -80,6 +81,8 @@ async function rcMenu(ctx: FlowCtx): Promise<HubtelReply> {
       const orders = await ctx.deps.rc.listMyVouchers(ctx.session.dialingPhone)
       return goto(ctx, { step: "RC_MY_VOUCHERS", rcMyOrders: orders }, rcMyVouchersText(orders), MINE)
     }
+    case "3":
+      return startRcCheck(ctx)
     default:
       return say(ctx, rcMenuText(), "RC_MENU", MENU)
   }

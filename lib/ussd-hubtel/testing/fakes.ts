@@ -114,6 +114,7 @@ export function fakeRc(over: Partial<RcServices> = {}): RcServices {
     price: async (_board, qty) => ({ unitPrice: 20, totalPaid: 20 * qty, bulkApplied: false }),
     listMyVouchers: async () => [],
     resendVouchers: async () => ({ success: true, message: "ok" }),
+    checkSettings: async () => ({ enabled: true, fee: 2 }),
     ...over,
   }
 }

@@ -30,6 +30,8 @@ export type HubtelStep =
   | "MAIN" | "SELECT_NETWORK" | "SELECT_BUNDLE" | "ENTER_RECIPIENT" | "CONFIRM"
   | "AIRTIME_ENTER_RECIPIENT" | "AIRTIME_SELECT_NETWORK" | "AIRTIME_ENTER_AMOUNT" | "AIRTIME_CONFIRM"
   | "RC_MENU" | "RC_SELECT_BOARD" | "RC_ENTER_QTY" | "RC_CONFIRM" | "RC_MY_VOUCHERS" | "RC_VOUCHER_DETAIL"
+  | "RC_CHECK_BOARD" | "RC_CHECK_CANDIDATE_TYPE" | "RC_CHECK_MODE" | "RC_CHECK_VOUCHER" | "RC_CHECK_INDEX"
+  | "RC_CHECK_YEAR" | "RC_CHECK_DOB" | "RC_CHECK_WA_NUMBER" | "RC_CHECK_CONFIRM"
 
 export interface HubtelSession {
   step: HubtelStep
@@ -60,6 +62,18 @@ export interface HubtelSession {
   rcBulkApplied?: boolean
   rcMyOrders?: Array<{ id: string; exam_board: string; reference_code: string; created_at: string }>
   rcSelectedOrderId?: string
+  // Results check service (Datagod checks results on the caller's behalf)
+  rcCheckBoard?: string // WASSCE | BECE | NOVDEC
+  rcCheckCandidateType?: "school" | "private"
+  rcCheckMode?: "combo" | "own_voucher"
+  rcCheckVoucherPin?: string
+  rcCheckVoucherSerial?: string
+  rcCheckIndex?: string
+  rcCheckYear?: number
+  rcCheckDob?: string // DD/MM/YYYY
+  rcCheckWaNumber?: string // local 0XXXXXXXXX
+  rcCheckFee?: number // check-only fee
+  rcCheckComboTotal?: number // one voucher + fee; undefined when combo is not offered
 }
 
 export type HubtelTxState = "awaiting_payment" | "processing" | "fulfilled" | "needs_review" | "failed"

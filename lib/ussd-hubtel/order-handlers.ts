@@ -150,11 +150,46 @@ async function rcOrderPostPayment(supabase: SupabaseClient, orderId: string): Pr
   if (!result.success) throw new Error(`results_checker_orders ${orderId} fulfilment failed: ${result.message}`)
 }
 
+/**
+ * Post-payment for a "Check Results" request. Uses fulfillPaidResultsCheckRequest (the storefront
+ * path): marks paid, assigns the combo voucher, notifies admins, SMSes the caller and WhatsApps the
+ * number they gave, which suits USSD callers better than the Paystack WhatsApp-bot branch (that one
+ * WhatsApps phone_number only). It is its own idempotency gate (payment_status 'paid'), so it is
+ * called after a read-check; once-only comes from processFulfillment's claim on this request's
+ * single tx row. A combo paid with no voucher left in stock throws => needs_review.
+ */
+async function checkRequestPostPayment(supabase: SupabaseClient, orderId: string): Promise<void> {
+  const { data: request, error: lookupErr } = await supabase
+    .from("results_check_requests")
+    .select("id, payment_status, status, mode")
+    .eq("id", orderId)
+    .maybeSingle()
+  if (lookupErr) console.error("[HUBTEL-ORDER] results_check_requests lookup failed:", orderId, lookupErr)
+  if (!request) throw new Error(`results_check_requests ${orderId} not found`)
+  if (request.payment_status === "paid") return // already processed
+  const payable = ORDER_TABLES.results_check_requests.payableStatuses
+  if (request.status === "failed" || !payable.includes(request.payment_status)) {
+    throw new Error(`results_check_requests ${orderId} not in a payable state: ${request.status}/${request.payment_status}`)
+  }
+
+  const { fulfillPaidResultsCheckRequest } = await import("@/lib/results-checker-service")
+  const result = await fulfillPaidResultsCheckRequest(orderId)
+  if (!result.success) throw new Error(`results_check_requests ${orderId} not marked paid: ${result.message}`)
+
+  if (request.mode === "combo") {
+    const { data: after } = await supabase.from("results_check_requests").select("id, voucher_pin").eq("id", orderId).maybeSingle()
+    if (!after?.voucher_pin) {
+      throw new Error(`results_check_requests ${orderId} paid (combo) but no voucher was in stock: assign one manually`)
+    }
+  }
+}
+
 export function createOrderHandlers(supabase: SupabaseClient): OrderHandlers {
   return {
     ussd_orders: orderId => ussdOrderPostPayment(supabase, orderId),
     airtime_orders: orderId => airtimeOrderPostPayment(supabase, orderId),
     results_checker_orders: orderId => rcOrderPostPayment(supabase, orderId),
+    results_check_requests: orderId => checkRequestPostPayment(supabase, orderId),
     // Plan 3 registers ussd_shop_orders
   }
 }
