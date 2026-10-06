@@ -113,7 +113,7 @@ async function checkBoard(ctx: FlowCtx): Promise<HubtelReply> {
   const settings = await ctx.deps.rc.checkSettings()
   const comboTotal = await comboTotalFor(ctx, board, settings.fee)
   return goto(ctx, {
-    step: "RC_CHECK_CANDIDATE_TYPE", rcCheckBoard: board, rcCheckFee: settings.fee, rcCheckComboTotal: comboTotal,
+    step: "RC_CHECK_CANDIDATE_TYPE", rcCheckBoard: board, rcCheckFee: round2(settings.fee), rcCheckComboTotal: comboTotal,
     rcCheckMode: undefined, rcCheckVoucherPin: undefined, rcCheckVoucherSerial: undefined,
   }, rcCheckCandidateTypeText(), TYPE)
 }
@@ -203,7 +203,7 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   if (settings.enabled !== true) return finish(ctx, "Results check is not available right now.")
   const dialer = await deps.resolveDialer(s.dialingPhone)
   if (!dialer.userId) return finish(ctx, ACCOUNT_REQUIRED)
-  let amount = settings.fee
+  let amount = round2(settings.fee)
   if (mode === "combo") {
     const combo = await comboTotalFor(ctx, board, settings.fee)
     if (combo === undefined) return finish(ctx, `${board} vouchers are sold out.\nPlease restart and use\nyour own voucher.`)

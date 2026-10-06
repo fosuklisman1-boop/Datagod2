@@ -176,11 +176,18 @@ async function checkRequestPostPayment(supabase: SupabaseClient, orderId: string
   const result = await fulfillPaidResultsCheckRequest(orderId)
   if (!result.success) throw new Error(`results_check_requests ${orderId} not marked paid: ${result.message}`)
 
-  if (request.mode === "combo") {
-    const { data: after } = await supabase.from("results_check_requests").select("id, voucher_pin").eq("id", orderId).maybeSingle()
-    if (!after?.voucher_pin) {
-      throw new Error(`results_check_requests ${orderId} paid (combo) but no voucher was in stock: assign one manually`)
-    }
+  // The library does not check the error on its own update yet still notifies the customer, so
+  // verify the row really reached 'paid' (both modes) before calling this fulfilled.
+  const { data: after } = await supabase
+    .from("results_check_requests")
+    .select("id, payment_status, voucher_pin")
+    .eq("id", orderId)
+    .maybeSingle()
+  if (after?.payment_status !== "paid") {
+    throw new Error(`results_check_requests ${orderId} not paid after fulfilment (still ${after?.payment_status ?? "unreadable"}): needs manual review`)
+  }
+  if (request.mode === "combo" && !after.voucher_pin) {
+    throw new Error(`results_check_requests ${orderId} paid (combo) but no voucher was in stock: assign one manually`)
   }
 }
 

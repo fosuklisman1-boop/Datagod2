@@ -229,24 +229,33 @@ describe("results_check_requests post-payment handler", () => {
     await expect(createOrderHandlers(client).results_check_requests("q1")).rejects.toThrow(/not in a payable state/)
     expect(fulfillPaidResultsCheckRequest).not.toHaveBeenCalled()
   })
-  it("pending own-voucher request → fulfillPaidResultsCheckRequest once", async () => {
-    fulfillPaidResultsCheckRequest.mockResolvedValue(paid)
-    const { client } = fakeDb({ results_check_requests: { id: "q1", payment_status: "pending_payment", status: "pending", mode: "own_voucher" } })
+  it("pending own-voucher request → fulfillPaidResultsCheckRequest once, row re-read shows paid", async () => {
+    const row: any = { id: "q1", payment_status: "pending_payment", status: "pending", mode: "own_voucher" }
+    fulfillPaidResultsCheckRequest.mockImplementation(async () => { row.payment_status = "paid"; return paid })
+    const { client } = fakeDb({ results_check_requests: row })
     await createOrderHandlers(client).results_check_requests("q1")
     expect(fulfillPaidResultsCheckRequest).toHaveBeenCalledTimes(1)
     expect(fulfillPaidResultsCheckRequest).toHaveBeenCalledWith("q1")
   })
   it("combo with a voucher assigned → ok", async () => {
     const row: any = { id: "q1", payment_status: "pending_payment", status: "pending", mode: "combo", voucher_pin: null }
-    fulfillPaidResultsCheckRequest.mockImplementation(async () => { row.voucher_pin = "123456789012"; return paid })
+    fulfillPaidResultsCheckRequest.mockImplementation(async () => { row.payment_status = "paid"; row.voucher_pin = "123456789012"; return paid })
     const { client } = fakeDb({ results_check_requests: row })
     await createOrderHandlers(client).results_check_requests("q1")
   })
   it("combo paid but no voucher in stock → throws so the row lands in needs_review (review focus #2)", async () => {
-    fulfillPaidResultsCheckRequest.mockResolvedValue(paid)
-    const { client } = fakeDb({ results_check_requests: { id: "q1", payment_status: "pending_payment", status: "pending", mode: "combo", voucher_pin: null } })
+    const row: any = { id: "q1", payment_status: "pending_payment", status: "pending", mode: "combo", voucher_pin: null }
+    fulfillPaidResultsCheckRequest.mockImplementation(async () => { row.payment_status = "paid"; return paid })
+    const { client } = fakeDb({ results_check_requests: row })
     await expect(createOrderHandlers(client).results_check_requests("q1")).rejects.toThrow(/no voucher/)
   })
+  for (const mode of ["own_voucher", "combo"]) {
+    it(`${mode}: library reports success but the row is still unpaid (swallowed update error) → throws`, async () => {
+      fulfillPaidResultsCheckRequest.mockResolvedValue(paid)
+      const { client } = fakeDb({ results_check_requests: { id: "q1", payment_status: "pending_payment", status: "pending", mode, voucher_pin: "123456789012" } })
+      await expect(createOrderHandlers(client).results_check_requests("q1")).rejects.toThrow(/still pending_payment|not paid/)
+    })
+  }
   it("already paid → no-op", async () => {
     const { client } = fakeDb({ results_check_requests: { id: "q1", payment_status: "paid", status: "pending", mode: "own_voucher" } })
     await createOrderHandlers(client).results_check_requests("q1")
