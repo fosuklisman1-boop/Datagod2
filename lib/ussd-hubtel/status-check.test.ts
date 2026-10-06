@@ -5,6 +5,7 @@ import type { HubtelTxRow, HubtelTxStore, HubtelTxState } from "./types"
 
 const NOW = Date.UTC(2026, 9, 5, 12, 0, 0)
 const mins = (n: number) => new Date(NOW - n * 60_000).toISOString()
+const unpaid = async () => ({ ok: true, status: "Unpaid" })
 
 describe("statusCheckDisposition", () => {
   const base = { status_check_attempts: 0, last_status_check_at: null as string | null }
@@ -76,7 +77,7 @@ describe("runStatusChecks", () => {
   it("expires stale unpaid orders: row failed, order failed, no callback", async () => {
     const m = store([{ session_id: "D", created_at: mins(90) }])
     const fail = vi.fn().mockResolvedValue(undefined)
-    const res = await runStatusChecks({ store: m.s, handlers: {}, failHandlers: { ussd_orders: fail }, check: vi.fn(), now: NOW })
+    const res = await runStatusChecks({ store: m.s, handlers: {}, failHandlers: { ussd_orders: fail }, check: unpaid, now: NOW })
     expect(res.expired).toBe(1)
     expect(fail).toHaveBeenCalledWith("ord-D")
     expect(m.state.get("D")).toMatchObject({ state: "failed", callback_status: "not_due" })
@@ -91,7 +92,7 @@ describe("runStatusChecks", () => {
       m.state.set(id, { ...m.state.get(id)!, state: "processing" })
       return realClaim(id, from)
     }
-    const res = await runStatusChecks({ store: m.s, handlers: {}, failHandlers: { ussd_orders: fail }, check: vi.fn(), now: NOW })
+    const res = await runStatusChecks({ store: m.s, handlers: {}, failHandlers: { ussd_orders: fail }, check: unpaid, now: NOW })
     expect(res.expired).toBe(0)
     expect(fail).not.toHaveBeenCalled()
     expect(m.state.get("E")!.state).toBe("processing")
@@ -101,7 +102,7 @@ describe("runStatusChecks", () => {
     const m = store([{ session_id: "F", created_at: mins(90) }])
     let seen: string | undefined
     const fail = vi.fn(async () => { seen = m.state.get("F")!.state })
-    await runStatusChecks({ store: m.s, handlers: {}, failHandlers: { ussd_orders: fail }, check: vi.fn(), now: NOW })
+    await runStatusChecks({ store: m.s, handlers: {}, failHandlers: { ussd_orders: fail }, check: unpaid, now: NOW })
     expect(fail).toHaveBeenCalled()
     expect(seen).toBe("failed")
   })
@@ -110,7 +111,7 @@ describe("runStatusChecks", () => {
     const m = store([{ session_id: "G", created_at: mins(90) }])
     const fail = vi.fn().mockRejectedValue(new Error("boom"))
     const spy = vi.spyOn(console, "error").mockImplementation(() => {})
-    const res = await runStatusChecks({ store: m.s, handlers: {}, failHandlers: { ussd_orders: fail }, check: vi.fn(), now: NOW })
+    const res = await runStatusChecks({ store: m.s, handlers: {}, failHandlers: { ussd_orders: fail }, check: unpaid, now: NOW })
     spy.mockRestore()
     expect(res.expired).toBe(1)
     expect(m.state.get("G")).toMatchObject({ state: "failed", callback_status: "not_due" })
@@ -153,7 +154,7 @@ describe("runStatusChecks", () => {
       return realUpdate(id, p)
     }
     const spy = vi.spyOn(console, "error").mockImplementation(() => {})
-    const res = await runStatusChecks({ store: m.s, handlers: {}, failHandlers: { ussd_orders: fail }, check: async () => ({ ok: false }), now: NOW })
+    const res = await runStatusChecks({ store: m.s, handlers: {}, failHandlers: { ussd_orders: fail }, check: unpaid, now: NOW })
     spy.mockRestore()
     expect(res.expired).toBe(0)
     expect(fail).not.toHaveBeenCalled()
@@ -175,10 +176,12 @@ describe("runStatusChecks", () => {
     expect(m.state.get("P")).toMatchObject({ state: "fulfilled", callback_status: "pending" })
   })
 
-  it("(d) a row past 60 minutes whose final check is Unpaid or errors is still expired", async () => {
+  // Behaviour change (I1): only a DEFINITE non-Paid answer expires. An errored final check used
+  // to expire here too; it now lands in needs_review (see the indeterminate tests below).
+  it("(d) a row past 60 minutes whose final check is a definite non-Paid answer is expired", async () => {
     for (const check of [
       async () => ({ ok: true, status: "Unpaid" }),
-      async () => ({ ok: false, error: "relay down" }),
+      async () => ({ ok: true, status: "Refunded" }),
     ]) {
       const m = store([{ session_id: "U", created_at: mins(90) }])
       const fail = vi.fn().mockResolvedValue(undefined)
@@ -214,5 +217,141 @@ describe("runStatusChecks", () => {
     expect(res.swept).toBe(1)
     expect(m.state.get("S1")).toMatchObject({ state: "needs_review", callback_status: "pending" })
     expect(m.state.get("S2")!.state).toBe("processing")
+  })
+
+  it("(I3) the sweep sets paid_at when missing and records why, keeping an existing paid_at", async () => {
+    const m = store([
+      { session_id: "N1", state: "processing", created_at: mins(30), updated_at: mins(20), paid_at: null },
+      { session_id: "N2", state: "processing", created_at: mins(30), updated_at: mins(20), paid_at: mins(25) },
+    ])
+    await runStatusChecks({ store: m.s, handlers: {}, failHandlers: {}, check: vi.fn(), now: NOW })
+    expect(m.state.get("N1")!.paid_at).toBeTruthy()
+    expect(m.state.get("N1")!.callback_last_error).toMatch(/recovered from stale processing/)
+    expect(m.state.get("N2")!.paid_at).toBe(mins(25))
+    expect(m.state.get("N2")!.callback_last_error).toMatch(/recovered from stale processing/)
+  })
+
+  it("(M7) the sweep re-reads and skips a row that is no longer processing", async () => {
+    const m = store([{ session_id: "Q1", state: "processing", created_at: mins(30), updated_at: mins(20) }])
+    // The webhook finishes the row between the list and the sweep update.
+    const realList = m.s.listStaleProcessing
+    m.s.listStaleProcessing = async (a, b) => {
+      const rows = await realList(a, b)
+      m.state.set("Q1", { ...m.state.get("Q1")!, state: "fulfilled", callback_status: "sent" })
+      return rows
+    }
+    const res = await runStatusChecks({ store: m.s, handlers: {}, failHandlers: {}, check: vi.fn(), now: NOW })
+    expect(res.swept).toBe(0)
+    expect(m.state.get("Q1")).toMatchObject({ state: "fulfilled", callback_status: "sent" })
+  })
+})
+
+describe("runStatusChecks: indeterminate final check at expiry (I1)", () => {
+  it("ok:false -> needs_review, callback not_due, fail handler NOT called, logged with session id", async () => {
+    const m = store([{ session_id: "I1", created_at: mins(90) }])
+    const fail = vi.fn().mockResolvedValue(undefined)
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    const res = await runStatusChecks({
+      store: m.s, handlers: {}, failHandlers: { ussd_orders: fail },
+      check: async () => ({ ok: false, error: "relay 401" }), now: NOW,
+    })
+    expect(res.expired).toBe(0)
+    expect(fail).not.toHaveBeenCalled()
+    expect(m.state.get("I1")).toMatchObject({ state: "needs_review", callback_status: "not_due" })
+    expect(m.state.get("I1")!.callback_last_error).toBe("status check indeterminate at expiry: relay 401")
+    expect(JSON.stringify(err.mock.calls)).toContain("I1")
+    err.mockRestore()
+  })
+
+  it("a thrown final check -> needs_review, fail handler NOT called", async () => {
+    const m = store([{ session_id: "I2", created_at: mins(90) }])
+    const fail = vi.fn().mockResolvedValue(undefined)
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    await runStatusChecks({
+      store: m.s, handlers: {}, failHandlers: { ussd_orders: fail },
+      check: async () => { throw new Error("timeout") }, now: NOW,
+    })
+    err.mockRestore()
+    expect(fail).not.toHaveBeenCalled()
+    expect(m.state.get("I2")).toMatchObject({ state: "needs_review", callback_status: "not_due" })
+    expect(m.state.get("I2")!.callback_last_error).toMatch(/^status check indeterminate at expiry: .*timeout/)
+  })
+
+  it("ok with no status string -> needs_review ('no status')", async () => {
+    const m = store([{ session_id: "I3", created_at: mins(90) }])
+    const fail = vi.fn().mockResolvedValue(undefined)
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    await runStatusChecks({
+      store: m.s, handlers: {}, failHandlers: { ussd_orders: fail },
+      check: async () => ({ ok: true, data: {} }), now: NOW,
+    })
+    err.mockRestore()
+    expect(fail).not.toHaveBeenCalled()
+    expect(m.state.get("I3")).toMatchObject({
+      state: "needs_review", callback_status: "not_due", callback_last_error: "status check indeterminate at expiry: no status",
+    })
+  })
+
+  it("ok with status 'Unpaid' -> expired as before", async () => {
+    const m = store([{ session_id: "I4", created_at: mins(90) }])
+    const fail = vi.fn().mockResolvedValue(undefined)
+    const res = await runStatusChecks({ store: m.s, handlers: {}, failHandlers: { ussd_orders: fail }, check: unpaid, now: NOW })
+    expect(res.expired).toBe(1)
+    expect(fail).toHaveBeenCalledWith("ord-I4")
+    expect(m.state.get("I4")).toMatchObject({ state: "failed", callback_status: "not_due" })
+  })
+
+  it("indeterminate but the claim is lost (webhook won) -> row untouched", async () => {
+    const m = store([{ session_id: "I5", created_at: mins(90) }])
+    m.s.claim = async () => false
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    await runStatusChecks({ store: m.s, handlers: {}, failHandlers: {}, check: async () => ({ ok: false }), now: NOW })
+    err.mockRestore()
+    expect(m.state.get("I5")!.state).toBe("awaiting_payment")
+  })
+})
+
+describe("runStatusChecks: deadline (I4)", () => {
+  it("an already-passed deadline processes no rows and returns zero counts", async () => {
+    const m = store([
+      { session_id: "T1", created_at: mins(10) },
+      { session_id: "T2", created_at: mins(90) },
+      { session_id: "T3", state: "processing", created_at: mins(30), updated_at: mins(20) },
+    ])
+    const check = vi.fn(unpaid)
+    const fail = vi.fn()
+    const res = await runStatusChecks({
+      store: m.s, handlers: {}, failHandlers: { ussd_orders: fail }, check, now: NOW, deadlineMs: Date.now() - 1,
+    })
+    expect(res).toMatchObject({ checked: 0, paid: 0, expired: 0, swept: 0 })
+    expect(check).not.toHaveBeenCalled()
+    expect(fail).not.toHaveBeenCalled()
+    expect(m.state.get("T1")!.status_check_attempts).toBe(0)
+    expect(m.state.get("T2")!.state).toBe("awaiting_payment")
+    expect(m.state.get("T3")!.state).toBe("processing")
+  })
+
+  it("a future deadline does not limit work", async () => {
+    const m = store([{ session_id: "T4", created_at: mins(10) }])
+    const res = await runStatusChecks({ store: m.s, handlers: {}, failHandlers: {}, check: unpaid, now: NOW, deadlineMs: Date.now() + 60_000 })
+    expect(res.checked).toBe(1)
+  })
+
+  it("stops starting new rows once the deadline passes mid-run", async () => {
+    const m = store([
+      { session_id: "T5", created_at: mins(10) },
+      { session_id: "T6", created_at: mins(10) },
+    ])
+    const start = Date.now()
+    const deadlineMs = start + 60_000
+    let clock = start
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => clock)
+    // The first check takes "longer than the budget": wall clock jumps past the deadline.
+    const check = vi.fn(async () => { clock = deadlineMs + 1; return { ok: true, status: "Unpaid" } })
+    try {
+      const res = await runStatusChecks({ store: m.s, handlers: {}, failHandlers: {}, check, now: NOW, deadlineMs })
+      expect(res.checked).toBe(1)
+      expect(check).toHaveBeenCalledTimes(1)
+    } finally { nowSpy.mockRestore() }
   })
 })

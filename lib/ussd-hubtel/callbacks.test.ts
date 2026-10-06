@@ -20,6 +20,12 @@ describe("callbackDisposition", () => {
   it("treats a missing paid_at as fresh (sends)", () => {
     expect(callbackDisposition({ callback_status: "pending", paid_at: null }, NOW)).toBe("send")
   })
+  it("missing paid_at falls back to created_at: older than 55 min -> expire (I3)", () => {
+    expect(callbackDisposition({ callback_status: "pending", paid_at: null, created_at: iso(NOW - CALLBACK_WINDOW_MS - 60_000) }, NOW)).toBe("expire")
+  })
+  it("missing paid_at with a recent created_at still sends", () => {
+    expect(callbackDisposition({ callback_status: "pending", paid_at: null, created_at: iso(NOW - 60_000) }, NOW)).toBe("send")
+  })
 })
 
 function store(row: Partial<HubtelTxRow>) {

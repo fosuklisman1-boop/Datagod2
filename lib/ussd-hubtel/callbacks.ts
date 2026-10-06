@@ -7,11 +7,15 @@ export const CALLBACK_WINDOW_MS = 55 * 60 * 1000
 export type CallbackSender = (p: { sessionId: string; orderId: string }) => Promise<{ ok: boolean; error?: string }>
 
 export function callbackDisposition(
-  row: Pick<HubtelTxRow, "callback_status" | "paid_at">,
+  row: Pick<HubtelTxRow, "callback_status" | "paid_at"> & Partial<Pick<HubtelTxRow, "created_at">>,
   now: number
 ): "send" | "expire" | "skip" {
   if (row.callback_status !== "pending") return "skip"
-  const paid = row.paid_at ? new Date(row.paid_at).getTime() : now
+  // No paid_at (e.g. a row recovered without one): the session start bounds the window instead,
+  // so a pending callback can never retry forever.
+  const ref = row.paid_at ?? row.created_at ?? null
+  const parsed = ref ? new Date(ref).getTime() : NaN
+  const paid = Number.isFinite(parsed) ? parsed : now
   return now - paid > CALLBACK_WINDOW_MS ? "expire" : "send"
 }
 

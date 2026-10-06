@@ -28,7 +28,15 @@ export async function POST(request: NextRequest) {
 
   const store = createSupabaseTxStore(supabase)
   const outcome = await processFulfillment(store, createOrderHandlers(supabase), info)
-  console.log("[HUBTEL-FULFILL]", info.sessionId, "→", outcome)
+  if (outcome === "unknown_session" && info.isSuccessful) {
+    // Money was taken for a session we have no record of: needs a human (refund or fulfil).
+    console.error("[HUBTEL-FULFILL] successful payment for UNKNOWN session (no hubtel_transactions row):", JSON.stringify({
+      session_id: info.sessionId, hubtel_order_id: info.hubtelOrderId,
+      amount_paid: info.amountPaid, amount_after_charges: info.amountAfterCharges,
+    }))
+  } else {
+    console.log("[HUBTEL-FULFILL]", info.sessionId, "→", outcome)
+  }
 
   if (outcome === "fulfilled" || outcome === "needs_review") {
     // Immediate attempt; the callbacks cron retries if this fails.

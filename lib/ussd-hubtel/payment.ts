@@ -35,9 +35,9 @@ export async function processFulfillment(
   handlers: OrderHandlers,
   info: HubtelFulfillmentInfo
 ): Promise<FulfillmentOutcome> {
-  const tx = await store.findBySession(info.sessionId)
+  const sid = info.sessionId
+  let tx = await store.findBySession(sid)
   if (!tx) return "unknown_session"
-  // Atomic awaiting_payment → processing. Only the winner proceeds (idempotency).
   const base = {
     hubtel_order_id: info.hubtelOrderId,
     amount_paid: info.amountPaid,
@@ -46,40 +46,62 @@ export async function processFulfillment(
   }
   const needsReview = async () => {
     // Callback is still due: always-success policy (spec §8); the order is resolved manually.
-    await store.update(info.sessionId, { ...base, state: "needs_review", callback_status: "pending" })
+    await store.update(sid, { ...base, state: "needs_review", callback_status: "pending" })
     return "needs_review" as const
   }
 
-  if (!(await store.claim(info.sessionId))) {
-    // Paid after the status-check window expired the row (customer was told it failed):
-    // record the payment and hold for a human; never auto-fulfil.
-    if (tx.state === "failed" && tx.amount_paid == null && info.isSuccessful &&
-        (await store.claim(info.sessionId, ["failed"]))) {
-      return needsReview()
+  // Atomic awaiting_payment → processing. Only the winner proceeds (idempotency).
+  if (!(await store.claim(sid))) {
+    // The first snapshot may be stale (expiry or an unsuccessful delivery may have moved the
+    // row since): decide on a fresh read, never on `tx`.
+    const fresh = await store.findBySession(sid)
+    if (fresh?.state === "awaiting_payment" && (await store.claim(sid))) {
+      // An unsuccessful delivery held the claim and has just released it: process normally.
+      tx = fresh
+    } else {
+      // Paid after the status-check window expired the row (customer was told it failed),
+      // or after a declined attempt: record the payment and hold for a human; never auto-fulfil.
+      // Keyed on paid_at: a declined attempt may have recorded amounts but never sets paid_at.
+      if (fresh?.state === "failed" && fresh.paid_at == null && info.isSuccessful &&
+          (await store.claim(sid, ["failed"]))) {
+        return needsReview()
+      }
+      if (info.isSuccessful && (fresh?.state === "processing" || fresh?.state === "failed")) {
+        // Not a normal already-processed row: this money may not be recorded anywhere else.
+        console.error("[HUBTEL-PAYMENT] successful payment not recorded (duplicate on a non-final row):", JSON.stringify({
+          session_id: sid, state: fresh.state, paid_at: fresh.paid_at, hubtel_order_id: info.hubtelOrderId,
+          amount_paid: info.amountPaid, amount_after_charges: info.amountAfterCharges,
+        }))
+      }
+      return "duplicate"
     }
-    return "duplicate"
   }
 
   const decision = decidePayment(Number(tx.expected_amount), info)
 
   if (decision === "unsuccessful") {
-    const { paid_at: _omit, ...failedBase } = base
-    await store.update(info.sessionId, { ...failedBase, state: "failed" })
+    // Release the claim, record nothing: the status-check/expiry path owns the row from here,
+    // and a later successful delivery for this session is processed normally.
+    await store.update(sid, { state: "awaiting_payment", callback_status: "not_due" })
     return "unsuccessful"
   }
+
+  // Persist the payment BEFORE running the handler, so a crash/timeout mid-handler still leaves
+  // the Hubtel OrderId and paid_at on the row (callback possible, window bounded).
+  await store.update(sid, base)
 
   if (decision === "needs_review") return needsReview()
   const handler = handlers[tx.order_table]
   if (!handler) {
-    console.error("[HUBTEL-PAYMENT] No handler for order table:", tx.order_table, "session:", info.sessionId)
+    console.error("[HUBTEL-PAYMENT] No handler for order table:", tx.order_table, "session:", sid)
     return needsReview()
   }
   try {
     await handler(tx.order_id)
   } catch (e) {
-    console.error("[HUBTEL-PAYMENT] Order handler failed:", info.sessionId, e)
+    console.error("[HUBTEL-PAYMENT] Order handler failed:", sid, e)
     return needsReview()
   }
-  await store.update(info.sessionId, { ...base, state: "fulfilled", callback_status: "pending" })
+  await store.update(sid, { ...base, state: "fulfilled", callback_status: "pending" })
   return "fulfilled"
 }

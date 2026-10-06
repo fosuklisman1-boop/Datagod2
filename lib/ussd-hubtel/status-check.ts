@@ -9,6 +9,7 @@ export const STATUS_CHECK_GAP_MS = 5 * 60_000
 const STALE_PROCESSING_MINUTES = 10
 
 export type StatusChecker = (sessionId: string) => Promise<{ ok: boolean; status?: string; data?: any; error?: string }>
+type CheckResult = Awaited<ReturnType<StatusChecker>>
 
 export function statusCheckDisposition(
   row: Pick<HubtelTxRow, "created_at" | "status_check_attempts" | "last_status_check_at">,
@@ -21,6 +22,19 @@ export function statusCheckDisposition(
   return "check"
 }
 
+/** A definite answer is Hubtel itself saying the transaction is not paid (e.g. Unpaid, Refunded). */
+function isDefiniteNotPaid(res: CheckResult | null): boolean {
+  return res?.ok === true && typeof res.status === "string" && res.status !== "Paid"
+}
+
+function indeterminateReason(res: CheckResult | null, thrown: string | null): string {
+  if (thrown) return thrown
+  if (!res) return "no response"
+  if (!res.ok) return res.error ?? "status check not ok"
+  if (res.status === "Paid") return "reported Paid but the payment could not be recorded"
+  return "no status"
+}
+
 export async function runStatusChecks(args: {
   store: HubtelTxStore
   handlers: OrderHandlers
@@ -28,25 +42,41 @@ export async function runStatusChecks(args: {
   check: StatusChecker
   now?: number
   limit?: number
-}): Promise<{ checked: number; paid: number; expired: number; swept: number }> {
+  /** Absolute epoch ms. Once Date.now() passes it, no new row (sweep or check) is started. */
+  deadlineMs?: number
+}): Promise<{ checked: number; paid: number; expired: number; swept: number; held: number }> {
   const now = args.now ?? Date.now()
-  const out = { checked: 0, paid: 0, expired: 0, swept: 0 }
+  const out = { checked: 0, paid: 0, expired: 0, swept: 0, held: 0 }
+  const outOfTime = () => args.deadlineMs != null && Date.now() > args.deadlineMs
 
   // Sweep: a crash between claim and the final update would leave a paid order
   // invisible in 'processing'. Surface it for review; the callback is still due.
+  if (outOfTime()) return out
   const stale = await args.store.listStaleProcessing(STALE_PROCESSING_MINUTES, args.limit ?? 50)
   for (const row of stale) {
+    if (outOfTime()) return out
     try {
-      await args.store.update(row.session_id, { state: "needs_review", callback_status: "pending" })
+      // The row may have been finished since it was listed: never clobber a final state.
+      const fresh = await args.store.findBySession(row.session_id)
+      if (!fresh || fresh.state !== "processing") continue
+      await args.store.update(row.session_id, {
+        state: "needs_review",
+        callback_status: "pending",
+        // Bounds the callback window (callbacks expire 55 min after paid_at).
+        paid_at: fresh.paid_at ?? new Date().toISOString(),
+        callback_last_error: "recovered from stale processing; Hubtel order id may be missing",
+      })
+      console.error("[HUBTEL-STATUS] stale processing row moved to needs_review:", row.session_id)
       out.swept++
     } catch (e) { console.error("[HUBTEL-STATUS] sweep error:", row.session_id, e) }
   }
 
+  if (outOfTime()) return out
   const rows = await args.store.listAwaitingPayment(args.limit ?? 50)
 
   // Shared Paid handling for the normal check path and the final pre-expiry check.
   // Returns true when the row was resolved as paid (fulfilled or held for review).
-  const handlePaid = async (row: HubtelTxRow, res: Awaited<ReturnType<StatusChecker>>): Promise<boolean> => {
+  const handlePaid = async (row: HubtelTxRow, res: CheckResult): Promise<boolean> => {
     if (!res.ok || res.status !== "Paid") return false
     const d = res.data ?? {}
     const outcome = await processFulfillment(args.store, args.handlers, {
@@ -64,28 +94,49 @@ export async function runStatusChecks(args: {
   }
 
   for (const row of rows) {
+    if (outOfTime()) break
     try {
       const disposition = statusCheckDisposition(row, now)
       if (disposition === "skip") continue
 
       if (disposition === "expire") {
         // One last look: the customer may have paid and the webhook never arrived.
-        let finalRes: Awaited<ReturnType<StatusChecker>> | null = null
+        let finalRes: CheckResult | null = null
+        let finalErr: string | null = null
         try { finalRes = await args.check(row.session_id) } catch (e) {
+          finalErr = e instanceof Error ? e.message : String(e)
           console.error("[HUBTEL-STATUS] final check error:", row.session_id, e)
         }
         if (finalRes && (await handlePaid(row, finalRes))) { out.paid++; continue }
 
-        // Race-safe: only expire if we win the claim; otherwise a webhook owns the row.
+        // Only a definite "not paid" from Hubtel may expire the row. If we could not learn the
+        // status (relay down, 401, IP not whitelisted, timeout, odd shape) a paid customer whose
+        // webhook was lost must not be marked failed: hold it for a human instead.
+        const definite = isDefiniteNotPaid(finalRes)
+        const patch: Partial<HubtelTxRow> = definite
+          ? { state: "failed", callback_status: "not_due" } // never paid ⇒ no fulfilment, no callback due
+          : {
+              state: "needs_review",
+              callback_status: "not_due",
+              callback_last_error: `status check indeterminate at expiry: ${indeterminateReason(finalRes, finalErr)}`,
+            }
+
+        // Race-safe: only act if we win the claim; otherwise a webhook owns the row.
         if (!(await args.store.claim(row.session_id))) continue
         try {
-          // Never paid ⇒ no fulfilment, so no callback is due.
-          await args.store.update(row.session_id, { state: "failed", callback_status: "not_due" })
+          await args.store.update(row.session_id, patch)
         } catch (e) {
           console.error("[HUBTEL-STATUS] expiry update failed, reverting:", row.session_id, e)
           try { await args.store.update(row.session_id, { state: "awaiting_payment" }) } catch (e2) {
             console.error("[HUBTEL-STATUS] expiry revert failed:", row.session_id, e2)
           }
+          continue
+        }
+        if (!definite) {
+          console.error("[HUBTEL-STATUS] status indeterminate at expiry, held for review:", JSON.stringify({
+            session_id: row.session_id, order_table: row.order_table, order_id: row.order_id, reason: patch.callback_last_error,
+          }))
+          out.held++
           continue
         }
         try {

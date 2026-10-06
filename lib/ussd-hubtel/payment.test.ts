@@ -114,17 +114,51 @@ describe("processFulfillment", () => {
     expect(m.get()).toMatchObject({ state: "needs_review", callback_status: "pending" })
   })
 
-  it("unsuccessful payment: failed, no callback due", async () => {
+  // Behaviour change (M1): an unsuccessful delivery no longer leaves a terminal failed row. It
+  // releases the claim back to awaiting_payment with nothing recorded; the status-check/expiry
+  // path owns the row from there, and a later successful delivery is processed normally.
+  it("unsuccessful payment: claim released back to awaiting_payment, nothing recorded, no callback due", async () => {
     const m = memoryStore({})
     const h = vi.fn()
     expect(await processFulfillment(m.store, { ussd_orders: h }, info({ isSuccessful: false }))).toBe("unsuccessful")
-    expect(m.get()).toMatchObject({ state: "failed", callback_status: "not_due" })
+    expect(h).not.toHaveBeenCalled()
+    expect(m.get()).toMatchObject({
+      state: "awaiting_payment", callback_status: "not_due", amount_paid: null, amount_after_charges: null, hubtel_order_id: null,
+    })
   })
 
   it("unsuccessful payment leaves paid_at null", async () => {
     const m = memoryStore({})
     await processFulfillment(m.store, { ussd_orders: vi.fn() }, info({ isSuccessful: false }))
     expect(m.get().paid_at).toBeNull()
+  })
+
+  it("unsuccessful then successful on the same session: the second delivery fulfils", async () => {
+    const m = memoryStore({})
+    const h = vi.fn().mockResolvedValue(undefined)
+    expect(await processFulfillment(m.store, { ussd_orders: h }, info({ isSuccessful: false }))).toBe("unsuccessful")
+    expect(await processFulfillment(m.store, { ussd_orders: h }, info())).toBe("fulfilled")
+    expect(h).toHaveBeenCalledTimes(1)
+    expect(m.get()).toMatchObject({ state: "fulfilled", callback_status: "pending", hubtel_order_id: "O1", amount_paid: 11.5 })
+  })
+
+  it("payment fields are stored BEFORE the order handler runs (crash mid-handler keeps OrderId + paid_at)", async () => {
+    const m = memoryStore({})
+    let seen: HubtelTxRow | null = null
+    const h = vi.fn(async () => { seen = await m.store.findBySession("S1") })
+    await processFulfillment(m.store, { ussd_orders: h }, info())
+    expect(seen).toMatchObject({ hubtel_order_id: "O1", amount_paid: 11.5, amount_after_charges: 10 })
+    expect(seen!.paid_at).toBeTruthy()
+  })
+
+  it("a handler that never returns (crash/timeout) still leaves OrderId + paid_at on the row", async () => {
+    const m = memoryStore({})
+    const h = vi.fn(() => new Promise<void>(() => {})) // never settles, like a killed function
+    void processFulfillment(m.store, { ussd_orders: h }, info())
+    await new Promise(r => setTimeout(r, 0))
+    expect(h).toHaveBeenCalled()
+    expect(m.get()).toMatchObject({ state: "processing", hubtel_order_id: "O1", amount_paid: 11.5 })
+    expect(m.get().paid_at).toBeTruthy()
   })
 
   it("late payment on an expired (failed) row: recorded, held for review, handler not called", async () => {
@@ -137,12 +171,69 @@ describe("processFulfillment", () => {
     })
   })
 
-  it("failed row already declined by Hubtel (amount_paid set) stays a duplicate", async () => {
-    const m = memoryStore({ state: "failed", amount_paid: 10 })
+  // Behaviour change (I2): the late-payment guard keys on paid_at, not amount_paid. A failed row
+  // that recorded a DECLINED attempt (amount_paid set, paid_at null) was never paid, so a later
+  // successful payment for that session is recovered to needs_review instead of dropped.
+  it("failed row with a declined attempt recorded (amount_paid set, paid_at null) + success -> needs_review", async () => {
+    const m = memoryStore({ state: "failed", amount_paid: 10, paid_at: null })
     const h = vi.fn()
-    expect(await processFulfillment(m.store, { ussd_orders: h }, info())).toBe("duplicate")
+    expect(await processFulfillment(m.store, { ussd_orders: h }, info())).toBe("needs_review")
     expect(h).not.toHaveBeenCalled()
-    expect(m.get()).toMatchObject({ state: "failed", amount_paid: 10 })
+    expect(m.get()).toMatchObject({ state: "needs_review", callback_status: "pending", hubtel_order_id: "O1", amount_paid: 11.5 })
+  })
+
+  it("stale snapshot: row expired between the first read and the claim -> recovered to needs_review", async () => {
+    let cur: HubtelTxRow = {
+      session_id: "S1", hubtel_order_id: null, platform: "USSD", order_table: "ussd_orders", order_id: "ord-1",
+      mobile: null, expected_amount: 10, amount_paid: null, amount_after_charges: null, state: "awaiting_payment",
+      callback_status: "not_due", callback_attempts: 0, callback_last_error: null, callback_sent_at: null,
+      status_check_attempts: 0, last_status_check_at: null, paid_at: null, created_at: "", updated_at: "",
+    }
+    let reads = 0
+    const store: HubtelTxStore = {
+      // First read sees awaiting_payment; expiry then claims+fails the row before our claim.
+      findBySession: async () => {
+        reads++
+        if (reads === 1) { const snap = { ...cur }; cur = { ...cur, state: "failed" }; return snap }
+        return cur
+      },
+      claim: async (_id, from = ["awaiting_payment"]) => {
+        if (from.includes(cur.state)) { cur = { ...cur, state: "processing" }; return true }
+        return false
+      },
+      update: async (_id, p) => { cur = { ...cur, ...p } },
+      listPendingCallbacks: async () => [], listAwaitingPayment: async () => [], listStaleProcessing: async () => [],
+    }
+    const h = vi.fn()
+    expect(await processFulfillment(store, { ussd_orders: h }, info())).toBe("needs_review")
+    expect(h).not.toHaveBeenCalled()
+    expect(cur).toMatchObject({ state: "needs_review", callback_status: "pending", hubtel_order_id: "O1", amount_paid: 11.5 })
+    expect(cur.paid_at).toBeTruthy()
+  })
+
+  it("a successful payment that ends as 'duplicate' on a processing row is logged loudly", async () => {
+    const m = memoryStore({ state: "processing" })
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    expect(await processFulfillment(m.store, { ussd_orders: vi.fn() }, info())).toBe("duplicate")
+    expect(err.mock.calls.some(c => String(c[0]).includes("successful payment not recorded"))).toBe(true)
+    expect(JSON.stringify(err.mock.calls)).toContain("S1")
+    err.mockRestore()
+  })
+
+  it("a successful payment on a failed row that already has paid_at stays duplicate and is logged loudly", async () => {
+    const m = memoryStore({ state: "failed", paid_at: "2026-10-05T10:00:00Z", amount_paid: 10 })
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    expect(await processFulfillment(m.store, { ussd_orders: vi.fn() }, info())).toBe("duplicate")
+    expect(err.mock.calls.some(c => String(c[0]).includes("successful payment not recorded"))).toBe(true)
+    err.mockRestore()
+  })
+
+  it("a normal duplicate on an already-fulfilled row is NOT logged as an error", async () => {
+    const m = memoryStore({ state: "fulfilled" })
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    expect(await processFulfillment(m.store, { ussd_orders: vi.fn() }, info())).toBe("duplicate")
+    expect(err).not.toHaveBeenCalled()
+    err.mockRestore()
   })
 
   it("two concurrent late-payment deliveries: one needs_review, one duplicate", async () => {
