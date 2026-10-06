@@ -11,6 +11,7 @@ import { calculateRCPrice } from "@/lib/results-checker-service"
 import { fetchShopBundles, shopOwnerIsDealer, verifyBundlePrice } from "@/lib/shop-commerce/pricing"
 import { fetchShopNetworks, getCanonicalShopName, resolveShopCode, type ResolvedShopCode } from "@/lib/shop-commerce/shop-code"
 import { resolveEmail } from "@/lib/ussd/resolve-email"
+import { safeDbError } from "./log-safe"
 
 export type { ResolvedShopCode }
 
@@ -26,7 +27,13 @@ export interface ShopAirtimeRates {
 
 export interface ShopServices {
   resolveCode(code: string): Promise<ResolvedShopCode | null>
-  /** deduct_ussd_shop_token: true only when a token was taken. Throws on an RPC error. */
+  /**
+   * deduct_ussd_shop_token: true only when a token was taken; false only for a DEFINITE "not deducted".
+   * THROWS on an RPC error (timeout, gateway 504 ...), which may hide a committed `token_balance - 1`.
+   * Caller contract: release the billing marker ONLY on a definite not-deducted outcome (balance <= 0
+   * seen before the RPC, or this returned false). On a throw KEEP the marker and refuse the code with
+   * a generic "Shop unavailable" message (worst case: one free session, accepted in D3).
+   */
   deductToken(shopCodeId: string): Promise<boolean>
   /** Uzo's low-session push to the shop owner. Never throws. */
   notifyLowTokens(shopId: string, shopName: string): Promise<void>
@@ -100,7 +107,10 @@ export function defaultShopServices(supabase: SupabaseClient): ShopServices {
     resolveCode: code => resolveShopCode(code),
     deductToken: async shopCodeId => {
       const { data, error } = await supabase.rpc("deduct_ussd_shop_token", { p_shop_code_id: shopCodeId })
-      if (error) throw new Error(`deduct_ussd_shop_token failed: ${error.message}`)
+      if (error) {
+        console.error("[HUBTEL-SHOP] deduct_ussd_shop_token failed:", safeDbError(error))
+        throw new Error("deduct_ussd_shop_token failed")
+      }
       return data === true
     },
     notifyLowTokens: (shopId, shopName) => notifyLowTokens(supabase, shopId, shopName),

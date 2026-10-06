@@ -1,10 +1,63 @@
 // lib/ussd-hubtel/billing-guard.test.ts
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 
 const h = vi.hoisted(() => ({ set: vi.fn(), del: vi.fn() }))
 
+afterEach(() => {
+  vi.unstubAllEnvs()
+  vi.doUnmock("@upstash/redis")
+  vi.restoreAllMocks()
+})
+
+describe("shopBillingGuard (production, no redis): fails closed", () => {
+  beforeEach(() => {
+    vi.resetModules()
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "")
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "")
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+  })
+  it("NODE_ENV=production: every claim is 'error' (never an in-memory claim)", async () => {
+    vi.stubEnv("NODE_ENV", "production")
+    const { shopBillingGuard } = await import("./billing-guard")
+    expect(await shopBillingGuard.claim("p-1", "c")).toBe("error")
+    expect(await shopBillingGuard.claim("p-1", "c")).toBe("error")
+    expect(await shopBillingGuard.claim("p-2", "c")).toBe("error")
+  })
+  it("VERCEL set (even outside NODE_ENV=production): claim is 'error'", async () => {
+    vi.stubEnv("NODE_ENV", "test")
+    vi.stubEnv("VERCEL", "1")
+    const { shopBillingGuard } = await import("./billing-guard")
+    expect(await shopBillingGuard.claim("p-3", "c")).toBe("error")
+  })
+  it("the in-memory Map is never consulted: after leaving production the key is still unclaimed", async () => {
+    vi.stubEnv("NODE_ENV", "production")
+    const { shopBillingGuard } = await import("./billing-guard")
+    expect(await shopBillingGuard.claim("p-4", "c")).toBe("error")
+    vi.stubEnv("NODE_ENV", "test")
+    expect(await shopBillingGuard.claim("p-4", "c")).toBe("claimed")
+  })
+  it("release is a harmless no-op", async () => {
+    vi.stubEnv("NODE_ENV", "production")
+    const { shopBillingGuard } = await import("./billing-guard")
+    await expect(shopBillingGuard.release("p-5", "c")).resolves.toBeUndefined()
+  })
+  it("warns at init that Redis is not configured, without logging secrets", async () => {
+    vi.stubEnv("NODE_ENV", "production")
+    await import("./billing-guard")
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("[HUBTEL-SHOP-BILLING]"))
+  })
+})
+
 // No UPSTASH env in unit tests: the first describe exercises the in-process (dev) path, same SET NX semantics.
-describe("shopBillingGuard (no redis configured)", () => {
+describe("shopBillingGuard (no redis configured, non-production)", () => {
+  beforeEach(() => {
+    vi.resetModules()
+    vi.stubEnv("NODE_ENV", "test")
+    vi.stubEnv("VERCEL", "")
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "")
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "")
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+  })
   it("claims once per (session, code), then reports already", async () => {
     const { shopBillingGuard } = await import("./billing-guard")
     expect(await shopBillingGuard.claim("bg-1", "code-1")).toBe("claimed")

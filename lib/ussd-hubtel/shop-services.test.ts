@@ -86,9 +86,19 @@ describe("deductToken (deduct_ussd_shop_token)", () => {
     const none = fakeDb(null, { data: false, error: null })
     expect(await defaultShopServices(none.client).deductToken("code-1")).toBe(false)
   })
-  it("throws on an RPC error (the caller refuses the code and deducts nothing)", async () => {
-    const bad = fakeDb(null, { data: null, error: { message: "boom" } })
-    await expect(defaultShopServices(bad.client).deductToken("code-1")).rejects.toThrow(/boom/)
+  it("rethrows an RPC error (never swallowed into false, so callers can tell 'error' from 'false'); the thrown message is generic and the original is logged safely", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    const bad = fakeDb(null, { data: null, error: { message: "boom: Key (code)=(1234) gateway 504" } })
+    const p = defaultShopServices(bad.client).deductToken("code-1")
+    await expect(p).rejects.toThrow("deduct_ussd_shop_token failed")
+    await p.catch(e => expect((e as Error).message).not.toMatch(/boom|gateway/))
+    expect(err).toHaveBeenCalled()
+    expect(JSON.stringify(err.mock.calls)).not.toContain("1234")
+    err.mockRestore()
+  })
+  it("a non-true, non-error payload is false (only a definite false)", async () => {
+    const nul = fakeDb(null, { data: null, error: null })
+    expect(await defaultShopServices(nul.client).deductToken("code-1")).toBe(false)
   })
 })
 
