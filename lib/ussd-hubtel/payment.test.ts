@@ -45,6 +45,10 @@ describe("decidePayment", () => {
   })
 })
 
+/** Mirrors the optional extra claim guards of the Supabase store. */
+const whereOk = (r: HubtelTxRow, w?: { callback_status?: HubtelTxRow["callback_status"]; paid_atIsNull?: boolean }) =>
+  (!w?.callback_status || r.callback_status === w.callback_status) && (!w?.paid_atIsNull || r.paid_at == null)
+
 function memoryStore(row: Partial<HubtelTxRow> | null) {
   let current: HubtelTxRow | null = row
     ? ({
@@ -56,8 +60,8 @@ function memoryStore(row: Partial<HubtelTxRow> | null) {
     : null
   const store: HubtelTxStore = {
     findBySession: async () => current,
-    claim: async (_id, from = ["awaiting_payment"]) => {
-      if (current && from.includes(current.state)) { current = { ...current, state: "processing" }; return true }
+    claim: async (_id, from = ["awaiting_payment"], where) => {
+      if (current && from.includes(current.state) && whereOk(current, where)) { current = { ...current, state: "processing" }; return true }
       return false
     },
     listStaleProcessing: async () => [],
@@ -198,8 +202,8 @@ describe("processFulfillment", () => {
         if (reads === 1) { const snap = { ...cur }; cur = { ...cur, state: "failed" }; return snap }
         return cur
       },
-      claim: async (_id, from = ["awaiting_payment"]) => {
-        if (from.includes(cur.state)) { cur = { ...cur, state: "processing" }; return true }
+      claim: async (_id, from = ["awaiting_payment"], where) => {
+        if (from.includes(cur.state) && whereOk(cur, where)) { cur = { ...cur, state: "processing" }; return true }
         return false
       },
       update: async (_id, p) => { cur = { ...cur, ...p } },
@@ -266,6 +270,25 @@ describe("processFulfillment", () => {
     expect(results.sort()).toEqual(["duplicate", "needs_review"])
     expect(h).not.toHaveBeenCalled()
     expect(m.get()).toMatchObject({ state: "needs_review", callback_status: "pending", hubtel_order_id: "O1" })
+  })
+
+  it("(ABA) a second recoverer that read the parked row before the first finished cannot re-claim or overwrite", async () => {
+    const parkedSnapshot = { state: "needs_review" as const, callback_status: "not_due" as const, paid_at: null }
+    const m = memoryStore(parkedSnapshot)
+    const h = vi.fn()
+    // Recoverer A completes; then the callback is sent.
+    expect(await processFulfillment(m.store, { ussd_orders: h }, info())).toBe("needs_review")
+    await m.store.update("S1", { callback_status: "sent" })
+    const afterA = { ...m.get() }
+    // Recoverer B read the row while it was still parked: its reads return that stale snapshot.
+    const staleRow = { ...afterA, ...parkedSnapshot, hubtel_order_id: null, amount_paid: null, amount_after_charges: null }
+    const bStore: HubtelTxStore = { ...m.store, findBySession: async () => staleRow }
+    expect(await processFulfillment(bStore, { ussd_orders: h }, info({ hubtelOrderId: "O2", amountPaid: 99, amountAfterCharges: 98 })))
+      .toBe("duplicate")
+    expect(h).not.toHaveBeenCalled()
+    expect(m.get()).toMatchObject({
+      state: "needs_review", callback_status: "sent", hubtel_order_id: "O1", amount_paid: 11.5, amount_after_charges: 10, paid_at: afterA.paid_at,
+    })
   })
 
   it("a normal duplicate on an already-fulfilled row is NOT logged as an error", async () => {

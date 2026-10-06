@@ -69,10 +69,18 @@ export interface HubtelTxRow {
   updated_at: string
 }
 
+export interface HubtelClaimGuard {
+  callback_status?: HubtelCallbackStatus
+  paid_atIsNull?: boolean
+}
+
 export interface HubtelTxStore {
   findBySession(sessionId: string): Promise<HubtelTxRow | null>
-  /** Atomically moves awaiting_payment → processing. true only for the caller that won. */
-  claim(sessionId: string, from?: HubtelTxState[]): Promise<boolean>
+  /**
+   * Atomically moves a row in one of `from` (default awaiting_payment) → processing. true only for
+   * the caller that won. `where` adds guards so a claim only wins on a row still in that exact shape.
+   */
+  claim(sessionId: string, from?: HubtelTxState[], where?: HubtelClaimGuard): Promise<boolean>
   update(sessionId: string, patch: Partial<HubtelTxRow>): Promise<void>
   listPendingCallbacks(limit: number): Promise<HubtelTxRow[]>
   listAwaitingPayment(limit: number): Promise<HubtelTxRow[]>

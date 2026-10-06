@@ -65,7 +65,10 @@ export async function processFulfillment(
       // auto-fulfil. Keyed on paid_at: a declined attempt may record amounts but never paid_at.
       const lateRecoverable = info.isSuccessful && fresh != null && fresh.paid_at == null &&
         (fresh.state === "failed" || (fresh.state === "needs_review" && fresh.callback_status === "not_due"))
-      if (lateRecoverable && (await store.claim(sid, [fresh.state]))) {
+      // The needs_review recovery ends in needs_review again (A→B→A), so a state-only claim could
+      // be re-won by a recoverer holding a stale read: guard on the still-parked shape as well.
+      const guard = fresh?.state === "needs_review" ? { callback_status: "not_due" as const, paid_atIsNull: true } : undefined
+      if (lateRecoverable && (await store.claim(sid, [fresh.state], guard))) {
         return needsReview()
       }
       if (info.isSuccessful && (fresh?.state === "processing" || fresh?.state === "failed")) {

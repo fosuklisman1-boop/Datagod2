@@ -30,9 +30,10 @@ function store(rows: Partial<HubtelTxRow>[]) {
   )
   const s: HubtelTxStore = {
     findBySession: async id => state.get(id) ?? null,
-    claim: async (id, from: HubtelTxState[] = ["awaiting_payment"]) => {
+    claim: async (id, from: HubtelTxState[] = ["awaiting_payment"], where) => {
       const r = state.get(id)
-      if (r && from.includes(r.state)) { state.set(id, { ...r, state: "processing" }); return true }
+      const whereOk = (!where?.callback_status || r?.callback_status === where.callback_status) && (!where?.paid_atIsNull || r?.paid_at == null)
+      if (r && from.includes(r.state) && whereOk) { state.set(id, { ...r, state: "processing" }); return true }
       return false
     },
     update: async (id, p) => { const r = state.get(id); if (r) state.set(id, { ...r, ...p }) },
@@ -44,7 +45,9 @@ function store(rows: Partial<HubtelTxRow>[]) {
     },
     listIndeterminate: async limit =>
       [...state.values()]
-        .filter(r => r.state === "needs_review" && r.callback_status === "not_due" && r.paid_at == null)
+        // Same caps as the Supabase query: attempts < 12 and created within the last 24h.
+        .filter(r => r.state === "needs_review" && r.callback_status === "not_due" && r.paid_at == null &&
+          r.status_check_attempts < 12 && new Date(r.created_at).getTime() > NOW - 24 * 60 * 60_000)
         .sort((a, b) => a.created_at.localeCompare(b.created_at))
         .slice(0, limit),
   }
@@ -416,6 +419,20 @@ describe("runStatusChecks: re-check of indeterminate-expiry rows", () => {
     expect(res).toMatchObject({ recovered: 0 })
     expect(check).not.toHaveBeenCalled()
     expect(m.state.get("K6")).toMatchObject({ status_check_attempts: 6, callback_status: "not_due" })
+  })
+
+  it("exhausted parked rows (>= limit of them) do not starve a fresh parked row", async () => {
+    const m = store([
+      { session_id: "X1", ...parked({ created_at: mins(3000), status_check_attempts: 7 }) }, // older than 24h
+      { session_id: "X2", ...parked({ created_at: mins(2000), status_check_attempts: 12 }) },
+      { session_id: "X3", ...parked({ created_at: mins(1000), status_check_attempts: 12 }) },
+      { session_id: "X4", ...parked({ created_at: mins(90) }) }, // fresh, eligible
+    ])
+    const check = vi.fn(paidCheck)
+    const res = await runStatusChecks({ store: m.s, handlers: {}, failHandlers: {}, check, now: NOW, limit: 2 })
+    expect(check).toHaveBeenCalledWith("X4")
+    expect(res).toMatchObject({ recovered: 1 })
+    expect(m.state.get("X4")!.callback_status).toBe("pending")
   })
 
   it("a throwing row does not stop the next one", async () => {

@@ -1,6 +1,7 @@
 // lib/ussd-hubtel/tx-store.ts
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { HubtelTxRow, HubtelTxStore } from "./types"
+import { INDETERMINATE_RECHECK_MAX_AGE_MS, INDETERMINATE_RECHECK_MAX_ATTEMPTS } from "./status-check"
 
 export function createSupabaseTxStore(supabase: SupabaseClient): HubtelTxStore {
   return {
@@ -9,13 +10,15 @@ export function createSupabaseTxStore(supabase: SupabaseClient): HubtelTxStore {
       if (error) throw error
       return (data as HubtelTxRow | null) ?? null
     },
-    async claim(sessionId, from = ["awaiting_payment"]) {
-      const { data, error } = await supabase
+    async claim(sessionId, from = ["awaiting_payment"], where) {
+      let q = supabase
         .from("hubtel_transactions")
         .update({ state: "processing", updated_at: new Date().toISOString() })
         .eq("session_id", sessionId)
         .in("state", from)
-        .select("session_id")
+      if (where?.callback_status) q = q.eq("callback_status", where.callback_status)
+      if (where?.paid_atIsNull) q = q.is("paid_at", null)
+      const { data, error } = await q.select("session_id")
       if (error) throw error
       return (data?.length ?? 0) === 1
     },
@@ -52,6 +55,10 @@ export function createSupabaseTxStore(supabase: SupabaseClient): HubtelTxStore {
       const { data, error } = await supabase
         .from("hubtel_transactions").select("*")
         .eq("state", "needs_review").eq("callback_status", "not_due").is("paid_at", null)
+        // Same caps as indeterminateRecheckDisposition, applied in the query so exhausted rows
+        // (which stay parked until a human resolves them) never fill the limit and starve newer ones.
+        .lt("status_check_attempts", INDETERMINATE_RECHECK_MAX_ATTEMPTS)
+        .gt("created_at", new Date(Date.now() - INDETERMINATE_RECHECK_MAX_AGE_MS).toISOString())
         .order("created_at", { ascending: true }).limit(limit)
       if (error) throw error
       return (data ?? []) as HubtelTxRow[]
