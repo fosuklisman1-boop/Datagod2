@@ -38,6 +38,8 @@ interface FakeOpts {
   rereadError?: boolean
   /** shop_profits rows that already exist (exercise the unique-violation backstop). */
   existingProfits?: Array<{ shop_id: string; ussd_shop_order_id: string; profit_amount: number }>
+  /** Reads of shop_profits (select ... eq ... limit) fail. */
+  profitReadError?: boolean
 }
 
 /**
@@ -54,8 +56,11 @@ function fakeDb(rows: Record<string, any>, opts: FakeOpts = {}) {
   const client: any = {
     from(table: string) {
       return {
-        select: () => ({
-          eq: () => ({
+        select: () => {
+          // eq() filters are collected for shop_profits reads (select().eq().eq().limit()).
+          const filters: Array<[string, unknown]> = []
+          const q: any = {
+            eq: (col: string, val: unknown) => { filters.push([col, val]); return q },
             maybeSingle: async () => {
               reads[table] = (reads[table] ?? 0) + 1
               if (opts.rereadError && table === "ussd_shop_orders" && reads[table] > 1) {
@@ -63,8 +68,15 @@ function fakeDb(rows: Record<string, any>, opts: FakeOpts = {}) {
               }
               return { data: rows[table] ? { ...rows[table] } : null, error: null }
             },
-          }),
-        }),
+            limit: async (n: number) => {
+              if (table !== "shop_profits") throw new Error(`fake: limit() only supported on shop_profits, not ${table}`)
+              if (opts.profitReadError) return { data: null, error: { message: "statement timeout" } }
+              const hits = profits.filter(p => filters.every(([c, v]) => p[c] === v)).slice(0, n)
+              return { data: hits.map(p => ({ id: p.id ?? "p" })), error: null }
+            },
+          }
+          return q
+        },
         update: (patch: any) => {
           const rec: { table: string; patch: any; inCol?: string; inVals?: string[] } = { table, patch }
           const matches = () => {
@@ -471,5 +483,112 @@ describe("shop airtime row through Plan 2's airtime_orders handler (no fork)", (
     expect(db.profits).toHaveLength(1)
     expect(sendSMS).toHaveBeenCalledTimes(2) // recipient + payer, once each
     expect(store.row()).toMatchObject({ state: "fulfilled", callback_status: "pending" })
+  })
+})
+
+describe("shop voucher row through Plan 2's results_checker_orders handler (no fork)", () => {
+  // Exactly what flows/shop-rc.ts writes (createShopRcOrder shape).
+  const shopRc = (over: Record<string, unknown> = {}) => ({
+    id: "r1", reference_code: "RC-AB123", exam_board: "WASSCE", quantity: 2, customer_name: "USSD Customer", customer_email: null,
+    customer_phone: "0200585542", unit_price: 22, fee_amount: 0, total_paid: 44, shop_id: "shop-1", merchant_commission: 4,
+    status: "pending_payment", payment_status: "pending_payment", dialing_phone: "+233200585542", channel: "ussd_shop", ...over,
+  })
+  /**
+   * Like the real lib/results-checker-service.ts fulfillPaidResultsCheckerOrder: returns early on a
+   * completed/failed order, else assigns vouchers, marks completed, credits merchant_commission to
+   * shop_id (results_checker_order_id) and SMSes the PINs. `credit: false` = its swallowed insert failed.
+   */
+  const realisticFulfil = (db: ReturnType<typeof fakeDb>, opts: { credit?: boolean; stock?: boolean } = {}) => async (id: string) => {
+    const row = db.rows.results_checker_orders
+    if (row.status === "completed") return { success: true, status: "completed", message: "Already completed", newlyPaid: false }
+    if (row.status === "failed") return { success: false, status: "failed", message: "Order already failed", newlyPaid: false }
+    if (opts.stock === false) {
+      Object.assign(row, { status: "pending", payment_status: "completed" })
+      return { success: false, status: "pending", message: "Stock exhausted", newlyPaid: true }
+    }
+    Object.assign(row, { status: "completed", payment_status: "completed" })
+    if (opts.credit !== false && row.merchant_commission > 0 && row.shop_id) {
+      db.profits.push({ id: "p1", shop_id: row.shop_id, results_checker_order_id: id, profit_amount: row.merchant_commission, status: "credited" })
+    }
+    return { success: true, status: "completed", message: "Vouchers delivered", newlyPaid: true }
+  }
+
+  it("marks payment and lets fulfillPaidResultsCheckerOrder deliver and credit the shop commission once", async () => {
+    const db = fakeDb({ results_checker_orders: shopRc() })
+    fulfillPaidResultsCheckerOrder.mockImplementation(realisticFulfil(db))
+    await createOrderHandlers(db.client).results_checker_orders("r1")
+    expect(fulfillPaidResultsCheckerOrder).toHaveBeenCalledTimes(1)
+    expect(fulfillPaidResultsCheckerOrder).toHaveBeenCalledWith("r1")
+    expect(db.updates[0]).toMatchObject({ table: "results_checker_orders", patch: { payment_status: "completed" }, inCol: "payment_status", inVals: ["pending_payment", "otp_required"] })
+    // The handler never writes a profit row itself: the library is the single credit path.
+    expect(db.profits).toEqual([{ id: "p1", shop_id: "shop-1", results_checker_order_id: "r1", profit_amount: 4, status: "credited" }])
+  })
+  it("library delivered but its (swallowed) commission insert failed: throws AFTER delivery so the row lands in needs_review", async () => {
+    const db = fakeDb({ results_checker_orders: shopRc() })
+    fulfillPaidResultsCheckerOrder.mockImplementation(realisticFulfil(db, { credit: false }))
+    await expect(createOrderHandlers(db.client).results_checker_orders("r1")).rejects.toThrow(/shop commission not found/)
+    expect(fulfillPaidResultsCheckerOrder).toHaveBeenCalledTimes(1) // the customer already has the PINs
+    expect(db.profits).toEqual([])
+  })
+  it("a profit row for ANOTHER shop does not count as this shop's commission", async () => {
+    const db = fakeDb({ results_checker_orders: shopRc() })
+    fulfillPaidResultsCheckerOrder.mockImplementation(realisticFulfil(db, { credit: false }))
+    db.profits.push({ id: "px", shop_id: "shop-2", results_checker_order_id: "r1", profit_amount: 4, status: "credited" })
+    await expect(createOrderHandlers(db.client).results_checker_orders("r1")).rejects.toThrow(/shop commission not found/)
+  })
+  it("commission check unreadable: fails closed (throws), never logs a phone", async () => {
+    const db = fakeDb({ results_checker_orders: shopRc() }, { profitReadError: true })
+    fulfillPaidResultsCheckerOrder.mockImplementation(realisticFulfil(db))
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const log = vi.spyOn(console, "log").mockImplementation(() => {})
+    await expect(createOrderHandlers(db.client).results_checker_orders("r1")).rejects.toThrow(/shop commission not found/)
+    expect(err).toHaveBeenCalled()
+    expectNoPhonesLogged([err, warn, log])
+    err.mockRestore(); warn.mockRestore(); log.mockRestore()
+  })
+  it("shop row with zero commission (markup 0): no commission expected, no check, resolves", async () => {
+    const db = fakeDb({ results_checker_orders: shopRc({ merchant_commission: 0 }) }, { profitReadError: true })
+    fulfillPaidResultsCheckerOrder.mockImplementation(realisticFulfil(db))
+    await createOrderHandlers(db.client).results_checker_orders("r1")
+    expect(db.profits).toEqual([])
+  })
+  it("out of stock after payment: throws (needs_review; admin delivers AND credits the shop by hand, D14)", async () => {
+    const db = fakeDb({ results_checker_orders: shopRc() })
+    fulfillPaidResultsCheckerOrder.mockImplementation(realisticFulfil(db, { stock: false }))
+    await expect(createOrderHandlers(db.client).results_checker_orders("r1")).rejects.toThrow(/out of stock.*credit the shop commission/)
+    expect(db.profits).toEqual([])
+  })
+  it("late payment on an expired (failed) shop voucher order: throws before the library, no credit", async () => {
+    const db = fakeDb({ results_checker_orders: shopRc({ status: "failed", payment_status: "failed" }) })
+    fulfillPaidResultsCheckerOrder.mockImplementation(realisticFulfil(db))
+    await expect(createOrderHandlers(db.client).results_checker_orders("r1")).rejects.toThrow(/not in a payable state/)
+    expect(fulfillPaidResultsCheckerOrder).not.toHaveBeenCalled()
+    expect(db.profits).toEqual([])
+  })
+  it("duplicate Hubtel delivery through processFulfillment: library once, commission once", async () => {
+    const db = fakeDb({ results_checker_orders: shopRc() })
+    fulfillPaidResultsCheckerOrder.mockImplementation(realisticFulfil(db))
+    const store = memStore({ order_table: "results_checker_orders", order_id: "r1", expected_amount: 44 })
+    const restore = quiet()
+    const outcomes = await Promise.all([
+      processFulfillment(store, createOrderHandlers(db.client), { ...paid, amountPaid: 44.5, amountAfterCharges: 44 }),
+      processFulfillment(store, createOrderHandlers(db.client), { ...paid, amountPaid: 44.5, amountAfterCharges: 44 }),
+    ])
+    restore()
+    expect([...outcomes].sort()).toEqual(["duplicate", "fulfilled"])
+    expect(fulfillPaidResultsCheckerOrder).toHaveBeenCalledTimes(1)
+    expect(db.profits).toHaveLength(1)
+    expect(store.row()).toMatchObject({ state: "fulfilled", callback_status: "pending" })
+  })
+  it("missing commission through processFulfillment: tx row lands in needs_review with the callback due", async () => {
+    const db = fakeDb({ results_checker_orders: shopRc() })
+    fulfillPaidResultsCheckerOrder.mockImplementation(realisticFulfil(db, { credit: false }))
+    const store = memStore({ order_table: "results_checker_orders", order_id: "r1", expected_amount: 44 })
+    const restore = quiet()
+    const outcome = await processFulfillment(store, createOrderHandlers(db.client), { ...paid, amountPaid: 44.5, amountAfterCharges: 44 })
+    restore()
+    expect(outcome).toBe("needs_review")
+    expect(store.row()).toMatchObject({ state: "needs_review", callback_status: "pending" })
   })
 })

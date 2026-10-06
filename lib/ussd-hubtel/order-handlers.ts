@@ -133,11 +133,17 @@ async function airtimeOrderPostPayment(supabase: SupabaseClient, orderId: string
  * SMSes the vouchers (it checks `status`, not payment_status, so the pre-mark does not block it).
  * Stock exhausted after payment ⇒ throw ⇒ needs_review (the Paystack path leaves it silently
  * pending): a human must deliver the vouchers.
+ * Shop rows (Plan 3, channel 'ussd_shop'): the library itself credits merchant_commission to shop_id
+ * (shop_profits.results_checker_order_id) on delivery, the same single path the Paystack webhook
+ * relies on, so the handler never writes a profit row. But that insert's error is swallowed (with an
+ * un-linked fallback insert), so after a successful delivery the handler verifies the credit exists
+ * and otherwise THROWS (customer already served) so the tx row lands in needs_review. Out of stock
+ * after payment: the library credits nothing, so the admin delivers AND credits by hand (D14).
  */
 async function rcOrderPostPayment(supabase: SupabaseClient, orderId: string): Promise<void> {
   const { data: order, error: lookupErr } = await supabase
     .from("results_checker_orders")
-    .select("id, status, payment_status")
+    .select("id, status, payment_status, shop_id, merchant_commission")
     .eq("id", orderId)
     .maybeSingle()
   if (lookupErr) console.error("[HUBTEL-ORDER] results_checker_orders lookup failed:", orderId, safeDbError(lookupErr))
@@ -159,10 +165,28 @@ async function rcOrderPostPayment(supabase: SupabaseClient, orderId: string): Pr
 
   const { fulfillPaidResultsCheckerOrder } = await import("@/lib/results-checker-service")
   const result = await fulfillPaidResultsCheckerOrder(orderId)
+  const owesCommission = !!order.shop_id && Number(order.merchant_commission) > 0
   if (result.status === "pending") {
-    throw new Error(`results_checker_orders ${orderId} paid but out of stock: deliver the vouchers manually`)
+    const credit = owesCommission ? " and credit the shop commission by hand" : ""
+    throw new Error(`results_checker_orders ${orderId} paid but out of stock: deliver the vouchers manually${credit}`)
   }
   if (!result.success) throw new Error(`results_checker_orders ${orderId} fulfilment failed: ${result.message}`)
+
+  if (owesCommission) {
+    const { data: credited, error: creditErr } = await supabase
+      .from("shop_profits")
+      .select("id")
+      .eq("results_checker_order_id", orderId)
+      .eq("shop_id", order.shop_id)
+      .limit(1)
+    if (creditErr) console.error("[HUBTEL-ORDER] shop_profits check failed for RC order:", orderId, safeDbError(creditErr))
+    if (creditErr || !credited || credited.length === 0) {
+      throw new Error(
+        `results_checker_orders ${orderId}: vouchers delivered but shop commission not found in shop_profits ` +
+        "(check for an un-linked fallback row before crediting by hand): needs manual review"
+      )
+    }
+  }
 }
 
 /**

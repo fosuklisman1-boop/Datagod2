@@ -1,6 +1,6 @@
 // lib/ussd-hubtel/router.test.ts
 import { describe, it, expect, vi } from "vitest"
-import { hubtelRouter, MAIN_MENU_ENTRIES, type RouterDeps } from "./router"
+import { hubtelRouter, MAIN_MENU_ENTRIES, SHOP_PRODUCT_ENTRIES, type RouterDeps } from "./router"
 import { IMPLEMENTED_SERVICES, type MainMenuKey } from "./menus"
 import { digitFor, fakeShop, fakeSupabase, makeDeps, req } from "./testing/fakes"
 
@@ -273,6 +273,11 @@ describe("hubtelRouter: flow registry", () => {
   it("every implemented main-menu service has an entry handler", () => {
     for (const [key, on] of Object.entries(IMPLEMENTED_SERVICES)) {
       if (on) expect(MAIN_MENU_ENTRIES[key as MainMenuKey], key).toBeTypeOf("function")
+    }
+  })
+  it("every shop product has an entry handler", () => {
+    for (const key of ["data", "airtime", "resultsChecker"] as const) {
+      expect(SHOP_PRODUCT_ENTRIES[key], key).toBeTypeOf("function")
     }
   })
   it("replay with an unknown order table says already submitted instead of crashing (review focus #6)", async () => {

@@ -70,6 +70,21 @@ describe("ORDER_TABLES", () => {
     expect(s.failPatch()).toMatchObject({ status: "failed", payment_status: "failed" })
     expect(s.cartItemName({ exam_board: "BECE", quantity: 3 })).toBe("BECE Checker x3")
   })
+  it("results_checker_orders: a SHOP voucher row narrowed to cartColumns replays the same cart as the first one", () => {
+    const s = ORDER_TABLES.results_checker_orders
+    const cols = s.cartColumns.split(",").map(c => c.trim())
+    // The full row flows/shop-rc.ts inserts (createShopRcOrder shape).
+    const full: Record<string, unknown> = {
+      reference_code: "RC-AB123", exam_board: "WASSCE", quantity: 2, customer_name: "USSD Customer", customer_email: null,
+      customer_phone: "0200585542", unit_price: 22, fee_amount: 0, total_paid: 44, shop_id: "shop-1", merchant_commission: 4,
+      status: "pending_payment", payment_status: "pending_payment", dialing_phone: "+233200585542", channel: "ussd_shop",
+    }
+    const narrowed = Object.fromEntries(cols.map(c => [c, full[c]]))
+    expect(s.cartItemName(narrowed)).toBe("WASSCE Checker x2")
+    expect(s.cartItemName(narrowed)).toBe(s.cartItemName(full))
+    expect(s.cartItemName(narrowed)).not.toContain("undefined")
+    expect(s.payableStatuses).toContain(full.payment_status)
+  })
   it("results_check_requests: payable statuses, fail patch and item names", () => {
     const s = ORDER_TABLES.results_check_requests
     expect(s.payableStatuses).toEqual(["pending_payment", "otp_required"])
