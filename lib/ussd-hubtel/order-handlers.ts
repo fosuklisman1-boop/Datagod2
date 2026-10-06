@@ -277,14 +277,162 @@ async function afaOrderPostPayment(supabase: SupabaseClient, orderId: string): P
   } catch (e) { console.warn("[HUBTEL-ORDER] AFA payer SMS failed:", safeDbError(e)) }
 }
 
+/**
+ * order_status values lib/ussd/fulfill.ts (with orderTable "ussd_shop_orders") can leave on a paid
+ * shop order that is still being served:
+ *  - 'pending': manual queue (auto-fulfilment off, unknown network, MTN provider failure) and the
+ *    non-MTN path at return time (its provider call settles later and writes processing/pending);
+ *    also what this handler writes when fulfillUssdOrder throws.
+ *  - 'processing': placed with an MTN provider, awaiting the sync cron.
+ *  - 'held_registration': lib/mtn-hold.ts HOLD_STATUS (number pending MTN registration).
+ *  - 'completed': a provider webhook confirmed delivery before the re-read.
+ * Anything else ('failed' = blacklisted recipient, unexpected, unreadable) is a paid order nobody
+ * will serve, so the handler throws => needs_review.
+ */
+export const OK_SHOP_ORDER_STATUSES: ReadonlySet<string> = new Set(["pending", "processing", "held_registration", "completed"])
+
+/**
+ * Mirrors the Paystack webhook's ussd_shop_orders branch (app/api/webhooks/paystack/route.ts,
+ * "Handle USSD shop orders"): conditional mark paid → shop profit → parent-shop profit → customer
+ * tracking → fulfillUssdOrder(…, "ussd_shop_orders") → recipient SMS without the community link.
+ * Profit amounts come from the stored row (snapshotted at confirm), never recomputed.
+ * Deliberate differences (plan D10): no paystack_reference / payment_attempts (not a Paystack
+ * payment; underpayment is decidePayment's job against expected_amount = the order amount); no
+ * WhatsApp token deduction (only 'ussd_shop' rows are accepted, billed at code entry); a fulfilment
+ * that THROWS leaves the order 'pending' for the manual queue (the webhook sets 'failed'); the post-
+ * fulfilment row is re-read (the library ignores its own update errors) and the recipient is only
+ * told "confirmed" when it is in OK_SHOP_ORDER_STATUSES; and a profit credit that failed, an
+ * untriggered fulfilment or a bad post-state THROWS at the END (after the customer has been served)
+ * so the tx row lands in needs_review instead of passing silently.
+ * Once-only: the conditional mark below plus processFulfillment's claim on this order's single tx
+ * row. A unique violation (23505) on shop_profits is treated as already credited, as the webhook's
+ * other branches do; migrations define no unique key covering ussd_shop_order_id, so that is a
+ * backstop only. A needs_review row is never re-run, so throwing late cannot double-credit.
+ */
+async function ussdShopOrderPostPayment(supabase: SupabaseClient, orderId: string): Promise<void> {
+  const { data: order, error: lookupErr } = await supabase.from("ussd_shop_orders").select("*").eq("id", orderId).maybeSingle()
+  if (lookupErr) console.error("[HUBTEL-ORDER] ussd_shop_orders lookup failed:", orderId, safeDbError(lookupErr))
+  if (!order) throw new Error(`ussd_shop_orders ${orderId} not found`)
+  if (order.payment_status === "completed") return // already processed
+  // Only Hubtel shop-code rows: a whatsapp_shop row would need the per-order token deduction.
+  if (order.channel != null && order.channel !== "ussd_shop") {
+    throw new Error(`ussd_shop_orders ${orderId} has channel '${order.channel}', not handled on the Hubtel channel`)
+  }
+
+  // Once-only gate: only an order still unpaid can be marked paid; 0 rows => not payable.
+  const payable = ORDER_TABLES.ussd_shop_orders.payableStatuses
+  const { data: marked, error: markErr } = await supabase
+    .from("ussd_shop_orders")
+    .update({ payment_status: "completed", updated_at: new Date().toISOString() })
+    .eq("id", orderId)
+    .in("payment_status", [...payable])
+    .select("id")
+  if (markErr) throw new Error(`ussd_shop_orders ${orderId} could not be marked paid: ${safeDbError(markErr).message}`)
+  if (!marked || marked.length === 0) {
+    throw new Error(`ussd_shop_orders ${orderId} not in a payable state: ${order.payment_status}`)
+  }
+
+  const problems: string[] = []
+  const credit = async (shopId: string, amount: unknown, who: "shop" | "parent shop") => {
+    const { error } = await supabase.from("shop_profits").insert([{
+      shop_id: shopId,
+      ussd_shop_order_id: orderId,
+      profit_amount: amount,
+      status: "credited",
+      created_at: new Date().toISOString(),
+    }])
+    if (!error) return
+    if (error.code === "23505") {
+      console.warn(`[HUBTEL-ORDER] ${who} profit already credited (unique violation):`, orderId)
+      return
+    }
+    const safe = safeDbError(error)
+    console.error(`[HUBTEL-ORDER] Failed to credit ${who} profit:`, orderId, safe)
+    problems.push(`${who} profit not credited (${safe.message})`)
+  }
+  // The shop's own margin (DB trigger syncs shop_available_balance). Zero/negative => no row (webhook).
+  if (Number(order.profit_amount) > 0) await credit(order.shop_id, order.profit_amount, "shop")
+  // Sub-agent orders: the parent shop's wholesale margin.
+  if (order.parent_shop_id && Number(order.parent_profit_amount) > 0) {
+    await credit(order.parent_shop_id, order.parent_profit_amount, "parent shop")
+  }
+
+  // Customer tracking, as the webhook. Non-fatal.
+  try {
+    const { customerTrackingService } = await import("@/lib/customer-tracking-service")
+    await customerTrackingService.trackCustomer({
+      shopId: order.shop_id,
+      phoneNumber: order.recipient_phone,
+      email: "",
+      customerName: "USSD Customer", // channel is always ussd_shop on this path (checked above)
+      totalPrice: Number(order.amount) || 0,
+      slug: order.channel || "ussd_shop",
+      orderId,
+    })
+  } catch (e) {
+    console.error("[HUBTEL-ORDER] Customer tracking failed for shop order (non-fatal):", orderId, safeDbError(e))
+  }
+
+  let fulfillResult: { success: boolean; message: string; held?: boolean } | undefined
+  try {
+    const { fulfillUssdOrder } = await import("@/lib/ussd/fulfill")
+    // Trust the order_status fulfillUssdOrder sets; the re-read below verifies it.
+    fulfillResult = await fulfillUssdOrder(orderId, order.network, order.recipient_phone, order.package_size ?? "", false, "ussd_shop_orders")
+    if (!fulfillResult.success) console.error("[HUBTEL-ORDER] USSD shop fulfilment failed:", orderId, fulfillResult.held ? "held" : "not placed")
+  } catch (e) {
+    console.error("[HUBTEL-ORDER] Failed to trigger USSD shop fulfilment:", orderId, safeDbError(e))
+    const { error: pendErr } = await supabase
+      .from("ussd_shop_orders")
+      .update({ order_status: "pending", updated_at: new Date().toISOString() })
+      .eq("id", orderId)
+    if (pendErr) console.error("[HUBTEL-ORDER] could not leave shop order pending:", orderId, safeDbError(pendErr))
+    problems.push(`fulfilment could not be triggered (${safeDbError(e).message}); order left pending for manual fulfilment`)
+  }
+
+  // Post-state: the library swallows its own update errors, so verify the row really is paid and
+  // in a state someone will serve. Fail closed on a read error or a missing row.
+  const { data: after, error: afterErr } = await supabase
+    .from("ussd_shop_orders")
+    .select("id, payment_status, order_status")
+    .eq("id", orderId)
+    .maybeSingle()
+  if (afterErr) console.error("[HUBTEL-ORDER] ussd_shop_orders re-read failed:", orderId, safeDbError(afterErr))
+  let postOk = false
+  if (afterErr || !after) {
+    problems.push("order unreadable after fulfilment")
+  } else if (after.payment_status !== "completed") {
+    problems.push(`payment_status '${after.payment_status}' after fulfilment`)
+  } else if (typeof after.order_status !== "string" || !OK_SHOP_ORDER_STATUSES.has(after.order_status)) {
+    problems.push(`order_status '${after.order_status}' after fulfilment: paid order not being served`)
+  } else {
+    postOk = true
+  }
+
+  // Recipient SMS (shop orders omit the community link); a held order already got the hold SMS.
+  // Never "confirmed" for an order whose fulfilment threw or whose post-state is wrong.
+  if (fulfillResult && !fulfillResult.held && postOk) {
+    try {
+      const { sendSMS, SMSTemplates } = await import("@/lib/sms-service")
+      await sendSMS({
+        phone: order.recipient_phone,
+        message: SMSTemplates.ussdOrderConfirmed(order.package_size, order.network),
+        type: "order_confirmation",
+        reference: orderId,
+      })
+    } catch (e) { console.warn("[HUBTEL-ORDER] shop recipient SMS failed:", orderId, safeDbError(e)) }
+  }
+
+  if (problems.length > 0) throw new Error(`ussd_shop_orders ${orderId}: ${problems.join("; ")}: needs manual review`)
+}
+
 export function createOrderHandlers(supabase: SupabaseClient): OrderHandlers {
   return {
     ussd_afa_orders: orderId => afaOrderPostPayment(supabase, orderId),
     ussd_orders: orderId => ussdOrderPostPayment(supabase, orderId),
+    ussd_shop_orders: orderId => ussdShopOrderPostPayment(supabase, orderId),
     airtime_orders: orderId => airtimeOrderPostPayment(supabase, orderId),
     results_checker_orders: orderId => rcOrderPostPayment(supabase, orderId),
     results_check_requests: orderId => checkRequestPostPayment(supabase, orderId),
-    // Plan 3 registers ussd_shop_orders
   }
 }
 
