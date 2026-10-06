@@ -78,12 +78,16 @@ async function ussdOrderPostPayment(supabase: SupabaseClient, orderId: string): 
  * shop profit, customer tracking, Digiwapy or a manual-airtime admin alert) and is its own
  * idempotency gate, so it is called after a read-check rather than a conditional pre-mark (which
  * would make it no-op). Once-only is guaranteed by processFulfillment's claim on this order's
- * single tx row. WhatsApp-shop token deduction does not apply: channel is "ussd".
+ * single tx row. WhatsApp-shop token deduction does not apply: channel is 'ussd' (main menu) or
+ * 'ussd_shop' (shop code, billed at code entry), never 'whatsapp_shop'.
+ * Shop rows: the library credits merchant_commission to shop_id itself but swallows that insert's
+ * error, so after the customer SMS the handler verifies the credit exists and otherwise THROWS
+ * (=> needs_review) so a lost commission is never silent.
  */
 async function airtimeOrderPostPayment(supabase: SupabaseClient, orderId: string): Promise<void> {
   const { data: order, error: lookupErr } = await supabase
     .from("airtime_orders")
-    .select("id, payment_status, beneficiary_phone, dialing_phone, network, airtime_amount")
+    .select("id, payment_status, beneficiary_phone, dialing_phone, network, airtime_amount, shop_id, merchant_commission")
     .eq("id", orderId)
     .maybeSingle()
   if (lookupErr) console.error("[HUBTEL-ORDER] airtime_orders lookup failed:", orderId, safeDbError(lookupErr))
@@ -125,6 +129,21 @@ async function airtimeOrderPostPayment(supabase: SupabaseClient, orderId: string
       await sendSMS({ phone: payer, message: msg, type: "airtime_order_created", reference: orderId })
     } catch (e) { console.warn("[HUBTEL-ORDER] airtime payer SMS failed:", safeDbError(e)) }
   }
+
+  // Checked AFTER the SMS: the top-up is under way, so the customer is told either way.
+  if (order.shop_id && Number(order.merchant_commission) > 0) {
+    const { data: credited, error: creditErr } = await supabase
+      .from("shop_profits")
+      .select("id")
+      .eq("airtime_order_id", orderId)
+      .eq("shop_id", order.shop_id)
+      .limit(1)
+    if (creditErr || !credited || credited.length === 0) {
+      console.error("[HUBTEL-ORDER] shop commission missing for airtime order:", orderId, "shop:", order.shop_id,
+        creditErr ? safeDbError(creditErr) : "no shop_profits row")
+      throw new Error(`airtime_orders ${orderId}: airtime paid but shop commission not found in shop_profits: needs manual review`)
+    }
+  }
 }
 
 /**
@@ -139,6 +158,8 @@ async function airtimeOrderPostPayment(supabase: SupabaseClient, orderId: string
  * un-linked fallback insert), so after a successful delivery the handler verifies the credit exists
  * and otherwise THROWS (customer already served) so the tx row lands in needs_review. Out of stock
  * after payment: the library credits nothing, so the admin delivers AND credits by hand (D14).
+ * After a successful delivery the order's `status` is also re-read (the library swallows its own final
+ * update error) and must be 'completed'; all post-delivery problems are thrown as ONE error.
  */
 async function rcOrderPostPayment(supabase: SupabaseClient, orderId: string): Promise<void> {
   const { data: order, error: lookupErr } = await supabase
@@ -172,6 +193,20 @@ async function rcOrderPostPayment(supabase: SupabaseClient, orderId: string): Pr
   }
   if (!result.success) throw new Error(`results_checker_orders ${orderId} fulfilment failed: ${result.message}`)
 
+  // The customer has the PINs from here on. Collect every post-library problem and throw ONCE.
+  const problems: string[] = []
+
+  // The library swallows the error on its own final status update: re-read and require 'completed'
+  // (otherwise the expire-stale-airtime cron could later expire a delivered, paid order).
+  const { data: after, error: afterErr } = await supabase
+    .from("results_checker_orders")
+    .select("id, status")
+    .eq("id", orderId)
+    .maybeSingle()
+  if (afterErr) console.error("[HUBTEL-ORDER] results_checker_orders re-read failed:", orderId, safeDbError(afterErr))
+  if (afterErr || !after) problems.push("order unreadable after fulfilment")
+  else if (after.status !== "completed") problems.push(`status '${after.status}' after fulfilment (vouchers sent)`)
+
   if (owesCommission) {
     const { data: credited, error: creditErr } = await supabase
       .from("shop_profits")
@@ -181,12 +216,14 @@ async function rcOrderPostPayment(supabase: SupabaseClient, orderId: string): Pr
       .limit(1)
     if (creditErr) console.error("[HUBTEL-ORDER] shop_profits check failed for RC order:", orderId, safeDbError(creditErr))
     if (creditErr || !credited || credited.length === 0) {
-      throw new Error(
-        `results_checker_orders ${orderId}: vouchers delivered but shop commission not found in shop_profits ` +
-        "(check for an un-linked fallback row before crediting by hand): needs manual review"
+      problems.push(
+        "vouchers delivered but shop commission not found in shop_profits " +
+        "(check for an un-linked fallback row before crediting by hand)"
       )
     }
   }
+
+  if (problems.length > 0) throw new Error(`results_checker_orders ${orderId}: ${problems.join("; ")}: needs manual review`)
 }
 
 /**
@@ -329,15 +366,20 @@ export const OK_SHOP_ORDER_STATUSES: ReadonlySet<string> = new Set(["pending", "
  * untriggered fulfilment or a bad post-state THROWS at the END (after the customer has been served)
  * so the tx row lands in needs_review instead of passing silently.
  * Once-only: the conditional mark below plus processFulfillment's claim on this order's single tx
- * row. A unique violation (23505) on shop_profits is treated as already credited, as the webhook's
- * other branches do; migrations define no unique key covering ussd_shop_order_id, so that is a
- * backstop only. A needs_review row is never re-run, so throwing late cannot double-credit.
+ * row. A unique violation (23505) on shop_profits (migration 0108's (ussd_shop_order_id, shop_id) key,
+ * a backstop until it is applied) is treated as already credited only when the existing row has the
+ * expected amount; otherwise it is a problem. A parent shop equal to the shop is never credited twice.
+ * A needs_review row is never re-run, so throwing late cannot double-credit.
  */
 async function ussdShopOrderPostPayment(supabase: SupabaseClient, orderId: string): Promise<void> {
   const { data: order, error: lookupErr } = await supabase.from("ussd_shop_orders").select("*").eq("id", orderId).maybeSingle()
   if (lookupErr) console.error("[HUBTEL-ORDER] ussd_shop_orders lookup failed:", orderId, safeDbError(lookupErr))
   if (!order) throw new Error(`ussd_shop_orders ${orderId} not found`)
-  if (order.payment_status === "completed") return // already processed
+  if (order.payment_status === "completed") {
+    // Already processed (e.g. paid through another path): nothing to do, but never silently.
+    console.warn("[HUBTEL-ORDER] ussd_shop_orders already completed; handler skipped:", orderId)
+    return
+  }
   // Only Hubtel shop-code rows: a whatsapp_shop row would need the per-order token deduction.
   if (order.channel != null && order.channel !== "ussd_shop") {
     throw new Error(`ussd_shop_orders ${orderId} has channel '${order.channel}', not handled on the Hubtel channel`)
@@ -367,7 +409,25 @@ async function ussdShopOrderPostPayment(supabase: SupabaseClient, orderId: strin
     }])
     if (!error) return
     if (error.code === "23505") {
+      // Migration 0108's (ussd_shop_order_id, shop_id) key says a credit exists: accept it only if
+      // it is the amount this order owes, otherwise a human must look.
       console.warn(`[HUBTEL-ORDER] ${who} profit already credited (unique violation):`, orderId)
+      const { data: existing, error: readErr } = await supabase
+        .from("shop_profits")
+        .select("id, profit_amount")
+        .eq("ussd_shop_order_id", orderId)
+        .eq("shop_id", shopId)
+        .limit(1)
+      if (readErr || !existing || existing.length === 0) {
+        if (readErr) console.error(`[HUBTEL-ORDER] could not re-read existing ${who} profit:`, orderId, safeDbError(readErr))
+        problems.push(`${who} profit: existing credit could not be verified after a unique violation`)
+        return
+      }
+      const have = Number(existing[0].profit_amount)
+      const want = Number(amount)
+      if (!(Math.abs(have - want) <= 0.005)) {
+        problems.push(`${who} profit already credited with a different amount (${have}, expected ${want})`)
+      }
       return
     }
     const safe = safeDbError(error)
@@ -376,9 +436,16 @@ async function ussdShopOrderPostPayment(supabase: SupabaseClient, orderId: strin
   }
   // The shop's own margin (DB trigger syncs shop_available_balance). Zero/negative => no row (webhook).
   if (Number(order.profit_amount) > 0) await credit(order.shop_id, order.profit_amount, "shop")
-  // Sub-agent orders: the parent shop's wholesale margin.
+  // Sub-agent orders: the parent shop's wholesale margin. A parent equal to the shop itself is bad
+  // data (it would double-pay one shop, and collides with the shop's own credit under 0108's key):
+  // skip it and flag the order for review.
   if (order.parent_shop_id && Number(order.parent_profit_amount) > 0) {
-    await credit(order.parent_shop_id, order.parent_profit_amount, "parent shop")
+    if (order.parent_shop_id === order.shop_id) {
+      console.error("[HUBTEL-ORDER] parent shop equals the shop on a shop order; parent credit skipped:", orderId, "shop:", order.shop_id)
+      problems.push("parent shop is the shop itself: parent profit not credited")
+    } else {
+      await credit(order.parent_shop_id, order.parent_profit_amount, "parent shop")
+    }
   }
 
   // Customer tracking, as the webhook. Non-fatal.

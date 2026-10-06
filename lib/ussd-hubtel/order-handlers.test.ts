@@ -214,9 +214,18 @@ describe("results_checker_orders post-payment handler", () => {
     expect(fulfillPaidResultsCheckerOrder).not.toHaveBeenCalled()
     expect(log).toHaveLength(0)
   })
+  // Behaviour change (final wave M5): the handler now re-reads `status` after the library, so the
+  // mocked library must really leave the row 'completed' (as the real one does) for this to pass.
+  /** Like the real fulfillPaidResultsCheckerOrder on success: the row ends status 'completed'. */
+  const completesRow = (rows: any) =>
+    fulfillPaidResultsCheckerOrder.mockImplementation(async () => {
+      Object.assign(rows.results_checker_orders, { status: "completed", payment_status: "completed" })
+      return { success: true, status: "completed", message: "ok", newlyPaid: true }
+    })
   it("pending_payment → payment marked completed (conditional), then vouchers fulfilled once", async () => {
-    fulfillPaidResultsCheckerOrder.mockResolvedValue({ success: true, status: "completed", message: "ok", newlyPaid: true })
-    const { client, log } = fakeDb({ results_checker_orders: { ...base, status: "pending_payment", payment_status: "pending_payment" } })
+    const rows = { results_checker_orders: { ...base, status: "pending_payment", payment_status: "pending_payment" } }
+    completesRow(rows)
+    const { client, log } = fakeDb(rows)
     await createOrderHandlers(client).results_checker_orders("r1")
     expect(log[0]).toMatchObject({ table: "results_checker_orders", patch: { payment_status: "completed" }, inCol: "payment_status" })
     expect(fulfillPaidResultsCheckerOrder).toHaveBeenCalledTimes(1)
@@ -226,6 +235,25 @@ describe("results_checker_orders post-payment handler", () => {
     fulfillPaidResultsCheckerOrder.mockResolvedValue({ success: false, status: "pending", message: "Stock exhausted", newlyPaid: true })
     const { client } = fakeDb({ results_checker_orders: { ...base, status: "pending_payment", payment_status: "pending_payment" } })
     await expect(createOrderHandlers(client).results_checker_orders("r1")).rejects.toThrow(/out of stock/)
+  })
+  it("(M5) library reports success but its final update was swallowed (status not 'completed') → throws once", async () => {
+    fulfillPaidResultsCheckerOrder.mockResolvedValue({ success: true, status: "completed", message: "ok", newlyPaid: true })
+    const { client } = fakeDb({ results_checker_orders: { ...base, status: "pending_payment", payment_status: "pending_payment" } })
+    await expect(createOrderHandlers(client).results_checker_orders("r1")).rejects.toThrow(
+      /results_checker_orders r1: .*status 'pending_payment' after fulfilment.*needs manual review/
+    )
+  })
+  it("(M5) order unreadable after the library → throws (fail closed)", async () => {
+    const rows: any = { results_checker_orders: { ...base, status: "pending_payment", payment_status: "pending_payment" } }
+    const readErrors: Record<string, any> = {}
+    fulfillPaidResultsCheckerOrder.mockImplementation(async () => {
+      readErrors.results_checker_orders = { message: "timeout" }
+      return { success: true, status: "completed", message: "ok", newlyPaid: true }
+    })
+    const { client } = fakeDb(rows, readErrors)
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    await expect(createOrderHandlers(client).results_checker_orders("r1")).rejects.toThrow(/unreadable after fulfilment/)
+    err.mockRestore()
   })
   it("fulfilment reports failure (not pending) → throws", async () => {
     fulfillPaidResultsCheckerOrder.mockResolvedValue({ success: false, status: "failed", message: "boom", newlyPaid: true })
