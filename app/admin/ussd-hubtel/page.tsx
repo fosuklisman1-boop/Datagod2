@@ -11,17 +11,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import { RefreshCw } from "lucide-react"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Textarea } from "@/components/ui/textarea"
+import { IMPLEMENTED_SERVICES } from "@/lib/ussd-hubtel/menus"
 import type { HubtelUssdConfig } from "@/lib/ussd-hubtel/config"
 import type { HubtelTxRow } from "@/lib/ussd-hubtel/types"
 
 type EnvStatus = { webhookSecret: boolean; relayUrl: boolean; relaySecret: boolean }
 type Counts = { needs_review: number; callback_pending: number; callback_failed: number; awaiting_payment: number }
 
-const SERVICES: { key: keyof HubtelUssdConfig["visibility"]; label: string; live: boolean }[] = [
-  { key: "data", label: "Data Bundle", live: true },
-  { key: "afa", label: "AFA Registration", live: false },
-  { key: "airtime", label: "Buy Airtime", live: false },
-  { key: "resultsChecker", label: "Results Checker", live: false },
+const SERVICES: { key: keyof HubtelUssdConfig["visibility"]; label: string }[] = [
+  { key: "data", label: "Data Bundle" },
+  { key: "afa", label: "AFA Registration" },
+  { key: "airtime", label: "Buy Airtime" },
+  { key: "resultsChecker", label: "Results Checker" },
 ]
 
 type TxFilter = "all" | "attention" | "awaiting_payment" | "fulfilled" | "failed"
@@ -77,6 +80,11 @@ export default function AdminUssdHubtelPage() {
   const [counts, setCounts] = useState<Counts | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [filter, setFilter] = useState<TxFilter>("all")
+  const [resolving, setResolving] = useState<HubtelTxRow | null>(null)
+  const [outcome, setOutcome] = useState<"fulfilled" | "not_paid">("fulfilled")
+  const [note, setNote] = useState("")
+  // "Customer did not pay" is only possible while no payment is recorded and no callback is due.
+  const canMarkNotPaid = (t: HubtelTxRow) => t.paid_at == null && t.callback_status === "not_due"
   const shown = txs.filter(t => matchesFilter(t, filter))
 
   const load = useCallback(async () => {
@@ -103,7 +111,23 @@ export default function AdminUssdHubtelPage() {
     } catch (e: any) { toast.error(e.message || "Retry failed") } finally { setBusy(null) }
   }
 
-  const envOk = env && env.webhookSecret && env.relayUrl && env.relaySecret
+  const openResolve = (t: HubtelTxRow) => { setResolving(t); setOutcome("fulfilled"); setNote("") }
+
+  const submitResolve = async () => {
+    if (!resolving) return
+    setBusy(`resolve:${resolving.session_id}`)
+    try {
+      const res = await authed("/api/admin/ussd-hubtel/resolve", {
+        method: "POST",
+        body: JSON.stringify({ sessionId: resolving.session_id, outcome, note }),
+      })
+      toast.success(`Resolved. ${res.callbackNote}`)
+      setResolving(null)
+      await load()
+    } catch (e: any) { toast.error(e.message || "Resolve failed") } finally { setBusy(null) }
+  }
+
+  const envOk =env && env.webhookSecret && env.relayUrl && env.relaySecret
 
   return (
     <DashboardLayout>
@@ -137,7 +161,7 @@ export default function AdminUssdHubtelPage() {
                 <div className="divide-y rounded-lg border">
                   {SERVICES.map(s => (
                     <div key={s.key} className="flex items-center justify-between p-3">
-                      <span className="text-sm">{s.label}{!s.live && <Badge variant="outline" className="ml-2">not built yet</Badge>}</span>
+                      <span className="text-sm">{s.label}{!IMPLEMENTED_SERVICES[s.key] && <Badge variant="outline" className="ml-2">not built yet</Badge>}</span>
                       <Switch checked={config.visibility[s.key]} disabled={busy === s.key} aria-label={`Toggle ${s.label}`}
                         onCheckedChange={v => save({ visibility: { [s.key]: v } }, s.key)} />
                     </div>
@@ -204,12 +228,22 @@ export default function AdminUssdHubtelPage() {
                       {t.state === "needs_review" && t.callback_last_error && (
                         <div className="mt-1 max-w-[16rem] text-xs text-muted-foreground">{t.callback_last_error}</div>
                       )}
+                      {t.resolved_at && (
+                        <div className="mt-1 max-w-[16rem] text-xs text-muted-foreground">
+                          Resolved {new Date(t.resolved_at).toLocaleString()}: {t.resolution_note}
+                        </div>
+                      )}
                     </td>
                     <td className="p-2" title={t.callback_last_error ?? ""}><Badge variant={t.callback_status === "failed" ? "destructive" : "outline"}>{t.callback_status}</Badge></td>
                     <td className="p-2">
-                      {(t.state === "fulfilled" || t.state === "needs_review") && (t.callback_status === "pending" || t.callback_status === "failed") && (
-                        <Button size="sm" variant="outline" disabled={busy === t.session_id} onClick={() => retry(t.session_id)}>Retry callback</Button>
-                      )}
+                      <div className="flex flex-col gap-1">
+                        {(t.state === "fulfilled" || t.state === "needs_review") && (t.callback_status === "pending" || t.callback_status === "failed") && (
+                          <Button size="sm" variant="outline" disabled={busy === t.session_id} onClick={() => retry(t.session_id)}>Retry callback</Button>
+                        )}
+                        {t.state === "needs_review" && (
+                          <Button size="sm" variant="outline" onClick={() => openResolve(t)}>Mark resolved</Button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -222,6 +256,44 @@ export default function AdminUssdHubtelPage() {
             </table>
           </CardContent>
         </Card>
+
+        <Dialog open={!!resolving} onOpenChange={open => { if (!open) setResolving(null) }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Mark resolved</DialogTitle>
+              <DialogDescription>
+                Do this only after dealing with the order itself: delivered it manually, refunded it on /admin/refunds,
+                or confirmed on the Hubtel dashboard that the customer did not pay.
+              </DialogDescription>
+            </DialogHeader>
+            {resolving && (
+              <div className="space-y-3 text-sm">
+                <div className="text-muted-foreground">{resolving.order_table} / {resolving.session_id}</div>
+                <Select value={outcome} onValueChange={v => setOutcome(v as "fulfilled" | "not_paid")}>
+                  <SelectTrigger aria-label="Outcome"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="fulfilled">Fulfilled manually (customer paid)</SelectItem>
+                    <SelectItem value="not_paid" disabled={!canMarkNotPaid(resolving)}>Customer did not pay</SelectItem>
+                  </SelectContent>
+                </Select>
+                {outcome === "fulfilled" && resolving.callback_status === "not_due" && !resolving.hubtel_order_id && (
+                  <p className="text-xs text-amber-600">No Hubtel order id is on record, so no success callback can be sent for this row.</p>
+                )}
+                <Textarea
+                  value={note}
+                  onChange={e => setNote(e.target.value)}
+                  placeholder="What you did (5-500 characters)"
+                  maxLength={500}
+                  aria-label="Resolution note"
+                />
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setResolving(null)}>Cancel</Button>
+              <Button disabled={note.trim().length < 5 || !!busy?.startsWith("resolve:")} onClick={submitResolve}>Resolve</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </DashboardLayout>
   )

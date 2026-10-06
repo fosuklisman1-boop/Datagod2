@@ -106,6 +106,9 @@ export interface HubtelTxRow {
   paid_at: string | null
   created_at: string
   updated_at: string
+  resolution_note?: string | null
+  resolved_by?: string | null
+  resolved_at?: string | null
 }
 
 export interface HubtelClaimGuard {
