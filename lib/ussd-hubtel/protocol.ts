@@ -74,11 +74,14 @@ export function parseHubtelRequest(body: unknown): HubtelRequest | null {
     rawType === "initiation" ? "Initiation" : rawType === "response" ? "Response" : rawType === "timeout" ? "Timeout" : null
   if (!type) return null
   if (typeof b.SessionId !== "string" || !b.SessionId) return null
-  if (typeof b.Mobile !== "string" || !b.Mobile) return null
+  if (typeof b.Mobile !== "string") return null
+  // Digits (optional leading +) only: Mobile ends up in PostgREST .or() filters via phoneVariants.
+  const mobile = b.Mobile.trim()
+  if (!/^\+?\d{9,15}$/.test(mobile)) return null
   const platform: HubtelPlatform = b.Platform === "Webstore" || b.Platform === "Hubtel-App" ? b.Platform : "USSD"
   return {
     Type: type,
-    Mobile: b.Mobile,
+    Mobile: mobile,
     SessionId: b.SessionId,
     ServiceCode: String(b.ServiceCode ?? ""),
     Message: typeof b.Message === "string" ? b.Message : "",

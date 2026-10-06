@@ -160,6 +160,28 @@ describe("airtime: stale-session guard at confirm (review focus #2)", () => {
     expect(r.Message).toMatch(/rates changed/i)
     expect(sup.inserts["airtime_orders"]).toBeUndefined()
   })
+  it("(M1) a NaN fee rate at confirm fails closed: release, no order", async () => {
+    let rate = 5
+    const sup = fakeSupabase({ pkg: OK_PKG })
+    const { deps } = makeDeps({ airtime: fakeAirtime({ feeRate: async () => rate }) }, sup)
+    await toConfirm(deps)
+    rate = NaN
+    const r = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(r.Type).toBe("release")
+    expect(r.Message).toMatch(/rates changed/i)
+    expect(sup.inserts["airtime_orders"]).toBeUndefined()
+  })
+  it("(M1) a session that lost airtimeToDeliver fails closed at confirm: release, no order", async () => {
+    const sup = fakeSupabase({ pkg: OK_PKG })
+    const { deps, store } = makeDeps({}, sup)
+    await toConfirm(deps)
+    const s = store.get("S1")!
+    store.set("S1", { ...s, airtimeToDeliver: undefined })
+    const r = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(r.Type).toBe("release")
+    expect(r.Message).toMatch(/rates changed/i)
+    expect(sup.inserts["airtime_orders"]).toBeUndefined()
+  })
   it("network disabled since the confirm screen: release, no order", async () => {
     let on = true
     const sup = fakeSupabase({ pkg: OK_PKG })

@@ -59,6 +59,17 @@ describe("parseHubtelRequest", () => {
     expect(parseHubtelRequest(null)).toBeNull()
     expect(parseHubtelRequest("x")).toBeNull()
   })
+  it("(M5) accepts digit-only Mobile in 233…, +233… and 0… forms (trimmed)", () => {
+    expect(parseHubtelRequest({ ...base, Mobile: "233200585542" })?.Mobile).toBe("233200585542")
+    expect(parseHubtelRequest({ ...base, Mobile: "+233200585542" })?.Mobile).toBe("+233200585542")
+    expect(parseHubtelRequest({ ...base, Mobile: "0200585542" })?.Mobile).toBe("0200585542")
+    expect(parseHubtelRequest({ ...base, Mobile: "  233200585542 " })?.Mobile).toBe("233200585542")
+  })
+  it("(M5) rejects a Mobile with commas, spaces, letters, PostgREST syntax or a bad length", () => {
+    for (const Mobile of ["233200585542,0244", "233 200 585542", "23320058554x", "abc", "0244.eq.1)", "+", "12345678", "1234567890123456", "   "]) {
+      expect(parseHubtelRequest({ ...base, Mobile })).toBeNull()
+    }
+  })
 })
 
 describe("phone helpers", () => {

@@ -122,7 +122,10 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   const dialer = await deps.resolveDialer(session.dialingPhone)
   const rate = await deps.airtime.feeRate(network, isDealerRole(dialer.role))
   const { fee, toDeliver } = splitInclusive(amount, rate)
-  if (Math.abs(toDeliver - session.airtimeToDeliver!) > 0.001) {
+  // Fail closed: a NaN/undefined on either side must never pass the drift check.
+  const shown = session.airtimeToDeliver
+  if (!Number.isFinite(toDeliver) || !Number.isFinite(shown) || !(toDeliver > 0) ||
+      !(Math.abs(toDeliver - (shown as number)) <= 0.001)) {
     return finish(ctx, "Airtime rates changed. Please restart your order.")
   }
 
