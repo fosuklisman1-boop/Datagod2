@@ -25,6 +25,23 @@ describe("ORDER_TABLES", () => {
     expect(s.cartItemName({ package_size: "5", network: "MTN" })).toBe("5GB MTN Data")
     expect(s.cartItemName({ package_size: "500MB", network: "AT-iShare" })).toBe("500MB AT iShare Data")
   })
+  it("ussd_shop_orders: payable statuses, fail patch and item name", () => {
+    const s = ORDER_TABLES.ussd_shop_orders
+    expect(s.payableStatuses).toEqual(["pending", "otp_required"])
+    expect(s.failPatch()).toMatchObject({ order_status: "failed", payment_status: "failed" })
+    expect(s.cartColumns).toBe("package_size, network")
+    expect(s.cartItemName({ package_size: "5", network: "MTN" })).toBe("5GB MTN Data")
+    expect(s.cartItemName({ package_size: "500MB", network: "AT-BigTime" })).toBe("500MB AT BigTime Data")
+  })
+  it("ussd_shop_orders: cartItemName works on a row narrowed to its cartColumns", () => {
+    const s = ORDER_TABLES.ussd_shop_orders
+    const cols = s.cartColumns.split(",").map(c => c.trim())
+    const full: Record<string, unknown> = { id: "x", package_size: "2", network: "Telecel", amount: 12, shop_price: 12, profit_amount: 2, channel: "ussd_shop" }
+    const narrowed = Object.fromEntries(cols.map(c => [c, full[c]]))
+    expect(s.cartItemName(narrowed)).toBe("2GB Telecel Data")
+    expect(s.cartItemName(narrowed)).toBe(s.cartItemName(full))
+    expect(s.cartItemName(narrowed)).not.toContain("undefined")
+  })
   it("airtime_orders: payable statuses, fail patch and item name", () => {
     const s = ORDER_TABLES.airtime_orders
     expect(s.payableStatuses).toEqual(["pending_payment", "otp_required"])

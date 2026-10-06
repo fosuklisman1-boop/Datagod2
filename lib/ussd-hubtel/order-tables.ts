@@ -6,7 +6,7 @@
 import { HUBTEL_NETWORKS, airtimeLabel, formatSize } from "./menus"
 
 export type HubtelOrderTable =
-  | "ussd_orders" | "airtime_orders" | "results_checker_orders" | "results_check_requests" | "ussd_afa_orders"
+  | "ussd_orders" | "ussd_shop_orders" | "airtime_orders" | "results_checker_orders" | "results_check_requests" | "ussd_afa_orders"
 
 export interface OrderTableSpec {
   /** payment_status values of an order that is still unpaid (it may yet be paid or expired). */
@@ -23,6 +23,16 @@ const now = () => new Date().toISOString()
 
 export const ORDER_TABLES: Record<HubtelOrderTable, OrderTableSpec> = {
   ussd_orders: {
+    payableStatuses: ["pending", "otp_required"],
+    failPatch: () => ({ order_status: "failed", payment_status: "failed", updated_at: now() }),
+    cartColumns: "package_size, network",
+    cartItemName: r => {
+      const label = HUBTEL_NETWORKS.find(n => n.dbName === r.network)?.label ?? String(r.network)
+      return `${formatSize(String(r.package_size))} ${label} Data`
+    },
+  },
+  // Shop-mode data bundles (Plan 3). Same statuses and cart wording as ussd_orders.
+  ussd_shop_orders: {
     payableStatuses: ["pending", "otp_required"],
     failPatch: () => ({ order_status: "failed", payment_status: "failed", updated_at: now() }),
     cartColumns: "package_size, network",

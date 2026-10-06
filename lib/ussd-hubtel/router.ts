@@ -19,6 +19,7 @@ import { AIRTIME_STEPS, startAirtime } from "./flows/airtime"
 import { DATA_STEPS, startData } from "./flows/data"
 import { RC_BUY_STEPS, startRc } from "./flows/rc-buy"
 import { RC_CHECK_STEPS } from "./flows/rc-check"
+import { SHOP_DATA_STEPS, startShopData } from "./flows/shop-data"
 import { SHOP_ENTRY_STEPS, shopMenuFor, shopMenuReply, startShopSession } from "./flows/shop"
 import type { HubtelReply, HubtelRequest } from "./types"
 
@@ -61,12 +62,15 @@ const STEPS: StepTable = {
 }
 
 /** First screen of each shop product (Tasks 3, 5, 6 register theirs). Shop mode only. */
-export const SHOP_PRODUCT_ENTRIES: Partial<Record<ShopMenuKey, StepHandler>> = {}
+export const SHOP_PRODUCT_ENTRIES: Partial<Record<ShopMenuKey, StepHandler>> = {
+  data: startShopData,
+}
 
 /** Steps of a session pinned to shop mode. Never mixed with STEPS: a session runs one table. */
 const SHOP_STEPS: StepTable = {
   ...SHOP_ENTRY_STEPS,
   SHOP_PRODUCT: handleShopProduct,
+  ...SHOP_DATA_STEPS,
 }
 
 const UNAVAILABLE = "Service unavailable. Please try again later."
