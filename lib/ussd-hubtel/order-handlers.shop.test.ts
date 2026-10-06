@@ -402,3 +402,74 @@ describe("shop order through processFulfillment", () => {
     expect(store.row()).toMatchObject({ state: "needs_review", callback_status: "pending", hubtel_order_id: "H1" })
   })
 })
+
+describe("shop airtime row through Plan 2's airtime_orders handler (no fork)", () => {
+  // Exactly what flows/shop-airtime.ts writes (createShopAirtimeOrder shape).
+  const shopAirtime = (over: Record<string, unknown> = {}) => ({
+    id: "t1", network: "MTN", beneficiary_phone: "0244123456", dialing_phone: "+233200585542", airtime_amount: 9.35,
+    fee_amount: 0.65, total_paid: 10, status: "pending_payment", payment_status: "pending_payment",
+    user_id: null, shop_id: "shop-1", merchant_commission: 0.19, channel: "ussd_shop", ...over,
+  })
+  /**
+   * Like the real lib/airtime-service.ts markAirtimeOrderPaid for a shop row: marks it paid and
+   * (because shop_id + merchant_commission > 0) inserts the shop_profits credit itself.
+   */
+  const realisticMark = (db: ReturnType<typeof fakeDb>) => async (id: string) => {
+    const row = db.rows.airtime_orders
+    if (row.payment_status === "completed") return { success: true, alreadyProcessed: true }
+    Object.assign(row, { payment_status: "completed", status: "pending" })
+    if (row.merchant_commission > 0 && row.shop_id) {
+      db.profits.push({ shop_id: row.shop_id, airtime_order_id: id, profit_amount: row.merchant_commission, status: "credited" })
+    }
+    return { success: true }
+  }
+
+  it("marks paid once via markAirtimeOrderPaid (which owns the shop credit), then SMSes recipient and payer once each", async () => {
+    const db = fakeDb({ airtime_orders: shopAirtime() })
+    markAirtimeOrderPaid.mockImplementation(realisticMark(db))
+    await createOrderHandlers(db.client).airtime_orders("t1")
+    expect(markAirtimeOrderPaid).toHaveBeenCalledTimes(1)
+    expect(markAirtimeOrderPaid.mock.calls[0][0]).toBe("t1")
+    expect(db.profits).toEqual([{ shop_id: "shop-1", airtime_order_id: "t1", profit_amount: 0.19, status: "credited" }])
+    expect(sendSMS.mock.calls.map(c => c[0].phone)).toEqual(["0244123456", "+233200585542"])
+    // The handler itself never writes a profit row or marks the order: the library is the single path.
+    expect(db.updates).toEqual([])
+  })
+  it("not payable (expired/failed): throws before the library, no credit, no SMS", async () => {
+    const db = fakeDb({ airtime_orders: shopAirtime({ status: "failed", payment_status: "failed" }) })
+    markAirtimeOrderPaid.mockImplementation(realisticMark(db))
+    await expect(createOrderHandlers(db.client).airtime_orders("t1")).rejects.toThrow(/not in a payable state: failed/)
+    expect(markAirtimeOrderPaid).not.toHaveBeenCalled()
+    expect(db.profits).toEqual([])
+    expect(sendSMS).not.toHaveBeenCalled()
+  })
+  it("library reports success but the row is not 'completed' on re-read: throws, no SMS", async () => {
+    const db = fakeDb({ airtime_orders: shopAirtime() })
+    markAirtimeOrderPaid.mockResolvedValue({ success: true }) // its own update silently failed
+    await expect(createOrderHandlers(db.client).airtime_orders("t1")).rejects.toThrow(/not marked paid.*pending_payment/)
+    expect(sendSMS).not.toHaveBeenCalled()
+  })
+  it("already completed: no library call, no SMS", async () => {
+    const db = fakeDb({ airtime_orders: shopAirtime({ payment_status: "completed" }) })
+    markAirtimeOrderPaid.mockImplementation(realisticMark(db))
+    await createOrderHandlers(db.client).airtime_orders("t1")
+    expect(markAirtimeOrderPaid).not.toHaveBeenCalled()
+    expect(sendSMS).not.toHaveBeenCalled()
+  })
+  it("duplicate Hubtel delivery through processFulfillment: library once, shop credit once, SMS once each", async () => {
+    const db = fakeDb({ airtime_orders: shopAirtime() })
+    markAirtimeOrderPaid.mockImplementation(realisticMark(db))
+    const store = memStore({ order_table: "airtime_orders", order_id: "t1", expected_amount: 10 })
+    const restore = quiet()
+    const outcomes = await Promise.all([
+      processFulfillment(store, createOrderHandlers(db.client), { ...paid, amountPaid: 10.1, amountAfterCharges: 10 }),
+      processFulfillment(store, createOrderHandlers(db.client), { ...paid, amountPaid: 10.1, amountAfterCharges: 10 }),
+    ])
+    restore()
+    expect([...outcomes].sort()).toEqual(["duplicate", "fulfilled"])
+    expect(markAirtimeOrderPaid).toHaveBeenCalledTimes(1)
+    expect(db.profits).toHaveLength(1)
+    expect(sendSMS).toHaveBeenCalledTimes(2) // recipient + payer, once each
+    expect(store.row()).toMatchObject({ state: "fulfilled", callback_status: "pending" })
+  })
+})

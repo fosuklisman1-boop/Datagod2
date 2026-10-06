@@ -48,6 +48,22 @@ describe("ORDER_TABLES", () => {
     expect(s.failPatch()).toMatchObject({ status: "failed", payment_status: "failed" })
     expect(s.cartItemName({ network: "AT", beneficiary_phone: "0271234567" })).toBe("AT Airtime to 0271234567")
   })
+  it("airtime_orders: a SHOP airtime row narrowed to cartColumns replays the same cart as the first one", () => {
+    const s = ORDER_TABLES.airtime_orders
+    const cols = s.cartColumns.split(",").map(c => c.trim())
+    // The full row flows/shop-airtime.ts inserts (createShopAirtimeOrder shape).
+    const full: Record<string, unknown> = {
+      reference_code: "AT-AB123", network: "MTN", beneficiary_phone: "0244123456", airtime_amount: 9.35, fee_amount: 0.65,
+      total_paid: 10, pay_separately: false, status: "pending_payment", payment_status: "pending_payment", user_id: null,
+      shop_id: "shop-1", merchant_commission: 0.19, customer_name: "USSD Customer", customer_email: null,
+      dialing_phone: "+233200585542", channel: "ussd_shop",
+    }
+    const narrowed = Object.fromEntries(cols.map(c => [c, full[c]]))
+    expect(s.cartItemName(narrowed)).toBe("MTN Airtime to 0244123456")
+    expect(s.cartItemName(narrowed)).toBe(s.cartItemName(full))
+    expect(s.cartItemName(narrowed)).not.toContain("undefined")
+    expect(s.payableStatuses).toContain(full.payment_status)
+  })
   it("results_checker_orders: payable statuses, fail patch and item name", () => {
     const s = ORDER_TABLES.results_checker_orders
     expect(s.payableStatuses).toEqual(["pending_payment", "otp_required"])
