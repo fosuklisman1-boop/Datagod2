@@ -21,6 +21,8 @@ export interface RelayRequest {
 }
 
 const SAFE_REF = /^[A-Za-z0-9_-]{1,100}$/
+/** Bounds each upstream call (headers + body), below the Vercel side's own timeout. */
+const UPSTREAM_TIMEOUT_MS = 8000
 
 function bearerOk(authorization: string | null, secret: string): boolean {
   if (!authorization?.startsWith("Bearer ") || !secret) return false
@@ -59,6 +61,7 @@ export function createRelayHandler(cfg: RelayConfig) {
           method: "POST",
           headers: { "Content-Type": "application/json", Accept: "application/json", "Cache-Control": "no-cache" },
           body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
         })
         return { status: 200, body: { ok: res.ok, upstreamStatus: res.status, body: await readBody(res) } }
       } catch (e: any) {
@@ -71,7 +74,11 @@ export function createRelayHandler(cfg: RelayConfig) {
       if (!SAFE_REF.test(ref)) return { status: 400, body: { error: "invalid clientReference" } }
       const url = `${statusBase}/transactions/${encodeURIComponent(cfg.collectionAccount)}/status?clientReference=${encodeURIComponent(ref)}`
       try {
-        const res = await doFetch(url, { method: "GET", headers: { Authorization: `Basic ${cfg.statusBasicAuth}` } })
+        const res = await doFetch(url, {
+          method: "GET",
+          headers: { Authorization: `Basic ${cfg.statusBasicAuth}` },
+          signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+        })
         return { status: 200, body: { ok: res.ok, upstreamStatus: res.status, body: await readBody(res) } }
       } catch (e: any) {
         return { status: 200, body: { ok: false, upstreamStatus: 0, body: String(e?.message ?? e) } }

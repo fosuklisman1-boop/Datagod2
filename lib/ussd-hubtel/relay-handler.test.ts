@@ -61,6 +61,31 @@ describe("relay handler", () => {
     expect(res.body).toMatchObject({ ok: false, upstreamStatus: 500 })
   })
 
+  it("gives both upstream calls an AbortSignal (bounded upstream time)", async () => {
+    const { handler, fetchImpl } = setup()
+    await handler({
+      method: "POST", path: "/callback", query: new URLSearchParams(), authorization: auth,
+      body: JSON.stringify({ SessionId: "S1", OrderId: "O1" }),
+    })
+    await handler({ method: "GET", path: "/status", query: new URLSearchParams({ clientReference: "abc" }), authorization: auth, body: "" })
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    for (const call of fetchImpl.mock.calls as any[]) expect(call[1].signal).toBeInstanceOf(AbortSignal)
+  })
+
+  it("an upstream timeout/abort yields ok:false, upstreamStatus 0 (both paths)", async () => {
+    const fetchImpl = vi.fn(async () => { throw new DOMException("The operation was aborted due to timeout", "TimeoutError") })
+    const handler = createRelayHandler({ secret: "s3cret", collectionAccount: "11684", statusBasicAuth: "B", fetchImpl: fetchImpl as any })
+    const cb = await handler({
+      method: "POST", path: "/callback", query: new URLSearchParams(), authorization: auth,
+      body: JSON.stringify({ SessionId: "S1", OrderId: "O1" }),
+    })
+    const st = await handler({ method: "GET", path: "/status", query: new URLSearchParams({ clientReference: "abc" }), authorization: auth, body: "" })
+    for (const r of [cb, st]) {
+      expect(r.status).toBe(200)
+      expect(r.body).toMatchObject({ ok: false, upstreamStatus: 0 })
+    }
+  })
+
   it("404s unknown paths", async () => {
     const { handler } = setup()
     expect((await handler({ method: "GET", path: "/nope", query: new URLSearchParams(), authorization: auth, body: "" })).status).toBe(404)

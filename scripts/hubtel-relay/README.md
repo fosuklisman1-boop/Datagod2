@@ -14,7 +14,24 @@ transaction status check. No business logic, no queue. Retries live in Vercel cr
 4. Env (systemd `EnvironmentFile`): `RELAY_SECRET` (long random; same value as Vercel
    `HUBTEL_RELAY_SECRET`), `HUBTEL_COLLECTION_ACCOUNT`, `HUBTEL_STATUS_BASIC_AUTH`
    (base64 of `apikey:secret`, no "Basic " prefix), optional `PORT`/`HOST`.
-5. systemd unit: `ExecStart=/usr/bin/npx tsx /opt/hubtel-relay/scripts/hubtel-relay/server.ts`, `Restart=always`.
+5. systemd unit (`StartLimitIntervalSec=0` stops systemd from giving up after repeated quick
+   restarts; the relay exits non-zero on an uncaught exception so systemd restarts it):
+   ```ini
+   [Unit]
+   Description=Hubtel relay
+   After=network-online.target
+   StartLimitIntervalSec=0
+
+   [Service]
+   EnvironmentFile=/opt/hubtel-relay/.env
+   WorkingDirectory=/opt/hubtel-relay
+   ExecStart=/usr/bin/npx tsx /opt/hubtel-relay/scripts/hubtel-relay/server.ts
+   Restart=always
+   RestartSec=2
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
 6. Caddy reverse-proxy `relay.<your-domain>` → `127.0.0.1:8080` (automatic TLS).
 7. Vercel env: `HUBTEL_RELAY_URL=https://relay.<your-domain>`, `HUBTEL_RELAY_SECRET=<same secret>`.
 8. Smoke test (expect 401 without the secret, 400 with a bad reference):
