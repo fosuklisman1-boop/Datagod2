@@ -97,6 +97,20 @@ async function airtimeOrderPostPayment(supabase: SupabaseClient, orderId: string
   if (!marked.success) throw new Error(`airtime_orders ${orderId} could not be marked paid`)
   if (marked.alreadyProcessed) return
 
+  // The library ignores the error on its own payment_status update (and still triggers delivery),
+  // so its success is not trusted: re-read the row and refuse to call this fulfilled (or SMS the
+  // customer) unless it really reached 'completed'. Otherwise the expire-stale-airtime cron could
+  // later expire a paid order. Fail closed on a read error or a missing row.
+  const { data: after, error: afterErr } = await supabase
+    .from("airtime_orders")
+    .select("id, payment_status")
+    .eq("id", orderId)
+    .maybeSingle()
+  if (afterErr) console.error("[HUBTEL-ORDER] airtime_orders re-read failed:", orderId, afterErr)
+  if (after?.payment_status !== "completed") {
+    throw new Error(`airtime_orders ${orderId} not marked paid after markAirtimeOrderPaid (still ${afterErr ? "unreadable" : after?.payment_status ?? "unreadable"}): needs manual review`)
+  }
+
   // Same message as the Paystack branch: airtime may be fulfilled manually, so never claim it landed.
   const { sendSMS, SMSTemplates } = await import("@/lib/sms-service")
   const benef = String(order.beneficiary_phone)

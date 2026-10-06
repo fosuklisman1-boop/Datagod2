@@ -34,13 +34,14 @@ import { createOrderHandlers, createFailHandlers, OK_FULFILMENT_STATUSES } from 
  * update without .select() always applies. Applied patches are merged into the served row.
  * `updates` holds applied patches in order; `log` also records the table and the in() filter.
  */
-function fakeDb(rows: Record<string, any>) {
+function fakeDb(rows: Record<string, any>, readErrors: Record<string, any> = {}) {
   const updates: any[] = []
   const log: Array<{ table: string; patch: any; inCol?: string; inVals?: string[] }> = []
   const client = {
     from(table: string) {
       return {
-        select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: rows[table] ?? null, error: null }) }) }),
+        // readErrors is consulted per call, so a mocked library can make a LATER read fail.
+        select: () => ({ eq: () => ({ maybeSingle: async () => (readErrors[table] ? { data: null, error: readErrors[table] } : { data: rows[table] ?? null, error: null }) }) }),
         update: (patch: any) => {
           const rec: { table: string; patch: any; inCol?: string; inVals?: string[] } = { table, patch }
           const chain: any = {
@@ -109,8 +110,19 @@ describe("airtime_orders post-payment handler", () => {
     expect(markAirtimeOrderPaid).not.toHaveBeenCalled()
     expect(sendSMS).not.toHaveBeenCalled()
   })
+  /** Like the real lib/airtime-service.ts markAirtimeOrderPaid: sets payment_status 'completed', status 'pending'. */
+  const paysRow = (row: any) =>
+    markAirtimeOrderPaid.mockImplementation(async () => {
+      Object.assign(row, { payment_status: "completed", status: "pending" })
+      return { success: true }
+    })
+
+  // Behaviour change (I2): these two tests now make the mocked library mutate the row like the
+  // real one does; the handler re-reads payment_status and refuses to SMS unless it is 'completed'.
   it("pending_payment → markAirtimeOrderPaid once, SMS to the recipient and to a different payer", async () => {
-    const { client } = fakeDb({ airtime_orders: { ...base, payment_status: "pending_payment" } })
+    const row = { ...base, payment_status: "pending_payment" }
+    paysRow(row)
+    const { client } = fakeDb({ airtime_orders: row })
     await createOrderHandlers(client).airtime_orders("t1")
     expect(markAirtimeOrderPaid).toHaveBeenCalledTimes(1)
     expect(markAirtimeOrderPaid).toHaveBeenCalledWith("t1", null)
@@ -118,9 +130,38 @@ describe("airtime_orders post-payment handler", () => {
     expect(sendSMS.mock.calls[0][0].message).toBe("airtime-paid")
   })
   it("payer is the recipient → one SMS", async () => {
-    const { client } = fakeDb({ airtime_orders: { ...base, dialing_phone: "+233244123456", payment_status: "pending_payment" } })
+    const row = { ...base, dialing_phone: "+233244123456", payment_status: "pending_payment" }
+    paysRow(row)
+    const { client } = fakeDb({ airtime_orders: row })
     await createOrderHandlers(client).airtime_orders("t1")
     expect(sendSMS).toHaveBeenCalledTimes(1)
+  })
+  it("(I2) library reports success but the row is still pending_payment (swallowed update error) → throws, no SMS", async () => {
+    markAirtimeOrderPaid.mockResolvedValue({ success: true })
+    const { client } = fakeDb({ airtime_orders: { ...base, payment_status: "pending_payment" } })
+    await expect(createOrderHandlers(client).airtime_orders("t1")).rejects.toThrow(/not marked paid.*pending_payment/)
+    expect(sendSMS).not.toHaveBeenCalled()
+  })
+  it("(I2) row unreadable after the library call (read error) → throws, no SMS", async () => {
+    const row = { ...base, payment_status: "pending_payment" }
+    const readErrors: Record<string, any> = {}
+    markAirtimeOrderPaid.mockImplementation(async () => {
+      Object.assign(row, { payment_status: "completed" })
+      readErrors.airtime_orders = { code: "57014", message: "canceling statement due to statement timeout" }
+      return { success: true }
+    })
+    const { client } = fakeDb({ airtime_orders: row }, readErrors)
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    await expect(createOrderHandlers(client).airtime_orders("t1")).rejects.toThrow(/unreadable/)
+    err.mockRestore()
+    expect(sendSMS).not.toHaveBeenCalled()
+  })
+  it("(I2) row gone after the library call → throws, no SMS", async () => {
+    const rows: Record<string, any> = { airtime_orders: { ...base, payment_status: "pending_payment" } }
+    markAirtimeOrderPaid.mockImplementation(async () => { delete rows.airtime_orders; return { success: true } })
+    const { client } = fakeDb(rows)
+    await expect(createOrderHandlers(client).airtime_orders("t1")).rejects.toThrow(/unreadable/)
+    expect(sendSMS).not.toHaveBeenCalled()
   })
   it("already completed → no-op", async () => {
     const { client } = fakeDb({ airtime_orders: { ...base, payment_status: "completed" } })
