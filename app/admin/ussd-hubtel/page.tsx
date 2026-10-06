@@ -83,7 +83,7 @@ export default function AdminUssdHubtelPage() {
   const [resolving, setResolving] = useState<HubtelTxRow | null>(null)
   const [outcome, setOutcome] = useState<"fulfilled" | "not_paid">("fulfilled")
   const [note, setNote] = useState("")
-  // "Customer did not pay" is only possible while no payment is recorded and no callback is due.
+  // "Not paid" is only possible while no payment is recorded and no callback is due.
   const canMarkNotPaid = (t: HubtelTxRow) => t.paid_at == null && t.callback_status === "not_due"
   const shown = txs.filter(t => matchesFilter(t, filter))
 
@@ -121,7 +121,12 @@ export default function AdminUssdHubtelPage() {
         method: "POST",
         body: JSON.stringify({ sessionId: resolving.session_id, outcome, note }),
       })
-      toast.success(`Resolved. ${res.callbackNote}`)
+      if (res.warning) {
+        // The resolution was recorded but the order row was not updated: the admin must check it.
+        toast.warning(`Resolved. ${res.callbackNote} ${res.warning}`, { duration: 15000 })
+      } else {
+        toast.success(`Resolved. ${res.callbackNote}`)
+      }
       setResolving(null)
       await load()
     } catch (e: any) { toast.error(e.message || "Resolve failed") } finally { setBusy(null) }
@@ -262,8 +267,10 @@ export default function AdminUssdHubtelPage() {
             <DialogHeader>
               <DialogTitle>Mark resolved</DialogTitle>
               <DialogDescription>
-                Do this only after dealing with the order itself: delivered it manually, refunded it on /admin/refunds,
-                or confirmed on the Hubtel dashboard that the customer did not pay.
+                &quot;Fulfilled&quot; means the goods or service were delivered to the customer manually; if a Hubtel
+                order id is on record, a success callback will be sent. &quot;Not paid&quot; means Hubtel never took the
+                payment (check the Hubtel dashboard). If the customer was charged but the service cannot be delivered,
+                arrange a refund with Hubtel directly before resolving. A note is required either way.
               </DialogDescription>
             </DialogHeader>
             {resolving && (
@@ -272,8 +279,8 @@ export default function AdminUssdHubtelPage() {
                 <Select value={outcome} onValueChange={v => setOutcome(v as "fulfilled" | "not_paid")}>
                   <SelectTrigger aria-label="Outcome"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="fulfilled">Fulfilled manually (customer paid)</SelectItem>
-                    <SelectItem value="not_paid" disabled={!canMarkNotPaid(resolving)}>Customer did not pay</SelectItem>
+                    <SelectItem value="fulfilled">Fulfilled (delivered manually)</SelectItem>
+                    <SelectItem value="not_paid" disabled={!canMarkNotPaid(resolving)}>Not paid (Hubtel never took the payment)</SelectItem>
                   </SelectContent>
                 </Select>
                 {outcome === "fulfilled" && resolving.callback_status === "not_due" && !resolving.hubtel_order_id && (

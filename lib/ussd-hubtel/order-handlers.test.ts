@@ -25,7 +25,7 @@ vi.mock("@/lib/results-checker-service", () => ({
 }))
 vi.mock("@/lib/ussd/fulfill-afa", () => ({ fulfillUssdAfaOrder: (...a: any[]) => fulfillUssdAfaOrder(...a) }))
 
-import { createOrderHandlers, createFailHandlers, OK_FULFILMENT_STATUSES } from "./order-handlers"
+import { createOrderHandlers, createFailHandlers, createStrictFailHandlers, failOrderStrict, OK_FULFILMENT_STATUSES } from "./order-handlers"
 
 /**
  * Table-aware fake. select(...).eq(...).maybeSingle() returns rows[table] (the same object every
@@ -430,5 +430,37 @@ describe("ussd_afa_orders post-payment handler", () => {
     const { client, log } = fakeDb({ ussd_afa_orders: { id: "a1", payment_status: "pending" } })
     await createFailHandlers(client).ussd_afa_orders("a1")
     expect(log[0]).toMatchObject({ patch: { order_status: "failed", payment_status: "failed" }, inVals: ["pending"] })
+  })
+})
+
+describe("(M2) failOrderStrict / createStrictFailHandlers: used by admin resolve, surfaces failures", () => {
+  it("fails an unpaid order with the same guarded patch as the lenient handler", async () => {
+    const { client, log } = fakeDb({ airtime_orders: { id: "t1", payment_status: "pending_payment" } })
+    await failOrderStrict(client, "airtime_orders", "t1")
+    expect(log[0]).toMatchObject({ table: "airtime_orders", patch: { status: "failed", payment_status: "failed" }, inCol: "payment_status" })
+  })
+  it("throws when the order is no longer unpaid (nothing changed)", async () => {
+    const { client } = fakeDb({ airtime_orders: { id: "t1", payment_status: "completed" } })
+    await expect(failOrderStrict(client, "airtime_orders", "t1")).rejects.toThrow(/not in an unpaid state/)
+  })
+  it("throws on an update error instead of swallowing it", async () => {
+    const chain: any = { eq: () => chain, in: () => chain, select: async () => ({ data: null, error: { code: "57014", message: "timeout" } }) }
+    const client: any = { from: () => ({ update: () => chain }) }
+    await expect(failOrderStrict(client, "airtime_orders", "t1")).rejects.toThrow(/timeout/)
+  })
+  it("throws for an unknown table", async () => {
+    const { client } = fakeDb({})
+    await expect(failOrderStrict(client, "nope", "x")).rejects.toThrow(/no fail patch/)
+  })
+  it("createStrictFailHandlers covers every registered table", async () => {
+    const { client } = fakeDb({})
+    expect(Object.keys(createStrictFailHandlers(client)).sort()).toEqual(Object.keys(createFailHandlers(client)).sort())
+  })
+  it("the lenient createFailHandlers keeps swallowing errors (status-check relies on it)", async () => {
+    const chain: any = { eq: () => chain, in: () => chain, then: (res: any) => res({ error: { message: "boom" } }) }
+    const client: any = { from: () => ({ update: () => chain }) }
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    await expect(createFailHandlers(client).airtime_orders("t1")).resolves.toBeUndefined()
+    err.mockRestore()
   })
 })

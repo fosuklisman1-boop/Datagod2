@@ -10,7 +10,11 @@ import { safeDbError } from "./log-safe"
 export type ResolveOutcome = "fulfilled" | "not_paid"
 
 export type ResolveResult =
-  | { ok: true; state: "fulfilled" | "failed"; callbackStatus: HubtelCallbackStatus; callbackNote: string }
+  | {
+      ok: true; state: "fulfilled" | "failed"; callbackStatus: HubtelCallbackStatus; callbackNote: string
+      /** Set when the resolution was recorded but the order row could not be updated: admin must check. */
+      warning?: string
+    }
   | { ok: false; status: 400 | 404 | 409; error: string }
 
 export const RESOLUTION_NOTE_MIN = 5
@@ -79,11 +83,23 @@ export async function resolveNeedsReview(args: {
     return { ok: false, status: 409, error: "The row changed while you were resolving it. Reload and try again." }
   }
 
+  // Pass strict fail handlers (createStrictFailHandlers): they throw when the order row was not
+  // failed, so the admin is warned instead of the order silently staying payable.
+  let warning: string | undefined
   if (args.outcome === "not_paid") {
-    try {
-      const fail = args.failHandlers[row.order_table]
-      if (fail) await fail(row.order_id)
-    } catch (e) { console.error("[HUBTEL-RESOLVE] fail handler error:", args.sessionId, safeDbError(e)) }
+    const orderRef = `${row.order_table} ${row.order_id}`
+    const fail = Object.prototype.hasOwnProperty.call(args.failHandlers, row.order_table) ? args.failHandlers[row.order_table] : undefined
+    if (!fail) {
+      warning = `Resolved, but ${orderRef} has no fail handler, so the order row was not marked failed. It may still be payable: check the order.`
+    } else {
+      try {
+        await fail(row.order_id)
+      } catch (e) {
+        const reason = safeDbError(e).message
+        console.error("[HUBTEL-RESOLVE] fail handler error:", args.sessionId, safeDbError(e))
+        warning = `Resolved, but ${orderRef} could not be marked failed (${reason}). It may still be payable: check the order.`
+      }
+    }
   }
 
   const { error: auditErr } = await args.supabase.from("admin_audit_log").insert([{
@@ -93,11 +109,12 @@ export async function resolveNeedsReview(args: {
     old_value: {
       session_id: row.session_id, order_table: row.order_table, order_id: row.order_id,
       state: row.state, callback_status: row.callback_status, callback_last_error: row.callback_last_error,
+      paid_at: row.paid_at, hubtel_order_id: row.hubtel_order_id, amount_paid: row.amount_paid ?? null,
     },
-    new_value: { outcome: args.outcome, state, callback_status: callbackStatus, note },
+    new_value: { outcome: args.outcome, state, callback_status: callbackStatus, note, ...(warning ? { warning } : {}) },
     created_at: nowIso,
   }])
   if (auditErr) console.warn("[ADMIN-AUDIT] hubtel_resolve_needs_review log insert failed:", safeDbError(auditErr))
 
-  return { ok: true, state, callbackStatus, callbackNote }
+  return warning ? { ok: true, state, callbackStatus, callbackNote, warning } : { ok: true, state, callbackStatus, callbackNote }
 }

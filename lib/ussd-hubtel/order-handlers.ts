@@ -1,7 +1,7 @@
 // lib/ussd-hubtel/order-handlers.ts
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { OrderHandlers } from "./payment"
-import { ORDER_TABLES } from "./order-tables"
+import { ORDER_TABLES, isHubtelOrderTable } from "./order-tables"
 import { safeDbError } from "./log-safe"
 
 const last9 = (p: string | null | undefined) => (p || "").replace(/\D/g, "").slice(-9)
@@ -301,6 +301,35 @@ export function createFailHandlers(supabase: SupabaseClient): OrderHandlers {
         .in("payment_status", [...spec.payableStatuses])
       if (error) console.error("[HUBTEL-ORDER] fail handler update error:", table, orderId, safeDbError(error))
     }
+  }
+  return handlers
+}
+
+/**
+ * Strict variant of the fail handler, used by the admin "not paid" resolution only: the same guarded
+ * update (only an order still in a payable status is failed), but an update error, a row that is no
+ * longer unpaid, or an unknown table THROWS so the admin is told the order may still be payable.
+ * The lenient createFailHandlers (status-check expiry) keeps its swallow-and-log behaviour.
+ */
+export async function failOrderStrict(supabase: SupabaseClient, table: string, orderId: string): Promise<void> {
+  if (!isHubtelOrderTable(table)) throw new Error(`${table} has no fail patch: order ${orderId} left unchanged`)
+  const spec = ORDER_TABLES[table]
+  const { data, error } = await supabase
+    .from(table)
+    .update(spec.failPatch())
+    .eq("id", orderId)
+    .in("payment_status", [...spec.payableStatuses])
+    .select("id")
+  if (error) throw new Error(`${table} ${orderId} could not be marked failed: ${safeDbError(error).message}`)
+  if (!data || data.length === 0) {
+    throw new Error(`${table} ${orderId} is not in an unpaid state (missing, already failed, or paid): left unchanged`)
+  }
+}
+
+export function createStrictFailHandlers(supabase: SupabaseClient): OrderHandlers {
+  const handlers: OrderHandlers = {}
+  for (const table of Object.keys(ORDER_TABLES)) {
+    handlers[table] = orderId => failOrderStrict(supabase, table, orderId)
   }
   return handlers
 }
