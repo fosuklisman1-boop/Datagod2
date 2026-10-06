@@ -6,7 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import type { BundleOption } from "@/lib/ussd/types"
 import type { PrefixValidationConfig } from "@/lib/network-prefix-config"
 import type { HubtelUssdConfig } from "./config"
-import type { AirtimeServices, DialerInfo, RcServices } from "./services"
+import type { AfaServices, AirtimeServices, DialerInfo, RcServices } from "./services"
 import type { HubtelSessionStore } from "./session"
 import type { CallerContext } from "./catalog"
 import { resolveMainMenu, mainMenuText, type MainMenuKey } from "./menus"
@@ -26,6 +26,7 @@ export interface RouterDeps {
   resolveDialer: (phone: string) => Promise<DialerInfo>
   airtime: AirtimeServices
   rc: RcServices
+  afa: AfaServices
 }
 
 export interface FlowCtx {

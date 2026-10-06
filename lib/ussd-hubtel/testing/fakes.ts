@@ -2,7 +2,7 @@
 // Test-only fakes shared by router.test.ts and flows/*.test.ts. Never imported by production code.
 import { DEFAULT_NETWORK_PREFIXES } from "@/lib/phone-format"
 import type { RouterDeps } from "../flow-kit"
-import type { AirtimeServices, RcServices } from "../services"
+import type { AfaServices, AirtimeServices, RcServices } from "../services"
 import type { HubtelRequest, HubtelSession } from "../types"
 
 export const NEW_ID = "11111111-1111-1111-1111-111111111111"
@@ -84,6 +84,7 @@ export function makeDeps(over: Partial<RouterDeps> = {}, sup = fakeSupabase({ pk
     resolveDialer: async () => ({}),
     airtime: fakeAirtime(),
     rc: fakeRc(),
+    afa: fakeAfa(),
     ...over,
   }
   return { deps, store, sup }
@@ -117,4 +118,8 @@ export function fakeRc(over: Partial<RcServices> = {}): RcServices {
     checkSettings: async () => ({ enabled: true, fee: 2 }),
     ...over,
   }
+}
+
+export function fakeAfa(over: Partial<AfaServices> = {}): AfaServices {
+  return { getPrice: async () => 50, ...over }
 }

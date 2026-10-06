@@ -32,6 +32,7 @@ export type HubtelStep =
   | "RC_MENU" | "RC_SELECT_BOARD" | "RC_ENTER_QTY" | "RC_CONFIRM" | "RC_MY_VOUCHERS" | "RC_VOUCHER_DETAIL"
   | "RC_CHECK_BOARD" | "RC_CHECK_CANDIDATE_TYPE" | "RC_CHECK_MODE" | "RC_CHECK_VOUCHER" | "RC_CHECK_INDEX"
   | "RC_CHECK_YEAR" | "RC_CHECK_DOB" | "RC_CHECK_WA_NUMBER" | "RC_CHECK_CONFIRM"
+  | "AFA_ENTER_NAME" | "AFA_ENTER_CARD" | "AFA_ENTER_LOCATION" | "AFA_ENTER_REGION" | "AFA_CONFIRM"
 
 export interface HubtelSession {
   step: HubtelStep
@@ -74,6 +75,12 @@ export interface HubtelSession {
   rcCheckWaNumber?: string // local 0XXXXXXXXX
   rcCheckFee?: number // check-only fee
   rcCheckComboTotal?: number // one voucher + fee; undefined when combo is not offered
+  // AFA registration
+  afaFullName?: string
+  afaGhCard?: string // normalised GHA-XXXXXXXXX-X
+  afaLocation?: string
+  afaRegion?: string
+  afaPrice?: number // = order amount = Hubtel Price
 }
 
 export type HubtelTxState = "awaiting_payment" | "processing" | "fulfilled" | "needs_review" | "failed"

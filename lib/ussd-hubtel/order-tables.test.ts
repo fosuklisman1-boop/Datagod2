@@ -69,6 +69,20 @@ describe("ORDER_TABLES", () => {
     expect(ORDER_TABLES.results_checker_orders.cartItemName({ exam_board: "WASSCE", quantity: 2 })).toBe("WASSCE Checker x2")
     expect(ORDER_TABLES.airtime_orders.cartItemName({ network: "Telecel", beneficiary_phone: "0201234567" })).toBe("Telecel Airtime to 0201234567")
   })
+  it("ussd_afa_orders: payable statuses, fail patch and item name", () => {
+    const s = ORDER_TABLES.ussd_afa_orders
+    expect(s.payableStatuses).toEqual(["pending"])
+    expect(s.failPatch()).toMatchObject({ order_status: "failed", payment_status: "failed" })
+    expect(s.cartItemName({ id: "x" })).toBe("AFA Registration")
+  })
+  it("ussd_afa_orders: cartItemName works on a row narrowed to its cartColumns", () => {
+    const s = ORDER_TABLES.ussd_afa_orders
+    const cols = s.cartColumns.split(",").map(c => c.trim())
+    const full: Record<string, unknown> = { id: "x", full_name: "Kwame Mensah", gh_card_number: "GHA-123456789-0", amount: 50 }
+    const narrowed = Object.fromEntries(cols.map(c => [c, full[c]]))
+    expect(s.cartItemName(narrowed)).toBe("AFA Registration")
+    expect(s.cartItemName(narrowed)).toBe(s.cartItemName(full))
+  })
   it("every fail patch stamps updated_at and every spec names its cart columns", () => {
     for (const [t, s] of Object.entries(ORDER_TABLES)) {
       expect(s.failPatch(), t).toHaveProperty("updated_at")

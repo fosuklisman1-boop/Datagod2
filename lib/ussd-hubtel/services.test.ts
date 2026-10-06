@@ -1,6 +1,6 @@
 // lib/ussd-hubtel/services.test.ts
 import { describe, it, expect } from "vitest"
-import { listMyVouchers } from "./services"
+import { getAfaPrice, listMyVouchers } from "./services"
 
 describe("listMyVouchers", () => {
   it("matches every stored phone format, completed only, newest 5", async () => {
@@ -25,6 +25,29 @@ describe("listMyVouchers", () => {
     const err = console.error
     console.error = () => {}
     expect(await listMyVouchers(supabase, "0200585542")).toEqual([])
+    console.error = err
+  })
+})
+
+describe("getAfaPrice", () => {
+  const client = (data: unknown, error: unknown = null) => {
+    const calls: unknown[][] = []
+    const b: any = { select: () => b, eq: (...a: unknown[]) => { calls.push(a); return b }, maybeSingle: async () => ({ data, error }) }
+    return { supabase: { from: () => b } as any, calls }
+  }
+  it("reads the active 'default' row", async () => {
+    const { supabase, calls } = client({ price: "50.00" })
+    expect(await getAfaPrice(supabase)).toBe(50)
+    expect(calls).toContainEqual(["is_active", true])
+    expect(calls).toContainEqual(["name", "default"])
+  })
+  it("returns null for a missing, zero or unparseable price, and on error", async () => {
+    expect(await getAfaPrice(client(null).supabase)).toBeNull()
+    expect(await getAfaPrice(client({ price: 0 }).supabase)).toBeNull()
+    expect(await getAfaPrice(client({ price: "abc" }).supabase)).toBeNull()
+    const err = console.error
+    console.error = () => {}
+    expect(await getAfaPrice(client(null, { message: "x" }).supabase)).toBeNull()
     console.error = err
   })
 })

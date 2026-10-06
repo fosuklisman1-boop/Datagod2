@@ -84,3 +84,28 @@ export async function listMyVouchers(supabase: SupabaseClient, dialingPhone: str
   }
   return (data ?? []) as MyVoucherOrder[]
 }
+
+export interface AfaServices {
+  /** Active default AFA price, or null when missing/invalid (AFA is then unavailable; never a fallback amount). */
+  getPrice(): Promise<number | null>
+}
+
+export function defaultAfaServices(supabase: SupabaseClient): AfaServices {
+  return { getPrice: () => getAfaPrice(supabase) }
+}
+
+/** Same query as submitAfaOrder (lib/afa-fulfillment.ts): the active row named 'default'. */
+export async function getAfaPrice(supabase: SupabaseClient): Promise<number | null> {
+  const { data, error } = await supabase
+    .from("afa_registration_prices")
+    .select("price")
+    .eq("is_active", true)
+    .eq("name", "default")
+    .maybeSingle()
+  if (error) {
+    console.error("[HUBTEL-AFA] price lookup failed:", error)
+    return null
+  }
+  const price = data?.price != null ? Number(data.price) : NaN
+  return Number.isFinite(price) && price > 0 ? price : null
+}

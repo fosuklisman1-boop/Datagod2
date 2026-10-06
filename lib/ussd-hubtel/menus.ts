@@ -15,7 +15,7 @@ const MAIN_ITEMS: MenuItemDef<MainMenuKey>[] = [
 /** Flip each to true as its flow ships (Plan 2). Admin visibility is ANDed with this. */
 export const IMPLEMENTED_SERVICES: Record<MainMenuKey, boolean> = {
   data: true,
-  afa: false,
+  afa: true,
   airtime: true,
   resultsChecker: true,
 }

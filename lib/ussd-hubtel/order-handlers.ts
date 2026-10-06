@@ -191,8 +191,66 @@ async function checkRequestPostPayment(supabase: SupabaseClient, orderId: string
   }
 }
 
+/**
+ * Mirrors the Paystack webhook's USSD AFA branch: mark paid → fulfillUssdAfaOrder (it has its own
+ * atomic fulfilment claim) → payer SMS. The mark is conditional (pending→completed) and is the
+ * once-only gate. A provider failure is logged, not thrown: the order stays visible to the AFA
+ * retry/manual tools exactly as on the Paystack path. Shop-scoped rows are refused because that
+ * branch's inline shop-profit credit is not ported (the Hubtel main router never sets shop_id).
+ * The library is not trusted to have persisted state: the row is re-read afterwards and anything
+ * other than payment_status 'completed' throws (=> needs_review) before the payer is SMSed.
+ */
+async function afaOrderPostPayment(supabase: SupabaseClient, orderId: string): Promise<void> {
+  const { data: order, error: lookupErr } = await supabase
+    .from("ussd_afa_orders")
+    .select("id, payment_status, dialing_phone, shop_id")
+    .eq("id", orderId)
+    .maybeSingle()
+  if (lookupErr) console.error("[HUBTEL-ORDER] ussd_afa_orders lookup failed:", orderId, lookupErr)
+  if (!order) throw new Error(`ussd_afa_orders ${orderId} not found`)
+  if (order.payment_status === "completed") return // already processed
+  const payable = ORDER_TABLES.ussd_afa_orders.payableStatuses
+  if (!payable.includes(order.payment_status)) {
+    throw new Error(`ussd_afa_orders ${orderId} not in a payable state: ${order.payment_status}`)
+  }
+  if (order.shop_id) throw new Error(`ussd_afa_orders ${orderId} is shop-scoped; not handled on the Hubtel main channel`)
+
+  const { data: marked, error: markErr } = await supabase
+    .from("ussd_afa_orders")
+    .update({ payment_status: "completed", updated_at: new Date().toISOString() })
+    .eq("id", orderId)
+    .in("payment_status", [...payable])
+    .select("id")
+  if (markErr) throw markErr
+  if (!marked || marked.length === 0) throw new Error(`ussd_afa_orders ${orderId} not in a payable state (lost the mark)`)
+
+  try {
+    const { fulfillUssdAfaOrder } = await import("@/lib/ussd/fulfill-afa")
+    const result = await fulfillUssdAfaOrder(orderId)
+    if (!result.success) console.error("[HUBTEL-ORDER] AFA fulfilment failed:", orderId, result.message)
+  } catch (e) {
+    console.error("[HUBTEL-ORDER] Failed to trigger AFA fulfilment:", orderId, e)
+  }
+
+  const { data: after, error: afterErr } = await supabase
+    .from("ussd_afa_orders")
+    .select("id, payment_status")
+    .eq("id", orderId)
+    .maybeSingle()
+  if (afterErr) console.error("[HUBTEL-ORDER] ussd_afa_orders re-read failed:", orderId, afterErr)
+  if (after?.payment_status !== "completed") {
+    throw new Error(`ussd_afa_orders ${orderId} not completed after fulfilment (is ${after?.payment_status ?? "unreadable"}): needs manual review`)
+  }
+
+  const { sendSMS, SMSTemplates } = await import("@/lib/sms-service")
+  try {
+    await sendSMS({ phone: order.dialing_phone, message: SMSTemplates.ussdAfaPaymentReceived(), type: "order_confirmation", reference: orderId })
+  } catch (e) { console.warn("[HUBTEL-ORDER] AFA payer SMS failed:", e) }
+}
+
 export function createOrderHandlers(supabase: SupabaseClient): OrderHandlers {
   return {
+    ussd_afa_orders: orderId => afaOrderPostPayment(supabase, orderId),
     ussd_orders: orderId => ussdOrderPostPayment(supabase, orderId),
     airtime_orders: orderId => airtimeOrderPostPayment(supabase, orderId),
     results_checker_orders: orderId => rcOrderPostPayment(supabase, orderId),
