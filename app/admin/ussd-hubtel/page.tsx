@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -150,39 +150,57 @@ function CallbackLogCard() {
   const [detail, setDetail] = useState<CallbackLogFull | null>(null)
   const [detailError, setDetailError] = useState<string | null>(null)
 
-  const fetchPage = useCallback(async (before: string | null) => {
+  // Sequence tokens: only the LATEST list request / detail request may update state, so rapid
+  // filter toggles or clicking row A then B never show stale data.
+  const listSeq = useRef(0)
+  const detailSeq = useRef(0)
+
+  // `cursor` is the opaque nextBefore ("<created_at>|<id>") from the previous page, or null.
+  const fetchPage = useCallback(async (cursor: string | null) => {
     const params = new URLSearchParams({ limit: "50" })
     if (direction !== "all") params.set("direction", direction)
     if (problemsOnly) params.set("problemsOnly", "1")
-    if (before) params.set("before", before)
+    if (cursor) params.set("before", cursor)
+    const seq = ++listSeq.current
     setLoading(true)
     setLoadError(null)
     try {
       const res = await authed(`/api/admin/ussd-hubtel/callback-logs?${params.toString()}`)
+      if (seq !== listSeq.current) return
       const page: CallbackLogSummary[] = Array.isArray(res.logs) ? res.logs : []
-      setLogs(prev => (before ? [...prev, ...page] : page))
+      setLogs(prev => (cursor ? [...prev, ...page] : page))
       setNextBefore(typeof res.nextBefore === "string" ? res.nextBefore : null)
       setTableMissing(res.tableMissing === true)
     } catch (e: any) {
+      if (seq !== listSeq.current) return
       setLoadError(e.message || "Failed to load callback log")
       toast.error(e.message || "Failed to load callback log")
     } finally {
-      setLoading(false)
+      if (seq === listSeq.current) setLoading(false)
     }
   }, [direction, problemsOnly])
   useEffect(() => { fetchPage(null) }, [fetchPage])
 
   const open = async (l: CallbackLogSummary) => {
+    const seq = ++detailSeq.current
     setSelected(l)
     setDetail(null)
     setDetailError(null)
     try {
       const res = await authed(`/api/admin/ussd-hubtel/callback-logs/${encodeURIComponent(l.id)}`)
+      if (seq !== detailSeq.current) return
+      // Belt and braces: never show a body that belongs to another row.
+      if (res.log && res.log.id !== l.id) return
       setDetail(res.log ?? null)
       if (!res.log) setDetailError("Not found")
     } catch (e: any) {
+      if (seq !== detailSeq.current) return
       setDetailError(e.message || "Failed to load entry")
     }
+  }
+  const closeDetail = () => {
+    detailSeq.current++ // drop any in-flight detail response
+    setSelected(null); setDetail(null); setDetailError(null)
   }
 
   const payloadText = detail ? (detail.payload != null ? prettyJson(detail.payload) : detail.raw_body ?? "") : ""
@@ -222,16 +240,19 @@ function CallbackLogCard() {
           </tr></thead>
           <tbody>
             {logs.map(l => (
-              <tr
-                key={l.id}
-                tabIndex={0}
-                role="button"
-                aria-label={`Open ${directionLabel(l.direction)} log for session ${l.session_id ?? "unknown"}, outcome ${l.outcome ?? "unknown"}`}
-                className="cursor-pointer border-t hover:bg-muted/50 focus:bg-muted/50 focus:outline-none"
-                onClick={() => open(l)}
-                onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(l) } }}
-              >
-                <td className="p-2 whitespace-nowrap">{new Date(l.created_at).toLocaleString()}</td>
+              // The real control is the <button> in the first cell (keyboard + screen readers);
+              // clicking anywhere on the row is a mouse convenience.
+              <tr key={l.id} className="cursor-pointer border-t hover:bg-muted/50 focus-within:bg-muted/50" onClick={() => open(l)}>
+                <td className="p-2 whitespace-nowrap">
+                  <button
+                    type="button"
+                    className="text-left underline decoration-dotted underline-offset-2 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+                    aria-label={`Open ${directionLabel(l.direction)} log for session ${l.session_id ?? "unknown"}, outcome ${l.outcome ?? "unknown"}`}
+                    onClick={e => { e.stopPropagation(); open(l) }}
+                  >
+                    {new Date(l.created_at).toLocaleString()}
+                  </button>
+                </td>
                 <td className="p-2"><Badge variant="outline">{directionLabel(l.direction)}</Badge></td>
                 <td className="p-2 font-mono text-xs" title={l.session_id ?? ""}>{shortId(l.session_id)}</td>
                 <td className="p-2"><Badge variant={isProblem(l) ? "destructive" : "secondary"}>{l.outcome ?? "-"}</Badge></td>
@@ -257,7 +278,7 @@ function CallbackLogCard() {
         )}
       </CardContent>
 
-      <Dialog open={!!selected} onOpenChange={o => { if (!o) { setSelected(null); setDetail(null); setDetailError(null) } }}>
+      <Dialog open={!!selected} onOpenChange={o => { if (!o) closeDetail() }}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle>{selected ? directionLabel(selected.direction) : "Callback"}</DialogTitle>

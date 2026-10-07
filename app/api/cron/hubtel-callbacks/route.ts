@@ -34,6 +34,8 @@ export async function GET(request: NextRequest) {
       const r = await dispatchCallback(store, send, row.session_id)
       counts[r] = (counts[r] ?? 0) + 1
     } catch (e) { console.error("[HUBTEL-CRON] callback error:", row.session_id, safeDbError(e)) }
+    // This row's log write, awaited only AFTER dispatchCallback marked it (bounded ~3s, never throws).
+    await send.flush()
   }
   // 30-day retention for the callback log; best-effort (swallows its own errors).
   await purgeOldCallbackLogs(supabase)

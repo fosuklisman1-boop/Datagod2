@@ -6,6 +6,7 @@ const h = vi.hoisted(() => ({
   auth: { isAdmin: true, userId: "admin-1" } as any,
   calls: [] as Array<[string, ...unknown[]]>,
   result: { data: [], error: null } as { data: unknown; error: unknown },
+  dataset: null as null | Array<{ id: string; created_at: string }>,
 }))
 
 vi.mock("@/lib/admin-auth", () => ({ verifyAdminAccess: vi.fn(async () => h.auth) }))
@@ -14,9 +15,27 @@ vi.mock("@supabase/supabase-js", () => ({
     from: (table: string) => {
       h.calls.push(["from", table])
       const b: any = {}
-      for (const m of ["select", "eq", "lt", "order", "limit"]) b[m] = (...a: unknown[]) => { h.calls.push([m, ...a]); return b }
+      const state = { or: null as string | null, limit: Infinity }
+      for (const m of ["select", "eq", "lt", "order", "limit", "or"]) b[m] = (...a: unknown[]) => {
+        h.calls.push([m, ...a])
+        if (m === "or") state.or = String(a[0])
+        if (m === "limit") state.limit = Number(a[0])
+        return b
+      }
       b.maybeSingle = () => { h.calls.push(["maybeSingle"]); return Promise.resolve(h.result) }
-      b.then = (res: any, rej: any) => Promise.resolve(h.result).then(res, rej)
+      /** With h.dataset set, evaluate the tuple-cursor filter + ordering like PostgREST would. */
+      const evaluate = () => {
+        if (!h.dataset) return h.result
+        let rows = [...h.dataset].sort((x, y) => (x.created_at === y.created_at ? (x.id < y.id ? 1 : -1) : x.created_at < y.created_at ? 1 : -1))
+        if (state.or) {
+          const m = /^created_at\.lt\."([^"]+)",and\(created_at\.eq\."([^"]+)",id\.lt\."([^"]+)"\)$/.exec(state.or)
+          if (!m) throw new Error(`unexpected or filter: ${state.or}`)
+          const [, c, c2, id] = m
+          rows = rows.filter(r => r.created_at < c || (r.created_at === c2 && r.id < id))
+        }
+        return { data: rows.slice(0, state.limit), error: null }
+      }
+      b.then = (res: any, rej: any) => Promise.resolve().then(evaluate).then(res, rej)
       return b
     },
   }),
@@ -39,6 +58,7 @@ beforeEach(() => {
   h.auth = { isAdmin: true, userId: "admin-1" }
   h.calls = []
   h.result = { data: [], error: null }
+  h.dataset = null
 })
 
 describe("GET /api/admin/ussd-hubtel/callback-logs (list)", () => {
@@ -64,20 +84,53 @@ describe("GET /api/admin/ussd-hubtel/callback-logs (list)", () => {
     expect(call("order")[0]).toEqual(["order", "created_at", { ascending: false }])
     expect(call("limit")[0]).toEqual(["limit", 51])
   })
-  it("filters: direction, problemsOnly, before", async () => {
-    await list("?direction=outbound_callback&problemsOnly=1&before=2026-10-07T10:00:00.000Z&limit=10")
+  it("filters: direction, problemsOnly, tuple cursor (created_at, id), ordered by created_at then id", async () => {
+    const c = "2026-10-07T10:00:00.123456+00:00"
+    const id = "00000000-0000-4000-8000-000000000009"
+    await list(`?direction=outbound_callback&problemsOnly=1&before=${encodeURIComponent(`${c}|${id}`)}&limit=10`)
     expect(call("eq")).toEqual([["eq", "direction", "outbound_callback"], ["eq", "ok", false]])
-    expect(call("lt")).toEqual([["lt", "created_at", "2026-10-07T10:00:00.000Z"]])
+    expect(call("lt")).toEqual([])
+    expect(call("or")).toEqual([["or", `created_at.lt."${c}",and(created_at.eq."${c}",id.lt."${id}")`]])
+    expect(call("order")).toEqual([["order", "created_at", { ascending: false }], ["order", "id", { ascending: false }]])
     expect(call("limit")[0]).toEqual(["limit", 11])
   })
-  it("nextBefore is the last row's created_at when there are more rows", async () => {
+  it("nextBefore is '<raw created_at>|<id>' of the last row when there are more rows", async () => {
     h.result = { data: [row(3), row(2), row(1)], error: null }
     const json = await (await list("?limit=2")).json()
     expect(json.logs).toEqual([row(3), row(2)])
-    expect(json.nextBefore).toBe(row(2).created_at)
+    expect(json.nextBefore).toBe(`${row(2).created_at}|${row(2).id}`)
   })
-  it("400s on bad params; nothing queried", async () => {
-    for (const qs of ["?limit=0", "?limit=101", "?limit=abc", "?limit=2.5", "?direction=sideways", "?before=yesterday", "?problemsOnly=maybe"]) {
+  it("paging across identical and microsecond timestamps never skips or duplicates a row", async () => {
+    const ids = Array.from({ length: 9 }, (_, i) => `00000000-0000-4000-8000-0000000000${String(10 + i)}`)
+    const ts = [
+      "2026-10-07T10:00:00.123457+00:00", "2026-10-07T10:00:00.123456+00:00", "2026-10-07T10:00:00.123456+00:00",
+      "2026-10-07T10:00:00.123456+00:00", "2026-10-07T10:00:00.123456+00:00", "2026-10-07T10:00:00.123455+00:00",
+      "2026-10-07T10:00:00.123455+00:00", "2026-10-07T09:59:59.999999+00:00", "2026-10-07T09:59:59.999999+00:00",
+    ]
+    h.dataset = ids.map((id, i) => ({ ...row(1), id, created_at: ts[i] }))
+    const seen: string[] = []
+    let cursor: string | undefined
+    for (let guard = 0; guard < 10; guard++) {
+      const json = await (await list(`?limit=2${cursor ? `&before=${encodeURIComponent(cursor)}` : ""}`)).json()
+      seen.push(...json.logs.map((l: { id: string }) => l.id))
+      cursor = json.nextBefore
+      if (!cursor) break
+    }
+    expect(new Set(seen).size).toBe(seen.length)
+    expect(seen.sort()).toEqual([...ids].sort())
+  })
+  it("400s on bad params or a malformed cursor; nothing queried", async () => {
+    const goodTs = "2026-10-07T10:00:00.123456+00:00"
+    const goodId = "00000000-0000-4000-8000-000000000001"
+    const cursors = [
+      "yesterday", goodTs, `${goodTs}|`, `|${goodId}`, `${goodTs}|nope`, `2026-10-07|${goodId}`,
+      `${goodTs}"),id.gt.0|${goodId}`, `${goodTs}|${goodId}|x`, `2026-10-07T10:00:00,1|${goodId}`,
+    ]
+    for (const c of cursors) {
+      const res = await list(`?before=${encodeURIComponent(c)}`)
+      expect(res.status, c).toBe(400)
+    }
+    for (const qs of ["?limit=0", "?limit=101", "?limit=abc", "?limit=2.5", "?direction=sideways", "?problemsOnly=maybe"]) {
       const res = await list(qs)
       expect(res.status, qs).toBe(400)
     }

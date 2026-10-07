@@ -26,8 +26,15 @@ export async function POST(request: NextRequest) {
     if (row.callback_status === "failed") {
       await store.update(sessionId, { callback_status: "pending", paid_at: new Date().toISOString(), callback_last_error: null })
     }
-    // The attempt is written to hubtel_callback_logs (best-effort; never changes the result).
-    const result = await dispatchCallback(store, withOutboundLogging(sendFulfillmentCallback, supabase), sessionId)
+    // The attempt is written to hubtel_callback_logs. The write is started inside send() but only
+    // awaited AFTER dispatchCallback has marked the row (bounded ~3s, never throws).
+    const send = withOutboundLogging(sendFulfillmentCallback, supabase)
+    let result: Awaited<ReturnType<typeof dispatchCallback>>
+    try {
+      result = await dispatchCallback(store, send, sessionId)
+    } finally {
+      await send.flush()
+    }
     return NextResponse.json({ result })
   } catch (e) {
     console.error("[HUBTEL-ADMIN] retry-callback error:", safeDbError(e))

@@ -4,11 +4,18 @@ import {
   CALLBACK_LOG_TABLE, LOG_CAPS, logHubtelCallback, purgeOldCallbackLogs, shapeCallbackLogRow, withOutboundLogging,
   __resetCallbackLogWarningsForTests,
 } from "./callback-log"
+import { dispatchCallback } from "./callbacks"
 
 /** Fake client recording inserts and deletes; behaviour per call is configurable. */
-function fakeClient(opts: { insertResult?: unknown; insertThrows?: boolean; fromThrows?: boolean; deleteResult?: unknown } = {}) {
+function fakeClient(opts: {
+  insertResult?: unknown; insertThrows?: boolean; insertRejects?: boolean; insertHangs?: boolean
+  fromThrows?: boolean; deleteResult?: unknown; deleteHangs?: boolean
+} = {}) {
   const inserts: Array<{ table: string; rows: any }> = []
   const deletes: Array<{ table: string; column: string; value: string }> = []
+  const signals: AbortSignal[] = []
+  /** Like a PostgREST builder: thenable with .abortSignal() returning itself. */
+  const withAbort = (p: Promise<unknown>) => Object.assign(p, { abortSignal(s: AbortSignal) { signals.push(s); return p } })
   const client: any = {
     from(table: string) {
       if (opts.fromThrows) throw new Error("client exploded")
@@ -16,20 +23,22 @@ function fakeClient(opts: { insertResult?: unknown; insertThrows?: boolean; from
         insert(rows: any) {
           if (opts.insertThrows) throw new Error("insert threw")
           inserts.push({ table, rows })
-          return Promise.resolve(opts.insertResult ?? { error: null })
+          if (opts.insertHangs) return withAbort(new Promise(() => {}))
+          if (opts.insertRejects) return withAbort(Promise.reject(new Error("insert rejected")))
+          return withAbort(Promise.resolve(opts.insertResult ?? { error: null }))
         },
         delete() {
           return {
             lt(column: string, value: string) {
               deletes.push({ table, column, value })
-              return Promise.resolve(opts.deleteResult ?? { error: null })
+              return withAbort(opts.deleteHangs ? new Promise(() => {}) : Promise.resolve(opts.deleteResult ?? { error: null }))
             },
           }
         },
       }
     },
   }
-  return { client, inserts, deletes }
+  return { client, inserts, deletes, signals }
 }
 
 const SECRETS = { HUBTEL_WEBHOOK_SECRET: "whsec-AAA111", HUBTEL_RELAY_SECRET: "relaysec-BBB222" }
@@ -168,6 +177,74 @@ describe("withOutboundLogging", () => {
   })
 })
 
+describe("withOutboundLogging: logging stays out of the send-to-sent gap", () => {
+  afterEach(() => { vi.useRealTimers() })
+
+  it("a log insert that NEVER resolves does not delay send(): dispatchCallback marks 'sent' immediately", async () => {
+    const { client } = fakeClient({ insertHangs: true })
+    const updates: Array<Record<string, unknown>> = []
+    const store: any = {
+      findBySession: async () => ({ session_id: "S1", hubtel_order_id: "H1", callback_status: "pending", callback_attempts: 0, paid_at: new Date().toISOString() }),
+      update: async (_sid: string, patch: Record<string, unknown>) => { updates.push(patch) },
+    }
+    const send = withOutboundLogging(async () => ({ ok: true, upstreamStatus: 200 }), client)
+    // Would time out (5s test timeout) if the wrapper awaited the hanging insert.
+    await expect(dispatchCallback(store, send, "S1")).resolves.toBe("sent")
+    expect(updates).toEqual([expect.objectContaining({ callback_status: "sent" })])
+  })
+  it("flush() resolves within the 3s bound even if the insert hangs", async () => {
+    vi.useFakeTimers()
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const { client } = fakeClient({ insertHangs: true })
+    const send = withOutboundLogging(async () => ({ ok: true }), client)
+    await send({ sessionId: "S1", orderId: "H1" })
+    let done = false
+    const f = send.flush().then(() => { done = true })
+    await vi.advanceTimersByTimeAsync(2_900)
+    expect(done).toBe(false)
+    await vi.advanceTimersByTimeAsync(200)
+    await f
+    expect(done).toBe(true)
+  })
+  it("returns the identical result object and rethrows the identical error object; logs are scheduled", async () => {
+    const { client, inserts } = fakeClient()
+    const result = { ok: true }
+    const ok = withOutboundLogging(async () => result, client)
+    expect(await ok({ sessionId: "A", orderId: "B" })).toBe(result)
+    const boom = new Error("x")
+    const bad = withOutboundLogging(async () => { throw boom }, client)
+    await expect(bad({ sessionId: "A", orderId: "B" })).rejects.toBe(boom)
+    await ok.flush(); await bad.flush()
+    expect(inserts).toHaveLength(2)
+  })
+  it("flush after a failed (thrown / errored) insert never throws, and can be called repeatedly", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    for (const opts of [{ insertThrows: true }, { insertResult: { error: { message: "x" } } }, { insertRejects: true }]) {
+      const send = withOutboundLogging(async () => ({ ok: false, error: "e" }), fakeClient(opts).client)
+      await send({ sessionId: "S", orderId: "O" })
+      await expect(send.flush()).resolves.toBeUndefined()
+      await expect(send.flush()).resolves.toBeUndefined()
+    }
+  })
+  it("every log insert is given a 3s abort signal", async () => {
+    const { client, signals } = fakeClient()
+    await logHubtelCallback(client, { direction: "outbound_callback" })
+    expect(signals).toHaveLength(1)
+    expect(signals[0]).toBeInstanceOf(AbortSignal)
+  })
+  it("logHubtelCallback itself resolves after 3s when the insert hangs (one PII-free warning)", async () => {
+    vi.useFakeTimers()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const { client } = fakeClient({ insertHangs: true })
+    const p = logHubtelCallback(client, { direction: "inbound_fulfillment", sessionId: "S-secret-ish", payload: { CustomerName: "Kwame" } })
+    await vi.advanceTimersByTimeAsync(3_000)
+    await expect(p).resolves.toBeUndefined()
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("Kwame")
+  })
+})
+
 describe("purgeOldCallbackLogs", () => {
   it("deletes rows older than N days (default 30)", async () => {
     const { client, deletes } = fakeClient()
@@ -178,6 +255,21 @@ describe("purgeOldCallbackLogs", () => {
       { table: CALLBACK_LOG_TABLE, column: "created_at", value: "2026-09-07T12:00:00.000Z" },
       { table: CALLBACK_LOG_TABLE, column: "created_at", value: "2026-09-07T12:00:00.000Z" },
     ])
+  })
+  it("never deletes for a non-positive or non-finite retention", async () => {
+    const { client, deletes } = fakeClient()
+    for (const days of [0, -5, NaN, Infinity, 0.5]) await purgeOldCallbackLogs(client, days)
+    expect(deletes).toEqual([])
+  })
+  it("the purge is bounded too (hanging delete resolves after 3s)", async () => {
+    vi.useFakeTimers()
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+    const { client, signals } = fakeClient({ deleteHangs: true })
+    const p = purgeOldCallbackLogs(client)
+    await vi.advanceTimersByTimeAsync(3_000)
+    await expect(p).resolves.toBeUndefined()
+    expect(signals).toHaveLength(1)
+    vi.useRealTimers()
   })
   it("swallows errors (returned, thrown, table missing)", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {})

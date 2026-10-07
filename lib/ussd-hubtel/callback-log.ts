@@ -18,7 +18,12 @@ export type InboundLogOutcome =
 
 /** Inbound outcomes that need a human look; logged with ok=false so "Problems only" finds them. */
 const INBOUND_PROBLEMS: ReadonlySet<string> = new Set(["parse_error", "invalid_payload", "needs_review", "unknown_session", "error"])
-export function inboundOk(outcome: InboundLogOutcome): boolean {
+/**
+ * `isSuccessful` is the payload's IsSuccessful flag: an unknown session is only a problem when
+ * money was actually taken (or we cannot tell); an unpaid one is not.
+ */
+export function inboundOk(outcome: InboundLogOutcome, isSuccessful?: boolean): boolean {
+  if (outcome === "unknown_session") return isSuccessful === false
   return !INBOUND_PROBLEMS.has(outcome)
 }
 
@@ -147,38 +152,75 @@ function reportFailure(what: string, err: unknown): void {
   console.error(`[HUBTEL-CALLBACK-LOG] ${what} failed:`, safeDbError(err))
 }
 
-/** Inserts one log row. Best-effort: never throws, never rejects. */
+/** No log write may take longer than this (a stalled DB must never hold up a caller). */
+export const LOG_WRITE_TIMEOUT_MS = 3_000
+const TIMED_OUT = Symbol("callback-log-timeout")
+
+/**
+ * Runs a PostgREST write with BOTH an abort signal (cancels the HTTP request when the builder
+ * supports it) and a timer race (so even a builder that ignores the signal cannot hang us).
+ */
+async function bounded(builder: unknown): Promise<{ error?: unknown } | typeof TIMED_OUT> {
+  const b = builder as { abortSignal?: (s: AbortSignal) => unknown }
+  const q = typeof b?.abortSignal === "function" ? b.abortSignal(AbortSignal.timeout(LOG_WRITE_TIMEOUT_MS)) : builder
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<typeof TIMED_OUT>(resolve => { timer = setTimeout(() => resolve(TIMED_OUT), LOG_WRITE_TIMEOUT_MS) })
+  try {
+    return await Promise.race([Promise.resolve(q as PromiseLike<{ error?: unknown }>), timeout])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+function reportTimeout(what: string): void {
+  // PII-free on purpose: no row content, ids or payload.
+  console.warn(`[HUBTEL-CALLBACK-LOG] ${what} timed out after ${LOG_WRITE_TIMEOUT_MS}ms; entry dropped`)
+}
+
+/** Inserts one log row. Best-effort: never throws, never rejects, never takes longer than ~3s. */
 export async function logHubtelCallback(supabase: SupabaseClient, entry: CallbackLogEntry): Promise<void> {
   try {
     if (!supabase) return
-    const { error } = await supabase.from(CALLBACK_LOG_TABLE).insert(shapeCallbackLogRow(entry))
-    if (error) reportFailure("insert", error)
+    const r = await bounded(supabase.from(CALLBACK_LOG_TABLE).insert(shapeCallbackLogRow(entry)))
+    if (r === TIMED_OUT) return reportTimeout("insert")
+    if (r?.error) reportFailure("insert", r.error)
   } catch (e) {
+    if (e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError")) return reportTimeout("insert")
     reportFailure("insert", e)
   }
 }
 
 type SendResult = { ok: boolean; error?: string; upstreamStatus?: number; upstreamBody?: unknown }
 
+/** A callback sender whose log writes are deferred until `flush()`. */
+export type LoggedCallbackSender<R> = ((p: { sessionId: string; orderId: string }) => Promise<R>) & {
+  /** Waits (bounded, ~3s per write) for this sender's pending log writes. Never throws. */
+  flush(): Promise<void>
+}
+
 /**
- * Wraps a callback sender so every attempt is logged. Returns the sender's result (same object)
- * unchanged; a throwing sender is logged as failed and the error is rethrown as before.
+ * Wraps a callback sender so every attempt is logged WITHOUT sitting between "Hubtel got the
+ * callback" and dispatchCallback marking the row 'sent': the insert is only started here (it never
+ * rejects) and the original result object is returned immediately; a throwing sender schedules a
+ * failed entry and the same error object is rethrown. Callers `await sender.flush()` AFTER
+ * dispatchCallback returns.
  */
 export function withOutboundLogging<R extends SendResult>(
   send: (p: { sessionId: string; orderId: string }) => Promise<R>,
   supabase: SupabaseClient
-): (p: { sessionId: string; orderId: string }) => Promise<R> {
-  return async p => {
+): LoggedCallbackSender<R> {
+  let pending: Promise<void>[] = []
+  const schedule = (entry: CallbackLogEntry) => { pending.push(logHubtelCallback(supabase, entry)) }
+  const sender = async (p: { sessionId: string; orderId: string }): Promise<R> => {
     const base = { direction: "outbound_callback" as const, sessionId: p.sessionId, hubtelOrderId: p.orderId, payload: buildCallbackPayload(p) }
     let result: R
     try {
       result = await send(p)
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e)
-      await logHubtelCallback(supabase, { ...base, outcome: "failed", ok: false, error: message })
+      schedule({ ...base, outcome: "failed", ok: false, error: e instanceof Error ? e.message : String(e) })
       throw e
     }
-    await logHubtelCallback(supabase, {
+    schedule({
       ...base,
       outcome: result.ok ? "sent" : "failed",
       ok: result.ok === true,
@@ -188,21 +230,30 @@ export function withOutboundLogging<R extends SendResult>(
     })
     return result
   }
+  const flush = async (): Promise<void> => {
+    const batch = pending
+    pending = []
+    try { await Promise.allSettled(batch) } catch { /* allSettled never rejects; belt and braces */ }
+  }
+  return Object.assign(sender, { flush })
 }
 
 export const CALLBACK_LOG_RETENTION_DAYS = 30
 
-/** Deletes rows older than `days`. Best-effort: never throws. */
+/** Deletes rows older than `days` (whole days >= 1 only: never "everything"). Best-effort, bounded. */
 export async function purgeOldCallbackLogs(
   supabase: SupabaseClient,
   days: number = CALLBACK_LOG_RETENTION_DAYS,
   now: number = Date.now()
 ): Promise<void> {
+  if (!Number.isFinite(days) || days < 1) return
   try {
     const cutoff = new Date(now - days * 86_400_000).toISOString()
-    const { error } = await supabase.from(CALLBACK_LOG_TABLE).delete().lt("created_at", cutoff)
-    if (error) reportFailure("purge", error)
+    const r = await bounded(supabase.from(CALLBACK_LOG_TABLE).delete().lt("created_at", cutoff))
+    if (r === TIMED_OUT) return reportTimeout("purge")
+    if (r?.error) reportFailure("purge", r.error)
   } catch (e) {
+    if (e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError")) return reportTimeout("purge")
     reportFailure("purge", e)
   }
 }

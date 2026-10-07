@@ -6,6 +6,7 @@ const h = vi.hoisted(() => ({
   inserts: [] as any[],
   deletes: [] as any[],
   deleteThrows: false,
+  insertHangs: false,
   rows: [] as Array<{ session_id: string }>,
   dispatch: vi.fn(),
   send: vi.fn(),
@@ -15,7 +16,7 @@ vi.mock("@/lib/cron-auth", () => ({ verifyCronAuth: () => ({ authorized: true })
 vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
     from: (table: string) => ({
-      insert: (row: any) => { h.inserts.push({ table, row }); return Promise.resolve({ error: null }) },
+      insert: (row: any) => { h.inserts.push({ table, row }); return h.insertHangs ? new Promise(() => {}) : Promise.resolve({ error: null }) },
       delete: () => ({
         lt: (column: string, value: string) => {
           if (h.deleteThrows) throw new Error("delete exploded")
@@ -35,7 +36,7 @@ vi.mock("@/lib/ussd-hubtel/relay", async importOriginal => ({
 import { GET } from "./route"
 
 beforeEach(() => {
-  h.inserts = []; h.deletes = []; h.deleteThrows = false
+  h.inserts = []; h.deletes = []; h.deleteThrows = false; h.insertHangs = false
   h.rows = [{ session_id: "S1" }, { session_id: "S2" }]
   h.dispatch.mockReset().mockImplementation(async (_s: unknown, send: any, sid: string) => {
     const r = await send({ sessionId: sid, orderId: `O-${sid}` })
@@ -61,6 +62,27 @@ describe("cron hubtel-callbacks: callback log", () => {
     expect(h.deletes[0]).toMatchObject({ table: "hubtel_callback_logs", column: "created_at" })
     const cutoff = Date.parse(h.deletes[0].value)
     expect(Math.abs(Date.now() - 30 * 86_400_000 - cutoff)).toBeLessThan(60_000)
+  })
+  it("a hanging log insert never blocks a row's dispatch, and each flush is bounded (3s)", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+    h.insertHangs = true
+    const dispatchedAt: number[] = []
+    h.dispatch.mockImplementation(async (_s: unknown, send: any, sid: string) => {
+      const r = await send({ sessionId: sid, orderId: `O-${sid}` })
+      dispatchedAt.push(Date.now())
+      return r.ok ? "sent" : "retry"
+    })
+    vi.useFakeTimers()
+    try {
+      const p = GET(new NextRequest("http://localhost/api/cron/hubtel-callbacks"))
+      await vi.advanceTimersByTimeAsync(0)
+      expect(dispatchedAt).toHaveLength(1) // row 1 dispatched (and marked) without waiting for its log
+      await vi.advanceTimersByTimeAsync(3_000)
+      expect(dispatchedAt).toHaveLength(2)
+      await vi.advanceTimersByTimeAsync(6_000)
+      const res = await p
+      expect(await res.json()).toEqual({ listed: 2, processed: 2, sent: 1, retry: 1 })
+    } finally { vi.useRealTimers() }
   })
   it("a purge failure does not change the response", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {})

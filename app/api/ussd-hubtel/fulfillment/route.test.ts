@@ -7,6 +7,8 @@ const h = vi.hoisted(() => ({
   inserts: [] as Array<{ table: string; row: any }>,
   insertResult: { error: null } as unknown,
   insertThrows: false,
+  insertHangs: false,
+  afterThrows: false,
   process: vi.fn(),
   dispatch: vi.fn(),
   send: vi.fn(),
@@ -14,7 +16,10 @@ const h = vi.hoisted(() => ({
 
 vi.mock("next/server", async importOriginal => ({
   ...(await importOriginal<typeof import("next/server")>()),
-  after: (fn: () => unknown) => { h.afterTasks.push(fn) },
+  after: (fn: () => unknown) => {
+    if (h.afterThrows) throw new Error("after() unavailable")
+    h.afterTasks.push(fn)
+  },
 }))
 vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
@@ -22,7 +27,7 @@ vi.mock("@supabase/supabase-js", () => ({
       insert: (row: any) => {
         if (h.insertThrows) throw new Error("insert exploded")
         h.inserts.push({ table, row })
-        return Promise.resolve(h.insertResult)
+        return h.insertHangs ? new Promise(() => {}) : Promise.resolve(h.insertResult)
       },
     }),
   }),
@@ -58,7 +63,7 @@ const logs = () => h.inserts.filter(i => i.table === "hubtel_callback_logs").map
 beforeEach(() => {
   vi.stubEnv("HUBTEL_WEBHOOK_SECRET", SECRET)
   vi.stubEnv("HUBTEL_ENFORCE_FULFILLMENT_IP", "")
-  h.afterTasks = []; h.inserts = []; h.insertResult = { error: null }; h.insertThrows = false
+  h.afterTasks = []; h.inserts = []; h.insertResult = { error: null }; h.insertThrows = false; h.insertHangs = false; h.afterThrows = false
   h.process.mockReset().mockResolvedValue("fulfilled")
   h.dispatch.mockReset().mockImplementation(async (_store: unknown, send: any, sid: string) => { await send({ sessionId: sid, orderId: "H1" }); return "sent" })
   h.send.mockReset().mockResolvedValue({ ok: true, upstreamStatus: 200, upstreamBody: { ResponseCode: "0000" } })
@@ -130,8 +135,9 @@ describe("POST /api/ussd-hubtel/fulfillment: responses unchanged", () => {
   })
   it("processing throws: the error still propagates (unchanged) and an 'error' log is scheduled", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {})
-    h.process.mockRejectedValue(new Error("db down"))
-    await expect(POST(post(JSON.stringify(PAYLOAD)))).rejects.toThrow("db down")
+    const boom = new Error("db down")
+    h.process.mockRejectedValue(boom)
+    await expect(POST(post(JSON.stringify(PAYLOAD)))).rejects.toBe(boom)
     await runAfter()
     expect(logs()).toEqual([expect.objectContaining({ outcome: "error", ok: false, session_id: "S1", error: "db down" })])
   })
@@ -166,6 +172,62 @@ describe("POST /api/ussd-hubtel/fulfillment: responses unchanged", () => {
     expect(res.status).toBe(403)
     await runAfter()
     expect(logs()).toEqual([])
+  })
+  it("after() throwing while scheduling a log: responses unchanged", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    h.afterThrows = true
+    h.process.mockResolvedValue("duplicate") // no callback after(): every after() call here is a log
+    const ok = await POST(post(JSON.stringify(PAYLOAD)))
+    expect(ok.status).toBe(200)
+    expect(await ok.json()).toEqual({ received: true, outcome: "duplicate" })
+    const bad = await POST(post("{nope"))
+    expect(bad.status).toBe(400)
+    expect(await bad.json()).toEqual({ error: "Invalid JSON" })
+    const invalid = await POST(post(JSON.stringify({ SessionId: "S" })))
+    expect(invalid.status).toBe(400)
+  })
+  it("no secret configured: 503 and nothing logged", async () => {
+    vi.stubEnv("HUBTEL_WEBHOOK_SECRET", "")
+    const res = await POST(post(JSON.stringify(PAYLOAD)))
+    expect(res.status).toBe(503)
+    await runAfter()
+    expect(logs()).toEqual([])
+    expect(h.afterTasks).toEqual([])
+  })
+  it("a hanging log insert does not delay the webhook response", async () => {
+    h.insertHangs = true
+    const res = await POST(post(JSON.stringify(PAYLOAD)))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ received: true, outcome: "fulfilled" })
+  })
+  it("the immediate callback flushes its log after dispatchCallback returns (log not in the send-to-sent gap)", async () => {
+    let dispatched = false
+    h.dispatch.mockImplementation(async (_s: unknown, send: any, sid: string) => {
+      await send({ sessionId: sid, orderId: "H1" })
+      dispatched = true
+      return "sent"
+    })
+    h.insertHangs = true
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+    vi.useFakeTimers()
+    try {
+      await POST(post(JSON.stringify(PAYLOAD)))
+      const tasks = h.afterTasks.splice(0)
+      const all = Promise.all(tasks.map(t => t()))
+      await vi.advanceTimersByTimeAsync(0)
+      expect(dispatched).toBe(true) // dispatch finished while the insert still hangs
+      await vi.advanceTimersByTimeAsync(3_000)
+      await expect(all).resolves.toBeDefined()
+    } finally { vi.useRealTimers() }
+  })
+  it("unknown_session: ok=false only when money was taken (IsSuccessful=true)", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    h.process.mockResolvedValue("unknown_session")
+    const unpaid = { ...PAYLOAD, OrderInfo: { ...PAYLOAD.OrderInfo, Payment: { ...PAYLOAD.OrderInfo.Payment, IsSuccessful: false } } }
+    await POST(post(JSON.stringify(unpaid)))
+    await POST(post(JSON.stringify(PAYLOAD)))
+    await runAfter()
+    expect(logs().map(r => [r.outcome, r.ok])).toEqual([["unknown_session", true], ["unknown_session", false]])
   })
   it("never stores the secret, URL or headers", async () => {
     await POST(post(JSON.stringify(PAYLOAD), { ip: "52.50.116.54" }))

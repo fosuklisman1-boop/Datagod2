@@ -28,9 +28,13 @@ export async function POST(request: NextRequest) {
   // Callback log (best-effort, after the response): only authenticated requests reach this point.
   // Stores the body as received; never the URL/query string (secret) or headers.
   const sourceIp = getClientIp(request.headers)
-  const logInbound = (entry: Omit<CallbackLogEntry, "direction" | "sourceIp" | "ok"> & { outcome: InboundLogOutcome }) => {
+  const logInbound = (
+    entry: Omit<CallbackLogEntry, "direction" | "sourceIp" | "ok"> & { outcome: InboundLogOutcome },
+    isSuccessful?: boolean
+  ) => {
     try {
-      after(() => logHubtelCallback(supabase, { direction: "inbound_fulfillment", sourceIp, ok: inboundOk(entry.outcome), ...entry }))
+      const ok = inboundOk(entry.outcome, isSuccessful)
+      after(() => logHubtelCallback(supabase, { direction: "inbound_fulfillment", sourceIp, ok, ...entry }))
     } catch (e) { console.error("[HUBTEL-FULFILL] could not schedule callback log:", safeDbError(e)) }
   }
 
@@ -61,7 +65,7 @@ export async function POST(request: NextRequest) {
     logInbound({ outcome: "error", sessionId, hubtelOrderId, payload: body, error: e instanceof Error ? e.message : String(e) })
     throw e
   }
-  logInbound({ outcome, sessionId, hubtelOrderId, payload: body })
+  logInbound({ outcome, sessionId, hubtelOrderId, payload: body }, info.isSuccessful)
   if (outcome === "unknown_session" && info.isSuccessful) {
     // Money was taken for a session we have no record of: needs a human (refund or fulfil).
     console.error("[HUBTEL-FULFILL] successful payment for UNKNOWN session (no hubtel_transactions row):", JSON.stringify({
@@ -75,8 +79,12 @@ export async function POST(request: NextRequest) {
   if (outcome === "fulfilled" || outcome === "needs_review") {
     // Immediate attempt; the callbacks cron retries if this fails.
     after(async () => {
-      try { await dispatchCallback(store, withOutboundLogging(sendFulfillmentCallback, supabase), info.sessionId) }
+      // The log write is started inside send() but only awaited here, AFTER dispatchCallback has
+      // marked the row 'sent' (flush is bounded and never throws).
+      const send = withOutboundLogging(sendFulfillmentCallback, supabase)
+      try { await dispatchCallback(store, send, info.sessionId) }
       catch (e) { console.error("[HUBTEL-FULFILL] immediate callback error:", safeDbError(e)) }
+      await send.flush()
     })
   }
   // Always 200 for handled/duplicate/unknown so Hubtel does not hammer retries.
