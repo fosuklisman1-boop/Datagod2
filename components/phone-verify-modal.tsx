@@ -165,6 +165,37 @@ export function PhoneVerifyModal({ open, currentPhone, deadline, onVerified, onD
     }
   }
 
+  // Does the actual persist — takes the phone value from its CALLER rather
+  // than relying on changePhoneVerified's state flag: that flag is set via
+  // setChangePhoneVerified() earlier in the same tick this runs in, so the
+  // component hasn't re-rendered yet and a state read here would still see
+  // the stale (false) value.
+  const saveNewPhone = async (verifiedPhone: string) => {
+    setChangeSaving(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) { toast.error("Not authenticated"); return }
+
+      const res = await fetch("/api/user/update-phone", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ phoneNumber: verifiedPhone }),
+      })
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.error || "Failed to update phone"); return }
+
+      toast.success("Phone number updated and verified!")
+      onVerified(verifiedPhone)
+    } catch {
+      toast.error("Failed to update phone")
+    } finally {
+      setChangeSaving(false)
+    }
+  }
+
   const handleVerifyNewPhone = async () => {
     if (!changeOtpCode || changeOtpCode.length !== 6) { toast.error("Enter the 6-digit code"); return }
     setChangeVerifyLoading(true)
@@ -177,7 +208,12 @@ export function PhoneVerifyModal({ open, currentPhone, deadline, onVerified, onD
       const data = await res.json()
       if (!res.ok || !data.verified) { toast.error(data.error || "Invalid or expired code"); return }
       setChangePhoneVerified(true)
-      toast.success("New number verified!")
+      // Save immediately — a separate "now click Save New Number" step is
+      // exactly what left real customers verified-but-never-saved in
+      // production (confirmed live: their OTP was marked used, but
+      // users.phone_number/phone_verified never actually updated, because
+      // the "New number verified!" toast made it sound like they were done).
+      await saveNewPhone(newPhone)
     } catch {
       toast.error("Failed to verify")
     } finally {
@@ -185,30 +221,10 @@ export function PhoneVerifyModal({ open, currentPhone, deadline, onVerified, onD
     }
   }
 
+  // Manual retry path for the "Save New Number" button — only ever needed if
+  // the automatic save above failed.
   const handleSaveNewPhone = async () => {
-    setChangeSaving(true)
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) { toast.error("Not authenticated"); return }
-
-      const res = await fetch("/api/user/update-phone", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ phoneNumber: newPhone }),
-      })
-      const data = await res.json()
-      if (!res.ok) { toast.error(data.error || "Failed to update phone"); return }
-
-      toast.success("Phone number updated and verified!")
-      onVerified(newPhone)
-    } catch {
-      toast.error("Failed to update phone")
-    } finally {
-      setChangeSaving(false)
-    }
+    await saveNewPhone(newPhone)
   }
 
   return (
