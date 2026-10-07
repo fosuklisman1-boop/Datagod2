@@ -2,6 +2,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import Link from "next/link"
 import { supabase } from "@/lib/supabase"
 import { calculateSegments } from "@/lib/sms/segments"
 import { shopService, shopProfitService } from "@/lib/shop-service"
@@ -284,9 +285,16 @@ export default function SmsDashboardPage() {
     try {
       const t = await token()
       const headers = { Authorization: `Bearer ${t}` }
-      const accRes = await fetch("/api/sms/account", { headers }).then((r) => r.json()).catch(() => ({}))
+      const res = await fetch("/api/sms/account", { headers })
+      const accRes = await res.json().catch(() => ({}))
       setAccount(accRes.account ?? null)
-      setLoadError(!accRes.account)
+      // A clean 403 means this profile genuinely isn't entitled to an SMS
+      // account (no shop, not a sub-agent, not admin — see
+      // lib/sms/account-service.ts's resolveOwnerContext) — a real, by-design
+      // answer, not a connectivity failure. Only treat this as "couldn't
+      // load" (and blame the connection) for an actual network-level
+      // rejection, caught below, or a response we can't even parse as JSON.
+      setLoadError(!accRes.account && res.status !== 403)
     } catch {
       setLoadError(true)
       toast.error("Could not load your SMS account. Please retry.")
@@ -991,12 +999,20 @@ export default function SmsDashboardPage() {
         <div className="p-4 md:p-6 max-w-md">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2"><AlertCircle className="h-5 w-5 text-destructive" /> Couldn’t load SMS</CardTitle>
+              <CardTitle className="flex items-center gap-2"><AlertCircle className="h-5 w-5 text-destructive" /> {loadError ? "Couldn’t load SMS" : "Bulk SMS not available yet"}</CardTitle>
               <CardDescription>
-                {loadError ? "We couldn’t load your SMS account. Check your connection and try again." : "No SMS account is available for your profile."}
+                {loadError
+                  ? "We couldn’t load your SMS account. Check your connection and try again."
+                  : "Bulk SMS is available to shop owners, sub-agents, and admins. Create a shop to unlock it."}
               </CardDescription>
             </CardHeader>
-            <CardContent><Button onClick={() => { setLoading(true); load() }} className="bg-[#1b388b] text-white hover:bg-[#1b388b]/90"><Loader2 className="h-4 w-4" /> Retry</Button></CardContent>
+            <CardContent>
+              {loadError ? (
+                <Button onClick={() => { setLoading(true); load() }} className="bg-[#1b388b] text-white hover:bg-[#1b388b]/90"><Loader2 className="h-4 w-4" /> Retry</Button>
+              ) : (
+                <Button asChild className="bg-[#1b388b] text-white hover:bg-[#1b388b]/90"><Link href="/dashboard/my-shop">Create a Shop</Link></Button>
+              )}
+            </CardContent>
           </Card>
         </div>
       </DashboardLayout>
