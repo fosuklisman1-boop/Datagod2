@@ -6,10 +6,18 @@ function relayConfig(): { url: string; secret: string } | null {
   return url && secret ? { url: url.replace(/\/$/, ""), secret } : null
 }
 
+export type HubtelServiceStatus = "success" | "failed"
+
+export interface CallbackParams {
+  sessionId: string
+  orderId: string
+  /** Defaults to "success" when omitted. dispatchCallback sets it from the transaction's state. */
+  serviceStatus?: HubtelServiceStatus
+}
+
 /** The callback body Hubtel receives (via the relay). Also what the callback log records. */
-export function buildCallbackPayload(p: { sessionId: string; orderId: string }) {
-  // Always "success": spec §8 (failures are handled in our own admin / refunds, not via Hubtel).
-  return { SessionId: p.sessionId, OrderId: p.orderId, ServiceStatus: "success", MetaData: null }
+export function buildCallbackPayload(p: CallbackParams) {
+  return { SessionId: p.sessionId, OrderId: p.orderId, ServiceStatus: p.serviceStatus ?? "success", MetaData: null }
 }
 
 export interface FulfillmentCallbackResult {
@@ -21,7 +29,7 @@ export interface FulfillmentCallbackResult {
   upstreamBody?: unknown
 }
 
-export async function sendFulfillmentCallback(p: { sessionId: string; orderId: string }): Promise<FulfillmentCallbackResult> {
+export async function sendFulfillmentCallback(p: CallbackParams): Promise<FulfillmentCallbackResult> {
   const cfg = relayConfig()
   if (!cfg) return { ok: false, error: "relay not configured" }
   try {

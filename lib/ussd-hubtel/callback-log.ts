@@ -5,7 +5,7 @@
 // a caller's result, and is silent (one warning per process) until the migration is applied.
 // Never stores URLs, query strings, headers, or secret values.
 import type { SupabaseClient } from "@supabase/supabase-js"
-import { buildCallbackPayload } from "./relay"
+import { buildCallbackPayload, type CallbackParams } from "./relay"
 import { safeDbError } from "./log-safe"
 
 export const CALLBACK_LOG_TABLE = "hubtel_callback_logs"
@@ -193,7 +193,7 @@ export async function logHubtelCallback(supabase: SupabaseClient, entry: Callbac
 type SendResult = { ok: boolean; error?: string; upstreamStatus?: number; upstreamBody?: unknown }
 
 /** A callback sender whose log writes are deferred until `flush()`. */
-export type LoggedCallbackSender<R> = ((p: { sessionId: string; orderId: string }) => Promise<R>) & {
+export type LoggedCallbackSender<R> = ((p: CallbackParams) => Promise<R>) & {
   /** Waits (bounded, ~3s per write) for this sender's pending log writes. Never throws. */
   flush(): Promise<void>
 }
@@ -206,13 +206,14 @@ export type LoggedCallbackSender<R> = ((p: { sessionId: string; orderId: string 
  * dispatchCallback returns.
  */
 export function withOutboundLogging<R extends SendResult>(
-  send: (p: { sessionId: string; orderId: string }) => Promise<R>,
+  send: (p: CallbackParams) => Promise<R>,
   supabase: SupabaseClient
 ): LoggedCallbackSender<R> {
   let pending: Promise<void>[] = []
   const schedule = (entry: CallbackLogEntry) => { pending.push(logHubtelCallback(supabase, entry)) }
-  const sender = async (p: { sessionId: string; orderId: string }): Promise<R> => {
+  const sender = async (p: CallbackParams): Promise<R> => {
     const base = { direction: "outbound_callback" as const, sessionId: p.sessionId, hubtelOrderId: p.orderId, payload: buildCallbackPayload(p) }
+    // NB: p carries serviceStatus through, so the logged payload is exactly what is sent.
     let result: R
     try {
       result = await send(p)
