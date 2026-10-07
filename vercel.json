@@ -6,6 +6,14 @@
   "regions": ["iad1"],
   "crons": [
     {
+      "path": "/api/cron/hubtel-callbacks",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/hubtel-status-check",
+      "schedule": "*/2 * * * *"
+    },
+    {
       "path": "/api/cron/sync-mtn-status",
       "schedule": "* * * * *"
     },
