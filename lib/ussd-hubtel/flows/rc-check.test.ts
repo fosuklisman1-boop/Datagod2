@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from "vitest"
 import { hubtelRouter, type RouterDeps } from "../router"
 import { digitFor, fakeRc, fakeSupabase, makeDeps, NEW_ID, OK_PKG, req } from "../testing/fakes"
 import type { HubtelReply } from "../types"
+import { accountRequiredText } from "./rc-check"
 
 const member = { resolveDialer: async () => ({ userId: "u1" }) }
 
@@ -34,11 +35,28 @@ describe("check results: entry gates", () => {
     expect(r.Message).toContain("Service not available.")
     expect(store.get("S1")?.step).toBe("RC_MENU")
   })
-  it("caller without a Datagod account is told to register (Uzo gate kept)", async () => {
+  it("caller without an account is told to register (Uzo gate kept)", async () => {
     const { deps } = makeDeps()
     const r = await toCheck(deps)
     expect(r.Type).toBe("release")
-    expect(r.Message).toContain("create a Datagod account")
+    expect(r.Message).toContain("create a Clingshub account")
+  })
+  it("the account-required message uses the configured brand and fits one USSD screen with a 30-char brand", async () => {
+    for (const brandName of ["Ama Data", "B".repeat(15) + " " + "c".repeat(14)]) {
+      const { deps } = makeDeps({
+        getConfig: async () => ({
+          enabled: true, mode: "main", visibility: { data: true, afa: true, airtime: true, resultsChecker: true },
+          brandName, welcome: `Welcome to ${brandName}`, welcomeCustom: false,
+        }),
+      })
+      const r = await toCheck(deps)
+      expect(r.Type).toBe("release")
+      expect(r.Message).toBe(accountRequiredText(brandName))
+      expect(r.Message).toContain(`create a ${brandName} account`)
+      expect(r.Message).not.toContain("Datagod")
+      expect(r.Message.length).toBeLessThanOrEqual(182)
+      expect(r.Message.endsWith("this service.")).toBe(true)
+    }
   })
   it("a settings read error fails closed: the error propagates (route answers Service unavailable)", async () => {
     const { deps } = makeDeps({ ...member, rc: fakeRc({ checkSettings: async () => { throw new Error("db down") } }) })
@@ -173,7 +191,7 @@ describe("check results: combo (voucher + check)", () => {
     registered = false
     const r = await hubtelRouter(req({ Message: "1" }), deps)
     expect(r.Type).toBe("release")
-    expect(r.Message).toContain("create a Datagod account")
+    expect(r.Message).toContain("create a Clingshub account")
     expect(sup.inserts["results_check_requests"]).toBeUndefined()
   })
 })

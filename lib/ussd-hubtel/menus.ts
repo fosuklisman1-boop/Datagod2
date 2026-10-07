@@ -2,7 +2,7 @@
 // network names and normal wording (no Uzo nicknames / "Browse Services" rebrand).
 import { MenuItemDef, ResolvedMenuItem, renderMenuText, resolveMenuItems } from "@/lib/ussd/menu-items"
 import type { BundleOption } from "@/lib/ussd/types"
-import { DEFAULT_WELCOME } from "./config"
+import { DEFAULT_BRAND, DEFAULT_WELCOME } from "./config"
 
 export type MainMenuKey = "data" | "afa" | "airtime" | "resultsChecker"
 
@@ -37,6 +37,16 @@ export function resolveMainMenu(
 /** The admin welcome line (config.welcome, already validated); empty/missing falls back to the default. */
 function welcomeLine(welcome: string): string {
   return (typeof welcome === "string" && welcome.trim()) || DEFAULT_WELCOME
+}
+
+/** The admin brand (config.brandName, already validated); empty/missing falls back to the default. */
+export function brandText(brandName: string): string {
+  return (typeof brandName === "string" && brandName.trim()) || DEFAULT_BRAND
+}
+
+/** Goodbye when the caller picks "0" on the main menu. */
+export function mainExitText(brandName: string): string {
+  return `Thank you for using ${brandText(brandName)}.`
 }
 
 /** `welcome` is config.welcome: required so no render path can forget it. */

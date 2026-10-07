@@ -1,19 +1,22 @@
 // lib/ussd-hubtel/flows/rc-check.ts
-// "Check Results" on the Hubtel channel: Datagod checks exam results on the caller's behalf.
+// "Check Results" on the Hubtel channel: we check exam results on the caller's behalf.
 // Port of lib/ussd/handlers/results-checker.ts lines 423-916 (USSD channel) minus wallet,
 // Paystack and OTP. After payment the request joins the admin queue (/admin/results-check-requests).
 import { secureReference } from "@/lib/secure-random"
 import {
   isValidDob, isValidExamYear, isValidIndexNumber, isValidVoucherPin, isValidVoucherSerial, type ExamBoard,
 } from "@/lib/results-check-validation"
-import { rcMenuText } from "../menus"
+import { brandText, rcMenuText } from "../menus"
 import { toLocalPhone } from "../protocol"
 import { finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable } from "../flow-kit"
 import type { HubtelReply, HubtelSession } from "../types"
 
 const CHECK_BOARDS: ExamBoard[] = ["WASSCE", "BECE", "NOVDEC"]
 const round2 = (n: number) => Math.round(n * 100) / 100
-const ACCOUNT_REQUIRED = "Please create a Datagod account\nwith this number to use\nthis service."
+/** Release text for a caller with no registered account; the brand is config.brandName (<= 30 chars). */
+export function accountRequiredText(brandName: string): string {
+  return `Please create a ${brandText(brandName)} account\nwith this number to use\nthis service.`
+}
 
 const MENU = { label: "Results Checker" }
 const BOARD = { label: "Select exam" }
@@ -95,7 +98,7 @@ export async function startRcCheck(ctx: FlowCtx): Promise<HubtelReply> {
   const settings = await ctx.deps.rc.checkSettings()
   if (settings.enabled !== true) return say(ctx, "Service not available.\n" + rcMenuText(), "RC_MENU", MENU)
   const dialer = await ctx.deps.resolveDialer(ctx.session.dialingPhone)
-  if (!dialer.userId) return finish(ctx, ACCOUNT_REQUIRED)
+  if (!dialer.userId) return finish(ctx, accountRequiredText(ctx.config.brandName))
   return goto(ctx, { step: "RC_CHECK_BOARD", userId: dialer.userId }, rcCheckBoardMenuText(), BOARD)
 }
 
@@ -202,7 +205,7 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   const settings = await deps.rc.checkSettings()
   if (settings.enabled !== true) return finish(ctx, "Results check is not available right now.")
   const dialer = await deps.resolveDialer(s.dialingPhone)
-  if (!dialer.userId) return finish(ctx, ACCOUNT_REQUIRED)
+  if (!dialer.userId) return finish(ctx, accountRequiredText(ctx.config.brandName))
   let amount = round2(settings.fee)
   if (mode === "combo") {
     const combo = await comboTotalFor(ctx, board, settings.fee)

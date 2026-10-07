@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import {
-  DEFAULT_WELCOME, getHubtelUssdConfig, hubtelEnvReady, setHubtelUssdConfig, validateWelcome,
+  DEFAULT_BRAND, getHubtelUssdConfig, hubtelEnvReady, setHubtelUssdConfig, validateBrandName, validateWelcome,
 } from "@/lib/ussd-hubtel/config"
 
 const adminClient = () =>
@@ -75,11 +75,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "invalid visibility" }, { status: 400 })
     }
   }
-  // Optional welcome line. Validated before any write; an empty/whitespace string resets it.
-  let welcome: string | undefined
+  // Optional brand name and welcome line. BOTH are validated before any DB access, so an invalid
+  // one never leaves the other half-written. Empty/whitespace resets: brand -> default, welcome ->
+  // custom override cleared (back to "Welcome to <brand>").
+  const isBlank = (v: unknown) => typeof v === "string" && v.trim() === ""
+  let brandName: string | undefined
+  if (body.brandName !== undefined) {
+    if (isBlank(body.brandName)) {
+      brandName = DEFAULT_BRAND
+    } else {
+      const v = validateBrandName(body.brandName)
+      if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 })
+      brandName = v.value
+    }
+  }
+  let welcome: string | null | undefined
   if (body.welcome !== undefined) {
-    if (typeof body.welcome === "string" && body.welcome.trim() === "") {
-      welcome = DEFAULT_WELCOME
+    if (isBlank(body.welcome)) {
+      welcome = null
     } else {
       const v = validateWelcome(body.welcome)
       if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 })
@@ -90,7 +103,7 @@ export async function POST(request: NextRequest) {
   const client = adminClient()
   try {
     const before = await getHubtelUssdConfig(client)
-    const config = await setHubtelUssdConfig(client, { enabled: body.enabled, mode: body.mode, visibility: body.visibility, welcome })
+    const config = await setHubtelUssdConfig(client, { enabled: body.enabled, mode: body.mode, visibility: body.visibility, brandName, welcome })
     client.from("admin_audit_log").insert([{
       admin_id: userId, action: "hubtel_ussd_config_update", target_user_id: null,
       old_value: before, new_value: config, created_at: new Date().toISOString(),

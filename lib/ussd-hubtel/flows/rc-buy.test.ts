@@ -24,7 +24,7 @@ describe("results checker: menus", () => {
     expect(store.get("S1")?.step).toBe("RC_MENU")
   })
   it("is hidden when the admin turns it off", async () => {
-    const { deps } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", enabled: true, mode: "main", visibility: { data: true, afa: true, airtime: true, resultsChecker: false } }) })
+    const { deps } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode: "main", visibility: { data: true, afa: true, airtime: true, resultsChecker: false } }) })
     const menu = await hubtelRouter(req({ Type: "Initiation" }), deps)
     expect(menu.Message).not.toContain("Results Checker")
   })

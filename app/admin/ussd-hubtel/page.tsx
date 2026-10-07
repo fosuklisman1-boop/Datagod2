@@ -15,7 +15,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { IMPLEMENTED_SERVICES } from "@/lib/ussd-hubtel/menus"
-import { DEFAULT_WELCOME, WELCOME_MAX, validateWelcome, type HubtelUssdConfig } from "@/lib/ussd-hubtel/config"
+import {
+  BRAND_MAX, DEFAULT_BRAND, WELCOME_MAX, derivedWelcome, validateBrandName, validateWelcome, type HubtelUssdConfig,
+} from "@/lib/ussd-hubtel/config"
 import type { HubtelTxRow } from "@/lib/ussd-hubtel/types"
 
 type EnvStatus = { webhookSecret: boolean; relayUrl: boolean; relaySecret: boolean; redis?: boolean }
@@ -84,12 +86,24 @@ export default function AdminUssdHubtelPage() {
   const [resolving, setResolving] = useState<HubtelTxRow | null>(null)
   const [outcome, setOutcome] = useState<"fulfilled" | "not_paid">("fulfilled")
   const [note, setNote] = useState("")
+  // Brand name: re-synced from the server value on load / save / reset.
+  const [brandDraft, setBrandDraft] = useState("")
+  const savedBrand = config?.brandName
+  useEffect(() => { if (savedBrand !== undefined) setBrandDraft(savedBrand) }, [savedBrand])
+  const brandCheck = validateBrandName(brandDraft)
+  const brandUnchanged = brandCheck.ok && brandCheck.value === savedBrand
+  // Brand used for live previews: the draft while it is valid, else the saved one.
+  const previewBrand = brandCheck.ok ? brandCheck.value : (savedBrand ?? DEFAULT_BRAND)
+
+  // Welcome: the field holds ONLY the custom override; blank means "Welcome to <brand>".
   const [welcomeDraft, setWelcomeDraft] = useState("")
-  // Re-sync the field whenever the server's value changes (load, save, reset).
-  const savedWelcome = config?.welcome
-  useEffect(() => { if (savedWelcome !== undefined) setWelcomeDraft(savedWelcome) }, [savedWelcome])
+  const savedCustomWelcome = config ? (config.welcomeCustom ? config.welcome : "") : undefined
+  useEffect(() => { if (savedCustomWelcome !== undefined) setWelcomeDraft(savedCustomWelcome) }, [savedCustomWelcome])
+  const welcomeBlank = welcomeDraft.trim() === ""
   const welcomeCheck = validateWelcome(welcomeDraft)
-  const welcomeUnchanged = welcomeCheck.ok && welcomeCheck.value === savedWelcome
+  const welcomeValid = welcomeBlank || welcomeCheck.ok
+  const welcomeUnchanged = welcomeBlank ? savedCustomWelcome === "" : welcomeCheck.ok && welcomeCheck.value === savedCustomWelcome
+  const previewWelcome = welcomeBlank ? derivedWelcome(previewBrand) : welcomeDraft.trim()
   // "Not paid" is only possible while no payment is recorded and no callback is due.
   const canMarkNotPaid = (t: HubtelTxRow) => t.paid_at == null && t.callback_status === "not_due"
   const shown = txs.filter(t => matchesFilter(t, filter))
@@ -213,6 +227,61 @@ export default function AdminUssdHubtelPage() {
 
         <Card>
           <CardHeader>
+            <CardTitle>Brand name</CardTitle>
+            <CardDescription>
+              The name callers see on the Hubtel screens: the welcome line (unless a custom welcome is set below), the
+              exit message (&quot;Thank you for using {previewBrand}.&quot;) and the Check Results &quot;create an
+              account&quot; message. SMS texts sent by shared services are not affected. Applies immediately.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {!config ? <p className="text-sm text-muted-foreground">Loading...</p> : (
+              <>
+                <div className="space-y-1">
+                  <Input
+                    value={brandDraft}
+                    onChange={e => setBrandDraft(e.target.value)}
+                    maxLength={BRAND_MAX}
+                    placeholder={DEFAULT_BRAND}
+                    aria-label="Brand name"
+                    aria-invalid={!brandCheck.ok}
+                    aria-describedby="hubtel-brand-help"
+                  />
+                  <div id="hubtel-brand-help" className="flex items-start justify-between gap-3 text-xs">
+                    <span className={brandCheck.ok ? "text-muted-foreground" : "text-destructive"}>
+                      {brandCheck.ok ? "1-30 plain characters (letters, numbers, spaces, basic punctuation), one line." : brandCheck.error}
+                    </span>
+                    <span className="shrink-0 tabular-nums text-muted-foreground">{brandDraft.length}/{BRAND_MAX}</span>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    disabled={busy === "brand" || !brandCheck.ok || brandUnchanged}
+                    onClick={() => { if (brandCheck.ok) save({ brandName: brandCheck.value }, "brand") }}
+                  >
+                    {busy === "brand" ? "Saving..." : "Save"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy === "brand" || (savedBrand === DEFAULT_BRAND && brandDraft === DEFAULT_BRAND)}
+                    onClick={() => {
+                      // Already the default on the server: just discard the local edit.
+                      if (savedBrand === DEFAULT_BRAND) setBrandDraft(DEFAULT_BRAND)
+                      else save({ brandName: "" }, "brand")
+                    }}
+                  >
+                    Reset to default
+                  </Button>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle>Welcome message</CardTitle>
             <CardDescription>
               The first line callers see: on the main menu (main mode) and on the shop-code prompt (shop mode). Applies to new dials immediately.
@@ -221,19 +290,23 @@ export default function AdminUssdHubtelPage() {
           <CardContent className="space-y-3">
             {!config ? <p className="text-sm text-muted-foreground">Loading...</p> : (
               <>
+                <div className="flex items-center gap-2 text-xs">
+                  <Badge variant={config.welcomeCustom ? "default" : "outline"}>{config.welcomeCustom ? "Custom" : "From brand name"}</Badge>
+                  <span className="text-muted-foreground">Leave blank to use &apos;{derivedWelcome(previewBrand)}&apos;.</span>
+                </div>
                 <div className="space-y-1">
                   <Input
                     value={welcomeDraft}
                     onChange={e => setWelcomeDraft(e.target.value)}
                     maxLength={WELCOME_MAX}
-                    placeholder={DEFAULT_WELCOME}
+                    placeholder={derivedWelcome(previewBrand)}
                     aria-label="Welcome message"
-                    aria-invalid={!welcomeCheck.ok}
+                    aria-invalid={!welcomeValid}
                     aria-describedby="hubtel-welcome-help"
                   />
                   <div id="hubtel-welcome-help" className="flex items-start justify-between gap-3 text-xs">
-                    <span className={welcomeCheck.ok ? "text-muted-foreground" : "text-destructive"}>
-                      {welcomeCheck.ok
+                    <span className={welcomeValid ? "text-muted-foreground" : "text-destructive"}>
+                      {welcomeValid || welcomeCheck.ok
                         ? "1-60 plain characters (letters, numbers, spaces, basic punctuation), one line."
                         : welcomeCheck.error}
                     </span>
@@ -243,24 +316,24 @@ export default function AdminUssdHubtelPage() {
                 <div className="rounded-lg border bg-muted/40 p-3">
                   <div className="mb-1 text-xs text-muted-foreground">Preview</div>
                   <pre className="whitespace-pre-wrap break-words font-mono text-sm">
-                    {`${welcomeDraft.trim() || DEFAULT_WELCOME}\n${config.mode === "shop" ? "Enter shop code:" : "1. Buy Data Bundle\n..."}`}
+                    {`${previewWelcome}\n${config.mode === "shop" ? "Enter shop code:" : "1. Buy Data Bundle\n..."}`}
                   </pre>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button
                     size="sm"
-                    disabled={busy === "welcome" || !welcomeCheck.ok || welcomeUnchanged}
-                    onClick={() => { if (welcomeCheck.ok) save({ welcome: welcomeCheck.value }, "welcome") }}
+                    disabled={busy === "welcome" || !welcomeValid || welcomeUnchanged}
+                    onClick={() => save({ welcome: welcomeBlank ? "" : welcomeDraft.trim() }, "welcome")}
                   >
                     {busy === "welcome" ? "Saving..." : "Save"}
                   </Button>
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={busy === "welcome" || (savedWelcome === DEFAULT_WELCOME && welcomeDraft === DEFAULT_WELCOME)}
+                    disabled={busy === "welcome" || (!config.welcomeCustom && welcomeBlank)}
                     onClick={() => {
-                      // Already the default on the server: just discard the local edit.
-                      if (savedWelcome === DEFAULT_WELCOME) setWelcomeDraft(DEFAULT_WELCOME)
+                      // Not customised on the server: just discard the local edit.
+                      if (!config.welcomeCustom) setWelcomeDraft("")
                       else save({ welcome: "" }, "welcome")
                     }}
                   >

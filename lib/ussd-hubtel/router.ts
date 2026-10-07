@@ -8,7 +8,7 @@ import { sessionStore } from "./session"
 import { defaultShopServices } from "./shop-services"
 import { shopBillingGuard } from "./billing-guard"
 import { fetchBundles, PAGE_SIZE, resolveCaller, isDataBlocked } from "./catalog"
-import { mainMenuText, type MainMenuKey, type ShopMenuKey } from "./menus"
+import { mainExitText, mainMenuText, type MainMenuKey, type ShopMenuKey } from "./menus"
 import { release, respond, toE164 } from "./protocol"
 import {
   finish, mainMenuReply, menuFor, replaySubmittedOrder,
@@ -137,7 +137,7 @@ async function handleShopProduct(ctx: FlowCtx): Promise<HubtelReply> {
 }
 
 async function handleMain(ctx: FlowCtx): Promise<HubtelReply> {
-  if (ctx.input === "0") return finish(ctx, "Thank you for using Datagod.")
+  if (ctx.input === "0") return finish(ctx, mainExitText(ctx.config.brandName))
   const key = keyForDigit(menuFor(ctx.config, ctx.session.dataBlocked === true), ctx.input)
   const start = key ? MAIN_MENU_ENTRIES[key] : undefined
   return start ? start(ctx) : mainMenuReply(ctx)

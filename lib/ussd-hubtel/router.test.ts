@@ -2,22 +2,23 @@
 import { describe, it, expect, vi } from "vitest"
 import { hubtelRouter, MAIN_MENU_ENTRIES, SHOP_PRODUCT_ENTRIES, type RouterDeps } from "./router"
 import { IMPLEMENTED_SERVICES, type MainMenuKey } from "./menus"
+import { getHubtelUssdConfig } from "./config"
 import { digitFor, fakeShop, fakeSupabase, makeDeps, req } from "./testing/fakes"
 
 describe("hubtelRouter: entry guards", () => {
   it("releases when the channel is disabled", async () => {
-    const { deps } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", enabled: false, mode: "main", visibility: { data: true, afa: true, airtime: true, resultsChecker: true } }) })
+    const { deps } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: false, mode: "main", visibility: { data: true, afa: true, airtime: true, resultsChecker: true } }) })
     const r = await hubtelRouter(req({ Type: "Initiation", Message: "*713#" }), deps)
     expect(r.Type).toBe("release")
   })
   it("shop mode answers Initiation with the shop-code prompt", async () => {
-    const { deps } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", enabled: true, mode: "shop", visibility: { data: true, afa: true, airtime: true, resultsChecker: true } }) })
+    const { deps } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode: "shop", visibility: { data: true, afa: true, airtime: true, resultsChecker: true } }) })
     const r = await hubtelRouter(req({ Type: "Initiation" }), deps)
     expect(r.Type).toBe("response")
     expect(r.Message).toContain("Enter shop code:")
   })
   it("releases a shop-mode Initiation when the channel is disabled", async () => {
-    const { deps, store } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", enabled: false, mode: "shop", visibility: { data: true, afa: true, airtime: true, resultsChecker: true } }) })
+    const { deps, store } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: false, mode: "shop", visibility: { data: true, afa: true, airtime: true, resultsChecker: true } }) })
     const r = await hubtelRouter(req({ Type: "Initiation" }), deps)
     expect(r.Type).toBe("release")
     expect(store.has("S1")).toBe(false)
@@ -43,7 +44,7 @@ describe("hubtelRouter: initiation and recovery", () => {
   it("releases politely when no service is available to this caller", async () => {
     const { deps } = makeDeps({
       isDataBlocked: async () => true,
-      getConfig: async () => ({ welcome: "Welcome to Clingshub", enabled: true, mode: "main", visibility: { data: true, afa: false, airtime: false, resultsChecker: false } }),
+      getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode: "main", visibility: { data: true, afa: false, airtime: false, resultsChecker: false } }),
     })
     const r = await hubtelRouter(req({ Type: "Initiation" }), deps)
     expect(r.Type).toBe("release")
@@ -318,7 +319,7 @@ describe("hubtelRouter: mode pinning (spec 4.2, review focus #3)", () => {
   })
   it("a main session keeps running main after the admin flips to shop", async () => {
     let mode: "main" | "shop" = "main"
-    const { deps, store } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", enabled: true, mode, visibility: ALL_ON }) })
+    const { deps, store } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode, visibility: ALL_ON }) })
     const menu = await hubtelRouter(req({ Type: "Initiation" }), deps)
     expect(store.get("S1")?.mode).toBe("main")
     mode = "shop"
@@ -329,7 +330,7 @@ describe("hubtelRouter: mode pinning (spec 4.2, review focus #3)", () => {
   it("a shop session keeps running shop after the admin flips to main (code step and product menu)", async () => {
     let mode: "main" | "shop" = "shop"
     const deductToken = vi.fn(async () => true)
-    const { deps, store } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", enabled: true, mode, visibility: ALL_ON }), shop: fakeShop({ deductToken }) })
+    const { deps, store } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode, visibility: ALL_ON }), shop: fakeShop({ deductToken }) })
     await hubtelRouter(req({ Type: "Initiation" }), deps)
     mode = "main"
     const r = await hubtelRouter(req({ Message: "1234" }), deps)
@@ -341,7 +342,7 @@ describe("hubtelRouter: mode pinning (spec 4.2, review focus #3)", () => {
   })
   it("a NEW session uses the current mode", async () => {
     let mode: "main" | "shop" = "main"
-    const { deps, store } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", enabled: true, mode, visibility: ALL_ON }) })
+    const { deps, store } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode, visibility: ALL_ON }) })
     await hubtelRouter(req({ Type: "Initiation", SessionId: "S1" }), deps)
     mode = "shop"
     const r = await hubtelRouter(req({ Type: "Initiation", SessionId: "S2" }), deps)
@@ -350,7 +351,7 @@ describe("hubtelRouter: mode pinning (spec 4.2, review focus #3)", () => {
     expect(store.get("S2")?.mode).toBe("shop")
   })
   it("no session (expired, no order): restarts in the CURRENT mode", async () => {
-    const { deps, store } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", enabled: true, mode: "shop", visibility: ALL_ON }) })
+    const { deps, store } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode: "shop", visibility: ALL_ON }) })
     const r = await hubtelRouter(req({ Message: "1" }), deps)
     expect(r.Message).toBe("Session expired.\nWelcome to Clingshub\nEnter shop code:\n0. Exit")
     expect(store.get("S1")).toMatchObject({ mode: "shop", step: "SHOP_ENTER_CODE" })
@@ -358,7 +359,7 @@ describe("hubtelRouter: mode pinning (spec 4.2, review focus #3)", () => {
   it("no session but a main cart awaiting payment: the cart is replayed even after a flip to shop", async () => {
     let mode: "main" | "shop" = "main"
     const sup = fakeSupabase({ pkg: { price: 10, dealer_price: null, is_available: true } })
-    const { deps, store } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", enabled: true, mode, visibility: ALL_ON }) }, sup)
+    const { deps, store } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode, visibility: ALL_ON }) }, sup)
     await walkTo("CONFIRM", deps)
     const first = await hubtelRouter(req({ Message: "1" }), deps)
     expect(first.Type).toBe("AddToCart")
@@ -370,14 +371,14 @@ describe("hubtelRouter: mode pinning (spec 4.2, review focus #3)", () => {
     expect(store.has("S1")).toBe(false) // not restarted into the shop-code prompt
   })
   it("a session stored without a mode (written before Plan 3) runs as main even in shop mode", async () => {
-    const { deps, store } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", enabled: true, mode: "shop", visibility: ALL_ON }) })
+    const { deps, store } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode: "shop", visibility: ALL_ON }) })
     store.set("S1", { step: "MAIN", dialingPhone: "+233200585542", platform: "USSD" })
     const menu = await hubtelRouter(req({ Type: "Initiation", SessionId: "S9" }), makeDeps().deps) // main menu text, for the digit
     const r = await hubtelRouter(req({ Message: digitFor(menu.Message, "Buy Data Bundle") }), deps)
     expect(r.Message).toContain("Select Network:")
   })
   it("a step unknown to the session's mode restarts in the current mode", async () => {
-    const { deps, store } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", enabled: true, mode: "main", visibility: ALL_ON }) })
+    const { deps, store } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode: "main", visibility: ALL_ON }) })
     store.set("S1", { mode: "shop", step: "SELECT_NETWORK", dialingPhone: "+233200585542", platform: "USSD" })
     const r = await hubtelRouter(req({ Message: "1" }), deps)
     expect(r.Message).toContain("Buy Data Bundle")
@@ -385,7 +386,7 @@ describe("hubtelRouter: mode pinning (spec 4.2, review focus #3)", () => {
   })
   it("a shop step in a main (or mode-less) session is never dispatched to the shop table", async () => {
     const deductToken = vi.fn(async () => true)
-    const { deps, store } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", enabled: true, mode: "main", visibility: ALL_ON }), shop: fakeShop({ deductToken }) })
+    const { deps, store } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode: "main", visibility: ALL_ON }), shop: fakeShop({ deductToken }) })
     store.set("S1", { step: "SHOP_ENTER_CODE", dialingPhone: "+233200585542", platform: "USSD" })
     const r = await hubtelRouter(req({ Message: "1234" }), deps)
     expect(r.Message).toContain("Buy Data Bundle")
@@ -394,7 +395,7 @@ describe("hubtelRouter: mode pinning (spec 4.2, review focus #3)", () => {
   it("kill switch releases an in-flight shop session and bills nothing more (review focus #8)", async () => {
     let enabled = true
     const deductToken = vi.fn(async () => true)
-    const { deps } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", enabled, mode: "shop", visibility: ALL_ON }), shop: fakeShop({ deductToken }) })
+    const { deps } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled, mode: "shop", visibility: ALL_ON }), shop: fakeShop({ deductToken }) })
     await hubtelRouter(req({ Type: "Initiation" }), deps)
     enabled = false
     const r = await hubtelRouter(req({ Message: "1234" }), deps)
@@ -404,7 +405,7 @@ describe("hubtelRouter: mode pinning (spec 4.2, review focus #3)", () => {
   })
   it("kill switch releases a shop session already on the product menu", async () => {
     let enabled = true
-    const { deps } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", enabled, mode: "shop", visibility: ALL_ON }) })
+    const { deps } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled, mode: "shop", visibility: ALL_ON }) })
     await hubtelRouter(req({ Type: "Initiation" }), deps)
     await hubtelRouter(req({ Message: "1234" }), deps)
     enabled = false
@@ -417,7 +418,8 @@ describe("hubtelRouter: mode pinning (spec 4.2, review focus #3)", () => {
 describe("hubtelRouter: configurable welcome message", () => {
   const ALL_ON = { data: true, afa: true, airtime: true, resultsChecker: true }
   const CUSTOM = "Akwaaba to Ama Data Hub"
-  const cfg = (mode: "main" | "shop", welcome: string) => async () => ({ enabled: true, mode, visibility: ALL_ON, welcome })
+  const cfg = (mode: "main" | "shop", welcome: string) => async () =>
+    ({ enabled: true, mode, visibility: ALL_ON, welcome, welcomeCustom: true, brandName: "Clingshub" })
 
   it("main mode: the custom welcome heads the initial main menu", async () => {
     const { deps } = makeDeps({ getConfig: cfg("main", CUSTOM) })
@@ -483,5 +485,41 @@ describe("hubtelRouter: configurable welcome message", () => {
       for (const label of ["1. Buy Data Bundle", "2. AFA Registration", "3. Buy Airtime", "4. Results Checker"]) expect(r.Message).toContain(label)
       expect(r.Message.endsWith("\n0. Exit")).toBe(true)
     }
+  })
+})
+
+describe("hubtelRouter: configurable brand name", () => {
+  /** getConfig backed by the REAL getHubtelUssdConfig over a stored admin_settings blob. */
+  const storedConfig = (value: Record<string, unknown>) => () => getHubtelUssdConfig({
+    from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { value: { enabled: true, ...value } }, error: null }) }) }) }),
+  } as never)
+
+  it("'0' on the main menu says goodbye with the brand", async () => {
+    const { deps } = makeDeps({ getConfig: storedConfig({ brandName: "Ama Data" }) })
+    await hubtelRouter(req({ Type: "Initiation" }), deps)
+    const r = await hubtelRouter(req({ Message: "0" }), deps)
+    expect(r.Type).toBe("release")
+    expect(r.Message).toBe("Thank you for using Ama Data.")
+  })
+  it("default brand: 'Thank you for using Clingshub.'", async () => {
+    const { deps } = makeDeps({ getConfig: storedConfig({}) })
+    await hubtelRouter(req({ Type: "Initiation" }), deps)
+    const r = await hubtelRouter(req({ Message: "0" }), deps)
+    expect(r.Message).toBe("Thank you for using Clingshub.")
+  })
+  it("a custom brand flows into the derived welcome on the main menu", async () => {
+    const { deps } = makeDeps({ getConfig: storedConfig({ brandName: "Ama Data", welcome: "Welcome to Clingshub" }) })
+    const r = await hubtelRouter(req({ Type: "Initiation" }), deps)
+    expect(r.Message.split("\n")[0]).toBe("Welcome to Ama Data")
+  })
+  it("a custom brand flows into the derived welcome on the shop-code prompt", async () => {
+    const { deps } = makeDeps({ getConfig: storedConfig({ mode: "shop", brandName: "Ama Data" }) })
+    const r = await hubtelRouter(req({ Type: "Initiation" }), deps)
+    expect(r.Message).toBe("Welcome to Ama Data\nEnter shop code:\n0. Exit")
+  })
+  it("a custom welcome still wins over the brand", async () => {
+    const { deps } = makeDeps({ getConfig: storedConfig({ brandName: "Ama Data", welcome: "Akwaaba!" }) })
+    const r = await hubtelRouter(req({ Type: "Initiation" }), deps)
+    expect(r.Message.split("\n")[0]).toBe("Akwaaba!")
   })
 })

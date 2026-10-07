@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest"
 import { resolveMainMenu, mainMenuText, networkMenuText, bundleMenuText, confirmMenuText, formatSize, recipientPromptText, HUBTEL_NETWORKS, IMPLEMENTED_SERVICES,
   resolveShopMenu, shopHeader, shopCodePromptText, shopCodeRetryText, shopMenuText, shopNetworkLabel, sortShopNetworks, shopNetworkMenuText,
 } from "./menus"
-import { DEFAULT_WELCOME } from "./config"
+import { DEFAULT_BRAND, DEFAULT_WELCOME } from "./config"
+import { mainExitText } from "./menus"
 
 const allOn = { data: true, afa: true, airtime: true, resultsChecker: true }
 
@@ -17,6 +18,11 @@ describe("main menu", () => {
     expect(mainMenuText(r, "Akwaaba to Ama Data")).toBe(
       "Akwaaba to Ama Data\n1. Buy Data Bundle\n2. AFA Registration\n3. Buy Airtime\n4. Results Checker\n0. Exit"
     )
+  })
+  it("exit message uses the brand (default Clingshub for an empty brand)", () => {
+    expect(mainExitText("Ama Data")).toBe("Thank you for using Ama Data.")
+    expect(mainExitText(DEFAULT_BRAND)).toBe("Thank you for using Clingshub.")
+    expect(mainExitText("")).toBe("Thank you for using Clingshub.")
   })
   it("the default welcome is 'Welcome to Clingshub'", () => {
     expect(mainMenuText(resolveMainMenu(allOn, false), DEFAULT_WELCOME).split("\n")[0]).toBe("Welcome to Clingshub")

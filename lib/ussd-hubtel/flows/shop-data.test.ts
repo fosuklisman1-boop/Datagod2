@@ -203,7 +203,7 @@ describe("shop data: idempotent CONFIRM and replay (review focus #3)", () => {
   for (const mode of ["shop", "main"] as const) {
     it(`session expired after AddToCart: the next '1' replays the SHOP cart (config now ${mode})`, async () => {
       const sup = fakeSupabase({ rows: { hubtel_transactions: { ...winner, order_id: "o1" }, ussd_shop_orders: { package_size: "2", network: "Telecel" } } })
-      const { deps } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", enabled: true, mode, visibility: { data: true, afa: true, airtime: true, resultsChecker: true } }) }, sup)
+      const { deps } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode, visibility: { data: true, afa: true, airtime: true, resultsChecker: true } }) }, sup)
       const r = await hubtelRouter(req({ Message: "1" }), deps)
       expect(r.Type).toBe("AddToCart")
       expect(r.Item).toEqual({ ItemName: "2GB Telecel Data", Qty: 1, Price: 12 })

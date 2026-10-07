@@ -176,18 +176,92 @@ describe("POST /api/admin/ussd-hubtel/config: welcome message", () => {
       expect(h.audit).toEqual([])
     })
   }
-  it("an empty / whitespace welcome resets to the default", async () => {
+  it("an empty / whitespace welcome clears the custom override (welcome: null)", async () => {
     for (const welcome of ["", "   "]) {
       h.set.mockClear()
       const res = await POST(post({ welcome }))
       expect(res.status, JSON.stringify(welcome)).toBe(200)
-      expect(h.set.mock.calls[0][1]).toMatchObject({ welcome: "Welcome to Clingshub" })
+      expect(h.set.mock.calls[0][1]).toMatchObject({ welcome: null })
     }
   })
   it("a rate-limited admin posting a welcome gets the 429 and nothing is written", async () => {
     const { NextResponse } = await import("next/server")
     h.auth = { isAdmin: true, userId: "admin-1", errorResponse: NextResponse.json({ error: "Too many requests" }, { status: 429 }) }
     const res = await POST(post({ welcome: "Hello" }))
+    expect(res.status).toBe(429)
+    expect(h.set).not.toHaveBeenCalled()
+  })
+})
+
+describe("POST /api/admin/ussd-hubtel/config: brand name", () => {
+  const getReq = () => new NextRequest("http://localhost/api/admin/ussd-hubtel/config")
+  const cfg = (brandName: string, welcome = `Welcome to ${brandName}`, welcomeCustom = false) =>
+    ({ ...base, brandName, welcome, welcomeCustom })
+
+  it("saves a valid (trimmed) brand, audits old/new, and GET returns brandName + effective welcome + welcomeCustom", async () => {
+    h.get.mockResolvedValueOnce(cfg("Clingshub"))
+    h.set.mockResolvedValue(cfg("Ama Data"))
+    const res = await POST(post({ brandName: "  Ama Data " }))
+    expect(res.status).toBe(200)
+    expect(h.set.mock.calls[0][1]).toMatchObject({ brandName: "Ama Data" })
+    expect(h.set.mock.calls[0][1].welcome).toBeUndefined()
+    expect((await res.json()).config).toMatchObject({ brandName: "Ama Data", welcome: "Welcome to Ama Data", welcomeCustom: false })
+    await new Promise(r => setTimeout(r, 0))
+    expect(h.audit[0]).toEqual([expect.objectContaining({
+      old_value: expect.objectContaining({ brandName: "Clingshub" }),
+      new_value: expect.objectContaining({ brandName: "Ama Data" }),
+    })])
+    h.get.mockResolvedValue(cfg("Ama Data", "Akwaaba!", true))
+    const g = await (await GET(getReq())).json()
+    expect(g.config).toMatchObject({ brandName: "Ama Data", welcome: "Akwaaba!", welcomeCustom: true })
+  })
+  const bad: Array<[string, unknown, RegExp]> = [
+    ["non-ASCII accent", "Café", /special character/i],
+    ["emoji", "Ama \u{1F31F}", /special character/i],
+    ["too long", "x".repeat(31), /30/],
+    ["newline", "Ama\nData", /single line/i],
+    ["non-string", 42, /string/i],
+    ["null", null, /string/i],
+  ]
+  for (const [name, brandName, msg] of bad) {
+    it(`rejects ${name} brand with 400 and writes nothing`, async () => {
+      const res = await POST(post({ brandName, mode: "shop" }))
+      expect(res.status).toBe(400)
+      expect((await res.json()).error).toMatch(msg)
+      expect(h.set).not.toHaveBeenCalled()
+      expect(h.get).not.toHaveBeenCalled()
+      expect(h.audit).toEqual([])
+    })
+  }
+  it("an empty / whitespace brand resets to the default 'Clingshub'", async () => {
+    for (const brandName of ["", "  "]) {
+      h.set.mockClear()
+      const res = await POST(post({ brandName }))
+      expect(res.status).toBe(200)
+      expect(h.set.mock.calls[0][1]).toMatchObject({ brandName: "Clingshub" })
+    }
+  })
+  it("brand + welcome in one request are saved together", async () => {
+    const res = await POST(post({ brandName: "Ama Data", welcome: "Akwaaba!" }))
+    expect(res.status).toBe(200)
+    expect(h.set).toHaveBeenCalledTimes(1)
+    expect(h.set.mock.calls[0][1]).toMatchObject({ brandName: "Ama Data", welcome: "Akwaaba!" })
+  })
+  it("invalid brand + valid welcome: 400, nothing written", async () => {
+    const res = await POST(post({ brandName: "Café", welcome: "Akwaaba!" }))
+    expect(res.status).toBe(400)
+    expect(h.set).not.toHaveBeenCalled()
+    expect(h.audit).toEqual([])
+  })
+  it("valid brand + invalid welcome: 400, nothing written", async () => {
+    const res = await POST(post({ brandName: "Ama Data", welcome: "x".repeat(61) }))
+    expect(res.status).toBe(400)
+    expect(h.set).not.toHaveBeenCalled()
+  })
+  it("a rate-limited admin posting a brand gets the 429 and nothing is written", async () => {
+    const { NextResponse } = await import("next/server")
+    h.auth = { isAdmin: true, userId: "admin-1", errorResponse: NextResponse.json({ error: "Too many requests" }, { status: 429 }) }
+    const res = await POST(post({ brandName: "Ama Data" }))
     expect(res.status).toBe(429)
     expect(h.set).not.toHaveBeenCalled()
   })
