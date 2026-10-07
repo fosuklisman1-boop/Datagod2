@@ -5,7 +5,8 @@ import { CALLBACK_LOG_TABLE, isCallbackLogTableMissing } from "@/lib/ussd-hubtel
 import { safeDbError } from "@/lib/ussd-hubtel/log-safe"
 
 /** Summary columns only: payload / raw_body / response / error / source_ip come from the detail route. */
-export const CALLBACK_LOG_SUMMARY_COLUMNS = "id, created_at, direction, session_id, hubtel_order_id, outcome, ok, http_status"
+// Not exported: Next.js route files may only export HTTP method handlers and route config.
+const CALLBACK_LOG_SUMMARY_COLUMNS ="id, created_at, direction, session_id, hubtel_order_id, outcome, ok, http_status"
 
 const DIRECTIONS = ["inbound_fulfillment", "outbound_callback"] as const
 const DEFAULT_LIMIT = 50
