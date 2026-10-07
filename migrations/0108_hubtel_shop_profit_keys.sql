@@ -51,5 +51,7 @@ CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_shop_profits_ussd_shop_order_s
 CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_shop_profits_results_checker_order_shop
   ON shop_profits (results_checker_order_id, shop_id) WHERE results_checker_order_id IS NOT NULL;
 
-CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_shop_profits_airtime_order_shop
-  ON shop_profits (airtime_order_id, shop_id) WHERE airtime_order_id IS NOT NULL;
+-- Partial (rows from 2026-05-01): two historical duplicate groups (shop e732e2f9…, GHS 0.13 total,
+-- 2026-03/04) predate this and would block a full unique index. Applied to prod 2026-10-07.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_shop_profits_airtime_order_shop
+  ON shop_profits (airtime_order_id, shop_id) WHERE airtime_order_id IS NOT NULL AND created_at >= '2026-05-01';
