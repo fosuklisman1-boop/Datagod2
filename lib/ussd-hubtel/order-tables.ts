@@ -28,7 +28,7 @@ export const ORDER_TABLES: Record<HubtelOrderTable, OrderTableSpec> = {
     cartColumns: "package_size, network",
     cartItemName: r => {
       const label = HUBTEL_NETWORKS.find(n => n.dbName === r.network)?.label ?? String(r.network)
-      return `${formatSize(String(r.package_size))} ${label} Data`
+      return `${formatSize(String(r.package_size))} ${label} Plan`
     },
   },
   // Shop-mode data bundles (Plan 3). Same statuses and cart wording as ussd_orders.
@@ -38,7 +38,7 @@ export const ORDER_TABLES: Record<HubtelOrderTable, OrderTableSpec> = {
     cartColumns: "package_size, network",
     cartItemName: r => {
       const label = HUBTEL_NETWORKS.find(n => n.dbName === r.network)?.label ?? String(r.network)
-      return `${formatSize(String(r.package_size))} ${label} Data`
+      return `${formatSize(String(r.package_size))} ${label} Plan`
     },
   },
   airtime_orders: {

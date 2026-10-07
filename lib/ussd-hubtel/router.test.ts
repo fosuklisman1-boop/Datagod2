@@ -116,7 +116,7 @@ describe("hubtelRouter: confirm â†’ AddToCart", () => {
     await walkTo("CONFIRM", deps)
     const r = await hubtelRouter(req({ Message: "1" }), deps)
     expect(r.Type).toBe("AddToCart")
-    expect(r.Item).toEqual({ ItemName: "5GB MTN Data", Qty: 1, Price: 10 })
+    expect(r.Item).toEqual({ ItemName: "5GB MTN Plan", Qty: 1, Price: 10 })
     expect(sup.inserts["ussd_orders"][0]).toMatchObject({
       dialing_phone: "+233200585542", recipient_phone: "0244123456", network: "MTN",
       package_id: "pkg-1", amount: 10, order_status: "pending", payment_status: "pending",
@@ -179,7 +179,7 @@ describe("hubtelRouter: idempotent CONFIRM", () => {
     await walkTo("CONFIRM", deps)
     const r = await hubtelRouter(req({ Message: "1" }), deps)
     expect(r.Type).toBe("AddToCart")
-    expect(r.Item).toEqual({ ItemName: "5GB MTN Data", Qty: 1, Price: 10 })
+    expect(r.Item).toEqual({ ItemName: "5GB MTN Plan", Qty: 1, Price: 10 })
     expect(sup.inserts["ussd_orders"]).toBeUndefined()
     expect(sup.inserts["hubtel_transactions"]).toBeUndefined()
   })
@@ -195,7 +195,7 @@ describe("hubtelRouter: idempotent CONFIRM", () => {
     const r = await hubtelRouter(req({ Message: "1" }), deps)
     err.mockRestore()
     expect(r.Type).toBe("AddToCart")
-    expect(r.Item).toEqual({ ItemName: "5GB MTN Data", Qty: 1, Price: 10 })
+    expect(r.Item).toEqual({ ItemName: "5GB MTN Plan", Qty: 1, Price: 10 })
     expect(sup.updates.some(u => u.table === "ussd_orders" && u.patch.order_status === "failed")).toBe(true)
   })
 
@@ -207,7 +207,7 @@ describe("hubtelRouter: idempotent CONFIRM", () => {
     const { deps } = makeDeps({}, sup)
     const r = await hubtelRouter(req({ Message: "1" }), deps)
     expect(r.Type).toBe("AddToCart")
-    expect(r.Item).toEqual({ ItemName: "5GB MTN Data", Qty: 1, Price: 10 })
+    expect(r.Item).toEqual({ ItemName: "5GB MTN Plan", Qty: 1, Price: 10 })
     expect(r.Message).not.toContain("Buy Data Bundle")
   })
   it("an existing tx in another state releases 'already submitted'", async () => {
