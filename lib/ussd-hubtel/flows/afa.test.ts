@@ -41,7 +41,7 @@ describe("afa: entry", () => {
     expect(store.has("S1")).toBe(false)
   })
   it("is hidden when the admin turns AFA off", async () => {
-    const { deps } = makeDeps({ getConfig: async () => ({ enabled: true, mode: "main", visibility: { data: true, afa: false, airtime: true, resultsChecker: true } }) })
+    const { deps } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", enabled: true, mode: "main", visibility: { data: true, afa: false, airtime: true, resultsChecker: true } }) })
     const menu = await hubtelRouter(req({ Type: "Initiation", Mobile: MTN_CALLER }), deps)
     expect(menu.Message).not.toContain("AFA Registration")
   })

@@ -13,8 +13,9 @@ import { toast } from "sonner"
 import { RefreshCw } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
+import { Input } from "@/components/ui/input"
 import { IMPLEMENTED_SERVICES } from "@/lib/ussd-hubtel/menus"
-import type { HubtelUssdConfig } from "@/lib/ussd-hubtel/config"
+import { DEFAULT_WELCOME, WELCOME_MAX, validateWelcome, type HubtelUssdConfig } from "@/lib/ussd-hubtel/config"
 import type { HubtelTxRow } from "@/lib/ussd-hubtel/types"
 
 type EnvStatus = { webhookSecret: boolean; relayUrl: boolean; relaySecret: boolean; redis?: boolean }
@@ -83,6 +84,12 @@ export default function AdminUssdHubtelPage() {
   const [resolving, setResolving] = useState<HubtelTxRow | null>(null)
   const [outcome, setOutcome] = useState<"fulfilled" | "not_paid">("fulfilled")
   const [note, setNote] = useState("")
+  const [welcomeDraft, setWelcomeDraft] = useState("")
+  // Re-sync the field whenever the server's value changes (load, save, reset).
+  const savedWelcome = config?.welcome
+  useEffect(() => { if (savedWelcome !== undefined) setWelcomeDraft(savedWelcome) }, [savedWelcome])
+  const welcomeCheck = validateWelcome(welcomeDraft)
+  const welcomeUnchanged = welcomeCheck.ok && welcomeCheck.value === savedWelcome
   // "Not paid" is only possible while no payment is recorded and no callback is due.
   const canMarkNotPaid = (t: HubtelTxRow) => t.paid_at == null && t.callback_status === "not_due"
   const shown = txs.filter(t => matchesFilter(t, filter))
@@ -198,6 +205,67 @@ export default function AdminUssdHubtelPage() {
                       </div>
                     )
                   })}
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Welcome message</CardTitle>
+            <CardDescription>
+              The first line callers see: on the main menu (main mode) and on the shop-code prompt (shop mode). Applies to new dials immediately.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {!config ? <p className="text-sm text-muted-foreground">Loading...</p> : (
+              <>
+                <div className="space-y-1">
+                  <Input
+                    value={welcomeDraft}
+                    onChange={e => setWelcomeDraft(e.target.value)}
+                    maxLength={WELCOME_MAX}
+                    placeholder={DEFAULT_WELCOME}
+                    aria-label="Welcome message"
+                    aria-invalid={!welcomeCheck.ok}
+                    aria-describedby="hubtel-welcome-help"
+                  />
+                  <div id="hubtel-welcome-help" className="flex items-start justify-between gap-3 text-xs">
+                    <span className={welcomeCheck.ok ? "text-muted-foreground" : "text-destructive"}>
+                      {welcomeCheck.ok
+                        ? "1-60 plain characters (letters, numbers, spaces, basic punctuation), one line."
+                        : welcomeCheck.error}
+                    </span>
+                    <span className="shrink-0 tabular-nums text-muted-foreground">{welcomeDraft.length}/{WELCOME_MAX}</span>
+                  </div>
+                </div>
+                <div className="rounded-lg border bg-muted/40 p-3">
+                  <div className="mb-1 text-xs text-muted-foreground">Preview</div>
+                  <pre className="whitespace-pre-wrap break-words font-mono text-sm">
+                    {`${welcomeDraft.trim() || DEFAULT_WELCOME}\n${config.mode === "shop" ? "Enter shop code:" : "1. Buy Data Bundle\n..."}`}
+                  </pre>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    disabled={busy === "welcome" || !welcomeCheck.ok || welcomeUnchanged}
+                    onClick={() => { if (welcomeCheck.ok) save({ welcome: welcomeCheck.value }, "welcome") }}
+                  >
+                    {busy === "welcome" ? "Saving..." : "Save"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy === "welcome" || (savedWelcome === DEFAULT_WELCOME && welcomeDraft === DEFAULT_WELCOME)}
+                    onClick={() => {
+                      // Already the default on the server: just discard the local edit.
+                      if (savedWelcome === DEFAULT_WELCOME) setWelcomeDraft(DEFAULT_WELCOME)
+                      else save({ welcome: "" }, "welcome")
+                    }}
+                  >
+                    Reset to default
+                  </Button>
                 </div>
               </>
             )}

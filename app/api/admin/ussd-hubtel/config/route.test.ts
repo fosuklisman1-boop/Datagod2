@@ -6,15 +6,18 @@ const h = vi.hoisted(() => ({
   get: vi.fn(),
   set: vi.fn(),
   envReady: vi.fn(),
+  audit: [] as unknown[],
 }))
 vi.mock("@/lib/admin-auth", () => ({ verifyAdminAccess: vi.fn(async () => h.auth) }))
-vi.mock("@/lib/ussd-hubtel/config", () => ({
+// validateWelcome / DEFAULT_WELCOME stay REAL (pure); only the DB-touching functions are faked.
+vi.mock("@/lib/ussd-hubtel/config", async importOriginal => ({
+  ...(await importOriginal<typeof import("@/lib/ussd-hubtel/config")>()),
   getHubtelUssdConfig: (...a: any[]) => h.get(...a),
   setHubtelUssdConfig: (...a: any[]) => h.set(...a),
   hubtelEnvReady: (...a: any[]) => h.envReady(...a),
 }))
 vi.mock("@supabase/supabase-js", () => ({
-  createClient: () => ({ from: () => ({ insert: () => Promise.resolve({ error: null }) }) }),
+  createClient: () => ({ from: () => ({ insert: (rows: unknown) => { h.audit.push(rows); return Promise.resolve({ error: null }) } }) }),
 }))
 
 import { GET, POST } from "./route"
@@ -28,6 +31,7 @@ beforeEach(() => {
   h.get.mockReset().mockResolvedValue(base)
   h.set.mockReset().mockResolvedValue({ ...base, mode: "shop" })
   h.envReady.mockReset().mockReturnValue({ ready: true, missing: [] })
+  h.audit = []
 })
 
 describe("POST /api/admin/ussd-hubtel/config: mode", () => {
@@ -125,5 +129,66 @@ describe("(M3) shop mode needs Redis in production", () => {
     prod(true)
     const json2 = await (await GET(new NextRequest("http://localhost/api/admin/ussd-hubtel/config"))).json()
     expect(json2.env.redis).toBe(true)
+  })
+})
+
+describe("POST /api/admin/ussd-hubtel/config: welcome message", () => {
+  const getReq = () => new NextRequest("http://localhost/api/admin/ussd-hubtel/config")
+
+  it("saves a valid (trimmed) welcome, audits old/new, and GET returns it", async () => {
+    const before = { ...base, welcome: "Welcome to Clingshub" }
+    const after = { ...base, welcome: "Akwaaba to Ama Data" }
+    h.get.mockResolvedValueOnce(before)
+    h.set.mockResolvedValue(after)
+    const res = await POST(post({ welcome: "  Akwaaba to Ama Data  " }))
+    expect(res.status).toBe(200)
+    expect(h.set.mock.calls[0][1]).toMatchObject({ welcome: "Akwaaba to Ama Data" })
+    expect((await res.json()).config.welcome).toBe("Akwaaba to Ama Data")
+    await new Promise(r => setTimeout(r, 0))
+    expect(h.audit[0]).toEqual([expect.objectContaining({
+      action: "hubtel_ussd_config_update",
+      old_value: expect.objectContaining({ welcome: "Welcome to Clingshub" }),
+      new_value: expect.objectContaining({ welcome: "Akwaaba to Ama Data" }),
+    })])
+    h.get.mockResolvedValue(after)
+    const g = await GET(getReq())
+    expect((await g.json()).config.welcome).toBe("Akwaaba to Ama Data")
+  })
+  it("a body without welcome does not touch it (patch has no welcome)", async () => {
+    await POST(post({ mode: "shop" }))
+    expect(h.set.mock.calls[0][1].welcome).toBeUndefined()
+  })
+  const bad: Array<[string, unknown, RegExp]> = [
+    ["non-ASCII accent", "Café Data", /special character/i],
+    ["emoji", "Hi \u{1F31F}", /special character/i],
+    ["curly quotes", "“Hi”", /special character/i],
+    ["too long", "x".repeat(61), /60/],
+    ["newline", "Hello\nWorld", /single line/i],
+    ["non-string", 42, /string/i],
+    ["null", null, /string/i],
+  ]
+  for (const [name, welcome, msg] of bad) {
+    it(`rejects ${name} with 400 and writes nothing`, async () => {
+      const res = await POST(post({ welcome, enabled: true, mode: "shop" }))
+      expect(res.status).toBe(400)
+      expect((await res.json()).error).toMatch(msg)
+      expect(h.set).not.toHaveBeenCalled()
+      expect(h.audit).toEqual([])
+    })
+  }
+  it("an empty / whitespace welcome resets to the default", async () => {
+    for (const welcome of ["", "   "]) {
+      h.set.mockClear()
+      const res = await POST(post({ welcome }))
+      expect(res.status, JSON.stringify(welcome)).toBe(200)
+      expect(h.set.mock.calls[0][1]).toMatchObject({ welcome: "Welcome to Clingshub" })
+    }
+  })
+  it("a rate-limited admin posting a welcome gets the 429 and nothing is written", async () => {
+    const { NextResponse } = await import("next/server")
+    h.auth = { isAdmin: true, userId: "admin-1", errorResponse: NextResponse.json({ error: "Too many requests" }, { status: 429 }) }
+    const res = await POST(post({ welcome: "Hello" }))
+    expect(res.status).toBe(429)
+    expect(h.set).not.toHaveBeenCalled()
   })
 })

@@ -121,7 +121,7 @@ async function startSession(req: HubtelRequest, deps: RouterDeps, config: Hubtel
     return release(req.SessionId, "No services available right now. Please try again later.", { platform: req.Platform })
   }
   await deps.sessions.set(req.SessionId, { mode: "main", step: "MAIN", dialingPhone: toE164(req.Mobile), platform: req.Platform, dataBlocked })
-  return respond(req.SessionId, prefix + mainMenuText(resolved), { label: "Main menu", clientState: "MAIN", platform: req.Platform })
+  return respond(req.SessionId, prefix + mainMenuText(resolved, config.welcome), { label: "Main menu", clientState: "MAIN", platform: req.Platform })
 }
 
 /** New or restarted session: the CURRENT config mode decides, and is pinned by the start function. */

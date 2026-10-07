@@ -60,7 +60,7 @@ export async function startShopSession(
   await deps.sessions.set(req.SessionId, {
     mode: "shop", step: "SHOP_ENTER_CODE", dialingPhone: toE164(req.Mobile), platform: req.Platform, dataBlocked,
   })
-  return respond(req.SessionId, prefix + shopCodePromptText(), {
+  return respond(req.SessionId, prefix + shopCodePromptText(config.welcome), {
     label: CODE.label, fieldType: CODE.fieldType, clientState: "SHOP_ENTER_CODE", platform: req.Platform,
   })
 }

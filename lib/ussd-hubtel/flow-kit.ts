@@ -82,7 +82,7 @@ export function menuFor(config: HubtelUssdConfig, dataBlocked: boolean) {
 }
 
 export function mainMenuReply(ctx: FlowCtx): HubtelReply {
-  return say(ctx, mainMenuText(menuFor(ctx.config, ctx.session.dataBlocked === true)), "MAIN", { label: "Main menu" })
+  return say(ctx, mainMenuText(menuFor(ctx.config, ctx.session.dataBlocked === true), ctx.config.welcome), "MAIN", { label: "Main menu" })
 }
 
 /** "0" on a flow's first screen: back to the main menu with a clean session. */

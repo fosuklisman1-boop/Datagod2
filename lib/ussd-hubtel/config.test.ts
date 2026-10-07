@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { getHubtelUssdConfig, setHubtelUssdConfig, hubtelEnvReady } from "./config"
+import { getHubtelUssdConfig, setHubtelUssdConfig, hubtelEnvReady, validateWelcome, DEFAULT_WELCOME } from "./config"
 
 describe("hubtelEnvReady", () => {
   const all = { HUBTEL_WEBHOOK_SECRET: "a", HUBTEL_RELAY_URL: "b", HUBTEL_RELAY_SECRET: "c" }
@@ -35,6 +35,7 @@ describe("hubtel ussd config", () => {
     expect(await getHubtelUssdConfig(client)).toEqual({
       enabled: false, mode: "main",
       visibility: { data: true, afa: true, airtime: true, resultsChecker: true },
+      welcome: "Welcome to Clingshub",
     })
   })
 
@@ -49,12 +50,98 @@ describe("hubtel ussd config", () => {
   it("set merges a partial patch and persists", async () => {
     const { client, read } = fakeSupabase({ enabled: false, mode: "main", visibility: { data: true, afa: true, airtime: true, resultsChecker: true } })
     const cfg = await setHubtelUssdConfig(client, { enabled: true, visibility: { airtime: false } })
-    expect(cfg).toEqual({ enabled: true, mode: "main", visibility: { data: true, afa: true, airtime: false, resultsChecker: true } })
+    expect(cfg).toEqual({ enabled: true, mode: "main", visibility: { data: true, afa: true, airtime: false, resultsChecker: true }, welcome: "Welcome to Clingshub" })
     expect(read()).toEqual(cfg)
   })
 
   it("rejects an invalid mode", async () => {
     const { client } = fakeSupabase(undefined)
     await expect(setHubtelUssdConfig(client, { mode: "weird" as any })).rejects.toThrow("invalid mode")
+  })
+})
+
+describe("welcome message config", () => {
+  it("DEFAULT_WELCOME is exactly 'Welcome to Clingshub'", () => {
+    expect(DEFAULT_WELCOME).toBe("Welcome to Clingshub")
+  })
+  it("get returns a valid stored welcome", async () => {
+    const { client } = fakeSupabase({ enabled: true, mode: "main", welcome: "Akwaaba to Ama Data" })
+    expect((await getHubtelUssdConfig(client)).welcome).toBe("Akwaaba to Ama Data")
+  })
+  it("get trims a stored welcome", async () => {
+    const { client } = fakeSupabase({ welcome: "  Hello there  " })
+    expect((await getHubtelUssdConfig(client)).welcome).toBe("Hello there")
+  })
+  it("get falls back to the default for an invalid stored welcome", async () => {
+    for (const welcome of ["", "   ", "x".repeat(61), "a\nb", "Café", "Hi \u{1F31F}", "“Hi”", 42, null, { a: 1 }]) {
+      const { client } = fakeSupabase({ welcome })
+      expect((await getHubtelUssdConfig(client)).welcome, JSON.stringify(welcome)).toBe(DEFAULT_WELCOME)
+    }
+  })
+  it("set merges a welcome patch, keeps other fields, and persists", async () => {
+    const { client, read } = fakeSupabase({ enabled: true, mode: "shop", visibility: { afa: false } })
+    const cfg = await setHubtelUssdConfig(client, { welcome: "  Welcome to Ama  " })
+    expect(cfg).toEqual({
+      enabled: true, mode: "shop", visibility: { data: true, afa: false, airtime: true, resultsChecker: true }, welcome: "Welcome to Ama",
+    })
+    expect(read()).toEqual(cfg)
+  })
+  it("set without welcome keeps the current one", async () => {
+    const { client } = fakeSupabase({ welcome: "Custom hello" })
+    expect((await setHubtelUssdConfig(client, { enabled: true })).welcome).toBe("Custom hello")
+  })
+  it("set rejects an invalid welcome and writes nothing", async () => {
+    const { client, read } = fakeSupabase(undefined)
+    await expect(setHubtelUssdConfig(client, { welcome: "Café" })).rejects.toThrow(/^invalid welcome: /)
+    await expect(setHubtelUssdConfig(client, { welcome: "x".repeat(61) })).rejects.toThrow(/invalid welcome/)
+    expect(read()).toBeUndefined()
+  })
+})
+
+describe("validateWelcome", () => {
+  it("accepts and trims printable ASCII up to 60 chars", () => {
+    expect(validateWelcome("  Welcome to Clingshub ")).toEqual({ ok: true, value: "Welcome to Clingshub" })
+    expect(validateWelcome("x".repeat(60))).toEqual({ ok: true, value: "x".repeat(60) })
+    expect(validateWelcome(" " + "y".repeat(60) + " ")).toEqual({ ok: true, value: "y".repeat(60) })
+    expect(validateWelcome("A-Z a-z 0-9 !@#$%^&*()_+=[]{}|;:'\",.<>/?~`")).toMatchObject({ ok: true })
+  })
+  it("rejects empty after trim (the route treats that as a reset)", () => {
+    const r = validateWelcome("   ")
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/empty/i)
+  })
+  it("rejects more than 60 chars", () => {
+    const r = validateWelcome("x".repeat(61))
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/60/)
+  })
+  it("rejects a newline or carriage return", () => {
+    for (const s of ["Hello\nWorld", "Hello\rWorld", "Hello\r\nWorld"]) {
+      const r = validateWelcome(s)
+      expect(r.ok, JSON.stringify(s)).toBe(false)
+      if (!r.ok) expect(r.error).toMatch(/single line/i)
+    }
+  })
+  it("rejects non-ASCII (accents, emoji, curly quotes) and names the character", () => {
+    const cases: Array<[string, string]> = [["Café Data", "é"], ["Hi \u{1F31F}", "\u{1F31F}"], ["“Hi”", "“"], ["It’s us", "’"]]
+    for (const [s, ch] of cases) {
+      const r = validateWelcome(s)
+      expect(r.ok, s).toBe(false)
+      if (!r.ok) {
+        expect(r.error).toMatch(/special character/i)
+        expect(r.error).toContain(ch)
+      }
+    }
+  })
+  it("rejects a tab and other control characters", () => {
+    expect(validateWelcome("Hi\tthere").ok).toBe(false)
+    expect(validateWelcome("Hi\u0007").ok).toBe(false)
+  })
+  it("rejects non-strings", () => {
+    for (const v of [undefined, null, 5, true, {}, ["a"]]) {
+      const r = validateWelcome(v)
+      expect(r.ok, String(v)).toBe(false)
+      if (!r.ok) expect(r.error).toMatch(/string/i)
+    }
   })
 })

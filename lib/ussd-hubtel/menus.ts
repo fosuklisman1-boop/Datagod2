@@ -2,6 +2,7 @@
 // network names and normal wording (no Uzo nicknames / "Browse Services" rebrand).
 import { MenuItemDef, ResolvedMenuItem, renderMenuText, resolveMenuItems } from "@/lib/ussd/menu-items"
 import type { BundleOption } from "@/lib/ussd/types"
+import { DEFAULT_WELCOME } from "./config"
 
 export type MainMenuKey = "data" | "afa" | "airtime" | "resultsChecker"
 
@@ -33,8 +34,14 @@ export function resolveMainMenu(
   return resolveMenuItems(MAIN_ITEMS, visible)
 }
 
-export function mainMenuText(resolved: ResolvedMenuItem<MainMenuKey>[]): string {
-  return renderMenuText("Welcome to Datagod", resolved, "0. Exit")
+/** The admin welcome line (config.welcome, already validated); empty/missing falls back to the default. */
+function welcomeLine(welcome: string): string {
+  return (typeof welcome === "string" && welcome.trim()) || DEFAULT_WELCOME
+}
+
+/** `welcome` is config.welcome: required so no render path can forget it. */
+export function mainMenuText(resolved: ResolvedMenuItem<MainMenuKey>[], welcome: string): string {
+  return renderMenuText(welcomeLine(welcome), resolved, "0. Exit")
 }
 
 export const HUBTEL_NETWORKS = [
@@ -126,8 +133,9 @@ export function shopHeader(shopName: string): string {
   return clean || "Shop"
 }
 
-export function shopCodePromptText(): string {
-  return "Welcome to Datagod\nEnter shop code:\n0. Exit"
+/** `welcome` is config.welcome; later shop screens show the shop's own name instead. */
+export function shopCodePromptText(welcome: string): string {
+  return `${welcomeLine(welcome)}\nEnter shop code:\n0. Exit`
 }
 
 export function shopCodeRetryText(reason: string): string {

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest"
 import { resolveMainMenu, mainMenuText, networkMenuText, bundleMenuText, confirmMenuText, formatSize, recipientPromptText, HUBTEL_NETWORKS, IMPLEMENTED_SERVICES,
   resolveShopMenu, shopHeader, shopCodePromptText, shopCodeRetryText, shopMenuText, shopNetworkLabel, sortShopNetworks, shopNetworkMenuText,
 } from "./menus"
+import { DEFAULT_WELCOME } from "./config"
 
 const allOn = { data: true, afa: true, airtime: true, resultsChecker: true }
 
@@ -9,7 +10,16 @@ describe("main menu", () => {
   it("shows only implemented services and renumbers", () => {
     const r = resolveMainMenu(allOn, false)
     expect(r.map(i => i.key)).toEqual(Object.entries(IMPLEMENTED_SERVICES).filter(([, v]) => v).map(([k]) => k))
-    expect(mainMenuText(r)).toContain("1. Buy Data Bundle")
+    expect(mainMenuText(r, DEFAULT_WELCOME)).toContain("1. Buy Data Bundle")
+  })
+  it("the header is the given welcome line", () => {
+    const r = resolveMainMenu(allOn, false)
+    expect(mainMenuText(r, "Akwaaba to Ama Data")).toBe(
+      "Akwaaba to Ama Data\n1. Buy Data Bundle\n2. AFA Registration\n3. Buy Airtime\n4. Results Checker\n0. Exit"
+    )
+  })
+  it("the default welcome is 'Welcome to Clingshub'", () => {
+    expect(mainMenuText(resolveMainMenu(allOn, false), DEFAULT_WELCOME).split("\n")[0]).toBe("Welcome to Clingshub")
   })
   it("hides data when the caller is whitelist-blocked or admin-hidden", () => {
     expect(resolveMainMenu(allOn, true).map(i => i.key)).not.toContain("data")
@@ -71,7 +81,8 @@ describe("shop menus", () => {
     expect(shopHeader("  Kofi's   Shop ")).toBe("Kofi's Shop")
   })
   it("code prompts", () => {
-    expect(shopCodePromptText()).toBe("Welcome to Datagod\nEnter shop code:\n0. Exit")
+    expect(shopCodePromptText(DEFAULT_WELCOME)).toBe("Welcome to Clingshub\nEnter shop code:\n0. Exit")
+    expect(shopCodePromptText("Akwaaba to Ama Data")).toBe("Akwaaba to Ama Data\nEnter shop code:\n0. Exit")
     expect(shopCodeRetryText("Invalid code. Try again.")).toBe("Invalid code. Try again.\nEnter shop code:\n0. Exit")
   })
   it("product menu text", () => {

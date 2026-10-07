@@ -1,7 +1,9 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
-import { getHubtelUssdConfig, setHubtelUssdConfig, hubtelEnvReady } from "@/lib/ussd-hubtel/config"
+import {
+  DEFAULT_WELCOME, getHubtelUssdConfig, hubtelEnvReady, setHubtelUssdConfig, validateWelcome,
+} from "@/lib/ussd-hubtel/config"
 
 const adminClient = () =>
   createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
@@ -73,11 +75,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "invalid visibility" }, { status: 400 })
     }
   }
+  // Optional welcome line. Validated before any write; an empty/whitespace string resets it.
+  let welcome: string | undefined
+  if (body.welcome !== undefined) {
+    if (typeof body.welcome === "string" && body.welcome.trim() === "") {
+      welcome = DEFAULT_WELCOME
+    } else {
+      const v = validateWelcome(body.welcome)
+      if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 })
+      welcome = v.value
+    }
+  }
 
   const client = adminClient()
   try {
     const before = await getHubtelUssdConfig(client)
-    const config = await setHubtelUssdConfig(client, { enabled: body.enabled, mode: body.mode, visibility: body.visibility })
+    const config = await setHubtelUssdConfig(client, { enabled: body.enabled, mode: body.mode, visibility: body.visibility, welcome })
     client.from("admin_audit_log").insert([{
       admin_id: userId, action: "hubtel_ussd_config_update", target_user_id: null,
       old_value: before, new_value: config, created_at: new Date().toISOString(),

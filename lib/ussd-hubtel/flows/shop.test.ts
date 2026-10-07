@@ -18,7 +18,7 @@ describe("shop mode: initiation", () => {
     const { deps, store } = makeDeps({ getConfig: SHOP_CONFIG })
     const r = await hubtelRouter(req({ Type: "Initiation" }), deps)
     expect(r.Type).toBe("response")
-    expect(r.Message).toBe("Welcome to Datagod\nEnter shop code:\n0. Exit")
+    expect(r.Message).toBe("Welcome to Clingshub\nEnter shop code:\n0. Exit")
     expect(r.FieldType).toBe("text")
     expect(r.ClientState).toBe("SHOP_ENTER_CODE")
     expect(store.get("S1")).toMatchObject({ mode: "shop", step: "SHOP_ENTER_CODE", dialingPhone: "+233200585542", platform: "USSD", dataBlocked: false })
@@ -26,7 +26,7 @@ describe("shop mode: initiation", () => {
   it("every shop service hidden for this caller: released before any code (no token can be spent)", async () => {
     const deductToken = vi.fn(async () => true)
     const { deps, store } = makeDeps({
-      getConfig: async () => ({ enabled: true, mode: "shop", visibility: { data: true, afa: true, airtime: false, resultsChecker: false } }),
+      getConfig: async () => ({ welcome: "Welcome to Clingshub", enabled: true, mode: "shop", visibility: { data: true, afa: true, airtime: false, resultsChecker: false } }),
       isDataBlocked: async () => true,
       shop: fakeShop({ deductToken }),
     })
@@ -41,7 +41,7 @@ describe("shop mode: initiation", () => {
   })
   it("AFA alone visible does not count as a shop service (the shop menu has no AFA)", async () => {
     const { deps } = makeDeps({
-      getConfig: async () => ({ enabled: true, mode: "shop", visibility: { data: false, afa: true, airtime: false, resultsChecker: false } }),
+      getConfig: async () => ({ welcome: "Welcome to Clingshub", enabled: true, mode: "shop", visibility: { data: false, afa: true, airtime: false, resultsChecker: false } }),
     })
     const r = await hubtelRouter(req({ Type: "Initiation" }), deps)
     expect(r.Type).toBe("release")
@@ -320,7 +320,7 @@ describe("shop mode: token billing per Hubtel session (review focus #1)", () => 
     store.delete("S1") // Redis TTL / miss; the billing marker (1 h TTL) survives
     balance = 0
     const restart = await hubtelRouter(req({ Message: "1" }), deps)
-    expect(restart.Message).toBe("Session expired.\nWelcome to Datagod\nEnter shop code:\n0. Exit")
+    expect(restart.Message).toBe("Session expired.\nWelcome to Clingshub\nEnter shop code:\n0. Exit")
     const r = await hubtelRouter(req({ Message: "1234" }), deps)
     expect(r.Message).toBe(PRODUCT_MENU)
     expect(deductToken).toHaveBeenCalledTimes(1)
@@ -367,7 +367,7 @@ describe("shop mode: product menu", () => {
     expect(r.Message).toBe("Ama Data Hub\nWhat would you like to buy?\n1. Buy Airtime\n2. Results Checker\n0. Exit")
   })
   it("an admin-hidden service is not offered", async () => {
-    const { deps } = makeDeps({ getConfig: async () => ({ enabled: true, mode: "shop", visibility: { data: true, afa: true, airtime: false, resultsChecker: true } }) })
+    const { deps } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", enabled: true, mode: "shop", visibility: { data: true, afa: true, airtime: false, resultsChecker: true } }) })
     const r = await enterShop(deps)
     expect(r.Message).not.toContain("Buy Airtime")
     expect(r.Message).not.toContain("AFA")
