@@ -6,20 +6,42 @@ function relayConfig(): { url: string; secret: string } | null {
   return url && secret ? { url: url.replace(/\/$/, ""), secret } : null
 }
 
-export async function sendFulfillmentCallback(p: { sessionId: string; orderId: string }): Promise<{ ok: boolean; error?: string }> {
+/** The callback body Hubtel receives (via the relay). Also what the callback log records. */
+export function buildCallbackPayload(p: { sessionId: string; orderId: string }) {
+  // Always "success": spec §8 (failures are handled in our own admin / refunds, not via Hubtel).
+  return { SessionId: p.sessionId, OrderId: p.orderId, ServiceStatus: "success", MetaData: null }
+}
+
+export interface FulfillmentCallbackResult {
+  ok: boolean
+  error?: string
+  /** Hubtel's HTTP status as reported by the relay (or the relay's own status if it refused). */
+  upstreamStatus?: number
+  /** Hubtel's response body as reported by the relay (or the relay's own JSON if it refused). */
+  upstreamBody?: unknown
+}
+
+export async function sendFulfillmentCallback(p: { sessionId: string; orderId: string }): Promise<FulfillmentCallbackResult> {
   const cfg = relayConfig()
   if (!cfg) return { ok: false, error: "relay not configured" }
   try {
     const res = await fetch(`${cfg.url}/callback`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.secret}` },
-      // Always "success": spec §8 (failures are handled in our own admin / refunds, not via Hubtel).
-      body: JSON.stringify({ SessionId: p.sessionId, OrderId: p.orderId, ServiceStatus: "success", MetaData: null }),
+      body: JSON.stringify(buildCallbackPayload(p)),
       signal: AbortSignal.timeout(10_000),
     })
     const json: any = await res.json().catch(() => null)
-    if (!res.ok || !json?.ok) return { ok: false, error: `relay/hubtel ${json?.upstreamStatus ?? res.status}: ${JSON.stringify(json?.body ?? null).slice(0, 200)}` }
-    return { ok: true }
+    const upstreamStatus: number = typeof json?.upstreamStatus === "number" ? json.upstreamStatus : res.status
+    const upstreamBody: unknown = json && typeof json === "object" && "body" in json ? json.body : json
+    if (!res.ok || !json?.ok) {
+      return {
+        ok: false,
+        error: `relay/hubtel ${json?.upstreamStatus ?? res.status}: ${JSON.stringify(json?.body ?? null).slice(0, 200)}`,
+        upstreamStatus, upstreamBody,
+      }
+    }
+    return { ok: true, upstreamStatus, upstreamBody }
   } catch (e: any) {
     return { ok: false, error: String(e?.message ?? e) }
   }

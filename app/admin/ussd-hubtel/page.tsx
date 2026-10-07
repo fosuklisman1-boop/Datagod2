@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -74,6 +74,263 @@ async function authed(path: string, init?: RequestInit) {
   const json = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(json.error || res.statusText || "Request failed")
   return json
+}
+
+// -- Hubtel callback log ---------------------------------------------------------
+type CallbackDirection = "inbound_fulfillment" | "outbound_callback"
+type CallbackLogSummary = {
+  id: string
+  created_at: string
+  direction: CallbackDirection
+  session_id: string | null
+  hubtel_order_id: string | null
+  outcome: string | null
+  ok: boolean | null
+  http_status: number | null
+}
+type CallbackLogFull = CallbackLogSummary & {
+  payload: unknown
+  raw_body: string | null
+  response: unknown
+  error: string | null
+  source_ip: string | null
+}
+type DirectionFilter = "all" | CallbackDirection
+const DIRECTION_FILTERS: { value: DirectionFilter; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "inbound_fulfillment", label: "From Hubtel" },
+  { value: "outbound_callback", label: "To Hubtel" },
+]
+const PROBLEM_OUTCOMES = new Set(["needs_review", "failed", "parse_error", "invalid_payload", "unknown_session", "error"])
+const isProblem = (l: Pick<CallbackLogSummary, "ok" | "outcome">) => l.ok === false || (l.outcome != null && PROBLEM_OUTCOMES.has(l.outcome))
+const directionLabel = (d: CallbackDirection) => (d === "inbound_fulfillment" ? "From Hubtel" : "To Hubtel")
+const shortId = (v: string | null) => (!v ? "-" : v.length > 12 ? `${v.slice(0, 8)}…${v.slice(-4)}` : v)
+
+function prettyJson(v: unknown): string {
+  if (v === null || v === undefined) return ""
+  if (typeof v === "string") return v
+  try { return JSON.stringify(v, null, 2) } catch { return String(v) }
+}
+
+/** navigator.clipboard with a textarea + execCommand fallback (older browsers / non-secure contexts). */
+async function copyText(text: string): Promise<void> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      toast.success("Copied")
+      return
+    }
+  } catch { /* fall through to the fallback */ }
+  try {
+    const ta = document.createElement("textarea")
+    ta.value = text
+    ta.setAttribute("readonly", "")
+    ta.style.position = "fixed"
+    ta.style.opacity = "0"
+    document.body.appendChild(ta)
+    ta.select()
+    const ok = document.execCommand("copy")
+    document.body.removeChild(ta)
+    if (ok) toast.success("Copied")
+    else toast.error("Copy failed")
+  } catch {
+    toast.error("Copy failed")
+  }
+}
+
+function CallbackLogCard() {
+  const [direction, setDirection] = useState<DirectionFilter>("all")
+  const [problemsOnly, setProblemsOnly] = useState(false)
+  const [logs, setLogs] = useState<CallbackLogSummary[]>([])
+  const [nextBefore, setNextBefore] = useState<string | null>(null)
+  const [tableMissing, setTableMissing] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [selected, setSelected] = useState<CallbackLogSummary | null>(null)
+  const [detail, setDetail] = useState<CallbackLogFull | null>(null)
+  const [detailError, setDetailError] = useState<string | null>(null)
+
+  // Sequence tokens: only the LATEST list request / detail request may update state, so rapid
+  // filter toggles or clicking row A then B never show stale data.
+  const listSeq = useRef(0)
+  const detailSeq = useRef(0)
+
+  // `cursor` is the opaque nextBefore ("<created_at>|<id>") from the previous page, or null.
+  const fetchPage = useCallback(async (cursor: string | null) => {
+    const params = new URLSearchParams({ limit: "50" })
+    if (direction !== "all") params.set("direction", direction)
+    if (problemsOnly) params.set("problemsOnly", "1")
+    if (cursor) params.set("before", cursor)
+    const seq = ++listSeq.current
+    setLoading(true)
+    setLoadError(null)
+    try {
+      const res = await authed(`/api/admin/ussd-hubtel/callback-logs?${params.toString()}`)
+      if (seq !== listSeq.current) return
+      const page: CallbackLogSummary[] = Array.isArray(res.logs) ? res.logs : []
+      setLogs(prev => (cursor ? [...prev, ...page] : page))
+      setNextBefore(typeof res.nextBefore === "string" ? res.nextBefore : null)
+      setTableMissing(res.tableMissing === true)
+    } catch (e: any) {
+      if (seq !== listSeq.current) return
+      setLoadError(e.message || "Failed to load callback log")
+      toast.error(e.message || "Failed to load callback log")
+    } finally {
+      if (seq === listSeq.current) setLoading(false)
+    }
+  }, [direction, problemsOnly])
+  useEffect(() => { fetchPage(null) }, [fetchPage])
+
+  const open = async (l: CallbackLogSummary) => {
+    const seq = ++detailSeq.current
+    setSelected(l)
+    setDetail(null)
+    setDetailError(null)
+    try {
+      const res = await authed(`/api/admin/ussd-hubtel/callback-logs/${encodeURIComponent(l.id)}`)
+      if (seq !== detailSeq.current) return
+      // Belt and braces: never show a body that belongs to another row.
+      if (res.log && res.log.id !== l.id) return
+      setDetail(res.log ?? null)
+      if (!res.log) setDetailError("Not found")
+    } catch (e: any) {
+      if (seq !== detailSeq.current) return
+      setDetailError(e.message || "Failed to load entry")
+    }
+  }
+  const closeDetail = () => {
+    detailSeq.current++ // drop any in-flight detail response
+    setSelected(null); setDetail(null); setDetailError(null)
+  }
+
+  const payloadText = detail ? (detail.payload != null ? prettyJson(detail.payload) : detail.raw_body ?? "") : ""
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <CardTitle>Hubtel callbacks</CardTitle>
+          <CardDescription>
+            Payment confirmations from Hubtel and the success callbacks we send back. Kept for 30 days. Click a row for the full payload.
+          </CardDescription>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {DIRECTION_FILTERS.map(f => (
+            <Button key={f.value} size="sm" variant={direction === f.value ? "default" : "outline"} aria-pressed={direction === f.value}
+              onClick={() => setDirection(f.value)}>{f.label}</Button>
+          ))}
+          <Button size="sm" variant={problemsOnly ? "destructive" : "outline"} aria-pressed={problemsOnly}
+            onClick={() => setProblemsOnly(p => !p)}>Problems only</Button>
+          <Button variant="outline" size="sm" onClick={() => fetchPage(null)} disabled={loading} aria-label="Refresh callback log">
+            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3 overflow-x-auto">
+        {tableMissing && (
+          <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+            Logging starts after migration 0109 is applied (<code>migrations/0109_hubtel_callback_logs.sql</code>).
+          </p>
+        )}
+        {loadError && <p className="text-sm text-destructive">{loadError}</p>}
+        <table className="w-full text-sm">
+          <thead><tr className="text-left text-muted-foreground">
+            <th className="p-2">Time</th><th className="p-2">Direction</th><th className="p-2">Session</th>
+            <th className="p-2">Outcome</th><th className="p-2">Status</th>
+          </tr></thead>
+          <tbody>
+            {logs.map(l => (
+              // The real control is the <button> in the first cell (keyboard + screen readers);
+              // clicking anywhere on the row is a mouse convenience.
+              <tr key={l.id} className="cursor-pointer border-t hover:bg-muted/50 focus-within:bg-muted/50" onClick={() => open(l)}>
+                <td className="p-2 whitespace-nowrap">
+                  <button
+                    type="button"
+                    className="text-left underline decoration-dotted underline-offset-2 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+                    aria-label={`Open ${directionLabel(l.direction)} log for session ${l.session_id ?? "unknown"}, outcome ${l.outcome ?? "unknown"}`}
+                    onClick={e => { e.stopPropagation(); open(l) }}
+                  >
+                    {new Date(l.created_at).toLocaleString()}
+                  </button>
+                </td>
+                <td className="p-2"><Badge variant="outline">{directionLabel(l.direction)}</Badge></td>
+                <td className="p-2 font-mono text-xs" title={l.session_id ?? ""}>{shortId(l.session_id)}</td>
+                <td className="p-2"><Badge variant={isProblem(l) ? "destructive" : "secondary"}>{l.outcome ?? "-"}</Badge></td>
+                <td className="p-2">{l.http_status ?? "-"}</td>
+              </tr>
+            ))}
+            {logs.length === 0 && !loading && (
+              <tr><td colSpan={5} className="p-6 text-center text-muted-foreground">
+                {tableMissing ? "No log yet." : problemsOnly || direction !== "all" ? "No entries match this filter." : "No callbacks logged yet."}
+              </td></tr>
+            )}
+            {logs.length === 0 && loading && (
+              <tr><td colSpan={5} className="p-6 text-center text-muted-foreground">Loading...</td></tr>
+            )}
+          </tbody>
+        </table>
+        {nextBefore && (
+          <div className="flex justify-center">
+            <Button variant="outline" size="sm" disabled={loading} onClick={() => fetchPage(nextBefore)}>
+              {loading ? "Loading..." : "Load more"}
+            </Button>
+          </div>
+        )}
+      </CardContent>
+
+      <Dialog open={!!selected} onOpenChange={o => { if (!o) closeDetail() }}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>{selected ? directionLabel(selected.direction) : "Callback"}</DialogTitle>
+            <DialogDescription>
+              {selected ? `${new Date(selected.created_at).toLocaleString()} · outcome ${selected.outcome ?? "-"}` : ""}
+            </DialogDescription>
+          </DialogHeader>
+          {detailError && <p className="text-sm text-destructive">{detailError}</p>}
+          {!detail && !detailError && <p className="text-sm text-muted-foreground">Loading...</p>}
+          {detail && (
+            <div className="space-y-3 text-sm">
+              <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+                <dt className="text-muted-foreground">Session</dt><dd className="break-all font-mono text-xs">{detail.session_id ?? "-"}</dd>
+                <dt className="text-muted-foreground">Hubtel order</dt><dd className="break-all font-mono text-xs">{detail.hubtel_order_id ?? "-"}</dd>
+                <dt className="text-muted-foreground">Outcome</dt><dd>{detail.outcome ?? "-"}{detail.ok === false ? " (problem)" : ""}</dd>
+                <dt className="text-muted-foreground">HTTP status</dt><dd>{detail.http_status ?? "-"}</dd>
+                {detail.source_ip && (<><dt className="text-muted-foreground">Source IP</dt><dd className="font-mono text-xs">{detail.source_ip}</dd></>)}
+              </dl>
+              <div>
+                <div className="mb-1 text-xs font-medium text-muted-foreground">
+                  {detail.payload != null ? "Payload" : detail.raw_body != null ? "Raw body (did not parse as JSON)" : "Payload"}
+                </div>
+                <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-all rounded-lg border bg-muted/40 p-3 font-mono text-xs">
+                  {payloadText || "(empty)"}
+                </pre>
+              </div>
+              {detail.direction === "outbound_callback" && (
+                <div>
+                  <div className="mb-1 text-xs font-medium text-muted-foreground">Hubtel response</div>
+                  <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg border bg-muted/40 p-3 font-mono text-xs">
+                    {prettyJson(detail.response) || "(none)"}
+                  </pre>
+                </div>
+              )}
+              {detail.error && (
+                <div>
+                  <div className="mb-1 text-xs font-medium text-muted-foreground">Error</div>
+                  <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-all rounded-lg border bg-muted/40 p-3 font-mono text-xs text-destructive">
+                    {detail.error}
+                  </pre>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" disabled={!detail} onClick={() => copyText(payloadText)}>Copy payload</Button>
+            <Button variant="outline" disabled={!detail} onClick={() => copyText(JSON.stringify(detail, null, 2))}>Copy all (JSON)</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  )
 }
 
 export default function AdminUssdHubtelPage() {
@@ -437,6 +694,8 @@ export default function AdminUssdHubtelPage() {
             </table>
           </CardContent>
         </Card>
+
+        <CallbackLogCard />
 
         <Dialog open={!!resolving} onOpenChange={open => { if (!open) setResolving(null) }}>
           <DialogContent>
