@@ -3,7 +3,9 @@
 // hubtel_transactions insert fails), replay (rebuild the identical AddToCart from the stored
 // order), and expiry (fail an unpaid order). Every key must be allowed by the order_table CHECK
 // in migrations/0106_hubtel_ussd.sql (pinned by order-tables.test.ts).
-import { HUBTEL_NETWORKS, airtimeLabel, formatSize } from "./menus"
+import { airtimeLabel } from "./menus"
+import { formatBundleSize } from "@/lib/ussd/menus"
+import { networkNickname } from "@/lib/ussd/network-labels"
 
 export type HubtelOrderTable =
   | "ussd_orders" | "ussd_shop_orders" | "airtime_orders" | "results_checker_orders" | "results_check_requests" | "ussd_afa_orders"
@@ -21,25 +23,30 @@ export interface OrderTableSpec {
 
 const now = () => new Date().toISOString()
 
+/**
+ * AddToCart ItemName for a data purchase, e.g. "5 yellow" / "2 tele" / "500 instant blue".
+ * Bare size (no unit) + the shared network nickname without its trailing "Plans", lowercased —
+ * the same nicknames the Uzo menus use (lib/ussd/network-labels.ts), so Hubtel never receives
+ * the words "data" or "bundle". Built from the stored order row so a replay is identical.
+ */
+function dataCartName(r: Record<string, unknown>): string {
+  const nick = networkNickname(String(r.network)).replace(/\s+plans$/i, "").trim().toLowerCase()
+  return `${formatBundleSize(String(r.package_size))} ${nick}`
+}
+
 export const ORDER_TABLES: Record<HubtelOrderTable, OrderTableSpec> = {
   ussd_orders: {
     payableStatuses: ["pending", "otp_required"],
     failPatch: () => ({ order_status: "failed", payment_status: "failed", updated_at: now() }),
     cartColumns: "package_size, network",
-    cartItemName: r => {
-      const label = HUBTEL_NETWORKS.find(n => n.dbName === r.network)?.label ?? String(r.network)
-      return `${formatSize(String(r.package_size))} ${label} Plan`
-    },
+    cartItemName: dataCartName,
   },
   // Shop-mode data bundles (Plan 3). Same statuses and cart wording as ussd_orders.
   ussd_shop_orders: {
     payableStatuses: ["pending", "otp_required"],
     failPatch: () => ({ order_status: "failed", payment_status: "failed", updated_at: now() }),
     cartColumns: "package_size, network",
-    cartItemName: r => {
-      const label = HUBTEL_NETWORKS.find(n => n.dbName === r.network)?.label ?? String(r.network)
-      return `${formatSize(String(r.package_size))} ${label} Plan`
-    },
+    cartItemName: dataCartName,
   },
   airtime_orders: {
     payableStatuses: ["pending_payment", "otp_required"],

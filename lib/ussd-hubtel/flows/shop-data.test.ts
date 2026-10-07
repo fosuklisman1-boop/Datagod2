@@ -88,7 +88,7 @@ describe("shop data: confirm -> AddToCart", () => {
     await toConfirm(deps)
     const r = await hubtelRouter(req({ Message: "1" }), deps)
     expect(r.Type).toBe("AddToCart")
-    expect(r.Item).toEqual({ ItemName: "5GB MTN Plan", Qty: 1, Price: 12 })
+    expect(r.Item).toEqual({ ItemName: "5 yellow", Qty: 1, Price: 12 })
     expect(sup.inserts["ussd_shop_orders"][0]).toEqual({
       shop_code_id: "code-1",
       shop_id: "shop-1",
@@ -197,7 +197,7 @@ describe("shop data: idempotent CONFIRM and replay (review focus #3)", () => {
     const r = await hubtelRouter(req({ Message: "1" }), deps)
     err.mockRestore()
     expect(r.Type).toBe("AddToCart")
-    expect(r.Item).toEqual({ ItemName: "5GB MTN Plan", Qty: 1, Price: 12 })
+    expect(r.Item).toEqual({ ItemName: "5 yellow", Qty: 1, Price: 12 })
     expect(sup.updates.some(u => u.table === "ussd_shop_orders" && u.patch.order_status === "failed" && u.patch.payment_status === "failed")).toBe(true)
   })
   for (const mode of ["shop", "main"] as const) {
@@ -206,7 +206,7 @@ describe("shop data: idempotent CONFIRM and replay (review focus #3)", () => {
       const { deps } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode, visibility: { data: true, afa: true, airtime: true, resultsChecker: true } }) }, sup)
       const r = await hubtelRouter(req({ Message: "1" }), deps)
       expect(r.Type).toBe("AddToCart")
-      expect(r.Item).toEqual({ ItemName: "2GB Telecel Plan", Qty: 1, Price: 12 })
+      expect(r.Item).toEqual({ ItemName: "2 tele", Qty: 1, Price: 12 })
     })
   }
 })
