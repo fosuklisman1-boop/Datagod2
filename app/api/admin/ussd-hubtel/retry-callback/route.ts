@@ -5,6 +5,7 @@ import { createSupabaseTxStore } from "@/lib/ussd-hubtel/tx-store"
 import { dispatchCallback } from "@/lib/ussd-hubtel/callbacks"
 import { sendFulfillmentCallback } from "@/lib/ussd-hubtel/relay"
 import { safeDbError } from "@/lib/ussd-hubtel/log-safe"
+import { withOutboundLogging } from "@/lib/ussd-hubtel/callback-log"
 
 export async function POST(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
@@ -14,7 +15,8 @@ export async function POST(request: NextRequest) {
   if (!sessionId) return NextResponse.json({ error: "sessionId required" }, { status: 400 })
 
   try {
-    const store = createSupabaseTxStore(createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!))
+    const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
+    const store = createSupabaseTxStore(supabase)
     const row = await store.findBySession(sessionId)
     if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 })
     if (row.state !== "fulfilled" && row.state !== "needs_review") {
@@ -24,7 +26,8 @@ export async function POST(request: NextRequest) {
     if (row.callback_status === "failed") {
       await store.update(sessionId, { callback_status: "pending", paid_at: new Date().toISOString(), callback_last_error: null })
     }
-    const result = await dispatchCallback(store, sendFulfillmentCallback, sessionId)
+    // The attempt is written to hubtel_callback_logs (best-effort; never changes the result).
+    const result = await dispatchCallback(store, withOutboundLogging(sendFulfillmentCallback, supabase), sessionId)
     return NextResponse.json({ result })
   } catch (e) {
     console.error("[HUBTEL-ADMIN] retry-callback error:", safeDbError(e))

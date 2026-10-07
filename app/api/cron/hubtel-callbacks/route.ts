@@ -5,6 +5,7 @@ import { createSupabaseTxStore } from "@/lib/ussd-hubtel/tx-store"
 import { dispatchCallback } from "@/lib/ussd-hubtel/callbacks"
 import { sendFulfillmentCallback } from "@/lib/ussd-hubtel/relay"
 import { safeDbError } from "@/lib/ussd-hubtel/log-safe"
+import { purgeOldCallbackLogs, withOutboundLogging } from "@/lib/ussd-hubtel/callback-log"
 
 export const maxDuration = 300
 
@@ -19,6 +20,8 @@ export async function GET(request: NextRequest) {
   const start = Date.now()
   const store = createSupabaseTxStore(supabase)
   const rows = await store.listPendingCallbacks(50)
+  // Every attempt is written to hubtel_callback_logs (best-effort; never changes the result).
+  const send = withOutboundLogging(sendFulfillmentCallback, supabase)
   const counts: Record<string, number> = {}
   let processed = 0
   for (const row of rows) {
@@ -28,9 +31,11 @@ export async function GET(request: NextRequest) {
     }
     processed++
     try {
-      const r = await dispatchCallback(store, sendFulfillmentCallback, row.session_id)
+      const r = await dispatchCallback(store, send, row.session_id)
       counts[r] = (counts[r] ?? 0) + 1
     } catch (e) { console.error("[HUBTEL-CRON] callback error:", row.session_id, safeDbError(e)) }
   }
+  // 30-day retention for the callback log; best-effort (swallows its own errors).
+  await purgeOldCallbackLogs(supabase)
   return NextResponse.json({ listed: rows.length, processed, ...counts })
 }
