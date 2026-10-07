@@ -75,33 +75,16 @@ export function PhoneRequiredModal({ open, onPhoneSaved }: PhoneRequiredModalPro
     }
   }
 
-  const handleVerifyOtp = async () => {
-    if (!otpCode || otpCode.length !== 6) { toast.error("Enter the 6-digit OTP"); return }
-    setVerifyLoading(true)
-    try {
-      const res = await fetch("/api/auth/verify-phone-otp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, code: otpCode, purpose: "update_phone" }),
-      })
-      const data = await res.json()
-      if (!res.ok || !data.verified) { toast.error(data.error || "Invalid or expired code"); return }
-      setPhoneVerified(true)
-      toast.success("Phone number verified!")
-    } catch {
-      toast.error("Failed to verify OTP")
-    } finally {
-      setVerifyLoading(false)
-    }
-  }
-
-  const handleSavePhone = async () => {
+  // Does the actual persist — pulls the phone value from its CALLER rather
+  // than the `phoneVerified` state flag, since that flag is set via
+  // setPhoneVerified() in the same tick this function needs to run in:
+  // React hasn't re-rendered yet, so reading the state var here would still
+  // see the stale (false) value and wrongly bail out.
+  const saveVerifiedPhone = async (verifiedPhone: string) => {
     setPhoneExistsError(false)
 
-    if (!phone || phone.trim() === "") { toast.error("Phone number is required"); return }
-    const phoneDigits = phone.replace(/\D/g, "")
+    const phoneDigits = verifiedPhone.replace(/\D/g, "")
     if (phoneDigits.length < 9 || phoneDigits.length > 10) { toast.error("Phone number must be 9 or 10 digits"); return }
-    if (!phoneVerified) { toast.error("Please verify your phone number first"); return }
 
     setIsSaving(true)
     try {
@@ -114,7 +97,7 @@ export function PhoneRequiredModal({ open, onPhoneSaved }: PhoneRequiredModalPro
           "Content-Type": "application/json",
           "Authorization": `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ phoneNumber: phone }),
+        body: JSON.stringify({ phoneNumber: verifiedPhone }),
       })
 
       const data = await response.json()
@@ -129,12 +112,45 @@ export function PhoneRequiredModal({ open, onPhoneSaved }: PhoneRequiredModalPro
       }
 
       toast.success("Phone number saved successfully!")
-      onPhoneSaved(phone)
+      onPhoneSaved(verifiedPhone)
     } catch {
       toast.error("Failed to save phone number")
     } finally {
       setIsSaving(false)
     }
+  }
+
+  const handleVerifyOtp = async () => {
+    if (!otpCode || otpCode.length !== 6) { toast.error("Enter the 6-digit OTP"); return }
+    setVerifyLoading(true)
+    try {
+      const res = await fetch("/api/auth/verify-phone-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, code: otpCode, purpose: "update_phone" }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.verified) { toast.error(data.error || "Invalid or expired code"); return }
+      setPhoneVerified(true)
+      // Save immediately — a separate "now click Save" step is exactly what
+      // left real customers verified-but-never-saved in production (confirmed
+      // live: their OTP was marked used, but users.phone_number/phone_verified
+      // never actually updated, because nobody realized a second click was
+      // still required after the "verified!" confirmation).
+      await saveVerifiedPhone(phone)
+    } catch {
+      toast.error("Failed to verify OTP")
+    } finally {
+      setVerifyLoading(false)
+    }
+  }
+
+  // Manual retry path for the "Save Phone Number" button — only ever needed
+  // if the automatic save above failed (e.g. the already-registered case).
+  const handleSavePhone = async () => {
+    if (!phone || phone.trim() === "") { toast.error("Phone number is required"); return }
+    if (!phoneVerified) { toast.error("Please verify your phone number first"); return }
+    await saveVerifiedPhone(phone)
   }
 
   const handleContactSupport = () => {
