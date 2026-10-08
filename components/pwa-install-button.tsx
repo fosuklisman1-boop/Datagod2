@@ -1,59 +1,21 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import { Download, Share, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
-
-type InstallMode = "android" | "ios" | null
+import { usePwaInstall } from "@/hooks/use-pwa-install"
 
 export function PwaInstallButton() {
-    const [mode, setMode] = useState<InstallMode>(null)
+    const { mode, promptInstall } = usePwaInstall()
     const [showIOSGuide, setShowIOSGuide] = useState(false)
-    const deferredPrompt = useRef<Event & { prompt: () => Promise<void> } | null>(null)
-
+    // Chrome/Firefox on iOS can't install PWAs — only offer the guide in Safari.
+    const [isIOSSafari, setIsIOSSafari] = useState(false)
     useEffect(() => {
-        if (typeof window === "undefined") return
-
-        // Already installed — don't show button
-        const isStandalone =
-            window.matchMedia("(display-mode: standalone)").matches ||
-            (navigator as Navigator & { standalone?: boolean }).standalone === true
-        if (isStandalone) return
-
-        const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent)
-        if (isIOS) {
-            // Only show in Safari; Chrome/Firefox on iOS can't install PWAs
-            const isSafari = /Safari/.test(navigator.userAgent) && !/CriOS|FxiOS/.test(navigator.userAgent)
-            if (isSafari) setMode("ios")
-            return
-        }
-
-        // Check if the event was already captured by the inline <head> script
-        const w = window as Window & { __deferredInstallPrompt?: Event & { prompt: () => Promise<void> } }
-        if (w.__deferredInstallPrompt) {
-            deferredPrompt.current = w.__deferredInstallPrompt
-            setMode("android")
-            return
-        }
-
-        // Listen for future events (fires after this component mounts) and for
-        // the synthetic event dispatched by the inline script on slow hydration
-        const handler = (e: Event) => {
-            if (e.type === "beforeinstallprompt") e.preventDefault()
-            const prompt = e.type === "pwaInstallReady" ? w.__deferredInstallPrompt : e as Event & { prompt: () => Promise<void> }
-            if (!prompt) return
-            deferredPrompt.current = prompt
-            setMode("android")
-        }
-        window.addEventListener("beforeinstallprompt", handler)
-        window.addEventListener("pwaInstallReady", handler)
-        return () => {
-            window.removeEventListener("beforeinstallprompt", handler)
-            window.removeEventListener("pwaInstallReady", handler)
-        }
+        setIsIOSSafari(/Safari/.test(navigator.userAgent) && !/CriOS|FxiOS/.test(navigator.userAgent))
     }, [])
 
-    if (!mode) return null
+    if (mode === "ios" && !isIOSSafari) return null
+    if (mode !== "ios" && mode !== "android") return null
 
     if (mode === "ios") {
         return (
@@ -112,12 +74,7 @@ export function PwaInstallButton() {
             size="icon"
             className="h-8 w-8 md:h-10 md:w-10"
             title="Install App"
-            onClick={async () => {
-                if (!deferredPrompt.current) return
-                await deferredPrompt.current.prompt()
-                deferredPrompt.current = null
-                setMode(null)
-            }}
+            onClick={() => { void promptInstall() }}
         >
             <Download className="w-4 h-4 md:w-5 md:h-5" />
         </Button>

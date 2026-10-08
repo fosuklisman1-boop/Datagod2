@@ -141,6 +141,7 @@ export async function PUT(request: NextRequest) {
 
     const fields = [
       'join_community_link',
+      'join_group_link',
       'ordering_enabled',
       'announcement_enabled',
       'announcement_title',
@@ -267,9 +268,10 @@ export async function PUT(request: NextRequest) {
     }
 
     // Validate URL format if present
-    if (join_community_link) {
+    for (const link of [join_community_link, updates.join_group_link]) {
+      if (!link) continue
       try {
-        new URL(join_community_link)
+        new URL(link)
       } catch {
         return NextResponse.json(
           { error: "Invalid URL format" },

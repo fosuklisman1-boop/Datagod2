@@ -24,6 +24,7 @@ export default function AdminSettingsPage() {
   const { isAdmin, loading: adminLoading } = useAdminProtected()
   const { user } = useAuth()
   const [joinCommunityLink, setJoinCommunityLink] = useState("")
+  const [joinGroupLink, setJoinGroupLink] = useState("")
   const [whatsappNumber, setWhatsappNumber] = useState("")
   const [supportEmail, setSupportEmail] = useState("")
   const [supportPhone, setSupportPhone] = useState("")
@@ -145,6 +146,9 @@ export default function AdminSettingsPage() {
 
         if (data.join_community_link) {
           setJoinCommunityLink(data.join_community_link)
+        }
+        if (data.join_group_link) {
+          setJoinGroupLink(data.join_group_link)
         }
 
         // Load support settings
@@ -880,6 +884,10 @@ export default function AdminSettingsPage() {
       toast.error("Please enter a valid community link URL")
       return
     }
+    if (joinGroupLink && !isUrl(joinGroupLink)) {
+      toast.error("Please enter a valid community group link URL")
+      return
+    }
 
     setSaving(true)
     try {
@@ -900,6 +908,7 @@ export default function AdminSettingsPage() {
         },
         body: JSON.stringify({
           join_community_link: joinCommunityLink,
+          join_group_link: joinGroupLink,
           ordering_enabled: orderingEnabled,
           announcement_enabled: announcementEnabled,
           announcement_title: announcementTitle,
@@ -1341,16 +1350,16 @@ export default function AdminSettingsPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <ExternalLink className="w-5 h-5" />
-              Join Community Link
+              Community Links
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
               <Label htmlFor="joinLink" className="text-sm font-medium">
-                Community Join Link
+                Channel Link
               </Label>
               <p className="text-xs text-muted-foreground mt-1 mb-2">
-                This link will be displayed to users who want to join your community
+                Your WhatsApp channel (or other broadcast channel). Shown as &quot;Follow Channel&quot; on the homepage and &quot;Join Community&quot; elsewhere.
               </p>
               <Input
                 id="joinLink"
@@ -1358,6 +1367,23 @@ export default function AdminSettingsPage() {
                 placeholder="https://discord.gg/..."
                 value={joinCommunityLink}
                 onChange={(e) => setJoinCommunityLink(e.target.value)}
+                className="w-full"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="joinGroupLink" className="text-sm font-medium">
+                Community Group Link
+              </Label>
+              <p className="text-xs text-muted-foreground mt-1 mb-2">
+                Your WhatsApp group invite link. Shown as &quot;Join Community Group&quot; on the homepage — hidden while empty.
+              </p>
+              <Input
+                id="joinGroupLink"
+                type="url"
+                placeholder="https://chat.whatsapp.com/..."
+                value={joinGroupLink}
+                onChange={(e) => setJoinGroupLink(e.target.value)}
                 className="w-full"
               />
             </div>

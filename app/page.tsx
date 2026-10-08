@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
@@ -15,11 +14,9 @@ import {
 } from "lucide-react"
 import GuestPurchaseButton from "@/components/GuestPurchaseButton"
 import { HomeAIChatWidget } from "@/components/home/AIChatWidget"
-import { useCommunityLink } from "@/hooks/use-community-link"
-import { Skeleton } from "@/components/ui/skeleton"
+import { HeroCarousel } from "@/components/home/HeroCarousel"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 import { isPageHidden } from "@/lib/custom-domains"
-import { StorefrontServicesCarousel, type StorefrontCarouselSlide } from "@/components/shop/StorefrontServicesCarousel"
 
 function Step({
   number,
@@ -37,12 +34,12 @@ function Step({
   const paragraphs = description.split("\n\n").filter(Boolean)
   return (
     <div className="flex gap-4">
-      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary text-primary-foreground text-sm font-bold flex items-center justify-center shadow">
+      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[#1b388b] text-primary-foreground text-sm font-bold flex items-center justify-center shadow">
         {number}
       </div>
       <div className="flex-1 pb-6 border-b border-border last:border-0 last:pb-0">
         <div className="flex items-center gap-2 mb-1">
-          <span className="text-primary">{icon}</span>
+          <span className="text-[#1b388b]">{icon}</span>
           <h4 className="font-semibold text-foreground text-sm">{title}</h4>
         </div>
         <div className="space-y-2 mb-3">
@@ -70,10 +67,10 @@ function MockNetworkPicker() {
         {[
           { name: "MTN", color: "bg-yellow-400" },
           { name: "Telecel", color: "bg-red-500" },
-          { name: "AT-iShare", color: "bg-primary" },
-          { name: "AT-BigTime", color: "bg-primary" },
+          { name: "AT-iShare", color: "bg-[#1b388b]" },
+          { name: "AT-BigTime", color: "bg-[#1b388b]" },
         ].map((n, i) => (
-          <div key={n.name} className={`rounded-lg border-2 p-2 text-center ${i === 0 ? "border-primary bg-primary/5" : "border-border"}`}>
+          <div key={n.name} className={`rounded-lg border-2 p-2 text-center ${i === 0 ? "border-[#1b388b] bg-[#1b388b]/5" : "border-border"}`}>
             <div className={`w-5 h-5 ${n.color} rounded-full mx-auto mb-1`} />
             <p className="text-[9px] font-bold text-foreground">{n.name}</p>
           </div>
@@ -90,7 +87,7 @@ function MockPackageCard() {
         <div key={p.size} className="flex-1 bg-card border border-border rounded-xl p-2 text-center shadow-sm">
           <p className="text-sm font-black text-foreground">{p.size}</p>
           <p className="text-[10px] text-muted-foreground mb-1">MTN</p>
-          <p className="text-xs font-bold text-primary">GHS {p.price}</p>
+          <p className="text-xs font-bold text-[#1b388b]">GHS {p.price}</p>
         </div>
       ))}
     </div>
@@ -107,7 +104,7 @@ function MockCheckout() {
       <div className="bg-card border border-border rounded-lg px-3 py-1.5 flex items-center gap-2">
         <span className="text-[11px] text-muted-foreground">john@email.com</span>
       </div>
-      <div className="bg-primary rounded-lg py-1.5 text-center">
+      <div className="bg-[#1b388b] rounded-lg py-1.5 text-center">
         <span className="text-[11px] font-bold text-primary-foreground">Order Now — GHS 5.00</span>
       </div>
     </div>
@@ -144,12 +141,12 @@ function MockSuccess() {
 function MockWallet() {
   return (
     <div className="p-3 bg-muted/40 space-y-2">
-      <div className="bg-primary rounded-xl p-3 text-primary-foreground">
+      <div className="bg-[#1b388b] rounded-xl p-3 text-primary-foreground">
         <p className="text-[10px] opacity-80">Wallet Balance</p>
         <p className="text-lg font-black">GHS 50.00</p>
       </div>
       <div className="bg-card border border-border rounded-lg py-1.5 text-center">
-        <span className="text-[11px] font-semibold text-primary">+ Top Up Wallet</span>
+        <span className="text-[11px] font-semibold text-[#1b388b]">+ Top Up Wallet</span>
       </div>
     </div>
   )
@@ -159,8 +156,8 @@ function MockShopLink() {
   return (
     <div className="p-3 bg-muted/40">
       <div className="bg-card border border-border rounded-lg px-3 py-2 flex items-center gap-2">
-        <Store className="w-3 h-3 text-primary flex-shrink-0" />
-        <span className="text-[11px] text-muted-foreground truncate">datagod.store/shop/<span className="font-bold text-primary">your-shop</span></span>
+        <Store className="w-3 h-3 text-[#1b388b] flex-shrink-0" />
+        <span className="text-[11px] text-muted-foreground truncate">datagod.store/shop/<span className="font-bold text-[#1b388b]">your-shop</span></span>
         <Share2 className="w-3 h-3 text-muted-foreground flex-shrink-0 ml-auto" />
       </div>
       <p className="text-[10px] text-muted-foreground mt-1.5 text-center">Share this link with your customers</p>
@@ -189,7 +186,7 @@ function MockVoucher() {
   return (
     <div className="p-3 bg-muted/40 text-center space-y-2">
       <div className="bg-card border-2 border-dashed border-border rounded-xl p-3">
-        <GraduationCap className="w-6 h-6 text-primary mx-auto mb-1" />
+        <GraduationCap className="w-6 h-6 text-[#1b388b] mx-auto mb-1" />
         <p className="text-[10px] font-bold text-foreground">WAEC Results Checker</p>
         <p className="text-[10px] text-muted-foreground mt-1">PIN: <span className="font-mono font-bold text-foreground">****-****-****</span></p>
         <p className="text-[10px] text-muted-foreground">Serial: <span className="font-mono font-bold text-foreground">WEC2024****</span></p>
@@ -204,9 +201,9 @@ function MockWithdrawal() {
     <div className="p-3 bg-muted/40 space-y-2">
       {/* Method selector */}
       <div className="flex gap-2">
-        <div className="flex-1 border-2 border-primary bg-primary/5 rounded-lg p-2 text-center">
-          <Phone className="w-3 h-3 text-primary mx-auto mb-0.5" />
-          <p className="text-[9px] font-bold text-primary">Mobile Money</p>
+        <div className="flex-1 border-2 border-[#1b388b] bg-[#1b388b]/5 rounded-lg p-2 text-center">
+          <Phone className="w-3 h-3 text-[#1b388b] mx-auto mb-0.5" />
+          <p className="text-[9px] font-bold text-[#1b388b]">Mobile Money</p>
         </div>
         <div className="flex-1 border border-border bg-card rounded-lg p-2 text-center">
           <Banknote className="w-3 h-3 text-muted-foreground mx-auto mb-0.5" />
@@ -225,7 +222,7 @@ function MockWithdrawal() {
       </div>
 
       {/* Submit */}
-      <div className="bg-primary rounded-lg py-1.5 text-center">
+      <div className="bg-[#1b388b] rounded-lg py-1.5 text-center">
         <span className="text-[10px] font-bold text-primary-foreground">Request Withdrawal</span>
       </div>
 
@@ -251,7 +248,7 @@ function MockInviteProcess() {
           <div className="flex-1 bg-muted rounded px-2 py-1 text-[10px] text-muted-foreground">Phone (optional)</div>
           <div className="flex-1 bg-muted rounded px-2 py-1 text-[10px] text-muted-foreground">Email (optional)</div>
         </div>
-        <div className="bg-primary rounded py-1 text-center">
+        <div className="bg-[#1b388b] rounded py-1 text-center">
           <span className="text-[10px] font-bold text-primary-foreground">Generate Invite Link</span>
         </div>
       </div>
@@ -276,11 +273,11 @@ function MockInviteProcess() {
       </div>
 
       {/* Step C — sub-agent joins */}
-      <div className="bg-card border border-primary/20 rounded-lg p-2.5">
-        <p className="text-[9px] font-bold text-primary uppercase tracking-widest mb-1">Sub-Agent Clicks Link</p>
+      <div className="bg-card border border-[#1b388b]/20 rounded-lg p-2.5">
+        <p className="text-[9px] font-bold text-[#1b388b] uppercase tracking-widest mb-1">Sub-Agent Clicks Link</p>
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 bg-primary/10 rounded-full flex items-center justify-center flex-shrink-0">
-            <UserPlus className="w-3 h-3 text-primary" />
+          <div className="w-6 h-6 bg-[#1b388b]/10 rounded-full flex items-center justify-center flex-shrink-0">
+            <UserPlus className="w-3 h-3 text-[#1b388b]" />
           </div>
           <div>
             <p className="text-[10px] font-semibold text-foreground">Registers their account</p>
@@ -304,7 +301,7 @@ function MockProfitMargin() {
           <span className="text-[10px] font-medium text-foreground flex-1">{p.size}</span>
           <span className="text-[9px] text-muted-foreground">Base GHS {p.base}</span>
           <span className="text-[9px] text-success font-bold">+{p.profit}</span>
-          <span className="text-[9px] font-black text-primary">= GHS {p.sell}</span>
+          <span className="text-[9px] font-black text-[#1b388b]">= GHS {p.sell}</span>
         </div>
       ))}
     </div>
@@ -371,9 +368,7 @@ interface SubscriptionPlan {
 }
 
 export default function HomePage() {
-  const { communityLink, loading: communityLoading } = useCommunityLink()
   const domainBranding = useDomainBranding()
-  const router = useRouter()
 
   // Live, real pricing — never hardcoded, so this never goes stale or gets
   // mistaken for fabricated numbers. "default" is the platform's own
@@ -445,13 +440,12 @@ export default function HomePage() {
           {domainBranding.logoUrl ? (
             <img src={domainBranding.logoUrl} alt={`${domainBranding.siteName || "DATAGOD"} logo`} className="h-7 w-7 rounded-lg object-cover" />
           ) : (
-            <div aria-hidden className="h-7 w-7 rounded-lg bg-gradient-to-br from-primary to-brand-accent" />
+            <div aria-hidden className="h-7 w-7 rounded-lg bg-gradient-to-br from-[#1b388b] to-brand-accent" />
           )}
           <h1 className="text-lg sm:text-xl font-display font-semibold text-foreground tracking-tight">{domainBranding.siteName || "DATAGOD"}</h1>
         </div>
         <div className="hidden md:flex items-center gap-6">
           {[
-            ["Networks", "#networks"],
             ["Services", "#services"],
             ["Why Us", "#why-us"],
             ["How it works", "#how-it-works"],
@@ -461,129 +455,31 @@ export default function HomePage() {
           ))}
         </div>
         <div className="flex items-center gap-2 sm:gap-3">
-          <Link href="/auth/login"><Button variant="ghost" className="font-display">Sign In</Button></Link>
-          <Link href="/auth/signup"><Button className="font-display">Get Started</Button></Link>
+          <Link href="/auth/login"><Button variant="ghost" className="font-display">Login</Button></Link>
+          <Link href="/auth/signup"><Button className="font-display bg-[#1b388b] hover:bg-[#1b388b]/90">Get Started</Button></Link>
         </div>
       </nav>
 
-      {/* Hero Section */}
-      <section className="max-w-6xl mx-auto px-2 sm:px-6 py-8 sm:py-20">
-        {/* Metric bar */}
-        <div className="mb-8 flex flex-wrap gap-x-7 gap-y-2 border-b border-border pb-5 font-mono text-[11px] text-muted-foreground">
-          <span>Delivery <span className="text-primary">~8s</span></span>
-          <span>Uptime <span className="text-primary">99.99%</span></span>
-          <span>Orders <span className="text-primary">500,000+</span></span>
-          <span>AI <span className="text-primary">5 assistants</span></span>
-        </div>
-        <div className="relative grid items-center gap-10 lg:grid-cols-2">
-          {/* ambient grid + glow */}
-          <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 opacity-30 [mask-image:radial-gradient(circle_at_75%_0,#000,transparent_72%)]"
-               style={{ backgroundImage: "linear-gradient(hsl(var(--border)) 1px,transparent 1px),linear-gradient(90deg,hsl(var(--border)) 1px,transparent 1px)", backgroundSize: "36px 36px" }} />
-          {/* Left: copy */}
-          <div className="text-center lg:text-left">
-            <span className="inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-wider text-primary mb-4">
-              <span className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_10px_hsl(var(--primary))]" /> Ghana's all-in-one data & reseller platform
-            </span>
-            <h2 className="font-display text-3xl sm:text-5xl font-semibold tracking-tight text-foreground leading-[1.04]">
-              Data, airtime &amp; more —{" "}
-              <span className="bg-gradient-to-r from-primary to-brand-accent bg-clip-text text-transparent">delivered in 10 seconds.</span>
-            </h2>
-            <p className="mt-4 text-base sm:text-lg text-muted-foreground max-w-xl mx-auto lg:mx-0">
-              Data, airtime, AFA, results checkers &amp; bulk SMS — pay from your wallet, or open your own branded shop and earn reselling to others. Built for Ghana.
-            </p>
-            <div className="mt-5 flex flex-col sm:flex-row gap-3 justify-center lg:justify-start">
-              <Link href="/auth/signup"><Button size="lg" className="gap-2 w-full sm:w-auto">Get started <ArrowRight className="w-4 h-4" /></Button></Link>
-              {!isPageHidden("guest_purchase", domainBranding.hiddenPages) && (
-                <GuestPurchaseButton variant="outline" className="w-full sm:w-auto" />
-              )}
-            </div>
-            <div className="mt-6 flex justify-center lg:justify-start gap-8">
-              <div><div className="font-display text-2xl font-bold text-foreground">3</div><div className="text-xs text-muted-foreground">networks</div></div>
-              <div><div className="font-display text-2xl font-bold text-foreground">500k+</div><div className="text-xs text-muted-foreground">orders delivered</div></div>
-              <div><div className="font-display text-2xl font-bold text-foreground">~8s</div><div className="text-xs text-muted-foreground">avg delivery</div></div>
-            </div>
-            {!isPageHidden("join_channel", domainBranding.hiddenPages) && (
-              communityLoading ? (
-                <div className="mt-5 flex justify-center lg:justify-start"><Skeleton className="h-11 w-full sm:w-56 rounded-md" /></div>
-              ) : communityLink ? (
-                <a href={communityLink} target="_blank" rel="noopener noreferrer" className="mt-5 inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-4 py-2.5 font-display text-sm font-semibold text-primary hover:bg-primary/15 transition-colors">
-                  <MessageCircle className="w-4 h-4" /> Join Community
-                </a>
-              ) : null
-            )}
-          </div>
-          {/* Right: AI assistants card */}
-          <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 font-display text-sm font-semibold text-foreground"><Cpu className="w-[18px] h-[18px] text-primary" /> DATAGOD AI</div>
-              <span className="flex items-center gap-1.5 font-mono text-[9px] text-primary"><span className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_8px_hsl(var(--primary))]" />ONLINE</span>
-            </div>
-            <p className="mt-1 mb-3 text-[11px] text-muted-foreground">One assistant — tuned for every surface you use.</p>
-            {[
-              ["WEB", "Browse plans, track any order, explain dealer pricing."],
-              ["SHOP", "Find bundles & start checkout for you."],
-              ["WHATSAPP", "Order by chat, re-verify stuck top-ups, file complaints."],
-              ["DEALER", "“Buy 5GB MTN for 024…”, today’s sales, manage USSD."],
-              ["ADMIN", "Fulfil orders & manage users, shops & payouts by chat."],
-            ].map(([tag, txt]) => (
-              <div key={tag} className="flex gap-3 border-t border-border py-2">
-                <div className="w-16 shrink-0 font-mono text-[9px] leading-snug text-primary">{tag}</div>
-                <div className="text-[11px] text-muted-foreground">{txt}</div>
-              </div>
-            ))}
-            <div className="mt-3 flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2.5">
-              <span className="flex-1 text-[11px] text-muted-foreground">Ask DATAGOD anything…</span>
-              <span className="grid h-[22px] w-[22px] place-items-center rounded-md bg-primary text-primary-foreground"><ArrowRight className="w-3 h-3" /></span>
-            </div>
-          </div>
-        </div>
+      {/* Hero — 4-slide carousel: Welcome / Reseller Shops / Developer API / Help & Community */}
+      <HeroCarousel />
 
-        {/* Network strip */}
-        <div id="networks" className="mt-10 flex flex-wrap items-center justify-center gap-3 sm:mt-14">
-          <span className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-bold text-foreground"><span className="grid h-5 w-5 place-items-center rounded bg-mtn text-mtn-foreground text-[10px] font-black">M</span> MTN</span>
-          <span className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-bold text-foreground"><span className="grid h-5 w-5 place-items-center rounded bg-telecel text-telecel-foreground text-[10px] font-black">T</span> Telecel</span>
-          <span className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-bold text-foreground"><span className="grid h-5 w-5 place-items-center rounded bg-at text-at-foreground text-[10px] font-black">A</span> AT iShare</span>
-          <span className="rounded-full border border-border bg-card px-4 py-2 text-sm text-muted-foreground">+ Airtime · AFA · Results checker</span>
+      {/* ── All-in-one intro ─────────────────────────────────── */}
+      <section className="px-4 sm:px-6 py-14 sm:py-20 text-center">
+        <div className="max-w-3xl mx-auto">
+          <h2 className="font-display text-4xl sm:text-5xl font-black tracking-tight text-foreground leading-[1.1]">
+            Ghana&apos;s All-In-One Mobile Data &amp; Reseller Platform
+          </h2>
+          <p className="mt-6 text-lg sm:text-xl leading-relaxed text-muted-foreground">
+            Buy data bundles, airtime, AFA registrations, results checkers and bulk SMS. Fund your wallet, open your own shop, or integrate via our Developer API — all in one place. Instant delivery, always.
+          </p>
         </div>
-      </section>
-
-      {/* ── Promo Carousel ───────────────────────────────────── */}
-      <section className="max-w-6xl mx-auto px-4 sm:px-6 pb-8 sm:pb-14">
-        <StorefrontServicesCarousel
-          slides={[
-            {
-              key: "data", badge: "DATA & AIRTIME", title: "Buy Data & Airtime Instantly",
-              description: "MTN, Telecel & AT bundles delivered in seconds — pay from your wallet.",
-              cta: "Get Started", icon: Database, gradient: "from-[#0f172a] to-[#2563eb]",
-              onClick: () => router.push("/auth/signup"),
-            },
-            {
-              key: "shop", badge: "RESELL", title: "Launch Your Own Reseller Shop",
-              description: "A branded storefront with your name, logo, and your own prices — live in minutes.",
-              cta: "Open Your Shop", icon: Store, gradient: "from-[#052e16] to-[#059669]",
-              onClick: () => router.push("/auth/signup"),
-            },
-            {
-              key: "sms", badge: "BULK SMS", title: "Send SMS at Scale",
-              description: "OTPs, alerts and campaigns with your own sender ID, templates & address book.",
-              cta: "Get Started", icon: Send, gradient: "from-[#431407] to-[#d97706]",
-              onClick: () => router.push("/auth/signup"),
-            },
-            {
-              key: "channels", badge: "EVERYWHERE", title: "Order From Anywhere",
-              description: "Web, WhatsApp, USSD, or our Developer API — however you prefer to order.",
-              cta: "Explore", icon: Globe, gradient: "from-[#1e1b4b] to-[#4f46e5]",
-              onClick: () => document.getElementById("services")?.scrollIntoView({ behavior: "smooth" }),
-            },
-          ] satisfies StorefrontCarouselSlide[]}
-        />
       </section>
 
       {/* ── Our Top Services ────────────────────────────────── */}
       <section id="services" className="bg-card border-t border-b border-border py-16 sm:py-24">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <div className="text-center mb-12">
-            <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-primary">Proven Products</span>
+            <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-[#1b388b]">Proven Products</span>
             <h2 className="font-display text-2xl sm:text-4xl font-bold text-foreground mb-3">Our Top Services</h2>
             <p className="text-muted-foreground max-w-xl mx-auto text-sm sm:text-base">
               Everything you need to buy, resell, and manage digital services in one place.
@@ -593,7 +489,7 @@ export default function HomePage() {
             {TOP_SERVICES.map(({ icon: Icon, title, desc, tag, color }) => (
               <div key={title} className="rounded-2xl border-2 border-foreground/80 bg-background p-4 sm:p-6">
                 <div className={`mb-4 grid h-12 w-12 place-items-center rounded-2xl ${color}`}><Icon className="h-[22px] w-[22px]" /></div>
-                <h3 className="mb-1.5 flex items-center gap-2 font-display font-bold text-foreground">{title}{tag && <span className="rounded-full border border-primary/30 px-1.5 py-0.5 font-mono text-[8px] text-primary">{tag}</span>}</h3>
+                <h3 className="mb-1.5 flex items-center gap-2 font-display font-bold text-foreground">{title}{tag && <span className="rounded-full border border-[#1b388b]/30 px-1.5 py-0.5 font-mono text-[8px] text-[#1b388b]">{tag}</span>}</h3>
                 <p className="text-sm text-muted-foreground">{desc}</p>
               </div>
             ))}
@@ -620,7 +516,7 @@ export default function HomePage() {
       <section className="py-16 sm:py-24">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 grid lg:grid-cols-2 gap-10 items-center">
           <div>
-            <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-primary">Reseller Tools</span>
+            <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-[#1b388b]">Reseller Tools</span>
             <h2 className="font-display text-2xl sm:text-4xl font-bold text-foreground mb-4">Launch your own branded storefront</h2>
             <p className="text-muted-foreground mb-6">
               Your name, your logo, your prices. Create a shop in minutes and start earning a profit margin on every sale — no coding, no setup fees.
@@ -632,7 +528,7 @@ export default function HomePage() {
                 </li>
               ))}
             </ul>
-            <Link href="/auth/signup"><Button size="lg" className="gap-2">Open Your Shop <ArrowRight className="w-4 h-4" /></Button></Link>
+            <Link href="/auth/signup"><Button size="lg" className="gap-2 bg-[#1b388b] hover:bg-[#1b388b]/90">Open Your Shop <ArrowRight className="w-4 h-4" /></Button></Link>
           </div>
           <div className="rounded-2xl border-2 border-foreground/80 bg-card shadow-sm overflow-hidden">
             <MockShopLink />
@@ -647,13 +543,13 @@ export default function HomePage() {
       {!isPageHidden("guest_purchase", domainBranding.hiddenPages) && (
         <section className="py-16 sm:py-20">
           <div className="max-w-2xl mx-auto px-4 sm:px-6 text-center">
-            <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-primary">See It In Action</span>
+            <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-[#1b388b]">See It In Action</span>
             <h2 className="font-display text-2xl sm:text-4xl font-bold text-foreground mb-3">Try a real storefront — no account needed</h2>
             <p className="text-muted-foreground text-sm sm:text-base mb-8">
               Before you build your own shop, see exactly what your customers will experience — browse packages and check out as a guest.
             </p>
             <div className="flex justify-center">
-              <GuestPurchaseButton variant="primary" />
+              <GuestPurchaseButton variant="primary" className="rounded-full bg-[#1b388b] hover:bg-[#1b388b]/90" />
             </div>
           </div>
         </section>
@@ -666,7 +562,7 @@ export default function HomePage() {
             <div className="flex items-center gap-1.5 mb-3">
               <span className="h-2.5 w-2.5 rounded-full bg-destructive/60" /><span className="h-2.5 w-2.5 rounded-full bg-warning/60" /><span className="h-2.5 w-2.5 rounded-full bg-success/60" />
             </div>
-            <p><span className="text-primary">POST</span> /api/v1/orders</p>
+            <p><span className="text-[#1b388b]">POST</span> /api/v1/orders</p>
             <p className="text-foreground/60">X-API-Key: YOUR_API_KEY</p>
             <p className="mt-2">{"{"}</p>
             <p className="pl-3">"network": "MTN",</p>
@@ -677,7 +573,7 @@ export default function HomePage() {
             <p className="mt-2 text-success">→ 200 OK — delivered</p>
           </div>
           <div className="order-1 lg:order-2">
-            <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-primary">For Developers</span>
+            <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-[#1b388b]">For Developers</span>
             <h2 className="font-display text-2xl sm:text-4xl font-bold text-foreground mb-4">Integrate data &amp; airtime into your own app</h2>
             <p className="text-muted-foreground mb-6">
               Automate data bundle and airtime purchases directly from your own website, app, or system — get your API key from the dashboard and start building.
@@ -698,7 +594,7 @@ export default function HomePage() {
       <section className="py-16 sm:py-24">
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <div className="text-center mb-12">
-            <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-primary">Wallet</span>
+            <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-[#1b388b]">Wallet</span>
             <h2 className="font-display text-2xl sm:text-4xl font-bold text-foreground mb-3">Pay With Your Wallet</h2>
             <p className="text-muted-foreground max-w-xl mx-auto text-sm sm:text-base">Load credit once, then buy instantly — no card details needed every time.</p>
           </div>
@@ -710,8 +606,8 @@ export default function HomePage() {
             ].map(({ icon: Icon, title, desc }, i) => (
               <div key={title} className="rounded-2xl border-2 border-foreground/80 bg-card p-5 sm:p-6">
                 <div className="mb-4 flex items-center gap-2">
-                  <span className="grid h-8 w-8 place-items-center rounded-full bg-primary text-primary-foreground text-sm font-bold">{i + 1}</span>
-                  <Icon className="h-5 w-5 text-primary" />
+                  <span className="grid h-8 w-8 place-items-center rounded-full bg-[#1b388b] text-primary-foreground text-sm font-bold">{i + 1}</span>
+                  <Icon className="h-5 w-5 text-[#1b388b]" />
                 </div>
                 <h3 className="mb-1.5 font-display font-bold text-foreground">{title}</h3>
                 <p className="text-sm text-muted-foreground">{desc}</p>
@@ -725,7 +621,7 @@ export default function HomePage() {
       <section id="why-us" className="py-16 sm:py-24">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <div className="text-center mb-12">
-            <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-primary">Why Choose Us</span>
+            <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-[#1b388b]">Why Choose Us</span>
             <h2 className="font-display text-2xl sm:text-4xl font-bold text-foreground mb-3">Why Choose {domainBranding.siteName || "DATAGOD"}?</h2>
             <p className="text-muted-foreground max-w-xl mx-auto text-sm sm:text-base">
               The fastest, most flexible way to buy and resell digital services in Ghana.
@@ -747,7 +643,7 @@ export default function HomePage() {
       <section className="bg-card border-t border-b border-border py-16 sm:py-24">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 grid lg:grid-cols-2 gap-10 items-center">
           <div>
-            <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-primary">Bulk SMS</span>
+            <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-[#1b388b]">Bulk SMS</span>
             <h2 className="font-display text-2xl sm:text-4xl font-bold text-foreground mb-4">Send SMS to your customers — at scale</h2>
             <p className="text-muted-foreground mb-6">
               OTPs, alerts, and marketing campaigns — sent in seconds, from your own sender ID.
@@ -759,7 +655,7 @@ export default function HomePage() {
                 </li>
               ))}
             </ul>
-            <Link href="/auth/signup"><Button size="lg" className="gap-2">Get Started <ArrowRight className="w-4 h-4" /></Button></Link>
+            <Link href="/auth/signup"><Button size="lg" className="gap-2 bg-[#1b388b] hover:bg-[#1b388b]/90">Get Started <ArrowRight className="w-4 h-4" /></Button></Link>
           </div>
           <div className="rounded-2xl border-2 border-foreground/80 bg-background p-5 shadow-sm">
             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3">Delivery Report</p>
@@ -778,12 +674,12 @@ export default function HomePage() {
       {/* ── AFA Field Agent ──────────────────────────────────── */}
       <section className="py-16 sm:py-24">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 text-center">
-          <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-primary">AFA Registration</span>
+          <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-[#1b388b]">AFA Registration</span>
           <h2 className="font-display text-2xl sm:text-4xl font-bold text-foreground mb-3">Become an Authorized Field Agent</h2>
           <p className="text-muted-foreground text-sm sm:text-base mb-8">
             Register AFA / iShare numbers for your community — no queues, no paperwork, done right from your dashboard.
           </p>
-          <Link href="/auth/signup"><Button size="lg" className="gap-2">Register Now <ArrowRight className="w-4 h-4" /></Button></Link>
+          <Link href="/auth/signup"><Button size="lg" className="gap-2 bg-[#1b388b] hover:bg-[#1b388b]/90">Register Now <ArrowRight className="w-4 h-4" /></Button></Link>
         </div>
       </section>
 
@@ -792,7 +688,7 @@ export default function HomePage() {
         <section className="bg-card border-t border-b border-border py-16 sm:py-24">
           <div className="max-w-6xl mx-auto px-4 sm:px-6">
             <div className="text-center mb-12">
-              <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-primary">Pricing</span>
+              <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-[#1b388b]">Pricing</span>
               <h2 className="font-display text-2xl sm:text-4xl font-bold text-foreground mb-3">Agent Membership Plans</h2>
               <p className="text-muted-foreground max-w-xl mx-auto text-sm sm:text-base">Upgrade to unlock wholesale pricing and open your own shop.</p>
             </div>
@@ -810,9 +706,9 @@ export default function HomePage() {
               </div>
             )}
             {dealerPlan && (
-              <div className="rounded-2xl border-2 border-primary bg-gradient-to-br from-primary/5 to-brand-accent/5 p-5 sm:p-6 flex flex-col sm:flex-row items-center gap-5 justify-between">
+              <div className="rounded-2xl border-2 border-[#1b388b] bg-gradient-to-br from-[#1b388b]/5 to-brand-accent/5 p-5 sm:p-6 flex flex-col sm:flex-row items-center gap-5 justify-between">
                 <div className="flex items-center gap-4">
-                  <div className="grid h-12 w-12 place-items-center rounded-2xl bg-primary/10 flex-shrink-0"><Gem className="h-[22px] w-[22px] text-primary" /></div>
+                  <div className="grid h-12 w-12 place-items-center rounded-2xl bg-[#1b388b]/10 flex-shrink-0"><Gem className="h-[22px] w-[22px] text-[#1b388b]" /></div>
                   <div>
                     <h3 className="font-display font-bold text-foreground">Dealer Tier — {dealerPlan.name.trim()}</h3>
                     <p className="text-sm text-muted-foreground">{dealerPlan.description || "Our best wholesale pricing, unlocked for life."}</p>
@@ -820,7 +716,7 @@ export default function HomePage() {
                 </div>
                 <div className="flex items-center gap-4 flex-shrink-0">
                   <p className="text-2xl font-black text-foreground">GHS {Number(dealerPlan.price).toFixed(2)}</p>
-                  <Link href="/auth/signup"><Button className="gap-2">Become a Dealer <ArrowRight className="w-4 h-4" /></Button></Link>
+                  <Link href="/auth/signup"><Button className="gap-2 bg-[#1b388b] hover:bg-[#1b388b]/90">Become a Dealer <ArrowRight className="w-4 h-4" /></Button></Link>
                 </div>
               </div>
             )}
@@ -832,7 +728,7 @@ export default function HomePage() {
       <section id="how-it-works" className="bg-card border-t border-b border-border py-16 sm:py-24">
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <div className="text-center mb-12">
-            <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-primary">How It Works</span>
+            <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-[#1b388b]">How It Works</span>
             <h2 className="font-display text-2xl sm:text-4xl font-bold text-foreground mb-3">
               Everything you need, step by step
             </h2>
@@ -959,7 +855,7 @@ export default function HomePage() {
                   />
                 </div>
               </div>
-              <div className="mt-8 p-4 bg-primary/5 border border-primary/20 rounded-xl text-sm text-primary">
+              <div className="mt-8 p-4 bg-[#1b388b]/5 border border-[#1b388b]/20 rounded-xl text-sm text-[#1b388b]">
                 <strong>Tip:</strong> Using your wallet is faster than paying per order — load credit once and buy multiple times without going through Paystack each time.
               </div>
             </TabsContent>
@@ -1026,7 +922,7 @@ When your sub-agent clicks the link, they see a branded invite page showing your
                   />
                 </div>
               </div>
-              <div className="mt-8 p-4 bg-primary/10 border border-border rounded-xl text-sm text-primary">
+              <div className="mt-8 p-4 bg-[#1b388b]/10 border border-border rounded-xl text-sm text-[#1b388b]">
                 <strong>Tip:</strong> Keep your WhatsApp number visible on your shop — customers trust sellers they can message directly. Use the Shop Settings page to configure your WhatsApp link.
               </div>
             </TabsContent>
@@ -1036,13 +932,13 @@ When your sub-agent clicks the link, they see a branded invite page showing your
             <p className="text-muted-foreground text-sm mb-4">Ready to get started?</p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <Link href="/auth/signup">
-                <Button className="gap-2 w-full sm:w-auto">
+                <Button className="gap-2 w-full sm:w-auto bg-[#1b388b] hover:bg-[#1b388b]/90">
                   Create Free Account
                   <ArrowRight className="w-4 h-4" />
                 </Button>
               </Link>
               {!isPageHidden("guest_purchase", domainBranding.hiddenPages) && (
-                <GuestPurchaseButton variant="outline" className="w-full sm:w-auto" />
+                <GuestPurchaseButton variant="outline" className="w-full sm:w-auto border-[#1b388b] text-[#1b388b] hover:bg-[#1b388b]/5" />
               )}
             </div>
           </div>
@@ -1054,7 +950,7 @@ When your sub-agent clicks the link, they see a branded invite page showing your
         <section className="bg-card border-t border-b border-border py-16 sm:py-24">
           <div className="max-w-6xl mx-auto px-4 sm:px-6">
             <div className="text-center mb-12">
-              <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-primary">Live Pricing</span>
+              <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-[#1b388b]">Live Pricing</span>
               <h2 className="font-display text-2xl sm:text-4xl font-bold text-foreground mb-3">Popular Data Packages</h2>
               <p className="text-muted-foreground max-w-xl mx-auto text-sm sm:text-base">Real retail prices, pulled straight from our live catalog.</p>
             </div>
@@ -1063,12 +959,12 @@ When your sub-agent clicks the link, they see a branded invite page showing your
                 <div key={`${pkg.network}-${pkg.size}`} className="rounded-2xl border-2 border-foreground/80 bg-background p-4 text-center">
                   <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1">{pkg.network}</p>
                   <p className="text-xl font-black text-foreground">{pkg.size}</p>
-                  <p className="text-sm font-bold text-primary mt-1">GHS {Number(pkg.price).toFixed(2)}</p>
+                  <p className="text-sm font-bold text-[#1b388b] mt-1">GHS {Number(pkg.price).toFixed(2)}</p>
                 </div>
               ))}
             </div>
             <div className="mt-8 text-center">
-              <Link href="/auth/signup"><Button size="lg" className="gap-2">See All Packages <ArrowRight className="w-4 h-4" /></Button></Link>
+              <Link href="/auth/signup"><Button size="lg" className="gap-2 bg-[#1b388b] hover:bg-[#1b388b]/90">See All Packages <ArrowRight className="w-4 h-4" /></Button></Link>
             </div>
           </div>
         </section>
@@ -1085,7 +981,7 @@ When your sub-agent clicks the link, they see a branded invite page showing your
               { icon: ShieldCheck, label: "Uptime", value: "99.99%" },
             ].map(({ icon: Icon, label, value }) => (
               <div key={label} className="rounded-2xl border-2 border-foreground/80 bg-background p-4 sm:p-6 text-center">
-                <Icon className="w-5 h-5 text-primary mx-auto mb-2" />
+                <Icon className="w-5 h-5 text-[#1b388b] mx-auto mb-2" />
                 <p className="font-display text-xl sm:text-3xl font-black text-foreground">{value}</p>
                 <p className="text-xs text-muted-foreground mt-1">{label}</p>
               </div>
@@ -1116,7 +1012,7 @@ When your sub-agent clicks the link, they see a branded invite page showing your
       <section className="bg-card border-t border-b border-border py-16 sm:py-24">
         <div className="max-w-3xl mx-auto px-4 sm:px-6">
           <div className="text-center mb-12">
-            <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-primary">FAQ</span>
+            <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-[#1b388b]">FAQ</span>
             <h2 className="font-display text-2xl sm:text-4xl font-bold text-foreground mb-3">Frequently Asked Questions</h2>
           </div>
           <div className="space-y-3">
@@ -1127,7 +1023,7 @@ When your sub-agent clicks the link, they see a branded invite page showing your
                   onClick={() => setOpenFaq(openFaq === i ? null : i)}
                   className="w-full flex items-center justify-between gap-3 p-4 sm:p-5 text-left"
                 >
-                  <span className="flex items-center gap-2.5 font-display font-semibold text-foreground"><HelpCircle className="w-4 h-4 text-primary flex-shrink-0" /> {item.q}</span>
+                  <span className="flex items-center gap-2.5 font-display font-semibold text-foreground"><HelpCircle className="w-4 h-4 text-[#1b388b] flex-shrink-0" /> {item.q}</span>
                   <ArrowRight className={`w-4 h-4 text-muted-foreground flex-shrink-0 transition-transform ${openFaq === i ? "rotate-90" : ""}`} />
                 </button>
                 {openFaq === i && (
@@ -1139,59 +1035,13 @@ When your sub-agent clicks the link, they see a branded invite page showing your
         </div>
       </section>
 
-      {/* ── Help & Live Community ───────────────────────────── */}
-      <section className="relative py-16 sm:py-20"
-               style={{ backgroundImage: "radial-gradient(600px 300px at 50% 0, hsl(var(--primary) / 0.12), transparent 70%)" }}>
-        <div className="max-w-xl mx-auto px-4 sm:px-6 text-center">
-          {/* Centered brand mark */}
-          <div className="mx-auto mb-4 grid h-20 w-20 place-items-center rounded-full border border-border bg-card shadow-sm">
-            {domainBranding.logoUrl ? (
-              <img src={domainBranding.logoUrl} alt={`${domainBranding.siteName || "DATAGOD"} logo`} className="h-12 w-12 rounded-full object-cover" />
-            ) : (
-              <div aria-hidden className="h-12 w-12 rounded-full bg-gradient-to-br from-primary to-brand-accent" />
-            )}
-          </div>
-          <p className="font-display text-lg font-bold text-foreground">{domainBranding.siteName || "DATAGOD"}</p>
-          <span className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-4 py-1.5 text-xs font-semibold text-foreground shadow-sm">
-            <Zap className="w-3.5 h-3.5 text-primary" /> Instant Delivery, Always
-          </span>
-
-          {/* Card */}
-          <div className="mt-8 rounded-3xl border border-border bg-card p-6 sm:p-8 shadow-md text-left sm:text-center">
-            <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-primary">Support & Resources</span>
-            <h2 className="font-display text-2xl sm:text-3xl font-bold text-foreground mb-3">Help & Live Community</h2>
-            <p className="text-muted-foreground text-sm sm:text-base mb-6">
-              Get direct support by chat, track your complaints, and connect with other resellers inside our community.
-            </p>
-            <div className="flex flex-col gap-3">
-              <Link href="/whatsapp" className="w-full">
-                <Button size="lg" className="gap-2 w-full rounded-full">
-                  <MessageCircle className="w-4 h-4" /> Chat on WhatsApp
-                </Button>
-              </Link>
-              {!isPageHidden("join_channel", domainBranding.hiddenPages) && (
-                communityLoading ? (
-                  <Skeleton className="h-11 w-full rounded-full" />
-                ) : communityLink ? (
-                  <a href={communityLink} target="_blank" rel="noopener noreferrer" className="w-full">
-                    <Button size="lg" className="gap-2 w-full rounded-full bg-brand-accent text-primary-foreground hover:bg-brand-accent/90">
-                      <Users className="w-4 h-4" /> Join Community
-                    </Button>
-                  </a>
-                ) : null
-              )}
-            </div>
-          </div>
-        </div>
-      </section>
-
       {/* CTA Section */}
       <section className="relative border-t border-border py-12 sm:py-16 text-center"
-               style={{ backgroundImage: "radial-gradient(500px 200px at 50% 0, hsl(var(--primary) / 0.16), transparent 70%)" }}>
+               style={{ backgroundImage: "radial-gradient(500px 200px at 50% 0, rgb(27 56 139 / 0.16), transparent 70%)" }}>
         <div className="max-w-4xl mx-auto px-4 sm:px-6 space-y-4 sm:space-y-6">
           <h2 className="font-display text-2xl sm:text-3xl md:text-4xl font-semibold text-foreground">Ready to get started?</h2>
           <p className="text-sm sm:text-lg text-muted-foreground">Join thousands who trust {domainBranding.siteName || "DATAGOD"} for data, airtime &amp; more.</p>
-          <Link href="/auth/signup"><Button size="lg" className="w-full sm:w-auto">Create your free account</Button></Link>
+          <Link href="/auth/signup"><Button size="lg" className="w-full sm:w-auto bg-[#1b388b] hover:bg-[#1b388b]/90">Create your free account</Button></Link>
         </div>
       </section>
 
@@ -1204,7 +1054,7 @@ When your sub-agent clicks the link, they see a branded invite page showing your
                 {domainBranding.logoUrl ? (
                   <img src={domainBranding.logoUrl} alt={`${domainBranding.siteName || "DATAGOD"} logo`} className="h-5 w-5 rounded object-cover" />
                 ) : (
-                  <div aria-hidden className="h-5 w-5 rounded bg-gradient-to-br from-primary to-brand-accent" />
+                  <div aria-hidden className="h-5 w-5 rounded bg-gradient-to-br from-[#1b388b] to-brand-accent" />
                 )}
                 <span className="font-display font-semibold text-foreground">{domainBranding.siteName || "DATAGOD"}</span>
               </div>
