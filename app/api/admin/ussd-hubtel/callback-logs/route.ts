@@ -8,7 +8,7 @@ import { safeDbError } from "@/lib/ussd-hubtel/log-safe"
 // Not exported: Next.js route files may only export HTTP method handlers and route config.
 const CALLBACK_LOG_SUMMARY_COLUMNS ="id, created_at, direction, session_id, hubtel_order_id, outcome, ok, http_status"
 
-const DIRECTIONS = ["inbound_fulfillment", "outbound_callback"] as const
+const DIRECTIONS = ["inbound_fulfillment", "outbound_callback", "status_check"] as const
 const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 100
 
@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
   }
   const direction = q.get("direction")
   if (direction !== null && !(DIRECTIONS as readonly string[]).includes(direction)) {
-    return bad("direction must be inbound_fulfillment or outbound_callback")
+    return bad("direction must be inbound_fulfillment, outbound_callback or status_check")
   }
   const problemsRaw = q.get("problemsOnly")
   if (problemsRaw !== null && !["1", "0", "true", "false"].includes(problemsRaw)) return bad("problemsOnly must be 1 or 0")

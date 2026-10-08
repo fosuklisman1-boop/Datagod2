@@ -10,7 +10,8 @@ import { safeDbError } from "./log-safe"
 
 export const CALLBACK_LOG_TABLE = "hubtel_callback_logs"
 
-export type CallbackLogDirection = "inbound_fulfillment" | "outbound_callback"
+/** status_check: our transaction-status lookups (us -> relay -> Hubtel), migration 0110. */
+export type CallbackLogDirection = "inbound_fulfillment" | "outbound_callback" | "status_check"
 
 /** Inbound outcomes: the fulfilment route's own failures plus processFulfillment's results. */
 export type InboundLogOutcome =
@@ -237,6 +238,55 @@ export function withOutboundLogging<R extends SendResult>(
     try { await Promise.allSettled(batch) } catch { /* allSettled never rejects; belt and braces */ }
   }
   return Object.assign(sender, { flush })
+}
+
+type StatusCheckLogResult = {
+  ok: boolean; status?: string; data?: any; error?: string; upstreamStatus?: number; body?: unknown
+}
+
+/** A status checker whose log writes are deferred until `flush()` (same contract as the callback sender). */
+export type LoggedStatusChecker<R> = ((sessionId: string) => Promise<R>) & { flush(): Promise<void> }
+
+/**
+ * Wraps the Hubtel transaction-status lookup so every check is logged with Hubtel's full response
+ * (viewable and copyable on the admin page). Like withOutboundLogging: the insert is only started
+ * here, the original result is returned untouched, a throwing checker is logged then rethrown, and
+ * callers `await checker.flush()` once their work is done. Never changes the caller's behaviour.
+ */
+export function withStatusCheckLogging<R extends StatusCheckLogResult>(
+  check: (sessionId: string) => Promise<R>,
+  supabase: SupabaseClient
+): LoggedStatusChecker<R> {
+  let pending: Promise<void>[] = []
+  const schedule = (entry: CallbackLogEntry) => { pending.push(logHubtelCallback(supabase, entry)) }
+  const checker = async (sessionId: string): Promise<R> => {
+    const base = { direction: "status_check" as const, sessionId, payload: { clientReference: sessionId } }
+    let result: R
+    try {
+      result = await check(sessionId)
+    } catch (e) {
+      schedule({ ...base, outcome: "error", ok: false, error: e instanceof Error ? e.message : String(e) })
+      throw e
+    }
+    const txnId = result.data && typeof result.data === "object" ? (result.data as { transactionId?: unknown }).transactionId : undefined
+    schedule({
+      ...base,
+      hubtelOrderId: typeof txnId === "string" ? txnId : null,
+      // The Hubtel status (Paid / Unpaid / ...) when we got one; "error" when the lookup itself failed.
+      outcome: result.ok ? (result.status ?? "no_status") : "error",
+      ok: result.ok === true,
+      httpStatus: result.upstreamStatus ?? null,
+      response: result.body ?? result.data ?? null,
+      error: result.error ?? null,
+    })
+    return result
+  }
+  const flush = async (): Promise<void> => {
+    const batch = pending
+    pending = []
+    try { await Promise.allSettled(batch) } catch { /* allSettled never rejects; belt and braces */ }
+  }
+  return Object.assign(checker, { flush })
 }
 
 export const CALLBACK_LOG_RETENTION_DAYS = 30
