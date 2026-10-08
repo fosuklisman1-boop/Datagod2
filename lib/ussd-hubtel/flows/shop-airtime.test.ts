@@ -123,7 +123,7 @@ describe("shop airtime: confirm -> AddToCart", () => {
     await toConfirm(deps)
     const r = await hubtelRouter(req({ Message: "1" }), deps)
     expect(r.Type).toBe("AddToCart")
-    expect(r.Item).toEqual({ ItemName: "MTN Airtime to 0244123456", Qty: 1, Price: 10 })
+    expect(r.Item).toEqual({ ItemName: expect.stringMatching(/^CH order [a-z0-9]+$/), Qty: 1, Price: 10 })
     const row = sup.inserts["airtime_orders"][0]
     expect(row).toMatchObject({
       network: "MTN", beneficiary_phone: "0244123456", airtime_amount: 9.35, fee_amount: 0.65, total_paid: 10,
@@ -232,7 +232,7 @@ describe("shop airtime: idempotent CONFIRM and replay", () => {
     await toConfirm(deps)
     const r = await hubtelRouter(req({ Message: "1" }), deps)
     expect(r.Type).toBe("AddToCart")
-    expect(r.Item).toEqual({ ItemName: "MTN Airtime to 0244123456", Qty: 1, Price: 10 })
+    expect(r.Item).toEqual({ ItemName: expect.stringMatching(/^CH order [a-z0-9]+$/), Qty: 1, Price: 10 })
     expect(sup.updates).toContainEqual(expect.objectContaining({ table: "airtime_orders", patch: expect.objectContaining({ status: "failed", payment_status: "failed" }) }))
   })
   it("session expired after AddToCart: the next '1' replays the shop AIRTIME cart, not a new code prompt", async () => {

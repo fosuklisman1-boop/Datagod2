@@ -96,7 +96,7 @@ describe("results checker: confirm -> AddToCart", () => {
     await toConfirm(deps, "2")
     const r = await hubtelRouter(req({ Message: "1" }), deps)
     expect(r.Type).toBe("AddToCart")
-    expect(r.Item).toEqual({ ItemName: "WASSCE Checker x2", Qty: 1, Price: 40 })
+    expect(r.Item).toEqual({ ItemName: expect.stringMatching(/^CH order [a-z0-9]+$/), Qty: 1, Price: 40 })
     const row = sup.inserts["results_checker_orders"][0]
     expect(row).toMatchObject({
       exam_board: "WASSCE", quantity: 2, unit_price: 20, fee_amount: 0, total_paid: 40,
@@ -190,7 +190,7 @@ describe("results checker: idempotent CONFIRM (review focus #1)", () => {
     const r = await hubtelRouter(req({ Message: "1" }), deps)
     err.mockRestore()
     expect(r.Type).toBe("AddToCart")
-    expect(r.Item).toEqual({ ItemName: "WASSCE Checker x2", Qty: 1, Price: 40 })
+    expect(r.Item).toEqual({ ItemName: expect.stringMatching(/^CH order [a-z0-9]+$/), Qty: 1, Price: 40 })
     expect(sup.updates.some(u => u.table === "results_checker_orders" && u.patch.status === "failed" && u.patch.payment_status === "failed")).toBe(true)
   })
 })

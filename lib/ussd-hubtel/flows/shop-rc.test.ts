@@ -114,7 +114,7 @@ describe("shop vouchers: confirm -> AddToCart", () => {
     await toConfirm(deps)
     const r = await hubtelRouter(req({ Message: "1" }), deps)
     expect(r.Type).toBe("AddToCart")
-    expect(r.Item).toEqual({ ItemName: "WASSCE Checker x2", Qty: 1, Price: 44 })
+    expect(r.Item).toEqual({ ItemName: expect.stringMatching(/^CH order [a-z0-9]+$/), Qty: 1, Price: 44 })
     const row = sup.inserts["results_checker_orders"][0]
     expect(row).toMatchObject({
       exam_board: "WASSCE", quantity: 2, customer_name: "USSD Customer", customer_email: null, customer_phone: "0200585542",

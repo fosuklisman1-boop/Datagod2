@@ -129,7 +129,7 @@ describe("afa: confirm -> AddToCart", () => {
     expect(confirm.Message).toContain("1. Pay now\n2. Cancel")
     const r = await hubtelRouter(req({ Message: "1" }), deps)
     expect(r.Type).toBe("AddToCart")
-    expect(r.Item).toEqual({ ItemName: "AFA Registration", Qty: 1, Price: 50 })
+    expect(r.Item).toEqual({ ItemName: expect.stringMatching(/^CH order [a-z0-9]+$/), Qty: 1, Price: 50 })
     expect(sup.inserts["ussd_afa_orders"][0]).toEqual({
       dialing_phone: "+233244123456", full_name: "Kwame Mensah", gh_card_number: "GHA-123456789-0",
       location: "Accra", region: "Greater Accra", occupation: "Farmer", amount: 50,
@@ -254,7 +254,7 @@ describe("afa: idempotent CONFIRM (review focus #1)", () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => {})
     const r = await hubtelRouter(req({ Message: "1" }), deps)
     err.mockRestore()
-    expect(r.Item).toEqual({ ItemName: "AFA Registration", Qty: 1, Price: 50 })
+    expect(r.Item).toEqual({ ItemName: expect.stringMatching(/^CH order [a-z0-9]+$/), Qty: 1, Price: 50 })
     expect(sup.updates.some(u => u.table === "ussd_afa_orders" && u.patch.order_status === "failed" && u.patch.payment_status === "failed")).toBe(true)
   })
 })
