@@ -8,7 +8,8 @@ import {
   ShoppingCart, Wallet, GraduationCap, Store,
   CheckCircle2, CreditCard, Phone, UserPlus,
   TrendingUp, Share2, Settings, Search, Link2, Copy, Mail, Banknote, MessageCircle,
-  Cpu, Hash, Globe, Smartphone, Code2, Database, Send, FileCheck2
+  Cpu, Hash, Globe, Smartphone, Code2, Database, Send, FileCheck2,
+  Rocket, ShieldCheck, Facebook, Twitter, Instagram, Receipt, Monitor,
 } from "lucide-react"
 import GuestPurchaseButton from "@/components/GuestPurchaseButton"
 import { HomeAIChatWidget } from "@/components/home/AIChatWidget"
@@ -307,6 +308,36 @@ function MockProfitMargin() {
   )
 }
 
+/* ── Services & Benefits data ─────────────────────────── */
+
+const TOP_SERVICES = [
+  { icon: Database, title: "Data Bundles", desc: "High-speed MTN, Telecel & AT data bundles at the best rates, delivered in seconds.", tag: null },
+  { icon: Zap, title: "Airtime Topup", desc: "Instant airtime recharge for any network, paid straight from your wallet.", tag: null },
+  { icon: UserPlus, title: "AFA Registration", desc: "Register AFA / iShare numbers instantly — no queues, no paperwork.", tag: null },
+  { icon: FileCheck2, title: "Results Checker", desc: "WASSCE, BECE & NovDec PINs delivered instantly so you can check your own results.", tag: null },
+  { icon: Search, title: "Results Check Service", desc: "No PIN to spare? We check your results for you and send them by email & WhatsApp.", tag: null },
+  { icon: Send, title: "Bulk SMS", desc: "Send OTPs, alerts and campaigns with your own sender ID, address book & templates.", tag: null },
+  { icon: Store, title: "Reseller Shops", desc: "Launch your own branded storefront and set your own profit margins.", tag: "RESELL" },
+  { icon: Users, title: "Sub-Agent Program", desc: "Recruit sellers under your shop and earn commission on everything they sell.", tag: null },
+] as const
+
+// Real, upcoming roadmap items — not live yet. Kept visually distinct (own
+// section, muted/dashed cards) from TOP_SERVICES so visitors never mistake
+// something unreleased for something they can buy today.
+const COMING_SOON = [
+  { icon: Receipt, title: "Bill Pay", desc: "Pay ECG, Ghana Water, and other utility bills instantly from your wallet." },
+  { icon: Monitor, title: "Website & App Development", desc: "Custom websites, online stores and mobile apps for businesses across Ghana — built and kept running by our team." },
+] as const
+
+const WHY_CHOOSE = [
+  { icon: Rocket, title: "Ultra-Fast Delivery", desc: "Data and airtime orders are processed and delivered in seconds, not minutes." },
+  { icon: Cpu, title: "AI Assistants Everywhere", desc: "One AI, tuned for every surface — web, WhatsApp, your shop storefront, and your dashboard." },
+  { icon: ShieldCheck, title: "Secure Wallet Payments", desc: "Pay from your wallet through Paystack-secured checkout, with a clear transaction trail." },
+  { icon: Globe, title: "Order From Anywhere", desc: "Web storefront, WhatsApp bot, or USSD with no internet needed — or install DATAGOD as an app." },
+  { icon: Code2, title: "Developer API", desc: "Integrate automated data and airtime purchases directly into your own app or system." },
+  { icon: Banknote, title: "Instant Withdrawals", desc: "Cash out your reseller profits to Mobile Money or bank, with verified, tracked payouts." },
+] as const
+
 export default function HomePage() {
   const { communityLink, loading: communityLoading } = useCommunityLink()
   const domainBranding = useDomainBranding()
@@ -353,6 +384,7 @@ export default function HomePage() {
           {[
             ["Networks", "#networks"],
             ["Services", "#services"],
+            ["Why Us", "#why-us"],
             ["How it works", "#how-it-works"],
             ["Shops", "/join"],
           ].map(([l, href]) => (
@@ -381,14 +413,14 @@ export default function HomePage() {
           {/* Left: copy */}
           <div className="text-center lg:text-left">
             <span className="inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-wider text-primary mb-4">
-              <span className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_10px_hsl(var(--primary))]" /> Instant delivery · all networks
+              <span className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_10px_hsl(var(--primary))]" /> Ghana's all-in-one data & reseller platform
             </span>
             <h2 className="font-display text-3xl sm:text-5xl font-semibold tracking-tight text-foreground leading-[1.04]">
-              Buy data &amp; airtime in{" "}
-              <span className="bg-gradient-to-r from-primary to-brand-accent bg-clip-text text-transparent">10 seconds.</span>
+              Data, airtime &amp; more —{" "}
+              <span className="bg-gradient-to-r from-primary to-brand-accent bg-clip-text text-transparent">delivered in 10 seconds.</span>
             </h2>
             <p className="mt-4 text-base sm:text-lg text-muted-foreground max-w-xl mx-auto lg:mx-0">
-              Instant bundles for MTN, Telecel and AT — pay from your wallet, or open your own shop and resell to earn. Built for Ghana.
+              Data, airtime, AFA, results checkers &amp; bulk SMS — pay from your wallet, or open your own branded shop and earn reselling to others. Built for Ghana.
             </p>
             <div className="mt-5 flex flex-col sm:flex-row gap-3 justify-center lg:justify-start">
               <Link href="/auth/signup"><Button size="lg" className="gap-2 w-full sm:w-auto">Get started <ArrowRight className="w-4 h-4" /></Button></Link>
@@ -444,46 +476,62 @@ export default function HomePage() {
           <span className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-bold text-foreground"><span className="grid h-5 w-5 place-items-center rounded bg-at text-at-foreground text-[10px] font-black">A</span> AT iShare</span>
           <span className="rounded-full border border-border bg-card px-4 py-2 text-sm text-muted-foreground">+ Airtime · AFA · Results checker</span>
         </div>
+      </section>
 
-        {/* Services showcase */}
-        <div id="services" className="mt-14 sm:mt-20">
-          {([
-            ["Buy & use", [
-              [Database, "Data Bundles", "MTN, Telecel, AT-iShare & AT-BigTime — in seconds.", null],
-              [Zap, "Airtime", "Top up any network instantly from your wallet.", null],
-              [UserPlus, "AFA Registration", "Register AFA / iShare numbers without the queue.", null],
-              [FileCheck2, "Results Checker", "WASSCE, BECE & NovDec PINs delivered instantly.", null],
-              [Search, "Results Check Service", "No PIN to spare? We check your results for you.", null],
-              [Wallet, "Wallet", "Load once via Paystack, then buy fast — no card each time.", null],
-            ]],
-            ["Earn & grow", [
-              [Store, "Your Own Shop", "A white-label storefront with your name, logo & prices.", "RESELL"],
-              [Hash, "Your Own USSD", "Get a short USSD code — customers buy with no internet.", "NEW"],
-              [Users, "Sub-Agent Network", "Recruit sellers under you and earn on every sale.", null],
-              [Banknote, "Instant Withdrawals", "Cash out profits to Mobile Money or bank — verified.", null],
-              [Send, "Bulk SMS", "Campaigns with your own sender ID, address book & templates.", null],
-            ]],
-          ] as const).map(([group, items]) => (
-            <div key={group} className="mb-8">
-              <div className="mb-4 flex items-center gap-3 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
-                {group}<span className="h-px flex-1 bg-border" />
+      {/* ── Our Top Services ────────────────────────────────── */}
+      <section id="services" className="bg-card border-t border-b border-border py-16 sm:py-24">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          <div className="text-center mb-12">
+            <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-primary">Proven Products</span>
+            <h2 className="font-display text-2xl sm:text-4xl font-bold text-foreground mb-3">Our Top Services</h2>
+            <p className="text-muted-foreground max-w-xl mx-auto text-sm sm:text-base">
+              Everything you need to buy, resell, and manage digital services in one place.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+            {TOP_SERVICES.map(({ icon: Icon, title, desc, tag }) => (
+              <div key={title} className="rounded-xl border border-border bg-background p-4 sm:p-5 transition-colors hover:border-primary">
+                <div className="mb-3 grid h-10 w-10 place-items-center rounded-lg border border-primary/25 bg-primary/10"><Icon className="h-[18px] w-[18px] text-primary" /></div>
+                <h3 className="mb-1.5 flex items-center gap-2 font-display font-semibold text-foreground">{title}{tag && <span className="rounded-full border border-primary/30 px-1.5 py-0.5 font-mono text-[8px] text-primary">{tag}</span>}</h3>
+                <p className="text-sm text-muted-foreground">{desc}</p>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-                {items.map(([Icon, title, desc, tag]) => (
-                  <div key={title} className="rounded-xl border border-border bg-card p-4 sm:p-5 transition-colors hover:border-primary">
-                    <div className="mb-3 grid h-10 w-10 place-items-center rounded-lg border border-primary/25 bg-primary/10"><Icon className="h-[18px] w-[18px] text-primary" /></div>
-                    <h3 className="mb-1.5 flex items-center gap-2 font-display font-semibold text-foreground">{title}{tag && <span className="rounded-full border border-primary/30 px-1.5 py-0.5 font-mono text-[8px] text-primary">{tag}</span>}</h3>
-                    <p className="text-sm text-muted-foreground">{desc}</p>
-                  </div>
-                ))}
+            ))}
+          </div>
+
+          {/* Roadmap — kept visually separate (dashed, muted) so it's never
+              mistaken for something buyable today. */}
+          <div className="mt-10 flex items-center gap-3 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+            Coming soon<span className="h-px flex-1 bg-border" />
+          </div>
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+            {COMING_SOON.map(({ icon: Icon, title, desc }) => (
+              <div key={title} className="rounded-xl border border-dashed border-border bg-background/60 p-4 sm:p-5 opacity-80">
+                <div className="mb-3 grid h-10 w-10 place-items-center rounded-lg border border-border bg-muted"><Icon className="h-[18px] w-[18px] text-muted-foreground" /></div>
+                <h3 className="mb-1.5 flex items-center gap-2 font-display font-semibold text-foreground">{title}<span className="rounded-full border border-border px-1.5 py-0.5 font-mono text-[8px] text-muted-foreground">COMING SOON</span></h3>
+                <p className="text-sm text-muted-foreground">{desc}</p>
               </div>
-            </div>
-          ))}
-          {/* Channels */}
-          <div className="mb-2 flex items-center gap-3 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">Order from anywhere<span className="h-px flex-1 bg-border" /></div>
-          <div className="flex flex-wrap gap-2.5">
-            {([[Globe, "Web storefront"], [MessageCircle, "WhatsApp bot"], [Hash, "USSD"], [Smartphone, "Mobile app"], [Code2, "Developer API"]] as const).map(([Icon, label]) => (
-              <span key={label} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3.5 py-2.5 font-display text-sm font-semibold text-foreground"><Icon className="h-[15px] w-[15px] text-primary" /> {label}</span>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Why Choose Datagod ──────────────────────────────── */}
+      <section id="why-us" className="py-16 sm:py-24">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          <div className="text-center mb-12">
+            <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-primary">Why Choose Us</span>
+            <h2 className="font-display text-2xl sm:text-4xl font-bold text-foreground mb-3">Why Choose {domainBranding.siteName || "DATAGOD"}?</h2>
+            <p className="text-muted-foreground max-w-xl mx-auto text-sm sm:text-base">
+              The fastest, most flexible way to buy and resell digital services in Ghana.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+            {WHY_CHOOSE.map(({ icon: Icon, title, desc }) => (
+              <div key={title} className="rounded-xl border border-border bg-card p-4 sm:p-5 transition-colors hover:border-primary">
+                <div className="mb-3 grid h-10 w-10 place-items-center rounded-lg border border-primary/25 bg-primary/10"><Icon className="h-[18px] w-[18px] text-primary" /></div>
+                <h3 className="mb-1.5 font-display font-semibold text-foreground">{title}</h3>
+                <p className="text-sm text-muted-foreground">{desc}</p>
+              </div>
             ))}
           </div>
         </div>
@@ -710,6 +758,35 @@ When your sub-agent clicks the link, they see a branded invite page showing your
         </div>
       </section>
 
+      {/* ── Help & Community ────────────────────────────────── */}
+      <section className="py-16 sm:py-20">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 text-center">
+          <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-primary">Support & Resources</span>
+          <h2 className="font-display text-2xl sm:text-4xl font-bold text-foreground mb-3">Help & Live Community</h2>
+          <p className="text-muted-foreground text-sm sm:text-base mb-8">
+            Get direct support by chat, or connect with other resellers in our community.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <Link href="/whatsapp">
+              <Button size="lg" variant="outline" className="gap-2 w-full sm:w-auto">
+                <MessageCircle className="w-4 h-4" /> Chat on WhatsApp
+              </Button>
+            </Link>
+            {!isPageHidden("join_channel", domainBranding.hiddenPages) && (
+              communityLoading ? (
+                <Skeleton className="h-11 w-full sm:w-56 rounded-md mx-auto" />
+              ) : communityLink ? (
+                <a href={communityLink} target="_blank" rel="noopener noreferrer">
+                  <Button size="lg" className="gap-2 w-full sm:w-auto">
+                    <Users className="w-4 h-4" /> Join Community
+                  </Button>
+                </a>
+              ) : null
+            )}
+          </div>
+        </div>
+      </section>
+
       {/* CTA Section */}
       <section className="relative border-t border-border py-12 sm:py-16 text-center"
                style={{ backgroundImage: "radial-gradient(500px 200px at 50% 0, hsl(var(--primary) / 0.16), transparent 70%)" }}>
@@ -733,16 +810,38 @@ When your sub-agent clicks the link, they see a branded invite page showing your
                 )}
                 <span className="font-display font-semibold text-foreground">{domainBranding.siteName || "DATAGOD"}</span>
               </div>
-              <p className="text-sm">Your trusted data hub for Ghana — data, airtime, AFA, vouchers &amp; SMS.</p>
+              <p className="text-sm mb-4">Your trusted data hub for Ghana — data, airtime, AFA, vouchers &amp; SMS.</p>
+              {!domainBranding.siteName && (
+                <div className="flex items-center gap-3">
+                  <a href="https://web.facebook.com/datagod.store" target="_blank" rel="noopener noreferrer" aria-label="Facebook" className="text-muted-foreground hover:text-foreground transition-colors"><Facebook className="w-4 h-4" /></a>
+                  <a href="https://twitter.com/datagodstore" target="_blank" rel="noopener noreferrer" aria-label="Twitter" className="text-muted-foreground hover:text-foreground transition-colors"><Twitter className="w-4 h-4" /></a>
+                  <a href="https://www.instagram.com/datagodstore" target="_blank" rel="noopener noreferrer" aria-label="Instagram" className="text-muted-foreground hover:text-foreground transition-colors"><Instagram className="w-4 h-4" /></a>
+                </div>
+              )}
             </div>
-            {[["Product", ["How It Works", "Services", "Pricing"]], ["Company", ["About", "Blog", "Contact"]], ["Legal", ["Privacy", "Terms", "Cookies"]]].map(([h, items]) => (
-              <div key={h as string}>
-                <h4 className="mb-4 font-mono text-[11px] uppercase tracking-wider text-foreground/80">{h}</h4>
-                <ul className="space-y-2 text-sm">
-                  {(items as string[]).map((i) => <li key={i}><a href="#how-it-works" className="hover:text-foreground">{i}</a></li>)}
-                </ul>
-              </div>
-            ))}
+            <div>
+              <h4 className="mb-4 font-mono text-[11px] uppercase tracking-wider text-foreground/80">Product</h4>
+              <ul className="space-y-2 text-sm">
+                <li><a href="#services" className="hover:text-foreground">Our Services</a></li>
+                <li><a href="#why-us" className="hover:text-foreground">Why Choose Us</a></li>
+                <li><a href="#how-it-works" className="hover:text-foreground">How It Works</a></li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="mb-4 font-mono text-[11px] uppercase tracking-wider text-foreground/80">Resources</h4>
+              <ul className="space-y-2 text-sm">
+                <li><Link href="/whatsapp" className="hover:text-foreground">Order via WhatsApp</Link></li>
+                <li><Link href="/results-checker" className="hover:text-foreground">Results Checker</Link></li>
+                <li><Link href="/join" className="hover:text-foreground">Shops & Sub-Agents</Link></li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="mb-4 font-mono text-[11px] uppercase tracking-wider text-foreground/80">Legal</h4>
+              <ul className="space-y-2 text-sm">
+                <li><Link href="/privacy" className="hover:text-foreground">Privacy Policy</Link></li>
+                <li><Link href="/terms" className="hover:text-foreground">Terms of Service</Link></li>
+              </ul>
+            </div>
           </div>
           <div className="border-t border-border pt-8 text-center text-sm">
             <p>&copy; 2026 {domainBranding.siteName || "DATAGOD"}. All rights reserved.</p>
