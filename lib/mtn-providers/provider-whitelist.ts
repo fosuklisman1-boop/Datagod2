@@ -103,7 +103,15 @@ async function checkAgentPortalGH(msisdn: string): Promise<WhitelistResult> {
     const { AgentPortalGHProvider } = await import("./agentportalgh-provider")
     const data = await new AgentPortalGHProvider().verifyWhitelist([msisdn])
     const r = (data.data ?? data.results ?? [])[0]
-    return { allowed: r?.allowed !== false, provider: "agentportalgh", reason: r?.reason }
+    // Must match checkAgentPortalGHBatch's polarity below: require an
+    // EXPLICIT allowed===true, don't default to allowed on a missing/empty
+    // result row. The two calls hit the identical endpoint/response shape
+    // (verifyWhitelist always posts to /api/mtn-whitelist/verify), so a
+    // number AgentPortalGH's own response omits here must be treated the
+    // same safe way the batch path already does — not treated as cleared.
+    // (Previously `r?.allowed !== false` defaulted an absent row to allowed,
+    // letting an order for a genuinely unregistered number proceed unheld.)
+    return { allowed: r?.allowed === true, provider: "agentportalgh", reason: r?.reason }
   } catch {
     return { allowed: true, provider: "agentportalgh" }
   }
