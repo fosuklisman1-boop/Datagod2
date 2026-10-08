@@ -369,6 +369,9 @@ interface SubscriptionPlan {
 
 export default function HomePage() {
   const domainBranding = useDomainBranding()
+  // DATAGOD's own logo on the main site; a custom domain without its own logo
+  // gets the neutral placeholder, never DATAGOD branding.
+  const logoSrc = domainBranding.logoUrl || (domainBranding.siteName ? null : "/icons/icon-512x512.png")
 
   // Live, real pricing — never hardcoded, so this never goes stale or gets
   // mistaken for fabricated numbers. "default" is the platform's own
@@ -437,8 +440,8 @@ export default function HomePage() {
       {/* Navigation */}
       <nav className="sticky top-0 z-50 flex items-center justify-between px-4 sm:px-6 py-4 border-b border-border bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70">
         <div className="flex items-center gap-3">
-          {domainBranding.logoUrl ? (
-            <img src={domainBranding.logoUrl} alt={`${domainBranding.siteName || "DATAGOD"} logo`} className="h-7 w-7 rounded-lg object-cover" />
+          {logoSrc ? (
+            <img src={logoSrc} alt={`${domainBranding.siteName || "DATAGOD"} logo`} className="h-9 w-9 rounded-full object-cover" />
           ) : (
             <div aria-hidden className="h-7 w-7 rounded-lg bg-gradient-to-br from-[#1b388b] to-brand-accent" />
           )}
@@ -1051,8 +1054,8 @@ When your sub-agent clicks the link, they see a branded invite page showing your
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6 sm:gap-8 mb-8">
             <div>
               <div className="flex items-center gap-2 mb-3">
-                {domainBranding.logoUrl ? (
-                  <img src={domainBranding.logoUrl} alt={`${domainBranding.siteName || "DATAGOD"} logo`} className="h-5 w-5 rounded object-cover" />
+                {logoSrc ? (
+                  <img src={logoSrc} alt={`${domainBranding.siteName || "DATAGOD"} logo`} className="h-8 w-8 rounded-full object-cover" />
                 ) : (
                   <div aria-hidden className="h-5 w-5 rounded bg-gradient-to-br from-[#1b388b] to-brand-accent" />
                 )}

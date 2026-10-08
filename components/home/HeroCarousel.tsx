@@ -51,6 +51,9 @@ function splitWordmark(name: string): [string, string] {
 export function HeroCarousel() {
   const domainBranding = useDomainBranding()
   const siteName = domainBranding.siteName || "DATAGOD"
+  // DATAGOD's own logo on the main site; a custom domain without its own logo
+  // gets the neutral placeholder, never DATAGOD branding.
+  const logoSrc = domainBranding.logoUrl || (domainBranding.siteName ? null : "/icons/icon-512x512.png")
   const [wordA, wordB] = splitWordmark(siteName)
   const guestHidden = isPageHidden("guest_purchase", domainBranding.hiddenPages)
   const communityHidden = isPageHidden("join_channel", domainBranding.hiddenPages)
@@ -196,8 +199,8 @@ export function HeroCarousel() {
       <div className="mx-auto max-w-xl lg:max-w-2xl">
         <div className="text-center">
           <div className="mx-auto grid h-28 w-28 place-items-center rounded-full bg-card shadow-xl">
-            {domainBranding.logoUrl ? (
-              <img src={domainBranding.logoUrl} alt={`${siteName} logo`} className="h-20 w-20 rounded-full object-contain" />
+            {logoSrc ? (
+              <img src={logoSrc} alt={`${siteName} logo`} className="h-24 w-24 rounded-full object-cover" />
             ) : (
               <div aria-hidden className="h-16 w-16 rounded-2xl bg-gradient-to-br from-[#1b388b] to-brand-accent" />
             )}
