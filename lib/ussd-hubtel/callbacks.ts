@@ -4,7 +4,7 @@ import type { HubtelTxRow, HubtelTxStore } from "./types"
 /** Hubtel requires the callback within 1h of fulfilment; stop retrying at 55 minutes. */
 export const CALLBACK_WINDOW_MS = 55 * 60 * 1000
 
-export type CallbackSender = (p: { sessionId: string; orderId: string }) => Promise<{ ok: boolean; error?: string }>
+export type CallbackSender = (p: { sessionId: string; orderId: string; serviceStatus: "success" | "failed" }) => Promise<{ ok: boolean; error?: string }>
 
 export function callbackDisposition(
   row: Pick<HubtelTxRow, "callback_status" | "paid_at"> & Partial<Pick<HubtelTxRow, "created_at">>,
@@ -37,7 +37,10 @@ export async function dispatchCallback(
     await store.update(sessionId, { callback_attempts: row.callback_attempts + 1, callback_last_error: "no Hubtel order id on record" })
     return "retry"
   }
-  const result = await send({ sessionId, orderId: row.hubtel_order_id })
+  // Paid and delivered -> success. Paid but NOT delivered (handler failed, underpaid, late
+  // success parked for review) -> failed, so Hubtel does not treat an undelivered order as fulfilled.
+  const serviceStatus = row.state === "fulfilled" ? "success" : "failed"
+  const result = await send({ sessionId, orderId: row.hubtel_order_id, serviceStatus })
   if (result.ok) {
     await store.update(sessionId, {
       callback_status: "sent", callback_attempts: row.callback_attempts + 1,

@@ -77,7 +77,7 @@ async function authed(path: string, init?: RequestInit) {
 }
 
 // -- Hubtel callback log ---------------------------------------------------------
-type CallbackDirection = "inbound_fulfillment" | "outbound_callback"
+type CallbackDirection = "inbound_fulfillment" | "outbound_callback" | "status_check"
 type CallbackLogSummary = {
   id: string
   created_at: string
@@ -100,10 +100,12 @@ const DIRECTION_FILTERS: { value: DirectionFilter; label: string }[] = [
   { value: "all", label: "All" },
   { value: "inbound_fulfillment", label: "From Hubtel" },
   { value: "outbound_callback", label: "To Hubtel" },
+  { value: "status_check", label: "Status checks" },
 ]
 const PROBLEM_OUTCOMES = new Set(["needs_review", "failed", "parse_error", "invalid_payload", "unknown_session", "error"])
 const isProblem = (l: Pick<CallbackLogSummary, "ok" | "outcome">) => l.ok === false || (l.outcome != null && PROBLEM_OUTCOMES.has(l.outcome))
-const directionLabel = (d: CallbackDirection) => (d === "inbound_fulfillment" ? "From Hubtel" : "To Hubtel")
+const directionLabel = (d: CallbackDirection) =>
+  d === "inbound_fulfillment" ? "From Hubtel" : d === "status_check" ? "Status check" : "To Hubtel"
 const shortId = (v: string | null) => (!v ? "-" : v.length > 12 ? `${v.slice(0, 8)}…${v.slice(-4)}` : v)
 
 function prettyJson(v: unknown): string {
@@ -305,9 +307,11 @@ function CallbackLogCard() {
                   {payloadText || "(empty)"}
                 </pre>
               </div>
-              {detail.direction === "outbound_callback" && (
+              {(detail.direction === "outbound_callback" || detail.direction === "status_check") && (
                 <div>
-                  <div className="mb-1 text-xs font-medium text-muted-foreground">Hubtel response</div>
+                  <div className="mb-1 text-xs font-medium text-muted-foreground">
+                    {detail.direction === "status_check" ? "Status check response" : "Hubtel response"}
+                  </div>
                   <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg border bg-muted/40 p-3 font-mono text-xs">
                     {prettyJson(detail.response) || "(none)"}
                   </pre>
@@ -324,6 +328,9 @@ function CallbackLogCard() {
             </div>
           )}
           <DialogFooter className="gap-2">
+            {detail?.direction === "status_check" && (
+              <Button variant="outline" onClick={() => copyText(prettyJson(detail.response))}>Copy response</Button>
+            )}
             <Button variant="outline" disabled={!detail} onClick={() => copyText(payloadText)}>Copy payload</Button>
             <Button variant="outline" disabled={!detail} onClick={() => copyText(JSON.stringify(detail, null, 2))}>Copy all (JSON)</Button>
           </DialogFooter>

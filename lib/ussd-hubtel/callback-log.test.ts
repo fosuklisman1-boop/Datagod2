@@ -1,7 +1,7 @@
 // lib/ussd-hubtel/callback-log.test.ts
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import {
-  CALLBACK_LOG_TABLE, LOG_CAPS, logHubtelCallback, purgeOldCallbackLogs, shapeCallbackLogRow, withOutboundLogging,
+  CALLBACK_LOG_TABLE, LOG_CAPS, logHubtelCallback, purgeOldCallbackLogs, shapeCallbackLogRow, withOutboundLogging, withStatusCheckLogging,
   __resetCallbackLogWarningsForTests,
 } from "./callback-log"
 import { dispatchCallback } from "./callbacks"
@@ -174,6 +174,50 @@ describe("withOutboundLogging", () => {
     const boom = new Error("socket hang up")
     await expect(withOutboundLogging(async () => { throw boom }, client)({ sessionId: "S", orderId: "O" })).rejects.toBe(boom)
     expect(inserts[0].rows).toMatchObject({ outcome: "failed", ok: false, error: "socket hang up" })
+  })
+})
+
+describe("withStatusCheckLogging", () => {
+  it("logs the full Hubtel response and returns the original result unchanged", async () => {
+    const { client, inserts } = fakeClient()
+    const body = { responseCode: "0000", data: { status: "Paid", transactionId: "T-9", clientReference: "S1" } }
+    const result = { ok: true, status: "Paid", data: body.data, upstreamStatus: 200, body }
+    const check = vi.fn(async () => result)
+    const wrapped = withStatusCheckLogging(check, client)
+    const r = await wrapped("S1")
+    await wrapped.flush()
+    expect(r).toBe(result)
+    expect(check).toHaveBeenCalledWith("S1")
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0].rows).toMatchObject({
+      direction: "status_check", session_id: "S1", hubtel_order_id: "T-9", outcome: "Paid", ok: true, http_status: 200,
+      payload: { clientReference: "S1" }, response: body, error: null,
+    })
+  })
+  it("records an Unpaid answer as a normal (non-problem) entry", async () => {
+    const { client, inserts } = fakeClient()
+    const result = { ok: true, status: "Unpaid", data: { status: "Unpaid" }, upstreamStatus: 200, body: { data: { status: "Unpaid" } } }
+    await withStatusCheckLogging(async () => result, client)("S2")
+    expect(inserts[0].rows).toMatchObject({ outcome: "Unpaid", ok: true, hubtel_order_id: null })
+  })
+  it("a failed lookup is logged as an error with the status, body and error text", async () => {
+    const { client, inserts } = fakeClient()
+    const result = { ok: false, error: "relay/hubtel 404", upstreamStatus: 404, body: { message: "not found" } }
+    const r = await withStatusCheckLogging(async () => result, client)("S3")
+    expect(r).toBe(result)
+    expect(inserts[0].rows).toMatchObject({ outcome: "error", ok: false, http_status: 404, response: { message: "not found" }, error: "relay/hubtel 404" })
+  })
+  it("a throwing checker is logged and the error is rethrown", async () => {
+    const { client, inserts } = fakeClient()
+    const boom = new Error("socket hang up")
+    await expect(withStatusCheckLogging(async () => { throw boom }, client)("S4")).rejects.toBe(boom)
+    expect(inserts[0].rows).toMatchObject({ direction: "status_check", outcome: "error", ok: false, error: "socket hang up" })
+  })
+  it("a failing logger never changes the result", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const { client } = fakeClient({ insertThrows: true })
+    const result = { ok: true, status: "Paid" }
+    await expect(withStatusCheckLogging(async () => result, client)("S5")).resolves.toBe(result)
   })
 })
 

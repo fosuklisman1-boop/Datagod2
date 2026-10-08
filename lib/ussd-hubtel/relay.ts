@@ -6,10 +6,18 @@ function relayConfig(): { url: string; secret: string } | null {
   return url && secret ? { url: url.replace(/\/$/, ""), secret } : null
 }
 
+export type HubtelServiceStatus = "success" | "failed"
+
+export interface CallbackParams {
+  sessionId: string
+  orderId: string
+  /** Defaults to "success" when omitted. dispatchCallback sets it from the transaction's state. */
+  serviceStatus?: HubtelServiceStatus
+}
+
 /** The callback body Hubtel receives (via the relay). Also what the callback log records. */
-export function buildCallbackPayload(p: { sessionId: string; orderId: string }) {
-  // Always "success": spec §8 (failures are handled in our own admin / refunds, not via Hubtel).
-  return { SessionId: p.sessionId, OrderId: p.orderId, ServiceStatus: "success", MetaData: null }
+export function buildCallbackPayload(p: CallbackParams) {
+  return { SessionId: p.sessionId, OrderId: p.orderId, ServiceStatus: p.serviceStatus ?? "success", MetaData: null }
 }
 
 export interface FulfillmentCallbackResult {
@@ -21,7 +29,7 @@ export interface FulfillmentCallbackResult {
   upstreamBody?: unknown
 }
 
-export async function sendFulfillmentCallback(p: { sessionId: string; orderId: string }): Promise<FulfillmentCallbackResult> {
+export async function sendFulfillmentCallback(p: CallbackParams): Promise<FulfillmentCallbackResult> {
   const cfg = relayConfig()
   if (!cfg) return { ok: false, error: "relay not configured" }
   try {
@@ -47,9 +55,18 @@ export async function sendFulfillmentCallback(p: { sessionId: string; orderId: s
   }
 }
 
-export async function checkTransactionStatus(
-  sessionId: string
-): Promise<{ ok: boolean; status?: string; data?: any; error?: string }> {
+export interface StatusCheckResult {
+  ok: boolean
+  status?: string
+  data?: any
+  error?: string
+  /** Hubtel's HTTP status as reported by the relay (or the relay's own status if it refused). */
+  upstreamStatus?: number
+  /** Hubtel's full response body as reported by the relay; what the status-check log records. */
+  body?: unknown
+}
+
+export async function checkTransactionStatus(sessionId: string): Promise<StatusCheckResult> {
   const cfg = relayConfig()
   if (!cfg) return { ok: false, error: "relay not configured" }
   try {
@@ -58,9 +75,11 @@ export async function checkTransactionStatus(
       signal: AbortSignal.timeout(10_000),
     })
     const json: any = await res.json().catch(() => null)
-    if (!res.ok || !json?.ok) return { ok: false, error: `relay/hubtel ${json?.upstreamStatus ?? res.status}` }
+    const upstreamStatus: number = typeof json?.upstreamStatus === "number" ? json.upstreamStatus : res.status
+    const body: unknown = json && typeof json === "object" && "body" in json ? json.body : json
+    if (!res.ok || !json?.ok) return { ok: false, error: `relay/hubtel ${json?.upstreamStatus ?? res.status}`, upstreamStatus, body }
     const data = json.body?.data
-    return { ok: true, status: data?.status, data }
+    return { ok: true, status: data?.status, data, upstreamStatus, body }
   } catch (e: any) {
     return { ok: false, error: String(e?.message ?? e) }
   }

@@ -44,11 +44,23 @@ function store(row: Partial<HubtelTxRow>) {
 }
 
 describe("dispatchCallback", () => {
-  it("marks sent on success", async () => {
-    const m = store({})
+  it("sends ServiceStatus success for a fulfilled order", async () => {
+    const m = store({ state: "fulfilled" })
+    const send = vi.fn().mockResolvedValue({ ok: true })
+    await dispatchCallback(m.s, send, "S1", NOW)
+    expect(send).toHaveBeenCalledWith({ sessionId: "S1", orderId: "O1", serviceStatus: "success" })
+  })
+  it("sends ServiceStatus failed for a paid-but-undelivered (needs_review) order", async () => {
+    const m = store({ state: "needs_review" })
     const send = vi.fn().mockResolvedValue({ ok: true })
     expect(await dispatchCallback(m.s, send, "S1", NOW)).toBe("sent")
-    expect(send).toHaveBeenCalledWith({ sessionId: "S1", orderId: "O1" })
+    expect(send).toHaveBeenCalledWith({ sessionId: "S1", orderId: "O1", serviceStatus: "failed" })
+  })
+  it("marks sent on success", async () => {
+    const m = store({ state: "fulfilled" })
+    const send = vi.fn().mockResolvedValue({ ok: true })
+    expect(await dispatchCallback(m.s, send, "S1", NOW)).toBe("sent")
+    expect(send).toHaveBeenCalledWith({ sessionId: "S1", orderId: "O1", serviceStatus: "success" })
     expect(m.get()).toMatchObject({ callback_status: "sent", callback_attempts: 1 })
     expect(m.get().callback_sent_at).toBeTruthy()
   })

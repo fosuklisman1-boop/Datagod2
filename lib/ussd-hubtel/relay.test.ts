@@ -22,6 +22,7 @@ describe("sendFulfillmentCallback: additive upstream fields", () => {
     expect(url).toBe("https://relay.example/callback")
     expect(JSON.parse(init.body)).toEqual(buildCallbackPayload({ sessionId: "S1", orderId: "H1" }))
     expect(buildCallbackPayload({ sessionId: "S1", orderId: "H1" })).toEqual({ SessionId: "S1", OrderId: "H1", ServiceStatus: "success", MetaData: null })
+    expect(buildCallbackPayload({ sessionId: "S1", orderId: "H1", serviceStatus: "failed" }).ServiceStatus).toBe("failed")
   })
   it("Hubtel rejected: ok false, same error text as before, plus status and body", async () => {
     fetchMock.mockResolvedValue(reply(200, { ok: false, upstreamStatus: 400, body: { message: "bad" } }))
