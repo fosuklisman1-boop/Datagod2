@@ -643,6 +643,22 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* ── See It In Action (real storefront, via Buy as Guest) ── */}
+      {!isPageHidden("guest_purchase", domainBranding.hiddenPages) && (
+        <section className="py-16 sm:py-20">
+          <div className="max-w-2xl mx-auto px-4 sm:px-6 text-center">
+            <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-primary">See It In Action</span>
+            <h2 className="font-display text-2xl sm:text-4xl font-bold text-foreground mb-3">Try a real storefront — no account needed</h2>
+            <p className="text-muted-foreground text-sm sm:text-base mb-8">
+              Before you build your own shop, see exactly what your customers will experience — browse packages and check out as a guest.
+            </p>
+            <div className="flex justify-center">
+              <GuestPurchaseButton variant="primary" />
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* ── Developer API ────────────────────────────────────── */}
       <section className="bg-card border-t border-b border-border py-16 sm:py-24">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 grid lg:grid-cols-2 gap-10 items-center">
@@ -1057,6 +1073,26 @@ When your sub-agent clicks the link, they see a branded invite page showing your
           </div>
         </section>
       )}
+
+      {/* ── Social Proof ──────────────────────────────────────── */}
+      <section className="bg-card border-t border-b border-border py-14 sm:py-20">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+            {[
+              { icon: Users, label: "Customers Served", value: "26,000+" },
+              { icon: Package, label: "Orders Delivered", value: "500,000+" },
+              { icon: Zap, label: "Avg Delivery", value: "~8s" },
+              { icon: ShieldCheck, label: "Uptime", value: "99.99%" },
+            ].map(({ icon: Icon, label, value }) => (
+              <div key={label} className="rounded-2xl border-2 border-foreground/80 bg-background p-4 sm:p-6 text-center">
+                <Icon className="w-5 h-5 text-primary mx-auto mb-2" />
+                <p className="font-display text-xl sm:text-3xl font-black text-foreground">{value}</p>
+                <p className="text-xs text-muted-foreground mt-1">{label}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
 
       {/* ── Easy Support & Complaint Resolution ──────────────── */}
       <section className="py-16 sm:py-24">
