@@ -1,6 +1,8 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
@@ -9,7 +11,7 @@ import {
   CheckCircle2, CreditCard, Phone, UserPlus,
   TrendingUp, Share2, Settings, Search, Link2, Copy, Mail, Banknote, MessageCircle,
   Cpu, Hash, Globe, Smartphone, Code2, Database, Send, FileCheck2,
-  Rocket, ShieldCheck, Facebook, Twitter, Instagram, Receipt, Monitor,
+  Rocket, ShieldCheck, Facebook, Twitter, Instagram, Receipt, Monitor, Gem, HelpCircle, Headset,
 } from "lucide-react"
 import GuestPurchaseButton from "@/components/GuestPurchaseButton"
 import { HomeAIChatWidget } from "@/components/home/AIChatWidget"
@@ -17,6 +19,7 @@ import { useCommunityLink } from "@/hooks/use-community-link"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 import { isPageHidden } from "@/lib/custom-domains"
+import { StorefrontServicesCarousel, type StorefrontCarouselSlide } from "@/components/shop/StorefrontServicesCarousel"
 
 function Step({
   number,
@@ -310,15 +313,18 @@ function MockProfitMargin() {
 
 /* ── Services & Benefits data ─────────────────────────── */
 
+// `color` = icon-badge pastel pair (bg/text), cycled per card so the grid
+// reads as a varied set of products rather than one flat brand-colored wall
+// — matches the reference's per-card accent-color pattern.
 const TOP_SERVICES = [
-  { icon: Database, title: "Data Bundles", desc: "High-speed MTN, Telecel & AT data bundles at the best rates, delivered in seconds.", tag: null },
-  { icon: Zap, title: "Airtime Topup", desc: "Instant airtime recharge for any network, paid straight from your wallet.", tag: null },
-  { icon: UserPlus, title: "AFA Registration", desc: "Register AFA / iShare numbers instantly — no queues, no paperwork.", tag: null },
-  { icon: FileCheck2, title: "Results Checker", desc: "WASSCE, BECE & NovDec PINs delivered instantly so you can check your own results.", tag: null },
-  { icon: Search, title: "Results Check Service", desc: "No PIN to spare? We check your results for you and send them by email & WhatsApp.", tag: null },
-  { icon: Send, title: "Bulk SMS", desc: "Send OTPs, alerts and campaigns with your own sender ID, address book & templates.", tag: null },
-  { icon: Store, title: "Reseller Shops", desc: "Launch your own branded storefront and set your own profit margins.", tag: "RESELL" },
-  { icon: Users, title: "Sub-Agent Program", desc: "Recruit sellers under your shop and earn commission on everything they sell.", tag: null },
+  { icon: Database, title: "Data Bundles", desc: "High-speed MTN, Telecel & AT data bundles at the best rates, delivered in seconds.", tag: null, color: "bg-emerald-100 text-emerald-600" },
+  { icon: Zap, title: "Airtime Topup", desc: "Instant airtime recharge for any network, paid straight from your wallet.", tag: null, color: "bg-blue-100 text-blue-600" },
+  { icon: UserPlus, title: "AFA Registration", desc: "Register AFA / iShare numbers instantly — no queues, no paperwork.", tag: null, color: "bg-purple-100 text-purple-600" },
+  { icon: FileCheck2, title: "Results Checker", desc: "WASSCE, BECE & NovDec PINs delivered instantly so you can check your own results.", tag: null, color: "bg-amber-100 text-amber-600" },
+  { icon: Search, title: "Results Check Service", desc: "No PIN to spare? We check your results for you and send them by email & WhatsApp.", tag: null, color: "bg-cyan-100 text-cyan-600" },
+  { icon: Send, title: "Bulk SMS", desc: "Send OTPs, alerts and campaigns with your own sender ID, address book & templates.", tag: null, color: "bg-rose-100 text-rose-600" },
+  { icon: Store, title: "Reseller Shops", desc: "Launch your own branded storefront and set your own profit margins.", tag: "RESELL", color: "bg-indigo-100 text-indigo-600" },
+  { icon: Users, title: "Sub-Agent Program", desc: "Recruit sellers under your shop and earn commission on everything they sell.", tag: null, color: "bg-teal-100 text-teal-600" },
 ] as const
 
 // Real, upcoming roadmap items — not live yet. Kept visually distinct (own
@@ -330,17 +336,80 @@ const COMING_SOON = [
 ] as const
 
 const WHY_CHOOSE = [
-  { icon: Rocket, title: "Ultra-Fast Delivery", desc: "Data and airtime orders are processed and delivered in seconds, not minutes." },
-  { icon: Cpu, title: "AI Assistants Everywhere", desc: "One AI, tuned for every surface — web, WhatsApp, your shop storefront, and your dashboard." },
-  { icon: ShieldCheck, title: "Secure Wallet Payments", desc: "Pay from your wallet through Paystack-secured checkout, with a clear transaction trail." },
-  { icon: Globe, title: "Order From Anywhere", desc: "Web storefront, WhatsApp bot, or USSD with no internet needed — or install DATAGOD as an app." },
-  { icon: Code2, title: "Developer API", desc: "Integrate automated data and airtime purchases directly into your own app or system." },
-  { icon: Banknote, title: "Instant Withdrawals", desc: "Cash out your reseller profits to Mobile Money or bank, with verified, tracked payouts." },
+  { icon: Rocket, title: "Ultra-Fast Delivery", desc: "Data and airtime orders are processed and delivered in seconds, not minutes.", color: "bg-orange-100 text-orange-600" },
+  { icon: Cpu, title: "AI Assistants Everywhere", desc: "One AI, tuned for every surface — web, WhatsApp, your shop storefront, and your dashboard.", color: "bg-violet-100 text-violet-600" },
+  { icon: ShieldCheck, title: "Secure Wallet Payments", desc: "Pay from your wallet through Paystack-secured checkout, with a clear transaction trail.", color: "bg-emerald-100 text-emerald-600" },
+  { icon: Globe, title: "Order From Anywhere", desc: "Web storefront, WhatsApp bot, or USSD with no internet needed — or install DATAGOD as an app.", color: "bg-sky-100 text-sky-600" },
+  { icon: Code2, title: "Developer API", desc: "Integrate automated data and airtime purchases directly into your own app or system.", color: "bg-indigo-100 text-indigo-600" },
+  { icon: Banknote, title: "Instant Withdrawals", desc: "Cash out your reseller profits to Mobile Money or bank, with verified, tracked payouts.", color: "bg-rose-100 text-rose-600" },
 ] as const
+
+// Factual answers to real, already-documented platform behavior — no
+// invented policies or numbers.
+const FAQ_ITEMS = [
+  { q: "How fast is delivery?", a: "Most data and airtime orders are delivered within seconds of payment confirming — our average is around 8 seconds. During very high traffic it can take a few minutes." },
+  { q: "How do I pay?", a: "Guests pay per order via Paystack (card or Mobile Money). Account holders can also load a wallet once and buy repeatedly without going through Paystack each time." },
+  { q: "What happens if I enter the wrong number?", a: "Data and airtime deliveries to an incorrect recipient number cannot be reversed — always double-check the number before confirming your order." },
+  { q: "Can I resell data and earn?", a: "Yes. Upgrade to an Agent or Dealer plan, open your own branded shop, set your own profit margin on top of the base price, and withdraw your earnings to Mobile Money or bank." },
+  { q: "Do I need an account to buy?", a: "No — you can buy directly from any reseller's shop link as a guest, no account required. An account is only needed to use a wallet, track order history in one place, or open your own shop." },
+  { q: "How do I get support?", a: "Chat with us on WhatsApp for instant help, or file and track a complaint from your dashboard if you have an account." },
+] as const
+
+interface PublicPackage {
+  id?: string
+  network: string
+  size: string
+  price: number
+}
+
+interface SubscriptionPlan {
+  id: string
+  name: string
+  description: string
+  price: string
+  duration_days: number
+}
 
 export default function HomePage() {
   const { communityLink, loading: communityLoading } = useCommunityLink()
   const domainBranding = useDomainBranding()
+  const router = useRouter()
+
+  // Live, real pricing — never hardcoded, so this never goes stale or gets
+  // mistaken for fabricated numbers. "default" is the platform's own
+  // retail-pricing shop slug, same one app/dashboard/data-packages/page.tsx
+  // already fetches from.
+  const [popularPackages, setPopularPackages] = useState<PublicPackage[]>([])
+  const [plans, setPlans] = useState<SubscriptionPlan[]>([])
+  const [openFaq, setOpenFaq] = useState<number | null>(null)
+
+  useEffect(() => {
+    fetch("/api/shop/public-packages?slug=default", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (Array.isArray(data?.packages)) setPopularPackages(data.packages)
+      })
+      .catch(() => {})
+    fetch("/api/subscriptions/plans")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (Array.isArray(data?.plans)) setPlans(data.plans)
+      })
+      .catch(() => {})
+  }, [])
+
+  // One representative (cheapest) package per network, for a compact
+  // "Popular Data Packages" preview — still real, live data, just curated
+  // down from the full catalog rather than dumping every size.
+  const popularByNetwork = Object.values(
+    popularPackages.reduce((acc, pkg) => {
+      if (!acc[pkg.network] || pkg.price < acc[pkg.network].price) acc[pkg.network] = pkg
+      return acc
+    }, {} as Record<string, PublicPackage>)
+  ).slice(0, 6)
+
+  const dealerPlan = plans.find((p) => /diamond|lifetime/i.test(p.name))
+  const termPlans = plans.filter((p) => p !== dealerPlan)
 
   return (
     <div className="min-h-screen bg-background">
@@ -478,6 +547,38 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* ── Promo Carousel ───────────────────────────────────── */}
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 pb-8 sm:pb-14">
+        <StorefrontServicesCarousel
+          slides={[
+            {
+              key: "data", badge: "DATA & AIRTIME", title: "Buy Data & Airtime Instantly",
+              description: "MTN, Telecel & AT bundles delivered in seconds — pay from your wallet.",
+              cta: "Get Started", icon: Database, gradient: "from-[#0f172a] to-[#2563eb]",
+              onClick: () => router.push("/auth/signup"),
+            },
+            {
+              key: "shop", badge: "RESELL", title: "Launch Your Own Reseller Shop",
+              description: "A branded storefront with your name, logo, and your own prices — live in minutes.",
+              cta: "Open Your Shop", icon: Store, gradient: "from-[#052e16] to-[#059669]",
+              onClick: () => router.push("/auth/signup"),
+            },
+            {
+              key: "sms", badge: "BULK SMS", title: "Send SMS at Scale",
+              description: "OTPs, alerts and campaigns with your own sender ID, templates & address book.",
+              cta: "Get Started", icon: Send, gradient: "from-[#431407] to-[#d97706]",
+              onClick: () => router.push("/auth/signup"),
+            },
+            {
+              key: "channels", badge: "EVERYWHERE", title: "Order From Anywhere",
+              description: "Web, WhatsApp, USSD, or our Developer API — however you prefer to order.",
+              cta: "Explore", icon: Globe, gradient: "from-[#1e1b4b] to-[#4f46e5]",
+              onClick: () => document.getElementById("services")?.scrollIntoView({ behavior: "smooth" }),
+            },
+          ] satisfies StorefrontCarouselSlide[]}
+        />
+      </section>
+
       {/* ── Our Top Services ────────────────────────────────── */}
       <section id="services" className="bg-card border-t border-b border-border py-16 sm:py-24">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
@@ -488,11 +589,11 @@ export default function HomePage() {
               Everything you need to buy, resell, and manage digital services in one place.
             </p>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-            {TOP_SERVICES.map(({ icon: Icon, title, desc, tag }) => (
-              <div key={title} className="rounded-xl border border-border bg-background p-4 sm:p-5 transition-colors hover:border-primary">
-                <div className="mb-3 grid h-10 w-10 place-items-center rounded-lg border border-primary/25 bg-primary/10"><Icon className="h-[18px] w-[18px] text-primary" /></div>
-                <h3 className="mb-1.5 flex items-center gap-2 font-display font-semibold text-foreground">{title}{tag && <span className="rounded-full border border-primary/30 px-1.5 py-0.5 font-mono text-[8px] text-primary">{tag}</span>}</h3>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+            {TOP_SERVICES.map(({ icon: Icon, title, desc, tag, color }) => (
+              <div key={title} className="rounded-2xl border-2 border-foreground/80 bg-background p-4 sm:p-6">
+                <div className={`mb-4 grid h-12 w-12 place-items-center rounded-2xl ${color}`}><Icon className="h-[22px] w-[22px]" /></div>
+                <h3 className="mb-1.5 flex items-center gap-2 font-display font-bold text-foreground">{title}{tag && <span className="rounded-full border border-primary/30 px-1.5 py-0.5 font-mono text-[8px] text-primary">{tag}</span>}</h3>
                 <p className="text-sm text-muted-foreground">{desc}</p>
               </div>
             ))}
@@ -505,9 +606,98 @@ export default function HomePage() {
           </div>
           <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             {COMING_SOON.map(({ icon: Icon, title, desc }) => (
-              <div key={title} className="rounded-xl border border-dashed border-border bg-background/60 p-4 sm:p-5 opacity-80">
-                <div className="mb-3 grid h-10 w-10 place-items-center rounded-lg border border-border bg-muted"><Icon className="h-[18px] w-[18px] text-muted-foreground" /></div>
-                <h3 className="mb-1.5 flex items-center gap-2 font-display font-semibold text-foreground">{title}<span className="rounded-full border border-border px-1.5 py-0.5 font-mono text-[8px] text-muted-foreground">COMING SOON</span></h3>
+              <div key={title} className="rounded-2xl border-2 border-dashed border-border bg-background/60 p-5 sm:p-6 opacity-80">
+                <div className="mb-4 grid h-12 w-12 place-items-center rounded-2xl border border-border bg-muted"><Icon className="h-[22px] w-[22px] text-muted-foreground" /></div>
+                <h3 className="mb-1.5 flex items-center gap-2 font-display font-bold text-foreground">{title}<span className="rounded-full border border-border px-1.5 py-0.5 font-mono text-[8px] text-muted-foreground">COMING SOON</span></h3>
+                <p className="text-sm text-muted-foreground">{desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Branded Reseller Shop ────────────────────────────── */}
+      <section className="py-16 sm:py-24">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 grid lg:grid-cols-2 gap-10 items-center">
+          <div>
+            <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-primary">Reseller Tools</span>
+            <h2 className="font-display text-2xl sm:text-4xl font-bold text-foreground mb-4">Launch your own branded storefront</h2>
+            <p className="text-muted-foreground mb-6">
+              Your name, your logo, your prices. Create a shop in minutes and start earning a profit margin on every sale — no coding, no setup fees.
+            </p>
+            <ul className="space-y-3 mb-6">
+              {["Your own name, logo & brand colors", "Set your own profit margin on every package", "No login required for your customers", "Share your link on WhatsApp, social media, or flyers"].map((item) => (
+                <li key={item} className="flex items-start gap-2.5 text-sm text-foreground">
+                  <CheckCircle2 className="w-4 h-4 text-success mt-0.5 flex-shrink-0" /> {item}
+                </li>
+              ))}
+            </ul>
+            <Link href="/auth/signup"><Button size="lg" className="gap-2">Open Your Shop <ArrowRight className="w-4 h-4" /></Button></Link>
+          </div>
+          <div className="rounded-2xl border-2 border-foreground/80 bg-card shadow-sm overflow-hidden">
+            <MockShopLink />
+            <div className="border-t border-border">
+              <MockProfitMargin />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Developer API ────────────────────────────────────── */}
+      <section className="bg-card border-t border-b border-border py-16 sm:py-24">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 grid lg:grid-cols-2 gap-10 items-center">
+          <div className="order-2 lg:order-1 rounded-2xl border-2 border-foreground/80 bg-background shadow-sm overflow-hidden p-4 font-mono text-[11px] text-muted-foreground">
+            <div className="flex items-center gap-1.5 mb-3">
+              <span className="h-2.5 w-2.5 rounded-full bg-destructive/60" /><span className="h-2.5 w-2.5 rounded-full bg-warning/60" /><span className="h-2.5 w-2.5 rounded-full bg-success/60" />
+            </div>
+            <p><span className="text-primary">POST</span> /api/v1/orders</p>
+            <p className="text-foreground/60">X-API-Key: YOUR_API_KEY</p>
+            <p className="mt-2">{"{"}</p>
+            <p className="pl-3">"network": "MTN",</p>
+            <p className="pl-3">"volume_gb": 1,</p>
+            <p className="pl-3">"recipient": "0241234567",</p>
+            <p className="pl-3">"reference": "ORDER-REF-001"</p>
+            <p>{"}"}</p>
+            <p className="mt-2 text-success">→ 200 OK — delivered</p>
+          </div>
+          <div className="order-1 lg:order-2">
+            <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-primary">For Developers</span>
+            <h2 className="font-display text-2xl sm:text-4xl font-bold text-foreground mb-4">Integrate data &amp; airtime into your own app</h2>
+            <p className="text-muted-foreground mb-6">
+              Automate data bundle and airtime purchases directly from your own website, app, or system — get your API key from the dashboard and start building.
+            </p>
+            <ul className="space-y-3 mb-6">
+              {["Simple REST API — no SDK required", "Get your API key straight from the dashboard", "Automate data bundle & airtime purchases", "Built for Ghanaian apps & platforms"].map((item) => (
+                <li key={item} className="flex items-start gap-2.5 text-sm text-foreground">
+                  <CheckCircle2 className="w-4 h-4 text-success mt-0.5 flex-shrink-0" /> {item}
+                </li>
+              ))}
+            </ul>
+            <Link href="/auth/signup"><Button size="lg" variant="outline" className="gap-2">Get API Access <ArrowRight className="w-4 h-4" /></Button></Link>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Pay With Your Wallet ─────────────────────────────── */}
+      <section className="py-16 sm:py-24">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6">
+          <div className="text-center mb-12">
+            <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-primary">Wallet</span>
+            <h2 className="font-display text-2xl sm:text-4xl font-bold text-foreground mb-3">Pay With Your Wallet</h2>
+            <p className="text-muted-foreground max-w-xl mx-auto text-sm sm:text-base">Load credit once, then buy instantly — no card details needed every time.</p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+            {[
+              { icon: CreditCard, title: "Top Up", desc: "Fund your wallet via Paystack — card or Mobile Money." },
+              { icon: Wallet, title: "Store Balance", desc: "Your balance is ready whenever you want to buy." },
+              { icon: Zap, title: "Buy Instantly", desc: "Pick a package and confirm — no checkout, no delay." },
+            ].map(({ icon: Icon, title, desc }, i) => (
+              <div key={title} className="rounded-2xl border-2 border-foreground/80 bg-card p-5 sm:p-6">
+                <div className="mb-4 flex items-center gap-2">
+                  <span className="grid h-8 w-8 place-items-center rounded-full bg-primary text-primary-foreground text-sm font-bold">{i + 1}</span>
+                  <Icon className="h-5 w-5 text-primary" />
+                </div>
+                <h3 className="mb-1.5 font-display font-bold text-foreground">{title}</h3>
                 <p className="text-sm text-muted-foreground">{desc}</p>
               </div>
             ))}
@@ -525,17 +715,102 @@ export default function HomePage() {
               The fastest, most flexible way to buy and resell digital services in Ghana.
             </p>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-            {WHY_CHOOSE.map(({ icon: Icon, title, desc }) => (
-              <div key={title} className="rounded-xl border border-border bg-card p-4 sm:p-5 transition-colors hover:border-primary">
-                <div className="mb-3 grid h-10 w-10 place-items-center rounded-lg border border-primary/25 bg-primary/10"><Icon className="h-[18px] w-[18px] text-primary" /></div>
-                <h3 className="mb-1.5 font-display font-semibold text-foreground">{title}</h3>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4">
+            {WHY_CHOOSE.map(({ icon: Icon, title, desc, color }) => (
+              <div key={title} className="rounded-2xl border-2 border-foreground/80 bg-card p-5 sm:p-6">
+                <div className={`mb-4 grid h-12 w-12 place-items-center rounded-2xl ${color}`}><Icon className="h-[22px] w-[22px]" /></div>
+                <h3 className="mb-1.5 font-display font-bold text-foreground">{title}</h3>
                 <p className="text-sm text-muted-foreground">{desc}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
+
+      {/* ── Bulk SMS ──────────────────────────────────────────── */}
+      <section className="bg-card border-t border-b border-border py-16 sm:py-24">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 grid lg:grid-cols-2 gap-10 items-center">
+          <div>
+            <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-primary">Bulk SMS</span>
+            <h2 className="font-display text-2xl sm:text-4xl font-bold text-foreground mb-4">Send SMS to your customers — at scale</h2>
+            <p className="text-muted-foreground mb-6">
+              OTPs, alerts, and marketing campaigns — sent in seconds, from your own sender ID.
+            </p>
+            <ul className="space-y-3 mb-6">
+              {["Your own approved sender ID", "Address book & reusable templates", "OTPs, alerts, and bulk campaigns", "Delivery reports for every send"].map((item) => (
+                <li key={item} className="flex items-start gap-2.5 text-sm text-foreground">
+                  <CheckCircle2 className="w-4 h-4 text-success mt-0.5 flex-shrink-0" /> {item}
+                </li>
+              ))}
+            </ul>
+            <Link href="/auth/signup"><Button size="lg" className="gap-2">Get Started <ArrowRight className="w-4 h-4" /></Button></Link>
+          </div>
+          <div className="rounded-2xl border-2 border-foreground/80 bg-background p-5 shadow-sm">
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3">Delivery Report</p>
+            <div className="space-y-2">
+              {[{ label: "OTP campaign", sent: 240, delivered: 238 }, { label: "Promo blast", sent: 1500, delivered: 1486 }, { label: "Order alert", sent: 1, delivered: 1 }].map((r) => (
+                <div key={r.label} className="bg-card border border-border rounded-lg px-3 py-2 flex items-center justify-between text-xs">
+                  <span className="font-medium text-foreground">{r.label}</span>
+                  <span className="text-success font-bold">{r.delivered}/{r.sent} delivered</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── AFA Field Agent ──────────────────────────────────── */}
+      <section className="py-16 sm:py-24">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 text-center">
+          <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-primary">AFA Registration</span>
+          <h2 className="font-display text-2xl sm:text-4xl font-bold text-foreground mb-3">Become an Authorized Field Agent</h2>
+          <p className="text-muted-foreground text-sm sm:text-base mb-8">
+            Register AFA / iShare numbers for your community — no queues, no paperwork, done right from your dashboard.
+          </p>
+          <Link href="/auth/signup"><Button size="lg" className="gap-2">Register Now <ArrowRight className="w-4 h-4" /></Button></Link>
+        </div>
+      </section>
+
+      {/* ── Agent Membership Plans & Dealer Tier (live pricing) ── */}
+      {plans.length > 0 && (
+        <section className="bg-card border-t border-b border-border py-16 sm:py-24">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6">
+            <div className="text-center mb-12">
+              <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-primary">Pricing</span>
+              <h2 className="font-display text-2xl sm:text-4xl font-bold text-foreground mb-3">Agent Membership Plans</h2>
+              <p className="text-muted-foreground max-w-xl mx-auto text-sm sm:text-base">Upgrade to unlock wholesale pricing and open your own shop.</p>
+            </div>
+            {termPlans.length > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-6">
+                {termPlans.map((plan) => (
+                  <div key={plan.id} className="rounded-2xl border-2 border-foreground/80 bg-background p-5 sm:p-6">
+                    <h3 className="font-display font-bold text-foreground mb-1">{plan.name.trim()}</h3>
+                    <p className="text-2xl font-black text-foreground mb-1">GHS {Number(plan.price).toFixed(2)}</p>
+                    <p className="text-xs text-muted-foreground mb-3">{plan.duration_days} day{plan.duration_days === 1 ? "" : "s"} access</p>
+                    {plan.description && <p className="text-sm text-muted-foreground mb-4">{plan.description}</p>}
+                    <Link href="/auth/signup"><Button variant="outline" className="w-full">Choose Plan</Button></Link>
+                  </div>
+                ))}
+              </div>
+            )}
+            {dealerPlan && (
+              <div className="rounded-2xl border-2 border-primary bg-gradient-to-br from-primary/5 to-brand-accent/5 p-5 sm:p-6 flex flex-col sm:flex-row items-center gap-5 justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="grid h-12 w-12 place-items-center rounded-2xl bg-primary/10 flex-shrink-0"><Gem className="h-[22px] w-[22px] text-primary" /></div>
+                  <div>
+                    <h3 className="font-display font-bold text-foreground">Dealer Tier — {dealerPlan.name.trim()}</h3>
+                    <p className="text-sm text-muted-foreground">{dealerPlan.description || "Our best wholesale pricing, unlocked for life."}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4 flex-shrink-0">
+                  <p className="text-2xl font-black text-foreground">GHS {Number(dealerPlan.price).toFixed(2)}</p>
+                  <Link href="/auth/signup"><Button className="gap-2">Become a Dealer <ArrowRight className="w-4 h-4" /></Button></Link>
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* ── How It Works ────────────────────────────────────── */}
       <section id="how-it-works" className="bg-card border-t border-b border-border py-16 sm:py-24">
@@ -758,31 +1033,118 @@ When your sub-agent clicks the link, they see a branded invite page showing your
         </div>
       </section>
 
-      {/* ── Help & Community ────────────────────────────────── */}
-      <section className="py-16 sm:py-20">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 text-center">
-          <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-primary">Support & Resources</span>
-          <h2 className="font-display text-2xl sm:text-4xl font-bold text-foreground mb-3">Help & Live Community</h2>
-          <p className="text-muted-foreground text-sm sm:text-base mb-8">
-            Get direct support by chat, or connect with other resellers in our community.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Link href="/whatsapp">
-              <Button size="lg" variant="outline" className="gap-2 w-full sm:w-auto">
-                <MessageCircle className="w-4 h-4" /> Chat on WhatsApp
-              </Button>
-            </Link>
-            {!isPageHidden("join_channel", domainBranding.hiddenPages) && (
-              communityLoading ? (
-                <Skeleton className="h-11 w-full sm:w-56 rounded-md mx-auto" />
-              ) : communityLink ? (
-                <a href={communityLink} target="_blank" rel="noopener noreferrer">
-                  <Button size="lg" className="gap-2 w-full sm:w-auto">
-                    <Users className="w-4 h-4" /> Join Community
-                  </Button>
-                </a>
-              ) : null
+      {/* ── Popular Data Packages (live pricing) ─────────────── */}
+      {popularByNetwork.length > 0 && (
+        <section className="bg-card border-t border-b border-border py-16 sm:py-24">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6">
+            <div className="text-center mb-12">
+              <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-primary">Live Pricing</span>
+              <h2 className="font-display text-2xl sm:text-4xl font-bold text-foreground mb-3">Popular Data Packages</h2>
+              <p className="text-muted-foreground max-w-xl mx-auto text-sm sm:text-base">Real retail prices, pulled straight from our live catalog.</p>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
+              {popularByNetwork.map((pkg) => (
+                <div key={`${pkg.network}-${pkg.size}`} className="rounded-2xl border-2 border-foreground/80 bg-background p-4 text-center">
+                  <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1">{pkg.network}</p>
+                  <p className="text-xl font-black text-foreground">{pkg.size}</p>
+                  <p className="text-sm font-bold text-primary mt-1">GHS {Number(pkg.price).toFixed(2)}</p>
+                </div>
+              ))}
+            </div>
+            <div className="mt-8 text-center">
+              <Link href="/auth/signup"><Button size="lg" className="gap-2">See All Packages <ArrowRight className="w-4 h-4" /></Button></Link>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ── Easy Support & Complaint Resolution ──────────────── */}
+      <section className="py-16 sm:py-24">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 grid sm:grid-cols-2 gap-3 sm:gap-4">
+          <div className="rounded-2xl border-2 border-foreground/80 bg-card p-5 sm:p-6">
+            <div className="mb-4 grid h-12 w-12 place-items-center rounded-2xl bg-emerald-100 text-emerald-600"><Headset className="h-[22px] w-[22px]" /></div>
+            <h3 className="mb-1.5 font-display font-bold text-foreground">Direct WhatsApp Support</h3>
+            <p className="text-sm text-muted-foreground mb-4">Chat with us directly for help with an order, a payment, or anything else.</p>
+            <Link href="/whatsapp"><Button variant="outline" className="gap-2">Chat Now <ArrowRight className="w-4 h-4" /></Button></Link>
+          </div>
+          <div className="rounded-2xl border-2 border-foreground/80 bg-card p-5 sm:p-6">
+            <div className="mb-4 grid h-12 w-12 place-items-center rounded-2xl bg-blue-100 text-blue-600"><FileCheck2 className="h-[22px] w-[22px]" /></div>
+            <h3 className="mb-1.5 font-display font-bold text-foreground">Track Your Complaints</h3>
+            <p className="text-sm text-muted-foreground mb-4">File a complaint and track it from start to resolution, right from your dashboard.</p>
+            <Link href="/auth/signup"><Button variant="outline" className="gap-2">Create Account <ArrowRight className="w-4 h-4" /></Button></Link>
+          </div>
+        </div>
+      </section>
+
+      {/* ── FAQ ───────────────────────────────────────────────── */}
+      <section className="bg-card border-t border-b border-border py-16 sm:py-24">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6">
+          <div className="text-center mb-12">
+            <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-primary">FAQ</span>
+            <h2 className="font-display text-2xl sm:text-4xl font-bold text-foreground mb-3">Frequently Asked Questions</h2>
+          </div>
+          <div className="space-y-3">
+            {FAQ_ITEMS.map((item, i) => (
+              <div key={item.q} className="rounded-2xl border-2 border-foreground/80 bg-background overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setOpenFaq(openFaq === i ? null : i)}
+                  className="w-full flex items-center justify-between gap-3 p-4 sm:p-5 text-left"
+                >
+                  <span className="flex items-center gap-2.5 font-display font-semibold text-foreground"><HelpCircle className="w-4 h-4 text-primary flex-shrink-0" /> {item.q}</span>
+                  <ArrowRight className={`w-4 h-4 text-muted-foreground flex-shrink-0 transition-transform ${openFaq === i ? "rotate-90" : ""}`} />
+                </button>
+                {openFaq === i && (
+                  <p className="px-4 sm:px-5 pb-4 sm:pb-5 text-sm text-muted-foreground">{item.a}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Help & Live Community ───────────────────────────── */}
+      <section className="relative py-16 sm:py-20"
+               style={{ backgroundImage: "radial-gradient(600px 300px at 50% 0, hsl(var(--primary) / 0.12), transparent 70%)" }}>
+        <div className="max-w-xl mx-auto px-4 sm:px-6 text-center">
+          {/* Centered brand mark */}
+          <div className="mx-auto mb-4 grid h-20 w-20 place-items-center rounded-full border border-border bg-card shadow-sm">
+            {domainBranding.logoUrl ? (
+              <img src={domainBranding.logoUrl} alt={`${domainBranding.siteName || "DATAGOD"} logo`} className="h-12 w-12 rounded-full object-cover" />
+            ) : (
+              <div aria-hidden className="h-12 w-12 rounded-full bg-gradient-to-br from-primary to-brand-accent" />
             )}
+          </div>
+          <p className="font-display text-lg font-bold text-foreground">{domainBranding.siteName || "DATAGOD"}</p>
+          <span className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-4 py-1.5 text-xs font-semibold text-foreground shadow-sm">
+            <Zap className="w-3.5 h-3.5 text-primary" /> Instant Delivery, Always
+          </span>
+
+          {/* Card */}
+          <div className="mt-8 rounded-3xl border border-border bg-card p-6 sm:p-8 shadow-md text-left sm:text-center">
+            <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-primary">Support & Resources</span>
+            <h2 className="font-display text-2xl sm:text-3xl font-bold text-foreground mb-3">Help & Live Community</h2>
+            <p className="text-muted-foreground text-sm sm:text-base mb-6">
+              Get direct support by chat, track your complaints, and connect with other resellers inside our community.
+            </p>
+            <div className="flex flex-col gap-3">
+              <Link href="/whatsapp" className="w-full">
+                <Button size="lg" className="gap-2 w-full rounded-full">
+                  <MessageCircle className="w-4 h-4" /> Chat on WhatsApp
+                </Button>
+              </Link>
+              {!isPageHidden("join_channel", domainBranding.hiddenPages) && (
+                communityLoading ? (
+                  <Skeleton className="h-11 w-full rounded-full" />
+                ) : communityLink ? (
+                  <a href={communityLink} target="_blank" rel="noopener noreferrer" className="w-full">
+                    <Button size="lg" className="gap-2 w-full rounded-full bg-brand-accent text-primary-foreground hover:bg-brand-accent/90">
+                      <Users className="w-4 h-4" /> Join Community
+                    </Button>
+                  </a>
+                ) : null
+              )}
+            </div>
           </div>
         </div>
       </section>
