@@ -251,7 +251,7 @@ export function HeroCarousel() {
         if (el) el.scrollTo({ left: next * el.clientWidth, behavior: "smooth" })
         return next
       })
-    }, 6000)
+    }, 3000)
     return () => clearInterval(id)
   }, [userInteracted, slides.length])
 
