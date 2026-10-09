@@ -196,7 +196,7 @@ export function HeroCarousel() {
     <div key="channels">
       <Eyebrow>USSD &amp; WhatsApp</Eyebrow>
       <Heading>Order without the website</Heading>
-      <Body>Chat with the DATAGOD bot on WhatsApp to buy data, airtime and results checkers — no app to install. Prefer USSD? Dial in from any phone, no internet needed.</Body>
+      <Body>Chat with the DATAGOD bot on WhatsApp to buy data, airtime and results checkers — no app to install. Prefer USSD? Dial in from any phone, no internet needed. Shop owners get their own USSD and WhatsApp bot too.</Body>
       <div className="mt-10 space-y-4">
         {links.whatsapp_bot_number && (
           <a
@@ -206,7 +206,7 @@ export function HeroCarousel() {
             Order on WhatsApp
           </a>
         )}
-        <Link href="/whatsapp" className={PILL.outline}>How It Works</Link>
+        <Link href="/auth/signup" className={PILL.outline}>Get Your Own Bot</Link>
       </div>
     </div>,
 
