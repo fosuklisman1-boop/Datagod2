@@ -265,7 +265,7 @@ export function Sidebar() {
           c.logoSectionBorder
         )}>
           <Link href="/dashboard" className="flex items-center gap-3">
-            <div className="bg-card p-2 rounded-lg flex-shrink-0 relative">
+            <div className="bg-card p-2 rounded-xl clay-sm flex-shrink-0 relative">
               <img
                 src={domainBranding.logoUrl || "/favicon-v2.jpeg"}
                 alt={domainBranding.siteName ? `${domainBranding.siteName} Logo` : "DATAGOD Logo"}

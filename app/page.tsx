@@ -438,7 +438,7 @@ export default function HomePage() {
       />
 
       {/* Navigation */}
-      <nav className="sticky top-0 z-50 flex items-center justify-between px-4 sm:px-6 py-4 border-b border-border bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70">
+      <nav className="sticky top-0 z-50 flex items-center justify-between px-4 sm:px-6 py-4 rounded-b-[1.75rem] bg-card/85 backdrop-blur supports-[backdrop-filter]:bg-card/70 clay-bar">
         <div className="flex items-center gap-3">
           {logoSrc ? (
             <img src={logoSrc} alt={`${domainBranding.siteName || "DATAGOD"} logo`} className="h-9 w-9 rounded-full object-cover" />

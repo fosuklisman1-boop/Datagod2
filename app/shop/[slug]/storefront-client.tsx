@@ -1145,7 +1145,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
         />
       )}
       {/* Navigation Bar */}
-      <nav className="bg-card border-b border-border shadow-sm sticky top-0 z-40">
+      <nav className="bg-card rounded-b-[1.75rem] clay-bar sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3 flex-1">
             {/* 3-Line Hamburger Button */}
@@ -1189,7 +1189,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
 
       {/* Collapsible Sidebar */}
       <aside
-        className={`fixed left-0 top-0 h-screen bg-card border-r border-border w-72 transform transition-all duration-300 ease-in-out z-30 shadow-lg overflow-y-auto ${sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        className={`fixed left-0 top-0 h-screen bg-card rounded-r-[2rem] clay-rail w-72 transform transition-all duration-300 ease-in-out z-30 overflow-y-auto ${sidebarOpen ? "translate-x-0" : "-translate-x-full"
           }`}
       >
         <div className="relative p-6 text-center text-white" style={{ backgroundColor: "var(--shop-accent)" }}>
@@ -1210,7 +1210,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
             <p className="mb-1.5 px-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Products</p>
             <div className="space-y-1">
               {productItems.map((item) => {
-                const className = `w-full flex items-center justify-between gap-3 px-3 py-3 rounded-xl text-sm font-semibold transition-colors ${item.isActive ? "bg-[var(--shop-accent)]/10 text-[var(--shop-accent)]" : "text-foreground hover:bg-accent"
+                const className = `w-full flex items-center justify-between gap-3 px-3 py-3 rounded-xl text-sm font-semibold transition-colors ${item.isActive ? "bg-card text-[var(--shop-accent)] clay-sm" : "text-foreground hover:bg-accent"
                   }`
                 return item.href ? (
                   <a key={item.label} href={item.href} className={className}>
@@ -1232,7 +1232,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
                 <button
                   key={item.label}
                   onClick={item.onClick}
-                  className={`w-full flex items-center justify-between gap-3 px-3 py-3 rounded-xl text-sm font-semibold transition-colors ${item.isActive ? "bg-[var(--shop-accent)]/10 text-[var(--shop-accent)]" : "text-foreground hover:bg-accent"
+                  className={`w-full flex items-center justify-between gap-3 px-3 py-3 rounded-xl text-sm font-semibold transition-colors ${item.isActive ? "bg-card text-[var(--shop-accent)] clay-sm" : "text-foreground hover:bg-accent"
                     }`}
                 >
                   <span className="flex items-center gap-3">{item.icon} {item.label}</span>
