@@ -19,10 +19,10 @@
   --popover: 223 100% 99%;
   --popover-foreground: 150 23% 10%;
 
-  /* brand accent (emerald — deeper for contrast on light) */
-  --primary: 160 84% 30%;           /* #059669 */
+  /* brand accent (navy — matches the customer rebuild's #1B388B) */
+  --primary: 224 68% 33%;           /* #1B388B */
   --primary-foreground: 0 0% 100%;
-  --accent-soft: 160 84% 30%;
+  --accent-soft: 224 68% 33%;
   --brand-accent: 222 83% 53%;      /* #2563EB — sparing secondary accent */
 
   /* neutral support */
@@ -52,13 +52,13 @@
   /* lines & focus */
   --border: 150 12% 90%;            /* #E3E8E5 */
   --input: 150 12% 90%;
-  --ring: 160 84% 30%;
+  --ring: 224 68% 33%;
 
   /* deep surface (footer) */
   --footer: 150 24% 8%;
 
   /* charts (chart-1 follows primary) */
-  --chart-1: 160 84% 30%;
+  --chart-1: 224 68% 33%;
   --chart-2: 173 58% 39%;
   --chart-3: 197 37% 24%;
   --chart-4: 43 74% 66%;
@@ -67,12 +67,12 @@
   /* sidebar */
   --sidebar: 0 0% 100%;
   --sidebar-foreground: 150 23% 10%;
-  --sidebar-primary: 160 84% 30%;
+  --sidebar-primary: 224 68% 33%;
   --sidebar-primary-foreground: 0 0% 100%;
   --sidebar-accent: 150 16% 95%;
   --sidebar-accent-foreground: 150 23% 10%;
   --sidebar-border: 150 12% 90%;
-  --sidebar-ring: 160 84% 30%;
+  --sidebar-ring: 224 68% 33%;
 }
 
 /* ===========================================================================
@@ -101,9 +101,9 @@
   --popover: 224 34% 13%;
   --popover-foreground: 0 0% 98%;
 
-  --primary: 158 64% 52%;           /* #34D399 */
-  --primary-foreground: 153 45% 8%;
-  --accent-soft: 158 64% 52%;
+  --primary: 224 90% 70%;           /* #7096F8 */
+  --primary-foreground: 224 60% 10%;
+  --accent-soft: 224 90% 70%;
   --brand-accent: 213 94% 68%;      /* #60A5FA */
 
   --secondary: 240 4% 16%;          /* #27272A */
@@ -129,11 +129,11 @@
 
   --border: 240 4% 16%;            /* #27272A */
   --input: 240 4% 16%;
-  --ring: 158 64% 52%;
+  --ring: 224 90% 70%;
 
   --footer: 240 6% 3%;             /* #050506 */
 
-  --chart-1: 158 64% 52%;
+  --chart-1: 224 90% 70%;
   --chart-2: 173 58% 45%;
   --chart-3: 197 37% 40%;
   --chart-4: 43 74% 66%;
@@ -141,12 +141,12 @@
 
   --sidebar: 240 6% 6%;
   --sidebar-foreground: 0 0% 90%;
-  --sidebar-primary: 158 64% 52%;
-  --sidebar-primary-foreground: 153 45% 8%;
+  --sidebar-primary: 224 90% 70%;
+  --sidebar-primary-foreground: 224 60% 10%;
   --sidebar-accent: 240 4% 14%;
   --sidebar-accent-foreground: 0 0% 98%;
   --sidebar-border: 240 4% 14%;
-  --sidebar-ring: 158 64% 52%;
+  --sidebar-ring: 224 90% 70%;
 }
 
 @layer base {

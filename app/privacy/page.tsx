@@ -11,7 +11,7 @@ export default function PrivacyPage() {
     <div className="min-h-screen bg-muted/40">
       <div className="max-w-3xl mx-auto px-4 py-12">
         <div className="flex items-center gap-3 mb-8">
-          <Shield className="w-8 h-8 text-emerald-600" />
+          <Shield className="w-8 h-8 text-primary" />
           <h1 className="text-3xl font-bold text-foreground">Privacy Policy</h1>
         </div>
         <p className="text-sm text-muted-foreground mb-8">Last updated: June 2026</p>
@@ -66,9 +66,9 @@ export default function PrivacyPage() {
         </div>
 
         <div className="mt-8 text-center text-sm text-muted-foreground">
-          <Link href="/terms" className="text-emerald-600 hover:underline">Terms of Service</Link>
+          <Link href="/terms" className="text-primary hover:underline">Terms of Service</Link>
           {" · "}
-          <Link href="/" className="text-emerald-600 hover:underline">Back to Home</Link>
+          <Link href="/" className="text-primary hover:underline">Back to Home</Link>
         </div>
       </div>
     </div>

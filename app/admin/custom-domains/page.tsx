@@ -351,11 +351,11 @@ export default function CustomDomainsPage() {
                   <div className="flex items-center gap-3">
                     <input
                       type="color"
-                      value={form.primary_color || "#059669"}
+                      value={form.primary_color || "#1b388b"}
                       onChange={e => setForm(f => ({ ...f, primary_color: e.target.value }))}
                       className="w-10 h-10 rounded border border-border"
                     />
-                    <Input value={form.primary_color} onChange={e => setForm(f => ({ ...f, primary_color: e.target.value }))} placeholder="#059669" />
+                    <Input value={form.primary_color} onChange={e => setForm(f => ({ ...f, primary_color: e.target.value }))} placeholder="#1b388b" />
                   </div>
                 </div>
                 {/* Still applies on a shop-linked domain: /auth and /dashboard
