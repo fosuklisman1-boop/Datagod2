@@ -371,7 +371,7 @@ export default function BroadcastPage() {
                                                 onChange={(e) => setSearchTerm(e.target.value)}
                                             />
                                             {searchTerm && filteredSearch.length > 0 && (
-                                                <div className="absolute z-10 w-full mt-1 bg-card border rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                                                <div className="absolute z-10 w-full mt-1 bg-card border rounded-lg  max-h-48 overflow-y-auto border-white/60 dark:border-white/5 clay">
                                                     {filteredSearch.map(user => (
                                                         <button
                                                             key={user.id}
@@ -516,19 +516,19 @@ export default function BroadcastPage() {
                                 </CardHeader>
                                 <CardContent>
                                     <div className="grid grid-cols-2 gap-4 text-sm">
-                                        <div className="p-3 bg-card rounded-lg border">
+                                        <div className="p-3 bg-card rounded-lg border border-white/60 dark:border-white/5 clay">
                                             <p className="text-muted-foreground text-xs">Email Delivery</p>
                                             <p className="text-xl font-bold text-success">
                                                 {results.email?.sent ?? 0} <span className="text-xs text-muted-foreground">/ {results.total}</span>
                                             </p>
                                         </div>
-                                        <div className="p-3 bg-card rounded-lg border">
+                                        <div className="p-3 bg-card rounded-lg border border-white/60 dark:border-white/5 clay">
                                             <p className="text-muted-foreground text-xs">SMS Delivery</p>
                                             <p className="text-xl font-bold text-success">
                                                 {results.sms?.sent ?? 0} <span className="text-xs text-muted-foreground">/ {results.total}</span>
                                             </p>
                                         </div>
-                                        <div className="p-3 bg-card rounded-lg border">
+                                        <div className="p-3 bg-card rounded-lg border border-white/60 dark:border-white/5 clay">
                                             <p className="text-muted-foreground text-xs">WhatsApp Delivery</p>
                                             <p className="text-xl font-bold text-success">
                                                 {results.whatsapp?.sent ?? 0} <span className="text-xs text-muted-foreground">/ {results.total}</span>

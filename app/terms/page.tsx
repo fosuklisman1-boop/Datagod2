@@ -126,7 +126,7 @@ export default async function TermsPage() {
 
         <div className="space-y-4">
           {sections.map((section, i) => (
-            <div key={i} className="bg-card rounded-2xl shadow-sm border border-border p-6 hover:shadow-md transition-shadow">
+            <div key={i} className="bg-card rounded-2xl  border border-white/60 dark:border-white/5 p-6 hover:shadow-md transition-shadow clay">
               <h2 className="text-base font-bold text-primary mb-2">{section.title}</h2>
               <p className="text-foreground leading-relaxed text-sm">{section.body}</p>
             </div>

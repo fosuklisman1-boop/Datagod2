@@ -286,7 +286,7 @@ export default function ShopWithdrawPage() {
         )}
 
         {/* New withdrawal request */}
-        <div className="space-y-5 rounded-2xl border border-border bg-card p-5">
+        <div className="space-y-5 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-5 clay">
           <h2 className="text-base font-bold text-foreground">New Withdrawal Request</h2>
 
           {/* Step 1: amount */}
@@ -502,7 +502,7 @@ export default function ShopWithdrawPage() {
           </div>
 
           {withdrawals.length === 0 ? (
-            <div className="rounded-2xl border border-border bg-card p-8 text-center">
+            <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-8 text-center clay">
               <Banknote className="mx-auto mb-2 h-10 w-10 text-muted-foreground" />
               <p className="text-sm text-muted-foreground">No withdrawals yet.</p>
             </div>
@@ -511,7 +511,7 @@ export default function ShopWithdrawPage() {
               {/* Mobile: stacked cards */}
               <div className="space-y-2 lg:hidden">
                 {withdrawals.map((w) => (
-                  <div key={w.id} className="rounded-2xl border border-border bg-card p-4">
+                  <div key={w.id} className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
                     <div className="flex items-start justify-between">
                       <div>
                         <p className="font-bold text-foreground">GH₵{Number(w.amount || 0).toFixed(2)}</p>

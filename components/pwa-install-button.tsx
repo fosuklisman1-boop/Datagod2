@@ -31,7 +31,7 @@ export function PwaInstallButton() {
                 </Button>
 
                 {showIOSGuide && (
-                    <div className="absolute right-0 top-12 z-50 w-64 rounded-xl border border-border bg-card p-4 shadow-xl dark:border-border dark:bg-card">
+                    <div className="absolute right-0 top-12 z-50 w-64 rounded-xl border border-white/60 dark:border-white/5 bg-card p-4  dark:border-border dark:bg-card clay">
                         <button
                             className="absolute right-2 top-2 text-muted-foreground hover:text-muted-foreground"
                             onClick={() => setShowIOSGuide(false)}

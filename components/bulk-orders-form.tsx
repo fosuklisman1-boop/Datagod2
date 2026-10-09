@@ -658,7 +658,7 @@ export function BulkOrdersForm({ presetNetwork }: BulkOrdersFormProps = {}) {
                 aria-label="Reload package prices"
                 onClick={loadPackages}
                 disabled={loading}
-                className="absolute bottom-3 right-3 flex h-11 w-11 items-center justify-center rounded-full bg-card text-foreground shadow-md border border-border disabled:opacity-50"
+                className="absolute bottom-3 right-3 flex h-11 w-11 items-center justify-center rounded-full bg-card text-foreground  border border-white/60 dark:border-white/5 disabled:opacity-50 clay-sm"
               >
                 <span className={loading ? "animate-spin" : ""}>↻</span>
               </button>
@@ -707,7 +707,7 @@ export function BulkOrdersForm({ presetNetwork }: BulkOrdersFormProps = {}) {
             separate preview step. */}
         {validationResults && (
           <div className="space-y-3">
-            <div className="space-y-2 rounded-2xl border border-border bg-card p-3">
+            <div className="space-y-2 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-3 clay">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-bold">
                   <span className="text-success">{validationResults.valid} valid</span>
@@ -765,7 +765,7 @@ export function BulkOrdersForm({ presetNetwork }: BulkOrdersFormProps = {}) {
               </div>
             </div>
 
-            <div className="max-h-80 space-y-1 overflow-y-auto rounded-2xl border border-border bg-card p-2">
+            <div className="max-h-80 space-y-1 overflow-y-auto rounded-2xl border border-white/60 dark:border-white/5 bg-card p-2 clay">
               {validationResults.orders.map((order) => {
                 const isUnverified = order.status === "valid" && order.verified === false
                 return (
@@ -789,7 +789,7 @@ export function BulkOrdersForm({ presetNetwork }: BulkOrdersFormProps = {}) {
               })}
             </div>
 
-            <div className="flex items-center justify-between gap-2 rounded-2xl border border-border bg-card p-3">
+            <div className="flex items-center justify-between gap-2 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-3 clay">
               <p className="text-xs text-muted-foreground">{validationResults.valid} valid rows</p>
               <Button
                 onClick={handlePlaceOrder}

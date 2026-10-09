@@ -354,17 +354,17 @@ export default function SubAgentsPage() {
 
         {/* Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Users className="h-3.5 w-3.5" /> Total Sub-Agents</p>
             <p className="mt-1 text-xl font-black text-foreground">{stats.totalSubAgents}</p>
             <p className="text-xs text-muted-foreground">{stats.activeSubAgents} active</p>
           </div>
-          <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><TrendingUp className="h-3.5 w-3.5" /> Your Earnings</p>
             <p className="mt-1 text-xl font-black text-success">GHS {(stats.totalEarningsFromSubAgents || 0).toFixed(2)}</p>
             <p className="text-xs text-muted-foreground">From their sales</p>
           </div>
-          <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Clock className="h-3.5 w-3.5" /> Pending Invites</p>
             <p className="mt-1 text-xl font-black text-foreground">{invites.filter(i => i.status === "pending").length}</p>
             <p className="text-xs text-muted-foreground">Awaiting signup</p>
@@ -392,7 +392,7 @@ export default function SubAgentsPage() {
             {/* Pending Requests — customer-submitted from the storefront's
                 "Become a Sub-Agent" card, awaiting owner approval. */}
             {requests.filter((r) => r.status === "pending").length > 0 && (
-              <div className="space-y-3 rounded-2xl border border-border bg-card p-4 sm:p-5">
+              <div className="space-y-3 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 sm:p-5 clay">
                 <div>
                   <p className="flex items-center gap-2 text-sm font-bold text-foreground"><Clock className="h-4 w-4 text-[#1b388b]" /> Pending Requests</p>
                   <p className="text-xs text-muted-foreground">People who asked to become a sub-agent from your storefront</p>
@@ -433,7 +433,7 @@ export default function SubAgentsPage() {
             )}
 
             {/* Sub-Agents List */}
-            <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+            <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 sm:p-5 clay">
               <div>
                 <p className="flex items-center gap-2 text-sm font-bold text-foreground"><Users className="h-4 w-4 text-[#1b388b]" /> Your Sub-Agents</p>
                 <p className="text-xs text-muted-foreground">Resellers selling under your shop</p>
@@ -491,7 +491,7 @@ export default function SubAgentsPage() {
 
             {/* Pending Invites */}
             {invites.filter(i => i.status === "pending").length > 0 && (
-              <div className="space-y-3 rounded-2xl border border-border bg-card p-4 sm:p-5">
+              <div className="space-y-3 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 sm:p-5 clay">
                 <div>
                   <p className="flex items-center gap-2 text-sm font-bold text-foreground"><Clock className="h-4 w-4 text-[#1b388b]" /> Pending Invites</p>
                   <p className="text-xs text-muted-foreground">Invite links waiting to be used</p>
@@ -536,7 +536,7 @@ export default function SubAgentsPage() {
 
         {activeTab === "profits" && (
           <div className="space-y-3">
-            <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+            <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 sm:p-5 clay">
               <div>
                 <p className="flex items-center gap-2 text-sm font-bold text-foreground"><TrendingUp className="h-4 w-4 text-[#1b388b]" /> Profit History</p>
                 <p className="text-xs text-muted-foreground">The wholesale margin you earned from each completed sub-agent order</p>

@@ -386,7 +386,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
 
         {/* Fee Breakdown */}
         {amount && parseFloat(amount) > 0 && (
-          <div className="p-4 bg-card border border-border rounded-lg space-y-2">
+          <div className="p-4 bg-card border border-white/60 dark:border-white/5 rounded-lg space-y-2 clay">
             <p className="text-sm font-medium text-foreground">Payment Summary</p>
             <div className="space-y-1 text-sm">
               <div className="flex justify-between text-muted-foreground">

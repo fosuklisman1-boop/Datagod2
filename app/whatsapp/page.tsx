@@ -47,7 +47,7 @@ export default function WhatsAppOrderingPage() {
                 </Button>
               </a>
             ) : (
-              <div className="rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-muted-foreground">
+              <div className="rounded-lg border border-white/60 dark:border-white/5 bg-card px-4 py-2.5 text-sm text-muted-foreground clay">
                 WhatsApp ordering is being set up — check back soon.
               </div>
             )}
@@ -71,7 +71,7 @@ export default function WhatsAppOrderingPage() {
           ))}
         </div>
 
-        <div className="mt-10 rounded-xl border border-border bg-card p-5 flex items-start gap-3">
+        <div className="mt-10 rounded-xl border border-white/60 dark:border-white/5 bg-card p-5 flex items-start gap-3 clay">
           <FileCheck2 className="w-[18px] h-[18px] text-primary shrink-0 mt-0.5" />
           <p className="text-sm text-muted-foreground">
             Results-checker vouchers and services are available the same way — just tell us what you need in the chat.

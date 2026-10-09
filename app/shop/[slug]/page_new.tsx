@@ -651,7 +651,7 @@ export default function ShopStorefront() {
               </div>
 
               {/* Order Summary */}
-              <div className="p-4 bg-card rounded-lg border border-border">
+              <div className="p-4 bg-card rounded-lg border border-white/60 dark:border-white/5 clay">
                 <div className="flex justify-between items-end mb-3">
                   <span className="font-semibold text-foreground">Total Amount:</span>
                   <span className="text-2xl font-bold bg-gradient-to-r from-primary to-primary bg-clip-text text-transparent">

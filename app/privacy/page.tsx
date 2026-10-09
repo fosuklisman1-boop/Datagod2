@@ -16,7 +16,7 @@ export default function PrivacyPage() {
         </div>
         <p className="text-sm text-muted-foreground mb-8">Last updated: June 2026</p>
 
-        <div className="bg-card rounded-xl shadow-sm border border-border p-8 space-y-8 text-foreground leading-relaxed">
+        <div className="bg-card rounded-xl  border border-white/60 dark:border-white/5 p-8 space-y-8 text-foreground leading-relaxed clay">
 
           <section>
             <h2 className="text-xl font-semibold text-foreground mb-3">1. Information We Collect</h2>

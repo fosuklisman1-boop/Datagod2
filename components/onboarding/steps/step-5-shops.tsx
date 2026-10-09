@@ -59,7 +59,7 @@ export function Step5Shops() {
         </div>
       </div>
 
-      <div className="bg-card border border-border rounded-lg p-4 space-y-3">
+      <div className="bg-card border border-white/60 dark:border-white/5 rounded-lg p-4 space-y-3 clay">
         <h4 className="font-semibold text-foreground text-sm">Shop Benefits:</h4>
         <ul className="space-y-2 text-sm text-foreground">
           <li className="flex gap-2">

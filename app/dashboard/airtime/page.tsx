@@ -262,7 +262,7 @@ export default function AirtimePage() {
                       type="button"
                       onClick={() => setNetwork(n)}
                       disabled={!isAvailable}
-                      className={`flex flex-col items-center gap-2 rounded-2xl border-2 bg-card p-3 sm:p-4 transition disabled:opacity-40 ${
+                      className={`flex flex-col items-center gap-2 rounded-2xl border-2 bg-card clay p-3 sm:p-4 transition disabled:opacity-40 ${
                         isSelected ? `${meta.border} shadow-sm` : "border-border hover:border-[#1b388b]/30"
                       }`}
                     >
@@ -294,7 +294,7 @@ export default function AirtimePage() {
                   onChange={(e) => handlePhoneChange(e.target.value.replace(/\D/g, ""))}
                   placeholder="0XXXXXXXXX"
                   required
-                  className="w-full rounded-2xl border border-border bg-card py-3.5 pl-11 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-[#1b388b]"
+                  className="w-full rounded-2xl border border-white/60 dark:border-white/5 bg-background py-3.5 pl-11 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-[#1b388b] clay-inset"
                 />
               </div>
               {phoneError && <p className="text-xs text-warning">{phoneError}</p>}
@@ -311,7 +311,7 @@ export default function AirtimePage() {
                     onClick={() => setAmount(String(v))}
                     className={`rounded-full border px-4 py-2 text-sm font-bold transition ${
                       amount === String(v) ? "border-[#1b388b] bg-[#1b388b] text-primary-foreground" : "border-border bg-card text-foreground hover:border-[#1b388b]/30"
-                    }`}
+                    } clay-sm`}
                   >
                     {v}
                   </button>
@@ -321,7 +321,7 @@ export default function AirtimePage() {
                   aria-label="Reload settings"
                   onClick={loadSettings}
                   disabled={settingsLoading}
-                  className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-sm disabled:opacity-50"
+                  className="flex h-10 w-10 items-center justify-center rounded-full border border-white/60 dark:border-white/5 bg-card text-foreground  disabled:opacity-50 clay-sm"
                 >
                   <RefreshCw className={`h-4 w-4 ${settingsLoading ? "animate-spin" : ""}`} />
                 </button>
@@ -345,7 +345,7 @@ export default function AirtimePage() {
                   onChange={(e) => setAmount(e.target.value)}
                   placeholder="0.00"
                   required
-                  className="w-full rounded-2xl border border-border bg-card py-3.5 pl-14 pr-4 text-lg font-semibold focus:outline-none focus:ring-2 focus:ring-[#1b388b]"
+                  className="w-full rounded-2xl border border-white/60 dark:border-white/5 bg-background py-3.5 pl-14 pr-4 text-lg font-semibold focus:outline-none focus:ring-2 focus:ring-[#1b388b] clay-inset"
                 />
               </div>
               {amountOutOfRange && (
@@ -380,7 +380,7 @@ export default function AirtimePage() {
 
             {/* Fee breakdown */}
             {numAmount > 0 && (
-              <div className="rounded-2xl border border-border bg-card p-4 space-y-2 text-sm">
+              <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 space-y-2 text-sm clay">
                 <div className="flex justify-between text-muted-foreground">
                   <span>Recipient gets</span>
                   <span className="font-semibold text-foreground">GHS {airtimeToRecipient.toFixed(2)}</span>
@@ -416,12 +416,12 @@ export default function AirtimePage() {
             {loadingOrders ? (
               <div className="text-center text-muted-foreground py-8 lg:col-span-2">Loading…</div>
             ) : orders.length === 0 ? (
-              <div className="text-center text-muted-foreground py-8 bg-card rounded-2xl border border-border lg:col-span-2">
+              <div className="text-center text-muted-foreground py-8 bg-card rounded-2xl border border-white/60 dark:border-white/5 lg:col-span-2 clay">
                 No airtime orders yet.
               </div>
             ) : (
               orders.map((o) => (
-                <div key={o.id} className="bg-card rounded-2xl border border-border p-4 flex items-start justify-between gap-4">
+                <div key={o.id} className="bg-card rounded-2xl border border-white/60 dark:border-white/5 p-4 flex items-start justify-between gap-4 clay">
                   <div className="space-y-0.5">
                     <p className="font-semibold text-sm text-foreground">{o.reference_code}</p>
                     <p className="text-xs text-muted-foreground">{o.network} → {o.beneficiary_phone}</p>

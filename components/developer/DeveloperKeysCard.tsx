@@ -175,7 +175,7 @@ export function DeveloperKeysCard() {
     const prefix = env === "test" ? "dg_test_" : "dg_live_"
 
     return (
-      <div className="rounded-2xl border border-border bg-card p-4">
+      <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{label} — {prefix}</p>
           {row && (
@@ -263,7 +263,7 @@ export function DeveloperKeysCard() {
   }
 
   return (
-    <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+    <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 sm:p-5 clay">
       <div className="flex items-center justify-between gap-3">
         <p className="flex items-center gap-2 text-sm font-bold text-foreground"><Lock className="w-4 h-4 text-[#1b388b]" /> Your Keys</p>
         <div className="flex items-center gap-2">

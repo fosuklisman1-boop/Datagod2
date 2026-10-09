@@ -89,14 +89,14 @@ export default async function ResultsCheckerPage() {
         </div>
 
         <div className="mt-16 grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="rounded-xl border border-border bg-card p-5">
+          <div className="rounded-xl border border-white/60 dark:border-white/5 bg-card p-5 clay">
             <div className="mb-3 grid h-10 w-10 place-items-center rounded-lg border border-primary/25 bg-primary/10">
               <FileCheck2 className="h-[18px] w-[18px] text-primary" />
             </div>
             <h3 className="font-display font-semibold text-foreground mb-1">Buy a voucher</h3>
             <p className="text-sm text-muted-foreground">Get a fresh PIN and serial number delivered instantly — use it yourself, whenever you're ready.</p>
           </div>
-          <div className="rounded-xl border border-border bg-card p-5">
+          <div className="rounded-xl border border-white/60 dark:border-white/5 bg-card p-5 clay">
             <div className="mb-3 grid h-10 w-10 place-items-center rounded-lg border border-primary/25 bg-primary/10">
               <Search className="h-[18px] w-[18px] text-primary" />
             </div>
@@ -106,7 +106,7 @@ export default async function ResultsCheckerPage() {
         </div>
 
         {serviceEnabled ? (
-          <div className="mt-6 rounded-xl border border-border bg-card p-6">
+          <div className="mt-6 rounded-xl border border-white/60 dark:border-white/5 bg-card p-6 clay">
             <h2 className="font-display font-semibold text-foreground mb-4">Pricing</h2>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {boards.filter((b) => b.enabled).map((b) => (
@@ -119,7 +119,7 @@ export default async function ResultsCheckerPage() {
             </div>
           </div>
         ) : (
-          <div className="mt-6 rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground flex items-start gap-2">
+          <div className="mt-6 rounded-xl border border-white/60 dark:border-white/5 bg-card p-6 text-sm text-muted-foreground flex items-start gap-2 clay">
             <Zap className="w-4 h-4 shrink-0 mt-0.5 text-primary" />
             <span>Results checking is temporarily unavailable — check back soon.</span>
           </div>

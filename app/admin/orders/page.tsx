@@ -1740,7 +1740,7 @@ export default function AdminOrdersPage() {
             <button
               type="button"
               onClick={() => setCombineDuplicates(v => !v)}
-              className="w-full flex items-start gap-3 p-3 mt-2 rounded border-2 border-border bg-card text-left hover:border-blue-400 transition-all"
+              className="w-full flex items-start gap-3 p-3 mt-2 rounded border-2 border-white/60 dark:border-white/5 bg-card text-left hover:border-blue-400 transition-all clay"
             >
               {combineDuplicates ? (
                 <ToggleRight className="h-6 w-6 flex-shrink-0 text-blue-600" />

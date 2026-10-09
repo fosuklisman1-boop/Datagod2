@@ -450,7 +450,7 @@ export default function ShopPricingPage() {
                     <button
                       key={net}
                       onClick={() => setSelectedNetwork(net)}
-                      className={`flex items-center justify-between gap-2 rounded-2xl border-2 px-3 py-2.5 text-sm font-bold transition ${selectedNetwork === net ? "border-[#1b388b] bg-[#1b388b]/5 text-[#1b388b]" : "border-border bg-card text-foreground"}`}
+                      className={`flex items-center justify-between gap-2 rounded-2xl border-2 px-3 py-2.5 text-sm font-bold transition ${selectedNetwork === net ? "border-[#1b388b] bg-[#1b388b]/5 text-[#1b388b]" : "border-border bg-card text-foreground"} clay`}
                     >
                       {net}
                       <span className="rounded-full bg-muted px-2 py-0.5 text-xs">{networkCounts[net] || 0}</span>
@@ -458,7 +458,7 @@ export default function ShopPricingPage() {
                   ))}
                 </div>
 
-                <div className="flex items-center justify-between rounded-2xl border border-border bg-card p-4">
+                <div className="flex items-center justify-between rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
                   <p className="text-sm font-semibold text-foreground">{selectedNetwork}: {networkInStock ? "In Stock" : "Out of Stock"}</p>
                   <PillToggle checked={networkInStock} onChange={() => handleToggleNetworkStock(!networkInStock)} disabled={togglingStock} />
                 </div>
@@ -469,7 +469,7 @@ export default function ShopPricingPage() {
                     const value = priceValueFor(pkg)
                     const profit = parseFloat(value) - base
                     return (
-                      <div key={pkg.id} className="rounded-2xl border border-border bg-card p-4">
+                      <div key={pkg.id} className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
                         <div className="flex items-center justify-between gap-2">
                           <p className="font-bold text-foreground">{pkg.size}GB</p>
                           <span className="text-xs text-muted-foreground">Cost: GH₵{base.toFixed(2)}</span>
@@ -520,17 +520,17 @@ export default function ShopPricingPage() {
                     : "Increases each package's current selling price by this percentage. Profit is recalculated automatically."}
                 </p>
                 <div className="flex gap-2">
-                  <select value={bulkNetwork} onChange={(e) => setBulkNetwork(e.target.value)} className="rounded-xl border border-border bg-card px-3 py-2.5 text-sm font-bold">
+                  <select value={bulkNetwork} onChange={(e) => setBulkNetwork(e.target.value)} className="rounded-xl border border-white/60 dark:border-white/5 bg-background px-3 py-2.5 text-sm font-bold clay-inset">
                     {NETWORKS.map((n) => <option key={n} value={n}>{n}</option>)}
                   </select>
-                  <div className="flex flex-1 items-center gap-1 rounded-xl border border-border bg-card px-3 py-2.5">
+                  <div className="flex flex-1 items-center gap-1 rounded-xl border border-white/60 dark:border-white/5 bg-card px-3 py-2.5 clay">
                     <span className="text-xs font-semibold text-muted-foreground">{bulkMode === "per_gb" ? "GHS/GB" : "%"}</span>
                     <input type="number" step="0.01" value={bulkRate} onChange={(e) => setBulkRate(e.target.value)} placeholder="0" className="w-full bg-transparent text-sm font-bold focus:outline-none" />
                   </div>
                 </div>
 
                 {bulkPreview.length > 0 && (
-                  <div className="overflow-x-auto rounded-xl border border-border bg-card">
+                  <div className="overflow-x-auto rounded-xl border border-white/60 dark:border-white/5 bg-card clay">
                     <table className="w-full text-xs">
                       <thead className="border-b border-border">
                         <tr className="text-left text-muted-foreground">
@@ -583,7 +583,7 @@ export default function ShopPricingPage() {
             <div className="rounded-2xl border border-[#1b388b]/20 bg-[#1b388b]/5 p-4 text-sm text-foreground">
               By default airtime profit is zero — you earn nothing until you set a markup below. The combined total fee (network cost + your markup) is capped at 10%.
             </div>
-            <div className="rounded-2xl border border-border bg-card divide-y divide-border">
+            <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card divide-y divide-border clay">
               {(["mtn", "telecel", "at"] as const).map((net) => (
                 <div key={net} className="flex items-center justify-between gap-3 p-4">
                   <div>
@@ -621,7 +621,7 @@ export default function ShopPricingPage() {
                 const bulkBase = rcBulk.bulkPrice[board] || 0
                 const hasBulk = rcBulk.minQty > 0 && bulkBase > 0 && bulkBase < base
                 return (
-                  <div key={board} className="rounded-2xl border border-border bg-card p-4">
+                  <div key={board} className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
                     <div className="flex items-center justify-between gap-2">
                       <p className="font-bold uppercase text-foreground">{board}</p>
                       <span className="text-xs text-muted-foreground">Cost GH₵{base.toFixed(2)}</span>
@@ -663,7 +663,7 @@ export default function ShopPricingPage() {
             <div className="rounded-2xl border border-warning/30 bg-warning/10 p-4 text-sm text-foreground">
               Type the full price you want to charge for an AFA registration — your profit is what's left after your cost. Saving a price turns AFA on for your storefront; clearing the field turns it off. You cannot sell below cost. Max profit per registration: <span className="font-bold">GHS {afaMaxProfit.toFixed(2)}</span>.
             </div>
-            <div className="rounded-2xl border border-border bg-card p-4">
+            <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
               <div className="flex items-center justify-between gap-2">
                 <p className="font-bold text-foreground">AFA Registration Price</p>
                 <span className="text-xs text-muted-foreground">Cost: GH₵{afaBaseCost.toFixed(2)}</span>

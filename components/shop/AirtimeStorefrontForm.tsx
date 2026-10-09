@@ -425,7 +425,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                 onClick={() => setSelectedNetwork(net.id)}
                 className={`relative flex flex-col items-center gap-1.5 sm:gap-2 rounded-2xl border-2 bg-card p-2.5 sm:p-4 transition disabled:cursor-not-allowed disabled:opacity-40 ${
                   isSelected ? "border-[var(--shop-accent)] shadow-sm" : "border-border hover:border-[var(--shop-accent)]/30"
-                }`}
+                } clay`}
               >
                 {!isAvail && (
                   <span className="absolute right-1 top-1 rounded-sm border border-border bg-destructive/15 px-1 text-[8px] font-black text-destructive">OOS</span>
@@ -509,7 +509,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                 onClick={() => setFormData({...formData, amount: String(v)})}
                 className={`rounded-full border px-4 py-2 text-sm font-bold transition ${
                   formData.amount === String(v) ? "border-[var(--shop-accent)] bg-[var(--shop-accent)] text-white" : "border-border bg-card text-foreground hover:border-[var(--shop-accent)]/30"
-                }`}
+                } clay-sm`}
               >
                 {v}
               </button>
@@ -561,7 +561,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
 
       {/* Fee breakdown -- same layout as the dashboard */}
       {parseFloat(formData.amount || "0") > 0 && (
-        <div className="space-y-2 rounded-2xl border border-border bg-card p-4 text-sm">
+        <div className="space-y-2 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 text-sm clay">
           <div className="flex justify-between text-muted-foreground">
             <span>Recipient gets</span>
             <span className="font-semibold text-foreground">GHS {calculateRecipientGets().toFixed(2)}</span>
@@ -585,7 +585,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
           on — both need the on-page MoMo number. OTP controls render only when
           OTP is required; with direct charge alone the number is charged as typed. */}
       {(otpRequired || directCharge) && (
-        <div className="space-y-3 rounded-2xl border border-border bg-card p-4">
+        <div className="space-y-3 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
           <div className="space-y-2">
             <p className="text-sm font-bold text-foreground">Mobile Money number to pay from *</p>
             <Input

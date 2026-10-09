@@ -76,7 +76,7 @@ export default function AdminDebtorsPage() {
         </div>
 
         {debtors.length === 0 ? (
-          <div className="rounded-2xl border border-border bg-card p-8 text-center">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-8 text-center clay">
             <Scale className="mx-auto mb-2 h-10 w-10 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">No debtor accounts right now.</p>
           </div>
@@ -85,7 +85,7 @@ export default function AdminDebtorsPage() {
             {/* Mobile: stacked cards */}
             <div className="space-y-2 lg:hidden">
               {debtors.map((d) => (
-                <div key={d.userId} className="rounded-2xl border border-border bg-card p-4">
+                <div key={d.userId} className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate font-semibold text-foreground">{d.firstName || d.email}</p>

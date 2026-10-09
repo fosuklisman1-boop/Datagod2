@@ -1109,7 +1109,7 @@ export default function OrderPaymentStatusPage() {
                           <td className="px-4 py-3 text-center">
                             <div className="flex flex-col gap-2">
                               <select
-                                className="px-2 py-1 text-xs border rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+                                className="px-2 py-1 text-xs border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 border-white/60 dark:border-white/5 clay-inset"
                                 onChange={(e) => handleStatusUpdate(order.id, order.type, e.target.value)}
                                 disabled={updatingOrderId === order.id}
                                 defaultValue=""

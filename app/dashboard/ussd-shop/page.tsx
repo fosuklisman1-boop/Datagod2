@@ -391,7 +391,7 @@ export default function UssdShopPage() {
                           placeholder={`Min ${minSessions}`}
                           value={sessionQty}
                           onChange={e => setSessionQty(e.target.value)}
-                          className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1b388b]"
+                          className="w-full rounded-xl border border-white/60 dark:border-white/5 bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1b388b] clay-inset"
                         />
                       </div>
                       {sessionPrice > 0 && sessionQty && parseInt(sessionQty) >= minSessions && (
@@ -434,7 +434,7 @@ export default function UssdShopPage() {
                     placeholder={shopName || "Shop"}
                     value={displayNameInput}
                     onChange={e => { setDisplayNameInput(e.target.value); setDisplayNameError(null) }}
-                    className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1b388b]"
+                    className="w-full rounded-xl border border-white/60 dark:border-white/5 bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1b388b] clay-inset"
                   />
                   {displayNameError && <p className="text-xs text-destructive">{displayNameError}</p>}
                   <Button

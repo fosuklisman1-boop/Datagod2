@@ -138,7 +138,7 @@ export function NotificationCenter() {
 
       {/* Notification Panel */}
       {open && (
-        <div className="absolute right-0 top-12 w-80 sm:w-96 max-h-[60vh] sm:max-h-96 bg-card rounded-lg shadow-lg border border-border z-50 flex flex-col">
+        <div className="absolute right-0 top-12 w-80 sm:w-96 max-h-[60vh] sm:max-h-96 bg-card rounded-lg  border border-white/60 dark:border-white/5 z-50 flex flex-col clay">
           {/* Header */}
           <div className="flex items-center justify-between p-3 sm:p-4 border-b border-border">
             <h2 className="text-base sm:text-lg font-semibold text-foreground">Notifications</h2>

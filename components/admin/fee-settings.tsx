@@ -209,7 +209,7 @@ export function FeeSettings() {
                     <select 
                       value={airtimeData.airtime_enabled_mtn}
                       onChange={(e) => handleAirtimeChange("airtime_enabled_mtn", e.target.value)}
-                      className="text-xs font-semibold px-2 py-1 rounded bg-card border"
+                      className="text-xs font-semibold px-2 py-1 rounded bg-background border border-white/60 dark:border-white/5 clay-inset"
                     >
                       <option value="true">Active</option>
                       <option value="false">Disabled</option>
@@ -234,7 +234,7 @@ export function FeeSettings() {
                     <select 
                       value={airtimeData.airtime_enabled_telecel}
                       onChange={(e) => handleAirtimeChange("airtime_enabled_telecel", e.target.value)}
-                      className="text-xs font-semibold px-2 py-1 rounded bg-card border"
+                      className="text-xs font-semibold px-2 py-1 rounded bg-background border border-white/60 dark:border-white/5 clay-inset"
                     >
                       <option value="true">Active</option>
                       <option value="false">Disabled</option>
@@ -259,7 +259,7 @@ export function FeeSettings() {
                     <select 
                       value={airtimeData.airtime_enabled_at}
                       onChange={(e) => handleAirtimeChange("airtime_enabled_at", e.target.value)}
-                      className="text-xs font-semibold px-2 py-1 rounded bg-card border"
+                      className="text-xs font-semibold px-2 py-1 rounded bg-background border border-white/60 dark:border-white/5 clay-inset"
                     >
                       <option value="true">Active</option>
                       <option value="false">Disabled</option>
@@ -278,7 +278,7 @@ export function FeeSettings() {
                 </div>
 
                 {/* Limits */}
-                <div className="space-y-4 p-4 rounded-xl bg-card text-foreground border border-border shadow-md">
+                <div className="space-y-4 p-4 rounded-xl bg-card text-foreground border border-white/60 dark:border-white/5 clay">
                    <h4 className="font-bold text-foreground border-b border-border pb-2">Purchase Limits</h4>
                    <div className="grid grid-cols-1 gap-4 pt-2">
                     <div className="space-y-1">

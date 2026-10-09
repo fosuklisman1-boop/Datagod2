@@ -302,7 +302,7 @@ export default function AISettingsPage() {
                         setAllProvider(p)
                         setAllModel(PROVIDER_MODELS[p][0].id)
                       }}
-                      className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-card focus:outline-none focus:border-primary"
+                      className="w-full text-sm border border-white/60 dark:border-white/5 rounded-lg px-3 py-2 bg-background focus:outline-none focus:border-primary clay-inset"
                     >
                       {providers.map(p => (
                         <option key={p} value={p}>{PROVIDER_LABELS[p]}</option>
@@ -314,7 +314,7 @@ export default function AISettingsPage() {
                     <select
                       value={allModel}
                       onChange={e => setAllModel(e.target.value)}
-                      className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-card focus:outline-none focus:border-primary"
+                      className="w-full text-sm border border-white/60 dark:border-white/5 rounded-lg px-3 py-2 bg-background focus:outline-none focus:border-primary clay-inset"
                     >
                       {PROVIDER_MODELS[allProvider].map(m => (
                         <option key={m.id} value={m.id}>{m.label}</option>
@@ -334,7 +334,7 @@ export default function AISettingsPage() {
                         <select
                           value={config[`${ctx}_provider` as keyof ConfigState] as string}
                           onChange={e => setContextProvider(ctx, e.target.value as ProviderName)}
-                          className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-card focus:outline-none focus:border-primary"
+                          className="w-full text-sm border border-white/60 dark:border-white/5 rounded-lg px-3 py-2 bg-background focus:outline-none focus:border-primary clay-inset"
                         >
                           {providers.map(p => (
                             <option key={p} value={p}>{PROVIDER_LABELS[p]}</option>
@@ -346,7 +346,7 @@ export default function AISettingsPage() {
                         <select
                           value={config[`${ctx}_model` as keyof ConfigState] as string}
                           onChange={e => setContextModel(ctx, e.target.value)}
-                          className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-card focus:outline-none focus:border-primary"
+                          className="w-full text-sm border border-white/60 dark:border-white/5 rounded-lg px-3 py-2 bg-background focus:outline-none focus:border-primary clay-inset"
                         >
                           {PROVIDER_MODELS[config[`${ctx}_provider` as keyof ConfigState] as ProviderName].map(m => (
                             <option key={m.id} value={m.id}>{m.label}</option>

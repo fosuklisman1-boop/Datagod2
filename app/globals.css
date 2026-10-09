@@ -12,11 +12,11 @@
   --radius: 0.5rem;
 
   /* surfaces */
-  --background: 150 25% 98%;        /* #F7FAF8 */
+  --background: 222 62% 96%;        /* #EEF2FB clay surface */
   --foreground: 150 23% 10%;        /* #14201A */
-  --card: 0 0% 100%;
+  --card: 223 100% 99%;             /* #F8FAFF clay fill */
   --card-foreground: 150 23% 10%;
-  --popover: 0 0% 100%;
+  --popover: 223 100% 99%;
   --popover-foreground: 150 23% 10%;
 
   /* brand accent (emerald — deeper for contrast on light) */
@@ -94,11 +94,11 @@
 }
 
 .dark {
-  --background: 0 0% 1%;            /* #030303 */
+  --background: 224 41% 7%;         /* #0B0F1A clay surface */
   --foreground: 0 0% 98%;          /* #FAFAFA */
-  --card: 240 5% 10%;              /* #18181B */
+  --card: 224 34% 13%;             /* #151B2B clay fill */
   --card-foreground: 0 0% 98%;
-  --popover: 240 5% 10%;
+  --popover: 224 34% 13%;
   --popover-foreground: 0 0% 98%;
 
   --primary: 158 64% 52%;           /* #34D399 */
@@ -263,61 +263,66 @@ html, body {
 }
 
 /* ===========================================================================
-   CLAYMORPHISM — soft, puffy surfaces: a tinted page surface, white-ish
-   fills, an inner top-left highlight + inner bottom-right shade, and a soft
-   navy-tinted drop shadow. Opt-in via classes (landing page only for now),
-   so the rest of the app is untouched. Tune everything here.
+   CLAYMORPHISM — app-wide. Soft, puffy surfaces: a tinted page surface
+   (--background), near-white fills (--card), and on raised elements an inner
+   top-left highlight + inner bottom-right shade + a soft navy-tinted drop.
+   Tune everything here.
+
+   Layering (Tailwind 3 emits utilities after components):
+   - Shadows live in @layer utilities so they beat stock shadow-sm/md/lg that
+     pages and shared components still pass.
+   - Fill + radius defaults live in @layer components so any per-element
+     bg-* / rounded-* utility still wins (selected states, gradients, pills).
    =========================================================================== */
 :root {
-  --clay-surface: #eef2fb;
-  --clay-fill: #f8faff;
-  --clay-drop: rgba(27, 56, 139, 0.16);
+  --clay-surface: hsl(var(--background));
+  --clay-fill: hsl(var(--card));
+  --clay-drop: rgba(27, 56, 139, 0.14);
   --clay-highlight: rgba(255, 255, 255, 0.95);
-  --clay-shade: rgba(27, 56, 139, 0.10);
+  --clay-shade: rgba(27, 56, 139, 0.09);
 }
 .dark {
-  --clay-surface: #0b0f1a;
-  --clay-fill: #151b2b;
   --clay-drop: rgba(0, 0, 0, 0.55);
-  --clay-highlight: rgba(255, 255, 255, 0.07);
+  --clay-highlight: rgba(255, 255, 255, 0.06);
   --clay-shade: rgba(0, 0, 0, 0.45);
 }
 
 @layer components {
-  .clay-surface {
-    background-color: var(--clay-surface);
-  }
+  .clay-surface { background-color: var(--clay-surface); }
+  .clay { background-color: var(--clay-fill); border-radius: 2rem; }
+  .clay-sm { background-color: var(--clay-fill); border-radius: 9999px; }
+  .clay-icon { border-radius: 1.25rem; }
+  .clay-inset { background-color: var(--clay-surface); }
+}
+
+@layer utilities {
   .clay {
-    background-color: var(--clay-fill);
-    border-radius: 2rem;
     box-shadow:
-      14px 16px 32px var(--clay-drop),
-      inset -6px -8px 16px var(--clay-shade),
-      inset 6px 8px 16px var(--clay-highlight);
+      10px 12px 26px var(--clay-drop),
+      inset -5px -7px 14px var(--clay-shade),
+      inset 5px 7px 14px var(--clay-highlight);
   }
   .clay-sm {
-    background-color: var(--clay-fill);
-    border-radius: 9999px;
     box-shadow:
-      6px 8px 16px var(--clay-drop),
+      5px 7px 14px var(--clay-drop),
       inset -3px -4px 8px var(--clay-shade),
       inset 3px 4px 8px var(--clay-highlight);
   }
   /* Pastel icon blob — keeps its own bg/text color utility, adds the puff. */
   .clay-icon {
-    border-radius: 1.25rem;
     box-shadow:
-      6px 8px 14px var(--clay-drop),
+      5px 7px 12px var(--clay-drop),
       inset -3px -4px 8px rgba(0, 0, 0, 0.08),
       inset 3px 4px 8px rgba(255, 255, 255, 0.7);
   }
-  /* Buttons: keep their own fill color; press sinks them in. */
+  /* Filled buttons: keep their own fill color; press sinks them in. */
   .clay-btn {
     box-shadow:
-      8px 10px 20px var(--clay-drop),
+      6px 8px 16px var(--clay-drop),
       inset -4px -5px 10px rgba(0, 0, 0, 0.18),
       inset 4px 5px 10px rgba(255, 255, 255, 0.28);
-    transition: transform 120ms ease, box-shadow 120ms ease;
+    transition-property: color, background-color, border-color, box-shadow, transform;
+    transition-duration: 150ms;
   }
   .clay-btn:active {
     transform: translateY(2px) scale(0.99);
@@ -326,11 +331,10 @@ html, body {
       inset 4px 5px 10px rgba(0, 0, 0, 0.18),
       inset -4px -5px 10px rgba(255, 255, 255, 0.2);
   }
-  /* Pressed-in well (inputs, counters, inactive dots). */
+  /* Pressed-in well (inputs, tab bars, counters, inactive dots). */
   .clay-inset {
-    background-color: var(--clay-surface);
     box-shadow:
-      inset 4px 5px 10px var(--clay-shade),
-      inset -4px -5px 10px var(--clay-highlight);
+      inset 3px 4px 8px var(--clay-shade),
+      inset -3px -4px 8px var(--clay-highlight);
   }
 }

@@ -197,7 +197,7 @@ export function PaystackInlineModal({
             <div className="flex justify-between items-center gap-2">
               <span className="text-sm text-muted-foreground">Reference</span>
               <div className="flex items-center gap-1">
-                <span className="font-mono text-xs bg-card px-2 py-1 rounded border truncate">
+                <span className="font-mono text-xs bg-card px-2 py-1 rounded border truncate border-white/60 dark:border-white/5 clay">
                   {reference}
                 </span>
                 <Button

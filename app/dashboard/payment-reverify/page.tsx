@@ -205,7 +205,7 @@ export default function ShopPaymentReverifyPage() {
               placeholder="Search by reference, phone or name..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-2xl border border-border bg-card py-2.5 pl-10 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-[#1b388b]/30"
+              className="w-full rounded-2xl border border-white/60 dark:border-white/5 bg-background py-2.5 pl-10 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-[#1b388b]/30 clay-inset"
             />
           </div>
           {search && (
@@ -220,11 +220,11 @@ export default function ShopPaymentReverifyPage() {
 
         {/* Orders */}
         {loading ? (
-          <div className="rounded-2xl border border-border bg-card py-12 text-center">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card py-12 text-center clay">
             <Loader2 className="mx-auto h-6 w-6 animate-spin text-[#1b388b]" />
           </div>
         ) : orders.length === 0 ? (
-          <div className="rounded-2xl border border-border bg-card py-12 text-center">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card py-12 text-center clay">
             <CheckCircle className="mx-auto mb-2 h-8 w-8 text-success" />
             <p className="text-sm text-muted-foreground">No pending orders</p>
           </div>

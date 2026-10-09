@@ -314,7 +314,7 @@ export default function ShopProfilePage() {
         </div>
 
         {/* Step content */}
-        <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
+        <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-5 space-y-4 clay">
           {step === 1 && (
             <>
               <p className="flex items-center gap-2 text-base font-bold text-foreground"><Store className="h-4 w-4 text-[#1b388b]" /> Shop Details</p>

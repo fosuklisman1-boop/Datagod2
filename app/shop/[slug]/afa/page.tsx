@@ -127,7 +127,7 @@ export default function ShopAfaPage() {
           <ChevronLeft className="w-4 h-4" /> Back to {shop.shop_name}
         </a>
 
-        <div className="rounded-2xl border border-border bg-card p-5">
+        <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-5 clay">
           <div className="flex items-center gap-2 mb-1">
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#1b388b]/10 text-[#1b388b]"><IdCard className="h-4 w-4" /></span>
             <h1 className="text-lg font-bold text-foreground">AFA Registration</h1>
@@ -158,7 +158,7 @@ export default function ShopAfaPage() {
             </div>
             <div>
               <Label htmlFor="region">Region *</Label>
-              <select id="region" value={region} onChange={(e) => setRegion(e.target.value)} className="mt-1 w-full rounded-md border border-border bg-card px-3 py-2 text-sm">
+              <select id="region" value={region} onChange={(e) => setRegion(e.target.value)} className="mt-1 w-full rounded-md border border-white/60 dark:border-white/5 bg-background px-3 py-2 text-sm clay-inset">
                 <option value="">Select region</option>
                 {REGIONS.map((r) => <option key={r} value={r}>{r}</option>)}
               </select>

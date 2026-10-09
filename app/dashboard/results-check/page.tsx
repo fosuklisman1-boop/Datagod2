@@ -439,14 +439,14 @@ export default function DashboardResultsCheckPage() {
             <Loader2 className="w-6 h-6 animate-spin text-violet-600" />
           </div>
         ) : !serviceEnabled ? (
-          <div className="rounded-2xl border border-border bg-card py-12 text-center space-y-2">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card py-12 text-center space-y-2 clay">
             <ClipboardCheck className="w-10 h-10 text-muted-foreground mx-auto" />
             <h3 className="font-bold text-foreground">Service unavailable</h3>
             <p className="text-sm text-muted-foreground">The Results Check Service is temporarily unavailable. Please check back later.</p>
           </div>
         ) : success ? (
           /* ── Success screen ─────────────────────────────────────────────── */
-          <div className="rounded-2xl border border-border bg-card py-10 text-center space-y-4">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card py-10 text-center space-y-4 clay">
             <div className="mx-auto w-16 h-16 rounded-full bg-success/10 flex items-center justify-center">
               <CheckCircle2 className="w-9 h-9 text-success" />
             </div>
@@ -487,7 +487,7 @@ export default function DashboardResultsCheckPage() {
                       disabled={!info.enabled}
                       className={`relative flex flex-col items-center gap-2 rounded-2xl border-2 bg-card p-3 sm:p-4 transition disabled:opacity-40 disabled:cursor-not-allowed ${
                         isSelected ? "border-violet-600 shadow-sm" : "border-border hover:border-violet-300"
-                      }`}
+                      } clay`}
                     >
                       <span className="flex h-10 w-10 items-center justify-center rounded-full bg-violet-600 text-white">
                         <GraduationCap className="h-5 w-5" />

@@ -1314,7 +1314,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
                   </a>
                 )}
                 {showUssdCard && ussdDialCode && shopUssdCode && (
-                  <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+                  <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
                     <div className="flex items-start gap-3">
                       <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[var(--shop-accent)]/10 text-[var(--shop-accent)]">
                         <Smartphone className="w-5 h-5" />
@@ -1379,7 +1379,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
                                 <button
                                   key={network}
                                   onClick={() => setSelectedNetwork(network as string)}
-                                  className="relative flex flex-col items-center gap-1.5 sm:gap-2 rounded-2xl border-2 bg-card p-2 sm:p-4 text-center shadow-sm transition-all"
+                                  className="relative flex flex-col items-center gap-1.5 sm:gap-2 rounded-2xl border-2 bg-card p-2 sm:p-4 text-center  transition-all border-white/60 dark:border-white/5 clay"
                                   style={{ borderColor: isSelected ? netColor : "transparent" }}
                                 >
                                   {isSelected && (
@@ -1414,7 +1414,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
                               underlying registration/verification system only
                               covers MTN today. */}
                           {selectedNetwork === "MTN" && (
-                            <div className="mb-8 rounded-2xl border border-border bg-card p-5 shadow-sm">
+                            <div className="mb-8 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-5 clay">
                               <button
                                 type="button"
                                 onClick={() => setMtnCheckExpanded((v) => !v)}
@@ -1485,7 +1485,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
                                     value={packageSearch}
                                     onChange={(e) => setPackageSearch(e.target.value)}
                                     placeholder="Search packages..."
-                                    className="w-full rounded-xl border border-border bg-card py-2.5 pl-10 pr-3 text-sm focus:border-[var(--shop-accent)] focus:outline-none"
+                                    className="w-full rounded-xl border border-white/60 dark:border-white/5 bg-background py-2.5 pl-10 pr-3 text-sm focus:border-[var(--shop-accent)] focus:outline-none clay-inset"
                                   />
                                 </div>
                                 <div className="flex shrink-0 overflow-hidden rounded-xl border border-border">
@@ -2045,7 +2045,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
                       <h3 className="text-lg font-bold text-foreground">Payment successful 🎉</h3>
                       <p className="text-sm text-muted-foreground mt-1">Your order is confirmed and is being processed.</p>
                     </div>
-                    <div className="text-left p-4 rounded-lg bg-card border border-border space-y-1.5 text-sm">
+                    <div className="text-left p-4 rounded-lg bg-card border border-white/60 dark:border-white/5 space-y-1.5 text-sm clay">
                       <div className="flex justify-between"><span className="text-muted-foreground">Package</span><span className="font-medium">{momoModal.summary?.packageLabel}</span></div>
                       <div className="flex justify-between"><span className="text-muted-foreground">Beneficiary</span><span className="font-medium">{momoModal.summary?.beneficiary}</span></div>
                       <div className="flex justify-between"><span className="text-muted-foreground">Paid from</span><span className="font-medium">{momoModal.summary?.paymentPhone}</span></div>

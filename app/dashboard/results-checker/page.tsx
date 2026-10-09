@@ -318,7 +318,7 @@ export default function ResultsCheckerPage() {
                       key={board}
                       onClick={() => setExamBoard(board)}
                       disabled={!isEnabled}
-                      className={`flex flex-col items-center gap-2 rounded-2xl border-2 bg-card p-3 sm:p-4 transition disabled:opacity-40 disabled:cursor-not-allowed ${
+                      className={`flex flex-col items-center gap-2 rounded-2xl border-2 bg-card clay p-3 sm:p-4 transition disabled:opacity-40 disabled:cursor-not-allowed ${
                         isSelected ? `${meta.border} shadow-sm` : "border-border hover:border-[#1b388b]/30"
                       }`}
                     >
@@ -344,7 +344,7 @@ export default function ResultsCheckerPage() {
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => setQuantity(q => Math.max(1, q - 1))}
-                  className="flex h-11 w-11 items-center justify-center rounded-2xl border border-border bg-card font-bold text-foreground hover:bg-accent"
+                  className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/60 dark:border-white/5 bg-card font-bold text-foreground hover:bg-accent clay"
                 >
                   −
                 </button>
@@ -355,7 +355,7 @@ export default function ResultsCheckerPage() {
                 />
                 <button
                   onClick={() => setQuantity(q => Math.min(maxQuantity, q + 1))}
-                  className="flex h-11 w-11 items-center justify-center rounded-2xl border border-border bg-card font-bold text-foreground hover:bg-accent"
+                  className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/60 dark:border-white/5 bg-card font-bold text-foreground hover:bg-accent clay"
                 >
                   +
                 </button>
@@ -364,7 +364,7 @@ export default function ResultsCheckerPage() {
                   aria-label="Reload settings"
                   onClick={loadBoardSettings}
                   disabled={settingsLoading}
-                  className="ml-auto flex h-11 w-11 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-sm disabled:opacity-50"
+                  className="ml-auto flex h-11 w-11 items-center justify-center rounded-full border border-white/60 dark:border-white/5 bg-card text-foreground  disabled:opacity-50 clay-sm"
                 >
                   <RefreshCw className={`h-4 w-4 ${settingsLoading ? "animate-spin" : ""}`} />
                 </button>
@@ -373,7 +373,7 @@ export default function ResultsCheckerPage() {
 
             {/* Price summary */}
             {pricing && (
-              <div className="rounded-2xl border border-border bg-card p-4 space-y-2 text-sm">
+              <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 space-y-2 text-sm clay">
                 {(() => {
                   const bs = boardSettings[examBoard]
                   const need = bs?.bulkMinQty ? bs.bulkMinQty - quantity : 0
@@ -445,14 +445,14 @@ export default function ResultsCheckerPage() {
             {ordersLoading ? (
               <div className="flex items-center justify-center h-32"><Loader2 className="w-6 h-6 animate-spin text-[#1b388b]" /></div>
             ) : orders.length === 0 ? (
-              <div className="rounded-2xl border border-border bg-card py-12 text-center">
+              <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card py-12 text-center clay">
                 <GraduationCap className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
                 <p className="text-muted-foreground">No vouchers purchased yet</p>
               </div>
             ) : (
               <div className="space-y-2 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0 lg:items-start">
               {orders.map(order => (
-                <div key={order.id} className="overflow-hidden rounded-2xl border border-border bg-card">
+                <div key={order.id} className="overflow-hidden rounded-2xl border border-white/60 dark:border-white/5 bg-card clay">
                   <div
                     className="flex items-center justify-between gap-2 px-4 py-3 cursor-pointer hover:bg-accent"
                     onClick={() => setExpandedOrder(expandedOrder === order.id ? null : order.id)}
@@ -485,7 +485,7 @@ export default function ResultsCheckerPage() {
                           </div>
                           <div className="space-y-2">
                             {order.vouchers.map((v, i) => (
-                              <div key={i} className="flex items-start justify-between gap-3 rounded-xl border border-border bg-card px-3 py-2">
+                              <div key={i} className="flex items-start justify-between gap-3 rounded-xl border border-white/60 dark:border-white/5 bg-card px-3 py-2 clay">
                                 <div className="flex-1 min-w-0">
                                   <p className="text-xs text-muted-foreground mb-1">Voucher {i + 1}</p>
                                   <p className="text-xs text-muted-foreground">Serial Number</p>
@@ -505,7 +505,7 @@ export default function ResultsCheckerPage() {
                             <button
                               disabled={resending === `${order.id}-sms`}
                               onClick={() => handleResend(order.id, "sms")}
-                              className="flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-accent disabled:opacity-50"
+                              className="flex items-center gap-1.5 rounded-full border border-white/60 dark:border-white/5 bg-card px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-accent disabled:opacity-50 clay-sm"
                             >
                               {resending === `${order.id}-sms` ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
                               Resend SMS
@@ -513,7 +513,7 @@ export default function ResultsCheckerPage() {
                             <button
                               disabled={resending === `${order.id}-email`}
                               onClick={() => handleResend(order.id, "email")}
-                              className="flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-accent disabled:opacity-50"
+                              className="flex items-center gap-1.5 rounded-full border border-white/60 dark:border-white/5 bg-card px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-accent disabled:opacity-50 clay-sm"
                             >
                               {resending === `${order.id}-email` ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
                               Resend Email

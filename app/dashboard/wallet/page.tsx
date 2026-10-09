@@ -436,7 +436,7 @@ export default function WalletPage() {
               {pendingPayments.map((payment) => (
                 <div
                   key={payment.id}
-                  className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 rounded-2xl border border-warning/30 bg-card p-3"
+                  className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 rounded-2xl border border-warning/30 bg-card p-3 clay"
                 >
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
@@ -472,21 +472,21 @@ export default function WalletPage() {
 
         {/* Stats */}
         <div className="grid grid-cols-3 gap-2 sm:gap-3">
-          <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-success/10 text-success">
               <TrendingUp className="h-4 w-4" />
             </span>
             <p className="mt-2 text-lg font-black text-foreground">GHS {walletData.totalCredited.toFixed(2)}</p>
             <p className="text-xs text-muted-foreground">Total Credited</p>
           </div>
-          <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
               <TrendingDown className="h-4 w-4" />
             </span>
             <p className="mt-2 text-lg font-black text-foreground">GHS {walletData.totalDebited.toFixed(2)}</p>
             <p className="text-xs text-muted-foreground">Total Spent</p>
           </div>
-          <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#1b388b]/10 text-[#1b388b]">
               <Wallet className="h-4 w-4" />
             </span>
@@ -501,7 +501,7 @@ export default function WalletPage() {
           walletTopupsEnabled || isDealer ? (
             <WalletTopUp onSuccess={handleTopUpSuccess} />
           ) : (
-            <div className="rounded-2xl border border-border bg-card p-4 text-sm text-muted-foreground">
+            <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 text-sm text-muted-foreground clay">
               ⚠️ Wallet top-ups are currently temporarily disabled for maintenance.
             </div>
           )
@@ -518,7 +518,7 @@ export default function WalletPage() {
               transactions.map((transaction) => {
                 const credit = transaction.type.includes("credit")
                 return (
-                  <div key={transaction.id} className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4">
+                  <div key={transaction.id} className="flex items-center justify-between gap-3 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
                     <div className="flex min-w-0 items-center gap-3">
                       <span className={`grid h-9 w-9 flex-shrink-0 place-items-center rounded-xl ${credit ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
                         {credit ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}

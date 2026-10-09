@@ -435,7 +435,7 @@ export default function AdminShopsPage() {
                 </div>
 
                 {/* Manual Balance Adjustment */}
-                <div className="p-4 rounded-xl bg-card border border-border shadow-sm transition-all duration-300 hover:shadow-md group">
+                <div className="p-4 rounded-xl bg-card border border-white/60 dark:border-white/5  transition-all duration-300 hover:shadow-md group clay">
                   <h3 className="text-sm font-bold text-primary mb-4 flex items-center gap-2">
                     <div className="p-1 rounded bg-primary/10 group-hover:bg-primary/10 transition-colors">
                       <TrendingDown className="w-3.5 h-3.5 text-primary" />
@@ -514,7 +514,7 @@ export default function AdminShopsPage() {
 
                 {/* Block / Unblock — only for active shops */}
                 {selectedShop?.is_active && (
-                  <div className="p-4 rounded-xl bg-card border border-border shadow-sm space-y-3">
+                  <div className="p-4 rounded-xl bg-card border border-white/60 dark:border-white/5  space-y-3 clay">
                     <h3 className="text-sm font-bold text-destructive flex items-center gap-2">
                       <ShieldOff className="w-3.5 h-3.5 text-destructive" />
                       Temporary Block

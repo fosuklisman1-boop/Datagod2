@@ -1439,7 +1439,7 @@ export default function MTNSettingsPage() {
                       </div>
                       <div className="space-y-1.5">
                         {retrySequence.map((p, i) => (
-                          <div key={p} className="flex items-center gap-2 p-2 rounded-lg border border-border bg-card">
+                          <div key={p} className="flex items-center gap-2 p-2 rounded-lg border border-white/60 dark:border-white/5 bg-card clay">
                             <span className="text-xs text-muted-foreground w-5 text-center shrink-0">{i + 1}</span>
                             <span className="flex-1 text-sm font-medium">{PROVIDER_LABELS[p]}</span>
                             {disabledProviders.includes(p) && (
