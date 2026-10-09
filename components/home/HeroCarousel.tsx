@@ -118,6 +118,58 @@ export function HeroCarousel() {
       </div>
     </div>,
 
+    <div key="data">
+      <Eyebrow>Data Bundles</Eyebrow>
+      <Heading>Instant data for MTN, Telecel &amp; AT</Heading>
+      <Body>Affordable bundles on every network — including AT iShare and BigTime — delivered in seconds, straight from your wallet.</Body>
+      <div className="mt-10 space-y-4">
+        <Link href="/auth/signup" className={PILL.primary}>Buy Data</Link>
+        {guestUrl && (
+          <a href={guestUrl} target="_blank" rel="noopener noreferrer" className={PILL.outline}>Buy as Guest</a>
+        )}
+      </div>
+    </div>,
+
+    <div key="airtime">
+      <Eyebrow>Airtime Top-Up</Eyebrow>
+      <Heading>Top up airtime on any network</Heading>
+      <Body>Send airtime to any MTN, Telecel or AT number in seconds — for yourself or your customers.</Body>
+      <div className="mt-10 space-y-4">
+        <Link href="/auth/signup" className={PILL.primary}>Buy Airtime</Link>
+        {guestUrl && (
+          <a href={guestUrl} target="_blank" rel="noopener noreferrer" className={PILL.outline}>Buy as Guest</a>
+        )}
+      </div>
+    </div>,
+
+    <div key="results">
+      <Eyebrow>Results Checker</Eyebrow>
+      <Heading>WASSCE, BECE &amp; NovDec results</Heading>
+      <Body>Buy checker vouchers delivered instantly — or, if you don&apos;t have one, let us check your results for you and send them by email and WhatsApp.</Body>
+      <div className="mt-10 space-y-4">
+        <Link href="/results-checker" className={PILL.primary}>Get a Checker Voucher</Link>
+        <Link href="/auth/signup" className={PILL.outline}>Check My Results For Me</Link>
+      </div>
+    </div>,
+
+    <div key="afa">
+      <Eyebrow>AFA Registration</Eyebrow>
+      <Heading>Register AFA numbers without the queue</Heading>
+      <Body>Register MTN AFA / iShare numbers for yourself or your community straight from your dashboard — no paperwork, no waiting in line.</Body>
+      <div className="mt-10 space-y-4">
+        <Link href="/auth/signup" className={PILL.primary}>Register Now</Link>
+      </div>
+    </div>,
+
+    <div key="sms">
+      <Eyebrow>Bulk SMS</Eyebrow>
+      <Heading>Send SMS to your customers at scale</Heading>
+      <Body>OTPs, alerts and campaigns from your own approved sender ID — with an address book, reusable templates and delivery reports.</Body>
+      <div className="mt-10 space-y-4">
+        <Link href="/auth/signup" className={PILL.primary}>Start Sending</Link>
+      </div>
+    </div>,
+
     <div key="shop">
       <Eyebrow>Reseller Shops</Eyebrow>
       <Heading>Create your own branded storefront in minutes</Heading>
@@ -127,6 +179,25 @@ export function HeroCarousel() {
         {guestUrl && (
           <a href={guestUrl} target="_blank" rel="noopener noreferrer" className={PILL.outline}>View a Live Shop</a>
         )}
+      </div>
+    </div>,
+
+    <div key="subagents">
+      <Eyebrow>Sub-Agent Program</Eyebrow>
+      <Heading>Grow a network of sellers under you</Heading>
+      <Body>Invite sub-agents with a link. They get their own storefront and set their own prices on top of yours — and you earn on every sale they make.</Body>
+      <div className="mt-10 space-y-4">
+        <Link href="/auth/signup" className={PILL.primary}>Start Recruiting</Link>
+      </div>
+    </div>,
+
+    <div key="channels">
+      <Eyebrow>USSD &amp; WhatsApp</Eyebrow>
+      <Heading>Order without the website</Heading>
+      <Body>Buy data, airtime and results checkers by chatting on WhatsApp, or dial a USSD code from any phone — no internet needed. Shop owners can get their own USSD and WhatsApp bot too.</Body>
+      <div className="mt-10 space-y-4">
+        <Link href="/whatsapp" className={PILL.success}>Order on WhatsApp</Link>
+        <Link href="/auth/signup" className={PILL.outline}>Get Your Own Bot</Link>
       </div>
     </div>,
 
@@ -231,7 +302,7 @@ export function HeroCarousel() {
             ))}
           </div>
           <div className="mx-7 flex items-center justify-between border-t border-[#1b388b]/10 py-6 sm:mx-10">
-            <div className="flex items-center gap-4">
+            <div className="flex flex-wrap items-center gap-2">
               {slides.map((_, i) => (
                 <button
                   key={i}
