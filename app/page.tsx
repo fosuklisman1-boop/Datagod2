@@ -48,7 +48,7 @@ function Step({
           ))}
         </div>
         {mockup && (
-          <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+          <div className="clay overflow-hidden">
             {mockup}
           </div>
         )}
@@ -410,7 +410,7 @@ export default function HomePage() {
   const termPlans = plans.filter((p) => p !== dealerPlan)
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen clay-surface">
       {/* Organization + Website Schema */}
       <script
         type="application/ld+json"
@@ -459,7 +459,7 @@ export default function HomePage() {
         </div>
         <div className="flex items-center gap-2 sm:gap-3">
           <Link href="/auth/login"><Button variant="ghost" className="font-display">Login</Button></Link>
-          <Link href="/auth/signup"><Button className="font-display bg-[#1b388b] hover:bg-[#1b388b]/90">Get Started</Button></Link>
+          <Link href="/auth/signup"><Button className="font-display bg-[#1b388b] hover:bg-[#1b388b]/90 clay-btn rounded-full">Get Started</Button></Link>
         </div>
       </nav>
 
@@ -479,7 +479,7 @@ export default function HomePage() {
       </section>
 
       {/* ── Our Top Services ────────────────────────────────── */}
-      <section id="services" className="bg-card border-t border-b border-border py-16 sm:py-24">
+      <section id="services" className="py-16 sm:py-24">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <div className="text-center mb-12">
             <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-[#1b388b]">Proven Products</span>
@@ -490,8 +490,8 @@ export default function HomePage() {
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
             {TOP_SERVICES.map(({ icon: Icon, title, desc, tag, color }) => (
-              <div key={title} className="rounded-2xl border-2 border-foreground/80 bg-background p-4 sm:p-6">
-                <div className={`mb-4 grid h-12 w-12 place-items-center rounded-2xl ${color}`}><Icon className="h-[22px] w-[22px]" /></div>
+              <div key={title} className="clay p-4 sm:p-6">
+                <div className={`mb-4 grid h-12 w-12 place-items-center clay-icon ${color}`}><Icon className="h-[22px] w-[22px]" /></div>
                 <h3 className="mb-1.5 flex items-center gap-2 font-display font-bold text-foreground">{title}{tag && <span className="rounded-full border border-[#1b388b]/30 px-1.5 py-0.5 font-mono text-[8px] text-[#1b388b]">{tag}</span>}</h3>
                 <p className="text-sm text-muted-foreground">{desc}</p>
               </div>
@@ -505,8 +505,8 @@ export default function HomePage() {
           </div>
           <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             {COMING_SOON.map(({ icon: Icon, title, desc }) => (
-              <div key={title} className="rounded-2xl border-2 border-dashed border-border bg-background/60 p-5 sm:p-6 opacity-80">
-                <div className="mb-4 grid h-12 w-12 place-items-center rounded-2xl border border-border bg-muted"><Icon className="h-[22px] w-[22px] text-muted-foreground" /></div>
+              <div key={title} className="clay-inset rounded-[2rem] p-5 sm:p-6 opacity-80">
+                <div className="mb-4 grid h-12 w-12 place-items-center clay-icon border border-border bg-muted"><Icon className="h-[22px] w-[22px] text-muted-foreground" /></div>
                 <h3 className="mb-1.5 flex items-center gap-2 font-display font-bold text-foreground">{title}<span className="rounded-full border border-border px-1.5 py-0.5 font-mono text-[8px] text-muted-foreground">COMING SOON</span></h3>
                 <p className="text-sm text-muted-foreground">{desc}</p>
               </div>
@@ -531,9 +531,9 @@ export default function HomePage() {
                 </li>
               ))}
             </ul>
-            <Link href="/auth/signup"><Button size="lg" className="gap-2 bg-[#1b388b] hover:bg-[#1b388b]/90">Open Your Shop <ArrowRight className="w-4 h-4" /></Button></Link>
+            <Link href="/auth/signup"><Button size="lg" className="gap-2 bg-[#1b388b] hover:bg-[#1b388b]/90 clay-btn rounded-full">Open Your Shop <ArrowRight className="w-4 h-4" /></Button></Link>
           </div>
-          <div className="rounded-2xl border-2 border-foreground/80 bg-card shadow-sm overflow-hidden">
+          <div className="clay overflow-hidden">
             <MockShopLink />
             <div className="border-t border-border">
               <MockProfitMargin />
@@ -552,16 +552,16 @@ export default function HomePage() {
               Before you build your own shop, see exactly what your customers will experience — browse packages and check out as a guest.
             </p>
             <div className="flex justify-center">
-              <GuestPurchaseButton variant="primary" className="rounded-full bg-[#1b388b] hover:bg-[#1b388b]/90" />
+              <GuestPurchaseButton variant="primary" className="rounded-full bg-[#1b388b] hover:bg-[#1b388b]/90 clay-btn rounded-full" />
             </div>
           </div>
         </section>
       )}
 
       {/* ── Developer API ────────────────────────────────────── */}
-      <section className="bg-card border-t border-b border-border py-16 sm:py-24">
+      <section className="py-16 sm:py-24">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 grid lg:grid-cols-2 gap-10 items-center">
-          <div className="order-2 lg:order-1 rounded-2xl border-2 border-foreground/80 bg-background shadow-sm overflow-hidden p-4 font-mono text-[11px] text-muted-foreground">
+          <div className="order-2 lg:order-1 clay overflow-hidden p-4 font-mono text-[11px] text-muted-foreground">
             <div className="flex items-center gap-1.5 mb-3">
               <span className="h-2.5 w-2.5 rounded-full bg-destructive/60" /><span className="h-2.5 w-2.5 rounded-full bg-warning/60" /><span className="h-2.5 w-2.5 rounded-full bg-success/60" />
             </div>
@@ -588,7 +588,7 @@ export default function HomePage() {
                 </li>
               ))}
             </ul>
-            <Link href="/auth/signup"><Button size="lg" variant="outline" className="gap-2">Get API Access <ArrowRight className="w-4 h-4" /></Button></Link>
+            <Link href="/auth/signup"><Button size="lg" variant="outline" className="clay-sm border-0 rounded-full gap-2">Get API Access <ArrowRight className="w-4 h-4" /></Button></Link>
           </div>
         </div>
       </section>
@@ -607,7 +607,7 @@ export default function HomePage() {
               { icon: Wallet, title: "Store Balance", desc: "Your balance is ready whenever you want to buy." },
               { icon: Zap, title: "Buy Instantly", desc: "Pick a package and confirm — no checkout, no delay." },
             ].map(({ icon: Icon, title, desc }, i) => (
-              <div key={title} className="rounded-2xl border-2 border-foreground/80 bg-card p-5 sm:p-6">
+              <div key={title} className="clay p-5 sm:p-6">
                 <div className="mb-4 flex items-center gap-2">
                   <span className="grid h-8 w-8 place-items-center rounded-full bg-[#1b388b] text-primary-foreground text-sm font-bold">{i + 1}</span>
                   <Icon className="h-5 w-5 text-[#1b388b]" />
@@ -632,8 +632,8 @@ export default function HomePage() {
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4">
             {WHY_CHOOSE.map(({ icon: Icon, title, desc, color }) => (
-              <div key={title} className="rounded-2xl border-2 border-foreground/80 bg-card p-5 sm:p-6">
-                <div className={`mb-4 grid h-12 w-12 place-items-center rounded-2xl ${color}`}><Icon className="h-[22px] w-[22px]" /></div>
+              <div key={title} className="clay p-5 sm:p-6">
+                <div className={`mb-4 grid h-12 w-12 place-items-center clay-icon ${color}`}><Icon className="h-[22px] w-[22px]" /></div>
                 <h3 className="mb-1.5 font-display font-bold text-foreground">{title}</h3>
                 <p className="text-sm text-muted-foreground">{desc}</p>
               </div>
@@ -643,7 +643,7 @@ export default function HomePage() {
       </section>
 
       {/* ── Bulk SMS ──────────────────────────────────────────── */}
-      <section className="bg-card border-t border-b border-border py-16 sm:py-24">
+      <section className="py-16 sm:py-24">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 grid lg:grid-cols-2 gap-10 items-center">
           <div>
             <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-[#1b388b]">Bulk SMS</span>
@@ -658,9 +658,9 @@ export default function HomePage() {
                 </li>
               ))}
             </ul>
-            <Link href="/auth/signup"><Button size="lg" className="gap-2 bg-[#1b388b] hover:bg-[#1b388b]/90">Get Started <ArrowRight className="w-4 h-4" /></Button></Link>
+            <Link href="/auth/signup"><Button size="lg" className="gap-2 bg-[#1b388b] hover:bg-[#1b388b]/90 clay-btn rounded-full">Get Started <ArrowRight className="w-4 h-4" /></Button></Link>
           </div>
-          <div className="rounded-2xl border-2 border-foreground/80 bg-background p-5 shadow-sm">
+          <div className="clay p-5 shadow-sm">
             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3">Delivery Report</p>
             <div className="space-y-2">
               {[{ label: "OTP campaign", sent: 240, delivered: 238 }, { label: "Promo blast", sent: 1500, delivered: 1486 }, { label: "Order alert", sent: 1, delivered: 1 }].map((r) => (
@@ -682,13 +682,13 @@ export default function HomePage() {
           <p className="text-muted-foreground text-sm sm:text-base mb-8">
             Register AFA / iShare numbers for your community — no queues, no paperwork, done right from your dashboard.
           </p>
-          <Link href="/auth/signup"><Button size="lg" className="gap-2 bg-[#1b388b] hover:bg-[#1b388b]/90">Register Now <ArrowRight className="w-4 h-4" /></Button></Link>
+          <Link href="/auth/signup"><Button size="lg" className="gap-2 bg-[#1b388b] hover:bg-[#1b388b]/90 clay-btn rounded-full">Register Now <ArrowRight className="w-4 h-4" /></Button></Link>
         </div>
       </section>
 
       {/* ── Agent Membership Plans & Dealer Tier (live pricing) ── */}
       {plans.length > 0 && (
-        <section className="bg-card border-t border-b border-border py-16 sm:py-24">
+        <section className="py-16 sm:py-24">
           <div className="max-w-6xl mx-auto px-4 sm:px-6">
             <div className="text-center mb-12">
               <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-[#1b388b]">Pricing</span>
@@ -698,20 +698,20 @@ export default function HomePage() {
             {termPlans.length > 0 && (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-6">
                 {termPlans.map((plan) => (
-                  <div key={plan.id} className="rounded-2xl border-2 border-foreground/80 bg-background p-5 sm:p-6">
+                  <div key={plan.id} className="clay p-5 sm:p-6">
                     <h3 className="font-display font-bold text-foreground mb-1">{plan.name.trim()}</h3>
                     <p className="text-2xl font-black text-foreground mb-1">GHS {Number(plan.price).toFixed(2)}</p>
                     <p className="text-xs text-muted-foreground mb-3">{plan.duration_days} day{plan.duration_days === 1 ? "" : "s"} access</p>
                     {plan.description && <p className="text-sm text-muted-foreground mb-4">{plan.description}</p>}
-                    <Link href="/auth/signup"><Button variant="outline" className="w-full">Choose Plan</Button></Link>
+                    <Link href="/auth/signup"><Button variant="outline" className="clay-sm border-0 rounded-full w-full">Choose Plan</Button></Link>
                   </div>
                 ))}
               </div>
             )}
             {dealerPlan && (
-              <div className="rounded-2xl border-2 border-[#1b388b] bg-gradient-to-br from-[#1b388b]/5 to-brand-accent/5 p-5 sm:p-6 flex flex-col sm:flex-row items-center gap-5 justify-between">
+              <div className="clay ring-2 ring-[#1b388b]/25 p-5 sm:p-6 flex flex-col sm:flex-row items-center gap-5 justify-between">
                 <div className="flex items-center gap-4">
-                  <div className="grid h-12 w-12 place-items-center rounded-2xl bg-[#1b388b]/10 flex-shrink-0"><Gem className="h-[22px] w-[22px] text-[#1b388b]" /></div>
+                  <div className="grid h-12 w-12 place-items-center clay-icon bg-[#1b388b]/10 flex-shrink-0"><Gem className="h-[22px] w-[22px] text-[#1b388b]" /></div>
                   <div>
                     <h3 className="font-display font-bold text-foreground">Dealer Tier — {dealerPlan.name.trim()}</h3>
                     <p className="text-sm text-muted-foreground">{dealerPlan.description || "Our best wholesale pricing, unlocked for life."}</p>
@@ -719,7 +719,7 @@ export default function HomePage() {
                 </div>
                 <div className="flex items-center gap-4 flex-shrink-0">
                   <p className="text-2xl font-black text-foreground">GHS {Number(dealerPlan.price).toFixed(2)}</p>
-                  <Link href="/auth/signup"><Button className="gap-2 bg-[#1b388b] hover:bg-[#1b388b]/90">Become a Dealer <ArrowRight className="w-4 h-4" /></Button></Link>
+                  <Link href="/auth/signup"><Button className="gap-2 bg-[#1b388b] hover:bg-[#1b388b]/90 clay-btn rounded-full">Become a Dealer <ArrowRight className="w-4 h-4" /></Button></Link>
                 </div>
               </div>
             )}
@@ -728,7 +728,7 @@ export default function HomePage() {
       )}
 
       {/* ── How It Works ────────────────────────────────────── */}
-      <section id="how-it-works" className="bg-card border-t border-b border-border py-16 sm:py-24">
+      <section id="how-it-works" className="py-16 sm:py-24">
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <div className="text-center mb-12">
             <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-[#1b388b]">How It Works</span>
@@ -935,13 +935,13 @@ When your sub-agent clicks the link, they see a branded invite page showing your
             <p className="text-muted-foreground text-sm mb-4">Ready to get started?</p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <Link href="/auth/signup">
-                <Button className="gap-2 w-full sm:w-auto bg-[#1b388b] hover:bg-[#1b388b]/90">
+                <Button className="gap-2 w-full sm:w-auto bg-[#1b388b] hover:bg-[#1b388b]/90 clay-btn rounded-full">
                   Create Free Account
                   <ArrowRight className="w-4 h-4" />
                 </Button>
               </Link>
               {!isPageHidden("guest_purchase", domainBranding.hiddenPages) && (
-                <GuestPurchaseButton variant="outline" className="w-full sm:w-auto border-[#1b388b] text-[#1b388b] hover:bg-[#1b388b]/5" />
+                <GuestPurchaseButton variant="outline" className="clay-sm border-0 rounded-full w-full sm:w-auto border-[#1b388b] text-[#1b388b] hover:bg-[#1b388b]/5" />
               )}
             </div>
           </div>
@@ -950,7 +950,7 @@ When your sub-agent clicks the link, they see a branded invite page showing your
 
       {/* ── Popular Data Packages (live pricing) ─────────────── */}
       {popularByNetwork.length > 0 && (
-        <section className="bg-card border-t border-b border-border py-16 sm:py-24">
+        <section className="py-16 sm:py-24">
           <div className="max-w-6xl mx-auto px-4 sm:px-6">
             <div className="text-center mb-12">
               <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-[#1b388b]">Live Pricing</span>
@@ -959,7 +959,7 @@ When your sub-agent clicks the link, they see a branded invite page showing your
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
               {popularByNetwork.map((pkg) => (
-                <div key={`${pkg.network}-${pkg.size}`} className="rounded-2xl border-2 border-foreground/80 bg-background p-4 text-center">
+                <div key={`${pkg.network}-${pkg.size}`} className="clay p-4 text-center">
                   <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1">{pkg.network}</p>
                   <p className="text-xl font-black text-foreground">{pkg.size}</p>
                   <p className="text-sm font-bold text-[#1b388b] mt-1">GHS {Number(pkg.price).toFixed(2)}</p>
@@ -967,14 +967,14 @@ When your sub-agent clicks the link, they see a branded invite page showing your
               ))}
             </div>
             <div className="mt-8 text-center">
-              <Link href="/auth/signup"><Button size="lg" className="gap-2 bg-[#1b388b] hover:bg-[#1b388b]/90">See All Packages <ArrowRight className="w-4 h-4" /></Button></Link>
+              <Link href="/auth/signup"><Button size="lg" className="gap-2 bg-[#1b388b] hover:bg-[#1b388b]/90 clay-btn rounded-full">See All Packages <ArrowRight className="w-4 h-4" /></Button></Link>
             </div>
           </div>
         </section>
       )}
 
       {/* ── Social Proof ──────────────────────────────────────── */}
-      <section className="bg-card border-t border-b border-border py-14 sm:py-20">
+      <section className="py-14 sm:py-20">
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
             {[
@@ -983,7 +983,7 @@ When your sub-agent clicks the link, they see a branded invite page showing your
               { icon: Zap, label: "Avg Delivery", value: "~8s" },
               { icon: ShieldCheck, label: "Uptime", value: "99.99%" },
             ].map(({ icon: Icon, label, value }) => (
-              <div key={label} className="rounded-2xl border-2 border-foreground/80 bg-background p-4 sm:p-6 text-center">
+              <div key={label} className="clay p-4 sm:p-6 text-center">
                 <Icon className="w-5 h-5 text-[#1b388b] mx-auto mb-2" />
                 <p className="font-display text-xl sm:text-3xl font-black text-foreground">{value}</p>
                 <p className="text-xs text-muted-foreground mt-1">{label}</p>
@@ -996,23 +996,23 @@ When your sub-agent clicks the link, they see a branded invite page showing your
       {/* ── Easy Support & Complaint Resolution ──────────────── */}
       <section className="py-16 sm:py-24">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 grid sm:grid-cols-2 gap-3 sm:gap-4">
-          <div className="rounded-2xl border-2 border-foreground/80 bg-card p-5 sm:p-6">
-            <div className="mb-4 grid h-12 w-12 place-items-center rounded-2xl bg-emerald-100 text-emerald-600"><Headset className="h-[22px] w-[22px]" /></div>
+          <div className="clay p-5 sm:p-6">
+            <div className="mb-4 grid h-12 w-12 place-items-center clay-icon bg-emerald-100 text-emerald-600"><Headset className="h-[22px] w-[22px]" /></div>
             <h3 className="mb-1.5 font-display font-bold text-foreground">Direct WhatsApp Support</h3>
             <p className="text-sm text-muted-foreground mb-4">Chat with us directly for help with an order, a payment, or anything else.</p>
-            <Link href="/whatsapp"><Button variant="outline" className="gap-2">Chat Now <ArrowRight className="w-4 h-4" /></Button></Link>
+            <Link href="/whatsapp"><Button variant="outline" className="clay-sm border-0 rounded-full gap-2">Chat Now <ArrowRight className="w-4 h-4" /></Button></Link>
           </div>
-          <div className="rounded-2xl border-2 border-foreground/80 bg-card p-5 sm:p-6">
-            <div className="mb-4 grid h-12 w-12 place-items-center rounded-2xl bg-blue-100 text-blue-600"><FileCheck2 className="h-[22px] w-[22px]" /></div>
+          <div className="clay p-5 sm:p-6">
+            <div className="mb-4 grid h-12 w-12 place-items-center clay-icon bg-blue-100 text-blue-600"><FileCheck2 className="h-[22px] w-[22px]" /></div>
             <h3 className="mb-1.5 font-display font-bold text-foreground">Track Your Complaints</h3>
             <p className="text-sm text-muted-foreground mb-4">File a complaint and track it from start to resolution, right from your dashboard.</p>
-            <Link href="/auth/signup"><Button variant="outline" className="gap-2">Create Account <ArrowRight className="w-4 h-4" /></Button></Link>
+            <Link href="/auth/signup"><Button variant="outline" className="clay-sm border-0 rounded-full gap-2">Create Account <ArrowRight className="w-4 h-4" /></Button></Link>
           </div>
         </div>
       </section>
 
       {/* ── FAQ ───────────────────────────────────────────────── */}
-      <section className="bg-card border-t border-b border-border py-16 sm:py-24">
+      <section className="py-16 sm:py-24">
         <div className="max-w-3xl mx-auto px-4 sm:px-6">
           <div className="text-center mb-12">
             <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-[#1b388b]">FAQ</span>
@@ -1020,7 +1020,7 @@ When your sub-agent clicks the link, they see a branded invite page showing your
           </div>
           <div className="space-y-3">
             {FAQ_ITEMS.map((item, i) => (
-              <div key={item.q} className="rounded-2xl border-2 border-foreground/80 bg-background overflow-hidden">
+              <div key={item.q} className="clay overflow-hidden">
                 <button
                   type="button"
                   onClick={() => setOpenFaq(openFaq === i ? null : i)}
@@ -1044,7 +1044,7 @@ When your sub-agent clicks the link, they see a branded invite page showing your
         <div className="max-w-4xl mx-auto px-4 sm:px-6 space-y-4 sm:space-y-6">
           <h2 className="font-display text-2xl sm:text-3xl md:text-4xl font-semibold text-foreground">Ready to get started?</h2>
           <p className="text-sm sm:text-lg text-muted-foreground">Join thousands who trust {domainBranding.siteName || "DATAGOD"} for data, airtime &amp; more.</p>
-          <Link href="/auth/signup"><Button size="lg" className="w-full sm:w-auto bg-[#1b388b] hover:bg-[#1b388b]/90">Create your free account</Button></Link>
+          <Link href="/auth/signup"><Button size="lg" className="w-full sm:w-auto bg-[#1b388b] hover:bg-[#1b388b]/90 clay-btn rounded-full">Create your free account</Button></Link>
         </div>
       </section>
 

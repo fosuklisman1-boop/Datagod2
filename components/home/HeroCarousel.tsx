@@ -18,13 +18,15 @@ interface CommunityLinks {
   join_group_link?: string
 }
 
-const pill = "flex h-14 w-full items-center justify-center gap-2 rounded-full px-6 text-base font-semibold transition-colors"
+// Claymorphism: no utility shadows here — they'd override the clay-* box-shadows
+// (Tailwind v3 emits utilities after the components layer).
+const pill = "flex h-14 w-full items-center justify-center gap-2 rounded-full px-6 text-base font-semibold transition-all active:translate-y-0.5"
 const PILL = {
-  primary: `${pill} bg-[#1b388b] text-primary-foreground shadow-lg shadow-[#1b388b]/25 hover:bg-[#1b388b]/90`,
-  muted: `${pill} bg-muted text-foreground shadow-md shadow-[#1b388b]/10 hover:bg-muted/80`,
-  outline: `${pill} border-2 border-border bg-background text-foreground hover:bg-muted/50`,
-  accentOutline: `${pill} border-2 border-[#1b388b]/40 bg-background text-foreground hover:bg-[#1b388b]/5`,
-  success: `${pill} bg-success text-success-foreground shadow-lg shadow-success/25 hover:bg-success/90`,
+  primary: `${pill} clay-btn bg-[#1b388b] text-primary-foreground hover:bg-[#1b388b]/90`,
+  muted: `${pill} clay-sm bg-[#dfe7fb] text-foreground dark:bg-[#1e2740]`,
+  outline: `${pill} clay-sm text-foreground`,
+  accentOutline: `${pill} clay-sm text-[#1b388b] dark:text-foreground`,
+  success: `${pill} clay-btn bg-success text-success-foreground hover:bg-success/90`,
 }
 
 function Eyebrow({ children }: { children: ReactNode }) {
@@ -198,7 +200,7 @@ export function HeroCarousel() {
 
       <div className="mx-auto max-w-xl lg:max-w-2xl">
         <div className="text-center">
-          <div className="mx-auto grid h-28 w-28 place-items-center rounded-full bg-card shadow-xl">
+          <div className="mx-auto grid h-28 w-28 place-items-center clay-sm">
             {logoSrc ? (
               <img src={logoSrc} alt={`${siteName} logo`} className="h-24 w-24 rounded-full object-cover" />
             ) : (
@@ -206,13 +208,13 @@ export function HeroCarousel() {
             )}
           </div>
           <p className="mt-6 font-display text-3xl font-black tracking-tight text-foreground">{wordmark}</p>
-          <span className="mt-6 inline-flex items-center gap-2 rounded-full border border-border bg-card px-5 py-2.5 text-base font-medium text-foreground shadow-sm">
+          <span className="mt-6 inline-flex items-center gap-2 clay-sm px-5 py-2.5 text-base font-medium text-foreground">
             <Zap className="h-5 w-5 text-[#1b388b]" /> Ultra Fast Instant Delivery
           </span>
         </div>
 
         <div
-          className="mt-8 rounded-[2rem] border border-border bg-card shadow-xl"
+          className="mt-8 clay rounded-[2.5rem]"
           onPointerDown={() => setUserInteracted(true)}
           onFocusCapture={() => setUserInteracted(true)}
         >
@@ -228,7 +230,7 @@ export function HeroCarousel() {
               </div>
             ))}
           </div>
-          <div className="mx-7 flex items-center justify-between border-t border-border py-6 sm:mx-10">
+          <div className="mx-7 flex items-center justify-between border-t border-[#1b388b]/10 py-6 sm:mx-10">
             <div className="flex items-center gap-4">
               {slides.map((_, i) => (
                 <button
@@ -236,7 +238,7 @@ export function HeroCarousel() {
                   type="button"
                   aria-label={`Go to slide ${i + 1}`}
                   onClick={() => { setUserInteracted(true); scrollTo(i) }}
-                  className={`h-2.5 rounded-full transition-all ${i === index ? "w-8 bg-[#1b388b]" : "w-2.5 bg-muted-foreground/30"}`}
+                  className={`h-2.5 rounded-full transition-all ${i === index ? "w-8 bg-[#1b388b] shadow-[0_3px_8px_rgba(27,56,139,0.35)]" : "w-2.5 clay-inset"}`}
                 />
               ))}
             </div>
