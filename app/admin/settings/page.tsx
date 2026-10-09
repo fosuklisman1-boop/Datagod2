@@ -25,6 +25,7 @@ export default function AdminSettingsPage() {
   const { user } = useAuth()
   const [joinCommunityLink, setJoinCommunityLink] = useState("")
   const [joinGroupLink, setJoinGroupLink] = useState("")
+  const [whatsappBotNumber, setWhatsappBotNumber] = useState("")
   const [whatsappNumber, setWhatsappNumber] = useState("")
   const [supportEmail, setSupportEmail] = useState("")
   const [supportPhone, setSupportPhone] = useState("")
@@ -149,6 +150,9 @@ export default function AdminSettingsPage() {
         }
         if (data.join_group_link) {
           setJoinGroupLink(data.join_group_link)
+        }
+        if (data.whatsapp_bot_number) {
+          setWhatsappBotNumber(data.whatsapp_bot_number)
         }
 
         // Load support settings
@@ -909,6 +913,7 @@ export default function AdminSettingsPage() {
         body: JSON.stringify({
           join_community_link: joinCommunityLink,
           join_group_link: joinGroupLink,
+          whatsapp_bot_number: whatsappBotNumber,
           ordering_enabled: orderingEnabled,
           announcement_enabled: announcementEnabled,
           announcement_title: announcementTitle,
@@ -1384,6 +1389,23 @@ export default function AdminSettingsPage() {
                 placeholder="https://chat.whatsapp.com/..."
                 value={joinGroupLink}
                 onChange={(e) => setJoinGroupLink(e.target.value)}
+                className="w-full"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="whatsappBotNumber" className="text-sm font-medium">
+                Main WhatsApp Bot Number
+              </Label>
+              <p className="text-xs text-muted-foreground mt-1 mb-2">
+                The number customers message to order from DATAGOD directly. Shown as &quot;Order on WhatsApp&quot; on the homepage and on the /whatsapp page — hidden while empty.
+              </p>
+              <Input
+                id="whatsappBotNumber"
+                type="tel"
+                placeholder="0559919037"
+                value={whatsappBotNumber}
+                onChange={(e) => setWhatsappBotNumber(e.target.value)}
                 className="w-full"
               />
             </div>

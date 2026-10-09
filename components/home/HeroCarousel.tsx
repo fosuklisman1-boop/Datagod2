@@ -16,6 +16,8 @@ interface SupportConfig {
 interface CommunityLinks {
   join_community_link?: string
   join_group_link?: string
+  /** Main DATAGOD WhatsApp bot, international digits (233…). "" = unset. */
+  whatsapp_bot_number?: string
 }
 
 // Claymorphism: no utility shadows here — they'd override the clay-* box-shadows
@@ -194,10 +196,17 @@ export function HeroCarousel() {
     <div key="channels">
       <Eyebrow>USSD &amp; WhatsApp</Eyebrow>
       <Heading>Order without the website</Heading>
-      <Body>Buy data, airtime and results checkers by chatting on WhatsApp, or dial a USSD code from any phone — no internet needed. Shop owners can get their own USSD and WhatsApp bot too.</Body>
+      <Body>Chat with the DATAGOD bot on WhatsApp to buy data, airtime and results checkers — no app to install. Prefer USSD? Dial in from any phone, no internet needed.</Body>
       <div className="mt-10 space-y-4">
-        <Link href="/whatsapp" className={PILL.success}>Order on WhatsApp</Link>
-        <Link href="/auth/signup" className={PILL.outline}>Get Your Own Bot</Link>
+        {links.whatsapp_bot_number && (
+          <a
+            href={`https://wa.me/${links.whatsapp_bot_number}?text=${encodeURIComponent("Hi, I'd like to buy data")}`}
+            target="_blank" rel="noopener noreferrer" className={PILL.success}
+          >
+            Order on WhatsApp
+          </a>
+        )}
+        <Link href="/whatsapp" className={PILL.outline}>How It Works</Link>
       </div>
     </div>,
 

@@ -2,6 +2,8 @@ import type { Metadata } from "next"
 import Link from "next/link"
 import { MessageCircle, Package, Zap, FileCheck2, ArrowRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { supabaseAdmin } from "@/lib/supabase"
+import { ghanaSignificant } from "@/lib/phone-format"
 
 export const metadata: Metadata = {
   title: "Order Data & Airtime via WhatsApp | DATAGOD",
@@ -14,10 +16,30 @@ export const metadata: Metadata = {
   },
 }
 
-const WHATSAPP_NUMBER = process.env.NEXT_PUBLIC_WHATSAPP_SHOP_NUMBER
-const CHAT_LINK = WHATSAPP_NUMBER
-  ? `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent("Hi, I'd like to order data")}`
-  : null
+// Main bot number is an admin setting; refresh it at most every 5 minutes.
+export const revalidate = 300
+
+// wa.me needs international digits (233XXXXXXXXX).
+const toWaDigits = (n: string | null | undefined) => {
+  const sig = ghanaSignificant(n || "")
+  return sig ? "233" + sig : null
+}
+
+const waLink = (digits: string | null, text: string) =>
+  digits ? `https://wa.me/${digits}?text=${encodeURIComponent(text)}` : null
+
+async function getMainBotNumber(): Promise<string | null> {
+  try {
+    const { data } = await supabaseAdmin
+      .from("app_settings")
+      .select("whatsapp_bot_number")
+      .is("key", null)
+      .maybeSingle()
+    return toWaDigits(data?.whatsapp_bot_number)
+  } catch {
+    return null
+  }
+}
 
 const steps = [
   { icon: MessageCircle, title: "Message us", desc: "Open WhatsApp and send a message to start." },
@@ -25,7 +47,9 @@ const steps = [
   { icon: Zap, title: "Approve payment", desc: "Approve the Mobile Money prompt on your phone to complete the order." },
 ]
 
-export default function WhatsAppOrderingPage() {
+export default async function WhatsAppOrderingPage() {
+  const mainLink = waLink(await getMainBotNumber(), "Hi, I'd like to buy data")
+
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-4xl mx-auto px-4 py-16 sm:py-24">
@@ -40,8 +64,8 @@ export default function WhatsAppOrderingPage() {
             No app to install. Message us, pick a bundle, and approve the payment prompt — done in seconds.
           </p>
           <div className="mt-8 flex justify-center">
-            {CHAT_LINK ? (
-              <a href={CHAT_LINK} target="_blank" rel="noopener noreferrer">
+            {mainLink ? (
+              <a href={mainLink} target="_blank" rel="noopener noreferrer">
                 <Button size="lg" className="gap-2">
                   Chat on WhatsApp <ArrowRight className="w-4 h-4" />
                 </Button>

@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
+import { ghanaSignificant } from "@/lib/phone-format"
 
 // Force dynamic to prevent caching - announcements need fresh data
 export const dynamic = 'force-dynamic'
@@ -142,6 +143,7 @@ export async function PUT(request: NextRequest) {
     const fields = [
       'join_community_link',
       'join_group_link',
+      'whatsapp_bot_number',
       'ordering_enabled',
       'announcement_enabled',
       'announcement_title',
@@ -265,6 +267,19 @@ export async function PUT(request: NextRequest) {
         { error: `signup_default_role must be one of: ${validSignupRoles.join(', ')}` },
         { status: 400 }
       )
+    }
+
+    // Main WhatsApp bot number: store as international digits (233XXXXXXXXX),
+    // the form wa.me links need. Empty string clears it.
+    if (typeof updates.whatsapp_bot_number === "string" && updates.whatsapp_bot_number.trim() !== "") {
+      const sig = ghanaSignificant(updates.whatsapp_bot_number)
+      if (!sig) {
+        return NextResponse.json(
+          { error: "whatsapp_bot_number must be a valid Ghana mobile number" },
+          { status: 400 }
+        )
+      }
+      updates.whatsapp_bot_number = "233" + sig
     }
 
     // Validate URL format if present
