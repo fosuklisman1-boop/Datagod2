@@ -46,6 +46,15 @@ describe("validateSenderName", () => {
     expect(ok("GRA2024").ok).toBe(false)
     expect(ok("UBA1").ok).toBe(false)
   })
+  it("catches short names split by spaces", () => {
+    for (const n of ["G R A", "U B A", "G RA", "G RA PAY", "G L 0"]) expect(ok(n).ok, n).toBe(false)
+  })
+  it("space-joining does not over-block", () => {
+    for (const n of ["GRACE A", "A GLORY"]) expect(ok(n).ok, n).toBe(true)
+  })
+  it("folds 6 and 9 to G", () => {
+    for (const n of ["6RA", "DATA6OD", "EC6"]) expect(ok(n).ok, n).toBe(false)
+  })
   it("normalises whitespace characters", () => expect(ok("KINGS\tSHOP\n")).toEqual({ ok: true, name: "KINGS SHOP" }))
   it("accepts exactly 3 and 11 characters", () => {
     expect(ok("ABC").ok).toBe(true)

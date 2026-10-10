@@ -14,7 +14,7 @@ export function normalizeSenderName(raw: string): string {
 
 const squash = (s: string) => s.replace(/\s+/g, "").toUpperCase()
 
-const DIGIT_TO_LETTER: Record<string, string> = { "0": "O", "3": "E", "4": "A", "5": "S", "7": "T", "8": "B" }
+const DIGIT_TO_LETTER: Record<string, string> = { "0": "O", "3": "E", "4": "A", "5": "S", "6": "G", "7": "T", "8": "B", "9": "G" }
 
 /** Map look-alike digits to letters; `one` decides what "1" becomes (I or L). */
 function foldDigits(s: string, one: "I" | "L"): string {
@@ -27,7 +27,13 @@ function foldDigits(s: string, one: "I" | "L"): string {
  *    since they occur inside real words ("GRACE", "GLORY").
  *  - 3 chars or fewer without one (MTN, ECG, GCB, CBG): substring, since they essentially
  *    never occur in genuine words ("MYMTNDEALS", "ECGPAY" are blocked). E is deliberately
- *    not counted as a vowel here so that ECG is treated as a vowel-less abbreviation. */
+ *    not counted as a vowel here so that ECG is treated as a vowel-less abbreviation.
+ *
+ *  Each rule is applied to three variants of the name: as typed, and with look-alike digits
+ *  folded to letters (0→O 3→E 4→A 5→S 6→G 7→T 8→B 9→G, and 1→I or 1→L since "1" is ambiguous).
+ *  "Whole word" candidates for a variant are: its space-separated parts split at letter/digit
+ *  transitions ("GRA2024" has the word GRA), plus 2-3 adjacent parts joined together
+ *  ("G RA PAY" has the word GRA). */
 function protectedHit(name: string, protectedNames: string[]): string | null {
   // Digit-for-letter evasion: check the name as-is and with digits folded to letters.
   // "1" is ambiguous (I or L), so both foldings are tried. Protected names get the same
@@ -39,7 +45,12 @@ function protectedHit(name: string, protectedNames: string[]): string | null {
     const wholeWordOnly = pf.length <= 3 && /[AIOU]/.test(pf)
     for (const v of variants) {
       // Letter/digit transitions count as word boundaries ("GRA2024" has the word GRA).
-      const words = v.split(" ").flatMap((w) => w.match(/[A-Z]+|[0-9]+/g) ?? [])
+      const parts = v.split(" ")
+      const words = parts.flatMap((w) => w.match(/[A-Z]+|[0-9]+/g) ?? [])
+      // Also treat 2-3 adjacent space-separated parts joined together as a word ("G RA" → GRA).
+      for (let i = 0; i < parts.length; i++) {
+        for (let j = i + 1; j < Math.min(parts.length, i + 3); j++) words.push(parts.slice(i, j + 1).join(""))
+      }
       if (wholeWordOnly ? words.includes(pf) : squash(v).includes(pf)) return p
     }
   }
