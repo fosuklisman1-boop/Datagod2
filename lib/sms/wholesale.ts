@@ -33,23 +33,50 @@ export async function maxObservedHubtelRate(days = 7): Promise<number | null> {
   return Number.isFinite(v) && v > 0 ? v : null
 }
 
+const RATE_CACHE_MS = 5 * 60_000
+let rateCache: { at: number; value: number | null } | null = null
+
+/** Test helper: drop the in-process observed-rate cache. */
+export function resetObservedRateCache(): void { rateCache = null }
+
+/** maxObservedHubtelRate cached in-process for 5 minutes; only successful lookups (incl. null) are cached. */
+async function cachedMaxObservedRate(): Promise<number | null> {
+  if (rateCache && Date.now() - rateCache.at < RATE_CACHE_MS) return rateCache.value
+  const value = await maxObservedHubtelRate()
+  rateCache = { at: Date.now(), value }
+  return value
+}
+
+/** Segments of messages queued but not yet sent (and not refunded) — already-sold supply. Throws on error. */
+async function queuedUnsentUnits(): Promise<number> {
+  const { data, error } = await supabaseAdmin.rpc("sms_queued_unsent_units")
+  if (error) throw new Error(`backlog lookup failed: ${error.message}`)
+  const n = Number(data)
+  if (data === null || data === undefined || !Number.isFinite(n) || n < 0) throw new Error(`backlog lookup returned ${String(data)}`)
+  return n
+}
+
 export async function getWholesaleCredits(): Promise<number> {
   try {
     const routing = await getRoutingConfig()
     if (routing.primary !== "hubtel" || !hubtelConfigFromEnv()) return await queryMoolreSmsBalance()
 
-    const bal = await fetchDisbursementBalance()
+    const [bal, observed, queuedUnsent] = await Promise.all([
+      fetchDisbursementBalance(), cachedMaxObservedRate(), queuedUnsentUnits(),
+    ])
     if (!bal.ok) {
       console.error("[SMS-WHOLESALE] Hubtel balance unavailable — failing closed:", bal.error)
+      notifyAdminsThrottled("sms_hubtel_balance_unavailable", "Hubtel balance check failing",
+        `SMS credit sales are paused: ${bal.error}. Check the relay (/balance), HUBTEL_DISBURSEMENT_ACCOUNT and the IP whitelist.`).catch(() => {})
       return 0
     }
     const settings = await loadSmsSettings()
-    if (bal.amountGhs < settings.hubtelLowBalanceGhs) {
+    if (bal.amountGhs < settings.hubtelLowBalanceGhs || bal.amountGhs <= 0) {
       notifyAdminsThrottled("sms_hubtel_low_balance", "Hubtel SMS balance low",
         `Hubtel Disbursement balance is GH₵${bal.amountGhs.toFixed(2)} (alert below GH₵${settings.hubtelLowBalanceGhs}). Top it up to keep selling SMS credits.`).catch(() => {})
     }
-    const rate = (await maxObservedHubtelRate()) ?? settings.hubtelCostPerSms
-    return backedCredits(bal.amountGhs, rate)
+    const rate = observed ?? settings.hubtelCostPerSms
+    return Math.max(0, backedCredits(bal.amountGhs, rate) - queuedUnsent)
   } catch (e: any) {
     console.error("[SMS-WHOLESALE] supply unknown — failing closed:", e?.message ?? e)
     return 0
