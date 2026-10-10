@@ -159,3 +159,31 @@ describe("extractLinkHosts", () => {
     expect(extractLinkHosts("https://evil.ru/x and https://evil.ru/y")).toEqual(["evil.ru"])
   })
 })
+describe("extractLinkHosts — bypass hardening", () => {
+  const cases: Array<[string, string, string[]]> = [
+    ["backslash after scheme host", "https://evil.com\\.datagod.store", ["evil.com"]],
+    ["trailing bang", "Shop now at https://kings.datagod.store!", ["kings.datagod.store"]],
+    ["trailing dot", "Visit https://datagod.store.", ["datagod.store"]],
+    ["port", "https://datagod.store:8443/x", ["datagod.store"]],
+    ["userinfo", "https://datagod.store@evil.com", ["evil.com"]],
+    ["long bare run keeps whole host", "datagod.store.evil.ru/x", ["datagod.store.evil.ru"]],
+    ["semicolon", "Visit evil.com; thanks", ["evil.com"]],
+    ["ru tld", "Go to evil.ru now", ["evil.ru"]],
+    ["uppercase non-word tld", "BUY AT EVIL.COM", ["evil.com"]],
+    ["sentence boundary Top", "Hurry now.Top up today", []],
+    ["sentence boundary Shop", "Great offer.Shop now", []],
+    ["lowercase word tld", "visit kings.shop now", ["kings.shop"]],
+    ["lowercase word tld run is a link (pinned trade-off)", "now.top up", ["now.top"]],
+  ]
+  for (const [name, input, expected] of cases) {
+    it(name, () => expect(extractLinkHosts(input)).toEqual(expected))
+  }
+})
+
+describe("filterSmsContent — scheme host parsing", () => {
+  it("does not flag an allowed domain followed by punctuation", () => {
+    const r = filterSmsContent("https://datagod.app!", { allowedDomains: ["datagod.app"] })
+    expect(r.blocked).toBe(false)
+    expect(r.flagged).toBe(false)
+  })
+})
