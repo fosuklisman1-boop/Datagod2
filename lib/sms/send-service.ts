@@ -3,6 +3,7 @@ import { prepareSmsMessage, type ShopTokens } from "./prepare"
 import { filterSmsContent } from "./content-filter"
 import { calculateSegments } from "./segments"
 import { sendSMSBulkViaMoolre } from "@/lib/sms-service"
+import { resolveCampaignSender, shadowPolicy } from "./policy-context"
 
 // One Moolre bulk call carries up to this many recipients; 500-recipient sends
 // fan out into a few sequential calls, all within the send request.
@@ -74,22 +75,11 @@ export async function enqueueSend(
     return { ok: false, error: "TOO_MANY_RECIPIENTS" }
   }
 
-  // 1b. Resolve the chosen sender ID (before any debit). It must be one of THIS
-  //     account's own ACTIVE sender IDs (spec §3: "campaigns may only select an
-  //     active sender ID"). Omitted → null → the platform default at send time.
-  let resolvedSenderId: string | null = null
-  if (senderId && senderId.trim()) {
-    const sid = senderId.trim().toUpperCase()
-    const { data: active } = await supabaseAdmin
-      .from("sms_sender_ids")
-      .select("sender_id")
-      .eq("sms_account_id", accountId)
-      .eq("sender_id", sid)
-      .or("local_status.eq.active,mnotify_local_status.eq.active")
-      .maybeSingle()
-    if (!active) return { ok: false, error: "INVALID_SENDER_ID" }
-    resolvedSenderId = sid
-  }
+  // 1b. Resolve the chosen sender (before any debit): own ACTIVE IDs only (paused/revoked
+  //     never resolve), or a pool name for business accounts. Omitted → platform default.
+  const sender = await resolveCampaignSender(accountId, senderId)
+  if (!sender) return { ok: false, error: "INVALID_SENDER_ID" }
+  const resolvedSenderId: string | null = sender.name
 
   // 2. Prepare message (token substitution + strip undeliverable chars).
   let prepared: string
@@ -105,6 +95,10 @@ export async function enqueueSend(
     return { ok: false, error: "EMPTY_MESSAGE" }
   }
 
+  // 2b. Send policy — RECORD-ONLY in Phase 1 (spec §5.3): the would-be decision is stored
+  //     on the send log; the send proceeds exactly as before.
+  const { mode, shadow } = await shadowPolicy({ accountId, sender, recipientCount: recipients.length, message: prepared })
+
   // 3. Content filter (on the SAME text that will be billed + sent). Blocked → cost 0, audit row.
   const filterResult = filterSmsContent(prepared)
   const seg = calculateSegments(prepared).segments
@@ -119,6 +113,8 @@ export async function enqueueSend(
       status: "blocked",
       flagged: true,
       flag_reason: filterResult.reason ?? "blocked",
+      mode,
+      policy_shadow: shadow,
     })
     return { ok: false, error: "BLOCKED", reason: filterResult.reason }
   }
@@ -169,6 +165,8 @@ export async function enqueueSend(
         status: "queued",
         flagged: filterResult.flagged,
         flag_reason: filterResult.flagged ? (filterResult.reason ?? null) : null,
+        mode,
+        policy_shadow: shadow,
       })
       .select("id")
       .single()

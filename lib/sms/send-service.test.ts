@@ -117,6 +117,18 @@ vi.mock("@supabase/supabase-js", () => ({ createClient: () => h.fake }))
 // Mock the Moolre bulk sender (the instant dispatch path).
 vi.mock("@/lib/sms-service", () => ({ sendSMSBulkViaMoolre: (...args: any[]) => (h.bulkMock as (...a: any[]) => any)(...args) }))
 
+// Sender resolution + policy shadow live in ./policy-context (tested separately);
+// h.state.senderRow keeps driving which senders resolve.
+vi.mock("./policy-context", () => ({
+  resolveCampaignSender: (_acct: string, sid?: string | null) => {
+    const s = (sid ?? "").trim().toUpperCase()
+    if (!s) return Promise.resolve({ kind: "platform", name: null, kycFree: false })
+    const row = h.state.senderRow
+    return Promise.resolve(row && row.local_status === "active" ? { kind: "own", name: s, kycFree: true } : null)
+  },
+  shadowPolicy: () => Promise.resolve({ mode: "platform", shadow: { decision: "allow", code: "OK", reason: "", flags: [], enforced: false, evaluated_at: "t" } }),
+}))
+
 import { enqueueSend } from "./send-service"
 
 beforeEach(() => {
@@ -286,11 +298,28 @@ describe("enqueueSend", () => {
     expect(inserts("sms_messages")).toHaveLength(0)
   })
 
-  it("senderId active on mNotify only (pending on Moolre) → accepted, debit proceeds", async () => {
+  it("senderId active on mNotify only (pending locally) → INVALID_SENDER_ID, no debit (local_status is canonical)", async () => {
     h.state.senderRow = { local_status: "pending", mnotify_local_status: "active" }
     const result = await enqueueSend("u1", "acc1", "Hello world", ["0241234567"], undefined, "myshop")
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toBe("INVALID_SENDER_ID")
+    expect(rpcs().map((c) => c.fn)).not.toContain("debit_sms_for_send")
+  })
+
+  it("queued send log records mode + policy_shadow (record-only)", async () => {
+    const result = await enqueueSend("u1", "acc1", "Hello world", ["0241234567"])
     expect(result.ok).toBe(true)
-    expect(rpcs().some((c) => c.fn === "debit_sms_for_send")).toBe(true)
+    const logRow = (() => { const i = inserts("sms_send_logs")[0]; return Array.isArray(i.args) ? i.args[0] : i.args })()
+    expect(logRow.mode).toBe("platform")
+    expect(logRow.policy_shadow).toMatchObject({ decision: "allow", enforced: false })
+  })
+
+  it("blocked send log also records mode + policy_shadow", async () => {
+    await enqueueSend("u1", "acc1", "Congratulations, you have won a prize!", ["0241234567"])
+    const logRow = (() => { const i = inserts("sms_send_logs")[0]; return Array.isArray(i.args) ? i.args[0] : i.args })()
+    expect(logRow.status).toBe("blocked")
+    expect(logRow.mode).toBe("platform")
+    expect(logRow.policy_shadow).toBeTruthy()
   })
 
   it("senderId pending on BOTH providers → still INVALID_SENDER_ID, no debit", async () => {
