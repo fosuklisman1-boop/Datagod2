@@ -37,7 +37,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
   if (body?.action === "retry_mode") {
     const r = await retryKycModeChange(adminId, id)
-    if (!r.ok) return NextResponse.json({ success: false, error: r.error }, { status: 500 })
+    if (!r.ok) return NextResponse.json({ success: false, error: r.error }, { status: r.status ?? 500 })
     return NextResponse.json({ success: true, data: r.data })
   }
   if (body?.action === "reject") {
@@ -45,5 +45,5 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!r.ok) return NextResponse.json({ success: false, error: r.error }, { status: 400 })
     return NextResponse.json({ success: true, data: toPublicKyc(r.data) })
   }
-  return NextResponse.json({ success: false, error: "action must be approve or reject" }, { status: 400 })
+  return NextResponse.json({ success: false, error: "action must be approve, reject or retry_mode" }, { status: 400 })
 }

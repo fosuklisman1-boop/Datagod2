@@ -347,6 +347,34 @@ describe("review fixes", () => {
     expect(profiles().find((p) => p.id === "stale")!.ghana_card_doc_path).toBeNull()
   })
 
+  it("stale-draft purge: a path changed since the select (concurrent upload) leaves everything untouched", async () => {
+    h.state.files.add("s/old.png"); h.state.files.add("s/new.png")
+    profiles().push({ id: "d", status: "draft", ghana_card_doc_path: "s/old.png", registration_doc_path: null, updated_at: "2026-10-01T00:00:00Z" })
+    // the row changes right before the guarded update runs
+    h.state.onUpdate = () => { profiles()[0].ghana_card_doc_path = "s/new.png"; profiles()[0].updated_at = "2026-11-19T00:00:00Z"; h.state.onUpdate = null }
+    expect(await purgeKycDocuments(new Date("2026-11-20T00:00:00Z"))).toEqual({ purged: 0, errors: 0 })
+    expect(h.state.files.size).toBe(2)
+    expect(profiles()[0].ghana_card_doc_path).toBe("s/new.png")
+  })
+
+  it("stale-draft purge: submitted in between leaves the row and files untouched", async () => {
+    h.state.files.add("s/a.png")
+    profiles().push({ id: "d", status: "draft", ghana_card_doc_path: "s/a.png", registration_doc_path: null, updated_at: "2026-10-01T00:00:00Z" })
+    h.state.onUpdate = () => { profiles()[0].status = "submitted"; h.state.onUpdate = null }
+    expect(await purgeKycDocuments(new Date("2026-11-20T00:00:00Z"))).toEqual({ purged: 0, errors: 0 })
+    expect(h.state.files.has("s/a.png")).toBe(true)
+    expect(profiles()[0].ghana_card_doc_path).toBe("s/a.png")
+  })
+
+  it("stale-draft purge: storage failure after clearing is counted, id-only log", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    profiles().push({ id: "d", status: "draft", ghana_card_doc_path: "s/a.png", registration_doc_path: null, updated_at: "2026-10-01T00:00:00Z" })
+    h.state.removeError = "nope"
+    expect(await purgeKycDocuments(new Date("2026-11-20T00:00:00Z"))).toEqual({ purged: 0, errors: 1 })
+    expect(JSON.stringify(spy.mock.calls)).not.toContain("s/a.png")
+    spy.mockRestore()
+  })
+
   it("purge counts storage failures and logs ids only", async () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {})
     profiles().push({ id: "old", status: "approved", ghana_card_doc_path: "a/old.png", registration_doc_path: null, docs_purge_after: "2026-11-10T00:00:00Z" })
@@ -454,13 +482,18 @@ describe("retryKycModeChange", () => {
     await tick()
     expect(h.state.notifs).toHaveLength(1)
   })
-  it("is a no-op when already business", async () => {
+  it("re-runs setAccountMode even when the mode is already business (unpauses leftovers) and notifies", async () => {
     approved()
     h.state.tables.sms_accounts[0].mode = "business"
     expect((await retryKycModeChange("admin1", "a1")).ok).toBe(true)
-    expect(h.state.modeCalls).toHaveLength(0)
+    expect(h.state.modeCalls).toEqual([["admin1", "acct1", "business"]])
     await tick()
-    expect(h.state.notifs).toHaveLength(0)
+    expect(h.state.notifs).toHaveLength(1)
+  })
+  it("maps not-found and wrong-status to statuses", async () => {
+    expect(await retryKycModeChange("admin1", "nope")).toMatchObject({ ok: false, status: 404 })
+    profiles().push({ id: "d1", sms_account_id: "acct1", status: "submitted", created_at: "2026-01-01" })
+    expect(await retryKycModeChange("admin1", "d1")).toMatchObject({ ok: false, status: 400 })
   })
   it("surfaces a failing mode change without notifying", async () => {
     approved()

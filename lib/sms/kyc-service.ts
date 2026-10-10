@@ -27,7 +27,7 @@ export interface KycProfile {
 export type PublicKyc = Omit<KycProfile, "ghana_card_doc_path" | "registration_doc_path"> & {
   has_ghana_card_doc: boolean; has_registration_doc: boolean
 }
-type Result<T> = { ok: true; data: T } | { ok: false; error: string; fields?: Record<string, string> }
+type Result<T> = { ok: true; data: T } | { ok: false; error: string; fields?: Record<string, string>; status?: number }
 /** Minimal File shape (a DOM File satisfies it) so the service is testable without multipart. */
 export interface UploadedFile { type: string; size: number; arrayBuffer(): Promise<ArrayBuffer> }
 
@@ -219,10 +219,9 @@ export async function retryKycModeChange(adminId: string | null, profileId: stri
   if (!adminId) return NO_ADMIN
   const { data: p, error } = await supabaseAdmin.from("sms_business_profiles").select("id, sms_account_id, status").eq("id", profileId).maybeSingle()
   if (error) { console.error("[SMS-KYC] retry load failed:", error.message); return { ok: false, error: TRY_AGAIN } }
-  if (!p) return { ok: false, error: "Application not found." }
-  if (p.status !== "approved") return { ok: false, error: "Only approved applications can have their mode change retried." }
-  const { data: acct } = await supabaseAdmin.from("sms_accounts").select("mode").eq("id", p.sms_account_id).maybeSingle()
-  if (acct?.mode === "business") return { ok: true, data: { mode: "business" } }
+  if (!p) return { ok: false, error: "Application not found.", status: 404 }
+  if (p.status !== "approved") return { ok: false, error: "Only approved applications can have their mode change retried.", status: 400 }
+  // Always re-run: setAccountMode is idempotent and also unpauses sender IDs still paused.
   const mode = await setAccountMode(adminId, p.sms_account_id, "business")
   if (!mode.ok) return { ok: false, error: mode.error }
   notifyAccountOwner(p.sms_account_id, "Business verified",
@@ -244,10 +243,27 @@ export async function purgeKycDocuments(now = new Date()): Promise<{ purged: num
   const stale = await supabaseAdmin.from("sms_business_profiles")
     .select("id, ghana_card_doc_path, registration_doc_path").eq("status", "draft")
     .lt("updated_at", new Date(now.getTime() - PURGE_AFTER_MS).toISOString()).or(HAS_DOC).limit(200)
+  const cutoff = new Date(now.getTime() - PURGE_AFTER_MS).toISOString()
   for (const res of [decided, stale]) {
     if (res.error) { errors++; console.error("[SMS-KYC] purge select failed:", res.error.message); continue }
+    const isStaleDrafts = res === stale
     for (const row of (res.data ?? []) as PurgeRow[]) {
       const paths = [row.ghana_card_doc_path, row.registration_doc_path].filter((p): p is string => !!p)
+      if (isStaleDrafts) {
+        // Clear the paths FIRST, guarded on the exact state we read, so a concurrent upload or submit
+        // wins and its files are never deleted. Files are removed only if this update matched.
+        const base = supabaseAdmin.from("sms_business_profiles").update({ ghana_card_doc_path: null, registration_doc_path: null })
+          .eq("id", row.id).eq("status", "draft").lt("updated_at", cutoff)
+        const g = row.ghana_card_doc_path ? base.eq("ghana_card_doc_path", row.ghana_card_doc_path) : base.is("ghana_card_doc_path", null)
+        const guarded = row.registration_doc_path ? g.eq("registration_doc_path", row.registration_doc_path) : g.is("registration_doc_path", null)
+        const { data: cleared, error: clrErr } = await guarded.select("id")
+        if (clrErr) { errors++; console.error(`[SMS-KYC] purge db update failed for profile ${row.id}:`, clrErr.message); continue }
+        if (!cleared || cleared.length === 0) continue // changed since we read it — leave it alone
+        const { error: rmErr } = await supabaseAdmin.storage.from(BUCKET).remove(paths)
+        if (rmErr) { errors++; console.error(`[SMS-KYC] purge storage remove failed for profile ${row.id} (files orphaned):`, rmErr.message); continue }
+        purged++
+        continue
+      }
       const { error } = await supabaseAdmin.storage.from(BUCKET).remove(paths)
       if (error) { errors++; console.error(`[SMS-KYC] purge storage remove failed for profile ${row.id}:`, error.message); continue }
       const { error: upErr } = await supabaseAdmin.from("sms_business_profiles").update({ ghana_card_doc_path: null, registration_doc_path: null }).eq("id", row.id)
