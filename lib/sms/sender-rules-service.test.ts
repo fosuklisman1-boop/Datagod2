@@ -6,17 +6,9 @@ const h = vi.hoisted(() => {
     tables: {} as Record<string, Row[]>,
     audit: [] as any[],
     raceActive: null as null | ((row: Row) => void), // runs just before an update, to simulate a concurrent writer
+    failWrite: null as null | ((table: string, payload: Row) => string | null), // returns an error message to fail that update
     seq: 0,
   }
-  const matchOr = (row: Row, expr: string) =>
-    expr.split(",").some((c) => {
-      const [col, op, ...rest] = c.split(".")
-      const val = rest.join(".")
-      if (op === "is") return val === "null" ? row[col] == null : false
-      if (op === "neq") return row[col] != null && row[col] !== val ? true : row[col] == null ? false : false
-      if (op === "eq") return row[col] === val
-      return false
-    })
   function builder(table: string) {
     let op: "select" | "update" | "insert" = "select"
     let payload: Row = {}
@@ -43,6 +35,8 @@ const h = vi.hoisted(() => {
         return { data: returning ? [{ ...row }] : null, error: null }
       }
       // update
+      const injected = state.failWrite?.(table, payload)
+      if (injected) return { data: null, error: { message: injected } }
       const out: Row[] = []
       for (const r of matched) {
         state.raceActive?.(r)
@@ -74,7 +68,6 @@ const h = vi.hoisted(() => {
       single: () => { const r = run(); return Promise.resolve({ data: r.error ? null : (r.data?.[0] ?? null), error: r.error ?? (r.data?.[0] ? null : { message: "no row" }) }) },
       then: (res: any, rej: any) => Promise.resolve(run()).then(res, rej),
     }
-    void matchOr
     return api
   }
   return { state, fake: { from: (t: string) => builder(t) } }
@@ -102,14 +95,15 @@ const find = (id: string) => T("sms_sender_ids").find((r) => r.id === id)!
 beforeEach(() => {
   h.state.tables = {
     sms_accounts: [
-      { id: "P", mode: "platform", default_sender_id: null },
-      { id: "B", mode: "business", default_sender_id: null },
-      { id: "O", mode: "business", default_sender_id: null },
+      { id: "P", mode: "platform", default_sender_id: null, user_id: "uP" },
+      { id: "B", mode: "business", default_sender_id: null, user_id: "uB" },
+      { id: "O", mode: "business", default_sender_id: null, user_id: "uO" },
     ],
     sms_sender_ids: [],
   }
   h.state.audit = []
   h.state.raceActive = null
+  h.state.failWrite = null
 })
 
 describe("senderLimitFor", () => {
@@ -315,6 +309,122 @@ describe("setAccountMode", () => {
     T("sms_sender_ids").push(sid("a", "ONE", "B", "active"), sid("b", "TWO", "B", "active"), sid("zz", "OTHER", "O", "active"))
     await setAccountMode("admin1", "B", "platform")
     expect(find("zz").local_status).toBe("active")
+  })
+})
+
+describe("legacy provider fields on re-open", () => {
+  it("clears pushed_at/status fields and resets mnotify_local_status so pollers can never pick the row up", async () => {
+    T("sms_sender_ids").push(sid("a", "ACME", "B", "revoked", {
+      moolre_pushed_at: "2026-01-01", mnotify_pushed_at: "2026-01-01", moolre_status: "ASMQ02", mnotify_status: "Approved", mnotify_local_status: "active",
+    }))
+    const r = await requestSenderId("B", "acme")
+    expect(r.ok && r.data.local_status).toBe("pending")
+    expect(find("a")).toMatchObject({
+      moolre_pushed_at: null, mnotify_pushed_at: null, moolre_status: null, mnotify_status: null, mnotify_local_status: "pending",
+    })
+  })
+  it("re-opening a revoked name that is now active elsewhere gives the friendly error and changes nothing", async () => {
+    T("sms_sender_ids").push(sid("a", "ACME", "B", "revoked"), sid("z", "ACME", "O", "active"))
+    const r = await requestSenderId("B", "ACME")
+    expect(!r.ok && r.error).toMatch(/already in use/)
+    expect(find("a").local_status).toBe("revoked")
+  })
+})
+
+describe("approve when the mode changed since the request", () => {
+  it("row requested in business (not kyc_free), account now platform → kyc_free true", async () => {
+    T("sms_sender_ids").push(sid("a", "ACME", "P", "pending", { kyc_free: false }))
+    const r = await approveSenderIdRequest("admin1", "a")
+    expect(r.ok && r.data.kyc_free).toBe(true)
+    expect(find("a").kyc_free).toBe(true)
+  })
+})
+
+describe("audit rows", () => {
+  it("approve carries name, account, previous status and the owner's user id", async () => {
+    T("sms_sender_ids").push(sid("a", "ACME", "B", "pending"))
+    await approveSenderIdRequest("admin1", "a")
+    const [adminId, action, target, oldV, newV] = h.state.audit[0]
+    expect([adminId, action, target]).toEqual(["admin1", "sms_sender_approve", "uB"])
+    expect(oldV).toMatchObject({ sender_id: "ACME", sms_account_id: "B", status: "pending" })
+    expect(newV).toMatchObject({ sender_id: "ACME", status: "active" })
+  })
+  it("reject and revoke target the owner and record the previous status", async () => {
+    T("sms_sender_ids").push(sid("a", "ONE", "B", "pending"), sid("bb", "TWO", "B", "paused"))
+    await rejectSenderIdRequest("admin1", "a", "bad name")
+    await revokeSenderId("admin1", "bb", "abuse")
+    expect(h.state.audit[0].slice(1, 3)).toEqual(["sms_sender_reject", "uB"])
+    expect(h.state.audit[0][3]).toMatchObject({ sender_id: "ONE", status: "pending" })
+    expect(h.state.audit[1].slice(1, 3)).toEqual(["sms_sender_revoke", "uB"])
+    expect(h.state.audit[1][3]).toMatchObject({ sender_id: "TWO", status: "paused" })
+  })
+  it("mode change targets the owner and records the previous mode", async () => {
+    await setAccountMode("admin1", "B", "platform")
+    expect(h.state.audit[0].slice(1, 3)).toEqual(["sms_account_mode", "uB"])
+    expect(h.state.audit[0][3]).toMatchObject({ mode: "business" })
+  })
+})
+
+describe("setAccountMode failure handling", () => {
+  const three = () => T("sms_sender_ids").push(sid("a", "ONE", "B", "active"), sid("bb", "TWO", "B", "active"), sid("ccc", "THREE", "B", "active"))
+  const acct = () => T("sms_accounts").find((a) => a.id === "B")!
+
+  it("unknown account", async () => {
+    expect(await setAccountMode("admin1", "ZZ", "platform")).toEqual({ ok: false, error: "SMS account not found" })
+  })
+  it("→ platform: failing to mark the free id aborts before anything else; mode unchanged", async () => {
+    three()
+    h.state.failWrite = (_t, p) => (p.kyc_free === true ? "boom" : null)
+    const r = await setAccountMode("admin1", "B", "platform")
+    expect(!r.ok && r.error).toMatch(/mark the free sender ID \(boom\).*Applied: nothing.*Mode is business/)
+    expect(acct().mode).toBe("business")
+    expect(find("bb").local_status).toBe("active")
+    expect(h.state.audit[0][4]).toMatchObject({ failure: expect.stringContaining("boom"), modeApplied: false })
+  })
+  it("→ platform: failing to pause aborts; mode unchanged", async () => {
+    three()
+    h.state.failWrite = (_t, p) => (p.local_status === "paused" ? "pause-fail" : null)
+    const r = await setAccountMode("admin1", "B", "platform")
+    expect(!r.ok && r.error).toMatch(/pause extra sender IDs \(pause-fail\).*free sender ID marked.*Mode is business/)
+    expect(acct().mode).toBe("business")
+  })
+  it("→ platform: failing to repoint the default leaves extras paused and mode unchanged (safe direction)", async () => {
+    three()
+    acct().default_sender_id = "bb"
+    h.state.failWrite = (t, p) => (t === "sms_accounts" && "default_sender_id" in p ? "def-fail" : null)
+    const r = await setAccountMode("admin1", "B", "platform")
+    expect(!r.ok && r.error).toMatch(/repoint the default sender ID \(def-fail\).*2 sender ID\(s\) paused.*Mode is business/)
+    expect(find("bb").local_status).toBe("paused")
+    expect(acct().mode).toBe("business")
+  })
+  it("→ platform: failing to set the mode reports the paused ids and still audits", async () => {
+    three()
+    h.state.failWrite = (t, p) => (t === "sms_accounts" && "mode" in p ? "mode-fail" : null)
+    const r = await setAccountMode("admin1", "B", "platform")
+    expect(!r.ok && r.error).toMatch(/set account mode \(mode-fail\).*2 sender ID\(s\) paused.*Mode is business/)
+    expect(find("bb").local_status).toBe("paused")
+    expect(acct().mode).toBe("business")
+    expect(h.state.audit[0][4]).toMatchObject({ paused: 2, modeApplied: false })
+  })
+  it("→ platform: success sets mode last and counts paused from returned rows", async () => {
+    three()
+    const r = await setAccountMode("admin1", "B", "platform")
+    expect(r).toEqual({ ok: true, data: { mode: "platform", unpaused: 0, paused: 2, conflicts: [] } })
+  })
+  it("→ business: failing to set the mode aborts before any unpause", async () => {
+    T("sms_sender_ids").push(sid("a", "ONE", "P", "active", { kyc_free: true }), sid("bb", "TWO", "P", "paused"))
+    h.state.failWrite = (t, p) => (t === "sms_accounts" && "mode" in p ? "mode-fail" : null)
+    const r = await setAccountMode("admin1", "P", "business")
+    expect(!r.ok && r.error).toMatch(/set account mode \(mode-fail\).*Applied: nothing.*Mode is platform/)
+    expect(find("bb").local_status).toBe("paused")
+  })
+  it("→ business: a non-conflict unpause failure is reported with what was applied", async () => {
+    T("sms_sender_ids").push(sid("a", "ONE", "P", "active", { kyc_free: true }), sid("bb", "TWO", "P", "paused"))
+    h.state.failWrite = (t, p) => (t === "sms_sender_ids" && p.local_status === "active" ? "unpause-fail" : null)
+    const r = await setAccountMode("admin1", "P", "business")
+    expect(!r.ok && r.error).toMatch(/unpause a sender ID \(unpause-fail\).*mode set to business.*Mode is business/)
+    expect(find("bb").local_status).toBe("paused")
+    expect(h.state.audit[0][4]).toMatchObject({ modeApplied: true, failure: expect.stringContaining("unpause-fail") })
   })
 })
 

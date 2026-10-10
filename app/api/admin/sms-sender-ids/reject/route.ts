@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
-import { rejectSenderId } from "@/lib/sms/sender-id-service"
+import { rejectSenderId, getById } from "@/lib/sms/sender-id-service"
+import { rejectSenderIdRequest } from "@/lib/sms/sender-rules-service"
 
 // POST /api/admin/sms-sender-ids/reject — { id, provider: "moolre" | "mnotify" | "both" }
 export async function POST(request: NextRequest) {
   const auth = await verifyAdminAccess(request)
   if (!auth.isAdmin) return auth.errorResponse!
 
-  let body: { id?: string; provider?: string }
+  let body: { id?: string; provider?: string; reason?: string }
   try {
     body = await request.json()
   } catch {
@@ -18,6 +19,13 @@ export async function POST(request: NextRequest) {
       { success: false, error: "id and provider ('moolre' | 'mnotify' | 'both') are required" },
       { status: 400 }
     )
+  }
+
+  const owned = await getById(body.id)
+  if (owned?.sms_account_id) {
+    const r = await rejectSenderIdRequest(auth.userId ?? null, body.id, body.reason?.trim() || "Rejected by admin")
+    if (!r.ok) return NextResponse.json({ success: false, error: r.error }, { status: 400 })
+    return NextResponse.json({ success: true, data: r.data })
   }
 
   const result = await rejectSenderId(body.id, body.provider as "moolre" | "mnotify" | "both")

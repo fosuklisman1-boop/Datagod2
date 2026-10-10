@@ -116,7 +116,7 @@ export async function submitSenderId(
   return { ok: true, data: { row: row as SmsSenderId } }
 }
 
-async function getById(id: string): Promise<SmsSenderId | null> {
+export async function getById(id: string): Promise<SmsSenderId | null> {
   const { data } = await supabaseAdmin.from("sms_sender_ids").select("*").eq("id", id).maybeSingle()
   return (data as SmsSenderId | null) ?? null
 }
@@ -174,13 +174,14 @@ export async function fetchSenderIdStatus(
     patch.last_polled_at = new Date().toISOString()
     if (!isSentinel) {
       patch.moolre_status = rawStatus
-      patch.local_status = localStatus
+      // Tenant sender approval is ours (sender-rules-service); a provider status must never activate it.
+      if (row.sms_account_id == null) patch.local_status = localStatus
     }
   } else {
     patch.mnotify_last_polled_at = new Date().toISOString()
     if (!isSentinel) {
       patch.mnotify_status = rawStatus
-      patch.mnotify_local_status = localStatus
+      if (row.sms_account_id == null) patch.mnotify_local_status = localStatus
     }
   }
 
@@ -248,6 +249,7 @@ export async function pollSenderIds(): Promise<ServiceResult<PollSummary>> {
     .from("sms_sender_ids")
     .select("id, sender_id, local_status")
     .eq("local_status", "pending")
+    .is("sms_account_id", null)
     .not("moolre_pushed_at", "is", null)
 
   if (moolreErr) return { ok: false, error: moolreErr.message }
@@ -256,6 +258,7 @@ export async function pollSenderIds(): Promise<ServiceResult<PollSummary>> {
     .from("sms_sender_ids")
     .select("id, sender_id, mnotify_local_status")
     .eq("mnotify_local_status", "pending")
+    .is("sms_account_id", null)
     .not("mnotify_pushed_at", "is", null)
 
   if (mnotifyErr) return { ok: false, error: mnotifyErr.message }

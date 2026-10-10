@@ -301,6 +301,24 @@ describe("fetchSenderIdStatus", () => {
     expect(updated?.moolre_status).toBe("ASMQ05")
     expect(updated?.last_polled_at).not.toBeNull()
   })
+
+  it("never writes local_status / mnotify_local_status for a tenant-owned row", async () => {
+    const row = seedRow({ sms_account_id: "acct1", moolre_pushed_at: "x", mnotify_pushed_at: "x" })
+    await fetchSenderIdStatus(row.id, "moolre")
+    await fetchSenderIdStatus(row.id, "mnotify")
+    const updated = h.state.table.find((r) => r.id === row.id)
+    expect(updated).toMatchObject({ local_status: "pending", mnotify_local_status: "pending", moolre_status: "ASMQ02" })
+  })
+})
+
+describe("pollSenderIds tenant rows", () => {
+  it("skips tenant-owned rows on both providers", async () => {
+    const t = seedRow({ sender_id: "TENANT", sms_account_id: "acct1", moolre_pushed_at: "x", mnotify_pushed_at: "x" })
+    await pollSenderIds()
+    expect(h.queryMoolreSenderIdStatus).not.toHaveBeenCalled()
+    expect(h.queryMnotifySenderIdStatus).not.toHaveBeenCalled()
+    expect(h.state.table.find((r) => r.id === t.id)).toMatchObject({ local_status: "pending", mnotify_local_status: "pending" })
+  })
 })
 
 describe("rejectSenderId / approveSenderId", () => {
