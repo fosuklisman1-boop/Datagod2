@@ -102,6 +102,14 @@ describe("resolveCampaignSender", () => {
     expect(await resolveCampaignSender("a1", "nobody")).toBeNull()
   })
 
+  it("account read error on the pool path → null, no throw", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    h.state.tables.sms_accounts = { data: null, error: { message: "acct down" } }
+    await expect(resolveCampaignSender("a1", "poolname")).resolves.toBeNull()
+    expect(spy).toHaveBeenCalled()
+    spy.mockRestore()
+  })
+
   it("own-row read error is logged and treated as not found", async () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {})
     h.state.tables.sms_sender_ids = { data: null, error: { message: "boom" } }
@@ -145,6 +153,16 @@ describe("shadowPolicy", () => {
     const r = await shadowPolicy(args)
     expect(r.mode).toBeNull()
     expect((r.shadow as any).error).toMatch(/usage down/)
+    expect((r.shadow as any).decision).toBeUndefined()
+    spy.mockRestore()
+  })
+
+  it("users role read error → error shadow, not a false ROLE_NOT_ALLOWED", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    h.state.tables.users = { data: null, error: { message: "users down" } }
+    const r = await shadowPolicy(args)
+    expect(r.mode).toBeNull()
+    expect((r.shadow as any).error).toMatch(/users down/)
     expect((r.shadow as any).decision).toBeUndefined()
     spy.mockRestore()
   })

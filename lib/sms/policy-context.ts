@@ -52,7 +52,8 @@ export async function loadAccountSnapshot(accountId: string): Promise<AccountSna
     .select("mode, status, owner_type, review_hold, user_id").eq("id", accountId).maybeSingle()
   if (error) throw new Error(`sms_accounts read failed: ${error.message}`)
   if (!a) return null
-  const { data: u } = await supabaseAdmin.from("users").select("role").eq("id", a.user_id).maybeSingle()
+  const { data: u, error: uErr } = await supabaseAdmin.from("users").select("role").eq("id", a.user_id).maybeSingle()
+  if (uErr) throw new Error(`users read failed: ${uErr.message}`)
   return {
     mode: (a.mode as SmsMode) ?? "platform",
     status: a.status,
@@ -76,8 +77,13 @@ export async function resolveCampaignSender(accountId: string, senderId?: string
   // A transient read error is treated as "not found" (as before) but logged.
   if (ownErr) console.error("[SMS-POLICY] own sender lookup failed:", ownErr.message)
   if (own) return { kind: "own", name: sid, kycFree: !!(own as { kyc_free?: boolean }).kyc_free }
-  const [settings, account] = await Promise.all([loadSmsSettings(), loadAccountSnapshot(accountId)])
-  if (account?.mode === "business" && settings.senderPool.includes(sid)) return { kind: "pool", name: sid, kycFree: false }
+  try {
+    const [settings, account] = await Promise.all([loadSmsSettings(), loadAccountSnapshot(accountId)])
+    if (account?.mode === "business" && settings.senderPool.includes(sid)) return { kind: "pool", name: sid, kycFree: false }
+  } catch (e) {
+    // No new throw path before the debit: behave as before (unresolvable → INVALID_SENDER_ID).
+    console.error("[SMS-POLICY] pool sender lookup failed:", e)
+  }
   return null
 }
 
