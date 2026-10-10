@@ -46,7 +46,7 @@ vi.mock("@supabase/supabase-js", () => ({
 }))
 
 // Import AFTER mock registration
-import { parseRoutingConfig, setRoutingConfig, invalidateRoutingCache } from "./routing"
+import { parseRoutingConfig, setRoutingConfig, invalidateRoutingCache, narrowProvidersForSender } from "./routing"
 
 describe("parseRoutingConfig", () => {
   it("returns primary + fallbacks from settings rows", () => {
@@ -133,5 +133,33 @@ describe("setRoutingConfig", () => {
     const res = await setRoutingConfig({})
     expect(res.ok).toBe(false)
     expect((res as { error: string }).error).toMatch(/No routing fields/)
+  })
+})
+
+describe("hubtel routing", () => {
+  it("accepts hubtel as primary", () => {
+    expect(parseRoutingConfig([{ key: "sms_primary_provider", value: "hubtel" }]).primary).toBe("hubtel")
+  })
+  it("accepts hubtel as a fallback", () => {
+    expect(parseRoutingConfig([{ key: "sms_fallback_providers", value: ["hubtel"] }]).fallbacks).toEqual(["hubtel"])
+  })
+})
+
+describe("narrowProvidersForSender", () => {
+  const active = { local_status: "active", mnotify_local_status: "pending" }
+  it("no custom sender -> unchanged", () => {
+    expect(narrowProvidersForSender(["hubtel", "moolre", "mnotify"], null, false)).toEqual(["hubtel", "moolre", "mnotify"])
+  })
+  it("custom sender with hubtel leading -> hubtel only (fallback gateways never registered it)", () => {
+    expect(narrowProvidersForSender(["hubtel", "moolre", "mnotify"], active, true)).toEqual(["hubtel"])
+  })
+  it("custom sender with moolre leading keeps today's narrowing, hubtel allowed for local active", () => {
+    expect(narrowProvidersForSender(["moolre", "mnotify", "hubtel"], active, true)).toEqual(["moolre", "hubtel"])
+  })
+  it("unknown sender row leaves the order alone", () => {
+    expect(narrowProvidersForSender(["moolre", "mnotify"], null, true)).toEqual(["moolre", "mnotify"])
+  })
+  it("mnotify-only approval keeps mnotify", () => {
+    expect(narrowProvidersForSender(["moolre", "mnotify"], { local_status: "pending", mnotify_local_status: "active" }, true)).toEqual(["mnotify"])
   })
 })

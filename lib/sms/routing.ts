@@ -11,7 +11,7 @@
 
 import { createClient } from "@supabase/supabase-js"
 
-const VALID_PROVIDERS = ["moolre", "mnotify", "brevo"] as const
+const VALID_PROVIDERS = ["moolre", "mnotify", "brevo", "hubtel"] as const
 type Provider = (typeof VALID_PROVIDERS)[number]
 
 export interface RoutingConfig {
@@ -58,6 +58,26 @@ export function parseRoutingConfig(rows: SettingRow[]): RoutingConfig {
   }
 
   return { primary, fallbacks }
+}
+
+/**
+ * Narrow a provider chain for a CUSTOM sender ID. Sender approval is ours (local_status);
+ * Hubtel passes any sender through, the fallback gateways only accept IDs registered with
+ * them. Once Hubtel leads, custom senders go via Hubtel only (spec §5.4).
+ */
+export function narrowProvidersForSender(
+  order: string[],
+  senderRow: { local_status: string | null; mnotify_local_status: string | null } | null,
+  hasCustomSender: boolean
+): string[] {
+  if (!hasCustomSender) return order
+  if (order[0] === "hubtel") return ["hubtel"]
+  if (!senderRow) return order
+  const approved = new Set<string>()
+  if (senderRow.local_status === "active") { approved.add("moolre"); approved.add("hubtel") }
+  if (senderRow.mnotify_local_status === "active") approved.add("mnotify")
+  const narrowed = order.filter((p) => approved.size === 0 || approved.has(p))
+  return narrowed.length > 0 ? narrowed : order
 }
 
 // ---------------------------------------------------------------------------

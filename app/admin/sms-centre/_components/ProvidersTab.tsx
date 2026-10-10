@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner"
 import { Loader2, Plus, RefreshCw, Wallet, AlertTriangle } from "lucide-react"
 
-const PROVIDERS = ["moolre", "mnotify", "brevo"] as const
+const PROVIDERS = ["hubtel", "moolre", "mnotify", "brevo"] as const
 type Provider = (typeof PROVIDERS)[number]
 
 interface Routing {

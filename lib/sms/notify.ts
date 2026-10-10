@@ -73,3 +73,26 @@ export async function notifyAdminSmsShortfall(unitsPending: number): Promise<voi
     console.error("[SMS-NOTIFY] Unexpected error in notifyAdminSmsShortfall:", error)
   }
 }
+
+/** Throttled in-app alert to every admin. `type` doubles as the throttle key. Never throws. */
+export async function notifyAdminsThrottled(type: string, title: string, message: string, actionUrl = "/admin/sms", throttleMs = THROTTLE_MS): Promise<void> {
+  try {
+    const since = new Date(Date.now() - throttleMs).toISOString()
+    const { data: recent } = await supabaseAdmin.from("notifications").select("id").eq("type", type).gte("created_at", since).limit(1)
+    if (recent && recent.length > 0) return
+    const { data: admins } = await supabaseAdmin.from("users").select("id").eq("role", "admin")
+    if (!admins?.length) return
+    const now = new Date().toISOString()
+    const { error } = await supabaseAdmin.from("notifications").insert(
+      admins.map((a: { id: string }) => ({ user_id: a.id, title, message, type, read: false, action_url: actionUrl, created_at: now, updated_at: now }))
+    )
+    if (error) console.error(`[SMS-NOTIFY] ${type} insert failed:`, error.message)
+  } catch (e) {
+    console.error(`[SMS-NOTIFY] ${type} failed:`, e)
+  }
+}
+
+export function notifyHubtelOutOfFunds(): Promise<void> {
+  return notifyAdminsThrottled("sms_hubtel_out_of_funds", "Hubtel SMS out of funds",
+    "Hubtel refused an SMS for lack of funds. Top up the Hubtel Disbursement account — queued messages retry automatically.")
+}

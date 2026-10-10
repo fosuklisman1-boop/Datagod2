@@ -1,7 +1,8 @@
 import axios from 'axios'
 import { createClient } from '@supabase/supabase-js'
 import { notifyAdmins as sendAdminEmail } from './email-service'
-import { getRoutingConfig } from '@/lib/sms/routing'
+import { getRoutingConfig, narrowProvidersForSender } from '@/lib/sms/routing'
+import { hubtelConfigFromEnv, hubtelSendSingle } from '@/lib/sms/providers/hubtel'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -753,16 +754,61 @@ async function sendSMSViaMNotify(payload: SMSPayload): Promise<SendSMSResponse> 
   }
 }
 
+/** Default "From" on Hubtel when no custom sender is chosen. Same brand as the Moolre default. */
+export function platformSenderName(): string {
+  return process.env.HUBTEL_SENDER_ID || process.env.MOOLRE_SENDER_ID || 'CLINGDTGOD'
+}
+
+/** Single SMS via Hubtel (spec §5.4). Logs to sms_logs like the other providers
+ *  (moolre_message_id column is reused for the provider message id, as Brevo does).
+ *  Outcome "unknown" (Hubtel may have accepted) is treated as SENT: never fail over,
+ *  or an OTP/receipt could arrive twice. */
+async function sendSMSViaHubtel(payload: SMSPayload): Promise<SendSMSResponse> {
+  const cfg = hubtelConfigFromEnv()
+  if (!cfg) return { success: false, error: 'Hubtel not configured', provider: 'hubtel' }
+  const from = payload.senderId?.trim() ? payload.senderId.trim().toUpperCase() : platformSenderName()
+  const res = await hubtelSendSingle(cfg, { from, to: payload.phone, content: payload.message })
+  if (res.outcome === 'out_of_funds') {
+    import('@/lib/sms/notify').then((m) => m.notifyHubtelOutOfFunds()).catch(() => {})
+  }
+  if (res.outcome !== 'accepted' && res.outcome !== 'unknown') {
+    console.warn('[SMS] Hubtel send failed:', res.error)
+    return { success: false, error: res.error ?? 'Hubtel send failed', provider: 'hubtel' }
+  }
+  if (res.outcome === 'unknown') {
+    console.warn('[SMS] Hubtel outcome unknown — may have been sent, not failing over:', res.error)
+  }
+  if (!payload.skipLogging) {
+    try {
+      await supabase.from('sms_logs').insert({
+        user_id: payload.userId || null,
+        phone_number: payload.phone,
+        message: logSafeSmsBody(payload),
+        message_type: payload.type,
+        reference_id: payload.reference || null,
+        moolre_message_id: res.outcome === 'accepted' ? (res.messageId ?? null) : null,
+        provider: 'hubtel',
+        status: 'sent',
+      })
+    } catch (logError) {
+      console.warn('[SMS] Failed to log SMS:', logError)
+    }
+  }
+  return { success: true, messageId: res.outcome === 'accepted' ? res.messageId : undefined, provider: 'hubtel' }
+}
+
 const SMS_SENDERS: Record<string, (p: SMSPayload) => Promise<SendSMSResponse>> = {
   moolre: sendSMSViaMoolre,
   brevo: sendSMSViaBrevo,
   mnotify: sendSMSViaMNotify,
+  hubtel: sendSMSViaHubtel,
 }
 
 function isProviderConfigured(name: string): boolean {
   if (name === 'moolre') return !!MOOLRE_API_KEY
   if (name === 'brevo') return !!BREVO_API_KEY
   if (name === 'mnotify') return !!MNOTIFY_API_KEY
+  if (name === 'hubtel') return !!hubtelConfigFromEnv()
   return false
 }
 
@@ -826,23 +872,16 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
   order = [...new Set(order)].filter((p) => SMS_SENDERS[p] && isProviderConfigured(p))
   if (order.length === 0) order = [primaryProvider] // last resort — let it surface its own error
 
-  // A custom (non-default) sender ID may be approved on only one provider.
-  // Drop any provider from the chain that hasn't approved THIS sender ID,
-  // rather than attempting it and getting a provider-side rejection.
+  // Custom sender IDs: approval is ours; narrow the chain to gateways that accept it.
   if (payload.senderId && payload.senderId.trim()) {
     const sid = payload.senderId.trim().toUpperCase()
     const { data: senderRow } = await supabase
       .from('sms_sender_ids')
       .select('local_status, mnotify_local_status')
       .eq('sender_id', sid)
+      .eq('local_status', 'active')
       .maybeSingle()
-    if (senderRow) {
-      const approvedProviders = new Set<string>()
-      if (senderRow.local_status === 'active') approvedProviders.add('moolre')
-      if (senderRow.mnotify_local_status === 'active') approvedProviders.add('mnotify')
-      const narrowed = order.filter((p) => approvedProviders.size === 0 || approvedProviders.has(p))
-      if (narrowed.length > 0) order = narrowed
-    }
+    order = narrowProvidersForSender(order, senderRow ?? null, true)
   }
 
   let last: SendSMSResponse = { success: false, error: 'No SMS provider available' }
