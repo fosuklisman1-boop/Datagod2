@@ -1862,6 +1862,7 @@ Check the file for a label map keyed by provider (e.g. `moolre: "Moolre"`); if p
 > **Amendments (after Task 7 review):**
 > 1. Outcome `"unknown"` (Hubtel may have accepted): push the chunk to `sent` with `mid: null, bid: null`, log a warning, and continue. Never fall back to Moolre and never leave it pending (both would double-send). The DLR poller's 72 h close refunds it if it never shows delivered. Add a test: unknown on a platform-sender chunk → in `sent`, Moolre not called.
 > 2. Mark rows sent **per chunk**, not after all chunks: `dispatchCampaign(items, senderId, onChunkSent?)` where `onChunkSent: (provider: string, rows: SentRow[]) => Promise<void>` is awaited after each accepted / unknown / fallback chunk (errors inside it are caught and logged by dispatchCampaign). `enqueueSend` passes its `mark` function as `onChunkSent` and no longer marks after the loop (keep `result` for the first-batch id update). A Vercel timeout mid-campaign then leaves only truly unsent rows pending. Test that onChunkSent is called once per placed chunk with the right provider.
+> 3. Rows placed with outcome `unknown` carry no Hubtel ids, so the DLR poller can't confirm them and the 72 h close refunds them. Make them visible: `DispatchResult` gains `unconfirmed: string[]` (row ids), and after marking, `enqueueSend` sets `last_error = "hubtel_unconfirmed"` on those rows (one `.update().in()` per chunk). Admins can then count them; a spike means a Hubtel outage.
 
 **Files:**
 - Create: `lib/sms/campaign-dispatch.ts`, `lib/sms/campaign-dispatch.test.ts`
