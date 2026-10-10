@@ -187,3 +187,25 @@ describe("filterSmsContent — scheme host parsing", () => {
     expect(r.flagged).toBe(false)
   })
 })
+describe("extractLinkHosts — round-2 hardening", () => {
+  const cases: Array<[string, string, string[]]> = [
+    ["backslash before @ is not userinfo", "https://evil.com\\@datagod.store", ["evil.com"]],
+    ["all-caps word TLD is a link", "BUY AT EVIL.SHOP", ["evil.shop"]],
+    ["all-caps hyphenated word TLD is a link", "VERIFY-MOMO.TOP now", ["verify-momo.top"]],
+    ["Title-case word TLD, two labels, is prose", "now.Top up", []],
+    ["Title-case Shop is prose", "Great offer.Shop now", []],
+    ["lowercase word TLD stays a link", "now.top up", ["now.top"]],
+    ["Kings.Shop is prose (pinned known cost)", "Kings.Shop", []],
+    ["ideographic full stop is normalised", "https://datagod.store。evil。com", ["datagod.store.evil.com"]],
+    ["scheme host plus bare host in query", "https://kings.datagod.store/buy?ref=kofi.me", ["kings.datagod.store", "kofi.me"]],
+    ["underscore does not hide a host", "Visit_evil.com", ["evil.com"]],
+    ["emails stay rejected", "a@b.com", []],
+  ]
+  for (const [name, input, expected] of cases) {
+    it(name, () => {
+      const got = extractLinkHosts(input)
+      if (name.startsWith("ideographic")) expect(got).toContain(expected[0])
+      else expect(got).toEqual(expected)
+    })
+  }
+})
