@@ -3,7 +3,7 @@ import { prepareSmsMessage, type ShopTokens } from "./prepare"
 import { filterSmsContent } from "./content-filter"
 import { calculateSegments } from "./segments"
 import { sendSMSBulkViaMoolre } from "@/lib/sms-service"
-import { resolveCampaignSender, shadowPolicy } from "./policy-context"
+import { resolveCampaignSender, shadowPolicyWithin } from "./policy-context"
 
 // One Moolre bulk call carries up to this many recipients; 500-recipient sends
 // fan out into a few sequential calls, all within the send request.
@@ -97,12 +97,15 @@ export async function enqueueSend(
 
   // 2b. Send policy — RECORD-ONLY in Phase 1 (spec §5.3): the would-be decision is stored
   //     on the send log; the send proceeds exactly as before.
-  const { mode, shadow } = await shadowPolicy({ accountId, sender, recipientCount: recipients.length, message: prepared })
+  //     Started now but awaited only where the log inserts need it (capped at 1.5 s), so
+  //     it overlaps the filter, phone validation and the debit.
+  const shadowPromise = shadowPolicyWithin({ accountId, sender, recipientCount: recipients.length, message: prepared })
 
   // 3. Content filter (on the SAME text that will be billed + sent). Blocked → cost 0, audit row.
   const filterResult = filterSmsContent(prepared)
   const seg = calculateSegments(prepared).segments
   if (filterResult.blocked) {
+    const { mode, shadow } = await shadowPromise
     await supabaseAdmin.from("sms_send_logs").insert({
       sms_account_id: accountId,
       message,
@@ -152,6 +155,7 @@ export async function enqueueSend(
   let sendLogId = ""
   const inserted: { id: string; phone: string }[] = []
   try {
+    const { mode, shadow } = await shadowPromise // never rejects (shadowPolicyWithin catches)
     const { data: logData, error: logError } = await supabaseAdmin
       .from("sms_send_logs")
       .insert({

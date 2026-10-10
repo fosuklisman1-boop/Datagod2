@@ -27,31 +27,30 @@ let domainCache: { at: number; value: string[] } | null = null
 /** datagod.store (+ subdomains via isOwnDomain) and every active custom domain. 5-min cache. */
 export async function loadOwnDomains(): Promise<string[]> {
   if (domainCache && Date.now() - domainCache.at < 5 * 60_000) return domainCache.value
-  const { data } = await supabaseAdmin.from("custom_domains").select("domain").eq("is_active", true)
+  const { data, error } = await supabaseAdmin.from("custom_domains").select("domain").eq("is_active", true)
+  if (error) throw new Error(`custom_domains read failed: ${error.message}`) // never cache a failed read
   const value = [PLATFORM_ROOT_DOMAIN, ...((data ?? []) as { domain: string | null }[]).map((r) => (r.domain ?? "").toLowerCase()).filter(Boolean)]
   domainCache = { at: Date.now(), value }
   return value
 }
 
 /** Sends in the last hour and recipients in the last 24 h (blocked sends don't count). */
-export async function loadUsage(accountId: string, now = Date.now()): Promise<PolicyUsage> {
-  const hourAgo = new Date(now - 3_600_000).toISOString()
-  const dayAgo = new Date(now - 86_400_000).toISOString()
-  const [hour, day] = await Promise.all([
-    supabaseAdmin.from("sms_send_logs").select("id", { count: "exact", head: true })
-      .eq("sms_account_id", accountId).neq("status", "blocked").gte("created_at", hourAgo),
-    supabaseAdmin.from("sms_send_logs").select("recipients_count")
-      .eq("sms_account_id", accountId).neq("status", "blocked").gte("created_at", dayAgo),
-  ])
-  const recipientsLast24h = ((day.data ?? []) as { recipients_count: number | null }[])
-    .reduce((s, r) => s + (r.recipients_count ?? 0), 0)
-  return { sendsLastHour: hour.count ?? 0, recipientsLast24h }
+export async function loadUsage(accountId: string): Promise<PolicyUsage> {
+  const { data, error } = await supabaseAdmin.rpc("sms_account_usage", { p_account_id: accountId })
+  if (error) throw new Error(`sms_account_usage failed: ${error.message}`)
+  const row = (Array.isArray(data) ? data[0] : data) as
+    { sends_last_hour?: number | string | null; recipients_last_24h?: number | string | null } | null | undefined
+  return {
+    sendsLastHour: Number(row?.sends_last_hour ?? 0),
+    recipientsLast24h: Number(row?.recipients_last_24h ?? 0), // bigint may arrive as a string
+  }
 }
 
 export interface AccountSnapshot { mode: SmsMode; status: string; ownerType: string; reviewHold: boolean; audience: string }
 export async function loadAccountSnapshot(accountId: string): Promise<AccountSnapshot | null> {
-  const { data: a } = await supabaseAdmin.from("sms_accounts")
+  const { data: a, error } = await supabaseAdmin.from("sms_accounts")
     .select("mode, status, owner_type, review_hold, user_id").eq("id", accountId).maybeSingle()
+  if (error) throw new Error(`sms_accounts read failed: ${error.message}`)
   if (!a) return null
   const { data: u } = await supabaseAdmin.from("users").select("role").eq("id", a.user_id).maybeSingle()
   return {
@@ -71,9 +70,11 @@ export async function loadAccountSnapshot(accountId: string): Promise<AccountSna
 export async function resolveCampaignSender(accountId: string, senderId?: string | null): Promise<PolicySender | null> {
   const sid = (senderId ?? "").trim().toUpperCase()
   if (!sid) return { kind: "platform", name: null, kycFree: false }
-  const { data: own } = await supabaseAdmin.from("sms_sender_ids")
+  const { data: own, error: ownErr } = await supabaseAdmin.from("sms_sender_ids")
     .select("sender_id, kyc_free").eq("sms_account_id", accountId).eq("sender_id", sid)
     .eq("local_status", "active").maybeSingle()
+  // A transient read error is treated as "not found" (as before) but logged.
+  if (ownErr) console.error("[SMS-POLICY] own sender lookup failed:", ownErr.message)
   if (own) return { kind: "own", name: sid, kycFree: !!(own as { kyc_free?: boolean }).kyc_free }
   const [settings, account] = await Promise.all([loadSmsSettings(), loadAccountSnapshot(accountId)])
   if (account?.mode === "business" && settings.senderPool.includes(sid)) return { kind: "pool", name: sid, kycFree: false }
@@ -100,5 +101,26 @@ export async function shadowPolicy(args: {
   } catch (e) {
     console.error("[SMS-POLICY] shadow evaluation failed:", e)
     return { mode: null, shadow: { error: String((e as Error)?.message ?? e), evaluated_at: new Date().toISOString() } }
+  }
+}
+
+export const SHADOW_TIMEOUT_MS = 1500
+
+/** shadowPolicy raced against a deadline, so a slow policy read can't delay a send. Never throws. */
+export async function shadowPolicyWithin(
+  args: Parameters<typeof shadowPolicy>[0],
+  ms = SHADOW_TIMEOUT_MS,
+): ReturnType<typeof shadowPolicy> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<Awaited<ReturnType<typeof shadowPolicy>>>((resolve) => {
+    timer = setTimeout(
+      () => resolve({ mode: null, shadow: { error: "timeout", evaluated_at: new Date().toISOString() } }),
+      ms,
+    )
+  })
+  try {
+    return await Promise.race([shadowPolicy(args), timeout])
+  } finally {
+    if (timer) clearTimeout(timer)
   }
 }
