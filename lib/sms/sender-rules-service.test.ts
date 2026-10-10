@@ -202,9 +202,21 @@ describe("approveSenderIdRequest", () => {
   })
   it("platform mode: marks kyc_free true", async () => {
     T("sms_sender_ids").push(sid("a", "ACME", "P", "pending"))
-    await approveSenderIdRequest(null, "a")
+    await approveSenderIdRequest("admin1", "a")
     expect(find("a").kyc_free).toBe(true)
-    expect(h.state.audit).toHaveLength(0) // no audit without an admin id
+  })
+  it.each([null, ""])("refuses a missing admin id (%j) and changes nothing", async (adm) => {
+    T("sms_sender_ids").push(sid("a", "ACME", "B", "pending"), sid("bb", "LIVE", "B", "active"))
+    const refused = { ok: false, error: "Admin user required" }
+    expect(await approveSenderIdRequest(adm as any, "a")).toEqual(refused)
+    expect(await rejectSenderIdRequest(adm as any, "a", "some reason")).toEqual(refused)
+    expect(await revokeSenderId(adm as any, "bb")).toEqual(refused)
+    expect(await setAccountMode(adm as any, "B", "platform")).toEqual(refused)
+    expect(await setApiRateLimitOverride(adm as any, "B", 5)).toEqual(refused)
+    expect(find("a").local_status).toBe("pending")
+    expect(find("bb").local_status).toBe("active")
+    expect(T("sms_accounts").find((x) => x.id === "B")!.mode).toBe("business")
+    expect(T("sms_accounts").find((x) => x.id === "B")!.api_rate_limit_override).toBeUndefined()
   })
   it("platform mode: refuses when another sender is already active", async () => {
     T("sms_sender_ids").push(sid("a", "ONE", "P", "active"), sid("b", "TWO", "P", "pending"))

@@ -24,7 +24,8 @@ export async function POST(request: NextRequest) {
   // Tenant-owned rows are approved by our own rules, never by a provider override.
   const owned = await getById(body.id)
   if (owned?.sms_account_id) {
-    const r = await approveSenderIdRequest(auth.userId ?? null, body.id)
+    if (!auth.userId) return NextResponse.json({ success: false, error: "Admin user required" }, { status: 403 })
+    const r = await approveSenderIdRequest(auth.userId, body.id)
     if (!r.ok) return NextResponse.json({ success: false, error: r.error }, { status: 400 })
     return NextResponse.json({ success: true, data: r.data })
   }

@@ -23,7 +23,8 @@ export async function POST(request: NextRequest) {
 
   const owned = await getById(body.id)
   if (owned?.sms_account_id) {
-    const r = await rejectSenderIdRequest(auth.userId ?? null, body.id, body.reason?.trim() || "Rejected by admin")
+    if (!auth.userId) return NextResponse.json({ success: false, error: "Admin user required" }, { status: 403 })
+    const r = await rejectSenderIdRequest(auth.userId,body.id, body.reason?.trim() || "Rejected by admin")
     if (!r.ok) return NextResponse.json({ success: false, error: r.error }, { status: 400 })
     return NextResponse.json({ success: true, data: r.data })
   }

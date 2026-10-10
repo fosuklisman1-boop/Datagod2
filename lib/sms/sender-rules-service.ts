@@ -49,7 +49,9 @@ async function activeElsewhere(name: string, accountId: string): Promise<boolean
 }
 
 const isUniqueViolation = (e: { code?: string } | null) => e?.code === "23505"
-const IN_USE = "That sender ID is already in use by another account."
+/** Every tenant sender-ID / mode decision must be attributable to an admin user. */
+const NO_ADMIN = { ok: false, error: "Admin user required" } as const
+const IN_USE ="That sender ID is already in use by another account."
 
 /** Audit row targeting the account owner. Never throws; skipped without an admin id. */
 async function audit(adminId: string | null, action: string, accountId: string | null, oldValue: unknown, newValue: unknown): Promise<void> {
@@ -117,6 +119,7 @@ async function getRow(id: string): Promise<SenderRow | null> {
 }
 
 export async function approveSenderIdRequest(adminId: string | null, id: string): Promise<Result<SenderRow>> {
+  if (!adminId) return NO_ADMIN
   const row = await getRow(id)
   if (!row || !row.sms_account_id) return { ok: false, error: "Sender ID not found" }
   if (row.local_status !== "pending") return { ok: false, error: `Only pending requests can be approved (this one is ${row.local_status}).` }
@@ -146,6 +149,7 @@ export async function approveSenderIdRequest(adminId: string | null, id: string)
 }
 
 export async function rejectSenderIdRequest(adminId: string | null, id: string, reason: string): Promise<Result<SenderRow>> {
+  if (!adminId) return NO_ADMIN
   const why = (reason ?? "").trim()
   if (why.length < 3) return { ok: false, error: "A rejection reason is required." }
   const { data, error } = await supabaseAdmin.from("sms_sender_ids")
@@ -161,6 +165,7 @@ export async function rejectSenderIdRequest(adminId: string | null, id: string, 
 }
 
 export async function revokeSenderId(adminId: string | null, id: string, reason?: string): Promise<Result<SenderRow>> {
+  if (!adminId) return NO_ADMIN
   const before = await getRow(id)
   const now = new Date().toISOString()
   const { data, error } = await supabaseAdmin.from("sms_sender_ids")
@@ -187,6 +192,7 @@ type ModeResult = Result<{ mode: SmsMode; unpaused: number; paused: number; conf
  *  → business: set mode first, then unpause one by one.
  */
 export async function setAccountMode(adminId: string | null, accountId: string, mode: SmsMode): Promise<ModeResult> {
+  if (!adminId) return NO_ADMIN
   const acct = await accountInfo(accountId)
   if (!acct) return { ok: false, error: "SMS account not found" }
   const { data: rowsData, error: rowsErr } = await supabaseAdmin.from("sms_sender_ids")
@@ -254,6 +260,7 @@ export async function setAccountMode(adminId: string | null, accountId: string, 
 }
 
 export async function setApiRateLimitOverride(adminId: string | null, accountId: string, value: number | null): Promise<Result<{ api_rate_limit_override: number | null }>> {
+  if (!adminId) return NO_ADMIN
   if (value !== null && !(Number.isInteger(value) && value >= 1 && value <= 10_000)) {
     return { ok: false, error: "Rate limit must be a whole number from 1 to 10,000 (or empty for the default)." }
   }
