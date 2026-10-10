@@ -59,7 +59,10 @@ async function queuedUnsentUnits(): Promise<number> {
 export async function getWholesaleCredits(): Promise<number> {
   try {
     const routing = await getRoutingConfig()
-    if (routing.primary !== "hubtel" || !hubtelConfigFromEnv()) return await queryMoolreSmsBalance()
+    if (routing.primary !== "hubtel" || !hubtelConfigFromEnv()) {
+      const [moolre, queued] = await Promise.all([queryMoolreSmsBalance(), queuedUnsentUnits()])
+      return Math.max(0, moolre - queued)
+    }
 
     const [bal, observed, queuedUnsent] = await Promise.all([
       fetchDisbursementBalance(), cachedMaxObservedRate(), queuedUnsentUnits(),
@@ -78,7 +81,10 @@ export async function getWholesaleCredits(): Promise<number> {
     const rate = observed ?? settings.hubtelCostPerSms
     return Math.max(0, backedCredits(bal.amountGhs, rate) - queuedUnsent)
   } catch (e: any) {
-    console.error("[SMS-WHOLESALE] supply unknown — failing closed:", e?.message ?? e)
+    const message = String(e?.message ?? e)
+    console.error("[SMS-WHOLESALE] supply unknown — failing closed:", message)
+    notifyAdminsThrottled("sms_wholesale_supply_unknown", "SMS supply check failing",
+      `SMS credit sales are paused: ${message}. Check the database and the Hubtel/Moolre balance sources.`).catch(() => {})
     return 0
   }
 }

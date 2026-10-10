@@ -7,7 +7,7 @@ const h = vi.hoisted(() => ({
   routingThrows: false,
   backlog: 0 as unknown, backlogError: null as unknown,
   calls: [] as { m: string; args: unknown[] }[],
-  queries: 0,
+  queries: 0, lowThreshold: 50,
 }))
 vi.mock("./routing", () => ({
   getRoutingConfig: () => (h.routingThrows ? Promise.reject(new Error("db down")) : Promise.resolve({ primary: h.primary, fallbacks: [] })),
@@ -15,7 +15,7 @@ vi.mock("./routing", () => ({
 vi.mock("./providers/hubtel", () => ({ hubtelConfigFromEnv: () => h.hubtelCfg }))
 vi.mock("@/lib/ussd-hubtel/relay", () => ({ fetchDisbursementBalance: () => Promise.resolve(h.balance) }))
 vi.mock("@/lib/sms-service", () => ({ queryMoolreSmsBalance: () => Promise.resolve(h.moolre) }))
-vi.mock("./platform-settings", () => ({ loadSmsSettings: () => Promise.resolve({ hubtelCostPerSms: 0.035, hubtelLowBalanceGhs: 50 }) }))
+vi.mock("./platform-settings", () => ({ loadSmsSettings: () => Promise.resolve({ hubtelCostPerSms: 0.035, hubtelLowBalanceGhs: h.lowThreshold }) }))
 vi.mock("./notify", () => ({
   notifyAdminsThrottled: (type: string, _t: string, message: string) => { h.alerts.push({ type, message }); return Promise.resolve() },
 }))
@@ -44,7 +44,7 @@ import { backedCredits, getWholesaleCredits, resetObservedRateCache } from "./wh
 beforeEach(() => {
   h.primary = "hubtel"; h.hubtelCfg = {}; h.balance = { ok: true, amountGhs: 35 }; h.observed = null
   h.observedError = null; h.routingThrows = false; h.alerts = []; h.backlog = 0; h.backlogError = null
-  h.calls = []; h.queries = 0
+  h.calls = []; h.queries = 0; h.lowThreshold = 50
   resetObservedRateCache()
   vi.spyOn(console, "error").mockImplementation(() => {})
 })
@@ -127,6 +127,7 @@ describe("getWholesaleCredits", () => {
     expect(h.alerts.map(a => a.type)).toContain("sms_hubtel_low_balance")
   })
   it("alerts on a zero balance even if the threshold were 0", async () => {
+    h.lowThreshold = 0
     h.balance = { ok: true, amountGhs: 0 }
     expect(await getWholesaleCredits()).toBe(0)
     expect(h.alerts.map(a => a.type)).toContain("sms_hubtel_low_balance")
@@ -139,6 +140,24 @@ describe("getWholesaleCredits", () => {
   it("moolre primary: Moolre wholesale credits", async () => {
     h.primary = "moolre"
     expect(await getWholesaleCredits()).toBe(900)
+  })
+  it("moolre path subtracts the queued backlog", async () => {
+    h.primary = "moolre"; h.backlog = 250
+    expect(await getWholesaleCredits()).toBe(650)
+  })
+  it("moolre path: backlog above supply gives 0", async () => {
+    h.primary = "moolre"; h.backlog = 5000
+    expect(await getWholesaleCredits()).toBe(0)
+  })
+  it("moolre path: backlog error fails closed", async () => {
+    h.primary = "moolre"; h.backlogError = { message: "boom" }
+    expect(await getWholesaleCredits()).toBe(0)
+  })
+  it("alerts admins when the supply lookup fails outright", async () => {
+    h.backlogError = { message: "boom" }
+    expect(await getWholesaleCredits()).toBe(0)
+    const a = h.alerts.find(x => x.type === "sms_wholesale_supply_unknown")
+    expect(a?.message).toContain("SMS credit sales are paused: backlog lookup failed: boom")
   })
   it("routing fell back to moolre: uses the Moolre balance, no Hubtel calls", async () => {
     h.primary = "moolre"; h.balance = { ok: false, error: "x" }
