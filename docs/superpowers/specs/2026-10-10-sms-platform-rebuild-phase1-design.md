@@ -150,7 +150,8 @@ backward compatibility.
 `policy_shadow jsonb null` (record-only decision, see 5.3).
 
 **`sms_messages`**: `delivery_status` (`pending`/`delivered`/`failed`), `delivered_at`,
-`provider_message_id`, `refunded boolean not null default false`.
+`provider_message_id`, `cost_ghs numeric(8,4)`, `refunded boolean not null default false`.
+`sms_send_logs` also gains `provider_batch_id`.
 
 **Settings** (`tenant_global_settings`, jsonb values):
 `sms_feature_enabled` (bool), `sms_policy_enforced` (bool, **false** in Phase 1),
@@ -187,7 +188,8 @@ Order (first failure stops, before any debit):
    Message states when the limit resets.
 5. Content —
    - Platform: platform blocked keyword → block + fraud flag; any link not on our own domains →
-     block; built-in phishing/shortener/lookalike rules → block + fraud flag.
+     block (our domains = `datagod.store` and all its subdomains, plus every active row in
+     `custom_domains`, read live); built-in phishing/shortener/lookalike rules → block + fraud flag.
    - Business: business blocked keywords + built-in phishing rules → block + fraud flag;
      business flagged keywords → allow + info flag; suspicious link → info flag unless domain in
      business allowed list; normal links allowed.
@@ -208,23 +210,54 @@ per minute (replaces `users.rate_limit_per_min / 3`).
 
 Every rejection carries a customer-facing message stating what to change.
 
-### 5.4 Hubtel
-- `lib/sms/providers/hubtel.ts`: `sendBatch`, `getStatus`, `getBalance`. All Hubtel specifics
-  live here. Built strictly from Hubtel's SMS API docs (to be supplied); **no inferred field names**.
-- Credentials: `HUBTEL_SMS_CLIENT_ID`, `HUBTEL_SMS_CLIENT_SECRET` in Vercel env.
+### 5.4 Hubtel (built from the Hubtel SMS + Balance Query docs supplied 2026-10-10)
+`lib/sms/providers/hubtel.ts` owns every Hubtel detail:
+- **Auth:** HTTP Basic with the SMS API credentials (`HUBTEL_SMS_CLIENT_ID`,
+  `HUBTEL_SMS_CLIENT_SECRET`, Vercel env). Sends go straight from Vercel (no IP whitelist is
+  documented for `sms.hubtel.com`).
+- **Single:** `POST https://sms.hubtel.com/v1/messages/send` `{From, To, Content}`.
+- **Batch, same text:** `POST /v1/messages/batch/simple/send` `{From, Recipients[], Content}`.
+- **Batch, per-recipient text** (used whenever `{shop_*}` tokens make texts differ):
+  `POST /v1/messages/batch/personalized/send` `{From, personalizedRecipients:[{To, Content}]}`.
+- Batch responses return `batchId` and `data[]` of `{recipient, content, messageId}`; store
+  `provider_batch_id` on the send log and `provider_message_id` per message.
+- **Error trap:** Hubtel can return HTTP **201 with a non-zero body `status`** (1 invalid
+  destination, 2 invalid source/sender, 100 malformed). Success = 2xx **and** body `status === 0`.
+  HTTP 402 or body status 12 = out of funds → keep messages queued for retry + immediate admin
+  alert. 400 with 3/4/6/7/8 = permanent failure (refund).
+- **Cost:** responses/status checks carry `rate` (GH₵ per SMS); stored per message
+  (`sms_messages.cost_ghs`) for true cost/margin reporting.
+- Batch size: chunk at 100 recipients per request (conservative; docs give no limit). Revisit
+  after live testing.
 - Routing: Hubtel becomes the primary via the existing `admin_settings.sms_primary_provider`.
   Customer campaigns (today hard-wired to Moolre bulk) are rewired through routing. Fallback
   Moolre → mNotify for platform-sender messages only; custom-sender messages retry on Hubtel.
 - Hubtel made primary **only after one live test SMS** succeeds. Rollback = one setting.
 
-### 5.5 Delivery reports and refunds
-- Webhook `app/api/webhooks/hubtel-sms` (authenticity verified per Hubtel's mechanism) sets
-  `delivery_status`. Backup cron polls Hubtel for messages without a final status after ~15 min.
-- Any message ending `failed` (send-time or delivery report) is refunded **exactly once** via the
-  existing `campaign_refund` ledger reason, linked to the campaign (`refunded` flag + idempotent
-  RPC). Campaign status recomputed: Completed / Partial / Failed.
-- Solvency gate (`credit_sms_units_if_solvent`) switches its balance source to Hubtel's balance.
-  If Hubtel has no balance endpoint, decide a fallback when docs arrive (e.g. admin-entered float).
+### 5.5 Delivery status and refunds
+- Hubtel's REST API has **no delivery-report webhook** (DLRs are SMPP-only, which needs a
+  persistent socket Vercel can't hold). Instead a cron (every 2 min) polls
+  `GET /v1/messages/batch/{batchId}` for batches with non-final messages; one call returns every
+  message's status. Batches still non-final after 72 h are closed as failed (refunded).
+- Status mapping: `Delivered` → delivered; `Sent`, `Pending` → still pending; everything else
+  (`Blacklisted`, `Undeliverable/Failed`, `Unrouteable/Error`, `Rejected`, any `NACK/…`) → failed.
+- Any message ending `failed` (send-time or polled) is refunded **exactly once** via the existing
+  `campaign_refund` ledger reason, linked to the campaign (`refunded` flag + idempotent RPC).
+  Campaign status recomputed: Completed / Partial / Failed.
+
+### 5.5a Solvency gate (Hubtel Disbursement balance)
+- SMS is charged to the Hubtel **Disbursement (prepaid) account**. Its balance comes from
+  `GET https://trnf.hubtel.com/api/inter-transfers/prepaid/{HUBTEL_DISBURSEMENT_ACCOUNT}`
+  (`{responseCode:"0000", data:{amount}}`), which **only accepts whitelisted IPs** — so it is
+  called through the existing DigitalOcean relay (`scripts/hubtel-relay`, fixed whitelisted IP,
+  secret-authenticated) via a new `/balance` route. Relay stays logic-free (forward + auth only).
+- Backed credits = balance_ghs ÷ cost_per_sms, where cost_per_sms = highest `rate` observed over
+  the last 7 days (conservative), falling back to an admin setting `sms_hubtel_cost_per_sms`
+  until data exists. `credit_sms_units_if_solvent` only credits purchases while total unused
+  credits (all balances + pending) stay ≤ backed credits; otherwise the existing pending-credit
+  flow applies.
+- Admin alerts: balance below a threshold setting `sms_hubtel_low_balance_ghs`; any send
+  returning out-of-funds.
 
 ### 5.6 KYC backend
 - APIs: get/save draft, upload documents (image/PDF ≤ 5 MB, MIME-checked), submit; admin list,
@@ -274,7 +307,15 @@ Every rejection carries a customer-facing message stating what to change.
 All new UI (Phases 2–3), scheduled sends and billed order confirmations (Phase 4), changes to
 admin broadcast UI.
 
-## 9. Open items (need user input before/during build)
-- Hubtel SMS API docs + credentials (send, status/DLR callback format + authenticity, balance).
-- Our own domains for the Platform-mode link rule (default: `datagod.store` + `www.datagod.store`;
-  confirm whether shop subdomains/custom domains count).
+## 9. Open items (user action during build)
+- Resolved: Hubtel docs supplied; Platform-mode link domains = `datagod.store` (+ subdomains) and
+  custom domains.
+- **Credentials (Vercel env, never in chat):** `HUBTEL_SMS_CLIENT_ID`, `HUBTEL_SMS_CLIENT_SECRET`,
+  `HUBTEL_DISBURSEMENT_ACCOUNT`.
+- **Relay redeploy:** after the `/balance` route lands, update the droplet (`server.ts` +
+  `relay-handler.ts`) and add `HUBTEL_DISBURSEMENT_ACCOUNT` to its env; confirm with the Hubtel
+  Retail Systems Engineer that the relay IP's whitelist also covers the balance-query endpoint.
+- Confirm whether the Disbursement account is also used by other Hubtel payouts (if so, SMS
+  shares that float and the low-balance threshold should account for it).
+- Possible later addition (not in Phase 1): automatic top-up from Collection → Disbursement via
+  Hubtel's Balance Transfer API when the float runs low.
