@@ -68,7 +68,7 @@ async function fetchSmsSettings(): Promise<Record<string, unknown>> {
 }
 
 /** Write one admin_audit_log row. Fire-and-forget — never throws to the caller. */
-async function writeAuditLog(
+export async function writeAuditLog(
   adminId: string,
   action: string,
   targetUserId: string | null,

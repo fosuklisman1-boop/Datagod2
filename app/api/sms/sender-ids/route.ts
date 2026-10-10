@@ -1,7 +1,8 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
-import { listSenderIds, submitSenderId } from "@/lib/sms/sender-id-service"
+import { listSenderIds } from "@/lib/sms/sender-id-service"
+import { requestSenderId } from "@/lib/sms/sender-rules-service"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -51,7 +52,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "sender_id is required" }, { status: 400 })
   }
 
-  const result = await submitSenderId(body.sender_id, account!.id)
+  const result = await requestSenderId(account!.id, body.sender_id)
   if (!result.ok) return NextResponse.json({ success: false, error: result.error }, { status: 400 })
   return NextResponse.json({ success: true, data: result.data }, { status: 201 })
 }
