@@ -36,26 +36,50 @@ export function toPublicKyc(p: KycProfile): PublicKyc {
   return { ...rest, has_ghana_card_doc: !!ghana_card_doc_path, has_registration_doc: !!registration_doc_path }
 }
 
+const LOAD_FAILED = "Couldn't load your application, try again."
+const TRY_AGAIN = "Something went wrong, please try again."
+
+/** Latest application for an account. THROWS on a DB error — "no row" and "couldn't read" must not look alike. */
 export async function getCurrentKyc(accountId: string): Promise<KycProfile | null> {
-  const { data } = await supabaseAdmin.from("sms_business_profiles").select("*")
+  const { data, error } = await supabaseAdmin.from("sms_business_profiles").select("*")
     .eq("sms_account_id", accountId).order("created_at", { ascending: false }).limit(1).maybeSingle()
+  if (error) {
+    console.error("[SMS-KYC] failed to load application:", error.message)
+    throw new Error("KYC_LOAD_FAILED")
+  }
   return (data as KycProfile | null) ?? null
 }
 
+async function loadCurrent(accountId: string): Promise<{ ok: true; data: KycProfile | null } | { ok: false; error: string }> {
+  try { return { ok: true, data: await getCurrentKyc(accountId) } } catch { return { ok: false, error: LOAD_FAILED } }
+}
+
 /** Save (or start) a draft. A rejected application starts a fresh draft row (history kept). */
-export async function saveKycDraft(accountId: string, input: KycDraftInput): Promise<Result<KycProfile>> {
+export async function saveKycDraft(accountId: string, input: KycDraftInput, retryOnConflict = true): Promise<Result<KycProfile>> {
   const v = validateKycDraft(input)
   if (!v.ok) return { ok: false, error: "Please fix the highlighted fields.", fields: v.errors }
-  const current = await getCurrentKyc(accountId)
+  const loaded = await loadCurrent(accountId)
+  if (!loaded.ok) return loaded
+  const current = loaded.data
   if (!nextKycStatus(current?.status ?? null, "save")) {
     return { ok: false, error: current?.status === "submitted" ? "Your application is under review." : "Your business is already verified." }
   }
   const now = new Date().toISOString()
-  const q = current?.status === "draft"
-    ? supabaseAdmin.from("sms_business_profiles").update({ ...v.patch, updated_at: now }).eq("id", current.id).eq("status", "draft")
-    : supabaseAdmin.from("sms_business_profiles").insert({ ...v.patch, sms_account_id: accountId, status: "draft" })
-  const { data, error } = await q.select("*").single()
-  if (error) return { ok: false, error: error.message }
+  if (current?.status === "draft") {
+    const { data, error } = await supabaseAdmin.from("sms_business_profiles")
+      .update({ ...v.patch, updated_at: now }).eq("id", current.id).eq("status", "draft").select("*").maybeSingle()
+    if (error) { console.error("[SMS-KYC] draft update failed:", error.message); return { ok: false, error: TRY_AGAIN } }
+    if (!data) return { ok: false, error: "Your application is under review." }
+    return { ok: true, data: data as KycProfile }
+  }
+  const { data, error } = await supabaseAdmin.from("sms_business_profiles")
+    .insert({ ...v.patch, sms_account_id: accountId, status: "draft" }).select("*").single()
+  if (error) {
+    // A concurrent first save created the draft between our read and insert: re-read and update it.
+    if (error.code === "23505" && retryOnConflict) return saveKycDraft(accountId, input, false)
+    console.error("[SMS-KYC] draft insert failed:", error.message)
+    return { ok: false, error: TRY_AGAIN }
+  }
   return { ok: true, data: data as KycProfile }
 }
 
@@ -69,16 +93,27 @@ export async function uploadKycDocument(accountId: string, kind: "ghana_card" | 
   if (!matchesDocSignature(file.type, bytes)) return { ok: false, error: "That file doesn't look like a valid JPG, PNG, WEBP or PDF." }
   const draft = await saveKycDraft(accountId, {})
   if (!draft.ok) return draft
-  const path = `${accountId}/${kind}-${Date.now()}.${t.ext}`
+  const path = `${accountId}/${kind}-${crypto.randomUUID()}.${t.ext}`
   const { error: upErr } = await supabaseAdmin.storage.from(BUCKET).upload(path, bytes, { contentType: file.type, upsert: false })
-  if (upErr) return { ok: false, error: `Upload failed: ${upErr.message}` }
+  if (upErr) { console.error("[SMS-KYC] upload failed:", upErr.message); return { ok: false, error: "Upload failed, please try again." } }
   const column = kind === "ghana_card" ? "ghana_card_doc_path" : "registration_doc_path"
   const old = draft.data[column]
-  const { data, error } = await supabaseAdmin.from("sms_business_profiles")
-    .update({ [column]: path, updated_at: new Date().toISOString() }).eq("id", draft.data.id).eq("status", "draft").select("*").single()
+  const removeNew = async () => {
+    const { error: rmErr } = await supabaseAdmin.storage.from(BUCKET).remove([path])
+    if (rmErr) console.error("[SMS-KYC] failed to remove an orphaned upload:", rmErr.message)
+  }
+  // Compare-and-swap on the previous value so two concurrent uploads can't both "win" and orphan a file.
+  const base = supabaseAdmin.from("sms_business_profiles")
+    .update({ [column]: path, updated_at: new Date().toISOString() }).eq("id", draft.data.id).eq("status", "draft")
+  const { data, error } = await (old ? base.eq(column, old) : base.is(column, null)).select("*").maybeSingle()
   if (error) {
-    await supabaseAdmin.storage.from(BUCKET).remove([path])
-    return { ok: false, error: error.message }
+    console.error("[SMS-KYC] recording upload failed:", error.message)
+    await removeNew()
+    return { ok: false, error: TRY_AGAIN }
+  }
+  if (!data) {
+    await removeNew()
+    return { ok: false, error: "Please try that upload again." }
   }
   if (old) {
     const { error: rmErr } = await supabaseAdmin.storage.from(BUCKET).remove([old])
@@ -88,14 +123,17 @@ export async function uploadKycDocument(accountId: string, kind: "ghana_card" | 
 }
 
 export async function submitKyc(accountId: string): Promise<Result<KycProfile>> {
-  const current = await getCurrentKyc(accountId)
+  const loaded = await loadCurrent(accountId)
+  if (!loaded.ok) return loaded
+  const current = loaded.data
   if (!current || !nextKycStatus(current.status, "submit")) return { ok: false, error: "There is no draft to submit." }
   const missing = missingForSubmit(current)
   if (missing.length) return { ok: false, error: `Complete these first: ${missing.join(", ")}.` }
   const { data, error } = await supabaseAdmin.from("sms_business_profiles")
     .update({ status: "submitted", submitted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-    .eq("id", current.id).eq("status", "draft").select("*").single()
-  if (error) return { ok: false, error: error.message }
+    .eq("id", current.id).eq("status", "draft").select("*").maybeSingle()
+  if (error) { console.error("[SMS-KYC] submit failed:", error.message); return { ok: false, error: TRY_AGAIN } }
+  if (!data) return { ok: false, error: "Your application is already under review." }
   notifyAdminsThrottled("sms_kyc_submitted", "New SMS business verification",
     `${current.business_name} submitted business verification for SMS.`, "/admin/sms", 0).catch(() => {})
   return { ok: true, data: data as KycProfile }
@@ -108,10 +146,14 @@ export async function listKycForAdmin(status: KycStatus | "all" = "submitted"): 
   return ((data ?? []) as KycProfile[]).map(toPublicKyc)
 }
 
-export async function getKycForAdmin(id: string): Promise<(PublicKyc & { ghana_card_doc_url: string | null; registration_doc_url: string | null }) | null> {
+export async function getKycForAdmin(adminId: string, id: string): Promise<(PublicKyc & { ghana_card_doc_url: string | null; registration_doc_url: string | null }) | null> {
   const { data } = await supabaseAdmin.from("sms_business_profiles").select("*").eq("id", id).maybeSingle()
   if (!data) return null
   const p = data as KycProfile
+  if (p.ghana_card_doc_path || p.registration_doc_path) {
+    // Ids only — never paths or signed URLs.
+    writeAuditLog(adminId, "sms_kyc_docs_viewed", null, null, { profile_id: p.id, account_id: p.sms_account_id }).catch(() => {})
+  }
   const sign = async (path: string | null) => {
     if (!path) return null
     const { data: s } = await supabaseAdmin.storage.from(BUCKET).createSignedUrl(path, 300)
@@ -169,19 +211,49 @@ export async function rejectKyc(adminId: string | null, id: string, reason: stri
   return r
 }
 
-/** Delete decided applications' documents once docs_purge_after has passed. */
+/**
+ * Retry the Business-mode switch for an application that was approved but whose mode change failed.
+ * No-op (ok) when the account is already in Business mode. Notifies the owner only on a real switch.
+ */
+export async function retryKycModeChange(adminId: string | null, profileId: string): Promise<Result<{ mode: string }>> {
+  if (!adminId) return NO_ADMIN
+  const { data: p, error } = await supabaseAdmin.from("sms_business_profiles").select("id, sms_account_id, status").eq("id", profileId).maybeSingle()
+  if (error) { console.error("[SMS-KYC] retry load failed:", error.message); return { ok: false, error: TRY_AGAIN } }
+  if (!p) return { ok: false, error: "Application not found." }
+  if (p.status !== "approved") return { ok: false, error: "Only approved applications can have their mode change retried." }
+  const { data: acct } = await supabaseAdmin.from("sms_accounts").select("mode").eq("id", p.sms_account_id).maybeSingle()
+  if (acct?.mode === "business") return { ok: true, data: { mode: "business" } }
+  const mode = await setAccountMode(adminId, p.sms_account_id, "business")
+  if (!mode.ok) return { ok: false, error: mode.error }
+  notifyAccountOwner(p.sms_account_id, "Business verified",
+    "Your business is verified. You're now in Business mode and can request more sender IDs.").catch(() => {})
+  return { ok: true, data: { mode: mode.data.mode } }
+}
+
+interface PurgeRow { id: string; ghana_card_doc_path: string | null; registration_doc_path: string | null }
+const HAS_DOC = "ghana_card_doc_path.not.is.null,registration_doc_path.not.is.null"
+
+/**
+ * Delete documents once docs_purge_after has passed (decided applications), and from abandoned drafts
+ * untouched for 30 days. Submitted rows are never touched. Logs ids only, never paths.
+ */
 export async function purgeKycDocuments(now = new Date()): Promise<{ purged: number; errors: number }> {
-  const { data } = await supabaseAdmin.from("sms_business_profiles")
-    .select("id, ghana_card_doc_path, registration_doc_path").lt("docs_purge_after", now.toISOString())
-    .or("ghana_card_doc_path.not.is.null,registration_doc_path.not.is.null").limit(200)
   let purged = 0, errors = 0
-  for (const row of (data ?? []) as { id: string; ghana_card_doc_path: string | null; registration_doc_path: string | null }[]) {
-    const paths = [row.ghana_card_doc_path, row.registration_doc_path].filter((p): p is string => !!p)
-    const { error } = await supabaseAdmin.storage.from(BUCKET).remove(paths)
-    if (error) { errors++; continue }
-    const { error: upErr } = await supabaseAdmin.from("sms_business_profiles").update({ ghana_card_doc_path: null, registration_doc_path: null }).eq("id", row.id)
-    if (upErr) { errors++; continue }
-    purged++
+  const decided = await supabaseAdmin.from("sms_business_profiles")
+    .select("id, ghana_card_doc_path, registration_doc_path").lt("docs_purge_after", now.toISOString()).or(HAS_DOC).limit(200)
+  const stale = await supabaseAdmin.from("sms_business_profiles")
+    .select("id, ghana_card_doc_path, registration_doc_path").eq("status", "draft")
+    .lt("updated_at", new Date(now.getTime() - PURGE_AFTER_MS).toISOString()).or(HAS_DOC).limit(200)
+  for (const res of [decided, stale]) {
+    if (res.error) { errors++; console.error("[SMS-KYC] purge select failed:", res.error.message); continue }
+    for (const row of (res.data ?? []) as PurgeRow[]) {
+      const paths = [row.ghana_card_doc_path, row.registration_doc_path].filter((p): p is string => !!p)
+      const { error } = await supabaseAdmin.storage.from(BUCKET).remove(paths)
+      if (error) { errors++; console.error(`[SMS-KYC] purge storage remove failed for profile ${row.id}:`, error.message); continue }
+      const { error: upErr } = await supabaseAdmin.from("sms_business_profiles").update({ ghana_card_doc_path: null, registration_doc_path: null }).eq("id", row.id)
+      if (upErr) { errors++; console.error(`[SMS-KYC] purge db update failed for profile ${row.id}:`, upErr.message); continue }
+      purged++
+    }
   }
   return { purged, errors }
 }

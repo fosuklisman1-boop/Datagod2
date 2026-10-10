@@ -1,7 +1,7 @@
 /** Pure KYC rules (spec §5.6). The Ghana Card number is validated but only its last 4
  *  digits are stored; the uploaded card photo is the verification artifact. */
 export const GHANA_CARD_RE = /^GHA-\d{9}-\d$/
-export const KYC_DOC_MAX_BYTES = 5 * 1024 * 1024
+export const KYC_DOC_MAX_BYTES = 4 * 1024 * 1024 // Vercel rejects request bodies over ~4.5 MB (the bucket itself allows 5 MB)
 const DOC_TYPES: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "application/pdf": "pdf" }
 
 export type KycStatus = "draft" | "submitted" | "approved" | "rejected"
@@ -86,7 +86,7 @@ export function docExtension(mime: string, size: number): { ok: true; ext: strin
   const ext = DOC_TYPES[mime]
   if (!ext) return { ok: false, error: "Upload a JPG, PNG, WEBP or PDF." }
   if (size <= 0) return { ok: false, error: "The file is empty." }
-  if (size > KYC_DOC_MAX_BYTES) return { ok: false, error: "Files must be 5 MB or smaller." }
+  if (size > KYC_DOC_MAX_BYTES) return { ok: false, error: "Files must be 4 MB or smaller." }
   return { ok: true, ext }
 }
 

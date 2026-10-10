@@ -6,5 +6,7 @@ import { purgeKycDocuments } from "@/lib/sms/kyc-service"
 export async function GET(request: NextRequest) {
   const auth = verifyCronAuth(request)
   if (!auth.authorized) return auth.errorResponse!
-  return NextResponse.json({ success: true, data: await purgeKycDocuments() })
+  const result = await purgeKycDocuments()
+  if (result.errors > 0) return NextResponse.json({ success: false, error: "Some KYC documents could not be purged", data: result }, { status: 500 })
+  return NextResponse.json({ success: true, data: result })
 }

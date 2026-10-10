@@ -11,6 +11,9 @@ const h = vi.hoisted(() => {
     modeCalls: [] as any[],
     modeResult: { ok: true, data: { mode: "business", unpaused: 0, paused: 0, conflicts: [] } } as any,
     uploadError: null as string | null,
+    failSelect: false,
+    onUpdate: null as null | (() => void),
+    removeError: null as string | null,
   }
   function builder(table: string) {
     let op: "select" | "update" | "insert" = "select"
@@ -24,13 +27,20 @@ const h = vi.hoisted(() => {
       let matched = rows().filter((r) => filters.every((f) => f(r)))
       if (ord) matched = [...matched].sort((a, b) => (a[ord!.col] < b[ord!.col] ? -1 : 1) * (ord!.asc ? 1 : -1))
       if (lim != null) matched = matched.slice(0, lim)
+      if (op === "select" && table === "sms_business_profiles" && state.failSelect) return { data: null, error: { message: "db down" } }
       if (op === "select") return { data: matched.map((r) => ({ ...r })), error: null }
       if (op === "insert") {
-        const row = { id: `p${++state.seq}`, created_at: `2026-10-10T00:00:${String(state.seq).padStart(2, "0")}Z`, ghana_card_doc_path: null, registration_doc_path: null, docs_purge_after: null, ...payload }
+        const row: Row = { id: `p${++state.seq}`, created_at: `2026-10-10T00:00:${String(state.seq).padStart(2, "0")}Z`, ghana_card_doc_path: null, registration_doc_path: null, docs_purge_after: null, ...payload }
+        if (table === "sms_business_profiles" && ["draft", "submitted"].includes(row.status) &&
+            rows().some((r) => r.sms_account_id === row.sms_account_id && ["draft", "submitted"].includes(r.status))) {
+          return { data: null, error: { code: "23505", message: "duplicate key" } }
+        }
         rows().push(row)
         if (table === "notifications") state.notifs.push(row)
         return { data: returning ? [{ ...row }] : null, error: null }
       }
+      state.onUpdate?.()
+      matched = rows().filter((r) => filters.every((f) => f(r)))
       for (const r of matched) Object.assign(r, payload)
       return { data: returning ? matched.map((r) => ({ ...r })) : null, error: null }
     }
@@ -39,6 +49,7 @@ const h = vi.hoisted(() => {
       update: (p: Row) => { op = "update"; payload = p; return api },
       insert: (p: Row) => { op = "insert"; payload = p; return api },
       eq: (c: string, v: any) => { filters.push((r) => r[c] === v); return api },
+      is: (c: string, v: any) => { filters.push((r) => (r[c] ?? null) === v); return api },
       lt: (c: string, v: any) => { filters.push((r) => r[c] != null && r[c] < v); return api },
       or: (e: string) => {
         filters.push((r) => e.split(",").some((c) => { const [col] = c.split("."); return r[col] != null }))
@@ -47,7 +58,7 @@ const h = vi.hoisted(() => {
       order: (col: string, o?: { ascending?: boolean }) => { ord = { col, asc: o?.ascending !== false }; return api },
       limit: (n: number) => { lim = n; return api },
       maybeSingle: () => { const r = run(); return Promise.resolve({ data: r.data?.[0] ?? null, error: r.error }) },
-      single: () => { const r = run(); return Promise.resolve({ data: r.data?.[0] ?? null, error: r.data?.[0] ? null : { message: "no row" } }) },
+      single: () => { const r = run(); return Promise.resolve({ data: r.data?.[0] ?? null, error: r.error ?? (r.data?.[0] ? null : { message: "no row" }) }) },
       then: (res: any, rej: any) => Promise.resolve(run()).then(res, rej),
     }
     return api
@@ -58,7 +69,7 @@ const h = vi.hoisted(() => {
         if (state.uploadError) return Promise.resolve({ error: { message: state.uploadError } })
         state.files.add(path); return Promise.resolve({ error: null })
       },
-      remove: (paths: string[]) => { paths.forEach((p) => state.files.delete(p)); return Promise.resolve({ error: null }) },
+      remove: (paths: string[]) => { if (state.removeError) return Promise.resolve({ error: { message: state.removeError } }); paths.forEach((p) => state.files.delete(p)); return Promise.resolve({ error: null }) },
       createSignedUrl: (path: string, secs: number) => Promise.resolve({ data: { signedUrl: `signed://${path}?t=${secs}` } }),
     }),
   }
@@ -74,7 +85,7 @@ vi.mock("./moderation-service", () => ({
   writeAuditLog: (...a: any[]) => { h.state.audit.push(a); return Promise.resolve() },
 }))
 
-import { saveKycDraft, uploadKycDocument, submitKyc, approveKyc, rejectKyc, purgeKycDocuments, getKycForAdmin, getCurrentKyc, toPublicKyc } from "./kyc-service"
+import { saveKycDraft, uploadKycDocument, submitKyc, approveKyc, rejectKyc, purgeKycDocuments, getKycForAdmin, getCurrentKyc, toPublicKyc, listKycForAdmin, retryKycModeChange } from "./kyc-service"
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4, 5, 6, 7, 8])
 const pngFile = (bytes = PNG, type = "image/png") => ({ type, size: bytes.byteLength, arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer })
@@ -84,7 +95,7 @@ const full = { business_name: "Kings Data", description: "We sell data bundles",
 beforeEach(() => {
   h.state.tables = { sms_accounts: [{ id: "acct1", user_id: "u1" }] }
   h.state.files.clear(); h.state.seq = 0; h.state.audit = []; h.state.notifs = []; h.state.modeCalls = []
-  h.state.uploadError = null
+  h.state.uploadError = null; h.state.failSelect = false; h.state.onUpdate = null; h.state.removeError = null
   h.state.modeResult = { ok: true, data: { mode: "business", unpaused: 0, paused: 0, conflicts: [] } }
 })
 
@@ -129,7 +140,7 @@ describe("uploadKycDocument", () => {
     const r = await uploadKycDocument("acct1", "ghana_card", pngFile())
     expect(r.ok).toBe(true)
     const path = profiles()[0].ghana_card_doc_path as string
-    expect(path).toMatch(/^acct1\/ghana_card-\d+\.png$/)
+    expect(path).toMatch(/^acct1\/ghana_card-[0-9a-f-]{36}\.png$/)
     expect(h.state.files.has(path)).toBe(true)
   })
   it("replacing a document deletes the old file", async () => {
@@ -144,11 +155,11 @@ describe("uploadKycDocument", () => {
   })
   it("rejects bad MIME, oversize, empty and mislabelled content without storing", async () => {
     expect((await uploadKycDocument("acct1", "ghana_card", pngFile(PNG, "image/gif"))).ok).toBe(false)
-    expect((await uploadKycDocument("acct1", "ghana_card", { ...pngFile(), size: 6 * 1024 * 1024 })).ok).toBe(false)
+    expect((await uploadKycDocument("acct1", "ghana_card", { ...pngFile(), size: 5 * 1024 * 1024 })).ok).toBe(false)
     expect((await uploadKycDocument("acct1", "ghana_card", { type: "image/png", size: 0, arrayBuffer: async () => new ArrayBuffer(0) })).ok).toBe(false)
     expect((await uploadKycDocument("acct1", "ghana_card", pngFile(new Uint8Array([0x25, 0x50, 0x44, 0x46, 1, 1, 1, 1, 1, 1, 1, 1]), "image/png"))).ok).toBe(false)
     // declared size lies: real bytes exceed the cap
-    const big = new Uint8Array(5 * 1024 * 1024 + 1); big.set(PNG)
+    const big = new Uint8Array(4 * 1024 * 1024 + 1); big.set(PNG)
     expect((await uploadKycDocument("acct1", "ghana_card", { type: "image/png", size: 100, arrayBuffer: async () => big.buffer as ArrayBuffer })).ok).toBe(false)
     expect(h.state.files.size).toBe(0)
     expect(profiles()).toHaveLength(0)
@@ -250,7 +261,7 @@ describe("rejectKyc", () => {
 describe("admin/public views", () => {
   it("signs documents for 5 minutes and never exposes raw paths", async () => {
     profiles().push({ id: "s1", sms_account_id: "acct1", status: "submitted", ghana_card_doc_path: "acct1/g.png", registration_doc_path: null, created_at: "2026-01-01" })
-    const v = await getKycForAdmin("s1")
+    const v = await getKycForAdmin("admin1", "s1")
     expect(v!.ghana_card_doc_url).toBe("signed://acct1/g.png?t=300")
     expect(v!.registration_doc_url).toBeNull()
     expect(JSON.stringify(v)).not.toContain("ghana_card_doc_path")
@@ -276,5 +287,187 @@ describe("purgeKycDocuments", () => {
     expect([...h.state.files].sort()).toEqual(["b/new.png", "c/draft.png"])
     expect(profiles().find((p) => p.id === "old")!.ghana_card_doc_path).toBeNull()
     expect(profiles().find((p) => p.id === "new")!.ghana_card_doc_path).toBe("b/new.png")
+  })
+})
+
+describe("review fixes", () => {
+  const tick = () => new Promise((res) => setTimeout(res, 5))
+
+  it("concurrent uploads of the same kind: one file referenced, loser's file removed", async () => {
+    await saveKycDraft("acct1", { business_name: "Kings Data" })
+    const [a, b] = await Promise.all([
+      uploadKycDocument("acct1", "ghana_card", pngFile()),
+      uploadKycDocument("acct1", "ghana_card", pngFile()),
+    ])
+    expect([a.ok, b.ok].filter(Boolean)).toHaveLength(1)
+    const loser = [a, b].find((r) => !r.ok)!
+    expect(loser).toMatchObject({ ok: false, error: "Please try that upload again." })
+    expect(h.state.files.size).toBe(1)
+    expect(h.state.files.has(profiles()[0].ghana_card_doc_path)).toBe(true)
+  })
+
+  it("logs (without the path) when cleaning up the loser's file fails", async () => {
+    await saveKycDraft("acct1", { business_name: "Kings Data" })
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    let calls = 0
+    h.state.onUpdate = () => {
+      if (++calls < 2) return // 1st = the empty draft save; 2nd = the upload's compare-and-swap
+      profiles()[0].ghana_card_doc_path = "acct1/other.png"; h.state.onUpdate = null; h.state.removeError = "rm failed"
+    }
+    const r = await uploadKycDocument("acct1", "ghana_card", pngFile())
+    expect(r.ok).toBe(false)
+    expect(spy).toHaveBeenCalled()
+    expect(JSON.stringify(spy.mock.calls)).not.toMatch(/acct1\//)
+    spy.mockRestore()
+  })
+
+  it("upload is rejected while approved", async () => {
+    profiles().push({ id: "x", sms_account_id: "acct1", status: "approved", created_at: "2026-01-01" })
+    expect((await uploadKycDocument("acct1", "ghana_card", pngFile())).ok).toBe(false)
+    expect(h.state.files.size).toBe(0)
+  })
+
+  it("accepts JPEG and WebP with real signatures", async () => {
+    const jpg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0])
+    const webp = new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50])
+    expect((await uploadKycDocument("acct1", "ghana_card", pngFile(jpg, "image/jpeg"))).ok).toBe(true)
+    expect((await uploadKycDocument("acct1", "registration", pngFile(webp, "image/webp"))).ok).toBe(true)
+  })
+
+  it("stale drafts are purged; fresh drafts and submitted rows are untouched", async () => {
+    const now = new Date("2026-11-20T00:00:00Z")
+    for (const f of ["s/stale.png", "s/fresh.png", "s/sub.png"]) h.state.files.add(f)
+    profiles().push(
+      { id: "stale", status: "draft", ghana_card_doc_path: "s/stale.png", registration_doc_path: null, updated_at: "2026-10-01T00:00:00Z" },
+      { id: "fresh", status: "draft", ghana_card_doc_path: "s/fresh.png", registration_doc_path: null, updated_at: "2026-11-10T00:00:00Z" },
+      { id: "sub", status: "submitted", ghana_card_doc_path: "s/sub.png", registration_doc_path: null, updated_at: "2026-09-01T00:00:00Z" },
+    )
+    expect(await purgeKycDocuments(now)).toEqual({ purged: 1, errors: 0 })
+    expect([...h.state.files].sort()).toEqual(["s/fresh.png", "s/sub.png"])
+    expect(profiles().find((p) => p.id === "stale")!.ghana_card_doc_path).toBeNull()
+  })
+
+  it("purge counts storage failures and logs ids only", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    profiles().push({ id: "old", status: "approved", ghana_card_doc_path: "a/old.png", registration_doc_path: null, docs_purge_after: "2026-11-10T00:00:00Z" })
+    h.state.removeError = "nope"
+    expect(await purgeKycDocuments(new Date("2026-11-20T00:00:00Z"))).toEqual({ purged: 0, errors: 1 })
+    expect(JSON.stringify(spy.mock.calls)).not.toContain("a/old.png")
+    spy.mockRestore()
+  })
+
+  it("purge reports a failed select as an error", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    h.state.failSelect = true
+    const r = await purgeKycDocuments()
+    expect(r.errors).toBeGreaterThan(0)
+    spy.mockRestore()
+  })
+
+  it("a unique violation on the draft insert (concurrent first save) falls back to updating that draft", async () => {
+    // our read sees no draft, but another request inserts one before our insert lands
+    let injected = false
+    h.state.onUpdate = null
+    const realFrom = h.fake.from
+    h.fake.from = (t: string) => {
+      const b = realFrom(t)
+      if (t === "sms_business_profiles" && !injected) {
+        const origMaybe = b.maybeSingle
+        b.maybeSingle = () => {
+          const p = origMaybe()
+          if (!injected) { injected = true; profiles().push({ id: "race", sms_account_id: "acct1", status: "draft", business_name: "Theirs", created_at: "2026-01-01" }); return Promise.resolve({ data: null, error: null }) }
+          return p
+        }
+      }
+      return b
+    }
+    try {
+      const r = await saveKycDraft("acct1", { business_name: "Mine" })
+      expect(r.ok).toBe(true)
+      expect(profiles()).toHaveLength(1)
+      expect(profiles()[0].business_name).toBe("Mine")
+    } finally { h.fake.from = realFrom }
+  })
+
+  it("submit that loses a race says the application is already under review", async () => {
+    await saveKycDraft("acct1", full)
+    await uploadKycDocument("acct1", "ghana_card", pngFile())
+    h.state.onUpdate = () => { profiles()[0].status = "submitted"; h.state.onUpdate = null }
+    expect(await submitKyc("acct1")).toEqual({ ok: false, error: "Your application is already under review." })
+  })
+
+  it("getCurrentKyc surfaces DB errors and writers stop instead of inserting", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    h.state.failSelect = true
+    await expect(getCurrentKyc("acct1")).rejects.toThrow()
+    expect(await saveKycDraft("acct1", full)).toEqual({ ok: false, error: "Couldn't load your application, try again." })
+    expect((await submitKyc("acct1")).ok).toBe(false)
+    expect((await uploadKycDocument("acct1", "ghana_card", pngFile())).ok).toBe(false)
+    h.state.failSelect = false
+    expect(profiles()).toHaveLength(0)
+    expect(h.state.files.size).toBe(0)
+    spy.mockRestore()
+  })
+
+  it("listKycForAdmin output has no document paths", async () => {
+    profiles().push({ id: "s1", sms_account_id: "acct1", status: "submitted", ghana_card_doc_path: "acct1/g.png", registration_doc_path: "acct1/r.png", created_at: "2026-01-01" })
+    const list = await listKycForAdmin("submitted")
+    expect(list).toHaveLength(1)
+    expect(JSON.stringify(list)).not.toContain("acct1/")
+    expect(list[0]).toMatchObject({ has_ghana_card_doc: true, has_registration_doc: true })
+  })
+
+  it("audits when an admin opens documents (ids only, no paths/urls)", async () => {
+    profiles().push({ id: "s1", sms_account_id: "acct1", status: "submitted", ghana_card_doc_path: "acct1/g.png", registration_doc_path: null, created_at: "2026-01-01" })
+    await getKycForAdmin("admin1", "s1")
+    await tick()
+    const row = h.state.audit.find((a) => a[1] === "sms_kyc_docs_viewed")!
+    expect(row[0]).toBe("admin1")
+    expect(JSON.stringify(row)).not.toMatch(/signed:|g\.png/)
+    expect(JSON.stringify(row)).toContain("s1")
+    expect(JSON.stringify(row)).toContain("acct1")
+  })
+
+  it("no docs-viewed audit when there are no documents", async () => {
+    profiles().push({ id: "s1", sms_account_id: "acct1", status: "submitted", ghana_card_doc_path: null, registration_doc_path: null, created_at: "2026-01-01" })
+    await getKycForAdmin("admin1", "s1")
+    await tick()
+    expect(h.state.audit).toHaveLength(0)
+  })
+})
+
+describe("retryKycModeChange", () => {
+  const approved = () => profiles().push({ id: "a1", sms_account_id: "acct1", status: "approved", created_at: "2026-01-01" })
+  const tick = () => new Promise((res) => setTimeout(res, 5))
+  it("refuses a null admin and non-approved profiles", async () => {
+    approved()
+    expect(await retryKycModeChange(null, "a1")).toEqual({ ok: false, error: "Admin user required" })
+    profiles()[0].status = "submitted"
+    expect((await retryKycModeChange("admin1", "a1")).ok).toBe(false)
+    expect(h.state.modeCalls).toHaveLength(0)
+  })
+  it("switches a not-yet-business account and notifies the owner", async () => {
+    approved()
+    h.state.tables.sms_accounts[0].mode = "platform"
+    expect((await retryKycModeChange("admin1", "a1")).ok).toBe(true)
+    expect(h.state.modeCalls).toEqual([["admin1", "acct1", "business"]])
+    await tick()
+    expect(h.state.notifs).toHaveLength(1)
+  })
+  it("is a no-op when already business", async () => {
+    approved()
+    h.state.tables.sms_accounts[0].mode = "business"
+    expect((await retryKycModeChange("admin1", "a1")).ok).toBe(true)
+    expect(h.state.modeCalls).toHaveLength(0)
+    await tick()
+    expect(h.state.notifs).toHaveLength(0)
+  })
+  it("surfaces a failing mode change without notifying", async () => {
+    approved()
+    h.state.tables.sms_accounts[0].mode = "platform"
+    h.state.modeResult = { ok: false, error: "still broken" }
+    expect(await retryKycModeChange("admin1", "a1")).toEqual({ ok: false, error: "still broken" })
+    await tick()
+    expect(h.state.notifs).toHaveLength(0)
   })
 })

@@ -5,7 +5,10 @@ import { getCurrentKyc, saveKycDraft, toPublicKyc } from "@/lib/sms/kyc-service"
 export async function GET(request: NextRequest) {
   const { account, error } = await resolveAccount(request)
   if (error) return error
-  const profile = await getCurrentKyc(account.id)
+  let profile
+  try { profile = await getCurrentKyc(account.id) } catch {
+    return NextResponse.json({ success: false, error: "Couldn't load your application, try again." }, { status: 500 })
+  }
   return NextResponse.json({ success: true, data: { mode: (account as { mode?: string }).mode ?? "platform", profile: profile ? toPublicKyc(profile) : null } })
 }
 

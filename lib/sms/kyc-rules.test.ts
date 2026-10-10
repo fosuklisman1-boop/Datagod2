@@ -51,7 +51,7 @@ describe("nextKycStatus", () => {
 })
 
 describe("docExtension", () => {
-  it("accepts images and PDFs up to 5 MB", () => {
+  it("accepts images and PDFs up to 4 MB", () => {
     expect(docExtension("image/jpeg", 1000)).toEqual({ ok: true, ext: "jpg" })
     expect(docExtension("application/pdf", KYC_DOC_MAX_BYTES)).toEqual({ ok: true, ext: "pdf" })
   })
