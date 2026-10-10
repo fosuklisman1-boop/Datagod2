@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { normalizeSenderName, validateSenderName } from "./sender-name"
 
-const PROTECTED = ["MTN", "TELECEL", "MOBILE MONEY", "GRA", "DATAGOD"]
+const PROTECTED = ["MTN", "TELECEL", "MOBILE MONEY", "GRA", "DATAGOD", "ECG", "GLO"]
 
 describe("normalizeSenderName", () => {
   it("trims, collapses spaces, uppercases", () => expect(normalizeSenderName("  kings   shop ")).toBe("KINGS SHOP"))
@@ -21,6 +21,16 @@ describe("validateSenderName", () => {
     expect(ok("GRACE SHOP").ok).toBe(true)
     expect(ok("GRA ALERTS").ok).toBe(false)
     expect(ok("GRA").ok).toBe(false)
+  })
+  it("vowel-less short names (MTN, ECG) match as substrings", () => {
+    expect(ok("MYMTNDEALS").ok).toBe(false)
+    expect(ok("MTNGH").ok).toBe(false)
+    expect(ok("ECG PAY").ok).toBe(false)
+    expect(ok("ECGPAY").ok).toBe(false)
+  })
+  it("short names with a vowel stay whole-word only", () => {
+    expect(ok("GLORY").ok).toBe(true)
+    expect(ok("GLO DATA").ok).toBe(false)
   })
   it("reason names the protected brand", () => {
     const r = validateSenderName("DATAGOD GH", PROTECTED)

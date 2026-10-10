@@ -14,15 +14,21 @@ export function normalizeSenderName(raw: string): string {
 
 const squash = (s: string) => s.replace(/\s+/g, "").toUpperCase()
 
-/** Protected names of 3 chars or fewer match a whole word only (so "GRACE" ≠ "GRA");
- *  longer ones match anywhere, ignoring spaces ("MY MTN" ≠ ok, "TELE CEL" ≠ ok). */
+/** Matching rule per protected name (space-insensitive substring unless noted):
+ *  - 4+ chars: substring anywhere ("MY MTN"-style splits and "TELE CEL" are caught).
+ *  - 3 chars or fewer WITH a vowel from A/I/O/U (GRA, GLO, NIA, ADB, UBA): whole word only,
+ *    since they occur inside real words ("GRACE", "GLORY").
+ *  - 3 chars or fewer without one (MTN, ECG, GCB, CBG): substring, since they essentially
+ *    never occur in genuine words ("MYMTNDEALS", "ECGPAY" are blocked). E is deliberately
+ *    not counted as a vowel here so that ECG is treated as a vowel-less abbreviation. */
 function protectedHit(name: string, protectedNames: string[]): string | null {
   const flat = squash(name)
   const words = name.split(" ")
   for (const p of protectedNames) {
     const pf = squash(p)
     if (!pf) continue
-    if (pf.length <= 3 ? words.includes(pf) || flat === pf : flat.includes(pf)) return p
+    const wholeWordOnly = pf.length <= 3 && /[AIOU]/.test(pf)
+    if (wholeWordOnly ? words.includes(pf) || flat === pf : flat.includes(pf)) return p
   }
   return null
 }
