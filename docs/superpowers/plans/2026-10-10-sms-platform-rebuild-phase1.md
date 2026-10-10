@@ -1010,6 +1010,9 @@ describe("evaluateSendPolicy — platform content", () => {
     expect(r.code).toBe("CONTENT_BLOCKED")
     expect(r.flags[0].severity).toBe("fraud")
   })
+  it("own-domain store slugs with digits are not treated as lookalikes", () => {
+    expect(evaluateSendPolicy(input({ message: "Order at kofi233.datagod.store/x" })).decision).toBe("allow")
+  })
   it("own domain links allowed incl. subdomains and custom domains", () => {
     expect(evaluateSendPolicy(input({ message: "Shop at kings.datagod.store/x or https://kingsdata.com" })).decision).toBe("allow")
   })
@@ -1173,14 +1176,15 @@ export function evaluateSendPolicy(p: PolicyInput): PolicyResult {
         [{ severity: "fraud", reason: blocked, matched: keywordOf(blocked) }])
     }
     for (const host of hosts) {
+      // Own domains first: shop slugs may contain digits (kofi233.datagod.store), which the
+      // lookalike check would otherwise flag as fraud.
+      if (isOwnDomain(host, p.ownDomains)) continue
       const suspicious = suspiciousHostReason(host)
       if (suspicious) {
         return result("block", "CONTENT_BLOCKED", `The link ${host} isn't allowed. Remove it and try again.`,
           [{ severity: "fraud", reason: suspicious, matched: host }])
       }
-      if (!isOwnDomain(host, p.ownDomains)) {
-        return result("block", "LINK_NOT_ALLOWED", `Platform mode only allows links to your Datagod store. Remove ${host}, or verify your business to send other links.`)
-      }
+      return result("block", "LINK_NOT_ALLOWED", `Platform mode only allows links to your Datagod store. Remove ${host}, or verify your business to send other links.`)
     }
   } else {
     const blocked = matchBlockedContent(p.message, settings.businessBlockedKeywords)
@@ -1196,7 +1200,7 @@ export function evaluateSendPolicy(p: PolicyInput): PolicyResult {
     }
     for (const host of hosts) {
       const suspicious = suspiciousHostReason(host)
-      if (suspicious && !isOwnDomain(host, settings.businessAllowedDomains)) {
+      if (suspicious && !isOwnDomain(host, [...p.ownDomains, ...settings.businessAllowedDomains])) {
         flags.push({ severity: "info", reason: suspicious, matched: host })
       }
     }
