@@ -17,7 +17,8 @@ const h = vi.hoisted(() => {
     claimedRows: [] as Row[],
     updates: [] as { table: string; data: any; id?: string }[],
     rpcs: [] as { fn: string; args?: any }[],
-    refundError: false,           // force adjust_sms_units to error
+    refundError: false,           // force refund_sms_message to error
+    refundResult: true,           // refund_sms_message data (false = already refunded)
     refundFailuresInsertError: false,  // force sms_refund_failures insert to fail
     recomputeError: false,
     sendSuccess: true,            // sendSMS returns success or failure
@@ -62,11 +63,11 @@ const h = vi.hoisted(() => {
       if (fn === "claim_sms_messages") {
         return Promise.resolve({ data: state.claimedRows, error: null })
       }
-      if (fn === "adjust_sms_units") {
+      if (fn === "refund_sms_message") {
         if (state.refundError) {
           return Promise.resolve({ data: null, error: { message: "refund failed" } })
         }
-        return Promise.resolve({ data: null, error: null })
+        return Promise.resolve({ data: state.refundResult, error: null })
       }
       if (fn === "recompute_sms_send_result") {
         if (state.recomputeError) {
@@ -95,6 +96,7 @@ beforeEach(() => {
   h.state.updates.length = 0
   h.state.rpcs.length = 0
   h.state.refundError = false
+  h.state.refundResult = true
   h.state.refundFailuresInsertError = false
   h.state.recomputeError = false
   h.state.sendSuccess = true
@@ -124,8 +126,8 @@ describe("drainSmsMessages", () => {
     expect(result.failed).toBe(0)
     expect(result.refunded).toBe(0)
 
-    // adjust_sms_units NOT called (no refund on success)
-    expect(rpcNames()).not.toContain("adjust_sms_units")
+    // refund NOT called (no refund on success)
+    expect(rpcNames()).not.toContain("refund_sms_message")
 
     // recompute called for log-1
     const recompute = h.state.rpcs.find((r) => r.fn === "recompute_sms_send_result")
@@ -151,7 +153,34 @@ describe("drainSmsMessages", () => {
     expect(h.sendSmsMock).toHaveBeenCalledWith(expect.objectContaining({ senderId: undefined }))
   })
 
-  it("row that fails at attempts>=MAX_ATTEMPTS → marked failed + adjust_sms_units called", async () => {
+  it("Hubtel send success stores provider_message_id; other providers store null", async () => {
+    h.state.claimedRows = [
+      { id: "msg-h", send_log_id: "log-h", sms_account_id: "acc-1", phone: "+233241234567", rendered_message: "Hi", segments: 1, attempts: 0 },
+      { id: "msg-m", send_log_id: "log-m", sms_account_id: "acc-1", phone: "+233241234568", rendered_message: "Hi", segments: 1, attempts: 0 },
+    ]
+    h.sendSmsMock
+      .mockResolvedValueOnce({ success: true, messageId: "hub-1", provider: "hubtel" })
+      .mockResolvedValueOnce({ success: true, messageId: "moo-1", provider: "moolre" })
+    await drainSmsMessages()
+    const hub = h.state.updates.find((u) => u.id === "msg-h")!
+    const moo = h.state.updates.find((u) => u.id === "msg-m")!
+    expect(hub.data.provider_message_id).toBe("hub-1")
+    expect(moo.data.provider_message_id).toBeNull()
+  })
+
+  it("already-refunded message (RPC returns false) is not counted as refunded", async () => {
+    h.state.claimedRows = [
+      { id: "msg-d", send_log_id: "log-d", sms_account_id: "acc-1", phone: "+233241234567", rendered_message: "Hi", segments: 1, attempts: MAX_ATTEMPTS },
+    ]
+    h.sendSmsMock.mockResolvedValue({ success: false, error: "x" })
+    h.state.refundResult = false
+    const result = await drainSmsMessages()
+    expect(result.failed).toBe(1)
+    expect(result.refunded).toBe(0)
+    expect(h.state.rpcs.find((r) => r.fn === "sms_refund_failures.insert")).toBeUndefined()
+  })
+
+  it("row that fails at attempts>=MAX_ATTEMPTS → marked failed + refund_sms_message called", async () => {
     h.state.claimedRows = [
       { id: "msg-2", send_log_id: "log-2", sms_account_id: "acc-2", phone: "+233551234567", rendered_message: "Hi", segments: 2, attempts: MAX_ATTEMPTS },
     ]
@@ -161,11 +190,9 @@ describe("drainSmsMessages", () => {
     expect(result.failed).toBe(1)
     expect(result.refunded).toBe(1)
 
-    const refundCall = h.state.rpcs.find((r) => r.fn === "adjust_sms_units")
+    const refundCall = h.state.rpcs.find((r) => r.fn === "refund_sms_message")
     expect(refundCall).toBeTruthy()
-    expect(refundCall!.args.p_account_id).toBe("acc-2")
-    expect(refundCall!.args.p_delta).toBe(2) // segments
-    expect(refundCall!.args.p_reason).toBe("campaign_refund")
+    expect(refundCall!.args).toEqual({ p_message_id: "msg-2" })
   })
 
   it("row fails but attempts < MAX_ATTEMPTS → marked failed, NO refund", async () => {
@@ -177,7 +204,7 @@ describe("drainSmsMessages", () => {
     const result = await drainSmsMessages()
     expect(result.failed).toBe(1)
     expect(result.refunded).toBe(0)
-    expect(rpcNames()).not.toContain("adjust_sms_units")
+    expect(rpcNames()).not.toContain("refund_sms_message")
   })
 
   it("refund RPC errors → sms_refund_failures inserted, refunded count stays 0", async () => {

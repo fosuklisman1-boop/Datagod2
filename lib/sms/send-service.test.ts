@@ -13,15 +13,13 @@ const h = vi.hoisted(() => {
     // Drives the mocked ./policy-context sender resolver: null → no row; only
     // local_status === "active" resolves.
     senderRow: { local_status: "active" } as { local_status: string } | null,
-    bulkOk: true,                        // sendSMSBulkViaMoolre result
+    bulkOk: true,                        // dispatchCampaign places the rows
+    dispatchProvider: "moolre" as string, // provider the mocked dispatch reports
+    unconfirmed: false,                  // hubtel rows placed with no ids ("unknown" outcome)
+    dispatchThrows: false,
     msgUpdates: [] as { patch: any; ids: string[] }[], // captured .update().in() (mark-sent)
     msgIdSeq: 0,                         // id generator for inserted sms_messages
   }
-
-  const bulkMock = vi.fn((items: any[], senderId?: string) => {
-    state.calls.push({ fn: "bulk", args: { count: items.length, senderId } })
-    return Promise.resolve({ ok: state.bulkOk })
-  })
 
   const fake = {
     rpc: (fn: string, args?: any) => {
@@ -83,14 +81,29 @@ const h = vi.hoisted(() => {
     },
   }
 
-  return { state, fake, bulkMock }
+  return { state, fake }
 })
 
 // Mock supabase — must happen before the module under test is imported
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => h.fake }))
 
-// Mock the Moolre bulk sender (the instant dispatch path).
-vi.mock("@/lib/sms-service", () => ({ sendSMSBulkViaMoolre: (...args: any[]) => (h.bulkMock as (...a: any[]) => any)(...args) }))
+// Mock the instant dispatch (routing + providers are tested in campaign-dispatch.test.ts).
+// Mirrors the real contract: onChunkSent is awaited per placed chunk.
+vi.mock("./campaign-dispatch", () => ({
+  dispatchCampaign: async (
+    its: { id: string }[],
+    senderId: string | null,
+    onChunkSent?: (provider: string, rows: { id: string; mid: string | null; bid: string | null }[]) => Promise<void>,
+  ) => {
+    h.state.calls.push({ fn: "bulk", args: { count: its.length, senderId: senderId ?? undefined } })
+    if (h.state.dispatchThrows) throw new Error("dispatch boom")
+    const sent = h.state.bulkOk
+      ? its.map((i) => ({ id: i.id, mid: h.state.dispatchProvider === "hubtel" && !h.state.unconfirmed ? `hm-${i.id}` : null, bid: h.state.dispatchProvider === "hubtel" && !h.state.unconfirmed ? "B1" : null }))
+      : []
+    if (onChunkSent && sent.length) await onChunkSent(h.state.dispatchProvider, sent)
+    return { provider: h.state.dispatchProvider, sent, fallbackSent: [], unconfirmed: [], outOfFunds: false }
+  },
+}))
 
 // Sender resolution + policy shadow live in ./policy-context (tested separately);
 // h.state.senderRow keeps driving which senders resolve.
@@ -114,9 +127,11 @@ beforeEach(() => {
   h.state.insertMsgError = null
   h.state.senderRow = { local_status: "active" }
   h.state.bulkOk = true
+  h.state.dispatchProvider = "moolre"
+  h.state.unconfirmed = false
+  h.state.dispatchThrows = false
   h.state.msgUpdates.length = 0
   h.state.msgIdSeq = 0
-  h.bulkMock.mockClear()
 })
 
 // Helper: all rpc calls
@@ -202,27 +217,54 @@ describe("enqueueSend", () => {
     expect(msgInserts.length).toBeGreaterThan(0)
   })
 
-  it("INSTANT bulk send: dispatches via Moolre and flips accepted rows to 'sent'", async () => {
+  const dispatches = () => h.state.calls.filter((c) => c.fn === "bulk")
+  const marks = () => h.state.calls.filter((c) => c.fn === "mark_sms_messages_sent")
+
+  it("INSTANT dispatch: accepted rows are marked sent via mark_sms_messages_sent", async () => {
     const recipients = ["0241234567", "0551234567", "0201234567"]
     const result = await enqueueSend("u1", "acc1", "Hello world", recipients)
     expect(result.ok).toBe(true)
-    // The bulk API was called (one chunk for 3 recipients)…
-    expect(h.bulkMock).toHaveBeenCalledTimes(1)
-    // …and the accepted rows were marked sent in one update.
-    expect(h.state.msgUpdates).toHaveLength(1)
-    expect(h.state.msgUpdates[0].patch.status).toBe("sent")
-    expect(h.state.msgUpdates[0].ids).toHaveLength(3)
+    expect(dispatches()).toHaveLength(1)
+    expect(marks()).toHaveLength(1)
+    expect(marks()[0].args.p_provider).toBe("moolre")
+    expect(marks()[0].args.p_rows.map((r: { id: string }) => r.id)).toEqual(["m0", "m1", "m2"])
     // Parent status recomputed after the dispatch.
     expect(rpcs().some((c) => c.fn === "recompute_sms_send_result")).toBe(true)
   })
 
-  it("bulk failure leaves rows 'pending' for the cron (no mark-sent), still ok:true", async () => {
+  it("dispatch placing nothing leaves rows 'pending' for the cron (no mark-sent), still ok:true", async () => {
     h.state.bulkOk = false
     const result = await enqueueSend("u1", "acc1", "Hello world", ["0241234567", "0551234567"])
     expect(result.ok).toBe(true) // credits reserved; cron is the safety net
-    expect(h.bulkMock).toHaveBeenCalled()
-    // Nothing was flipped to sent — the rows stay pending for the drain.
+    expect(dispatches()).toHaveLength(1)
+    expect(marks()).toHaveLength(0)
+  })
+
+  it("hubtel dispatch: marks rows with provider ids, no unconfirmed tagging", async () => {
+    h.state.dispatchProvider = "hubtel"
+    const result = await enqueueSend("u1", "acc1", "Hello world", ["0241234567"])
+    expect(result.ok).toBe(true)
+    expect(marks()[0].args.p_provider).toBe("hubtel")
+    expect(marks()[0].args.p_rows[0]).toEqual({ id: "m0", mid: "hm-m0", bid: "B1" })
     expect(h.state.msgUpdates).toHaveLength(0)
+  })
+
+  it("hubtel rows placed without ids (unknown outcome) are tagged last_error=hubtel_unconfirmed", async () => {
+    h.state.dispatchProvider = "hubtel"
+    h.state.unconfirmed = true
+    const result = await enqueueSend("u1", "acc1", "Hello world", ["0241234567", "0551234567"])
+    expect(result.ok).toBe(true)
+    expect(h.state.msgUpdates).toHaveLength(1)
+    expect(h.state.msgUpdates[0].patch).toEqual({ last_error: "hubtel_unconfirmed" })
+    expect(h.state.msgUpdates[0].ids).toEqual(["m0", "m1"])
+  })
+
+  it("dispatch throwing never refunds and still returns ok:true", async () => {
+    h.state.dispatchThrows = true
+    const result = await enqueueSend("u1", "acc1", "Hello world", ["0241234567"])
+    expect(result.ok).toBe(true)
+    expect(rpcs().some((c) => c.fn === "adjust_sms_units")).toBe(false)
+    expect(rpcs().some((c) => c.fn === "recompute_sms_send_result")).toBe(true)
   })
 
   it("EMPTY_MESSAGE after prepare → ok:false, no debit", async () => {

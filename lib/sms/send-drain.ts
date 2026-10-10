@@ -34,28 +34,19 @@ export interface DrainResult {
   refunded: number
 }
 
-/** Refund a terminally-failed message's reserved credits. Idempotent: a duplicate-ref
- *  (23505 on the unique sms_unit_transactions.ref index) means this message was ALREADY
- *  refunded — e.g. a reaped worker double-fired — so treat it as done, NOT as a refund still
- *  owed (recording that would double-credit when the refund-failure ledger is replayed). */
+/** Refund a terminally-failed message's reserved credits via the shared exactly-once RPC
+ *  (ref = message id, also used by the DLR poller). Returns true only when THIS call refunded;
+ *  an already-refunded message returns false so it is not counted twice. */
 async function refundMessage(row: SmsMessageRow): Promise<boolean> {
-  const { error } = await supabaseAdmin.rpc("adjust_sms_units", {
-    p_account_id: row.sms_account_id,
-    p_delta: row.segments,
-    p_reason: "campaign_refund",
-    p_ref: row.id,
-  })
-  if (!error) return true
-  if (error.code === "23505" || /duplicate key|unique/i.test(error.message ?? "")) {
-    return true // already refunded for this message id — no double-credit, no replay row
-  }
+  const { data, error } = await supabaseAdmin.rpc("refund_sms_message", { p_message_id: row.id })
+  if (!error) return data === true
   console.error(`[SMS-DRAIN] Refund failed for message ${row.id}:`, error.message)
   await supabaseAdmin
     .from("sms_refund_failures")
     .insert({
       sms_account_id: row.sms_account_id,
       credits: row.segments,
-      reason: `adjust_sms_units failed: ${error.message}`,
+      reason: `refund_sms_message failed: ${error.message}`,
     })
     .then(({ error: e }) => {
       if (e) console.error("[SMS-DRAIN] sms_refund_failures insert failed:", e.message)
@@ -135,6 +126,7 @@ export async function drainSmsMessages(opts: { limit?: number } = {}): Promise<D
             processed_at: new Date().toISOString(),
             ref: r.ref ?? r.messageId ?? null,
             provider: r.provider ?? null,
+            provider_message_id: r.provider === "hubtel" ? r.messageId ?? null : null,
           })
           .eq("id", row.id)
         sent++

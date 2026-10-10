@@ -2,12 +2,8 @@ import { createClient } from "@supabase/supabase-js"
 import { prepareSmsMessage, type ShopTokens } from "./prepare"
 import { filterSmsContent } from "./content-filter"
 import { calculateSegments } from "./segments"
-import { sendSMSBulkViaMoolre } from "@/lib/sms-service"
 import { resolveCampaignSender, shadowPolicyWithin } from "./policy-context"
-
-// One Moolre bulk call carries up to this many recipients; 500-recipient sends
-// fan out into a few sequential calls, all within the send request.
-const BULK_CHUNK = 100
+import { dispatchCampaign, type SentRow } from "./campaign-dispatch"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -210,32 +206,44 @@ export async function enqueueSend(
     return { ok: false, error: "ENQUEUE_FAILED" }
   }
 
-  // 7. INSTANT dispatch via the Moolre BULK API — one (chunked) call sends every
-  //    recipient now, so the batch shows 'sent' before the response returns. This is
-  //    deliberately OUTSIDE the refund block: the rows are durable, so a failure here
-  //    must NEVER refund a batch Moolre already accepted. Rows the bulk call can't
-  //    place stay 'pending' for the cron drain (retry + refund-on-terminal-failure).
-  const sentIds: string[] = []
-  for (let i = 0; i < inserted.length; i += BULK_CHUNK) {
-    const chunk = inserted.slice(i, i + BULK_CHUNK)
-    const items = chunk.map((m) => ({ recipient: m.phone, message: prepared, ref: m.id }))
-    let res: { ok: boolean }
-    try {
-      res = await sendSMSBulkViaMoolre(items, resolvedSenderId ?? undefined)
-    } catch {
-      res = { ok: false }
+  // 7. INSTANT dispatch through provider routing (Hubtel batches when primary). Deliberately
+  //    OUTSIDE the refund block: rows are durable, so a failure here must NEVER refund a batch
+  //    a provider already accepted. Rows not placed stay 'pending' for the cron drain.
+  //    Rows are marked sent PER CHUNK (onChunkSent) so a timeout mid-campaign leaves only
+  //    truly unsent rows pending.
+  try {
+    const mark = async (provider: string, rows: SentRow[]) => {
+      if (rows.length === 0) return
+      const { error } = await supabaseAdmin.rpc("mark_sms_messages_sent", { p_provider: provider, p_rows: rows })
+      if (error) {
+        // Rows stay 'pending' and the drain may re-send them (at-least-once). Never refund here.
+        console.error(`[SMS-SEND] mark-sent (${provider}) failed (cron will reconcile):`, error.message)
+        return
+      }
+      // Hubtel "unknown" outcome: placed without ids. Tag so admins can count them (a spike
+      // means a Hubtel outage); the DLR poller's 72 h close refunds any that never deliver.
+      if (provider === "hubtel") {
+        const unconfirmed = rows.filter((r) => !r.mid && !r.bid).map((r) => r.id)
+        if (unconfirmed.length > 0) {
+          const { error: tagErr } = await supabaseAdmin
+            .from("sms_messages")
+            .update({ last_error: "hubtel_unconfirmed" })
+            .in("id", unconfirmed)
+          if (tagErr) console.error("[SMS-SEND] unconfirmed tagging failed:", tagErr.message)
+        }
+      }
     }
-    if (res.ok) sentIds.push(...chunk.map((m) => m.id))
-  }
-  if (sentIds.length > 0) {
-    const { error: markErr } = await supabaseAdmin
-      .from("sms_messages")
-      .update({ status: "sent", provider: "moolre", processed_at: new Date().toISOString() })
-      .in("id", sentIds)
-    // If this write fails the rows stay 'pending' and the cron may re-send them
-    // (at-least-once). We log loudly but NEVER refund here — Moolre already accepted
-    // them, so a refund would hand back credits for delivered messages.
-    if (markErr) console.error("[SMS-SEND] mark-sent failed (cron will reconcile):", markErr.message)
+    const result = await dispatchCampaign(
+      inserted.map((m) => ({ id: m.id, phone: m.phone, message: prepared })),
+      resolvedSenderId,
+      mark
+    )
+    const firstBatch = result.sent.find((r) => r.bid)?.bid
+    if (firstBatch) {
+      await supabaseAdmin.from("sms_send_logs").update({ provider_batch_id: firstBatch, provider: "hubtel" }).eq("id", sendLogId)
+    }
+  } catch (e) {
+    console.error("[SMS-SEND] dispatch failed (rows stay pending for the drain):", e)
   }
   // Roll the per-recipient outcomes up into the parent status so the UI reflects it
   // immediately. Non-fatal if it hiccups.
