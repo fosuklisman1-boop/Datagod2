@@ -179,7 +179,11 @@ export async function enqueueSend(
       phone,
       rendered_message: prepared,
       segments: seg,
-      status: "pending",
+      // Inserted pre-claimed so the cron drain (claims pending/failed only) cannot grab them
+      // mid-dispatch and double-send. Released back to 'pending' after dispatch (step 7); if this
+      // function dies first, the drain's stale-claim reaper returns them after 5 minutes.
+      status: "claimed",
+      claimed_at: new Date().toISOString(),
       sender_id: resolvedSenderId,
     }))
     for (let i = 0; i < rows.length; i += 500) {
@@ -212,25 +216,28 @@ export async function enqueueSend(
   //    Rows are marked sent PER CHUNK (onChunkSent) so a timeout mid-campaign leaves only
   //    truly unsent rows pending.
   try {
-    const mark = async (provider: string, rows: SentRow[]) => {
+    const mark = async (provider: string, rows: SentRow[], info: { unconfirmed: boolean }) => {
       if (rows.length === 0) return
-      const { error } = await supabaseAdmin.rpc("mark_sms_messages_sent", { p_provider: provider, p_rows: rows })
+      // mark_sms_messages_sent is idempotent: retry transient errors (~250 ms, ~1 s) before giving up.
+      let error: { message?: string } | null = null
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) await new Promise((r) => setTimeout(r, attempt === 1 ? 250 : 1000))
+        ;({ error } = await supabaseAdmin.rpc("mark_sms_messages_sent", { p_provider: provider, p_rows: rows }))
+        if (!error) break
+      }
       if (error) {
-        // Rows stay 'pending' and the drain may re-send them (at-least-once). Never refund here.
+        // Rows are released back to 'pending' and the drain may re-send them (at-least-once). Never refund here.
         console.error(`[SMS-SEND] mark-sent (${provider}) failed (cron will reconcile):`, error.message)
         return
       }
       // Hubtel "unknown" outcome: placed without ids. Tag so admins can count them (a spike
       // means a Hubtel outage); the DLR poller's 72 h close refunds any that never deliver.
-      if (provider === "hubtel") {
-        const unconfirmed = rows.filter((r) => !r.mid && !r.bid).map((r) => r.id)
-        if (unconfirmed.length > 0) {
-          const { error: tagErr } = await supabaseAdmin
-            .from("sms_messages")
-            .update({ last_error: "hubtel_unconfirmed" })
-            .in("id", unconfirmed)
-          if (tagErr) console.error("[SMS-SEND] unconfirmed tagging failed:", tagErr.message)
-        }
+      if (provider === "hubtel" && info.unconfirmed) {
+        const { error: tagErr } = await supabaseAdmin
+          .from("sms_messages")
+          .update({ last_error: "hubtel_unconfirmed" })
+          .in("id", rows.map((r) => r.id))
+        if (tagErr) console.error("[SMS-SEND] unconfirmed tagging failed:", tagErr.message)
       }
     }
     const result = await dispatchCampaign(
@@ -244,6 +251,19 @@ export async function enqueueSend(
     }
   } catch (e) {
     console.error("[SMS-SEND] dispatch failed (rows stay pending for the drain):", e)
+  } finally {
+    // Release rows dispatch did not place (still 'claimed') so the drain can pick them up.
+    // Placed rows were flipped to 'sent' by mark_sms_messages_sent and are untouched.
+    try {
+      const { error: relErr } = await supabaseAdmin
+        .from("sms_messages")
+        .update({ status: "pending", claimed_at: null })
+        .eq("send_log_id", sendLogId)
+        .eq("status", "claimed")
+      if (relErr) console.error("[SMS-SEND] release of unplaced rows failed (stale-claim reaper will recover):", relErr.message)
+    } catch (e) {
+      console.error("[SMS-SEND] release of unplaced rows threw (stale-claim reaper will recover):", e)
+    }
   }
   // Roll the per-recipient outcomes up into the parent status so the UI reflects it
   // immediately. Non-fatal if it hiccups.

@@ -17,6 +17,7 @@ const h = vi.hoisted(() => {
     dispatchProvider: "moolre" as string, // provider the mocked dispatch reports
     unconfirmed: false,                  // hubtel rows placed with no ids ("unknown" outcome)
     dispatchThrows: false,
+    markErrorsLeft: 0,                   // next N mark_sms_messages_sent calls error
     msgUpdates: [] as { patch: any; ids: string[] }[], // captured .update().in() (mark-sent)
     msgIdSeq: 0,                         // id generator for inserted sms_messages
   }
@@ -29,6 +30,10 @@ const h = vi.hoisted(() => {
           return Promise.resolve({ data: null, error: { message: state.debitError } })
         }
         return Promise.resolve({ data: null, error: null })
+      }
+      if (fn === "mark_sms_messages_sent" && state.markErrorsLeft > 0) {
+        state.markErrorsLeft--
+        return Promise.resolve({ data: null, error: { message: "transient" } })
       }
       return Promise.resolve({ data: null, error: null })
     },
@@ -67,7 +72,20 @@ const h = vi.hoisted(() => {
           return Promise.resolve({ data: null, error: null })
         },
         update: (patch: any) => ({
-          eq: () => ({ lt: () => Promise.resolve({ data: null, error: null }) }),
+          eq: (col: string, val: any) => {
+            const filters: Record<string, any> = { [col]: val }
+            const chain: any = {
+              eq: (c2: string, v2: any) => { filters[c2] = v2; return chain },
+              lt: () => Promise.resolve({ data: null, error: null }),
+              then: (resolve: any) => {
+                if (table === "sms_messages" && patch.status === "pending") {
+                  state.calls.push({ fn: "release", table, args: { patch, filters } })
+                }
+                resolve({ data: null, error: null })
+              },
+            }
+            return chain
+          },
           // mark-sent: .update({status:'sent',...}).in("id", ids)
           in: (_col: string, ids: string[]) => {
             state.msgUpdates.push({ patch, ids })
@@ -93,15 +111,15 @@ vi.mock("./campaign-dispatch", () => ({
   dispatchCampaign: async (
     its: { id: string }[],
     senderId: string | null,
-    onChunkSent?: (provider: string, rows: { id: string; mid: string | null; bid: string | null }[]) => Promise<void>,
+    onChunkSent?: (provider: string, rows: { id: string; mid: string | null; bid: string | null }[], info: { unconfirmed: boolean }) => Promise<void>,
   ) => {
     h.state.calls.push({ fn: "bulk", args: { count: its.length, senderId: senderId ?? undefined } })
     if (h.state.dispatchThrows) throw new Error("dispatch boom")
     const sent = h.state.bulkOk
       ? its.map((i) => ({ id: i.id, mid: h.state.dispatchProvider === "hubtel" && !h.state.unconfirmed ? `hm-${i.id}` : null, bid: h.state.dispatchProvider === "hubtel" && !h.state.unconfirmed ? "B1" : null }))
       : []
-    if (onChunkSent && sent.length) await onChunkSent(h.state.dispatchProvider, sent)
-    return { provider: h.state.dispatchProvider, sent, fallbackSent: [], unconfirmed: [], outOfFunds: false }
+    if (onChunkSent && sent.length) await onChunkSent(h.state.dispatchProvider, sent, { unconfirmed: h.state.unconfirmed })
+    return { provider: h.state.dispatchProvider, sent, fallbackSent: [], outOfFunds: false }
   },
 }))
 
@@ -130,6 +148,7 @@ beforeEach(() => {
   h.state.dispatchProvider = "moolre"
   h.state.unconfirmed = false
   h.state.dispatchThrows = false
+  h.state.markErrorsLeft = 0
   h.state.msgUpdates.length = 0
   h.state.msgIdSeq = 0
 })
@@ -257,6 +276,61 @@ describe("enqueueSend", () => {
     expect(h.state.msgUpdates).toHaveLength(1)
     expect(h.state.msgUpdates[0].patch).toEqual({ last_error: "hubtel_unconfirmed" })
     expect(h.state.msgUpdates[0].ids).toEqual(["m0", "m1"])
+  })
+
+  it("rows are inserted pre-claimed (status 'claimed' + claimed_at) so the drain cannot grab them mid-dispatch", async () => {
+    await enqueueSend("u1", "acc1", "Hello world", ["0241234567"])
+    const i = inserts("sms_messages")[0]
+    const row = Array.isArray(i.args) ? i.args[0] : i.args
+    expect(row.status).toBe("claimed")
+    expect(typeof row.claimed_at).toBe("string")
+    expect(Number.isNaN(Date.parse(row.claimed_at))).toBe(false)
+  })
+
+  it("unplaced rows are released to pending AFTER dispatch (scoped to the send log + still claimed)", async () => {
+    h.state.bulkOk = false
+    await enqueueSend("u1", "acc1", "Hello world", ["0241234567"])
+    const names = h.state.calls.map((c) => c.fn)
+    const rel = h.state.calls.find((c) => c.fn === "release")!
+    expect(rel).toBeTruthy()
+    expect(rel.args.patch).toEqual({ status: "pending", claimed_at: null })
+    expect(rel.args.filters).toEqual({ send_log_id: "log-1", status: "claimed" })
+    expect(names.indexOf("release")).toBeGreaterThan(names.indexOf("bulk"))
+  })
+
+  it("release also runs when dispatch throws", async () => {
+    h.state.dispatchThrows = true
+    await enqueueSend("u1", "acc1", "Hello world", ["0241234567"])
+    expect(h.state.calls.some((c) => c.fn === "release")).toBe(true)
+  })
+
+  it("enqueue failure after debit: refund unchanged, no release", async () => {
+    h.state.insertMsgError = "msg boom"
+    const result = await enqueueSend("u1", "acc1", "Hello world", ["0241234567"])
+    expect(result.ok).toBe(false)
+    expect(rpcs().some((c) => c.fn === "adjust_sms_units")).toBe(true)
+    expect(h.state.calls.some((c) => c.fn === "release")).toBe(false)
+  })
+
+  it("mark_sms_messages_sent is retried on error: first call fails, second succeeds, no failure logged", async () => {
+    h.state.markErrorsLeft = 1
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const result = await enqueueSend("u1", "acc1", "Hello world", ["0241234567"])
+    expect(result.ok).toBe(true)
+    expect(marks()).toHaveLength(2)
+    expect(spy.mock.calls.some((c) => String(c[0]).includes("mark-sent"))).toBe(false)
+    spy.mockRestore()
+  })
+
+  it("mark_sms_messages_sent gives up after 3 attempts and logs, never refunds", async () => {
+    h.state.markErrorsLeft = 99
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const result = await enqueueSend("u1", "acc1", "Hello world", ["0241234567"])
+    expect(result.ok).toBe(true)
+    expect(marks()).toHaveLength(3)
+    expect(spy.mock.calls.some((c) => String(c[0]).includes("mark-sent"))).toBe(true)
+    expect(rpcs().some((c) => c.fn === "adjust_sms_units")).toBe(false)
+    spy.mockRestore()
   })
 
   it("dispatch throwing never refunds and still returns ok:true", async () => {

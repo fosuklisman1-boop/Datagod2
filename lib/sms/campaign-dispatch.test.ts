@@ -84,16 +84,17 @@ describe("dispatchCampaign", () => {
     expect(r.provider).toBe("moolre")
     expect(r.sent.map((s) => s.id)).toEqual(["id0", "id1", "id2"])
   })
-  it("unknown outcome on a platform-sender chunk: counted sent (no ids), flagged unconfirmed, Moolre NOT called", async () => {
+  it("unknown outcome on a platform-sender chunk: counted sent (no ids), callback flagged unconfirmed, Moolre NOT called", async () => {
     h.simple.mockResolvedValue({ outcome: "unknown", httpStatus: 0, bodyStatus: null, messages: [] })
-    const r = await dispatchCampaign(items(3), null)
+    const cb = vi.fn(() => Promise.resolve())
+    const r = await dispatchCampaign(items(3), null, cb)
+    expect(cb).toHaveBeenCalledWith("hubtel", expect.any(Array), { unconfirmed: true })
     expect(h.moolre).not.toHaveBeenCalled()
     expect(r.sent).toEqual([
       { id: "id0", mid: null, bid: null },
       { id: "id1", mid: null, bid: null },
       { id: "id2", mid: null, bid: null },
     ])
-    expect(r.unconfirmed).toEqual(["id0", "id1", "id2"])
     expect(r.fallbackSent).toEqual([])
   })
   it("onChunkSent is awaited once per placed chunk with the right provider", async () => {
@@ -107,6 +108,7 @@ describe("dispatchCampaign", () => {
     expect(cb).toHaveBeenCalledTimes(3)
     expect(cb.mock.calls.map((c: unknown[]) => c[0])).toEqual(["hubtel", "moolre", "hubtel"])
     expect((cb.mock.calls[0] as unknown[])[1]).toHaveLength(100)
+    expect(cb.mock.calls.map((c: unknown[]) => (c[2] as { unconfirmed: boolean }).unconfirmed)).toEqual([false, false, true])
   })
   it("onChunkSent errors are swallowed; dispatch continues", async () => {
     h.simple.mockImplementation(async (_c: unknown, m: { recipients: string[] }) => accepted(m.recipients.map((x) => ({ phone: x }))))

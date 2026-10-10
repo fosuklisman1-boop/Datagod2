@@ -4,8 +4,8 @@
  *   sent         — accepted by the primary (Hubtel or, if not primary, Moolre) with ids, plus
  *                  Hubtel chunks with outcome "unknown" (may have been accepted: ids null)
  *   fallbackSent — platform-sender chunks Hubtel refused and Moolre accepted
- *   unconfirmed  — ids of rows placed via an "unknown" Hubtel outcome (no Hubtel ids; the
- *                  72 h DLR close refunds them if they never show delivered)
+ *   (onChunkSent's info.unconfirmed is true for "unknown" chunks: no Hubtel ids; the 72 h DLR
+ *   close refunds them if they never show delivered)
  *   everything else stays 'pending' for the cron drain.
  * Money rules: never resend or fall back on "unknown"; out_of_funds stops dispatch.
  */
@@ -23,10 +23,9 @@ export interface DispatchResult {
   provider: "hubtel" | "moolre"
   sent: SentRow[]
   fallbackSent: SentRow[]
-  unconfirmed: string[]
   outOfFunds: boolean
 }
-export type OnChunkSent = (provider: string, rows: SentRow[]) => Promise<void>
+export type OnChunkSent = (provider: string, rows: SentRow[], info: { unconfirmed: boolean }) => Promise<void>
 
 const MOOLRE_CHUNK = 100
 
@@ -59,10 +58,10 @@ export async function dispatchCampaign(
   senderId: string | null,
   onChunkSent?: OnChunkSent,
 ): Promise<DispatchResult> {
-  const placed = async (provider: string, rows: SentRow[]) => {
+  const placed = async (provider: string, rows: SentRow[], unconfirmed = false) => {
     if (!onChunkSent || rows.length === 0) return
     try {
-      await onChunkSent(provider, rows)
+      await onChunkSent(provider, rows, { unconfirmed })
     } catch (e) {
       console.error(`[SMS-DISPATCH] onChunkSent (${provider}) failed:`, e)
     }
@@ -73,12 +72,12 @@ export async function dispatchCampaign(
     routing = await getRoutingConfig()
   } catch (e) {
     console.error("[SMS-DISPATCH] routing config unavailable; rows stay pending:", e)
-    return { provider: "moolre", sent: [], fallbackSent: [], unconfirmed: [], outOfFunds: false }
+    return { provider: "moolre", sent: [], fallbackSent: [], outOfFunds: false }
   }
   const hubtel = hubtelConfigFromEnv()
 
   if (routing.primary !== "hubtel" || !hubtel) {
-    const out: DispatchResult = { provider: "moolre", sent: [], fallbackSent: [], unconfirmed: [], outOfFunds: false }
+    const out: DispatchResult = { provider: "moolre", sent: [], fallbackSent: [], outOfFunds: false }
     for (let i = 0; i < items.length; i += MOOLRE_CHUNK) {
       const chunk = items.slice(i, i + MOOLRE_CHUNK)
       if (await moolreChunk(chunk, senderId)) {
@@ -91,7 +90,7 @@ export async function dispatchCampaign(
   }
 
   const from = senderId ?? platformSenderName()
-  const out: DispatchResult = { provider: "hubtel", sent: [], fallbackSent: [], unconfirmed: [], outOfFunds: false }
+  const out: DispatchResult = { provider: "hubtel", sent: [], fallbackSent: [], outOfFunds: false }
   // Hubtel can reject a whole batch over one bad number: leave unaddressable rows pending
   // (the drain's single-send path validates and fails/refunds them individually).
   const sendable = items.filter((it) => isValidHubtelMsisdn(toHubtelMsisdn(it.phone)))
@@ -121,14 +120,15 @@ export async function dispatchCampaign(
       console.warn(`[SMS-DISPATCH] Hubtel unknown outcome for chunk of ${chunk.length}; treating as sent:`, res.error)
       const rows = chunk.map((c) => ({ id: c.id, mid: null, bid: null }))
       out.sent.push(...rows)
-      out.unconfirmed.push(...chunk.map((c) => c.id))
-      await placed("hubtel", rows)
+      await placed("hubtel", rows, true)
       continue
     }
     if (res.outcome === "out_of_funds") {
       out.outOfFunds = true
       notifyHubtelOutOfFunds().catch(() => {})
-      break // remaining rows stay pending; the drain retries once funded
+      // Remaining rows stay pending: the drain keeps retrying each minute (attempt-capped,
+      // refunded after 3 failed attempts). Admin alerts are throttled (notifyAdminsThrottled, 30 min).
+      break
     }
     // rejected | retryable: Hubtel definitely did not send these.
     console.warn(`[SMS-DISPATCH] Hubtel ${res.outcome} for chunk of ${chunk.length}:`, res.error)

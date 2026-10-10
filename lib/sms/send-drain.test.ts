@@ -18,7 +18,8 @@ const h = vi.hoisted(() => {
     updates: [] as { table: string; data: any; id?: string }[],
     rpcs: [] as { fn: string; args?: any }[],
     refundError: false,           // force refund_sms_message to error
-    refundResult: true,           // refund_sms_message data (false = already refunded)
+    updateError: false,           // force the per-row update to return an error
+    refundResult: true,          // refund_sms_message data (false = already refunded)
     refundFailuresInsertError: false,  // force sms_refund_failures insert to fail
     recomputeError: false,
     sendSuccess: true,            // sendSMS returns success or failure
@@ -30,15 +31,20 @@ const h = vi.hoisted(() => {
   const fake = {
     from: (table: string) => ({
       update: (data: any) => ({
-        eq: (col: string, val: any) => ({
-          lt: (col2: string, val2: any) => Promise.resolve({ data: null, error: null }),
-          then: (resolve: any) => {
-            state.updates.push({ table, data, id: val })
-            const r = { data: null, error: null }
-            resolve(r)
-            return Promise.resolve(r)
-          },
-        }),
+        eq: (col: string, val: any) => {
+          const filters: Record<string, any> = { [col]: val }
+          const chain: any = {
+            eq: (c2: string, v2: any) => { filters[c2] = v2; return chain },
+            lt: (col2: string, val2: any) => Promise.resolve({ data: null, error: null }),
+            then: (resolve: any) => {
+              state.updates.push({ table, data, id: val, filters } as any)
+              const r = { data: null, error: state.updateError ? { message: "update boom" } : null }
+              resolve(r)
+              return Promise.resolve(r)
+            },
+          }
+          return chain
+        },
         then: (resolve: any) => {
           state.updates.push({ table, data })
           const r = { data: null, error: null }
@@ -97,6 +103,7 @@ beforeEach(() => {
   h.state.rpcs.length = 0
   h.state.refundError = false
   h.state.refundResult = true
+  h.state.updateError = false
   h.state.refundFailuresInsertError = false
   h.state.recomputeError = false
   h.state.sendSuccess = true
@@ -166,6 +173,20 @@ describe("drainSmsMessages", () => {
     const moo = h.state.updates.find((u) => u.id === "msg-m")!
     expect(hub.data.provider_message_id).toBe("hub-1")
     expect(moo.data.provider_message_id).toBeNull()
+  })
+
+  it("success update is guarded by status='claimed' and logs update errors", async () => {
+    h.state.claimedRows = [
+      { id: "msg-g", send_log_id: "log-g", sms_account_id: "acc-1", phone: "+233241234567", rendered_message: "Hi", segments: 1, attempts: 0 },
+    ]
+    h.sendSmsMock.mockResolvedValue({ success: true, messageId: "m", provider: "moolre" })
+    h.state.updateError = true
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    await drainSmsMessages()
+    const upd = h.state.updates.find((u) => u.data.status === "sent") as any
+    expect(upd.filters).toEqual({ id: "msg-g", status: "claimed" })
+    expect(spy.mock.calls.some((c) => String(c[0]).includes("mark-sent update failed"))).toBe(true)
+    spy.mockRestore()
   })
 
   it("already-refunded message (RPC returns false) is not counted as refunded", async () => {

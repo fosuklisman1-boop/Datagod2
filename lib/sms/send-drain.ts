@@ -119,7 +119,7 @@ export async function drainSmsMessages(opts: { limit?: number } = {}): Promise<D
       const r = await sendWithTimeout(row)
 
       if (r.success) {
-        await supabaseAdmin
+        const { error: sentErr } = await supabaseAdmin
           .from("sms_messages")
           .update({
             status: "sent",
@@ -129,6 +129,8 @@ export async function drainSmsMessages(opts: { limit?: number } = {}): Promise<D
             provider_message_id: r.provider === "hubtel" ? r.messageId ?? null : null,
           })
           .eq("id", row.id)
+          .eq("status", "claimed") // never overwrite a row someone else already moved on
+        if (sentErr) console.error(`[SMS-DRAIN] mark-sent update failed for ${row.id}:`, sentErr.message)
         sent++
       } else {
         await markFailed(row, r.error ?? "send failed")
