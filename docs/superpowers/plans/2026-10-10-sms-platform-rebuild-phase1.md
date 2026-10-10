@@ -1674,6 +1674,8 @@ export async function hubtelGetMessageStatus(cfg: HubtelConfig, messageId: strin
 
 ### Task 8: Hubtel in provider routing + `sendSMS`
 
+> **Amendment (after Task 7 review):** the adapter now has a fifth outcome `"unknown"` (Hubtel may have accepted: timeout after send, 5xx gateway, unparseable 2xx). In `sendSMSViaHubtel` treat `unknown` as success: log a warning ("outcome unknown — may have been sent, not failing over"), log the sms_logs row with `moolre_message_id: null`, and return `{ success: true, provider: "hubtel" }` — never fall over to another provider on `unknown` (an OTP or receipt would arrive twice). Only `rejected`, `retryable` and `out_of_funds` return `success: false`.
+
 **Files:**
 - Modify: `lib/sms/routing.ts`, `lib/sms/routing.test.ts`, `lib/sms-service.ts`, `lib/sms/notify.ts`, `app/admin/sms-centre/_components/ProvidersTab.tsx`
 
@@ -1856,6 +1858,10 @@ Check the file for a label map keyed by provider (e.g. `moolre: "Moolre"`); if p
 ---
 
 ### Task 9: Campaign dispatch via routing (Hubtel batches) + drain updates
+
+> **Amendments (after Task 7 review):**
+> 1. Outcome `"unknown"` (Hubtel may have accepted): push the chunk to `sent` with `mid: null, bid: null`, log a warning, and continue. Never fall back to Moolre and never leave it pending (both would double-send). The DLR poller's 72 h close refunds it if it never shows delivered. Add a test: unknown on a platform-sender chunk → in `sent`, Moolre not called.
+> 2. Mark rows sent **per chunk**, not after all chunks: `dispatchCampaign(items, senderId, onChunkSent?)` where `onChunkSent: (provider: string, rows: SentRow[]) => Promise<void>` is awaited after each accepted / unknown / fallback chunk (errors inside it are caught and logged by dispatchCampaign). `enqueueSend` passes its `mark` function as `onChunkSent` and no longer marks after the loop (keep `result` for the first-batch id update). A Vercel timeout mid-campaign then leaves only truly unsent rows pending. Test that onChunkSent is called once per placed chunk with the right provider.
 
 **Files:**
 - Create: `lib/sms/campaign-dispatch.ts`, `lib/sms/campaign-dispatch.test.ts`
