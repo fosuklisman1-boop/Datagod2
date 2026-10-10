@@ -148,6 +148,10 @@
     {
       "path": "/api/cron/reconcile-paystack-refunds",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/sms-kyc-purge",
+      "schedule": "30 3 * * *"
     }
   ]
 }
