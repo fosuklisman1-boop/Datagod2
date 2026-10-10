@@ -75,6 +75,8 @@ export function narrowProvidersForSender(
   if (!senderRow) return order
   const approved = new Set<string>()
   if (senderRow.local_status === "active") { approved.add("moolre"); approved.add("hubtel") }
+  // Note: unreachable from sendSMS today (its lookup requires local_status = active);
+  // kept so this pure function's contract stays complete.
   if (senderRow.mnotify_local_status === "active") approved.add("mnotify")
   const narrowed = order.filter((p) => approved.size === 0 || approved.has(p))
   return narrowed.length > 0 ? narrowed : order

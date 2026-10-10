@@ -78,7 +78,11 @@ export async function notifyAdminSmsShortfall(unitsPending: number): Promise<voi
 export async function notifyAdminsThrottled(type: string, title: string, message: string, actionUrl = "/admin/sms", throttleMs = THROTTLE_MS): Promise<void> {
   try {
     const since = new Date(Date.now() - throttleMs).toISOString()
-    const { data: recent } = await supabaseAdmin.from("notifications").select("id").eq("type", type).gte("created_at", since).limit(1)
+    const { data: recent, error: throttleError } = await supabaseAdmin.from("notifications").select("id").eq("type", type).gte("created_at", since).limit(1)
+    if (throttleError) {
+      console.error(`[SMS-NOTIFY] ${type} throttle check failed:`, throttleError.message)
+      return
+    }
     if (recent && recent.length > 0) return
     const { data: admins } = await supabaseAdmin.from("users").select("id").eq("role", "admin")
     if (!admins?.length) return

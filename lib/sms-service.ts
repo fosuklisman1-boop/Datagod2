@@ -2,7 +2,8 @@ import axios from 'axios'
 import { createClient } from '@supabase/supabase-js'
 import { notifyAdmins as sendAdminEmail } from './email-service'
 import { getRoutingConfig, narrowProvidersForSender } from '@/lib/sms/routing'
-import { hubtelConfigFromEnv, hubtelSendSingle } from '@/lib/sms/providers/hubtel'
+import { hubtelConfigFromEnv, hubtelSendSingle, toHubtelMsisdn, isValidHubtelMsisdn } from '@/lib/sms/providers/hubtel'
+import { notifyHubtelOutOfFunds } from '@/lib/sms/notify'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -767,13 +768,37 @@ async function sendSMSViaHubtel(payload: SMSPayload): Promise<SendSMSResponse> {
   const cfg = hubtelConfigFromEnv()
   if (!cfg) return { success: false, error: 'Hubtel not configured', provider: 'hubtel' }
   const from = payload.senderId?.trim() ? payload.senderId.trim().toUpperCase() : platformSenderName()
+
+  const failHubtel = async (error: string): Promise<SendSMSResponse> => {
+    if (!payload.skipLogging) {
+      try {
+        await supabase.from('sms_logs').insert({
+          user_id: payload.userId || null,
+          phone_number: payload.phone,
+          message: logSafeSmsBody(payload),
+          message_type: payload.type,
+          reference_id: payload.reference || null,
+          provider: 'hubtel',
+          status: 'failed',
+          error_message: error,
+        })
+      } catch (logError) {
+        console.warn('[SMS] Failed to log failed SMS:', logError)
+      }
+    }
+    return { success: false, error, provider: 'hubtel' }
+  }
+
+  if (!isValidHubtelMsisdn(toHubtelMsisdn(payload.phone))) return failHubtel('Invalid recipient for Hubtel')
+  if (from.length > 11) return failHubtel('Sender ID longer than 11 characters')
+
   const res = await hubtelSendSingle(cfg, { from, to: payload.phone, content: payload.message })
   if (res.outcome === 'out_of_funds') {
-    import('@/lib/sms/notify').then((m) => m.notifyHubtelOutOfFunds()).catch(() => {})
+    Promise.resolve(notifyHubtelOutOfFunds()).catch(() => {})
   }
   if (res.outcome !== 'accepted' && res.outcome !== 'unknown') {
     console.warn('[SMS] Hubtel send failed:', res.error)
-    return { success: false, error: res.error ?? 'Hubtel send failed', provider: 'hubtel' }
+    return failHubtel(res.error ?? 'Hubtel send failed')
   }
   if (res.outcome === 'unknown') {
     console.warn('[SMS] Hubtel outcome unknown — may have been sent, not failing over:', res.error)
