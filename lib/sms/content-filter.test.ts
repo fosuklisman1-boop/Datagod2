@@ -161,7 +161,7 @@ describe("extractLinkHosts", () => {
 })
 describe("extractLinkHosts — bypass hardening", () => {
   const cases: Array<[string, string, string[]]> = [
-    ["backslash after scheme host", "https://evil.com\\.datagod.store", ["evil.com"]],
+    ["backslash after scheme host", "https://evil.com\\.datagod.store", ["evil.com", "datagod.store"]],
     ["trailing bang", "Shop now at https://kings.datagod.store!", ["kings.datagod.store"]],
     ["trailing dot", "Visit https://datagod.store.", ["datagod.store"]],
     ["port", "https://datagod.store:8443/x", ["datagod.store"]],
@@ -195,17 +195,21 @@ describe("extractLinkHosts — round-2 hardening", () => {
     ["Title-case word TLD, two labels, is prose", "now.Top up", []],
     ["Title-case Shop is prose", "Great offer.Shop now", []],
     ["lowercase word TLD stays a link", "now.top up", ["now.top"]],
-    ["Kings.Shop is prose (pinned known cost)", "Kings.Shop", []],
+    ["Kings.Shop is a link (capitalised first label)", "Kings.Shop", ["kings.shop"]],
+    ["Evil.Shop is a link", "Evil.Shop", ["evil.shop"]],
+    ["Momo-Verify.Top is a link", "Momo-Verify.Top", ["momo-verify.top"]],
+    ["dot run before host", "out...evil.com", ["evil.com"]],
+    ["space-hyphen before host", "now -evil.com", ["evil.com"]],
+    ["subdomain of email host", "user@mail.evil.com", []],
+    ["email local part with dot", "first.last@gmail.com", []],
+    ["email local part with TLD-like label", "Email sales.gh@gmail.com", []],
+    ["email local part me", "kofi.me@x.com", []],
     ["ideographic full stop is normalised", "https://datagod.store。evil。com", ["datagod.store.evil.com"]],
     ["scheme host plus bare host in query", "https://kings.datagod.store/buy?ref=kofi.me", ["kings.datagod.store", "kofi.me"]],
     ["underscore does not hide a host", "Visit_evil.com", ["evil.com"]],
     ["emails stay rejected", "a@b.com", []],
   ]
   for (const [name, input, expected] of cases) {
-    it(name, () => {
-      const got = extractLinkHosts(input)
-      if (name.startsWith("ideographic")) expect(got).toContain(expected[0])
-      else expect(got).toEqual(expected)
-    })
+    it(name, () => expect(extractLinkHosts(input)).toEqual(expected))
   }
 })

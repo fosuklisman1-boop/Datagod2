@@ -131,7 +131,7 @@ const WORD_TLDS = new Set(
 // Longest dotted run of labels; the TLD test happens afterwards so "datagod.store.evil.ru"
 // is kept whole rather than truncated at "datagod.store".
 const DOTTED_RUN_RE =
-  /(?<![@.\-a-z0-9])((?:www\.)?[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+)/gi
+  /(?<![@a-z0-9]|[a-z0-9][.-])((?:www\.)?[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+)/gi
 
 /** Every link host in the message — http(s) URLs, www hosts and bare domains carrying a
  *  common TLD — lowercased, without a leading "www.", de-duplicated, in order of appearance. */
@@ -146,11 +146,12 @@ export function extractLinkHosts(rawMessage: string): string[] {
   const withoutSchemes = message.replace(SCHEME_HOST_RE, " ")
   for (const m of withoutSchemes.matchAll(DOTTED_RUN_RE)) {
     const run = m[1]
+    if (withoutSchemes[m.index! + run.length] === "@") continue // email local part
     const rawLabels = run.split(".")
     if (!rawLabels.slice(1).some((l) => BARE_LINK_TLDS.has(l.toLowerCase()))) continue
     // "now.Top", "offer.Shop", "Thanks.To": sentence boundary, not a link.
     const last = rawLabels[rawLabels.length - 1]
-    if (rawLabels.length === 2 && /^[A-Z][a-z]+$/.test(last) && WORD_TLDS.has(last.toLowerCase())) continue
+    if (rawLabels.length === 2 && /^[a-z]+$/.test(rawLabels[0]) && /^[A-Z][a-z]+$/.test(last) && WORD_TLDS.has(last.toLowerCase())) continue
     add(run)
   }
   return out
