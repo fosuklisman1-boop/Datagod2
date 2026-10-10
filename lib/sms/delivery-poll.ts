@@ -62,6 +62,19 @@ export async function pollHubtelDeliveries(opts: { maxBatches?: number; maxSingl
   }
 
   try {
+    // 0. Close anything still pending after 72 h as failed (locked, re-checked, refunded once in SQL).
+    // Pure DB work, so it runs first and always (ignores the deadline): owed refunds must not be
+    // starved by slow Hubtel calls.
+    {
+      const { data: closed, error: closeErr } = await supabaseAdmin.rpc("close_stale_sms_deliveries", { p_before: giveUpBefore, p_limit: 200 })
+      if (closeErr) { sum.errors++; console.error("[SMS-DLR] 72h close failed:", closeErr.message) }
+      for (const c of (closed ?? []) as { out_message_id: string; out_send_log_id: number; out_refunded: boolean }[]) {
+        sum.closed++
+        if (c.out_refunded) sum.refunded++
+        touched.add(c.out_send_log_id)
+      }
+    }
+
     // 1. Batches with pending messages (least-recently-checked first).
     if (!timeUp()) {
       const { data: pend, error: pendErr } = await supabaseAdmin.rpc("pick_sms_dlr_batches", {
@@ -103,17 +116,6 @@ export async function pollHubtelDeliveries(opts: { maxBatches?: number; maxSingl
         }
       } finally {
         await markChecked([], checked)
-      }
-    }
-
-    // 3. Close anything still pending after 72 h as failed (locked, re-checked, refunded once in SQL).
-    if (!timeUp()) {
-      const { data: closed, error: closeErr } = await supabaseAdmin.rpc("close_stale_sms_deliveries", { p_before: giveUpBefore, p_limit: 200 })
-      if (closeErr) { sum.errors++; console.error("[SMS-DLR] 72h close failed:", closeErr.message) }
-      for (const c of (closed ?? []) as { out_message_id: string; out_send_log_id: number; out_refunded: boolean }[]) {
-        sum.closed++
-        if (c.out_refunded) sum.refunded++
-        touched.add(c.out_send_log_id)
       }
     }
   } finally {

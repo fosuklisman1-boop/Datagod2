@@ -153,12 +153,21 @@ describe("pollHubtelDeliveries", () => {
     expect(rpcs("recompute_sms_send_result")).toEqual([{ name: "recompute_sms_send_result", args: { p_send_log_id: 5, max_attempts: 3 } }])
   })
 
-  it("makes no Hubtel calls when the deadline has passed, without crashing", async () => {
-    picks([{ provider_batch_id: "b1" }], [{ provider_message_id: "hm1" }])
+  it("runs the 72h close before the pick RPCs", async () => {
+    await pollHubtelDeliveries({ now: NOW })
+    const names = h.rpcCalls.map((c) => c.name)
+    expect(names.indexOf("close_stale_sms_deliveries")).toBe(0)
+    expect(names.indexOf("close_stale_sms_deliveries")).toBeLessThan(names.indexOf("pick_sms_dlr_batches"))
+  })
+
+  it("still closes 72h stragglers but makes no Hubtel calls when the deadline has passed", async () => {
+    picks([{ provider_batch_id: "b1" }], [{ provider_message_id: "hm1" }], [{ out_message_id: "x1", out_send_log_id: 5, out_refunded: true }])
     const s = await pollHubtelDeliveries({ now: NOW, deadlineMs: Date.now() - 1 })
     expect(h.batchStatus).not.toHaveBeenCalled()
     expect(h.messageStatus).not.toHaveBeenCalled()
-    expect(s).toEqual({ batches: 0, singles: 0, delivered: 0, failed: 0, refunded: 0, closed: 0, errors: 0 })
+    expect(rpcs("pick_sms_dlr_batches")).toHaveLength(0)
+    expect(s).toEqual({ batches: 0, singles: 0, delivered: 0, failed: 0, refunded: 1, closed: 1, errors: 0 })
+    expect(rpcs("recompute_sms_send_result")).toHaveLength(1)
   })
 
   it("stops starting new Hubtel calls mid-phase once the deadline hits", async () => {

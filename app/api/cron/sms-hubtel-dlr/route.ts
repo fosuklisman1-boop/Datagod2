@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   const auth = verifyCronAuth(request)
   if (!auth.authorized) return auth.errorResponse!
   try {
-    const summary = await pollHubtelDeliveries({ deadlineMs: Date.now() + 240_000 })
+    const summary = await pollHubtelDeliveries({ deadlineMs: Date.now() + 100_000 }) // under the 2-minute schedule so runs never overlap; maxDuration is only a hard ceiling
     if (summary.errors > 0) {
       return NextResponse.json({ success: false, error: `${summary.errors} error(s) during DLR poll`, data: summary }, { status: 500 })
     }
