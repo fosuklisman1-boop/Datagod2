@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { normalizeSenderName, validateSenderName } from "./sender-name"
 
-const PROTECTED = ["MTN", "TELECEL", "MOBILE MONEY", "GRA", "DATAGOD", "ECG", "GLO"]
+const PROTECTED = ["MTN", "TELECEL", "MOBILE MONEY", "GRA", "DATAGOD", "ECG", "GLO", "MOMO", "VODAFONE", "UBA"]
 
 describe("normalizeSenderName", () => {
   it("trims, collapses spaces, uppercases", () => expect(normalizeSenderName("  kings   shop ")).toBe("KINGS SHOP"))
@@ -32,6 +32,28 @@ describe("validateSenderName", () => {
     expect(ok("GLORY").ok).toBe(true)
     expect(ok("GLO DATA").ok).toBe(false)
   })
+  it("catches digit-for-letter substitutions", () => {
+    for (const n of ["M7N", "M0M0 PAY", "DATAG0D", "V0DAF0NE", "TELECE1", "3CGPAY", "GR4"]) {
+      expect(ok(n).ok, n).toBe(false)
+    }
+  })
+  it("does not over-block legitimate digit names", () => {
+    for (const n of ["SHOP247", "TOP10 MART", "KINGS SHOP", "GRACE SHOP", "GLORY", "GRACE 2024"]) {
+      expect(ok(n).ok, n).toBe(true)
+    }
+  })
+  it("letter/digit transitions are word boundaries", () => {
+    expect(ok("GRA2024").ok).toBe(false)
+    expect(ok("UBA1").ok).toBe(false)
+  })
+  it("normalises whitespace characters", () => expect(ok("KINGS\tSHOP\n")).toEqual({ ok: true, name: "KINGS SHOP" }))
+  it("accepts exactly 3 and 11 characters", () => {
+    expect(ok("ABC").ok).toBe(true)
+    expect(ok("ABCDEFGHIJK").ok).toBe(true)
+  })
+  it("rejects blank input", () => expect(ok("   ").ok).toBe(false))
+  it("rejects look-alike unicode letters", () => expect(ok("МTN").ok).toBe(false))
+  it("blocks a brand embedded in a word", () => expect(ok("MYDATAGOD").ok).toBe(false))
   it("reason names the protected brand", () => {
     const r = validateSenderName("DATAGOD GH", PROTECTED)
     expect(r.ok).toBe(false)
