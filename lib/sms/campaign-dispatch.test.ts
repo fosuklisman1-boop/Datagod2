@@ -134,6 +134,20 @@ describe("dispatchCampaign", () => {
     expect(h.simple.mock.calls[0][1].recipients).toEqual(["+233240000001"])
     expect(r.sent.map((s) => s.id)).toEqual(["ok"])
   })
+  it("deadline already passed (hubtel): no provider call, nothing placed", async () => {
+    const cb = vi.fn(() => Promise.resolve())
+    const r = await dispatchCampaign(items(150), null, cb, Date.now() - 1)
+    expect(h.simple).not.toHaveBeenCalled()
+    expect(h.moolre).not.toHaveBeenCalled()
+    expect(r.sent).toEqual([])
+    expect(cb).not.toHaveBeenCalled()
+  })
+  it("deadline already passed (moolre primary): no provider call", async () => {
+    h.primary = "moolre"
+    const r = await dispatchCampaign(items(3), null, undefined, Date.now() - 1)
+    expect(h.moolre).not.toHaveBeenCalled()
+    expect(r.sent).toEqual([])
+  })
   it("a Moolre throw on fallback leaves rows pending", async () => {
     h.simple.mockResolvedValue({ outcome: "rejected", httpStatus: 400, bodyStatus: 4, messages: [] })
     h.moolre.mockRejectedValue(new Error("boom"))

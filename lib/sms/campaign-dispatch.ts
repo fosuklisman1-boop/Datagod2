@@ -57,7 +57,10 @@ export async function dispatchCampaign(
   items: DispatchItem[],
   senderId: string | null,
   onChunkSent?: OnChunkSent,
+  /** Epoch ms: no new chunk is started at/after this. Unstarted rows are left for the caller to release. */
+  deadline?: number,
 ): Promise<DispatchResult> {
+  const pastDeadline = () => deadline !== undefined && Date.now() >= deadline
   const placed = async (provider: string, rows: SentRow[], unconfirmed = false) => {
     if (!onChunkSent || rows.length === 0) return
     try {
@@ -79,6 +82,7 @@ export async function dispatchCampaign(
   if (routing.primary !== "hubtel" || !hubtel) {
     const out: DispatchResult = { provider: "moolre", sent: [], fallbackSent: [], outOfFunds: false }
     for (let i = 0; i < items.length; i += MOOLRE_CHUNK) {
+      if (pastDeadline()) { console.warn("[SMS-DISPATCH] deadline reached; remaining rows released"); break }
       const chunk = items.slice(i, i + MOOLRE_CHUNK)
       if (await moolreChunk(chunk, senderId)) {
         const rows = chunk.map((c) => ({ id: c.id, mid: null, bid: null }))
@@ -95,6 +99,7 @@ export async function dispatchCampaign(
   // (the drain's single-send path validates and fails/refunds them individually).
   const sendable = items.filter((it) => isValidHubtelMsisdn(toHubtelMsisdn(it.phone)))
   for (let i = 0; i < sendable.length; i += HUBTEL_BATCH_CHUNK) {
+    if (pastDeadline()) { console.warn("[SMS-DISPATCH] deadline reached; remaining rows released"); break }
     const chunk = sendable.slice(i, i + HUBTEL_BATCH_CHUNK)
     const sameText = chunk.every((c) => c.message === chunk[0].message)
     let res: HubtelSendResult

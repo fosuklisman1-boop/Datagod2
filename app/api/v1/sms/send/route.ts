@@ -16,6 +16,9 @@ const supabaseAdmin = createClient(
  * POST /api/v1/sms/send
  * Body: { message: string, recipients: string[], sender_id?: string }
  */
+// Instant campaign dispatch can run for minutes (up to 5 Hubtel/Moolre batches per send).
+export const maxDuration = 300
+
 export async function POST(request: NextRequest) {
   const start = Date.now()
 

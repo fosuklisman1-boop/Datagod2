@@ -150,6 +150,7 @@ export async function enqueueSend(
   //    post-send hiccup can never trigger a wrongful refund of a delivered batch.
   let sendLogId = ""
   const inserted: { id: string; phone: string }[] = []
+  let claimedAtMs = Date.now()
   try {
     const { mode, shadow } = await shadowPromise // never rejects (shadowPolicyWithin catches)
     const { data: logData, error: logError } = await supabaseAdmin
@@ -186,6 +187,7 @@ export async function enqueueSend(
       claimed_at: new Date().toISOString(),
       sender_id: resolvedSenderId,
     }))
+    claimedAtMs = Date.parse(rows[0].claimed_at)
     for (let i = 0; i < rows.length; i += 500) {
       const { data: ins, error: msgError } = await supabaseAdmin
         .from("sms_messages")
@@ -215,6 +217,9 @@ export async function enqueueSend(
   //    a provider already accepted. Rows not placed stay 'pending' for the cron drain.
   //    Rows are marked sent PER CHUNK (onChunkSent) so a timeout mid-campaign leaves only
   //    truly unsent rows pending.
+  // Placed at the provider but neither marked via the RPC nor via the plain-update fallback:
+  // these must NOT be released to pending (the drain would re-send them); they wait for the reaper.
+  const placedUnmarked = new Set<string>()
   try {
     const mark = async (provider: string, rows: SentRow[], info: { unconfirmed: boolean }) => {
       if (rows.length === 0) return
@@ -226,9 +231,22 @@ export async function enqueueSend(
         if (!error) break
       }
       if (error) {
-        // Rows are released back to 'pending' and the drain may re-send them (at-least-once). Never refund here.
-        console.error(`[SMS-SEND] mark-sent (${provider}) failed (cron will reconcile):`, error.message)
-        return
+        console.error(`[SMS-SEND] mark-sent RPC (${provider}) failed after retries; trying plain update:`, error.message)
+        // The provider already accepted these rows, so releasing them would double-send. Fall back
+        // to a plain status update (no provider ids, so the DLR poller cannot confirm them).
+        const ids = rows.map((r) => r.id)
+        const { error: fbErr } = await supabaseAdmin
+          .from("sms_messages")
+          .update({ status: "sent", provider, processed_at: new Date().toISOString() })
+          .in("id", ids)
+          .eq("status", "claimed")
+        if (fbErr) {
+          // Keep them claimed (excluded from the release) so the 5-min reaper, not an immediate
+          // release, returns them. Never refund here.
+          console.error(`[SMS-SEND] mark-sent fallback (${provider}) failed; rows held for the reaper:`, fbErr.message)
+          for (const id of ids) placedUnmarked.add(id)
+          return
+        }
       }
       // Hubtel "unknown" outcome: placed without ids. Tag so admins can count them (a spike
       // means a Hubtel outage); the DLR poller's 72 h close refunds any that never deliver.
@@ -243,7 +261,10 @@ export async function enqueueSend(
     const result = await dispatchCampaign(
       inserted.map((m) => ({ id: m.id, phone: m.phone, message: prepared })),
       resolvedSenderId,
-      mark
+      mark,
+      // Stop starting chunks 1 min before send-drain's STALE_CLAIM_MS (5 min) reaper could
+      // hand still-claimed rows back to the drain mid-dispatch.
+      claimedAtMs + 4 * 60_000
     )
     const firstBatch = result.sent.find((r) => r.bid)?.bid
     if (firstBatch) {
@@ -255,11 +276,13 @@ export async function enqueueSend(
     // Release rows dispatch did not place (still 'claimed') so the drain can pick them up.
     // Placed rows were flipped to 'sent' by mark_sms_messages_sent and are untouched.
     try {
-      const { error: relErr } = await supabaseAdmin
+      let rel = supabaseAdmin
         .from("sms_messages")
         .update({ status: "pending", claimed_at: null })
         .eq("send_log_id", sendLogId)
         .eq("status", "claimed")
+      if (placedUnmarked.size > 0) rel = rel.not("id", "in", `(${[...placedUnmarked].join(",")})`)
+      const { error: relErr } = await rel
       if (relErr) console.error("[SMS-SEND] release of unplaced rows failed (stale-claim reaper will recover):", relErr.message)
     } catch (e) {
       console.error("[SMS-SEND] release of unplaced rows threw (stale-claim reaper will recover):", e)

@@ -17,7 +17,8 @@ const h = vi.hoisted(() => {
     dispatchProvider: "moolre" as string, // provider the mocked dispatch reports
     unconfirmed: false,                  // hubtel rows placed with no ids ("unknown" outcome)
     dispatchThrows: false,
-    markErrorsLeft: 0,                   // next N mark_sms_messages_sent calls error
+    fallbackError: false,                // the plain-update mark-sent fallback errors
+    markErrorsLeft: 0,                 // next N mark_sms_messages_sent calls error
     msgUpdates: [] as { patch: any; ids: string[] }[], // captured .update().in() (mark-sent)
     msgIdSeq: 0,                         // id generator for inserted sms_messages
   }
@@ -76,6 +77,7 @@ const h = vi.hoisted(() => {
             const filters: Record<string, any> = { [col]: val }
             const chain: any = {
               eq: (c2: string, v2: any) => { filters[c2] = v2; return chain },
+              not: (c2: string, op: string, v2: any) => { filters[`not:${c2}:${op}`] = v2; return chain },
               lt: () => Promise.resolve({ data: null, error: null }),
               then: (resolve: any) => {
                 if (table === "sms_messages" && patch.status === "pending") {
@@ -86,10 +88,13 @@ const h = vi.hoisted(() => {
             }
             return chain
           },
-          // mark-sent: .update({status:'sent',...}).in("id", ids)
+          // .update({...}).in("id", ids)[.eq("status","claimed")] — tagging / mark-sent fallback
           in: (_col: string, ids: string[]) => {
             state.msgUpdates.push({ patch, ids })
-            return Promise.resolve({ data: null, error: null })
+            const err = patch.status === "sent" && state.fallbackError ? { message: "fallback boom" } : null
+            const res = { data: null, error: err }
+            const chain: any = { eq: () => chain, then: (resolve: any) => resolve(res) }
+            return chain
           },
         }),
       }
@@ -112,8 +117,9 @@ vi.mock("./campaign-dispatch", () => ({
     its: { id: string }[],
     senderId: string | null,
     onChunkSent?: (provider: string, rows: { id: string; mid: string | null; bid: string | null }[], info: { unconfirmed: boolean }) => Promise<void>,
+    deadline?: number,
   ) => {
-    h.state.calls.push({ fn: "bulk", args: { count: its.length, senderId: senderId ?? undefined } })
+    h.state.calls.push({ fn: "bulk", args: { count: its.length, senderId: senderId ?? undefined, deadline } })
     if (h.state.dispatchThrows) throw new Error("dispatch boom")
     const sent = h.state.bulkOk
       ? its.map((i) => ({ id: i.id, mid: h.state.dispatchProvider === "hubtel" && !h.state.unconfirmed ? `hm-${i.id}` : null, bid: h.state.dispatchProvider === "hubtel" && !h.state.unconfirmed ? "B1" : null }))
@@ -149,6 +155,7 @@ beforeEach(() => {
   h.state.unconfirmed = false
   h.state.dispatchThrows = false
   h.state.markErrorsLeft = 0
+  h.state.fallbackError = false
   h.state.msgUpdates.length = 0
   h.state.msgIdSeq = 0
 })
@@ -322,15 +329,38 @@ describe("enqueueSend", () => {
     spy.mockRestore()
   })
 
-  it("mark_sms_messages_sent gives up after 3 attempts and logs, never refunds", async () => {
+  it("all 3 mark RPC attempts fail → plain 'sent' update fallback; release excludes nothing", async () => {
     h.state.markErrorsLeft = 99
     const spy = vi.spyOn(console, "error").mockImplementation(() => {})
-    const result = await enqueueSend("u1", "acc1", "Hello world", ["0241234567"])
+    const result = await enqueueSend("u1", "acc1", "Hello world", ["0241234567", "0551234567"])
     expect(result.ok).toBe(true)
     expect(marks()).toHaveLength(3)
-    expect(spy.mock.calls.some((c) => String(c[0]).includes("mark-sent"))).toBe(true)
+    expect(h.state.msgUpdates).toHaveLength(1)
+    expect(h.state.msgUpdates[0].patch).toMatchObject({ status: "sent", provider: "moolre" })
+    expect(h.state.msgUpdates[0].ids).toEqual(["m0", "m1"])
+    const rel = h.state.calls.find((c) => c.fn === "release")!
+    expect(Object.keys(rel.args.filters).some((k) => k.startsWith("not:"))).toBe(false)
     expect(rpcs().some((c) => c.fn === "adjust_sms_units")).toBe(false)
     spy.mockRestore()
+  })
+
+  it("RPC and fallback both fail → placed rows are excluded from the release (wait for the reaper), no refund", async () => {
+    h.state.markErrorsLeft = 99
+    h.state.fallbackError = true
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const result = await enqueueSend("u1", "acc1", "Hello world", ["0241234567", "0551234567"])
+    expect(result.ok).toBe(true)
+    const rel = h.state.calls.find((c) => c.fn === "release")!
+    expect(rel.args.filters["not:id:in"]).toBe("(m0,m1)")
+    expect(rpcs().some((c) => c.fn === "adjust_sms_units")).toBe(false)
+    spy.mockRestore()
+  })
+
+  it("passes a dispatch deadline 4 minutes after the claim", async () => {
+    await enqueueSend("u1", "acc1", "Hello world", ["0241234567"])
+    const d = h.state.calls.find((c) => c.fn === "bulk")!.args.deadline as number
+    expect(d - Date.now()).toBeGreaterThan(3 * 60_000)
+    expect(d - Date.now()).toBeLessThanOrEqual(4 * 60_000)
   })
 
   it("dispatch throwing never refunds and still returns ok:true", async () => {

@@ -10,6 +10,9 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+// Instant campaign dispatch can run for minutes (up to 5 Hubtel/Moolre batches per send).
+export const maxDuration = 300
+
 export async function POST(request: NextRequest) {
   // Auth
   const authHeader = request.headers.get("authorization")
