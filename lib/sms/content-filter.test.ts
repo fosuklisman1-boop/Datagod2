@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { filterSmsContent } from "./content-filter"
+import { filterSmsContent, matchBlockedContent, suspiciousHostReason, extractLinkHosts } from "./content-filter"
 
 describe("filterSmsContent — clean messages pass", () => {
   it("plain promotional message passes", () => {
@@ -120,5 +120,42 @@ describe("filterSmsContent — custom blocked keywords", () => {
   it("custom keyword also subject to normalization", () => {
     const r = filterSmsContent("This is sp‌am.", { blockedKeywords: ["spam"] })
     expect(r.blocked).toBe(true)
+  })
+})
+
+describe("matchBlockedContent", () => {
+  it("returns the keyword reason for a custom keyword, case/obfuscation-insensitive", () => {
+    expect(matchBlockedContent("Win a free L.O.A.N today", ["loan"])).toBe('blocked keyword: "loan"')
+  })
+  it("returns a built-in phishing reason", () => {
+    expect(matchBlockedContent("Send your PIN to confirm", [])).toBe("credential-harvest: pin")
+  })
+  it("ignores empty keywords", () => {
+    expect(matchBlockedContent("Hello there", ["", "  "])).toBeNull()
+  })
+  it("returns null for clean text", () => {
+    expect(matchBlockedContent("Your order is ready", ["loan"])).toBeNull()
+  })
+})
+
+describe("suspiciousHostReason", () => {
+  it("flags shorteners", () => expect(suspiciousHostReason("bit.ly")).toBe("suspicious link: known shortener"))
+  it("flags digit-letter lookalikes", () => expect(suspiciousHostReason("paypa1.com")).toBe("suspicious link: homoglyph domain"))
+  it("passes normal hosts", () => expect(suspiciousHostReason("datagod.store")).toBeNull())
+})
+
+describe("extractLinkHosts", () => {
+  it("finds http(s) hosts, lowercased, www stripped", () => {
+    expect(extractLinkHosts("Visit https://WWW.Shop.DataGod.store/x now")).toEqual(["shop.datagod.store"])
+  })
+  it("finds bare and www domains on common TLDs", () => {
+    expect(extractLinkHosts("go to www.example.com or kings.shop/abc.")).toEqual(["example.com", "kings.shop"])
+  })
+  it("finds shorteners without a scheme", () => expect(extractLinkHosts("tap bit.ly/abc")).toEqual(["bit.ly"]))
+  it("ignores emails, prices and names", () => {
+    expect(extractLinkHosts("mail a@b.com · 5GB for GHS 10.50 · Mr.Smith")).toEqual([])
+  })
+  it("dedupes and keeps uncommon TLDs when a scheme is present", () => {
+    expect(extractLinkHosts("https://evil.ru/x and https://evil.ru/y")).toEqual(["evil.ru"])
   })
 })

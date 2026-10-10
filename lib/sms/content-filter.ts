@@ -89,37 +89,64 @@ function isHomoglyphHost(host: string): boolean {
   return /[0-9]/.test(base) && /[a-z]/.test(base)
 }
 
-export function filterSmsContent(message: string, options: FilterOptions = {}): FilterResult {
+/** First custom keyword or built-in phishing rule the message trips, or null.
+ *  The exact matching filterSmsContent uses; shared with the send policy. */
+export function matchBlockedContent(message: string, blockedKeywords: string[] = []): string | null {
   const plain = message.toLowerCase()
   const normalized = normalizeCopy(message)
+  for (const kw of blockedKeywords) {
+    if (!kw || !kw.trim()) continue
+    if (plain.includes(kw.toLowerCase()) || normalized.includes(normalizeCopy(kw))) {
+      return `blocked keyword: "${kw}"`
+    }
+  }
+  for (const rule of BLOCK_RULES) {
+    if (rule.pattern.test(plain) || rule.pattern.test(normalized)) return rule.reason
+  }
+  return null
+}
+
+/** Why a link host is suspicious (shortener / digit-letter lookalike), or null. */
+export function suspiciousHostReason(host: string): string | null {
+  const h = host.toLowerCase().replace(/^www\./, "")
+  if (SHORTENER_HOSTS.has(h)) return "suspicious link: known shortener"
+  if (isHomoglyphHost(h)) return "suspicious link: homoglyph domain"
+  return null
+}
+
+// TLDs recognised for scheme-less links ("kings.shop/abc"). Kept to common ones so
+// ordinary text ("Mr.Smith", "10.50") is never mistaken for a link.
+const BARE_LINK_TLDS = "com|net|org|store|shop|app|io|co|gh|xyz|info|biz|me|link|site|online|top|click|live|ly|to|gl|gd|gy"
+const BARE_LINK_RE = new RegExp(
+  `(?<![@\\w.-])(?:www\\.)?((?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)+(?:${BARE_LINK_TLDS}))(?=$|[\\/\\s:?#.,!)'"])`,
+  "gi"
+)
+
+/** Every link host in the message — http(s) URLs, www hosts and bare domains on common
+ *  TLDs — lowercased, without a leading "www.", de-duplicated, in order of appearance. */
+export function extractLinkHosts(message: string): string[] {
+  const out: string[] = []
+  const add = (h: string) => {
+    const host = h.toLowerCase().replace(/^www\./, "")
+    if (!out.includes(host)) out.push(host)
+  }
+  const withoutSchemes = message.replace(/https?:\/\/([^/\s?#]+)/gi, (_m, host: string) => {
+    add(host)
+    return " "
+  })
+  for (const m of withoutSchemes.matchAll(BARE_LINK_RE)) add(m[1])
+  return out
+}
+
+export function filterSmsContent(message: string, options: FilterOptions = {}): FilterResult {
   const { blockedKeywords = [], allowedDomains = [] } = options
 
-  // --- Custom blocked keywords (first-block-wins) ---
-  for (const kw of blockedKeywords) {
-    const kwNorm = normalizeCopy(kw)
-    if (plain.includes(kw.toLowerCase()) || normalized.includes(kwNorm)) {
-      return { blocked: true, flagged: false, reason: `blocked keyword: "${kw}"` }
-    }
-  }
+  const blockedReason = matchBlockedContent(message, blockedKeywords)
+  if (blockedReason) return { blocked: true, flagged: false, reason: blockedReason }
 
-  // --- Built-in block rules (applied to both copies) ---
-  for (const rule of BLOCK_RULES) {
-    if (rule.pattern.test(plain) || rule.pattern.test(normalized)) {
-      return { blocked: true, flagged: false, reason: rule.reason }
-    }
-  }
-
-  // --- Link analysis ---
-  const hosts = extractHosts(message)
-  for (const host of hosts) {
-    // Block known shorteners
-    if (SHORTENER_HOSTS.has(host)) {
-      return { blocked: true, flagged: false, reason: "suspicious link: known shortener" }
-    }
-    // Block homoglyph domains
-    if (isHomoglyphHost(host)) {
-      return { blocked: true, flagged: false, reason: "suspicious link: homoglyph domain" }
-    }
+  for (const host of extractHosts(message)) {
+    const suspicious = suspiciousHostReason(host)
+    if (suspicious) return { blocked: true, flagged: false, reason: suspicious }
     // Flag non-allowed domains if an allowlist is provided
     if (allowedDomains.length > 0) {
       const allowed = allowedDomains.some(
