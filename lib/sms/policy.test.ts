@@ -146,4 +146,48 @@ describe("isOwnDomain", () => {
     expect(isOwnDomain("www.kingsdata.com", ["kingsdata.com"])).toBe(true)
     expect(isOwnDomain("notdatagod.store", ["datagod.store"])).toBe(false)
   })
+  it("ignores empty entries and is case-insensitive", () => {
+    expect(isOwnDomain("example.com", ["", "www."])).toBe(false)
+    expect(isOwnDomain("KINGS.DATAGOD.STORE", ["datagod.store"])).toBe(true)
+  })
+})
+
+describe("evaluateSendPolicy — review fixes", () => {
+  const biz = { audience: "shop_owner", status: "active", mode: "business" as const, reviewHold: false }
+  it("platform: shortener anywhere beats an earlier foreign link", () => {
+    const r = evaluateSendPolicy(input({ message: "see example.com or bit.ly/x" }))
+    expect(r.code).toBe("CONTENT_BLOCKED")
+    expect(r.flags[0]).toMatchObject({ severity: "fraud", matched: "bit.ly" })
+  })
+  it("hold keeps info flags", () => {
+    const r = evaluateSendPolicy(input({
+      account: { ...biz, reviewHold: true },
+      settings: withSettings({ businessFlaggedKeywords: ["bonus"] }),
+      message: "Bonus inside",
+    }))
+    expect(r).toMatchObject({ decision: "hold", code: "REVIEW_HOLD" })
+    expect(r.flags).toEqual([{ severity: "info", reason: 'flagged keyword: "bonus"', matched: "bonus" }])
+  })
+  it("flagged keywords dedupe case-insensitively", () => {
+    const r = evaluateSendPolicy(input({ account: biz, settings: withSettings({ businessFlaggedKeywords: ["bonus", "Bonus"] }), message: "bonus" }))
+    expect(r.flags).toHaveLength(1)
+  })
+  it("business hour cap", () => {
+    expect(evaluateSendPolicy(input({ account: biz, usage: { sendsLastHour: 1999, recipientsLast24h: 0 } })).decision).toBe("allow")
+    expect(evaluateSendPolicy(input({ account: biz, usage: { sendsLastHour: 2000, recipientsLast24h: 0 } })).code).toBe("CAP_PER_HOUR")
+  })
+  it("business day cap", () => {
+    expect(evaluateSendPolicy(input({ account: biz, recipientCount: 10, usage: { sendsLastHour: 0, recipientsLast24h: 999_990 } })).decision).toBe("allow")
+    expect(evaluateSendPolicy(input({ account: biz, recipientCount: 11, usage: { sendsLastHour: 0, recipientsLast24h: 999_990 } })).code).toBe("CAP_PER_DAY")
+  })
+  it("platform sender in business mode is allowed", () => {
+    expect(evaluateSendPolicy(input({ account: biz })).decision).toBe("allow")
+  })
+  it("admin audience that is suspended is still rejected", () => {
+    expect(evaluateSendPolicy(input({ account: { audience: "admin", status: "suspended", mode: "business", reviewHold: false } })).code).toBe("SUSPENDED")
+  })
+  it("business blocked keyword carries the fraud flag", () => {
+    const r = evaluateSendPolicy(input({ account: biz, settings: withSettings({ businessBlockedKeywords: ["casino"] }), message: "casino night" }))
+    expect(r.flags).toEqual([{ severity: "fraud", reason: 'blocked keyword: "casino"', matched: "casino" }])
+  })
 })

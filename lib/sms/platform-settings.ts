@@ -111,6 +111,11 @@ function caps(v: unknown): Record<SmsMode, ModeCaps> {
   return { platform: one("platform"), business: one("business") }
 }
 
+/** "https://www.Bit.ly/x/" -> "bit.ly" */
+function normalizeDomain(s: string): string {
+  return s.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/[/?#].*$/, "").replace(/\.+$/, "")
+}
+
 export function parseSmsSettings(rows: { key: string; value: unknown }[]): SmsPlatformSettings {
   const m = new Map(rows.map((r) => [r.key, r.value]))
   const d = DEFAULT_SMS_SETTINGS
@@ -123,7 +128,7 @@ export function parseSmsSettings(rows: { key: string; value: unknown }[]): SmsPl
     blockedKeywords: list(m.get("sms_blocked_keywords"), d.blockedKeywords),
     businessBlockedKeywords: list(m.get("sms_business_blocked_keywords"), d.businessBlockedKeywords),
     businessFlaggedKeywords: list(m.get("sms_business_flagged_keywords"), d.businessFlaggedKeywords),
-    businessAllowedDomains: list(m.get("sms_business_allowed_domains"), d.businessAllowedDomains).map((s) => s.toLowerCase()),
+    businessAllowedDomains: list(m.get("sms_business_allowed_domains"), d.businessAllowedDomains).map(normalizeDomain).filter(Boolean),
     autoSuspendFlags: int(m.get("sms_auto_suspend_flags"), d.autoSuspendFlags, 1, 100),
     flagReviewThreshold: int(m.get("sms_flag_review_threshold"), d.flagReviewThreshold, 1, 500),
     apiRateLimitDefault: int(m.get("sms_api_rate_limit_default"), d.apiRateLimitDefault, 1, 10_000),

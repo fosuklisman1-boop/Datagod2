@@ -95,16 +95,19 @@ export function evaluateSendPolicy(p: PolicyInput): PolicyResult {
       return result("block", "CONTENT_BLOCKED", "This message contains content we can't send. Edit it and try again.",
         [{ severity: "fraud", reason: blocked, matched: keywordOf(blocked) }])
     }
-    for (const host of hosts) {
-      // Own domains first: shop slugs may contain digits (kofi233.datagod.store), which the
-      // lookalike check would otherwise flag as fraud.
-      if (isOwnDomain(host, p.ownDomains)) continue
+    // Own domains are exempt (shop slugs may contain digits, which the lookalike check would
+    // flag as fraud). Scan ALL foreign hosts for fraud signals before reporting a plain
+    // disallowed link, so "example.com or bit.ly/x" cannot hide the shortener behind an earlier host.
+    const foreign = hosts.filter((h) => !isOwnDomain(h, p.ownDomains))
+    for (const host of foreign) {
       const suspicious = suspiciousHostReason(host)
       if (suspicious) {
         return result("block", "CONTENT_BLOCKED", `The link ${host} isn't allowed. Remove it and try again.`,
           [{ severity: "fraud", reason: suspicious, matched: host }])
       }
-      return result("block", "LINK_NOT_ALLOWED", `Platform mode only allows links to your Datagod store. Remove ${host}, or verify your business to send other links.`)
+    }
+    if (foreign.length > 0) {
+      return result("block", "LINK_NOT_ALLOWED", `Platform mode only allows links to your Datagod store. Remove ${foreign[0]}, or verify your business to send other links.`)
     }
   } else {
     const blocked = matchBlockedContent(p.message, settings.businessBlockedKeywords)
@@ -113,8 +116,11 @@ export function evaluateSendPolicy(p: PolicyInput): PolicyResult {
         [{ severity: "fraud", reason: blocked, matched: keywordOf(blocked) }])
     }
     const lower = p.message.toLowerCase()
+    const seenKw = new Set<string>()
     for (const kw of settings.businessFlaggedKeywords) {
-      if (kw.trim() && lower.includes(kw.toLowerCase())) {
+      const k = kw.trim().toLowerCase()
+      if (k && !seenKw.has(k) && lower.includes(k)) {
+        seenKw.add(k)
         flags.push({ severity: "info", reason: `flagged keyword: "${kw}"`, matched: kw })
       }
     }

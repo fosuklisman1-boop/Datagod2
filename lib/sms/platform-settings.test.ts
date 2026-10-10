@@ -51,6 +51,13 @@ describe("parseSmsSettings", () => {
   })
 })
 
+describe("businessAllowedDomains normalisation", () => {
+  it("strips scheme, www, path and trailing dots; drops empties", () => {
+    const s = parseSmsSettings([{ key: "sms_business_allowed_domains", value: ["https://Bit.ly/", "WWW.Example.com/a/b", "foo.com.", "https://"] }])
+    expect(s.businessAllowedDomains).toEqual(["bit.ly", "example.com", "foo.com"])
+  })
+})
+
 describe("apiRateLimitFor", () => {
   it("prefers the account override", () => expect(apiRateLimitFor(500, 30)).toBe(500))
   it("uses the default when no override", () => expect(apiRateLimitFor(null, 30)).toBe(30))
