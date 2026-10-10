@@ -70,8 +70,18 @@ describe("summarizeApplied", () => {
 it("gives up after 72 hours", () => expect(DLR_GIVE_UP_MS).toBe(72 * 3_600_000))
 
 describe("pollHubtelDeliveries", () => {
+  const NOW = Date.parse("2026-10-10T12:00:00Z")
+  const rpcs = (n: string) => h.rpcCalls.filter((c) => c.name === n)
+  const picks = (batches: unknown, singles: unknown = [], closed: unknown = []) => {
+    const base = h.rpcImpl
+    h.rpcImpl = (name, args) => {
+      if (name === "pick_sms_dlr_batches") return { data: batches, error: null }
+      if (name === "pick_sms_dlr_singles") return { data: singles, error: null }
+      if (name === "close_stale_sms_deliveries") return { data: closed, error: null }
+      return base(name, args)
+    }
+  }
   beforeEach(() => {
-    h.tables = {}
     h.fromCalls = 0
     h.rpcCalls = []
     h.rpcImpl = () => ({ data: null, error: null })
@@ -84,53 +94,102 @@ describe("pollHubtelDeliveries", () => {
     h.cfg = null
     const s = await pollHubtelDeliveries()
     expect(s).toEqual({ batches: 0, singles: 0, delivered: 0, failed: 0, refunded: 0, closed: 0, errors: 0 })
-    expect(h.fromCalls).toBe(0)
     expect(h.rpcCalls).toEqual([])
   })
 
-  it("applies batch reports and recomputes touched send logs", async () => {
-    h.tables["provider_batch_id"] = [{ provider_batch_id: "b1" }, { provider_batch_id: "b1" }]
-    h.batchStatus.mockResolvedValue({ ok: true, messages: [{ messageId: "m1", state: "failed", rawStatus: "Rejected" }] })
-    h.rpcImpl = (name) => name === "apply_sms_delivery_reports"
-      ? { data: [{ out_message_id: "u1", out_send_log_id: 7, out_outcome: "failed", out_refunded: true }], error: null }
-      : { data: null, error: null }
-    const s = await pollHubtelDeliveries()
-    expect(h.batchStatus).toHaveBeenCalledTimes(1)
-    expect(s).toMatchObject({ batches: 1, failed: 1, refunded: 1, errors: 0 })
-    expect(h.rpcCalls[0]).toEqual({ name: "apply_sms_delivery_reports", args: { p_rows: [{ mid: "m1", state: "failed", rate: null, at: null }] } })
-    expect(h.rpcCalls.at(-1)).toEqual({ name: "recompute_sms_send_result", args: { p_send_log_id: 7, max_attempts: 3 } })
+  it("passes the readiness/give-up window and limits to the pick RPCs", async () => {
+    await pollHubtelDeliveries({ now: NOW })
+    const window = { p_ready_before: new Date(NOW - 60_000).toISOString(), p_give_up_before: new Date(NOW - DLR_GIVE_UP_MS).toISOString() }
+    expect(rpcs("pick_sms_dlr_batches")[0].args).toEqual({ ...window, p_limit: 20 })
+    expect(rpcs("pick_sms_dlr_singles")[0].args).toEqual({ ...window, p_limit: 50 })
+    expect(rpcs("close_stale_sms_deliveries")[0].args).toEqual({ p_before: window.p_give_up_before, p_limit: 200 })
   })
 
-  it("counts a failed status call as an error and continues", async () => {
-    h.tables["provider_batch_id"] = [{ provider_batch_id: "b1" }, { provider_batch_id: "b2" }]
+  it("applies batch reports, uses a short status timeout, and recomputes touched send logs", async () => {
+    picks([{ provider_batch_id: "b1" }])
+    h.batchStatus.mockResolvedValue({ ok: true, messages: [{ messageId: "m1", state: "failed", rawStatus: "Rejected" }] })
+    const base = h.rpcImpl
+    h.rpcImpl = (name, a) => name === "apply_sms_delivery_reports"
+      ? { data: [{ out_message_id: "u1", out_send_log_id: 7, out_outcome: "failed", out_refunded: true }], error: null }
+      : base(name, a)
+    const s = await pollHubtelDeliveries({ now: NOW })
+    expect(h.batchStatus).toHaveBeenCalledWith(expect.objectContaining({ timeoutMs: 8000 }), "b1")
+    expect(s).toMatchObject({ batches: 1, failed: 1, refunded: 1, errors: 0 })
+    expect(rpcs("apply_sms_delivery_reports")[0].args).toEqual({ p_rows: [{ mid: "m1", state: "failed", rate: null, at: null }] })
+    expect(rpcs("recompute_sms_send_result")).toEqual([{ name: "recompute_sms_send_result", args: { p_send_log_id: 7, max_attempts: 3 } }])
+  })
+
+  it("counts a failed status call as an error, continues, and still marks it checked", async () => {
+    picks([{ provider_batch_id: "b1" }, { provider_batch_id: "b2" }])
     h.batchStatus
       .mockResolvedValueOnce({ ok: false, error: "Hubtel HTTP 500", messages: [] })
       .mockResolvedValueOnce({ ok: true, messages: [{ messageId: "m2", state: "delivered", rawStatus: "Delivered" }] })
-    h.rpcImpl = (name) => name === "apply_sms_delivery_reports"
+    const base = h.rpcImpl
+    h.rpcImpl = (name, a) => name === "apply_sms_delivery_reports"
       ? { data: [{ out_message_id: "u2", out_send_log_id: 3, out_outcome: "delivered", out_refunded: false }], error: null }
-      : { data: null, error: null }
-    const s = await pollHubtelDeliveries()
+      : base(name, a)
+    const s = await pollHubtelDeliveries({ now: NOW })
     expect(s).toMatchObject({ batches: 2, errors: 1, delivered: 1 })
+    expect(rpcs("mark_sms_dlr_checked")[0].args).toEqual({ p_batch_ids: ["b1", "b2"], p_message_ids: [] })
   })
 
-  it("polls drain-sent singles by message id", async () => {
-    h.tables["provider_message_id"] = [{ provider_message_id: "hm1" }]
+  it("polls drain-sent singles by message id and marks them checked", async () => {
+    picks([], [{ provider_message_id: "hm1" }])
     h.messageStatus.mockResolvedValue({ ok: true, messages: [{ messageId: "hm1", state: "pending", rawStatus: "Sent" }] })
-    const s = await pollHubtelDeliveries()
-    expect(h.messageStatus).toHaveBeenCalledWith(h.cfg, "hm1")
+    const s = await pollHubtelDeliveries({ now: NOW })
+    expect(h.messageStatus).toHaveBeenCalledWith(expect.objectContaining({ timeoutMs: 8000 }), "hm1")
     expect(s.singles).toBe(1)
+    expect(rpcs("mark_sms_dlr_checked")[0].args).toEqual({ p_batch_ids: [], p_message_ids: ["hm1"] })
   })
 
-  it("closes 72h stragglers (including unconfirmed rows) via refund_sms_message", async () => {
-    h.tables["id, send_log_id"] = [{ id: "x1", send_log_id: 5 }, { id: "x2", send_log_id: 5 }]
-    h.rpcImpl = (name, args) => name === "refund_sms_message"
-      ? { data: args.p_message_id === "x1", error: null }
-      : { data: null, error: null }
-    const s = await pollHubtelDeliveries()
-    expect(s).toMatchObject({ closed: 2, refunded: 1, errors: 0 })
-    expect(h.rpcCalls.filter((c) => c.name === "refund_sms_message")).toHaveLength(2)
-    expect(h.rpcCalls.filter((c) => c.name === "recompute_sms_send_result")).toEqual([
-      { name: "recompute_sms_send_result", args: { p_send_log_id: 5, max_attempts: 3 } },
+  it("closes 72h stragglers via close_stale_sms_deliveries and rolls their send logs up", async () => {
+    picks([], [], [
+      { out_message_id: "x1", out_send_log_id: 5, out_refunded: true },
+      { out_message_id: "x2", out_send_log_id: 5, out_refunded: false },
     ])
+    const s = await pollHubtelDeliveries({ now: NOW })
+    expect(s).toMatchObject({ closed: 2, refunded: 1, errors: 0 })
+    expect(rpcs("refund_sms_message")).toHaveLength(0)
+    expect(rpcs("recompute_sms_send_result")).toEqual([{ name: "recompute_sms_send_result", args: { p_send_log_id: 5, max_attempts: 3 } }])
+  })
+
+  it("makes no Hubtel calls when the deadline has passed, without crashing", async () => {
+    picks([{ provider_batch_id: "b1" }], [{ provider_message_id: "hm1" }])
+    const s = await pollHubtelDeliveries({ now: NOW, deadlineMs: Date.now() - 1 })
+    expect(h.batchStatus).not.toHaveBeenCalled()
+    expect(h.messageStatus).not.toHaveBeenCalled()
+    expect(s).toEqual({ batches: 0, singles: 0, delivered: 0, failed: 0, refunded: 0, closed: 0, errors: 0 })
+  })
+
+  it("stops starting new Hubtel calls mid-phase once the deadline hits", async () => {
+    picks([{ provider_batch_id: "b1" }, { provider_batch_id: "b2" }])
+    const deadline = Date.now() + 5_000
+    h.batchStatus.mockImplementation(async () => {
+      vi.setSystemTime(deadline + 1)
+      return { ok: true, messages: [] }
+    })
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(deadline - 5_000)
+    try {
+      await pollHubtelDeliveries({ now: NOW, deadlineMs: deadline })
+    } finally { vi.useRealTimers() }
+    expect(h.batchStatus).toHaveBeenCalledTimes(1)
+    expect(rpcs("mark_sms_dlr_checked")[0].args).toEqual({ p_batch_ids: ["b1"], p_message_ids: [] })
+  })
+
+  it("counts a discovery error and carries on", async () => {
+    const base = h.rpcImpl
+    h.rpcImpl = (name, a) => name === "pick_sms_dlr_batches" ? { data: null, error: { message: "boom" } } : base(name, a)
+    const s = await pollHubtelDeliveries({ now: NOW })
+    expect(s.errors).toBe(1)
+    expect(h.batchStatus).not.toHaveBeenCalled()
+    expect(rpcs("close_stale_sms_deliveries")).toHaveLength(1)
+  })
+
+  it("counts a close error", async () => {
+    const base = h.rpcImpl
+    h.rpcImpl = (name, a) => name === "close_stale_sms_deliveries" ? { data: null, error: { message: "boom" } } : base(name, a)
+    const s = await pollHubtelDeliveries({ now: NOW })
+    expect(s).toMatchObject({ errors: 1, closed: 0 })
   })
 })
