@@ -62,34 +62,47 @@ export const SMS_SETTING_KEYS = [
   "sms_hubtel_low_balance_ghs",
 ] as const
 
-function unwrap(v: unknown): unknown {
+/** Older admin screens wrapped values as {enabled}/{value}/{amount}; read only the keys that make sense for the target type. */
+function unwrap(v: unknown, keys: string[]): unknown {
   if (v && typeof v === "object" && !Array.isArray(v)) {
     const o = v as Record<string, unknown>
-    if ("enabled" in o) return o.enabled
-    if ("value" in o) return o.value
-    if ("amount" in o) return o.amount
+    for (const k of keys) if (k in o) return o[k]
   }
   return v
 }
-const bool = (v: unknown, d: boolean) => (typeof unwrap(v) === "boolean" ? (unwrap(v) as boolean) : d)
+const bool = (v: unknown, d: boolean) => {
+  const u = unwrap(v, ["enabled", "value"])
+  if (typeof u === "boolean") return u
+  if (typeof u === "string") {
+    const t = u.trim().toLowerCase()
+    if (t === "true") return true
+    if (t === "false") return false
+  }
+  return d
+}
 const num = (v: unknown, d: number, min: number, max: number) => {
-  const n = typeof unwrap(v) === "number" ? (unwrap(v) as number) : NaN
+  const u = unwrap(v, ["value", "amount"])
+  const n = typeof u === "number" ? u : typeof u === "string" && /^\s*-?\d+(\.\d+)?\s*$/.test(u) ? Number(u) : NaN
   return Number.isFinite(n) && n >= min && n <= max ? n : d
 }
 const int = (v: unknown, d: number, min: number, max: number) => {
   const n = num(v, d, min, max)
   return Number.isInteger(n) ? n : d
 }
-function list(v: unknown, d: string[]): string[] {
-  const u = unwrap(v)
+/** Explicit empty list stays empty; a non-empty raw value with no usable entries falls back to the default. Always returns a fresh array. */
+function list(v: unknown, d: readonly string[]): string[] {
+  const u = unwrap(v, ["value", "amount"])
   const raw = Array.isArray(u) ? u : typeof u === "string" ? u.split(",") : null
-  if (!raw) return d
-  return raw.filter((x): x is string => typeof x === "string").map((x) => x.trim()).filter(Boolean)
+  if (!raw) return [...d]
+  const out = raw.filter((x): x is string => typeof x === "string").map((x) => x.trim()).filter(Boolean)
+  if (out.length === 0 && raw.some((x) => !(typeof x === "string" && x.trim() === ""))) return [...d]
+  return out
 }
 function caps(v: unknown): Record<SmsMode, ModeCaps> {
   const d = DEFAULT_SMS_SETTINGS.caps
-  if (!v || typeof v !== "object" || Array.isArray(v)) return d
-  const o = v as Record<string, Record<string, unknown> | undefined>
+  const u = unwrap(v, ["value"])
+  if (!u || typeof u !== "object" || Array.isArray(u)) return { platform: { ...d.platform }, business: { ...d.business } }
+  const o = u as Record<string, Record<string, unknown> | undefined>
   const one = (m: SmsMode): ModeCaps => ({
     per_send: int(o[m]?.per_send, d[m].per_send, 1, 1_000_000),
     per_hour: int(o[m]?.per_hour, d[m].per_hour, 1, 1_000_000),
@@ -138,7 +151,9 @@ export async function loadSmsSettings(): Promise<SmsPlatformSettings> {
     .from("tenant_global_settings").select("key, value").in("key", [...SMS_SETTING_KEYS])
   if (error) {
     console.error("[SMS-SETTINGS] load failed, using defaults:", error.message)
-    return cache?.value ?? DEFAULT_SMS_SETTINGS
+    // Back off ~10s before retrying instead of hammering a failing DB on every send.
+    cache = { at: Date.now() - CACHE_MS + 10_000, value: cache?.value ?? parseSmsSettings([]) }
+    return cache.value
   }
   const value = parseSmsSettings((data ?? []) as { key: string; value: unknown }[])
   cache = { at: Date.now(), value }
