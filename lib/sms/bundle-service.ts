@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js"
-import { canPurchaseBundle, type OwnerType } from "./foundation-rules"
+import { bundleVisibleTo, type OwnerType } from "./foundation-rules"
 import { getWholesaleCredits } from "./wholesale"
 import { notifyAdminSmsShortfall } from "./notify"
 
@@ -15,6 +15,8 @@ export interface Bundle {
   price_ghs: number
   owner_type_scope: "all" | OwnerType
   active: boolean
+  mode: "platform" | "business"
+  sort_order: number
 }
 
 export interface PurchaseResult {
@@ -26,23 +28,33 @@ export interface PurchaseResult {
 }
 
 /** Active bundles this owner type is allowed to buy. */
-export async function listActiveBundles(ownerType: OwnerType): Promise<Bundle[]> {
+export async function listActiveBundles(ownerType: OwnerType, mode: "platform" | "business" = "platform"): Promise<Bundle[]> {
   const { data } = await supabaseAdmin
-    .from("sms_bundles").select("*").eq("active", true)
-    .order("price_ghs", { ascending: true })
-  return ((data as Bundle[]) ?? []).filter((b) => canPurchaseBundle(b, ownerType).ok)
+    .from("sms_bundles").select("*").eq("active", true).eq("mode", mode)
+    .order("sort_order", { ascending: true }).order("price_ghs", { ascending: true })
+  return ((data as Bundle[]) ?? []).filter((b) => bundleVisibleTo(b, ownerType, mode))
 }
 
 export async function listAllBundles(): Promise<Bundle[]> {
   const { data } = await supabaseAdmin
-    .from("sms_bundles").select("*").order("price_ghs", { ascending: true })
+    .from("sms_bundles").select("*")
+    .order("mode", { ascending: true }).order("sort_order", { ascending: true }).order("price_ghs", { ascending: true })
   return (data as Bundle[]) ?? []
 }
 
-export async function createBundle(input: { name: string; units: number; price_ghs: number; owner_type_scope?: string }) {
+function assertBundleMode(mode: unknown) {
+  if (mode !== "platform" && mode !== "business") throw new Error("mode must be platform or business")
+}
+
+export async function createBundle(input: {
+  name: string; units: number; price_ghs: number; owner_type_scope?: string
+  mode?: "platform" | "business"; sort_order?: number
+}) {
+  if (input.mode !== undefined) assertBundleMode(input.mode)
   const { data, error } = await supabaseAdmin.from("sms_bundles").insert({
     name: input.name, units: input.units, price_ghs: input.price_ghs,
     owner_type_scope: input.owner_type_scope ?? "all",
+    mode: input.mode ?? "platform", sort_order: input.sort_order ?? 0,
   }).select("*").single()
   if (error) throw error
   return data as Bundle
@@ -50,8 +62,12 @@ export async function createBundle(input: { name: string; units: number; price_g
 
 export async function updateBundle(
   id: string,
-  patch: Partial<{ name: string; units: number; price_ghs: number; active: boolean; owner_type_scope: string }>
+  patch: Partial<{
+    name: string; units: number; price_ghs: number; active: boolean; owner_type_scope: string
+    mode: "platform" | "business"; sort_order: number
+  }>
 ) {
+  if (patch.mode !== undefined) assertBundleMode(patch.mode)
   const { data, error } = await supabaseAdmin.from("sms_bundles")
     .update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id).select("*").single()
   if (error) throw error
@@ -60,13 +76,23 @@ export async function updateBundle(
 
 /** Issue units through the solvency gate: fetch the live Moolre wholesale balance, then
  *  credit-or-pend atomically. Notifies admin on a shortfall. Shared by all credit paths. */
-async function issueUnits(accountId: string, units: number, reason: string, ref: string | null): Promise<PurchaseResult> {
+async function issueUnits(
+  accountId: string, units: number, reason: string, ref: string | null, amountGhs: number | null = null
+): Promise<PurchaseResult> {
   const wholesale = await getWholesaleCredits()
   const { data, error } = await supabaseAdmin.rpc("credit_sms_units_if_solvent", {
     p_account_id: accountId, p_units: units, p_reason: reason, p_wholesale: wholesale, p_ref: ref,
   })
   if (error) return { ok: false, error: "Failed to issue units" }
   const outcome = (data as Array<{ outcome: PurchaseResult["outcome"] }>)?.[0]?.outcome
+  if (ref && amountGhs !== null && amountGhs > 0) {
+    // Revenue for the admin "Total Revenue" card (spec §5.8). A pending credit carries the
+    // amount on its pending row; the ledger trigger copies it when the credit settles.
+    await Promise.all([
+      supabaseAdmin.from("sms_unit_transactions").update({ amount_ghs: amountGhs }).eq("ref", ref).is("amount_ghs", null),
+      supabaseAdmin.from("sms_pending_credits").update({ amount_ghs: amountGhs }).eq("ref", ref).is("amount_ghs", null),
+    ])
+  }
   if (outcome === "pending") {
     notifyAdminSmsShortfall(units).catch(() => {})
     return { ok: true, outcome, unitsCredited: 0, pending: true }
@@ -102,9 +128,13 @@ export async function purchaseBundleViaWallet(userId: string, accountId: string,
 
   // Activation gate: metered accounts must be active. Platform is exempt.
   const { data: acct } = await supabaseAdmin
-    .from("sms_accounts").select("status, owner_type").eq("id", accountId).maybeSingle()
+    .from("sms_accounts").select("status, owner_type, mode").eq("id", accountId).maybeSingle()
   if (acct && acct.owner_type !== "platform" && acct.status !== "active") {
     return { ok: false, error: "NOT_ACTIVATED" }
+  }
+  // Refuse a bundle from the other mode BEFORE any wallet debit.
+  if (b.mode !== ((acct as { mode?: string } | null)?.mode ?? "platform")) {
+    return { ok: false, error: "This bundle isn't available for your account mode" }
   }
 
   const { data: debit, error: debitErr } = await supabaseAdmin.rpc("deduct_wallet", { p_user_id: userId, p_amount: b.price_ghs })
@@ -112,7 +142,7 @@ export async function purchaseBundleViaWallet(userId: string, accountId: string,
   if (!debit || (debit as unknown[]).length === 0) return { ok: false, error: "Insufficient wallet balance" }
 
   const ref = `wallet-${userId}-${bundleId}-${Date.now()}`
-  const res = await issueUnits(accountId, b.units, "bundle_wallet", ref)
+  const res = await issueUnits(accountId, b.units, "bundle_wallet", ref, Number(b.price_ghs))
   if (!res.ok) {
     // The issuance RPC errored. If the credit actually landed (committed but the response
     // was lost), refunding would hand back cash for units the user kept — so only refund
@@ -169,7 +199,7 @@ export async function purchaseUnitsByQuantity(
   if (!debit || (debit as unknown[]).length === 0) return { ok: false, error: "Insufficient wallet balance" }
 
   const ref = `wallet-qty-${userId}-${accountId}-${Date.now()}`
-  const res = await issueUnits(accountId, credits, "bundle_wallet", ref)
+  const res = await issueUnits(accountId, credits, "bundle_wallet", ref, cost)
   if (!res.ok) {
     const landed = await refLanded(ref)
     if (!landed) {
@@ -189,6 +219,8 @@ export async function allocateUnits(accountId: string, units: number): Promise<P
 }
 
 /** Credit units after a confirmed Paystack SMS-bundle payment. Idempotent on the paystack ref. */
-export async function creditUnitsForPaystack(accountId: string, units: number, paystackRef: string): Promise<PurchaseResult> {
-  return issueUnits(accountId, units, "bundle_paystack", paystackRef)
+export async function creditUnitsForPaystack(
+  accountId: string, units: number, paystackRef: string, amountGhs: number | null = null
+): Promise<PurchaseResult> {
+  return issueUnits(accountId, units, "bundle_paystack", paystackRef, amountGhs)
 }

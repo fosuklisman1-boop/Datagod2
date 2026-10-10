@@ -5,6 +5,7 @@ import { authenticateApiKey, logApiRequest } from "@/lib/api-auth"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
 import { enqueueSendBatched, SMS_MAX_TOTAL } from "@/lib/sms/send-service"
+import { apiRateLimitFor, loadSmsSettings } from "@/lib/sms/platform-settings"
 import { getShopTokens } from "@/lib/sms/shop-context-service"
 
 const supabaseAdmin = createClient(
@@ -27,18 +28,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Invalid or missing API key" }, { status: 401 })
   }
 
-  const rateLimitCount = user.rate_limit_per_min || 60
-  const postLimit = Math.max(5, Math.floor(rateLimitCount / 3))
-  const rateLimit = await applyRateLimit(request, "v1_sms_send_post", postLimit, 60 * 1000, user.id)
-  if (!rateLimit.allowed) {
-    return NextResponse.json({ success: false, error: `Rate limit exceeded. Your current limit is ${postLimit} requests/minute.` }, { status: 429 })
-  }
-
   // SMS credits are a separate ledger from the wallet/test-balance system
   // entirely (per-tenant sms_accounts, not simulated here) -- test mode
   // skips the real account/credits requirement and never actually queues
   // anything, rather than trying to fake a second parallel credits system.
   const account = user.environment === "test" ? null : await getOrCreateAccountForUser(user.id)
+  // Limit = the account's override, else the admin-set platform default.
+  const { apiRateLimitDefault } = await loadSmsSettings()
+  const postLimit = apiRateLimitFor(account?.api_rate_limit_override, apiRateLimitDefault)
+  const rateLimit = await applyRateLimit(request, "v1_sms_send_post", postLimit, 60 * 1000, user.id)
+  if (!rateLimit.allowed) {
+    return NextResponse.json({ success: false, error: `Rate limit exceeded. Your current limit is ${postLimit} requests/minute.` }, { status: 429 })
+  }
   if (user.environment !== "test" && !account) {
     return NextResponse.json({ success: false, error: "No SMS account for this API key's owner (requires a shop, sub-agent, or admin account)" }, { status: 403 })
   }
@@ -103,6 +104,17 @@ export async function POST(request: NextRequest) {
   // sender_id "defaults to your first active one" (the tenant's own), so this
   // route needs to resolve that itself before calling enqueueSendBatched.
   let effectiveSenderId = sender_id as string | undefined
+  // Prefer the account's chosen default sender ID; only an active (never paused) one counts.
+  if (!effectiveSenderId && account!.default_sender_id) {
+    const { data: def } = await supabaseAdmin
+      .from("sms_sender_ids")
+      .select("sender_id")
+      .eq("id", account!.default_sender_id)
+      .eq("sms_account_id", account!.id)
+      .eq("local_status", "active")
+      .maybeSingle()
+    effectiveSenderId = (def as { sender_id?: string } | null)?.sender_id ?? undefined
+  }
   if (!effectiveSenderId) {
     const { data: activeSender } = await supabaseAdmin
       .from("sms_sender_ids")

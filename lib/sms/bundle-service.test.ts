@@ -13,10 +13,11 @@ const h = vi.hoisted(() => {
     refInPending: false, // ref already landed in sms_pending_credits
     pricePerCredit: 0.05, // sms_price_per_credit setting
     calls: [] as { fn: string; args: any }[],
+    updates: [] as { table: string; patch: any; ref: any }[],
   }
-  const bundleRow = { id: "b1", name: "5k", units: 5000, price_ghs: 150, owner_type_scope: "all", active: true }
+  const bundleRow = { id: "b1", name: "5k", units: 5000, price_ghs: 150, owner_type_scope: "all", active: true, mode: "platform", sort_order: 0 }
   const notifySpy = vi.fn()
-  const fake = {
+  const fake: any = {
     rpc: (fn: string, args: any) => {
       state.calls.push({ fn, args })
       if (fn === "deduct_wallet") {
@@ -40,6 +41,11 @@ const h = vi.hoisted(() => {
       return Promise.resolve({ data: null, error: null })
     },
     from: (table: string) => ({
+      update: (patch: any) => ({
+        eq: (_c: string, ref: any) => ({
+          is: () => { state.updates.push({ table, patch, ref }); return Promise.resolve({ data: null, error: null }) },
+        }),
+      }),
       select: () => ({
         eq: () => ({
           maybeSingle: () => {
@@ -52,6 +58,7 @@ const h = vi.hoisted(() => {
                 data: {
                   status: (fake as any)._accountStatus ?? "active",
                   owner_type: (fake as any)._ownerType ?? "shop",
+                  mode: (fake as any)._accountMode ?? "platform",
                 },
                 error: null,
               })
@@ -62,17 +69,20 @@ const h = vi.hoisted(() => {
       }),
     }),
   }
-  return { state, fake, notifySpy }
+  return { state, fake, notifySpy, bundleRow }
 })
 
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => h.fake }))
 vi.mock("./wholesale", () => ({ getWholesaleCredits: () => Promise.resolve(h.state.wholesale) }))
 vi.mock("./notify", () => ({ notifyAdminSmsShortfall: (...a: any[]) => { h.notifySpy(...a); return Promise.resolve() } }))
 
-import { purchaseBundleViaWallet, purchaseUnitsByQuantity, quoteCredits, getPricePerCredit } from "./bundle-service"
+import { purchaseBundleViaWallet, purchaseUnitsByQuantity, quoteCredits, getPricePerCredit, creditUnitsForPaystack, allocateUnits } from "./bundle-service"
 
 beforeEach(() => {
   h.state.calls.length = 0
+  h.state.updates.length = 0
+  delete (h.fake as any)._accountMode
+  h.bundleRow.mode = "platform"
   h.state.creditError = false
   h.state.refInTx = false
   h.state.refInPending = false
@@ -163,6 +173,48 @@ describe("purchaseBundleViaWallet — activation gate", () => {
     const res = await purchaseBundleViaWallet("u1", "acc1", "b1")
     expect(res.ok).toBe(false)
     expect(res.error).toBe("NOT_ACTIVATED")
+  })
+})
+
+describe("per-mode bundles + revenue", () => {
+  it("business bundle from a platform account → mode error, no wallet debit", async () => {
+    h.state.walletBalance = 200; h.state.wholesale = 1_000_000
+    h.bundleRow.mode = "business"
+    const res = await purchaseBundleViaWallet("u1", "acc1", "b1")
+    expect(res.ok).toBe(false)
+    expect(res.error).toMatch(/account mode/)
+    expect(h.state.calls.filter((c) => c.fn === "deduct_wallet")).toHaveLength(0)
+  })
+
+  it("matching business mode purchases fine", async () => {
+    h.state.walletBalance = 200; h.state.wholesale = 1_000_000
+    h.bundleRow.mode = "business"
+    ;(h.fake as any)._accountMode = "business"
+    expect((await purchaseBundleViaWallet("u1", "acc1", "b1")).ok).toBe(true)
+  })
+
+  it("wallet purchase records the price paid on ledger and pending rows", async () => {
+    h.state.walletBalance = 200; h.state.wholesale = 1_000_000
+    await purchaseBundleViaWallet("u1", "acc1", "b1")
+    expect(h.state.updates.map((u) => u.table).sort()).toEqual(["sms_pending_credits", "sms_unit_transactions"])
+    expect(h.state.updates.every((u) => u.patch.amount_ghs === 150)).toBe(true)
+  })
+
+  it("quantity purchase records its cost; paystack credit records the paid amount", async () => {
+    h.state.walletBalance = 200; h.state.wholesale = 1_000_000; h.state.pricePerCredit = 0.05
+    await purchaseUnitsByQuantity("u1", "acc1", 100)
+    expect(h.state.updates.length).toBe(2)
+    expect(h.state.updates.every((u) => u.patch.amount_ghs === 5)).toBe(true)
+    h.state.updates.length = 0
+    await creditUnitsForPaystack("acc1", 100, "ps-ref", 12.5)
+    expect(h.state.updates).toHaveLength(2)
+    expect(h.state.updates.every((u) => u.patch.amount_ghs === 12.5 && u.ref === "ps-ref")).toBe(true)
+  })
+
+  it("admin allocation never records revenue", async () => {
+    h.state.wholesale = 1_000_000
+    await allocateUnits("acc1", 100)
+    expect(h.state.updates).toHaveLength(0)
   })
 })
 

@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { deriveOwnerType, type OwnerContext } from "./foundation-rules"
+import { loadSmsSettings } from "./platform-settings"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -18,6 +19,10 @@ export interface SmsAccount {
   paid_from?: string | null
   bonus_claimed?: boolean | null
   bonus_claimed_at?: string | null
+  mode?: "platform" | "business"
+  api_rate_limit_override?: number | null
+  default_sender_id?: string | null
+  review_hold?: boolean
 }
 
 /** Resolve the owner context from role + user_shops membership.
@@ -30,12 +35,14 @@ async function resolveOwnerContext(userId: string): Promise<OwnerContext | null>
     .from("user_shops").select("id, parent_shop_id").eq("user_id", userId).maybeSingle()
 
   const isSub = !!shop && shop.parent_shop_id != null
+  const { allowedRoles } = await loadSmsSettings()
   return deriveOwnerType({
     role: u?.role ?? "user",
     ownsShop: !!shop && !isSub,
     isSubAgent: isSub,
     shopId: shop?.id,
     subAgentId: shop?.id,
+    allowedRoles,
   })
 }
 

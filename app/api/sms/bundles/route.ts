@@ -13,6 +13,6 @@ export async function GET(request: NextRequest) {
   if (error || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const account = await getOrCreateAccountForUser(user.id)
   if (!account) return NextResponse.json({ error: "No SMS account" }, { status: 403 })
-  const bundles = await listActiveBundles(account.owner_type as OwnerType)
+  const bundles = await listActiveBundles(account.owner_type as OwnerType, (account.mode ?? "platform") as "platform" | "business")
   return NextResponse.json({ bundles })
 }

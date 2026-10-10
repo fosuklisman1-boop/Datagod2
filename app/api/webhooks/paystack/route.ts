@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ received: true, type: "sms_bundle", error: "underpayment" })
         }
         const { creditUnitsForPaystack } = await import("@/lib/sms/bundle-service")
-        const result = await creditUnitsForPaystack(metadata.sms_account_id, Number(smsBundle.units), reference)
+        const result = await creditUnitsForPaystack(metadata.sms_account_id, Number(smsBundle.units), reference, paidGhs)
         if (!result.ok) console.error("[WEBHOOK] SMS bundle credit failed:", result.error)
         return NextResponse.json({ received: true, type: "sms_bundle" })
       }
@@ -107,7 +107,7 @@ export async function POST(request: NextRequest) {
           console.error(`[WEBHOOK] sms_units_qty underpayment: paid ${paidGhs} < ${expected}`)
           return NextResponse.json({ received: true, type: "sms_units_qty", error: "underpayment" })
         }
-        const result = await creditUnitsForPaystack(metadata.sms_account_id, credits, reference)
+        const result = await creditUnitsForPaystack(metadata.sms_account_id, credits, reference, paidGhs)
         if (!result.ok) console.error("[WEBHOOK] sms_units_qty credit failed:", result.error)
         return NextResponse.json({ received: true, type: "sms_units_qty" })
       }
@@ -151,7 +151,7 @@ export async function POST(request: NextRequest) {
             const paidGhs = amount / 100
             if (paidGhs >= Number(smsBundle.price_ghs) - 0.01) {
               const { creditUnitsForPaystack } = await import("@/lib/sms/bundle-service")
-              const result = await creditUnitsForPaystack(accountId, Number(smsBundle.units), reference)
+              const result = await creditUnitsForPaystack(accountId, Number(smsBundle.units), reference, paidGhs)
               if (!result.ok) console.error("[WEBHOOK] sms_bundle (ref fallback) credit failed:", result.error)
             } else {
               console.error(`[WEBHOOK] sms_bundle ref-fallback underpayment: paid ${paidGhs} < ${smsBundle.price_ghs}`)
@@ -172,7 +172,7 @@ export async function POST(request: NextRequest) {
             const { getPricePerCredit, creditUnitsForPaystack } = await import("@/lib/sms/bundle-service")
             const expected = Math.round(credits * (await getPricePerCredit()) * 100) / 100
             if (paidGhs >= expected - 0.01) {
-              const result = await creditUnitsForPaystack(accountId, credits, reference)
+              const result = await creditUnitsForPaystack(accountId, credits, reference, paidGhs)
               if (!result.ok) console.error("[WEBHOOK] sms_units_qty (ref fallback) credit failed:", result.error)
             } else {
               console.error(`[WEBHOOK] smsqty ref-fallback underpayment: paid ${paidGhs} < ${expected}`)
