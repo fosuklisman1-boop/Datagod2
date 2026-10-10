@@ -27,7 +27,7 @@ describe("classifyHubtelResponse", () => {
     expect(classifyHubtelResponse(402, {}).outcome).toBe("out_of_funds")
     expect(classifyHubtelResponse(400, { status: 12 }).outcome).toBe("out_of_funds")
   })
-  it("400 → rejected; 401/5xx → retryable", () => {
+  it("400 → rejected; 401/503 → retryable", () => {
     expect(classifyHubtelResponse(400, { status: 4 }).outcome).toBe("rejected")
     expect(classifyHubtelResponse(401, {}).outcome).toBe("retryable")
     expect(classifyHubtelResponse(503, {}).outcome).toBe("retryable")
@@ -85,6 +85,19 @@ describe("failure modes", () => {
     const e = new Error("fetch failed", { cause: { code: "ECONNREFUSED" } })
     expect((await send(vi.fn(async () => { throw e }))).outcome).toBe("retryable")
   })
+  it("UND_ERR_CONNECT_TIMEOUT cause → retryable", async () => {
+    const e = new Error("fetch failed", { cause: { code: "UND_ERR_CONNECT_TIMEOUT" } })
+    expect((await send(vi.fn(async () => { throw e }))).outcome).toBe("retryable")
+  })
+  it("EHOSTUNREACH inside AggregateError cause → retryable", async () => {
+    const agg = new AggregateError([Object.assign(new Error("x"), { code: "EHOSTUNREACH" })])
+    const e = new Error("fetch failed", { cause: agg })
+    expect((await send(vi.fn(async () => { throw e }))).outcome).toBe("retryable")
+  })
+  it("ERR_SSL_WRONG_VERSION_NUMBER → retryable", async () => {
+    const e = new Error("fetch failed", { cause: { code: "ERR_SSL_WRONG_VERSION_NUMBER" } })
+    expect((await send(vi.fn(async () => { throw e }))).outcome).toBe("retryable")
+  })
   it("ECONNRESET cause → unknown", async () => {
     const e = new Error("fetch failed", { cause: { code: "ECONNRESET" } })
     expect((await send(vi.fn(async () => { throw e }))).outcome).toBe("unknown")
@@ -118,6 +131,8 @@ describe("msisdn + config + status extras", () => {
     expect(isValidHubtelMsisdn("233241234567")).toBe(true)
     expect(isValidHubtelMsisdn("")).toBe(false)
     expect(isValidHubtelMsisdn("23324123")).toBe(false)
+    expect(isValidHubtelMsisdn(toHubtelMsisdn("024123456"))).toBe(false)
+    expect(isValidHubtelMsisdn(toHubtelMsisdn("0241234567"))).toBe(true)
   })
   it("unknown new statuses stay pending", () => {
     expect(mapHubtelStatus("Queued")).toBe("pending")

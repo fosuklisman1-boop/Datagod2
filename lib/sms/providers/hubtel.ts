@@ -30,7 +30,7 @@ export function toHubtelMsisdn(phone: string): string {
 }
 
 export function isValidHubtelMsisdn(s: string): boolean {
-  return /^233\d{9}$/.test(s)
+  return /^233[235]\d{8}$/.test(s)
 }
 
 /**
@@ -91,13 +91,22 @@ export interface HubtelSendResult {
   messages: { recipient: string; messageId: string }[]
 }
 
-const CONNECT_CODES = ["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN"]
+const CONNECT_CODES = [
+  "ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "UND_ERR_CONNECT_TIMEOUT", "EHOSTUNREACH", "ENETUNREACH",
+  "ERR_INVALID_URL", "UNABLE_TO_VERIFY_LEAF_SIGNATURE", "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+]
+
+function isConnectCode(code: unknown): boolean {
+  const c = String(code ?? "")
+  return CONNECT_CODES.includes(c) || c.startsWith("ERR_TLS") || c.startsWith("ERR_SSL") || c.includes("CERT")
+}
 
 function failureForFetchError(e: unknown): HubtelFailure {
-  const err = e as { name?: string; cause?: { code?: string } } | null
+  const err = e as { name?: string; code?: string; cause?: { code?: string; errors?: { code?: string }[] } } | null
   if (err?.name === "TimeoutError" || err?.name === "AbortError") return "timeout"
-  const code = String(err?.cause?.code ?? "")
-  if (CONNECT_CODES.includes(code) || code.startsWith("ERR_TLS") || code.includes("CERT")) return "connect"
+  const codes: unknown[] = [err?.code, err?.cause?.code]
+  if (Array.isArray(err?.cause?.errors)) for (const x of err.cause.errors) codes.push(x?.code)
+  if (codes.some(isConnectCode)) return "connect"
   return "timeout" // ambiguous => maybe sent
 }
 
