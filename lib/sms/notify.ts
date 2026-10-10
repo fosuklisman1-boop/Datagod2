@@ -51,7 +51,7 @@ export async function notifyAdminSmsShortfall(unitsPending: number): Promise<voi
     const rows = admins.map((admin: { id: string }) => ({
       user_id: admin.id,
       title: "SMS wholesale top-up needed",
-      message: `${unitsPending} units are pending — top up the Moolre SMS wholesale balance to release them.`,
+      message: `${unitsPending} units are pending — top up the SMS wholesale balance (Hubtel Disbursement, or Moolre while it is primary) to release them.`,
       type: SHORTFALL_TYPE,
       read: false,
       action_url: "/admin/sms",

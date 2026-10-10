@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { canPurchaseBundle, type OwnerType } from "./foundation-rules"
-import { queryMoolreSmsBalance } from "@/lib/sms-service"
+import { getWholesaleCredits } from "./wholesale"
 import { notifyAdminSmsShortfall } from "./notify"
 
 const supabaseAdmin = createClient(
@@ -61,7 +61,7 @@ export async function updateBundle(
 /** Issue units through the solvency gate: fetch the live Moolre wholesale balance, then
  *  credit-or-pend atomically. Notifies admin on a shortfall. Shared by all credit paths. */
 async function issueUnits(accountId: string, units: number, reason: string, ref: string | null): Promise<PurchaseResult> {
-  const wholesale = await queryMoolreSmsBalance()
+  const wholesale = await getWholesaleCredits()
   const { data, error } = await supabaseAdmin.rpc("credit_sms_units_if_solvent", {
     p_account_id: accountId, p_units: units, p_reason: reason, p_wholesale: wholesale, p_ref: ref,
   })

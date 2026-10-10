@@ -66,7 +66,7 @@ const h = vi.hoisted(() => {
 })
 
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => h.fake }))
-vi.mock("@/lib/sms-service", () => ({ queryMoolreSmsBalance: () => Promise.resolve(h.state.wholesale) }))
+vi.mock("./wholesale", () => ({ getWholesaleCredits: () => Promise.resolve(h.state.wholesale) }))
 vi.mock("./notify", () => ({ notifyAdminSmsShortfall: (...a: any[]) => { h.notifySpy(...a); return Promise.resolve() } }))
 
 import { purchaseBundleViaWallet, purchaseUnitsByQuantity, quoteCredits, getPricePerCredit } from "./bundle-service"

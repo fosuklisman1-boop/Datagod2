@@ -1,6 +1,6 @@
 // lib/ussd-hubtel/relay.test.ts
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
-import { buildCallbackPayload, sendFulfillmentCallback } from "./relay"
+import { buildCallbackPayload, sendFulfillmentCallback, fetchDisbursementBalance } from "./relay"
 
 const fetchMock = vi.fn()
 beforeEach(() => {
@@ -43,5 +43,35 @@ describe("sendFulfillmentCallback: additive upstream fields", () => {
   it("relay not configured: unchanged", async () => {
     vi.stubEnv("HUBTEL_RELAY_URL", "")
     expect(await sendFulfillmentCallback({ sessionId: "S1", orderId: "H1" })).toEqual({ ok: false, error: "relay not configured" })
+  })
+})
+
+describe("fetchDisbursementBalance", () => {
+  it("returns the amount on responseCode 0000", async () => {
+    fetchMock.mockResolvedValue(reply(200, { ok: true, upstreamStatus: 200, body: { responseCode: "0000", data: { amount: 123.5 } } }))
+    expect(await fetchDisbursementBalance()).toEqual({ ok: true, amountGhs: 123.5 })
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe("https://relay.example/balance")
+    expect(init.headers.Authorization).toBe("Bearer relaysec")
+  })
+  it("fails on any other response code", async () => {
+    fetchMock.mockResolvedValue(reply(200, { ok: true, upstreamStatus: 200, body: { responseCode: "4000" } }))
+    expect((await fetchDisbursementBalance()).ok).toBe(false)
+  })
+  it("fails when the amount is missing or not a number", async () => {
+    fetchMock.mockResolvedValue(reply(200, { ok: true, upstreamStatus: 200, body: { responseCode: "0000", data: { amount: "11.5" } } }))
+    expect((await fetchDisbursementBalance()).ok).toBe(false)
+  })
+  it("fails when the relay reports an upstream failure", async () => {
+    fetchMock.mockResolvedValue(reply(200, { ok: false, upstreamStatus: 403, body: "forbidden" }))
+    expect((await fetchDisbursementBalance()).ok).toBe(false)
+  })
+  it("fails on a network error (never throws)", async () => {
+    fetchMock.mockRejectedValue(new Error("boom"))
+    expect(await fetchDisbursementBalance()).toEqual({ ok: false, error: "boom" })
+  })
+  it("fails when the relay is not configured", async () => {
+    vi.stubEnv("HUBTEL_RELAY_URL", "")
+    expect((await fetchDisbursementBalance()).ok).toBe(false)
   })
 })

@@ -102,7 +102,7 @@ const h = vi.hoisted(() => {
 })
 
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => h.fake }))
-vi.mock("@/lib/sms-service", () => ({ queryMoolreSmsBalance: () => Promise.resolve(h.state.wholesale) }))
+vi.mock("./wholesale", () => ({ getWholesaleCredits: () => Promise.resolve(h.state.wholesale) }))
 vi.mock("./notify", () => ({ notifyAdminSmsShortfall: () => Promise.resolve() }))
 
 import { activateViaWallet, claimWelcomeBonus, finalizeActivationPaystack } from "./activation-service"

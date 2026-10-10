@@ -1,6 +1,6 @@
 // lib/sms/activation-service.ts
 import { createClient } from "@supabase/supabase-js"
-import { queryMoolreSmsBalance } from "@/lib/sms-service"
+import { getWholesaleCredits } from "./wholesale"
 import { notifyAdminSmsShortfall } from "./notify"
 
 const supabaseAdmin = createClient(
@@ -170,7 +170,7 @@ export async function finalizeActivationPaystack(
 /** Claim the one-time welcome bonus. Solvency-gated via claim_sms_welcome_bonus RPC
  *  (which internally calls credit_sms_units_if_solvent). */
 export async function claimWelcomeBonus(accountId: string): Promise<BonusResult> {
-  const wholesale = await queryMoolreSmsBalance()
+  const wholesale = await getWholesaleCredits()
   const { data, error: rpcErr } = await supabaseAdmin.rpc("claim_sms_welcome_bonus", {
     p_account_id: accountId,
     p_wholesale: wholesale,

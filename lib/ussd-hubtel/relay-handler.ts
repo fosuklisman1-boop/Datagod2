@@ -1,6 +1,6 @@
 // lib/ussd-hubtel/relay-handler.ts
 // Pure request handler for the DigitalOcean relay. No business logic, no queue.
-// It exists so Hubtel sees a fixed (whitelisted) source IP for two outbound calls.
+// It exists so Hubtel sees a fixed (whitelisted) source IP for three outbound calls.
 import crypto from "crypto"
 
 export interface RelayConfig {
@@ -10,6 +10,11 @@ export interface RelayConfig {
   fetchImpl?: typeof fetch
   callbackUrl?: string
   statusBaseUrl?: string
+  /** Hubtel Disbursement (prepaid) account number — SMS is paid from it. Optional. */
+  disbursementAccount?: string
+  /** Basic credential for the balance endpoint; defaults to statusBasicAuth. */
+  balanceBasicAuth?: string
+  balanceBaseUrl?: string
 }
 
 export interface RelayRequest {
@@ -40,6 +45,7 @@ export function createRelayHandler(cfg: RelayConfig) {
   const doFetch = cfg.fetchImpl ?? fetch
   const callbackUrl = cfg.callbackUrl ?? "https://gs-callback.hubtel.com:9055/callback"
   const statusBase = cfg.statusBaseUrl ?? "https://api-txnstatus.hubtel.com"
+  const balanceBase = cfg.balanceBaseUrl ?? "https://trnf.hubtel.com"
 
   return async function handle(req: RelayRequest): Promise<{ status: number; body: unknown }> {
     if (!bearerOk(req.authorization, cfg.secret)) return { status: 401, body: { error: "unauthorized" } }
@@ -77,6 +83,24 @@ export function createRelayHandler(cfg: RelayConfig) {
         const res = await doFetch(url, {
           method: "GET",
           headers: { Authorization: `Basic ${cfg.statusBasicAuth}` },
+          signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+        })
+        return { status: 200, body: { ok: res.ok, upstreamStatus: res.status, body: await readBody(res) } }
+      } catch (e: any) {
+        return { status: 200, body: { ok: false, upstreamStatus: 0, body: String(e?.message ?? e) } }
+      }
+    }
+
+    if (req.method === "GET" && req.path === "/balance") {
+      if (!cfg.disbursementAccount) return { status: 501, body: { error: "balance not configured" } }
+      const url = `${balanceBase}/api/inter-transfers/prepaid/${encodeURIComponent(cfg.disbursementAccount)}`
+      try {
+        const res = await doFetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: `Basic ${cfg.balanceBasicAuth ?? cfg.statusBasicAuth}`,
+            Accept: "application/json", "Content-Type": "application/json", "Cache-Control": "no-cache",
+          },
           signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
         })
         return { status: 200, body: { ok: res.ok, upstreamStatus: res.status, body: await readBody(res) } }
