@@ -103,7 +103,36 @@ export async function drainSmsMessages(opts: { limit?: number } = {}): Promise<D
     max_attempts: MAX_ATTEMPTS,
   })
   if (claimError) throw claimError
-  const rows = (claimed ?? []) as SmsMessageRow[]
+  const claimedRows = (claimed ?? []) as SmsMessageRow[]
+  if (claimedRows.length === 0) return { claimed: 0, sent: 0, failed: 0, refunded: 0 }
+
+  // (b2) Never send messages of a campaign held for review (or scheduled). claim_sms_messages
+  //      already skips them (migration 20261013); this is defence in depth in case it does not
+  //      (e.g. migration not applied). Such rows are handed back exactly as they were (pending,
+  //      unclaimed, attempt restored). If the lookup fails, fail CLOSED for this run.
+  const logIds = [...new Set(claimedRows.map((r) => r.send_log_id))]
+  let parkedLogIds: Set<string>
+  const { data: parked, error: parkErr } = await supabaseAdmin
+    .from("sms_send_logs")
+    .select("id")
+    .in("id", logIds)
+    .in("status", ["held", "scheduled"])
+  if (parkErr) {
+    console.error("[SMS-DRAIN] held-campaign check failed; returning this batch to the queue:", parkErr.message)
+    parkedLogIds = new Set(logIds.map(String))
+  } else {
+    parkedLogIds = new Set(((parked ?? []) as { id: string | number }[]).map((p) => String(p.id)))
+  }
+  const rows: SmsMessageRow[] = []
+  for (const row of claimedRows) {
+    if (!parkedLogIds.has(String(row.send_log_id))) { rows.push(row); continue }
+    const { error: backErr } = await supabaseAdmin
+      .from("sms_messages")
+      .update({ status: "pending", claimed_at: null, attempts: Math.max(0, row.attempts - 1) })
+      .eq("id", row.id)
+      .eq("status", "claimed")
+    if (backErr) console.error(`[SMS-DRAIN] could not hand back held message ${row.id} (stale-claim reaper will):`, backErr.message)
+  }
   if (rows.length === 0) return { claimed: 0, sent: 0, failed: 0, refunded: 0 }
 
   let sent = 0

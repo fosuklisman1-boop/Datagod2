@@ -5,7 +5,7 @@
  */
 import { createClient } from "@supabase/supabase-js"
 import { evaluateSendPolicy, type PolicyResult, type PolicySender, type PolicyUsage } from "./policy"
-import { loadSmsSettings, type SmsMode } from "./platform-settings"
+import { loadSmsSettings, type SmsMode, type SmsPlatformSettings } from "./platform-settings"
 
 const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
@@ -87,23 +87,34 @@ export async function resolveCampaignSender(accountId: string, senderId?: string
   return null
 }
 
+export interface PolicyArgs { accountId: string; sender: PolicySender; recipientCount: number; message: string }
+
+/**
+ * Load every policy input (settings, own domains, usage, account) and run evaluateSendPolicy.
+ * The ONE place the inputs are built — shared by the record-only shadow and by enforcement.
+ * Returns null when the account does not exist; THROWS on any loader error (callers decide
+ * whether that fails open (shadow) or closed (enforcement)).
+ */
+export async function evaluatePolicy(args: PolicyArgs): Promise<{ mode: SmsMode; result: PolicyResult; settings: SmsPlatformSettings } | null> {
+  const [settings, ownDomains, usage, account] = await Promise.all([
+    loadSmsSettings(), loadOwnDomains(), loadUsage(args.accountId), loadAccountSnapshot(args.accountId),
+  ])
+  if (!account) return null
+  const result = evaluateSendPolicy({
+    account: { audience: account.audience, status: account.status, mode: account.mode, reviewHold: account.reviewHold },
+    settings, ownDomains, usage, sender: args.sender, recipientCount: args.recipientCount, message: args.message,
+  })
+  return { mode: account.mode, result, settings }
+}
+
 /** Evaluate the policy for a send and return { mode, shadow }. Never throws. */
-export async function shadowPolicy(args: {
-  accountId: string; sender: PolicySender; recipientCount: number; message: string
-}): Promise<{ mode: SmsMode | null; shadow: PolicyShadow | { error: string; evaluated_at: string } }> {
+export async function shadowPolicy(args: PolicyArgs): Promise<{ mode: SmsMode | null; shadow: PolicyShadow | { error: string; evaluated_at: string } }> {
   try {
-    const [settings, ownDomains, usage, account] = await Promise.all([
-      loadSmsSettings(), loadOwnDomains(), loadUsage(args.accountId), loadAccountSnapshot(args.accountId),
-    ])
-    if (!account) return { mode: null, shadow: { error: "account not found", evaluated_at: new Date().toISOString() } }
-    const r = evaluateSendPolicy({
-      account: { audience: account.audience, status: account.status, mode: account.mode, reviewHold: account.reviewHold },
-      settings, ownDomains, usage, sender: args.sender, recipientCount: args.recipientCount, message: args.message,
-    })
-    if (settings.policyEnforced) {
-      console.warn("[SMS-POLICY] sms_policy_enforced=true but enforcement ships in Phase 3 — recording only")
-    }
-    return { mode: account.mode, shadow: buildShadow(r, false) }
+    const ev = await evaluatePolicy(args)
+    if (!ev) return { mode: null, shadow: { error: "account not found", evaluated_at: new Date().toISOString() } }
+    // Record-only: when sms_policy_enforced is on, enqueueSendBatched enforces via
+    // lib/sms/enforcement.ts instead and never calls this.
+    return { mode: ev.mode, shadow: buildShadow(ev.result, false) }
   } catch (e) {
     console.error("[SMS-POLICY] shadow evaluation failed:", e)
     return { mode: null, shadow: { error: String((e as Error)?.message ?? e), evaluated_at: new Date().toISOString() } }

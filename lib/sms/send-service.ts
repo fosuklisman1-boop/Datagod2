@@ -2,9 +2,11 @@ import { createClient } from "@supabase/supabase-js"
 import { prepareSmsMessage, type ShopTokens } from "./prepare"
 import { filterSmsContent } from "./content-filter"
 import { calculateSegments } from "./segments"
-import { resolveCampaignSender, shadowPolicyWithin } from "./policy-context"
+import { resolveCampaignSender, shadowPolicyWithin, type PolicyShadow } from "./policy-context"
 import { isSmsEnabled } from "./kill-switch"
 import { dispatchCampaign, type SentRow } from "./campaign-dispatch"
+import { evaluateForEnforcement, isPolicyEnforced, recordFraudFlags, type EnforcementCode } from "./enforcement"
+import type { SmsMode } from "./platform-settings"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -28,6 +30,8 @@ function normalizePhoneNumber(phone: string): string | null {
   return null
 }
 
+const NO_TOKENS: ShopTokens = { shop_name: "", shop_link: "", shop_phone: "", shop_whatsapp: "" }
+
 export interface EnqueueSendResult {
   ok: true
   sendLogId: string
@@ -35,6 +39,8 @@ export interface EnqueueSendResult {
   segments: number
   creditsReserved: number
   invalidSkipped: number
+  /** Present (true) only for an enforced 'hold': debited + stored, NOT dispatched. */
+  held?: true
 }
 
 export interface EnqueueSendError {
@@ -50,7 +56,21 @@ export interface EnqueueSendError {
     | "INVALID_SENDER_ID"
     | "ENQUEUE_FAILED"
     | "SMS_DISABLED"
+    | "POLICY_REJECTED"
+  /** Customer-safe text only (never matched keywords / flag details). */
   reason?: string
+  /** Policy code, set with POLICY_REJECTED. */
+  code?: EnforcementCode
+}
+
+/**
+ * The enforced decision for a chunk, decided ONCE per user send by enqueueSendBatched.
+ * Absent ⇒ record-only behaviour (exactly as before enforcement existed).
+ */
+export interface ChunkPolicy {
+  decision: "allow" | "hold"
+  mode: SmsMode
+  shadow: PolicyShadow
 }
 
 /**
@@ -66,8 +86,12 @@ export async function enqueueSend(
   message: string,
   recipients: string[],
   shopTokens?: ShopTokens,
-  senderId?: string
+  senderId?: string,
+  enforced?: ChunkPolicy
 ): Promise<EnqueueSendResult | EnqueueSendError> {
+  // An enforced 'hold': debit + store the campaign, but never dispatch it (admin releases it).
+  const held = enforced?.decision === "hold"
+
   // 0. Master switch (Phase 2): refuse new customer sends while the platform switch is off.
   if (!(await isSmsEnabled())) return { ok: false, error: "SMS_DISABLED" }
 
@@ -85,10 +109,7 @@ export async function enqueueSend(
   // 2. Prepare message (token substitution + strip undeliverable chars).
   let prepared: string
   try {
-    prepared = prepareSmsMessage(
-      message,
-      shopTokens ?? { shop_name: "", shop_link: "", shop_phone: "", shop_whatsapp: "" }
-    )
+    prepared = prepareSmsMessage(message, shopTokens ?? NO_TOKENS)
   } catch {
     return { ok: false, error: "EMPTY_MESSAGE" }
   }
@@ -100,7 +121,10 @@ export async function enqueueSend(
   //     on the send log; the send proceeds exactly as before.
   //     Started now but awaited only where the log inserts need it (capped at 1.5 s), so
   //     it overlaps the filter, phone validation and the debit.
-  const shadowPromise = shadowPolicyWithin({ accountId, sender, recipientCount: recipients.length, message: prepared })
+  //     When enforced, the decision was already made once for the whole send: record that.
+  const shadowPromise = enforced
+    ? Promise.resolve({ mode: enforced.mode, shadow: enforced.shadow })
+    : shadowPolicyWithin({ accountId, sender, recipientCount: recipients.length, message: prepared })
 
   // 3. Content filter (on the SAME text that will be billed + sent). Blocked → cost 0, audit row.
   const filterResult = filterSmsContent(prepared)
@@ -171,7 +195,8 @@ export async function enqueueSend(
         segments: seg,
         credits_used: 0, // settled by the drain via recompute_sms_send_result
         credits_reserved: creditsNeeded,
-        status: "queued",
+        // 'held' is exempt from recompute_sms_send_result and its messages from the drain claim.
+        status: held ? "held" : "queued",
         flagged: filterResult.flagged,
         flag_reason: filterResult.flagged ? (filterResult.reason ?? null) : null,
         mode,
@@ -206,11 +231,12 @@ export async function enqueueSend(
       // Inserted pre-claimed so the cron drain (claims pending/failed only) cannot grab them
       // mid-dispatch and double-send. Released back to 'pending' after dispatch (step 7); if this
       // function dies first, the drain's stale-claim reaper returns them after 5 minutes.
-      status: "claimed",
-      claimed_at: new Date().toISOString(),
+      // HELD campaigns: plain 'pending', unclaimed — never dispatched here; the drain's claim
+      // skips messages of held logs (migration 20261013) until an admin releases the campaign.
+      ...(held ? { status: "pending" } : { status: "claimed", claimed_at: new Date().toISOString() }),
       sender_id: resolvedSenderId,
     }))
-    claimedAtMs = Date.parse(rows[0].claimed_at)
+    if (!held) claimedAtMs = Date.parse((rows[0] as { claimed_at: string }).claimed_at)
     for (let i = 0; i < rows.length; i += 500) {
       const { data: ins, error: msgError } = await supabaseAdmin
         .from("sms_messages")
@@ -233,6 +259,19 @@ export async function enqueueSend(
       })
     console.error("[SMS-SEND] enqueue failed after debit (refunded):", insertErr)
     return { ok: false, error: "ENQUEUE_FAILED" }
+  }
+
+  // Held for review: credits reserved and messages stored; no dispatch, release or recompute.
+  if (held) {
+    return {
+      ok: true,
+      sendLogId,
+      total: validPhones.length,
+      segments: seg,
+      creditsReserved: creditsNeeded,
+      invalidSkipped,
+      held: true,
+    }
   }
 
   // 7. INSTANT dispatch through provider routing (Hubtel batches when primary). Deliberately
@@ -340,6 +379,8 @@ export interface BatchedSendResult {
   invalidSkipped: number
   partial: boolean         // true if it stopped before sending every batch
   stoppedReason?: string   // the error that stopped further batches (e.g. credits)
+  held: boolean            // true when the send was held for admin review (debited, not dispatched)
+  sendLogId: string | null // the first batch's send log (a send of >500 has one log per batch)
 }
 
 /**
@@ -379,8 +420,10 @@ export async function runSequentialBatches(
   let creditsReserved = 0
   let segments = 0
   let invalidSkipped = 0
+  let held = false
+  let sendLogId: string | null = null
   const partial = (stoppedReason: string): BatchedSendResult =>
-    ({ ok: true, batches, totalQueued, segments, creditsReserved, invalidSkipped, partial: true, stoppedReason })
+    ({ ok: true, batches, totalQueued, segments, creditsReserved, invalidSkipped, partial: true, stoppedReason, held, sendLogId })
 
   for (const chunk of chunks) {
     let r: EnqueueSendResult | EnqueueSendError
@@ -403,11 +446,15 @@ export async function runSequentialBatches(
     creditsReserved += r.creditsReserved
     segments = r.segments
     invalidSkipped += r.invalidSkipped
+    if (r.held) held = true
+    if (sendLogId === null) sendLogId = r.sendLogId
   }
 
   if (batches === 0) return { ok: false, error: "NO_VALID_RECIPIENTS" } // every chunk invalid
-  return { ok: true, batches, totalQueued, segments, creditsReserved, invalidSkipped, partial: false }
+  return { ok: true, batches, totalQueued, segments, creditsReserved, invalidSkipped, partial: false, held, sendLogId }
 }
+
+const BATCH_OPTS = { batchSize: SMS_BATCH_SIZE, maxTotal: SMS_MAX_TOTAL }
 
 export async function enqueueSendBatched(
   userId: string,
@@ -417,9 +464,87 @@ export async function enqueueSendBatched(
   shopTokens?: ShopTokens,
   senderId?: string
 ): Promise<BatchedSendResult | EnqueueSendError> {
+  // Record-only (sms_policy_enforced = false, the default): exactly the pre-enforcement path.
+  if (!(await isPolicyEnforced())) {
+    return runSequentialBatches(
+      recipients,
+      (chunk) => enqueueSend(userId, accountId, message, chunk, shopTokens, senderId),
+      BATCH_OPTS
+    )
+  }
+  return enforcedSendBatched(userId, accountId, message, recipients, shopTokens, senderId)
+}
+
+/**
+ * Enforced send: the policy is evaluated ONCE on the full list, BEFORE batching or any debit.
+ *  - reject / unavailable → POLICY_REJECTED (+ code, customer reason). Nothing written.
+ *  - block → one 'blocked' log for the whole send + fraud flags recorded. Nothing debited.
+ *  - hold  → every batch debited and stored 'held' (messages un-dispatched). held:true.
+ *  - allow → the normal batched send; logs record the enforced decision.
+ */
+async function enforcedSendBatched(
+  userId: string,
+  accountId: string,
+  message: string,
+  recipients: string[],
+  shopTokens?: ShopTokens,
+  senderId?: string
+): Promise<BatchedSendResult | EnqueueSendError> {
+  // Same pre-checks the record-only path applies (runSequentialBatches + enqueueSend), before
+  // the evaluation so a cheap refusal never costs a policy read.
+  if (recipients.length === 0) return { ok: false, error: "NO_VALID_RECIPIENTS" }
+  if (recipients.length > SMS_MAX_TOTAL) return { ok: false, error: "TOO_MANY_RECIPIENTS" }
+  if (!(await isSmsEnabled())) return { ok: false, error: "SMS_DISABLED" }
+  const sender = await resolveCampaignSender(accountId, senderId)
+  if (!sender) return { ok: false, error: "INVALID_SENDER_ID" }
+  let prepared: string
+  try {
+    prepared = prepareSmsMessage(message, shopTokens ?? NO_TOKENS)
+  } catch {
+    return { ok: false, error: "EMPTY_MESSAGE" }
+  }
+  if (!prepared || prepared.trim().length === 0) return { ok: false, error: "EMPTY_MESSAGE" }
+
+  const outcome = await evaluateForEnforcement({ accountId, sender, recipientCount: recipients.length, message: prepared })
+
+  if (outcome.kind === "reject") {
+    return { ok: false, error: "POLICY_REJECTED", code: outcome.code, reason: outcome.reason }
+  }
+
+  if (outcome.kind === "block") {
+    let blockedLogId: string | null = null
+    try {
+      const { data, error } = await supabaseAdmin
+        .from("sms_send_logs")
+        .insert({
+          sms_account_id: accountId,
+          message,
+          sender_id: sender.name,
+          recipients_count: recipients.length,
+          segments: calculateSegments(prepared).segments,
+          credits_used: 0,
+          credits_reserved: 0,
+          status: "blocked",
+          flagged: true,
+          flag_reason: outcome.fraudFlags[0]?.reason ?? outcome.code,
+          mode: outcome.mode,
+          policy_shadow: outcome.shadow,
+        })
+        .select("id")
+        .single()
+      if (error) console.error("[SMS-ENFORCE] blocked log insert failed:", error.message)
+      blockedLogId = (data as { id: string } | null)?.id ?? null
+    } catch (e) {
+      console.error("[SMS-ENFORCE] blocked log insert threw:", e)
+    }
+    await recordFraudFlags({ accountId, sendLogId: blockedLogId, flags: outcome.fraudFlags, thresholds: outcome.thresholds })
+    return { ok: false, error: "BLOCKED", reason: outcome.reason }
+  }
+
+  const policy: ChunkPolicy = { decision: outcome.kind, mode: outcome.mode, shadow: outcome.shadow }
   return runSequentialBatches(
     recipients,
-    (chunk) => enqueueSend(userId, accountId, message, chunk, shopTokens, senderId),
-    { batchSize: SMS_BATCH_SIZE, maxTotal: SMS_MAX_TOTAL }
+    (chunk) => enqueueSend(userId, accountId, message, chunk, shopTokens, senderId, policy),
+    BATCH_OPTS
   )
 }

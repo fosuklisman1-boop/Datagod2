@@ -135,6 +135,8 @@ export function sendErrorMessage(code: string | undefined, reason?: string, fall
     case "INSUFFICIENT_CREDITS": return "Not enough SMS credits — buy more and try again."
     case "SMS_DISABLED": return "SMS is temporarily unavailable. Please try again later."
     case "BLOCKED": return reason ? `Message blocked: ${reason}` : "This message was blocked by our content rules."
+    // The send policy's reason is written for customers ("what to change") — show it verbatim.
+    case "POLICY_REJECTED": return reason?.trim() ? reason : "This send isn't allowed right now. Check your limits and message, then try again."
     case "NOT_ACTIVATED": return "Activate SMS before sending."
     case "SUSPENDED": return "Your SMS account is suspended. Contact support."
     case "NO_VALID_RECIPIENTS": return "No valid Ghana numbers to send to."
@@ -145,7 +147,10 @@ export function sendErrorMessage(code: string | undefined, reason?: string, fall
   }
 }
 
-export const limitsLine = (l: { perSend: number; perHour: number; perDay: number }) =>
+/** Toast for a send the policy held for admin review (credits reserved, nothing sent yet). */
+export const HELD_SEND_MESSAGE = "Sent for a quick review — you'll be notified"
+
+export const limitsLine =(l: { perSend: number; perHour: number; perDay: number }) =>
   `${l.perSend.toLocaleString("en-US")} recipients/send · ${l.perHour.toLocaleString("en-US")} sends/hour · ${l.perDay.toLocaleString("en-US")} recipients/day`
 
 export const MOMO_PHONE = /^0?\d{9}$/

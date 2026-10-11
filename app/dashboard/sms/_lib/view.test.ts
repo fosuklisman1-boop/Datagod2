@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest"
 import {
   addNumbers, costSummary, bestValueId, perSms, ledgerLabel, sendErrorMessage, logStatus, isInFlight,
   limitsLine, MOMO_PHONE, resolveTokens, splitNumbers, parseRows, contactName, senderSuggestions,
-  MAX_RECIPIENTS, INSERT_CHIPS,
+  MAX_RECIPIENTS, INSERT_CHIPS, HELD_SEND_MESSAGE,
 } from "./view"
 
 describe("addNumbers", () => {
@@ -66,6 +66,15 @@ describe("sendErrorMessage", () => {
   it("includes the block reason", () => {
     expect(sendErrorMessage("BLOCKED", "phishing link")).toBe("Message blocked: phishing link")
     expect(sendErrorMessage("BLOCKED")).toBe("This message was blocked by our content rules.")
+  })
+  it("POLICY_REJECTED shows the server's customer-safe reason as-is", () => {
+    expect(sendErrorMessage("POLICY_REJECTED", "You've reached 20 sends this hour. Try again within the hour."))
+      .toBe("You've reached 20 sends this hour. Try again within the hour.")
+    expect(sendErrorMessage("POLICY_REJECTED")).toBe("This send isn't allowed right now. Check your limits and message, then try again.")
+    expect(sendErrorMessage("POLICY_REJECTED", "   ")).toBe("This send isn't allowed right now. Check your limits and message, then try again.")
+  })
+  it("held sends get the review message", () => {
+    expect(HELD_SEND_MESSAGE).toBe("Sent for a quick review — you'll be notified")
   })
   it("formats the recipient cap", () => {
     expect(sendErrorMessage("TOO_MANY_RECIPIENTS")).toContain("5,000")

@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
+import fs from "node:fs"
+import path from "node:path"
 
 // vi.hoisted — must exist before any module under test imports supabase at module level.
 const h = vi.hoisted(() => {
@@ -25,6 +27,14 @@ const h = vi.hoisted(() => {
     debitTxId: 77 as number | null,      // ledger row id the debit RPC returns (null = pre-migration RPC)
     linkError: null as null | string,    // if set, the sms_unit_transactions link update errors
     linkThrows: false,                   // the link update throws
+    policyEnforced: false,               // settings.policyEnforced (enforcement switch)
+    // What the (mocked) policy evaluation returns when enforcement is on.
+    policyResult: { decision: "allow", code: "OK", reason: "", flags: [] } as any,
+    policyMode: "platform" as string,
+    policyThrows: false,                 // evaluatePolicy throws (DB down)
+    policyNull: false,                   // evaluatePolicy finds no account
+    policyArgs: [] as any[],             // args the evaluation was called with
+    flagRpcError: null as null | string, // record_sms_flags errors
   }
 
   const fake = {
@@ -38,6 +48,10 @@ const h = vi.hoisted(() => {
           data: state.debitTxId == null ? [{ balance_after: 90 }] : [{ balance_after: 90, debit_tx_id: state.debitTxId }],
           error: null,
         })
+      }
+      if (fn === "record_sms_flags") {
+        if (state.flagRpcError) return Promise.resolve({ data: null, error: { message: state.flagRpcError } })
+        return Promise.resolve({ data: [{ fraud_flag_count: 1, suspended: false, review_hold: false }], error: null })
       }
       if (fn === "mark_sms_messages_sent" && state.markErrorsLeft > 0) {
         state.markErrorsLeft--
@@ -153,7 +167,23 @@ vi.mock("./policy-context", () => ({
     return Promise.resolve(row && row.local_status === "active" ? { kind: "own", name: s, kycFree: true } : null)
   },
   shadowPolicyWithin: () => Promise.resolve({ mode: "platform", shadow: { decision: "allow", code: "OK", reason: "", flags: [], enforced: false, evaluated_at: "t" } }),
+  buildShadow: (r: any, enforced: boolean) => ({ ...r, enforced, evaluated_at: "t" }),
+  evaluatePolicy: (args: any) => {
+    h.state.policyArgs.push(args)
+    h.state.calls.push({ fn: "evaluatePolicy" })
+    if (h.state.policyThrows) return Promise.reject(new Error("policy db down"))
+    if (h.state.policyNull) return Promise.resolve(null)
+    return Promise.resolve({ mode: h.state.policyMode, result: h.state.policyResult, settings: { autoSuspendFlags: 2, flagReviewThreshold: 5 } })
+  },
 }))
+
+vi.mock("./platform-settings", async (orig) => {
+  const real = await orig<typeof import("./platform-settings")>()
+  return {
+    ...real,
+    loadSmsSettings: () => Promise.resolve({ ...real.DEFAULT_SMS_SETTINGS, policyEnforced: h.state.policyEnforced }),
+  }
+})
 
 import { enqueueSend, enqueueSendBatched } from "./send-service"
 
@@ -176,6 +206,65 @@ beforeEach(() => {
   h.state.debitTxId = 77
   h.state.linkError = null
   h.state.linkThrows = false
+  h.state.policyEnforced = false
+  h.state.policyResult = { decision: "allow", code: "OK", reason: "", flags: [] }
+  h.state.policyMode = "platform"
+  h.state.policyThrows = false
+  h.state.policyNull = false
+  h.state.policyArgs = []
+  h.state.flagRpcError = null
+})
+
+// ── Enforcement OFF must be byte-for-byte today's behaviour ──────────────────────────────
+// The fixture was captured from the PRE-enforcement send-service (commit b3ce6cd3) with these
+// exact scenarios; any drift in the fake-DB call sequence (order, tables, payloads) fails here.
+const GOLDEN_FIXTURE = path.join(__dirname, "__fixtures__", "send-service.enforcement-off.calls.json")
+const normalizeCalls = (calls: any[]) =>
+  JSON.parse(JSON.stringify(calls, (k, v) => {
+    if (k === "claimed_at" && typeof v === "string") return "<ts>"
+    if (k === "deadline" && typeof v === "number") return "<deadline>"
+    if (k === "p_ref" && typeof v === "string") return v.replace(/\d{10,}$/, "<ts>")
+    return v
+  }))
+const goldenScenarios: { name: string; run: () => Promise<unknown> }[] = [
+  { name: "batched success, 3 recipients incl. 1 invalid", run: () => enqueueSendBatched("u1", "acc1", "Hello world", ["0241234567", "bad", "0551234567"]) },
+  { name: "batched 620 recipients (2 chunks), own sender", run: () => enqueueSendBatched("u1", "acc1", "Hi {shop_name}", Array.from({ length: 620 }, (_, i) => `024${String(i).padStart(7, "0")}`), { shop_name: "Ama", shop_link: "", shop_phone: "", shop_whatsapp: "" }, "myshop") },
+  { name: "legacy content block", run: () => enqueueSendBatched("u1", "acc1", "Congratulations, you have won a prize!", ["0241234567"]) },
+  { name: "insufficient credits", run: async () => { h.state.debitError = "INSUFFICIENT_CREDITS"; return enqueueSendBatched("u1", "acc1", "Hello world", ["0241234567"]) } },
+  { name: "dispatch places nothing (release path)", run: async () => { h.state.bulkOk = false; return enqueueSendBatched("u1", "acc1", "Hello world", ["0241234567"]) } },
+  { name: "hubtel unconfirmed", run: async () => { h.state.dispatchProvider = "hubtel"; h.state.unconfirmed = true; return enqueueSendBatched("u1", "acc1", "Hello world", ["0241234567"]) } },
+  { name: "enqueue failure refund", run: async () => { h.state.insertMsgError = "boom"; return enqueueSendBatched("u1", "acc1", "Hello world", ["0241234567"]) } },
+  { name: "kill switch off", run: async () => { h.state.smsEnabled = false; return enqueueSendBatched("u1", "acc1", "Hello world", ["0241234567"]) } },
+]
+
+describe("enforcement OFF: identical DB call sequence to the pre-enforcement code", () => {
+  it("matches the captured golden call log for every scenario", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const out: Record<string, unknown> = {}
+    for (const s of goldenScenarios) {
+      h.state.calls.length = 0
+      h.state.msgIdSeq = 0
+      h.state.debitError = null; h.state.bulkOk = true; h.state.dispatchProvider = "moolre"
+      h.state.unconfirmed = false; h.state.insertMsgError = null; h.state.smsEnabled = true
+      const result = await s.run()
+      out[s.name] = { calls: normalizeCalls(h.state.calls), result: normalizeCalls([result])[0] }
+    }
+    spy.mockRestore()
+    if (process.env.WRITE_SMS_GOLDEN === "1") {
+      fs.mkdirSync(path.dirname(GOLDEN_FIXTURE), { recursive: true })
+      fs.writeFileSync(GOLDEN_FIXTURE, JSON.stringify(out, null, 1) + "\n")
+    }
+    const golden = JSON.parse(fs.readFileSync(GOLDEN_FIXTURE, "utf8"))
+    expect(Object.keys(golden).sort()).toEqual(goldenScenarios.map((s) => s.name).sort())
+    for (const name of Object.keys(golden)) {
+      expect((out[name] as any).calls, name).toEqual(golden[name].calls)
+    }
+    // The result objects only GAIN fields (held/sendLogId); every pre-existing field is unchanged.
+    for (const name of Object.keys(golden)) {
+      expect(out[name], name).toMatchObject(golden[name].result === undefined ? {} : { result: golden[name].result })
+    }
+    expect(h.state.calls.some((c) => c.fn === "evaluatePolicy")).toBe(false)
+  })
 })
 
 // Helper: all rpc calls
@@ -545,5 +634,177 @@ describe("enqueueSend", () => {
     expect(refund).toBeTruthy()
     expect(refund!.args.p_reason).toBe("campaign_refund")
     expect(refund!.args.p_delta).toBeGreaterThan(0)
+  })
+})
+
+// ── Enforcement ON (settings.policyEnforced) ──────────────────────────────────────────────
+describe("enforcement ON", () => {
+  const recips = (n: number) => Array.from({ length: n }, (_, i) => `024${String(i).padStart(7, "0")}`)
+  const dbCalls = () => h.state.calls.filter((c) => c.fn !== "evaluatePolicy")
+  const logRow = (i = 0) => { const x = inserts("sms_send_logs")[i]; return Array.isArray(x.args) ? x.args[0] : x.args }
+  const msgRows = () => inserts("sms_messages").flatMap((x) => (Array.isArray(x.args) ? x.args : [x.args]))
+  const fraud = { severity: "fraud", reason: 'blocked keyword: "secretword"', matched: "secretword" }
+
+  beforeEach(() => { h.state.policyEnforced = true })
+
+  it("evaluates ONCE on the full list (prepared text, resolved sender) before any batching", async () => {
+    const r = await enqueueSendBatched("u1", "acc1", "Hi {shop_name}", recips(620),
+      { shop_name: "Ama", shop_link: "", shop_phone: "", shop_whatsapp: "" }, "myshop")
+    expect(r.ok).toBe(true)
+    expect(h.state.policyArgs).toHaveLength(1)
+    expect(h.state.policyArgs[0]).toEqual({
+      accountId: "acc1", recipientCount: 620, message: "Hi Ama",
+      sender: { kind: "own", name: "MYSHOP", kycFree: true },
+    })
+    expect(h.state.calls.findIndex((c) => c.fn === "evaluatePolicy"))
+      .toBeLessThan(h.state.calls.findIndex((c) => c.fn === "debit_sms_for_send"))
+    expect(rpcs().filter((c) => c.fn === "debit_sms_for_send")).toHaveLength(2) // 2 chunks
+  })
+
+  it("allow → sends as today, logs record the enforced decision, success carries held:false + sendLogId", async () => {
+    const r = await enqueueSendBatched("u1", "acc1", "Hello world", ["0241234567"])
+    expect(r).toMatchObject({ ok: true, held: false, sendLogId: "log-1", totalQueued: 1 })
+    expect(logRow().status).toBe("queued")
+    expect(logRow().policy_shadow).toMatchObject({ decision: "allow", code: "OK", enforced: true })
+    expect(logRow().mode).toBe("platform")
+    expect(h.state.calls.filter((c) => c.fn === "bulk")).toHaveLength(1)
+  })
+
+  it("reject → POLICY_REJECTED with code + customer reason, ZERO DB writes or reads", async () => {
+    h.state.policyResult = { decision: "reject", code: "CAP_PER_SEND", reason: "Split it into smaller sends.", flags: [] }
+    const r = await enqueueSendBatched("u1", "acc1", "Hello world", recips(3))
+    expect(r).toEqual({ ok: false, error: "POLICY_REJECTED", code: "CAP_PER_SEND", reason: "Split it into smaller sends." })
+    expect(dbCalls()).toEqual([])
+  })
+
+  it("unavailable → POLICY_REJECTED (FEATURE_DISABLED), no writes", async () => {
+    h.state.policyResult = { decision: "unavailable", code: "FEATURE_DISABLED", reason: "SMS sending is temporarily unavailable. Please try again later.", flags: [] }
+    const r = await enqueueSendBatched("u1", "acc1", "Hello world", recips(1))
+    expect(r).toMatchObject({ ok: false, error: "POLICY_REJECTED", code: "FEATURE_DISABLED" })
+    expect(dbCalls()).toEqual([])
+  })
+
+  it("policy evaluation failure FAILS CLOSED (POLICY_UNAVAILABLE), no writes", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    h.state.policyThrows = true
+    const r = await enqueueSendBatched("u1", "acc1", "Hello world", recips(1))
+    expect(r).toMatchObject({ ok: false, error: "POLICY_REJECTED", code: "POLICY_UNAVAILABLE" })
+    expect(typeof (r as any).reason).toBe("string")
+    expect(String((r as any).reason)).not.toContain("db down")
+    expect(dbCalls()).toEqual([])
+    h.state.policyThrows = false
+    h.state.policyNull = true
+    const r2 = await enqueueSendBatched("u1", "acc1", "Hello world", recips(1))
+    expect(r2).toMatchObject({ ok: false, error: "POLICY_REJECTED", code: "POLICY_UNAVAILABLE" })
+    expect(dbCalls()).toEqual([])
+    spy.mockRestore()
+  })
+
+  it("block → ONE blocked log (full count, credits 0, flagged, enforced shadow) + fraud flags recorded, no debit, safe reason only", async () => {
+    h.state.policyResult = { decision: "block", code: "CONTENT_BLOCKED", reason: "This message contains content we can't send. Edit it and try again.", flags: [fraud] }
+    const r = await enqueueSendBatched("u1", "acc1", "Buy secretword now", recips(620))
+    expect(r).toEqual({ ok: false, error: "BLOCKED", reason: "This message contains content we can't send. Edit it and try again." })
+    expect(JSON.stringify(r)).not.toContain("secretword")
+    expect(inserts("sms_send_logs")).toHaveLength(1)
+    expect(logRow()).toMatchObject({
+      sms_account_id: "acc1", message: "Buy secretword now", recipients_count: 620,
+      credits_used: 0, credits_reserved: 0, status: "blocked", flagged: true, mode: "platform",
+    })
+    expect(logRow().policy_shadow).toMatchObject({ decision: "block", enforced: true })
+    expect(rpcs().map((c) => c.fn)).not.toContain("debit_sms_for_send")
+    expect(inserts("sms_messages")).toHaveLength(0)
+    expect(h.state.calls.filter((c) => c.fn === "bulk")).toHaveLength(0)
+    const flag = rpcs().find((c) => c.fn === "record_sms_flags")!
+    expect(flag.args).toEqual({
+      p_account_id: "acc1", p_send_log_id: "log-1", p_flags: [fraud], p_auto_suspend: 2, p_review_threshold: 5,
+    })
+  })
+
+  it("block with no fraud flags (LINK_NOT_ALLOWED) → blocked log, no flag RPC", async () => {
+    h.state.policyResult = { decision: "block", code: "LINK_NOT_ALLOWED", reason: "Remove example.com.", flags: [] }
+    const r = await enqueueSendBatched("u1", "acc1", "see example.com", recips(1))
+    expect(r).toEqual({ ok: false, error: "BLOCKED", reason: "Remove example.com." })
+    expect(logRow().status).toBe("blocked")
+    expect(rpcs().map((c) => c.fn)).not.toContain("record_sms_flags")
+  })
+
+  it("block: only fraud-severity flags are counted (info flags are not sent to the counter)", async () => {
+    const info = { severity: "info", reason: "flagged keyword", matched: "promo" }
+    h.state.policyResult = { decision: "block", code: "CONTENT_BLOCKED", reason: "x", flags: [info, fraud] }
+    await enqueueSendBatched("u1", "acc1", "Buy secretword now", recips(1))
+    expect(rpcs().find((c) => c.fn === "record_sms_flags")!.args.p_flags).toEqual([fraud])
+  })
+
+  it("block: a failing flag RPC never turns the block into a send", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    h.state.flagRpcError = "rpc down"
+    h.state.policyResult = { decision: "block", code: "CONTENT_BLOCKED", reason: "x", flags: [fraud] }
+    const r = await enqueueSendBatched("u1", "acc1", "Buy secretword now", recips(1))
+    expect(r).toMatchObject({ ok: false, error: "BLOCKED" })
+    expect(rpcs().map((c) => c.fn)).not.toContain("debit_sms_for_send")
+    expect(spy.mock.calls.some((c) => String(c[0]).includes("[SMS-ENFORCE]"))).toBe(true)
+    spy.mockRestore()
+  })
+
+  it("hold → debit + ledger link + 'held' log + messages inserted PENDING & unclaimed, NO dispatch/release/recompute", async () => {
+    h.state.policyResult = { decision: "hold", code: "REVIEW_HOLD", reason: "Your account is under review.", flags: [] }
+    const r = await enqueueSendBatched("u1", "acc1", "Hello world", ["0241234567", "0551234567"])
+    expect(r).toMatchObject({ ok: true, held: true, sendLogId: "log-1", totalQueued: 2, creditsReserved: 2, partial: false })
+    expect(rpcs().filter((c) => c.fn === "debit_sms_for_send")).toHaveLength(1)
+    expect(h.state.calls.filter((c) => c.fn === "ledger-link")).toHaveLength(1)
+    expect(logRow()).toMatchObject({ status: "held", credits_reserved: 2 })
+    expect(logRow().policy_shadow).toMatchObject({ decision: "hold", code: "REVIEW_HOLD", enforced: true })
+    const rows = msgRows()
+    expect(rows).toHaveLength(2)
+    for (const m of rows) {
+      expect(m.status).toBe("pending")
+      expect(m.claimed_at ?? null).toBeNull()
+    }
+    const fns = h.state.calls.map((c) => c.fn)
+    expect(fns).not.toContain("bulk")
+    expect(fns).not.toContain("mark_sms_messages_sent")
+    expect(fns).not.toContain("release")
+    expect(fns).not.toContain("recompute_sms_send_result")
+  })
+
+  it("hold over 500 recipients → every chunk held, still evaluated once, nothing dispatched", async () => {
+    h.state.policyResult = { decision: "hold", code: "REVIEW_HOLD", reason: "r", flags: [] }
+    const r = await enqueueSendBatched("u1", "acc1", "Hello world", recips(620))
+    expect(r).toMatchObject({ ok: true, held: true, batches: 2, totalQueued: 620 })
+    expect(h.state.policyArgs).toHaveLength(1)
+    expect(inserts("sms_send_logs").map((x) => (Array.isArray(x.args) ? x.args[0] : x.args).status)).toEqual(["held", "held"])
+    expect(h.state.calls.filter((c) => c.fn === "bulk")).toHaveLength(0)
+  })
+
+  it("hold: message insert failure refunds the debit (ENQUEUE_FAILED)", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    h.state.policyResult = { decision: "hold", code: "REVIEW_HOLD", reason: "r", flags: [] }
+    h.state.insertMsgError = "boom"
+    const r = await enqueueSendBatched("u1", "acc1", "Hello world", recips(1))
+    expect(r).toMatchObject({ ok: false, error: "ENQUEUE_FAILED" })
+    expect(rpcs().find((c) => c.fn === "adjust_sms_units")!.args.p_delta).toBe(1)
+    spy.mockRestore()
+  })
+
+  it("kill switch and sender checks still run first (no evaluation)", async () => {
+    h.state.smsEnabled = false
+    expect(await enqueueSendBatched("u1", "acc1", "Hello world", recips(1))).toEqual({ ok: false, error: "SMS_DISABLED" })
+    h.state.smsEnabled = true
+    h.state.senderRow = null
+    expect(await enqueueSendBatched("u1", "acc1", "Hello world", recips(1), undefined, "ghost")).toEqual({ ok: false, error: "INVALID_SENDER_ID" })
+    expect(h.state.policyArgs).toHaveLength(0)
+    expect(dbCalls()).toEqual([])
+  })
+
+  it("empty / over-ceiling lists are refused before evaluation", async () => {
+    expect(await enqueueSendBatched("u1", "acc1", "Hello world", [])).toMatchObject({ error: "NO_VALID_RECIPIENTS" })
+    expect(await enqueueSendBatched("u1", "acc1", "Hello world", recips(5001))).toMatchObject({ error: "TOO_MANY_RECIPIENTS" })
+    expect(h.state.policyArgs).toHaveLength(0)
+  })
+
+  it("allow + legacy content filter still blocks (enforced shadow on the blocked row)", async () => {
+    const r = await enqueueSendBatched("u1", "acc1", "Congratulations, you have won a prize!", recips(1))
+    expect(r).toMatchObject({ ok: false, error: "BLOCKED" })
+    expect(logRow().policy_shadow).toMatchObject({ enforced: true })
   })
 })

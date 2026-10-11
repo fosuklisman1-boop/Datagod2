@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
 import { enqueueSendBatched, SMS_MAX_TOTAL } from "@/lib/sms/send-service"
+import { policyRejectedStatus } from "@/lib/sms/enforcement"
 import { getShopTokens } from "@/lib/sms/shop-context-service"
 import { loadDefaultSender } from "@/lib/sms/default-sender"
 import { SMS_DISABLED_MESSAGE } from "@/lib/sms/kill-switch"
@@ -139,6 +140,12 @@ export async function POST(request: NextRequest) {
           { success: false, error: result.error, reason: result.reason },
           { status: 400 }
         )
+      case "POLICY_REJECTED":
+        // Send policy (enforced) said no. `reason` is customer-safe text; nothing was charged.
+        return NextResponse.json(
+          { success: false, error: result.error, code: result.code, reason: result.reason },
+          { status: policyRejectedStatus(result.code) }
+        )
       case "EMPTY_MESSAGE":
       case "TOO_MANY_RECIPIENTS":
       case "NO_VALID_RECIPIENTS":
@@ -180,6 +187,9 @@ export async function POST(request: NextRequest) {
       creditsReserved: result.creditsReserved,
       partial: result.partial,
       stoppedReason: result.stoppedReason,
+      // true = held for a quick admin review: credits reserved, nothing sent yet.
+      held: result.held,
+      sendLogId: result.sendLogId,
     },
   })
 }

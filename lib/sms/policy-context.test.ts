@@ -38,7 +38,7 @@ vi.mock("./platform-settings", async (orig) => {
 
 import {
   audienceFor, buildShadow, PLATFORM_ROOT_DOMAIN, resolveCampaignSender, loadUsage,
-  shadowPolicy, shadowPolicyWithin, loadOwnDomains,
+  shadowPolicy, shadowPolicyWithin, loadOwnDomains, evaluatePolicy,
 } from "./policy-context"
 import { DEFAULT_SMS_SETTINGS } from "./platform-settings"
 
@@ -184,6 +184,37 @@ describe("shadowPolicy", () => {
     expect((r.shadow as any).enforced).toBe(false)
     expect((r.shadow as any).decision).toBeDefined()
     warn.mockRestore()
+  })
+})
+
+describe("evaluatePolicy (shared by shadowPolicy and enforcement)", () => {
+  const args = { accountId: "a1", sender: { kind: "platform" as const, name: null, kycFree: false }, recipientCount: 7, message: "hello" }
+  beforeEach(() => {
+    h.state.tables.custom_domains = { data: [], error: null }
+    h.state.tables.sms_accounts = account("platform")
+    h.state.tables.users = { data: { role: "dealer" }, error: null }
+    h.state.settings = { ...DEFAULT_SMS_SETTINGS, allowedRoles: ["shop_owner"] }
+  })
+
+  it("returns the mode, the raw policy result and the settings used", async () => {
+    const r = await evaluatePolicy(args)
+    expect(r!.mode).toBe("platform")
+    expect(r!.result).toMatchObject({ decision: "allow", code: "OK" })
+    expect(r!.settings.allowedRoles).toEqual(["shop_owner"])
+    expect(h.state.rpcCalls).toEqual([{ fn: "sms_account_usage", args: { p_account_id: "a1" } }])
+  })
+
+  it("applies the caps to the given recipientCount", async () => {
+    const r = await evaluatePolicy({ ...args, recipientCount: 301 })
+    expect(r!.result).toMatchObject({ decision: "reject", code: "CAP_PER_SEND" })
+  })
+
+  it("null when the account doesn't exist; throws on loader errors", async () => {
+    h.state.tables.sms_accounts = { data: null, error: null }
+    expect(await evaluatePolicy(args)).toBeNull()
+    h.state.rpc = { data: null, error: { message: "usage down" } }
+    h.state.tables.sms_accounts = account("platform")
+    await expect(evaluatePolicy(args)).rejects.toThrow(/usage down/)
   })
 })
 

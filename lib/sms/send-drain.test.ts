@@ -26,10 +26,30 @@ const h = vi.hoisted(() => {
     sendRef: "moolre-abc",
     sendProvider: "moolre",
     sendError: "provider failed",
+    parkedLogIds: [] as (string | number)[], // sms_send_logs ids whose status is held/scheduled
+    parkLookupError: false,
+    parkLookups: [] as { table: string; filters: Record<string, any> }[],
   }
 
   const fake = {
     from: (table: string) => ({
+      // .select("id").in("id", ids).in("status", [...]) — the held/scheduled guard lookup
+      select: (_cols: string) => {
+        const filters: Record<string, any> = {}
+        const chain: any = {
+          in: (col: string, vals: any[]) => { filters[col] = vals; return chain },
+          then: (resolve: any) => {
+            state.parkLookups.push({ table, filters })
+            const ids = (filters.id ?? []) as any[]
+            const r = state.parkLookupError
+              ? { data: null, error: { message: "logs down" } }
+              : { data: ids.filter((id) => state.parkedLogIds.map(String).includes(String(id))).map((id) => ({ id })), error: null }
+            resolve(r)
+            return Promise.resolve(r)
+          },
+        }
+        return chain
+      },
       update: (data: any) => ({
         eq: (col: string, val: any) => {
           const filters: Record<string, any> = { [col]: val }
@@ -107,7 +127,50 @@ beforeEach(() => {
   h.state.refundFailuresInsertError = false
   h.state.recomputeError = false
   h.state.sendSuccess = true
+  h.state.parkedLogIds = []
+  h.state.parkLookupError = false
+  h.state.parkLookups.length = 0
   h.sendSmsMock.mockReset()
+})
+
+describe("drainSmsMessages — held/scheduled campaigns are never sent (defence in depth)", () => {
+  const row = (id: string, log: string | number, attempts = 1) =>
+    ({ id, send_log_id: log as any, sms_account_id: "acc-1", phone: "+233241234567", rendered_message: "Hi", segments: 1, attempts })
+
+  it("looks up the claimed rows' logs for held/scheduled status", async () => {
+    h.state.claimedRows = [row("m1", 11), row("m2", 12), row("m3", 11)]
+    h.sendSmsMock.mockResolvedValue({ success: true, provider: "moolre" })
+    await drainSmsMessages()
+    expect(h.state.parkLookups).toEqual([{ table: "sms_send_logs", filters: { id: [11, 12], status: ["held", "scheduled"] } }])
+  })
+
+  it("a held campaign's claimed rows are handed back untouched (pending, unclaimed, attempts restored), never sent", async () => {
+    h.state.claimedRows = [row("held-1", 7, 1), row("ok-1", 8, 1)]
+    h.state.parkedLogIds = [7]
+    h.sendSmsMock.mockResolvedValue({ success: true, provider: "moolre" })
+    const result = await drainSmsMessages()
+    expect(h.sendSmsMock).toHaveBeenCalledTimes(1)
+    expect(h.sendSmsMock.mock.calls[0][0].reference).toBe("ok-1")
+    const back = h.state.updates.find((u) => u.id === "held-1") as any
+    expect(back.data).toEqual({ status: "pending", claimed_at: null, attempts: 0 })
+    expect(back.filters).toEqual({ id: "held-1", status: "claimed" })
+    expect(result).toEqual({ claimed: 1, sent: 1, failed: 0, refunded: 0 })
+    const recomputed = h.state.rpcs.filter((r) => r.fn === "recompute_sms_send_result").map((r) => r.args.p_send_log_id)
+    expect(recomputed).toEqual([8])
+    expect(h.state.rpcs.map((r) => r.fn)).not.toContain("refund_sms_message")
+  })
+
+  it("log lookup failure → fail CLOSED: every claimed row handed back, nothing sent", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    h.state.claimedRows = [row("a", 1, 2), row("b", 2, 1)]
+    h.state.parkLookupError = true
+    const result = await drainSmsMessages()
+    expect(h.sendSmsMock).not.toHaveBeenCalled()
+    expect(result).toEqual({ claimed: 0, sent: 0, failed: 0, refunded: 0 })
+    expect((h.state.updates.find((u) => u.id === "a") as any).data).toEqual({ status: "pending", claimed_at: null, attempts: 1 })
+    expect((h.state.updates.find((u) => u.id === "b") as any).data).toEqual({ status: "pending", claimed_at: null, attempts: 0 })
+    spy.mockRestore()
+  })
 })
 
 const rpcNames = () => h.state.rpcs.map((r) => r.fn)

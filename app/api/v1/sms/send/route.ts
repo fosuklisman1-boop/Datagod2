@@ -7,6 +7,7 @@ import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
 import { enqueueSendBatched, SMS_MAX_TOTAL } from "@/lib/sms/send-service"
 import { apiRateLimitFor, loadSmsSettings } from "@/lib/sms/platform-settings"
 import { SMS_DISABLED_MESSAGE } from "@/lib/sms/kill-switch"
+import { policyRejectedStatus } from "@/lib/sms/enforcement"
 import { getShopTokens } from "@/lib/sms/shop-context-service"
 
 const supabaseAdmin = createClient(
@@ -159,6 +160,7 @@ export async function POST(request: NextRequest) {
     // the 400 default so a well-behaved integrator will actually retry it.
     const status =
       result.error === "SMS_DISABLED" ? 503 :
+      result.error === "POLICY_REJECTED" ? policyRejectedStatus(result.code) :
       result.error === "INSUFFICIENT_CREDITS" ? 402 :
       result.error === "NOT_ACTIVATED" || result.error === "SUSPENDED" ? 403 :
       result.error === "ENQUEUE_FAILED" ? 500 :
@@ -168,26 +170,36 @@ export async function POST(request: NextRequest) {
       userId: user.id, apiKeyId: user.api_key_id, method: "POST", endpoint: "/api/v1/sms/send",
       statusCode: status, request, durationMs,
       requestPayload: { recipients_count: uniqueRecipients.length },
-      responsePayload: { error: result.error },
+      responsePayload: { error: result.error, ...(result.code ? { code: result.code } : {}) },
     }).catch(() => {})
 
+    // BLOCKED / POLICY_REJECTED carry the customer-safe `reason` (what to change); never flag details.
     return NextResponse.json(
       result.error === "SMS_DISABLED"
         ? { success: false, error: result.error, message: SMS_DISABLED_MESSAGE }
-        : { success: false, error: result.error },
+        : result.error === "POLICY_REJECTED"
+          ? { success: false, error: result.error, code: result.code, reason: result.reason }
+          : result.error === "BLOCKED"
+            ? { success: false, error: result.error, reason: result.reason }
+            : { success: false, error: result.error },
       { status }
     )
   }
 
+  // A send held for review (enforced policy) is accepted but not yet sent: 202 + status "held".
+  const okStatus = result.held ? 202 : 200
   logApiRequest({
     userId: user.id, apiKeyId: user.api_key_id, method: "POST", endpoint: "/api/v1/sms/send",
-    statusCode: 200, request, durationMs,
+    statusCode: okStatus, request, durationMs,
     requestPayload: { recipients_count: uniqueRecipients.length },
-    responsePayload: { total: result.totalQueued, batches: result.batches },
+    responsePayload: { total: result.totalQueued, batches: result.batches, held: result.held },
   }).catch(() => {})
 
   return NextResponse.json({
     success: true,
+    status: result.held ? "held" : "queued",
+    held: result.held,
+    send_log_id: result.sendLogId,
     total: result.totalQueued,
     batches: result.batches,
     segments: result.segments,
@@ -198,5 +210,5 @@ export async function POST(request: NextRequest) {
     // as invalid (and thus never billed/sent).
     stopped_reason: result.stoppedReason,
     invalid_skipped: result.invalidSkipped,
-  })
+  }, { status: okStatus })
 }

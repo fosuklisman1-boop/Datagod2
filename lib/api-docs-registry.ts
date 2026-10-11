@@ -193,9 +193,11 @@ export const apiDocsRegistry: ApiDocSection[] = [
         { name: "sender_id", type: "string", required: false, description: "One of your account's active sender IDs; defaults to your first active one" },
       ],
       curl: `curl -X POST ${BASE_URL}/api/v1/sms/send \\\n  -H "X-API-Key: dg_live_your_key_here" \\\n  -H "Content-Type: application/json" \\\n  -d '{ "message": "Hello from the API", "recipients": ["0541234567"] }'`,
-      successExample: `{\n  "success": true,\n  "total": 1,\n  "batches": 1,\n  "segments": 1,\n  "credits_reserved": 1,\n  "partial": false,\n  "stopped_reason": null,\n  "invalid_skipped": 0\n}`,
+      successExample: `{\n  "success": true,\n  "status": "queued",\n  "held": false,\n  "send_log_id": 123,\n  "total": 1,\n  "batches": 1,\n  "segments": 1,\n  "credits_reserved": 1,\n  "partial": false,\n  "stopped_reason": null,\n  "invalid_skipped": 0\n}`,
       errorExamples: [
         { status: 402, body: `{ "success": false, "error": "INSUFFICIENT_CREDITS" }` },
+        { status: 400, body: `{ "success": false, "error": "POLICY_REJECTED", "code": "CAP_PER_HOUR", "reason": "You've reached 20 sends this hour. Try again within the hour." }` },
+        { status: 400, body: `{ "success": false, "error": "BLOCKED", "reason": "This message contains content we can't send. Edit it and try again." }` },
         { status: 503, body: `{ "success": false, "error": "SMS_DISABLED", "message": "SMS is temporarily unavailable. Please try again later." }` },
         { status: 403, body: `{ "success": false, "error": "No SMS account for this API key's owner (requires a shop, sub-agent, or admin account)" }` },
       ],

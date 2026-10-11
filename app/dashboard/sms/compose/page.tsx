@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { smsFetch } from "../_lib/api"
 import { useSmsAccount } from "../_lib/useSmsAccount"
-import { addNumbers, costSummary, resolveTokens, sendErrorMessage, MAX_RECIPIENTS, type ShopTokens } from "../_lib/view"
+import { addNumbers, costSummary, resolveTokens, sendErrorMessage, HELD_SEND_MESSAGE, MAX_RECIPIENTS, type ShopTokens } from "../_lib/view"
 import { SmsShell } from "../_components/SmsShell"
 import { RecipientsPicker } from "../_components/compose/RecipientsPicker"
 import { MessageEditor } from "../_components/compose/MessageEditor"
@@ -157,7 +157,7 @@ export default function SmsComposePage() {
     if (!account) return
     setSendConfirm((c) => ({ ...c, open: false }))
     setSending(true)
-    const r = await smsFetch<{ total?: number; creditsReserved?: number; batches?: number; partial?: boolean; stoppedReason?: string }>(
+    const r = await smsFetch<{ total?: number; creditsReserved?: number; batches?: number; partial?: boolean; stoppedReason?: string; held?: boolean; sendLogId?: string | number | null }>(
       "/api/shop/sms/send",
       { method: "POST", body: JSON.stringify({ message, recipients, groupId: selectedGroupId || undefined, senderId: selectedSenderId || undefined }) },
     )
@@ -168,9 +168,12 @@ export default function SmsComposePage() {
       toast.error(sendErrorMessage(r.error, reason, msg))
       return
     }
-    const { total = 0, creditsReserved = 0, batches = 1, partial, stoppedReason } = r.data ?? {}
+    const { total = 0, creditsReserved = 0, batches = 1, partial, stoppedReason, held } = r.data ?? {}
     const batchTxt = batches > 1 ? ` in ${batches} batches` : ""
-    if (partial) {
+    if (held) {
+      // Held by the send policy: credits reserved, nothing sent until an admin reviews it.
+      toast.success(HELD_SEND_MESSAGE)
+    } else if (partial) {
       const why = stoppedReason === "INSUFFICIENT_CREDITS" ? "ran out of credits — top up and resend the rest"
         : stoppedReason === "SUSPENDED" ? "the account was suspended mid-send"
         : stoppedReason === "SMS_DISABLED" ? "SMS was paused by the platform — resend the rest later"
