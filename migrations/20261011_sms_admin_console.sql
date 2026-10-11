@@ -66,7 +66,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
            OR strpos(lower(l.status), lower(p_q)) > 0
            OR (CASE WHEN p_q ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
                     THEN a.user_id = p_q::uuid ELSE false END))
-    ORDER BY l.created_at DESC
+    ORDER BY l.created_at DESC, l.id DESC
     LIMIT GREATEST(p_limit, 1) OFFSET GREATEST(p_offset, 0)
   )
   SELECT p.id, p.sms_account_id, p.user_id, p.mode, p.sender_id, p.status,
@@ -83,7 +83,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
     FROM sms_messages m
     WHERE m.send_log_id = p.id AND m.provider = 'hubtel'
   ) d ON true
-  ORDER BY p.created_at DESC;
+  ORDER BY p.created_at DESC, p.id DESC;
 $$;
 
 CREATE OR REPLACE FUNCTION sms_admin_accounts(p_q TEXT, p_limit INT, p_offset INT)
@@ -108,7 +108,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
                 THEN a.user_id = p_q::uuid ELSE false END)
        OR EXISTS (SELECT 1 FROM sms_sender_ids s
                   WHERE s.sms_account_id = a.id AND strpos(lower(s.sender_id), lower(p_q)) > 0)
-    ORDER BY a.created_at DESC
+    ORDER BY a.created_at DESC, a.id DESC
     LIMIT GREATEST(p_limit, 1) OFFSET GREATEST(p_offset, 0)
   )
   SELECT p.id, p.user_id, p.email, p.owner_type, p.mode, p.status, p.unit_balance,
@@ -119,7 +119,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
          (SELECT s.sender_id FROM sms_sender_ids s WHERE s.id = p.default_sender_id),
          p.api_rate_limit_override, p.review_hold, p.fraud_flag_count, p.created_at, p.total_count
   FROM page p
-  ORDER BY p.created_at DESC;
+  ORDER BY p.created_at DESC, p.id DESC;
 $$;
 
 CREATE OR REPLACE FUNCTION sms_admin_flags(p_severity TEXT, p_status TEXT, p_limit INT, p_offset INT)
@@ -146,13 +146,13 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
     JOIN sms_accounts a ON a.id = m.sms_account_id
     WHERE (p_severity IS NULL OR p_severity = '' OR m.severity = p_severity)
       AND (p_status IS NULL OR p_status = '' OR m.status = p_status)
-    ORDER BY m.created_at DESC
+    ORDER BY m.created_at DESC, m.source, m.id
     LIMIT GREATEST(p_limit, 1) OFFSET GREATEST(p_offset, 0)
   )
   SELECT f.id, f.source, f.sms_account_id, f.user_id, f.severity, f.reason, f.matched, f.status,
          f.message, f.created_at, f.total_count
   FROM filtered f
-  ORDER BY f.created_at DESC;
+  ORDER BY f.created_at DESC, f.source, f.id;
 $$;
 
 REVOKE ALL ON FUNCTION sms_admin_overview()                            FROM PUBLIC, anon, authenticated;
