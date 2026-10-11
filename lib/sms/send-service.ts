@@ -554,7 +554,8 @@ async function enforcedSendBatched(
       console.error("[SMS-ENFORCE] blocked log insert threw:", e)
     }
     await recordFraudFlags({ accountId, sendLogId: blockedLogId, flags: outcome.fraudFlags, thresholds: outcome.thresholds })
-    return { ok: false, error: "BLOCKED", reason: outcome.reason }
+    // `code` marks this reason as policy-written customer text (see customerBlockedReason).
+    return { ok: false, error: "BLOCKED", code: outcome.code, reason: outcome.reason }
   }
 
   const policy: ChunkPolicy = { decision: outcome.kind, mode: outcome.mode, shadow: outcome.shadow }

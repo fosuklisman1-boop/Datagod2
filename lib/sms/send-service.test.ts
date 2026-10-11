@@ -707,7 +707,7 @@ describe("enforcement ON", () => {
   it("block → ONE blocked log (full count, credits 0, flagged, enforced shadow) + fraud flags recorded, no debit, safe reason only", async () => {
     h.state.policyResult = { decision: "block", code: "CONTENT_BLOCKED", reason: "This message contains content we can't send. Edit it and try again.", flags: [fraud] }
     const r = await enqueueSendBatched("u1", "acc1", "Buy secretword now", recips(620))
-    expect(r).toEqual({ ok: false, error: "BLOCKED", reason: "This message contains content we can't send. Edit it and try again." })
+    expect(r).toEqual({ ok: false, error: "BLOCKED", code: "CONTENT_BLOCKED", reason: "This message contains content we can't send. Edit it and try again." })
     expect(JSON.stringify(r)).not.toContain("secretword")
     expect(inserts("sms_send_logs")).toHaveLength(1)
     expect(logRow()).toMatchObject({
@@ -727,7 +727,7 @@ describe("enforcement ON", () => {
   it("block with no fraud flags (LINK_NOT_ALLOWED) → blocked log, no flag RPC", async () => {
     h.state.policyResult = { decision: "block", code: "LINK_NOT_ALLOWED", reason: "Remove example.com.", flags: [] }
     const r = await enqueueSendBatched("u1", "acc1", "see example.com", recips(1))
-    expect(r).toEqual({ ok: false, error: "BLOCKED", reason: "Remove example.com." })
+    expect(r).toEqual({ ok: false, error: "BLOCKED", code: "LINK_NOT_ALLOWED", reason: "Remove example.com." })
     expect(logRow().status).toBe("blocked")
     expect(rpcs().map((c) => c.fn)).not.toContain("record_sms_flags")
   })

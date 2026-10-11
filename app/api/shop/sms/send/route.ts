@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
 import { enqueueSendBatched, SMS_MAX_TOTAL } from "@/lib/sms/send-service"
-import { policyRejectedStatus } from "@/lib/sms/enforcement"
+import { customerBlockedReason, policyRejectedStatus } from "@/lib/sms/enforcement"
 import { getShopTokens } from "@/lib/sms/shop-context-service"
 import { loadDefaultSender } from "@/lib/sms/default-sender"
 import { SMS_DISABLED_MESSAGE } from "@/lib/sms/kill-switch"
@@ -136,8 +136,9 @@ export async function POST(request: NextRequest) {
   if (!result.ok) {
     switch (result.error) {
       case "BLOCKED":
+        // Never echo the built-in filter's rule text; detail stays in flag_reason (server-side).
         return NextResponse.json(
-          { success: false, error: result.error, reason: result.reason },
+          { success: false, error: result.error, reason: customerBlockedReason(result) },
           { status: 400 }
         )
       case "POLICY_REJECTED":

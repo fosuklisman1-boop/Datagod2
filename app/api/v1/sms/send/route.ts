@@ -7,7 +7,7 @@ import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
 import { enqueueSendBatched, SMS_MAX_TOTAL } from "@/lib/sms/send-service"
 import { apiRateLimitFor, loadSmsSettings } from "@/lib/sms/platform-settings"
 import { SMS_DISABLED_MESSAGE } from "@/lib/sms/kill-switch"
-import { policyRejectedStatus } from "@/lib/sms/enforcement"
+import { customerBlockedReason, policyRejectedStatus } from "@/lib/sms/enforcement"
 import { getShopTokens } from "@/lib/sms/shop-context-service"
 
 const supabaseAdmin = createClient(
@@ -180,17 +180,17 @@ export async function POST(request: NextRequest) {
         : result.error === "POLICY_REJECTED"
           ? { success: false, error: result.error, code: result.code, reason: result.reason }
           : result.error === "BLOCKED"
-            ? { success: false, error: result.error, reason: result.reason }
+            ? { success: false, error: result.error, reason: customerBlockedReason(result) }
             : { success: false, error: result.error },
       { status }
     )
   }
 
-  // A send held for review (enforced policy) is accepted but not yet sent: 202 + status "held".
-  const okStatus = result.held ? 202 : 200
+  // A send held for review (enforced policy) is accepted but not yet sent. Still HTTP 200 (so
+  // integrators checking for 200 keep working); `held: true` / `status: "held"` tell them apart.
   logApiRequest({
     userId: user.id, apiKeyId: user.api_key_id, method: "POST", endpoint: "/api/v1/sms/send",
-    statusCode: okStatus, request, durationMs,
+    statusCode: 200, request, durationMs,
     requestPayload: { recipients_count: uniqueRecipients.length },
     responsePayload: { total: result.totalQueued, batches: result.batches, held: result.held },
   }).catch(() => {})
@@ -210,5 +210,5 @@ export async function POST(request: NextRequest) {
     // as invalid (and thus never billed/sent).
     stopped_reason: result.stoppedReason,
     invalid_skipped: result.invalidSkipped,
-  }, { status: okStatus })
+  })
 }

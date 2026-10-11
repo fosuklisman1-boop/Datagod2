@@ -29,6 +29,18 @@ export type EnforcementOutcome =
   | { kind: "block"; mode: SmsMode; shadow: PolicyShadow; code: PolicyCode; reason: string; fraudFlags: PolicyFlag[]; thresholds: Thresholds }
   | { kind: "reject"; code: EnforcementCode; reason: string }
 
+/** Generic customer text for a block whose reason is internal (the legacy content filter's rule names). */
+export const BLOCKED_SAFE_REASON = "This message contains content we can't send."
+
+/**
+ * The reason a route may show the customer for BLOCKED. Only an enforced policy block (which
+ * carries `code`) has customer-written text; the legacy filter's reason is a rule name
+ * (e.g. "credential-harvest: pin") and stays server-side in sms_send_logs.flag_reason.
+ */
+export function customerBlockedReason(r: { code?: string; reason?: string }): string {
+  return r.code && r.reason?.trim() ? r.reason : BLOCKED_SAFE_REASON
+}
+
 /** HTTP status for a POLICY_REJECTED send: 503 when it's a temporary outage, else 400. */
 export function policyRejectedStatus(code: EnforcementCode | undefined): 400 | 503 {
   return code === "FEATURE_DISABLED" || code === "POLICY_UNAVAILABLE" ? 503 : 400

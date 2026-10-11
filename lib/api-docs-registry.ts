@@ -186,7 +186,7 @@ export const apiDocsRegistry: ApiDocSection[] = [
     operations: [{
       method: "POST",
       path: "/api/v1/sms/send",
-      description: "Send an SMS to one or more recipients using your own SMS account credits. Requires a shop, sub-agent, or admin account.",
+      description: "Send an SMS to one or more recipients using your own SMS account credits. Requires a shop, sub-agent, or admin account. A send held for a quick review still returns 200, with \"status\": \"held\" and \"held\": true (it goes out once approved).",
       params: [
         { name: "message", type: "string", required: true, description: "3-1000 characters" },
         { name: "recipients", type: "string[]", required: true, description: "Up to 5000 phone numbers" },
@@ -197,7 +197,7 @@ export const apiDocsRegistry: ApiDocSection[] = [
       errorExamples: [
         { status: 402, body: `{ "success": false, "error": "INSUFFICIENT_CREDITS" }` },
         { status: 400, body: `{ "success": false, "error": "POLICY_REJECTED", "code": "CAP_PER_HOUR", "reason": "You've reached 20 sends this hour. Try again within the hour." }` },
-        { status: 400, body: `{ "success": false, "error": "BLOCKED", "reason": "This message contains content we can't send. Edit it and try again." }` },
+        { status: 400, body: `{ "success": false, "error": "BLOCKED", "reason": "This message contains content we can't send." }` },
         { status: 503, body: `{ "success": false, "error": "SMS_DISABLED", "message": "SMS is temporarily unavailable. Please try again later." }` },
         { status: 403, body: `{ "success": false, "error": "No SMS account for this API key's owner (requires a shop, sub-agent, or admin account)" }` },
       ],

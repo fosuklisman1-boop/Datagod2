@@ -32,6 +32,7 @@ vi.mock("./platform-settings", async (orig) => {
 
 import {
   decideOutcome, evaluateForEnforcement, isPolicyEnforced, recordFraudFlags, policyRejectedStatus, POLICY_UNAVAILABLE_REASON,
+  customerBlockedReason, BLOCKED_SAFE_REASON,
 } from "./enforcement"
 import { DEFAULT_SMS_SETTINGS } from "./platform-settings"
 
@@ -49,6 +50,15 @@ beforeEach(() => {
   h.state.policyEnforced = false
 })
 afterEach(() => vi.useRealTimers())
+
+describe("customerBlockedReason", () => {
+  it("legacy filter rule text is never shown; policy blocks keep their customer reason", () => {
+    expect(customerBlockedReason({ reason: "credential-harvest: pin" })).toBe(BLOCKED_SAFE_REASON)
+    expect(customerBlockedReason({})).toBe(BLOCKED_SAFE_REASON)
+    expect(customerBlockedReason({ code: "LINK_NOT_ALLOWED", reason: "Remove example.com." })).toBe("Remove example.com.")
+    expect(customerBlockedReason({ code: "CONTENT_BLOCKED", reason: " " })).toBe(BLOCKED_SAFE_REASON)
+  })
+})
 
 describe("policyRejectedStatus", () => {
   it("503 for outages, 400 for rule rejections", () => {
