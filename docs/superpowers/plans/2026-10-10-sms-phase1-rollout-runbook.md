@@ -41,3 +41,14 @@ per account), 2 paused; credits unchanged (2,388); `sms_policy_enforced=false`.
 - Revenue (`amount_ghs`) is written in a second statement after the credit RPC; a crash in that window loses the amount for wallet purchases (Paystack recovers on webhook redelivery). Follow-up: add `p_amount_ghs` to `credit_sms_units_if_solvent`.
 - The admin "Total Revenue" card (Phase 2) must filter `sms_pending_credits` to `status='pending'` if it sums them, because settled rows keep their `amount_ghs`.
 - Quantity ("buy any amount") purchases remain available to all modes until Phase 3 retires them (and the `smsqty-` webhook path with them).
+
+## Phase 2 — Admin console (`/admin/sms`)
+
+- **New page**: `/admin/sms` is now the single "SMS Platform" console (7 tabs, `?tab=`). Old page features moved per the Phase 2 spec §3.2. `/admin/sms-centre` and `/admin/sms-health` are unchanged.
+- **Master switch is a real kill switch.** Off = new sends, wallet/quantity/Paystack credit purchases, activation and bonus claims are refused (public API: 503 `SMS_DISABLED`). Never blocked: webhooks for payments already made, queue drain, refunds, DLR, OTP/transactional, admin broadcast. Reads are cached ~60 s per instance, so allow up to a minute to take effect; it fails OPEN if settings cannot be read.
+- **Policy is still record-only.** `sms_policy_enforced` is not writable from the UI (Phase 3). The Settings tab and the Policy preview show what rules would have done.
+- **"Recorded revenue"**: Σ `amount_ghs` of bundle purchases + activation fees. 56 purchases before Phase 1 (7,111 credits) have no amount and cannot be backfilled; the card says so.
+- **Allocation** is admin-only, audited, and idempotent (`requestId` → ref `admin_alloc:<uuid>`).
+- **Bundle delete** only if inactive ≥ 48 h (a DB trigger restarts the clock on every deactivation); otherwise Deactivate.
+- **Migrations applied live**: `20261011_sms_admin_console.sql`, `20261011_sms_bundle_deactivation_clock.sql`.
+- Known gap: the legacy `updateSmsSettings` writer (and `/api/admin/shop-sms` PATCH) is unvalidated; the new Settings tab is the validated path.
