@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils"
 import { supabase } from "@/lib/supabase"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 import { isPathAllowedForService, isPageHidden } from "@/lib/custom-domains"
-import { menuItems, shopItems } from "@/lib/dashboard-nav-items"
+import { menuItems, shopItems, isNavActive } from "@/lib/dashboard-nav-items"
 import { useIsAdmin } from "@/hooks/use-admin"
 import { useAppSettings } from "@/hooks/use-app-settings"
 import { useAuth } from "@/hooks/use-auth"
@@ -331,7 +331,7 @@ export function Sidebar() {
             return true
           }).map((item) => {
               const Icon = item.icon
-              const isActive = pathname === item.href
+              const isActive = isNavActive(pathname, item.href)
               const isLoading = loadingPath === item.href
               const showBadge = item.label === "My Orders" && userPendingOrderCount > 0
 
@@ -384,7 +384,7 @@ export function Sidebar() {
               )}
               {shopItems.filter(item => userRole && item.roles.includes(userRole) && isPathAllowedForService(item.href, domainBranding.services, domainBranding.hiddenPages)).map((item) => {
                 const Icon = item.icon
-                const isActive = pathname === item.href
+                const isActive = isNavActive(pathname, item.href)
                 const isLoading = loadingPath === item.href
                 return (
                   <Link key={item.href} href={item.href} onClick={() => handleNavigation(item.href)}>

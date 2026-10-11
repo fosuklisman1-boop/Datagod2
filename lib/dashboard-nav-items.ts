@@ -13,6 +13,12 @@ export interface NavItem {
   roles: string[]
 }
 
+/** Sidebar active state: exact match, plus the SMS section's sub-routes keep "SMS" highlighted. */
+export function isNavActive(pathname: string, href: string): boolean {
+  if (pathname === href) return true
+  return href === "/dashboard/sms" && pathname.startsWith("/dashboard/sms/")
+}
+
 export const menuItems: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: Layers, roles: ["user", "admin", "dealer"] },
   { href: "/dashboard/data-packages", label: "Data Packages", icon: Package, roles: ["user", "admin", "dealer"] },

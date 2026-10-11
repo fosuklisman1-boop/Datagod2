@@ -51,6 +51,11 @@ describe("getServiceRedirect", () => {
     expect(getServiceRedirect("/dashboard/results-checker", ["airtime", "bulk_sms"], [])).toBe("/dashboard/airtime")
   })
 
+  it("gates SMS sub-routes like /dashboard/sms", () => {
+    expect(getServiceRedirect("/dashboard/sms/compose", ["results_checker"], [])).toBe("/dashboard/results-checker")
+    expect(getServiceRedirect("/dashboard/sms/compose", ["bulk_sms"], [])).toBeNull()
+  })
+
   it("treats both results-checker and results-check paths as the results_checker service", () => {
     expect(getServiceRedirect("/dashboard/results-checker", ["results_checker"], [])).toBeNull()
     expect(getServiceRedirect("/dashboard/results-check", ["results_checker"], [])).toBeNull()

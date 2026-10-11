@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { pickFirstVisiblePath } from "./dashboard-nav-items"
+import { pickFirstVisiblePath, isNavActive } from "./dashboard-nav-items"
 import type { DomainService } from "./custom-domains"
 
 // NOTE on `services`: lib/custom-domains.ts's isPathAllowedForService/
@@ -75,5 +75,20 @@ describe("pickFirstVisiblePath", () => {
 
   it("returns null for a null role (not yet loaded / signed out)", () => {
     expect(pickFirstVisiblePath(null, null, [], false)).toBeNull()
+  })
+})
+
+describe("isNavActive", () => {
+  it("matches exactly", () => {
+    expect(isNavActive("/dashboard/airtime", "/dashboard/airtime")).toBe(true)
+    expect(isNavActive("/dashboard/wallet", "/dashboard/airtime")).toBe(false)
+  })
+  it("keeps SMS active on its sub-routes only", () => {
+    expect(isNavActive("/dashboard/sms/compose", "/dashboard/sms")).toBe(true)
+    expect(isNavActive("/dashboard/smsx", "/dashboard/sms")).toBe(false)
+  })
+  it("does not prefix-match other items", () => {
+    expect(isNavActive("/dashboard/airtime/foo", "/dashboard/airtime")).toBe(false)
+    expect(isNavActive("/dashboard/sms", "/dashboard")).toBe(false)
   })
 })

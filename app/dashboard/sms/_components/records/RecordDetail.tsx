@@ -148,7 +148,7 @@ export function RecordDetail({ id }: { id: string }) {
                     <span className="font-mono text-sm">{m.phone}</span>
                     <Badge variant="outline" className={toneBadgeClass(s.tone)}>{s.label}</Badge>
                   </div>
-                  {m.last_error && s.label !== "Delivered" && <p className="mt-1 break-words text-xs text-muted-foreground">{m.last_error}</p>}
+                  {m.last_error && (s.label === "Failed" || s.label === "Refunded") && <p className="mt-1 break-words text-xs text-muted-foreground">{m.last_error}</p>}
                 </li>
               )
             })}
@@ -170,7 +170,7 @@ export function RecordDetail({ id }: { id: string }) {
                     <tr key={m.id} className="border-b last:border-0">
                       <td className="px-3 py-2 font-mono">{m.phone}</td>
                       <td className="px-3 py-2"><Badge variant="outline" className={toneBadgeClass(s.tone)}>{s.label}</Badge></td>
-                      <td className="px-3 py-2 text-xs text-muted-foreground">{s.label !== "Delivered" ? m.last_error ?? "" : ""}</td>
+                      <td className="px-3 py-2 text-xs text-muted-foreground">{s.label === "Failed" || s.label === "Refunded" ? m.last_error ?? "" : ""}</td>
                     </tr>
                   )
                 })}
