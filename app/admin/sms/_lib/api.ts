@@ -66,11 +66,12 @@ export interface HeldRow {
   id: string; source: "held"; log_id: number; sms_account_id: string; user_id: string | null; email: string | null
   severity: "info"; status: "open"; reason: string; code: string | null; message: string; sender_id: string | null
   recipients_count: number; segments: number; credits_reserved: number; created_at: string
+  scheduled_for?: string | null
 }
 /** GET /api/admin/sms-platform/flags: the flags page plus (page 1, All/Info, open) the held campaigns. */
 export type FlagsPage = Page<FlagRow> & { held?: HeldRow[]; heldTotal?: number }
 export type HeldActionData =
-  | { already: false; placed: number }
+  | { already: false; placed: number; scheduled?: true; scheduledFor?: string }
   | { already: true; status: string }
   | { already: boolean; refundedCredits: number; refundedMessages: number }
 

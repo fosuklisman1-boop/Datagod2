@@ -187,13 +187,23 @@ export function isValidRejectReason(reason: string): boolean {
   return (reason ?? "").trim().length >= 3
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+/** "1 Jan, 09:00 GMT" (Ghana time is GMT). Unparseable input is returned as-is. */
+export function formatGmt(iso: string): string {
+  const d = new Date(iso)
+  if (!Number.isFinite(d.getTime())) return iso
+  const hh = String(d.getUTCHours()).padStart(2, "0"), mm = String(d.getUTCMinutes()).padStart(2, "0")
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}, ${hh}:${mm} GMT`
+}
+
 /** Toast text after a held-campaign action succeeded. */
 export function heldActionMessage(
   action: "release" | "reject",
-  d: { already?: boolean; placed?: unknown; refundedCredits?: unknown; status?: string },
+  d: { already?: boolean; placed?: unknown; refundedCredits?: unknown; status?: string; scheduled?: boolean; scheduledFor?: string },
 ): string {
   if (action === "release") {
-    if (d.already) return "Already released"
+    if (d.already) return d.status === "scheduled" ? "Already approved — scheduled" : "Already released"
+    if (d.scheduled && d.scheduledFor) return `Approved — will be sent at ${formatGmt(d.scheduledFor)}`
     const placed = num(d.placed)
     return placed > 0 ? `Released — ${plural(placed, "message")} sent` : "Released — queued for sending"
   }

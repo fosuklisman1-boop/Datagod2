@@ -116,7 +116,12 @@ export function RecordDetail({ id }: { id: string }) {
       {log.status === "held" && (
         <Alert className="border-warning/30 bg-warning/10">
           <Clock className="h-4 w-4" />
-          <AlertDescription>Under review — we’ll notify you. Nothing more is needed from you.</AlertDescription>
+          <AlertDescription>
+            Under review — we’ll notify you. Nothing more is needed from you.
+            {log.scheduled_for && Date.parse(log.scheduled_for) > Date.now() && formatScheduled(log.scheduled_for) && (
+              <span className="mt-1 block">Once approved it will be sent on {formatScheduled(log.scheduled_for)}.</span>
+            )}
+          </AlertDescription>
         </Alert>
       )}
 

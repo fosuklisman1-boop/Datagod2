@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { api, type FlagRow, type FlagsPage, type HeldActionData, type HeldRow, type OverviewData } from "../_lib/api"
 import { useLoad } from "../_lib/useLoad"
-import { formatCount, heldActionMessage, heldSummary, isValidRejectReason, previewTotals, shouldResetPage, timeAgo, toneClass } from "../_lib/view"
+import { formatCount, formatGmt, heldActionMessage, heldSummary, isValidRejectReason, previewTotals, shouldResetPage, timeAgo, toneClass } from "../_lib/view"
 import { ConfirmDialog, CopyButton, EmptyState, ErrorBox, LoadingRows, Pager, StatusBadge } from "./ui-bits"
 
 const DECISION_TEXT: Record<string, string> = {
@@ -99,6 +99,7 @@ function FlagCard({ row, onChanged, stale }: { row: FlagRow; onChanged: () => vo
 }
 
 function HeldCard({ row, onChanged, stale }: { row: HeldRow; onChanged: () => void; stale?: boolean }) {
+  const futureSchedule = row.scheduled_for && Date.parse(row.scheduled_for) > Date.now() ? row.scheduled_for : null
   const [action, setAction] = useState<null | "release" | "reject">(null)
   const [busy, setBusy] = useState(false)
   async function run(kind: "release" | "reject", reason?: string) {
@@ -127,7 +128,7 @@ function HeldCard({ row, onChanged, stale }: { row: HeldRow; onChanged: () => vo
           <span className="ml-auto text-xs text-muted-foreground">{timeAgo(row.created_at)}</span>
         </div>
         <p className="text-sm text-muted-foreground">
-          Campaign #{row.log_id} · {heldSummary(row)}{row.sender_id ? <> · from <span className="font-mono">{row.sender_id}</span></> : null}
+          Campaign #{row.log_id} · {heldSummary(row)}{futureSchedule ? ` · scheduled for ${formatGmt(futureSchedule)}` : ""}{row.sender_id ? <> · from <span className="font-mono">{row.sender_id}</span></> : null}
         </p>
         <p className="clay-inset line-clamp-4 whitespace-pre-wrap break-words rounded-xl px-3 py-2 text-sm">{row.message}</p>
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -143,7 +144,9 @@ function HeldCard({ row, onChanged, stale }: { row: HeldRow; onChanged: () => vo
       </CardContent>
       <ConfirmDialog open={action === "release"} onOpenChange={(o) => !o && setAction(null)} busy={busy}
         title="Release this campaign?" confirmLabel="Release and send"
-        description={<>Sends campaign #{row.log_id} to {heldSummary(row)} now. Credits were already taken when it was held. The customer is notified.</>}
+        description={futureSchedule
+          ? <>Approves campaign #{row.log_id} ({heldSummary(row)}). It stays scheduled and is sent at {formatGmt(futureSchedule)}; the customer can still cancel it. Credits were already taken. The customer is notified.</>
+          : <>Sends campaign #{row.log_id} to {heldSummary(row)} now. Credits were already taken when it was held. The customer is notified.</>}
         onConfirm={() => run("release")} />
       <ConfirmDialog open={action === "reject"} onOpenChange={(o) => !o && setAction(null)} busy={busy} destructive
         title="Reject this campaign?" confirmLabel="Reject and refund"

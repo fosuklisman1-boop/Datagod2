@@ -3,7 +3,7 @@ import {
   formatCount, formatGhs, formatPerSms, maskIdCard, waLink, statusTone, toneClass, statusLabel, timeAgo, pageInfo,
   messageBreakdown, accountCredits, groupReviews, bannerFor, previewTotals, tabFromParam, TAB_IDS, parseList, providerLabel, supplyHeadline,
   shouldResetPage, formatRate, parseApiLimit, parseAllocateUnits, parseBundleDraft, toNumberOrNaN,
-  heldSummary, heldActionMessage, isValidRejectReason, reviewHoldMessage,
+  heldSummary, heldActionMessage, isValidRejectReason, reviewHoldMessage, formatGmt,
 } from "./view"
 
 describe("admin form parsers", () => {
@@ -245,5 +245,18 @@ describe("reviewHoldMessage", () => {
   it("set", () => {
     expect(reviewHoldMessage(true, { review_hold_changed: true })).toBe("Account placed on review hold")
     expect(reviewHoldMessage(true, { review_hold_changed: false })).toBe("Account was already on review hold")
+  })
+})
+
+describe("held release into a future schedule", () => {
+  it("formatGmt", () => {
+    expect(formatGmt("2027-01-01T09:05:00Z")).toBe("1 Jan, 09:05 GMT")
+    expect(formatGmt("nope")).toBe("nope")
+  })
+  it("toast says when it will be sent", () => {
+    expect(heldActionMessage("release", { already: false, placed: 0, scheduled: true, scheduledFor: "2027-01-01T09:05:00Z" }))
+      .toBe("Approved — will be sent at 1 Jan, 09:05 GMT")
+    expect(heldActionMessage("release", { already: true, status: "scheduled" })).toBe("Already approved — scheduled")
+    expect(heldActionMessage("release", { already: true, status: "sending" })).toBe("Already released")
   })
 })
