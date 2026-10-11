@@ -113,7 +113,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   )
   SELECT p.id, p.user_id, p.email, p.owner_type, p.mode, p.status, p.unit_balance,
          (SELECT COALESCE(sum(t.delta), 0) FROM sms_unit_transactions t
-           WHERE t.sms_account_id = p.id AND t.delta > 0 AND t.reason <> 'campaign_refund')::bigint,
+           WHERE t.sms_account_id = p.id AND t.delta > 0 AND t.reason IN ('bundle_wallet','bundle_paystack'))::bigint,
          (SELECT COALESCE(sum(l.credits_used), 0) FROM sms_send_logs l
            WHERE l.sms_account_id = p.id AND l.status <> 'blocked')::bigint,
          (SELECT s.sender_id FROM sms_sender_ids s WHERE s.id = p.default_sender_id),

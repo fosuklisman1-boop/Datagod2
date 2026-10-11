@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
-import { verifyAdminAccess } from "@/lib/admin-auth"
 import { listAllBundles, createBundle, updateBundle, deleteBundle, validateBundleInput } from "@/lib/sms/bundle-service"
 import { adminGuard } from "@/lib/sms/admin-guard"
 
 export async function GET(request: NextRequest) {
-  const auth = await verifyAdminAccess(request)
-  if (!auth.isAdmin) return auth.errorResponse!
+  const g = await adminGuard(request)
+  if (!g.ok) return g.response
   return NextResponse.json({ bundles: await listAllBundles() })
 }
 export async function POST(request: NextRequest) {
@@ -16,7 +15,7 @@ export async function POST(request: NextRequest) {
   const invalid = validateBundleInput({ units: body.units, price_ghs: body.price_ghs })
   if (invalid) return NextResponse.json({ error: invalid }, { status: 400 })
   try {
-    return NextResponse.json({ bundle: await createBundle(body) })
+    return NextResponse.json({ bundle: await createBundle(body, g.adminId!) })
   } catch (e) {
     if (e instanceof Error && e.message.startsWith("mode must be")) return NextResponse.json({ error: e.message }, { status: 400 })
     throw e
@@ -31,7 +30,7 @@ export async function PATCH(request: NextRequest) {
   const invalid = validateBundleInput({ units: patch.units, price_ghs: patch.price_ghs })
   if (invalid) return NextResponse.json({ error: invalid }, { status: 400 })
   try {
-    return NextResponse.json({ bundle: await updateBundle(id, patch) })
+    return NextResponse.json({ bundle: await updateBundle(id, patch, g.adminId!) })
   } catch (e) {
     if (e instanceof Error && e.message.startsWith("mode must be")) return NextResponse.json({ error: e.message }, { status: 400 })
     throw e

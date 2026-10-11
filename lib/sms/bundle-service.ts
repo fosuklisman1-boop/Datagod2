@@ -71,7 +71,7 @@ function assertBundleMode(mode: unknown) {
 export async function createBundle(input: {
   name: string; units: number; price_ghs: number; owner_type_scope?: string
   mode?: "platform" | "business"; sort_order?: number
-}) {
+}, adminId?: string) {
   if (input.mode !== undefined) assertBundleMode(input.mode)
   const { data, error } = await supabaseAdmin.from("sms_bundles").insert({
     name: input.name, units: input.units, price_ghs: input.price_ghs,
@@ -79,6 +79,7 @@ export async function createBundle(input: {
     mode: input.mode ?? "platform", sort_order: input.sort_order ?? 0,
   }).select("*").single()
   if (error) throw error
+  if (adminId) await writeAuditLog(adminId, "sms_bundle_create", null, null, data).catch(() => {})
   return data as Bundle
 }
 
@@ -87,12 +88,15 @@ export async function updateBundle(
   patch: Partial<{
     name: string; units: number; price_ghs: number; active: boolean; owner_type_scope: string
     mode: "platform" | "business"; sort_order: number
-  }>
+  }>,
+  adminId?: string
 ) {
   if (patch.mode !== undefined) assertBundleMode(patch.mode)
+  const { data: before } = adminId ? await supabaseAdmin.from("sms_bundles").select("*").eq("id", id).maybeSingle() : { data: null }
   const { data, error } = await supabaseAdmin.from("sms_bundles")
     .update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id).select("*").single()
   if (error) throw error
+  if (adminId) await writeAuditLog(adminId, "sms_bundle_update", null, before, data).catch(() => {})
   return data as Bundle
 }
 

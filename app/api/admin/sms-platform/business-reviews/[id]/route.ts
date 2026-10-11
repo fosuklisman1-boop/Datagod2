@@ -1,26 +1,24 @@
 import { NextRequest, NextResponse } from "next/server"
-import { verifyAdminAccess } from "@/lib/admin-auth"
+import { adminGuard } from "@/lib/sms/admin-guard"
 import { approveKyc, getKycForAdmin, rejectKyc, retryKycModeChange, toPublicKyc } from "@/lib/sms/kyc-service"
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await verifyAdminAccess(request)
-  if (!auth.isAdmin) return auth.errorResponse!
-  if (!auth.userId) return NextResponse.json({ success: false, error: "Admin user required" }, { status: 403 })
+  const g = await adminGuard(request)
+  if (!g.ok) return g.response
   const { id } = await params
-  const p = await getKycForAdmin(auth.userId, id)
+  const p = await getKycForAdmin(g.adminId!, id)
   if (!p) return NextResponse.json({ success: false, error: "Not found" }, { status: 404 })
   return NextResponse.json({ success: true, data: p })
 }
 
 // POST { action: "approve" | "reject", reason?: string }
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await verifyAdminAccess(request)
-  if (!auth.isAdmin) return auth.errorResponse!
-  if (!auth.userId) return NextResponse.json({ success: false, error: "Admin user required" }, { status: 403 })
+  const g = await adminGuard(request, { write: true })
+  if (!g.ok) return g.response
   const { id } = await params
   let body: { action?: string; reason?: string }
   try { body = await request.json() } catch { return NextResponse.json({ success: false, error: "Invalid JSON body" }, { status: 400 }) }
-  const adminId = auth.userId
+  const adminId = g.adminId!
 
   if (body?.action === "approve") {
     const r = await approveKyc(adminId, id)

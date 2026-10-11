@@ -1,16 +1,15 @@
 import { NextRequest, NextResponse } from "next/server"
-import { verifyAdminAccess } from "@/lib/admin-auth"
+import { adminGuard } from "@/lib/sms/admin-guard"
 import { setAccountMode, setApiRateLimitOverride } from "@/lib/sms/sender-rules-service"
 
 // PATCH { mode?: "platform" | "business", api_rate_limit_override?: number | null }
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await verifyAdminAccess(request)
-  if (!auth.isAdmin) return auth.errorResponse!
-  if (!auth.userId) return NextResponse.json({ success: false, error: "Admin user required" }, { status: 403 })
+  const g = await adminGuard(request, { write: true })
+  if (!g.ok) return g.response
   const { id } = await params
   let body: { mode?: string; api_rate_limit_override?: number | null }
   try { body = await request.json() } catch { return NextResponse.json({ success: false, error: "Invalid JSON body" }, { status: 400 }) }
-  const adminId = auth.userId
+  const adminId = g.adminId!
   const rl = body.api_rate_limit_override
   if (body.mode === undefined && rl === undefined) return NextResponse.json({ success: false, error: "Nothing to update" }, { status: 400 })
   if (body.mode !== undefined && body.mode !== "platform" && body.mode !== "business") return NextResponse.json({ success: false, error: "mode must be platform or business" }, { status: 400 })

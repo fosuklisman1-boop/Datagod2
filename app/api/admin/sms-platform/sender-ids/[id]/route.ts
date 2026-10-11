@@ -1,16 +1,15 @@
 import { NextRequest, NextResponse } from "next/server"
-import { verifyAdminAccess } from "@/lib/admin-auth"
+import { adminGuard } from "@/lib/sms/admin-guard"
 import { approveSenderIdRequest, rejectSenderIdRequest, revokeSenderId } from "@/lib/sms/sender-rules-service"
 
 // POST { action: "approve" | "reject" | "revoke", reason?: string }
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await verifyAdminAccess(request)
-  if (!auth.isAdmin) return auth.errorResponse!
-  if (!auth.userId) return NextResponse.json({ success: false, error: "Admin user required" }, { status: 403 })
+  const g = await adminGuard(request, { write: true })
+  if (!g.ok) return g.response
   const { id } = await params
   let body: { action?: string; reason?: string }
   try { body = await request.json() } catch { return NextResponse.json({ success: false, error: "Invalid JSON body" }, { status: 400 }) }
-  const adminId = auth.userId
+  const adminId = g.adminId!
   const result =
     body.action === "approve" ? await approveSenderIdRequest(adminId, id) :
     body.action === "reject" ? await rejectSenderIdRequest(adminId, id, body.reason ?? "") :
