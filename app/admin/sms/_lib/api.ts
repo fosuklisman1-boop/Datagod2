@@ -86,6 +86,7 @@ export interface SettingsData {
     blockedKeywords: string[]; businessBlockedKeywords: string[]; businessFlaggedKeywords: string[]; businessAllowedDomains: string[]
     autoSuspendFlags: number; flagReviewThreshold: number; apiRateLimitDefault: number
     hubtelCostPerSms: number; hubtelLowBalanceGhs: number
+    platformSenders: string[]; platformDefaultSender: string | null
   }
   pricing: { activationFee: number; welcomeBonusCredits: number; pricePerCredit: number }
 }
