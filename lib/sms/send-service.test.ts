@@ -847,7 +847,7 @@ describe("enforcement ON", () => {
     const orphan = h.state.calls.filter((c) => c.fn === "log-orphan")
     expect(orphan).toHaveLength(1)
     expect(orphan[0].args.patch).toEqual({ status: "failed", credits_reserved: 0 })
-    expect(orphan[0].args.filters).toEqual({ id: "log-1", "in:status": ["queued", "held"] })
+    expect(orphan[0].args.filters).toEqual({ id: "log-1", "in:status": ["queued", "held", "scheduled"] })
     const names = h.state.calls.map((c) => c.fn)
     expect(names.indexOf("log-orphan")).toBeGreaterThan(names.indexOf("adjust_sms_units"))
     spy.mockRestore()
@@ -1020,5 +1020,166 @@ describe("enforcement ON", () => {
     const r = await enqueueSendBatched("u1", "acc1", "Congratulations, you have won a prize!", recips(1))
     expect(r).toMatchObject({ ok: false, error: "BLOCKED" })
     expect(logRow().policy_shadow).toMatchObject({ enforced: true })
+  })
+})
+
+// ── Scheduled sends (Phase 4a) ────────────────────────────────────────────────────────────
+describe("scheduled sends", () => {
+  const recips = (n: number) => Array.from({ length: n }, (_, i) => `024${String(i).padStart(7, "0")}`)
+  const AT = new Date("2026-10-20T09:30:00.000Z")
+  const logRows = () => inserts("sms_send_logs").map((x) => (Array.isArray(x.args) ? x.args[0] : x.args))
+  const msgRows = () => inserts("sms_messages").flatMap((x) => (Array.isArray(x.args) ? x.args : [x.args]))
+  const fns = () => h.state.calls.map((c) => c.fn)
+  const expectNoDispatch = () => {
+    expect(fns()).not.toContain("bulk")
+    expect(fns()).not.toContain("mark_sms_messages_sent")
+    expect(fns()).not.toContain("release")
+    expect(fns()).not.toContain("recompute_sms_send_result")
+  }
+
+  it("ordinary sends never write scheduled_for / source (pre-migration safe)", async () => {
+    await enqueueSend("u1", "acc1", "Hello world", ["0241234567"])
+    expect(logRows()[0]).not.toHaveProperty("scheduled_for")
+    expect(logRows()[0]).not.toHaveProperty("source")
+    h.state.calls.length = 0
+    await enqueueSend("u1", "acc1", "Hello world", ["0241234567"], undefined, undefined, undefined, undefined, {})
+    expect(logRows()[0]).not.toHaveProperty("scheduled_for")
+    expect(logRows()[0]).not.toHaveProperty("source")
+  })
+
+  it("enqueueSend with scheduledFor: debit + ledger link + 'scheduled' log + messages PENDING unclaimed, NO dispatch/recompute", async () => {
+    const r = await enqueueSend("u1", "acc1", "Hello world", ["0241234567", "0551234567"], undefined, undefined, undefined, undefined, { scheduledFor: AT })
+    expect(r).toEqual({
+      ok: true, sendLogId: "log-1", total: 2, segments: 1, creditsReserved: 2, invalidSkipped: 0,
+      scheduled: true, scheduledFor: "2026-10-20T09:30:00.000Z",
+    })
+    expect(rpcs().filter((c) => c.fn === "debit_sms_for_send")).toHaveLength(1)
+    expect(h.state.calls.filter((c) => c.fn === "ledger-link")).toHaveLength(1)
+    expect(logRows()[0]).toMatchObject({ status: "scheduled", scheduled_for: "2026-10-20T09:30:00.000Z", credits_reserved: 2 })
+    expect(logRows()[0]).not.toHaveProperty("source")
+    const rows = msgRows()
+    expect(rows).toHaveLength(2)
+    for (const m of rows) {
+      expect(m.status).toBe("pending")
+      expect(m.claimed_at ?? null).toBeNull()
+    }
+    expectNoDispatch()
+  })
+
+  it("source is written only when a non-default source is requested", async () => {
+    await enqueueSend("u1", "acc1", "Hello world", ["0241234567"], undefined, undefined, undefined, undefined, { source: "order_confirmation" })
+    expect(logRows()[0]).toMatchObject({ status: "queued", source: "order_confirmation" })
+    expect(logRows()[0]).not.toHaveProperty("scheduled_for")
+    expect(fns()).toContain("bulk") // not scheduled → dispatched as normal
+    h.state.calls.length = 0
+    await enqueueSend("u1", "acc1", "Hello world", ["0241234567"], undefined, undefined, undefined, undefined, { source: "campaign" })
+    expect(logRows()[0]).not.toHaveProperty("source")
+  })
+
+  it("scheduled + source → both written", async () => {
+    await enqueueSend("u1", "acc1", "Hello world", ["0241234567"], undefined, undefined, undefined, undefined, { scheduledFor: AT, source: "order_confirmation" })
+    expect(logRows()[0]).toMatchObject({ status: "scheduled", scheduled_for: AT.toISOString(), source: "order_confirmation" })
+  })
+
+  it("an invalid scheduledFor Date is refused before any DB call", async () => {
+    const r = await enqueueSend("u1", "acc1", "Hello world", ["0241234567"], undefined, undefined, undefined, undefined, { scheduledFor: new Date("nope") })
+    expect(r).toMatchObject({ ok: false, error: "ENQUEUE_FAILED" })
+    expect(rpcs().map((c) => c.fn)).not.toContain("debit_sms_for_send")
+    expect(inserts("sms_send_logs")).toHaveLength(0)
+  })
+
+  it("kill switch / insufficient credits still refuse a scheduled send", async () => {
+    h.state.smsEnabled = false
+    expect(await enqueueSend("u1", "acc1", "Hello world", ["0241234567"], undefined, undefined, undefined, undefined, { scheduledFor: AT }))
+      .toEqual({ ok: false, error: "SMS_DISABLED" })
+    h.state.smsEnabled = true
+    h.state.debitError = "INSUFFICIENT_CREDITS"
+    expect(await enqueueSend("u1", "acc1", "Hello world", ["0241234567"], undefined, undefined, undefined, undefined, { scheduledFor: AT }))
+      .toEqual({ ok: false, error: "INSUFFICIENT_CREDITS" })
+    expect(inserts("sms_send_logs")).toHaveLength(0)
+  })
+
+  it("unenforced batched scheduled single chunk → scheduled:true, scheduledFor, no dispatch", async () => {
+    const r = await enqueueSendBatched("u1", "acc1", "Hello world", ["0241234567"], undefined, undefined, { scheduledFor: AT })
+    expect(r).toMatchObject({ ok: true, batches: 1, held: false, scheduled: true, scheduledFor: AT.toISOString(), sendLogId: "log-1" })
+    expect(logRows()[0].status).toBe("scheduled")
+    expect(rpcs().filter((c) => c.fn === "debit_sms_for_send")).toHaveLength(1)
+    expectNoDispatch()
+  })
+
+  it("unscheduled batched result carries scheduled:false, scheduledFor:null", async () => {
+    const r = await enqueueSendBatched("u1", "acc1", "Hello world", ["0241234567"])
+    expect(r).toMatchObject({ ok: true, scheduled: false, scheduledFor: null })
+  })
+
+  it(">500 recipients → one scheduled log per chunk, all with the same scheduled_for", async () => {
+    const r = await enqueueSendBatched("u1", "acc1", "Hello world", recips(1020), undefined, undefined, { scheduledFor: AT })
+    expect(r).toMatchObject({ ok: true, batches: 3, totalQueued: 1020, scheduled: true, scheduledFor: AT.toISOString() })
+    expect(logRows().map((l) => [l.status, l.scheduled_for])).toEqual([
+      ["scheduled", AT.toISOString()], ["scheduled", AT.toISOString()], ["scheduled", AT.toISOString()],
+    ])
+    expect(rpcs().filter((c) => c.fn === "debit_sms_for_send")).toHaveLength(3)
+    expectNoDispatch()
+  })
+
+  it("enforced allow + scheduled → scheduled log records the enforced decision, lease released, no dispatch", async () => {
+    h.state.policyEnforced = true
+    const r = await enqueueSendBatched("u1", "acc1", "Hello world", recips(2), undefined, undefined, { scheduledFor: AT })
+    expect(r).toMatchObject({ ok: true, held: false, scheduled: true, scheduledFor: AT.toISOString() })
+    expect(logRows()[0]).toMatchObject({ status: "scheduled", scheduled_for: AT.toISOString() })
+    expect(logRows()[0].policy_shadow).toMatchObject({ decision: "allow", enforced: true })
+    expect(h.state.calls.filter((c) => c.fn === "sms_release_send_lock")).toHaveLength(1)
+    expectNoDispatch()
+  })
+
+  it("enforced hold + scheduled → hold wins: 'held' log, scheduled_for kept, held:true, scheduled:false", async () => {
+    h.state.policyEnforced = true
+    h.state.policyResult = { decision: "hold", code: "REVIEW_HOLD", reason: "r", flags: [] }
+    const r = await enqueueSendBatched("u1", "acc1", "Hello world", recips(2), undefined, undefined, { scheduledFor: AT })
+    expect(r).toMatchObject({ ok: true, held: true, scheduled: false, scheduledFor: null })
+    expect(logRows()[0]).toMatchObject({ status: "held", scheduled_for: AT.toISOString() })
+    for (const m of msgRows()) expect(m.status).toBe("pending")
+    expectNoDispatch()
+  })
+
+  it("enforced reject + scheduled → nothing written", async () => {
+    h.state.policyEnforced = true
+    h.state.policyResult = { decision: "reject", code: "CAP_PER_SEND", reason: "x", flags: [] }
+    const r = await enqueueSendBatched("u1", "acc1", "Hello world", recips(2), undefined, undefined, { scheduledFor: AT })
+    expect(r).toMatchObject({ ok: false, error: "POLICY_REJECTED" })
+    expect(inserts("sms_send_logs")).toHaveLength(0)
+  })
+
+  it("enforced: message insert failure closes the orphan scheduled log (status list includes 'scheduled')", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    h.state.policyEnforced = true
+    h.state.insertMsgError = "boom"
+    const r = await enqueueSendBatched("u1", "acc1", "Hello world", recips(1), undefined, undefined, { scheduledFor: AT })
+    expect(r).toMatchObject({ ok: false, error: "ENQUEUE_FAILED" })
+    expect(rpcs().find((c) => c.fn === "adjust_sms_units")!.args.p_delta).toBe(1)
+    const orphan = h.state.calls.filter((c) => c.fn === "log-orphan")
+    expect(orphan).toHaveLength(1)
+    expect(orphan[0].args.filters).toEqual({ id: "log-1", "in:status": ["queued", "held", "scheduled"] })
+    spy.mockRestore()
+  })
+
+  it("unenforced scheduled: message insert failure also closes the orphan scheduled log (cron must never pick it up)", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    h.state.insertMsgError = "boom"
+    const r = await enqueueSend("u1", "acc1", "Hello world", ["0241234567"], undefined, undefined, undefined, undefined, { scheduledFor: AT })
+    expect(r).toMatchObject({ ok: false, error: "ENQUEUE_FAILED" })
+    const orphan = h.state.calls.filter((c) => c.fn === "log-orphan")
+    expect(orphan).toHaveLength(1)
+    expect(orphan[0].args.patch).toEqual({ status: "failed", credits_reserved: 0 })
+    expect(orphan[0].args.filters).toEqual({ id: "log-1", "in:status": ["queued", "held", "scheduled"] })
+    spy.mockRestore()
+  })
+
+  it("unenforced UNscheduled enqueue failure still leaves the log alone (record-only path unchanged)", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    h.state.insertMsgError = "boom"
+    await enqueueSend("u1", "acc1", "Hello world", ["0241234567"])
+    expect(h.state.calls.filter((c) => c.fn === "log-orphan")).toHaveLength(0)
+    spy.mockRestore()
   })
 })

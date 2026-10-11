@@ -45,6 +45,18 @@ export interface EnqueueSendResult {
   invalidSkipped: number
   /** Present (true) only for an enforced 'hold': debited + stored, NOT dispatched. */
   held?: true
+  /** Present only for a scheduled (not held) send: debited + stored 'scheduled', NOT dispatched. */
+  scheduled?: true
+  /** ISO instant the scheduled send is due (with `scheduled`). */
+  scheduledFor?: string
+}
+
+/** Optional per-send options (Phase 4). Omitted ⇒ exactly the pre-Phase-4 DB writes. */
+export interface EnqueueSendOptions {
+  /** Store the send as 'scheduled' for this instant (debited now, dispatched by the cron). */
+  scheduledFor?: Date
+  /** Log label; written only when non-default (the DB default is 'campaign'). */
+  source?: "campaign" | "order_confirmation"
 }
 
 export interface EnqueueSendError {
@@ -95,10 +107,27 @@ export async function enqueueSend(
   enforced?: ChunkPolicy,
   /** Enforced sends only: called once this chunk's log + messages are durably inserted, BEFORE
    *  any dispatch (lets the batch orchestrator release the per-account lease early). */
-  onLogged?: (sendLogId: string) => Promise<void>
+  onLogged?: (sendLogId: string) => Promise<void>,
+  opts?: EnqueueSendOptions
 ): Promise<EnqueueSendResult | EnqueueSendError> {
   // An enforced 'hold': debit + store the campaign, but never dispatch it (admin releases it).
   const held = enforced?.decision === "hold"
+
+  // Scheduled send (Phase 4a): debit + store now, dispatched later by the sms-scheduled cron.
+  // Callers validate the bounds (checkSchedule); an unusable Date here is refused before any write.
+  const scheduledFor = opts?.scheduledFor
+  if (scheduledFor !== undefined && !(scheduledFor instanceof Date && Number.isFinite(scheduledFor.getTime()))) {
+    return { ok: false, error: "ENQUEUE_FAILED" }
+  }
+  const scheduledIso = scheduledFor ? scheduledFor.toISOString() : null
+  // A policy hold wins over scheduling: stored 'held' (scheduled_for kept for information).
+  const scheduled = scheduledIso !== null && !held
+  // Pending + unclaimed messages, no dispatch / release / recompute here.
+  const deferred = held || scheduled
+  // New columns are written ONLY when asked for, so ordinary sends work before the migration.
+  const extraLogCols: Record<string, string> = {}
+  if (scheduledIso !== null) extraLogCols.scheduled_for = scheduledIso
+  if (opts?.source && opts.source !== "campaign") extraLogCols.source = opts.source
 
   // 0. Master switch (Phase 2): refuse new customer sends while the platform switch is off.
   if (!(await isSmsEnabled())) return { ok: false, error: "SMS_DISABLED" }
@@ -203,12 +232,14 @@ export async function enqueueSend(
         segments: seg,
         credits_used: 0, // settled by the drain via recompute_sms_send_result
         credits_reserved: creditsNeeded,
-        // 'held' is exempt from recompute_sms_send_result and its messages from the drain claim.
-        status: held ? "held" : "queued",
+        // 'held'/'scheduled' are exempt from recompute_sms_send_result and their messages from the
+        // drain claim.
+        status: held ? "held" : scheduled ? "scheduled" : "queued",
         flagged: filterResult.flagged,
         flag_reason: filterResult.flagged ? (filterResult.reason ?? null) : null,
         mode,
         policy_shadow: shadow,
+        ...extraLogCols,
       })
       .select("id")
       .single()
@@ -241,10 +272,11 @@ export async function enqueueSend(
       // function dies first, the drain's stale-claim reaper returns them after 5 minutes.
       // HELD campaigns: plain 'pending', unclaimed — never dispatched here; the drain's claim
       // skips messages of held logs (migration 20261013) until an admin releases the campaign.
-      ...(held ? { status: "pending" } : { status: "claimed", claimed_at: new Date().toISOString() }),
+      // SCHEDULED campaigns: same — pending/unclaimed until the cron promotes the log to 'queued'.
+      ...(deferred ? { status: "pending" } : { status: "claimed", claimed_at: new Date().toISOString() }),
       sender_id: resolvedSenderId,
     }))
-    if (!held) claimedAtMs = Date.parse((rows[0] as { claimed_at: string }).claimed_at)
+    if (!deferred) claimedAtMs = Date.parse((rows[0] as { claimed_at: string }).claimed_at)
     for (let i = 0; i < rows.length; i += 500) {
       const { data: ins, error: msgError } = await supabaseAdmin
         .from("sms_messages")
@@ -269,14 +301,15 @@ export async function enqueueSend(
     // Enforced path: the log row may already exist with no (or partial) messages. Close it
     // (refund already done above) so a later admin release/reject can never refund it again.
     // Conditional on its status so a concurrently-moved log is never overwritten.
-    // (Record-only path left exactly as before.)
-    if (enforced && sendLogId) {
+    // A scheduled log is closed on every path too: otherwise the cron would later promote a log
+    // whose credits were already refunded here. (Unscheduled record-only path left as before.)
+    if ((enforced || scheduledIso !== null) && sendLogId) {
       try {
         const { error: orphanErr } = await supabaseAdmin
           .from("sms_send_logs")
           .update({ status: "failed", credits_reserved: 0 })
           .eq("id", sendLogId)
-          .in("status", ["queued", "held"])
+          .in("status", ["queued", "held", "scheduled"])
         if (orphanErr) console.error("[SMS-SEND] could not close orphan send log", sendLogId, orphanErr.message)
       } catch (e) {
         console.error("[SMS-SEND] could not close orphan send log", sendLogId, e)
@@ -304,6 +337,20 @@ export async function enqueueSend(
       creditsReserved: creditsNeeded,
       invalidSkipped,
       held: true,
+    }
+  }
+
+  // Scheduled: credits reserved and messages stored; the sms-scheduled cron dispatches it when due.
+  if (scheduled) {
+    return {
+      ok: true,
+      sendLogId,
+      total: validPhones.length,
+      segments: seg,
+      creditsReserved: creditsNeeded,
+      invalidSkipped,
+      scheduled: true,
+      scheduledFor: scheduledIso!,
     }
   }
 
@@ -413,6 +460,8 @@ export interface BatchedSendResult {
   partial: boolean         // true if it stopped before sending every batch
   stoppedReason?: string   // the error that stopped further batches (e.g. credits)
   held: boolean            // true when the send was held for admin review (debited, not dispatched)
+  scheduled: boolean       // true when the send was scheduled (debited, dispatched later by the cron)
+  scheduledFor: string | null // the ISO instant every scheduled batch is due (null when not scheduled)
   sendLogId: string | null // the first batch's send log (a send of >500 has one log per batch)
 }
 
@@ -454,9 +503,10 @@ export async function runSequentialBatches(
   let segments = 0
   let invalidSkipped = 0
   let held = false
+  let scheduledFor: string | null = null
   let sendLogId: string | null = null
   const partial = (stoppedReason: string): BatchedSendResult =>
-    ({ ok: true, batches, totalQueued, segments, creditsReserved, invalidSkipped, partial: true, stoppedReason, held, sendLogId })
+    ({ ok: true, batches, totalQueued, segments, creditsReserved, invalidSkipped, partial: true, stoppedReason, held, scheduled: scheduledFor !== null, scheduledFor, sendLogId })
 
   for (const chunk of chunks) {
     let r: EnqueueSendResult | EnqueueSendError
@@ -480,11 +530,12 @@ export async function runSequentialBatches(
     segments = r.segments
     invalidSkipped += r.invalidSkipped
     if (r.held) held = true
+    if (r.scheduled && r.scheduledFor) scheduledFor = r.scheduledFor
     if (sendLogId === null) sendLogId = r.sendLogId
   }
 
   if (batches === 0) return { ok: false, error: "NO_VALID_RECIPIENTS" } // every chunk invalid
-  return { ok: true, batches, totalQueued, segments, creditsReserved, invalidSkipped, partial: false, held, sendLogId }
+  return { ok: true, batches, totalQueued, segments, creditsReserved, invalidSkipped, partial: false, held, scheduled: scheduledFor !== null, scheduledFor, sendLogId }
 }
 
 const BATCH_OPTS = { batchSize: SMS_BATCH_SIZE, maxTotal: SMS_MAX_TOTAL }
@@ -495,17 +546,21 @@ export async function enqueueSendBatched(
   message: string,
   recipients: string[],
   shopTokens?: ShopTokens,
-  senderId?: string
+  senderId?: string,
+  opts?: EnqueueSendOptions
 ): Promise<BatchedSendResult | EnqueueSendError> {
   // Record-only (sms_policy_enforced = false, the default): exactly the pre-enforcement path.
   if (!(await isPolicyEnforced())) {
     return runSequentialBatches(
       recipients,
-      (chunk) => enqueueSend(userId, accountId, message, chunk, shopTokens, senderId),
+      // opts is forwarded only when given, so the unscheduled call is exactly as before.
+      (chunk) => (opts
+        ? enqueueSend(userId, accountId, message, chunk, shopTokens, senderId, undefined, undefined, opts)
+        : enqueueSend(userId, accountId, message, chunk, shopTokens, senderId)),
       BATCH_OPTS
     )
   }
-  return enforcedSendBatched(userId, accountId, message, recipients, shopTokens, senderId)
+  return enforcedSendBatched(userId, accountId, message, recipients, shopTokens, senderId, opts)
 }
 
 /**
@@ -521,7 +576,8 @@ async function enforcedSendBatched(
   message: string,
   recipients: string[],
   shopTokens?: ShopTokens,
-  senderId?: string
+  senderId?: string,
+  opts?: EnqueueSendOptions
 ): Promise<BatchedSendResult | EnqueueSendError> {
   // Same pre-checks the record-only path applies (runSequentialBatches + enqueueSend), before
   // the evaluation so a cheap refusal never costs a policy read.
@@ -556,7 +612,7 @@ async function enforcedSendBatched(
     await releaseSendLock(accountId, token)
   }
   try {
-    return await enforcedSendLocked(userId, accountId, message, recipients, prepared, sender, release, shopTokens, senderId)
+    return await enforcedSendLocked(userId, accountId, message, recipients, prepared, sender, release, shopTokens, senderId, opts)
   } finally {
     await release()
   }
@@ -571,7 +627,8 @@ async function enforcedSendLocked(
   sender: PolicySender,
   release: () => Promise<void>,
   shopTokens?: ShopTokens,
-  senderId?: string
+  senderId?: string,
+  opts?: EnqueueSendOptions
 ): Promise<BatchedSendResult | EnqueueSendError> {
   const outcome = await evaluateForEnforcement({ accountId, sender, recipientCount: recipients.length, message: prepared })
 
@@ -639,7 +696,7 @@ async function enforcedSendLocked(
           await recordFlagsOnce()
           await release()
         }
-      })
+      }, opts)
     },
     BATCH_OPTS
   )
