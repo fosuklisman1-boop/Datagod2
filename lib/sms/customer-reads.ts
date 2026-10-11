@@ -44,6 +44,30 @@ function isOutOfRange(e: { code?: string; status?: number } | null): boolean {
   return !!e && (e.code === "PGRST103" || e.status === 416)
 }
 
+type ShadowRow = { id: number | string; policy_shadow?: { review?: { outcome?: unknown } } | null }
+const isCancelledShadow = (r: ShadowRow | null | undefined) => r?.policy_shadow?.review?.outcome === "cancelled"
+
+/**
+ * Adds a derived `cancelled` boolean (failed log whose policy_shadow review outcome is "cancelled" —
+ * a customer-cancelled scheduled send) and guarantees policy_shadow is never returned. policy_shadow
+ * is read server-side only; a failed read degrades to cancelled=false (logged), never breaks the page.
+ */
+async function withCancelled(accountId: string, rows: Record<string, unknown>[]): Promise<Record<string, unknown>[]> {
+  const failedIds = rows.filter((r) => r.status === "failed").map((r) => r.id as number | string)
+  const cancelled = new Set<string>()
+  if (failedIds.length > 0) {
+    const { data, error } = await supabaseAdmin.from("sms_send_logs")
+      .select("id, policy_shadow").eq("sms_account_id", accountId).in("id", failedIds)
+    if (error) console.error("[SMS-RECORDS] cancelled lookup failed:", error.message)
+    else for (const r of (Array.isArray(data) ? data : data ? [data] : []) as ShadowRow[]) if (isCancelledShadow(r)) cancelled.add(String(r.id))
+  }
+  return rows.map((r) => {
+    const { policy_shadow: _omit, ...rest } = r as Record<string, unknown> & { policy_shadow?: unknown }
+    void _omit
+    return r.status === "failed" ? { ...rest, cancelled: cancelled.has(String(r.id)) } : rest
+  })
+}
+
 function toLedgerRow(r: Omit<LedgerRow, "label">): LedgerRow {
   return { ...r, label: ledgerLabel(r.reason, r.send_log_id ?? null) }
 }
@@ -120,7 +144,7 @@ export async function listRecords(accountId: string, i: { status: string; page: 
     return { rows: [], total: head.count ?? 0, page, pageSize: RECORDS_PAGE_SIZE }
   }
   if (error) throw new Error(error.message)
-  return { rows: (data ?? []) as unknown as Record<string, unknown>[], total: count ?? 0, page, pageSize: RECORDS_PAGE_SIZE }
+  return { rows: await withCancelled(accountId, (data ?? []) as unknown as Record<string, unknown>[]), total: count ?? 0, page, pageSize: RECORDS_PAGE_SIZE }
 }
 
 export async function listLedger(accountId: string, pageNum: number): Promise<Page<LedgerRow>> {
@@ -174,5 +198,6 @@ export async function getRecord(accountId: string, logId: number) {
     else counts.pending++
     if (m.refunded) counts.refunded++
   }
-  return { log: log as unknown as Record<string, unknown>, messages, counts }
+  const [logOut] = await withCancelled(accountId, [log as unknown as Record<string, unknown>])
+  return { log: logOut, messages, counts }
 }

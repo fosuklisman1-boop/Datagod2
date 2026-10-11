@@ -15,7 +15,7 @@ vi.mock("@supabase/supabase-js", () => ({
       h.ops.push({ table, ops })
       let head = false
       const c: any = {}
-      for (const m of ["select", "eq", "order", "limit", "range", "maybeSingle"]) c[m] = (...args: any[]) => { if (m === "select" && args[1]?.head) head = true; ops.push({ m, args }); return c }
+      for (const m of ["select", "eq", "in", "order", "limit", "range", "maybeSingle"]) c[m] = (...args: any[]) => { if (m === "select" && args[1]?.head) head = true; ops.push({ m, args }); return c }
       c.then = (res: any, rej: any) => Promise.resolve((head ? h.heads[table] : h.tables[table]) ?? { data: null, error: null }).then(res, rej)
       return c
     },
@@ -171,7 +171,8 @@ describe("before the Phase 4 migration (columns missing)", () => {
     missingCols()
     h.tables.sms_messages = { data: [], error: null }
     const r = await getRecord("acct1", 3)
-    expect(r?.log).toEqual([{ id: 3, status: "sent" }])
+    // the fake client returns an array for the single-row read; the log is rebuilt by object spread
+    expect(r?.log).toEqual({ "0": { id: 3, status: "sent" } })
     const sels = opsOf("sms_send_logs").filter((o) => o.m === "select").map((o) => o.args[0] as string)
     expect(sels).toHaveLength(2)
     expect(sels[1]).not.toMatch(/scheduled_for|source/)
@@ -228,6 +229,34 @@ describe("listLedger", () => {
   it("throws on a DB error", async () => {
     h.tables.sms_unit_transactions = { data: null, error: { message: "boom" } }
     await expect(listLedger("acct1", 1)).rejects.toThrow("boom")
+  })
+})
+
+describe("cancelled flag (derived from policy_shadow, which is never exposed)", () => {
+  const shadow = (outcome: string) => ({ review: { outcome } })
+  it("listRecords marks failed logs whose review outcome is cancelled and strips policy_shadow", async () => {
+    h.tables.sms_send_logs = { data: [
+      { id: 5, status: "failed", policy_shadow: shadow("cancelled") },
+      { id: 4, status: "failed", policy_shadow: shadow("rejected") },
+      { id: 3, status: "sent", policy_shadow: shadow("cancelled") },
+    ], error: null, count: 3 }
+    const r = await listRecords("acct1", { status: "", page: 1 })
+    expect(r.rows.map((x) => x.cancelled)).toEqual([true, false, undefined])
+    expect(r.rows.every((x) => !("policy_shadow" in x))).toBe(true)
+    const shadowQ = opsOf("sms_send_logs").find((o) => o.m === "in")!
+    expect(shadowQ.args).toEqual(["id", [5, 4]])
+  })
+  it("getRecord derives cancelled for a failed log", async () => {
+    h.tables.sms_send_logs = { data: { id: 7, status: "failed", policy_shadow: shadow("cancelled") }, error: null }
+    h.tables.sms_messages = { data: [], error: null }
+    const r = await getRecord("acct1", 7)
+    expect(r?.log).toMatchObject({ id: 7, cancelled: true })
+    expect(r?.log).not.toHaveProperty("policy_shadow")
+  })
+  it("a failed policy_shadow read degrades to not cancelled (no throw)", async () => {
+    h.tables.sms_send_logs = { data: [{ id: 5, status: "failed" }], error: null, count: 1 }
+    const r = await listRecords("acct1", { status: "failed", page: 1 })
+    expect(r.rows[0].cancelled).toBe(false)
   })
 })
 
