@@ -227,6 +227,29 @@ describe("migration 20261013_sms_policy_enforcement_2.sql (static contract)", ()
   })
 })
 
+describe("migration 20261015_sms_usage_exclude_rejected.sql (static contract)", () => {
+  const dir = path.join(__dirname, "..", "..", "migrations")
+  const sql = fs.readFileSync(path.join(dir, "20261015_sms_usage_exclude_rejected.sql"), "utf8")
+  const orig = fs.readFileSync(path.join(dir, "20261010_sms_account_usage_rpc.sql"), "utf8")
+  const header = (s: string) => s.slice(s.indexOf("CREATE OR REPLACE FUNCTION"), s.indexOf("AS $$") + 5).replace(/\s+/g, " ")
+  const tail = (s: string) => s.slice(s.indexOf("REVOKE")).replace(/\s+/g, " ").trim()
+
+  it("keeps the exact signature, return type, volatility, security and grants", () => {
+    expect(header(sql)).toBe(header(orig))
+    expect(tail(sql)).toBe(tail(orig))
+  })
+  it("still excludes blocked; now also failed+rejected and failed with 0 credits reserved", () => {
+    expect(sql).toMatch(/status <> 'blocked'/)
+    expect(sql).toMatch(/NOT \(\s*status = 'failed'\s*AND \(\s*COALESCE\(policy_shadow->'review'->>'outcome', ''\) = 'rejected'\s*OR credits_reserved = 0\s*\)\s*\)/)
+  })
+  it("same select list and windows as before", () => {
+    for (const frag of ["count(*) FILTER (WHERE created_at >= now() - interval '1 hour'))::int",
+      "COALESCE(sum(recipients_count), 0)::bigint", "created_at >= now() - interval '24 hours'"]) {
+      expect(sql).toContain(frag)
+    }
+  })
+})
+
 // The SQL itself can't run here (no DB in unit tests); pin the contract the TS relies on.
 describe("migration 20261013_sms_policy_enforcement.sql (static contract)", () => {
   const sql = fs.readFileSync(path.join(__dirname, "..", "..", "migrations", "20261013_sms_policy_enforcement.sql"), "utf8")
