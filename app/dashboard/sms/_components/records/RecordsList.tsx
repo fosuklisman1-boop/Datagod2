@@ -9,8 +9,9 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { smsFetch } from "../../_lib/api"
 import { useSmsAccount } from "../../_lib/useSmsAccount"
-import { RECORD_CHIPS, chipStatus, formatCount, isInFlight, pageCount, timeAgo } from "../../_lib/view"
+import { RECORD_CHIPS, chipStatus, formatCount, formatScheduled, isInFlight, pageCount, timeAgo } from "../../_lib/view"
 import { StatusBadge } from "./StatusBadge"
+import { CancelScheduledButton } from "./CancelScheduledButton"
 
 export interface RecordRow {
   id: number | string
@@ -23,6 +24,10 @@ export interface RecordRow {
   credits_used: number
   created_at: string
   completed_at: string | null
+  scheduled_for?: string | null
+  source?: string | null
+  /** Derived server-side: a failed log that was a cancelled scheduled send. */
+  cancelled?: boolean
 }
 interface RecordsPage { logs: RecordRow[]; total: number; page: number; pageSize: number }
 
@@ -132,19 +137,26 @@ export function RecordsList() {
           )}
           <ul className="space-y-3">
             {rows.map((l) => (
-              <li key={l.id}>
-                <Link href={`/dashboard/sms/records/${l.id}`} className="block rounded-lg border bg-card p-4 transition-colors hover:bg-accent/50">
+              <li key={l.id} className="rounded-lg border bg-card transition-colors hover:bg-accent/50">
+                <Link href={`/dashboard/sms/records/${l.id}`} className="block rounded-lg p-4">
                   <div className="flex items-start justify-between gap-3">
                     <p className="line-clamp-2 min-w-0 break-words text-sm font-medium text-foreground">{l.message}</p>
-                    <StatusBadge status={l.status} />
+                    <StatusBadge status={l.status} cancelled={l.cancelled} />
                   </div>
                   <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                     <span>{formatCount(l.recipients_count)} recipient{l.recipients_count === 1 ? "" : "s"}</span>
                     <span>{formatCount(l.credits_used)}/{formatCount(l.credits_reserved)} credits</span>
                     <span title={new Date(l.created_at).toLocaleString()}>{timeAgo(l.created_at)}</span>
-                    <span>#{l.id}</span>
-                  </div>
+                    <span>#{l.id}</span>                  </div>
                 </Link>
+                {l.status === "scheduled" && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-3">
+                    <span className="text-xs font-medium text-foreground">
+                      Scheduled for {l.scheduled_for ? formatScheduled(l.scheduled_for) : "a later time"}
+                    </span>
+                    <CancelScheduledButton id={l.id} onDone={() => { void load(chip, page) }} />
+                  </div>
+                )}
               </li>
             ))}
           </ul>

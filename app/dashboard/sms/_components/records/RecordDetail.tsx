@@ -2,15 +2,16 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
-import { AlertCircle, ArrowLeft, Clock, Loader2 } from "lucide-react"
+import { AlertCircle, ArrowLeft, CalendarClock, Clock, Loader2 } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { smsFetch } from "../../_lib/api"
-import { formatCount, isInFlight, recipientErrorText, recipientStatus, toneBadgeClass } from "../../_lib/view"
+import { formatCount, formatScheduled, isInFlight, recipientErrorText, recipientStatus, toneBadgeClass } from "../../_lib/view"
 import { StatusBadge } from "./StatusBadge"
+import { CancelScheduledButton } from "./CancelScheduledButton"
 import type { RecordRow } from "./RecordsList"
 
 interface MessageRow {
@@ -78,7 +79,8 @@ export function RecordDetail({ id }: { id: string }) {
   }
 
   const { log, messages, counts } = detail
-  const held = log.status === "held"
+  const scheduled = log.status === "scheduled"
+  const held = log.status === "held" || scheduled // neither has delivery data yet
   const cards: { label: string; value: number; cls: string }[] = [
     { label: "Delivered", value: counts.delivered, cls: "text-emerald-600 dark:text-emerald-300" },
     { label: "Failed", value: counts.failed, cls: "text-red-600 dark:text-red-300" },
@@ -100,7 +102,7 @@ export function RecordDetail({ id }: { id: string }) {
       <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="text-lg font-semibold text-foreground">Campaign #{log.id}</h2>
-          <StatusBadge status={log.status} />
+          <StatusBadge status={log.status} cancelled={log.cancelled} />
         </div>
         <p className="text-xs text-muted-foreground">
           {formatCount(log.recipients_count)} recipient{log.recipients_count === 1 ? "" : "s"} · {formatCount(log.credits_used)}/{formatCount(log.credits_reserved)} credits used · from {log.sender_id || "default sender"} · {new Date(log.created_at).toLocaleString()}
@@ -108,10 +110,22 @@ export function RecordDetail({ id }: { id: string }) {
         <div className="whitespace-pre-wrap break-words rounded-md bg-muted/40 p-3 text-sm">{log.message}</div>
       </div>
 
-      {held && (
+      {log.status === "held" && (
         <Alert className="border-warning/30 bg-warning/10">
           <Clock className="h-4 w-4" />
           <AlertDescription>Under review — we’ll notify you. Nothing more is needed from you.</AlertDescription>
+        </Alert>
+      )}
+
+      {scheduled && (
+        <Alert>
+          <CalendarClock className="h-4 w-4" />
+          <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
+            <span>
+              Scheduled for {log.scheduled_for ? formatScheduled(log.scheduled_for) : "a later time"}. Credits are reserved; you can cancel until then.
+            </span>
+            <CancelScheduledButton id={log.id} onDone={() => { void load() }} />
+          </AlertDescription>
         </Alert>
       )}
 
