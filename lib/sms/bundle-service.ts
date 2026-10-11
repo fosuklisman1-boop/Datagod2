@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js"
-import { bundleVisibleTo, type OwnerType } from "./foundation-rules"
+import { bundleVisibleTo, canPurchaseBundle, type OwnerType } from "./foundation-rules"
 import { getWholesaleCredits } from "./wholesale"
 import { notifyAdminSmsShortfall } from "./notify"
 
@@ -74,6 +74,25 @@ export async function updateBundle(
   return data as Bundle
 }
 
+/** Revenue for the admin "Total Revenue" card (spec §5.8): the GH₵ actually paid, written to the
+ *  ledger row and/or the pending row for this ref. Guarded with amount_ghs IS NULL so a redelivery
+ *  fills a missing amount but never overwrites one. A pending credit carries the amount on its
+ *  pending row; the ledger trigger copies it when the credit settles. Never throws. */
+async function recordRevenue(ref: string | null, amountGhs: number | null): Promise<void> {
+  if (!ref || amountGhs === null || !(amountGhs > 0)) return
+  try {
+    const results = await Promise.all([
+      supabaseAdmin.from("sms_unit_transactions").update({ amount_ghs: amountGhs }).eq("ref", ref).is("amount_ghs", null),
+      supabaseAdmin.from("sms_pending_credits").update({ amount_ghs: amountGhs }).eq("ref", ref).is("amount_ghs", null),
+    ])
+    for (const r of results) {
+      if (r?.error) console.error("[SMS-REVENUE] amount write failed for ref", ref, r.error.message)
+    }
+  } catch (e) {
+    console.error("[SMS-REVENUE] amount write threw for ref", ref, e instanceof Error ? e.message : e)
+  }
+}
+
 /** Issue units through the solvency gate: fetch the live Moolre wholesale balance, then
  *  credit-or-pend atomically. Notifies admin on a shortfall. Shared by all credit paths. */
 async function issueUnits(
@@ -85,14 +104,7 @@ async function issueUnits(
   })
   if (error) return { ok: false, error: "Failed to issue units" }
   const outcome = (data as Array<{ outcome: PurchaseResult["outcome"] }>)?.[0]?.outcome
-  if (ref && amountGhs !== null && amountGhs > 0) {
-    // Revenue for the admin "Total Revenue" card (spec §5.8). A pending credit carries the
-    // amount on its pending row; the ledger trigger copies it when the credit settles.
-    await Promise.all([
-      supabaseAdmin.from("sms_unit_transactions").update({ amount_ghs: amountGhs }).eq("ref", ref).is("amount_ghs", null),
-      supabaseAdmin.from("sms_pending_credits").update({ amount_ghs: amountGhs }).eq("ref", ref).is("amount_ghs", null),
-    ])
-  }
+  await recordRevenue(ref, amountGhs)
   if (outcome === "pending") {
     notifyAdminSmsShortfall(units).catch(() => {})
     return { ok: true, outcome, unitsCredited: 0, pending: true }
@@ -136,6 +148,8 @@ export async function purchaseBundleViaWallet(userId: string, accountId: string,
   if (b.mode !== ((acct as { mode?: string } | null)?.mode ?? "platform")) {
     return { ok: false, error: "This bundle isn't available for your account mode" }
   }
+  const visible = canPurchaseBundle(b, ((acct as { owner_type?: string } | null)?.owner_type ?? "shop") as OwnerType)
+  if (!visible.ok) return { ok: false, error: visible.reason }
 
   const { data: debit, error: debitErr } = await supabaseAdmin.rpc("deduct_wallet", { p_user_id: userId, p_amount: b.price_ghs })
   if (debitErr) return { ok: false, error: "Wallet debit failed" }
@@ -152,6 +166,7 @@ export async function purchaseBundleViaWallet(userId: string, accountId: string,
       await supabaseAdmin.rpc("deduct_wallet", { p_user_id: userId, p_amount: -b.price_ghs }) // refund
       return { ok: false, error: "Failed to credit units (refunded)" }
     }
+    await recordRevenue(ref, Number(b.price_ghs))
     return { ok: true, outcome: landed, unitsCredited: landed === "credited" ? b.units : 0, pending: landed === "pending" }
   }
   return res
@@ -206,6 +221,7 @@ export async function purchaseUnitsByQuantity(
       await supabaseAdmin.rpc("deduct_wallet", { p_user_id: userId, p_amount: -cost }) // refund
       return { ok: false, error: "Failed to credit units (refunded)" }
     }
+    await recordRevenue(ref, cost)
     return { ok: true, outcome: landed, unitsCredited: landed === "credited" ? credits : 0, pending: landed === "pending", cost }
   }
   return { ...res, cost }

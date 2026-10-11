@@ -32,16 +32,25 @@ export async function POST(request: NextRequest) {
   // entirely (per-tenant sms_accounts, not simulated here) -- test mode
   // skips the real account/credits requirement and never actually queues
   // anything, rather than trying to fake a second parallel credits system.
-  const account = user.environment === "test" ? null : await getOrCreateAccountForUser(user.id)
-  // Limit = the account's override, else the admin-set platform default.
+  // The rate limit is applied BEFORE account get-or-create (which writes), so a throttled caller
+  // can't churn account creation. Limit = the account's override (cheap read; none yet → null),
+  // else the admin-set platform default. Test keys have no account and use the default.
   const { apiRateLimitDefault } = await loadSmsSettings()
-  const postLimit = apiRateLimitFor(account?.api_rate_limit_override, apiRateLimitDefault)
+  let override: number | null = null
+  if (user.environment !== "test") {
+    const { data: row } = await supabaseAdmin
+      .from("sms_accounts").select("api_rate_limit_override").eq("user_id", user.id).maybeSingle()
+    override = (row as { api_rate_limit_override?: number | null } | null)?.api_rate_limit_override ?? null
+  }
+  const postLimit = apiRateLimitFor(override, apiRateLimitDefault)
   const rateLimit = await applyRateLimit(request, "v1_sms_send_post", postLimit, 60 * 1000, user.id)
   if (!rateLimit.allowed) {
     return NextResponse.json({ success: false, error: `Rate limit exceeded. Your current limit is ${postLimit} requests/minute.` }, { status: 429 })
   }
+
+  const account = user.environment === "test" ? null : await getOrCreateAccountForUser(user.id)
   if (user.environment !== "test" && !account) {
-    return NextResponse.json({ success: false, error: "No SMS account for this API key's owner (requires a shop, sub-agent, or admin account)" }, { status: 403 })
+    return NextResponse.json({ success: false, error: "No SMS account for this API key's owner (SMS isn't enabled for this account type)" }, { status: 403 })
   }
 
   let body: any

@@ -13,7 +13,9 @@ const h = vi.hoisted(() => {
     refInPending: false, // ref already landed in sms_pending_credits
     pricePerCredit: 0.05, // sms_price_per_credit setting
     calls: [] as { fn: string; args: any }[],
-    updates: [] as { table: string; patch: any; ref: any }[],
+    updates: [] as { table: string; patch: any; ref: any; col?: string; val?: any }[],
+    updateError: false,
+    duplicate: false,
   }
   const bundleRow = { id: "b1", name: "5k", units: 5000, price_ghs: 150, owner_type_scope: "all", active: true, mode: "platform", sort_order: 0 }
   const notifySpy = vi.fn()
@@ -33,6 +35,7 @@ const h = vi.hoisted(() => {
       }
       if (fn === "credit_sms_units_if_solvent") {
         if (state.creditError) return Promise.resolve({ data: null, error: { message: "boom" } })
+        if (state.duplicate) return Promise.resolve({ data: [{ outcome: "duplicate", balance_after: null }], error: null })
         if (args.p_units <= state.wholesale) {
           return Promise.resolve({ data: [{ outcome: "credited", balance_after: args.p_units }], error: null })
         }
@@ -43,7 +46,10 @@ const h = vi.hoisted(() => {
     from: (table: string) => ({
       update: (patch: any) => ({
         eq: (_c: string, ref: any) => ({
-          is: () => { state.updates.push({ table, patch, ref }); return Promise.resolve({ data: null, error: null }) },
+          is: (col: string, val: any) => {
+            state.updates.push({ table, patch, ref, col, val })
+            return Promise.resolve({ data: null, error: state.updateError ? { message: "upd boom" } : null })
+          },
         }),
       }),
       select: () => ({
@@ -81,6 +87,9 @@ import { purchaseBundleViaWallet, purchaseUnitsByQuantity, quoteCredits, getPric
 beforeEach(() => {
   h.state.calls.length = 0
   h.state.updates.length = 0
+  h.state.updateError = false
+  h.state.duplicate = false
+  h.bundleRow.owner_type_scope = "all"
   delete (h.fake as any)._accountMode
   h.bundleRow.mode = "platform"
   h.state.creditError = false
@@ -209,6 +218,51 @@ describe("per-mode bundles + revenue", () => {
     await creditUnitsForPaystack("acc1", 100, "ps-ref", 12.5)
     expect(h.state.updates).toHaveLength(2)
     expect(h.state.updates.every((u) => u.patch.amount_ghs === 12.5 && u.ref === "ps-ref")).toBe(true)
+  })
+
+  it("revenue writes are guarded with amount_ghs IS NULL (never overwrite)", async () => {
+    h.state.walletBalance = 200; h.state.wholesale = 1_000_000
+    await purchaseBundleViaWallet("u1", "acc1", "b1")
+    expect(h.state.updates.length).toBe(2)
+    expect(h.state.updates.every((u) => u.col === "amount_ghs" && u.val === null)).toBe(true)
+  })
+
+  it("duplicate Paystack redelivery still attempts the guarded fill", async () => {
+    h.state.duplicate = true
+    const res = await creditUnitsForPaystack("acc1", 100, "ps-dup", 20)
+    expect(res.outcome).toBe("duplicate")
+    expect(h.state.updates).toHaveLength(2)
+    expect(h.state.updates.every((u) => u.patch.amount_ghs === 20 && u.col === "amount_ghs" && u.val === null)).toBe(true)
+  })
+
+  it("an update error is logged, not thrown, and the purchase still succeeds", async () => {
+    h.state.walletBalance = 200; h.state.wholesale = 1_000_000; h.state.updateError = true
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const res = await purchaseBundleViaWallet("u1", "acc1", "b1")
+    expect(res.ok).toBe(true)
+    expect(spy).toHaveBeenCalled()
+    spy.mockRestore()
+  })
+
+  it("landed branch (RPC errored but credit landed) still records the amount", async () => {
+    h.state.walletBalance = 200; h.state.wholesale = 1_000_000; h.state.creditError = true; h.state.refInTx = true
+    await purchaseBundleViaWallet("u1", "acc1", "b1")
+    expect(h.state.updates).toHaveLength(2)
+    expect(h.state.updates.every((u) => u.patch.amount_ghs === 150)).toBe(true)
+    h.state.updates.length = 0
+    h.state.pricePerCredit = 0.05
+    await purchaseUnitsByQuantity("u1", "acc1", 100)
+    expect(h.state.updates.every((u) => u.patch.amount_ghs === 5)).toBe(true)
+    expect(h.state.updates.length).toBe(2)
+  })
+
+  it("inactive or out-of-scope bundle is refused before any debit", async () => {
+    h.state.walletBalance = 200; h.state.wholesale = 1_000_000
+    h.bundleRow.owner_type_scope = "sub_agent"
+    const res = await purchaseBundleViaWallet("u1", "acc1", "b1")
+    h.bundleRow.owner_type_scope = "all"
+    expect(res.ok).toBe(false)
+    expect(h.state.calls.filter((c) => c.fn === "deduct_wallet")).toHaveLength(0)
   })
 
   it("admin allocation never records revenue", async () => {
