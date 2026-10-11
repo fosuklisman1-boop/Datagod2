@@ -1,4 +1,7 @@
 // Pure helpers for the customer SMS pages. No React, no I/O — unit-tested in view.test.ts.
+// kyc-rules and sender-name are pure (no server imports), so client and server share one set of rules.
+import { validateKycDraft, docExtension, type KycStatus } from "@/lib/sms/kyc-rules"
+import { validateSenderName, SENDER_NAME_MAX } from "@/lib/sms/sender-name"
 
 export interface ShopTokens { shop_name: string; shop_link: string; shop_phone: string; shop_whatsapp: string }
 export type VerifyStatus = "unverified" | "pending" | "verified" | "invalid"
@@ -247,4 +250,111 @@ export function recipientStatus(m: { status: string; delivery_status?: string | 
   if (m.status === "sent") return { label: "Sent", tone: "info" }
   if (m.status === "claimed") return { label: "Sending", tone: "info" }
   return { label: "Queued", tone: "muted" }
+}
+
+// ─── Business & Sender ID ─────────────────────────────────────────────────
+export type SenderStatus = "pending" | "active" | "rejected" | "paused" | "revoked"
+export const SENDER_OPEN_STATUSES: string[] = ["pending", "active", "paused"]
+
+const SENDER_STATUS_META: Record<string, { label: string; tone: Tone }> = {
+  pending: { label: "Under review", tone: "warning" }, active: { label: "Active", tone: "success" },
+  rejected: { label: "Rejected", tone: "danger" }, paused: { label: "Paused", tone: "muted" },
+  revoked: { label: "Revoked", tone: "danger" },
+}
+export function senderStatus(s: string): { label: string; tone: Tone } {
+  return SENDER_STATUS_META[s] ?? { label: s, tone: "muted" }
+}
+
+/** Mirrors senderLimitFor in sender-rules-service (the server enforces; this only hides the form). */
+export const senderLimit = (mode: "platform" | "business" | null | undefined) => (mode === "business" ? 200 : 1)
+
+export function openSenderCount(rows: { local_status: string }[]): number {
+  return rows.filter((r) => SENDER_OPEN_STATUSES.includes(r.local_status)).length
+}
+
+/** null = may request; otherwise the customer-facing reason the request form is hidden. */
+export function senderRequestBlock(mode: "platform" | "business" | null | undefined, rows: { local_status: string }[]): string | null {
+  if (openSenderCount(rows) < senderLimit(mode)) return null
+  return mode === "business"
+    ? "You've reached the limit of 200 sender IDs."
+    : "Platform mode includes one free sender ID. Verify your business to request up to 200."
+}
+
+/** Uppercase, letters/digits/spaces only, max 11 (the input constraint). */
+export function formatSenderInput(raw: string): string {
+  return raw.toUpperCase().replace(/[^A-Z0-9 ]/g, "").slice(0, SENDER_NAME_MAX)
+}
+
+/** Client-side format check. Protected-name rules are server-only and surface on request. */
+export function checkSenderInput(raw: string): { ok: true; name: string } | { ok: false; reason: string } {
+  return validateSenderName(raw, [])
+}
+
+export interface KycForm { business_name: string; description: string; website: string; whatsapp_number: string; ghana_card_number: string }
+export const EMPTY_KYC_FORM: KycForm = { business_name: "", description: "", website: "", whatsapp_number: "", ghana_card_number: "" }
+
+export interface KycProfileView {
+  status: KycStatus; business_name: string | null; description: string | null; website: string | null
+  whatsapp_number: string | null; ghana_card_last4: string | null; rejection_reason?: string | null
+  has_ghana_card_doc: boolean; has_registration_doc: boolean
+}
+
+/** Pre-fill the form from a saved profile. The card number is never returned, so it starts blank. */
+export function kycFormFromProfile(p: KycProfileView | null): KycForm {
+  if (!p) return { ...EMPTY_KYC_FORM }
+  return {
+    business_name: p.business_name ?? "", description: p.description ?? "", website: p.website ?? "",
+    whatsapp_number: p.whatsapp_number ?? "", ghana_card_number: "",
+  }
+}
+
+export const cardEnding = (last4: string | null | undefined) => (last4 ? `ID ending ${last4}` : null)
+
+/** Payload for PUT /api/sms/business: only fields with content, plus website (so it can be cleared). */
+export function kycPayload(f: KycForm): Record<string, string> {
+  const out: Record<string, string> = { website: f.website }
+  for (const k of ["business_name", "description", "whatsapp_number", "ghana_card_number"] as const) {
+    if (f[k].trim()) out[k] = f[k]
+  }
+  return out
+}
+
+/** Field errors for what has been typed (empty fields are skipped; kycSubmitGaps covers required ones). */
+export function kycFieldErrors(f: KycForm): Record<string, string> {
+  const r = validateKycDraft(kycPayload(f))
+  return r.ok ? {} : r.errors
+}
+
+/** Required items still missing before Submit is meaningful. */
+export function kycSubmitGaps(f: KycForm, p: KycProfileView | null): string[] {
+  const gaps: string[] = []
+  if (!f.business_name.trim()) gaps.push("Business name")
+  if (!f.description.trim()) gaps.push("Description")
+  if (!f.whatsapp_number.trim()) gaps.push("WhatsApp number")
+  if (!f.ghana_card_number.trim() && !p?.ghana_card_last4) gaps.push("Ghana Card number")
+  if (!p?.has_ghana_card_doc) gaps.push("Ghana Card photo")
+  return gaps
+}
+
+/** Client pre-check of a chosen document (type/size), same rules as the server. */
+export function checkKycFile(file: { type: string; size: number }): string | null {
+  const r = docExtension(file.type, file.size)
+  return r.ok ? null : r.error
+}
+
+/** Editable with no application, a draft, or after a rejection (saving then starts a fresh draft). */
+export const kycEditable = (status: KycStatus | null | undefined) => !status || status === "draft" || status === "rejected"
+
+export const STEPPER_LABELS = ["Register", "In review", "Approved", "Sender ID"] as const
+export type StepState = "done" | "current" | "todo" | "error"
+
+/** Register -> In review -> Approved -> Sender ID, from the KYC status and whether an own sender is active. */
+export function kycSteps(status: KycStatus | null | undefined, hasActiveSender: boolean): { label: string; state: StepState }[] {
+  let current = 0
+  if (status === "submitted") current = 1
+  else if (status === "approved") current = hasActiveSender ? 4 : 3
+  return STEPPER_LABELS.map((label, i) => {
+    if (status === "rejected" && i === 0) return { label, state: "error" as StepState }
+    return { label, state: (i < current ? "done" : i === current ? "current" : "todo") as StepState }
+  })
 }
