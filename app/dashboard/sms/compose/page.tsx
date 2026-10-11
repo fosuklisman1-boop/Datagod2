@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { smsFetch } from "../_lib/api"
 import { useSmsAccount } from "../_lib/useSmsAccount"
-import { addNumbers, costSummary, fromLocalInputValue, resolveTokens, scheduleError, sendErrorMessage, sendOutcomeMessage, MAX_RECIPIENTS, type ShopTokens } from "../_lib/view"
+import { addNumbers, costSummary, formatScheduled, fromLocalInputValue, resolveTokens, scheduleError, sendErrorMessage, sendOutcomeMessage, MAX_RECIPIENTS, type ShopTokens } from "../_lib/view"
 import { SchedulePicker } from "../_components/compose/SchedulePicker"
 import { SmsShell } from "../_components/SmsShell"
 import { RecipientsPicker } from "../_components/compose/RecipientsPicker"
@@ -262,13 +262,14 @@ export default function SmsComposePage() {
           <AlertDialog open={sendConfirm.open} onOpenChange={(o) => setSendConfirm((c) => ({ ...c, open: o }))}>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Send to this group?</AlertDialogTitle>
+                <AlertDialogTitle>{sendLater ? "Schedule to this group?" : "Send to this group?"}</AlertDialogTitle>
                 <AlertDialogDescription asChild>
                   {sendConfirm.loading ? (
                     <div className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Checking group size…</div>
                   ) : (
                     <div>
-                      This will send to <span className="font-medium text-foreground">{confirmTotal}</span> recipient{confirmTotal === 1 ? "" : "s"}
+                      {sendLater && scheduleIso ? <span className="mb-2 block">Scheduled for <span className="font-medium text-foreground">{formatScheduled(scheduleIso)}</span>.</span> : null}
+                      This will {sendLater ? "schedule a send to" : "send to"} <span className="font-medium text-foreground">{confirmTotal}</span> recipient{confirmTotal === 1 ? "" : "s"}
                       {recipients.length > 0 ? <> ({sendConfirm.sentCount} from the group + {recipients.length} typed)</> : null}
                       {confirmTotal > 500 ? <> — auto-split into <span className="font-medium text-foreground">{confirmBatches}</span> batches of up to 500</> : null} for about <span className="font-medium text-foreground">{confirmCost}</span> credit{confirmCost === 1 ? "" : "s"} (opted-out numbers skipped; duplicates merged).
                       {sendConfirm.activeCount > sendConfirm.sentCount && (
@@ -281,7 +282,7 @@ export default function SmsComposePage() {
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
                 <AlertDialogAction onClick={doSend} disabled={sendConfirm.loading || confirmTotal === 0}>
-                  Send to {confirmTotal}
+                  {sendLater ? "Schedule to" : "Send to"} {confirmTotal}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>

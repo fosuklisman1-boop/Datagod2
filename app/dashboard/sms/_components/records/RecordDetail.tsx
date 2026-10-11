@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { smsFetch } from "../../_lib/api"
-import { formatCount, formatScheduled, isInFlight, recipientErrorText, recipientStatus, toneBadgeClass } from "../../_lib/view"
+import { formatCount, formatScheduled, isCancelledLog, isInFlight, recipientErrorText, recipientStatus, toneBadgeClass } from "../../_lib/view"
 import { StatusBadge } from "./StatusBadge"
 import { CancelScheduledButton } from "./CancelScheduledButton"
 import type { RecordRow } from "./RecordsList"
@@ -81,9 +81,11 @@ export function RecordDetail({ id }: { id: string }) {
   const { log, messages, counts } = detail
   const scheduled = log.status === "scheduled"
   const held = log.status === "held" || scheduled // neither has delivery data yet
+  const cancelled = isCancelledLog(log)
+  // Cancelling marks every message failed + refunded, so the Failed card would mislead.
   const cards: { label: string; value: number; cls: string }[] = [
     { label: "Delivered", value: counts.delivered, cls: "text-emerald-600 dark:text-emerald-300" },
-    { label: "Failed", value: counts.failed, cls: "text-red-600 dark:text-red-300" },
+    ...(cancelled ? [] : [{ label: "Failed", value: counts.failed, cls: "text-red-600 dark:text-red-300" }]),
     { label: "Pending", value: counts.pending, cls: "text-foreground" },
     { label: "Refunded", value: counts.refunded, cls: "text-muted-foreground" },
   ]
@@ -114,6 +116,12 @@ export function RecordDetail({ id }: { id: string }) {
         <Alert className="border-warning/30 bg-warning/10">
           <Clock className="h-4 w-4" />
           <AlertDescription>Under review — we’ll notify you. Nothing more is needed from you.</AlertDescription>
+        </Alert>
+      )}
+
+      {cancelled && (
+        <Alert>
+          <AlertDescription>Cancelled before sending — {formatCount(log.credits_reserved)} credit{log.credits_reserved === 1 ? "" : "s"} refunded.</AlertDescription>
         </Alert>
       )}
 
