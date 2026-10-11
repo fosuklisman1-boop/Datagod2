@@ -8,6 +8,8 @@ const h = vi.hoisted(() => ({
   backlog: 0 as unknown, backlogError: null as unknown,
   calls: [] as { m: string; args: unknown[] }[],
   queries: 0, lowThreshold: 50,
+  manual: null as null | { amountGhs: number; setAt: string; setBy: string },
+  spend: 0 as unknown, spendError: null as unknown,
 }))
 vi.mock("./routing", () => ({
   getRoutingConfig: () => (h.routingThrows ? Promise.reject(new Error("db down")) : Promise.resolve({ primary: h.primary, fallbacks: [] })),
@@ -15,13 +17,17 @@ vi.mock("./routing", () => ({
 vi.mock("./providers/hubtel", () => ({ hubtelConfigFromEnv: () => h.hubtelCfg }))
 vi.mock("@/lib/ussd-hubtel/relay", () => ({ fetchDisbursementBalance: () => Promise.resolve(h.balance) }))
 vi.mock("@/lib/sms-service", () => ({ queryMoolreSmsBalance: () => Promise.resolve(h.moolre) }))
-vi.mock("./platform-settings", () => ({ loadSmsSettings: () => Promise.resolve({ hubtelCostPerSms: 0.035, hubtelLowBalanceGhs: h.lowThreshold }) }))
+vi.mock("./platform-settings", () => ({ loadSmsSettings: () => Promise.resolve({ hubtelCostPerSms: 0.035, hubtelLowBalanceGhs: h.lowThreshold, hubtelManualBalance: h.manual }) }))
 vi.mock("./notify", () => ({
   notifyAdminsThrottled: (type: string, _t: string, message: string) => { h.alerts.push({ type, message }); return Promise.resolve() },
 }))
 vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
-    rpc: (name: string) => {
+    rpc: (name: string, params?: unknown) => {
+      if (name === "sms_hubtel_spend_since") {
+        h.calls.push({ m: "rpc", args: [name, params] })
+        return Promise.resolve({ data: h.spend, error: h.spendError })
+      }
       h.calls.push({ m: "rpc", args: [name] })
       return Promise.resolve({ data: h.backlog, error: h.backlogError })
     },
@@ -39,12 +45,16 @@ vi.mock("@supabase/supabase-js", () => ({
   }),
 }))
 
-import { backedCredits, getWholesaleCredits, resetObservedRateCache, composeHubtelSnapshot, getWholesaleSnapshot } from "./wholesale"
+import { backedCredits, getWholesaleCredits, resetObservedRateCache, composeHubtelSnapshot, getWholesaleSnapshot, resolveHubtelBalance } from "./wholesale"
+
+const hoursAgo = (n: number) => new Date(Date.now() - n * 3_600_000).toISOString()
+const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString()
 
 beforeEach(() => {
   h.primary = "hubtel"; h.hubtelCfg = {}; h.balance = { ok: true, amountGhs: 35 }; h.observed = null
   h.observedError = null; h.routingThrows = false; h.alerts = []; h.backlog = 0; h.backlogError = null
   h.calls = []; h.queries = 0; h.lowThreshold = 50
+  h.manual = null; h.spend = 0; h.spendError = null
   resetObservedRateCache()
   vi.spyOn(console, "error").mockImplementation(() => {})
 })
@@ -199,7 +209,7 @@ describe("getWholesaleSnapshot", () => {
   })
   it("hubtel live path: observed rate preferred over the settings cost", async () => {
     h.observed = 0.05
-    expect(await getWholesaleSnapshot()).toEqual({ provider: "hubtel", backedCredits: 700, balanceGhs: 35, ratePerSms: 0.05, queuedUnsent: 0 })
+    expect(await getWholesaleSnapshot()).toEqual({ provider: "hubtel", backedCredits: 700, balanceGhs: 35, ratePerSms: 0.05, queuedUnsent: 0, balanceSource: "relay" })
   })
   it("hubtel live path: rate lookup failure → 0 with 'Rate lookup failed'", async () => {
     h.observedError = { message: "timeout" }
@@ -222,5 +232,117 @@ describe("getWholesaleSnapshot", () => {
     const s = await getWholesaleSnapshot()
     expect(s.backedCredits).toBe(0)
     expect(s.error).toBeTruthy()
+  })
+})
+
+describe("resolveHubtelBalance", () => {
+  it("relay works → relay balance, no manual lookup (the real balance always wins)", async () => {
+    h.manual = { amountGhs: 999, setAt: hoursAgo(1), setBy: "a" }
+    expect(await resolveHubtelBalance()).toEqual({ ok: true, amountGhs: 35, source: "relay" })
+    expect(h.calls.some(c => c.args[0] === "sms_hubtel_spend_since")).toBe(false)
+  })
+  it("relay fails, no manual balance → unavailable with the relay error (today's behaviour)", async () => {
+    h.balance = { ok: false, error: "relay/hubtel 403" }
+    expect(await resolveHubtelBalance()).toEqual({ ok: false, error: "relay/hubtel 403" })
+  })
+  it("relay fails, fresh manual → amount − spend since setAt, source manual", async () => {
+    h.balance = { ok: false, error: "403" }
+    const setAt = hoursAgo(3)
+    h.manual = { amountGhs: 100, setAt, setBy: "a" }; h.spend = "12.5"
+    expect(await resolveHubtelBalance()).toEqual({ ok: true, amountGhs: 87.5, source: "manual", manualSetAt: setAt })
+    expect(h.calls).toContainEqual({ m: "rpc", args: ["sms_hubtel_spend_since", { p_since: setAt, p_default_rate: 0.035 }] })
+  })
+  it("default rate for unknown costs = the highest observed rate when one exists", async () => {
+    h.balance = { ok: false, error: "403" }; h.observed = 0.05
+    h.manual = { amountGhs: 100, setAt: hoursAgo(3), setBy: "a" }
+    await resolveHubtelBalance()
+    const call = h.calls.find(c => c.args[0] === "sms_hubtel_spend_since")
+    expect((call?.args[1] as { p_default_rate: number }).p_default_rate).toBe(0.05)
+  })
+  it("estimate is floored at 0", async () => {
+    h.balance = { ok: false, error: "403" }
+    h.manual = { amountGhs: 10, setAt: hoursAgo(3), setBy: "a" }; h.spend = 40
+    expect(await resolveHubtelBalance()).toMatchObject({ ok: true, amountGhs: 0, source: "manual" })
+  })
+  it("manual older than 30 days is ignored → unavailable, says why", async () => {
+    h.balance = { ok: false, error: "403" }
+    h.manual = { amountGhs: 100, setAt: daysAgo(31), setBy: "a" }
+    const r = await resolveHubtelBalance()
+    expect(r.ok).toBe(false)
+    expect(!r.ok && r.error).toMatch(/^403.*older than 30 days/)
+    expect(h.calls.some(c => c.args[0] === "sms_hubtel_spend_since")).toBe(false)
+  })
+  it("spend query error → fails CLOSED (unavailable), never 'nothing spent'", async () => {
+    h.balance = { ok: false, error: "403" }
+    h.manual = { amountGhs: 100, setAt: hoursAgo(3), setBy: "a" }; h.spendError = { message: "function does not exist" }
+    const r = await resolveHubtelBalance()
+    expect(r.ok).toBe(false)
+    expect(!r.ok && r.error).toContain("function does not exist")
+  })
+  it.each([[null], [undefined], ["abc"], [-3]])("spend value %s → fails closed", async (spend) => {
+    h.balance = { ok: false, error: "403" }
+    h.manual = { amountGhs: 100, setAt: hoursAgo(3), setBy: "a" }; h.spend = spend
+    expect((await resolveHubtelBalance()).ok).toBe(false)
+  })
+  it("observed-rate lookup error → fails closed (no possibly-lower rate)", async () => {
+    h.balance = { ok: false, error: "403" }; h.observedError = { message: "timeout" }
+    h.manual = { amountGhs: 100, setAt: hoursAgo(3), setBy: "a" }
+    expect((await resolveHubtelBalance()).ok).toBe(false)
+    expect(h.calls.some(c => c.args[0] === "sms_hubtel_spend_since")).toBe(false)
+  })
+})
+
+describe("getWholesaleCredits with a manual balance", () => {
+  it("relay down + fresh manual → credits from the estimate minus the backlog, no 'unavailable' alert", async () => {
+    h.balance = { ok: false, error: "403" }; h.lowThreshold = 0
+    h.manual = { amountGhs: 40, setAt: hoursAgo(2), setBy: "a" }; h.spend = 5; h.backlog = 100
+    expect(await getWholesaleCredits()).toBe(900) // floor(35 / 0.035) − 100
+    expect(h.alerts.map(a => a.type)).not.toContain("sms_hubtel_balance_unavailable")
+  })
+  it("relay down + spend query fails → 0 and alerts", async () => {
+    h.balance = { ok: false, error: "403" }
+    h.manual = { amountGhs: 40, setAt: hoursAgo(2), setBy: "a" }; h.spendError = { message: "boom" }
+    expect(await getWholesaleCredits()).toBe(0)
+    expect(h.alerts.map(a => a.type)).toContain("sms_hubtel_balance_unavailable")
+  })
+  it("relay down + stale manual → 0", async () => {
+    h.balance = { ok: false, error: "403" }
+    h.manual = { amountGhs: 40, setAt: daysAgo(45), setBy: "a" }
+    expect(await getWholesaleCredits()).toBe(0)
+  })
+  it("relay up wins over the manual balance", async () => {
+    h.manual = { amountGhs: 1, setAt: hoursAgo(2), setBy: "a" }
+    expect(await getWholesaleCredits()).toBe(1000)
+  })
+  it("the unavailable alert mentions the manual fallback option", async () => {
+    h.balance = { ok: false, error: "x" }
+    await getWholesaleCredits()
+    expect(h.alerts.find(a => a.type === "sms_hubtel_balance_unavailable")?.message).toMatch(/manual Hubtel balance/i)
+  })
+  it("low-balance alert on a manual estimate says it is an estimate", async () => {
+    h.balance = { ok: false, error: "403" }
+    h.manual = { amountGhs: 10, setAt: hoursAgo(2), setBy: "a" }
+    await getWholesaleCredits()
+    expect(h.alerts.find(a => a.type === "sms_hubtel_low_balance")?.message).toMatch(/estimate/i)
+  })
+})
+
+describe("getWholesaleSnapshot with a manual balance", () => {
+  it("relay down + fresh manual → hubtel snapshot from the estimate, balanceSource manual + setAt", async () => {
+    h.balance = { ok: false, error: "403" }
+    const setAt = hoursAgo(2)
+    h.manual = { amountGhs: 40, setAt, setBy: "a" }; h.spend = 5; h.backlog = 100
+    expect(await getWholesaleSnapshot()).toEqual({
+      provider: "hubtel", backedCredits: 900, balanceGhs: 35, ratePerSms: 0.035, queuedUnsent: 100,
+      balanceSource: "manual", manualSetAt: setAt,
+    })
+  })
+  it("relay down + spend failure → 0 with an error, no balanceSource", async () => {
+    h.balance = { ok: false, error: "403" }
+    h.manual = { amountGhs: 40, setAt: hoursAgo(2), setBy: "a" }; h.spendError = { message: "boom" }
+    const s = await getWholesaleSnapshot()
+    expect(s.backedCredits).toBe(0)
+    expect(s.error).toContain("boom")
+    expect(s.balanceSource).toBeUndefined()
   })
 })
