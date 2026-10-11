@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 
 const h = vi.hoisted(() => ({
   rpcData: [] as any[], rpcError: null as null | { message: string }, rpcCalls: [] as { fn: string; args: any }[],
-  tableResult: { data: null as any, error: null as null | { message: string } },
+  // one queued result per from() call (shifted in order); falls back to the last one
+  tableResults: [{ data: null as any, error: null as null | { message: string } }],
   ops: [] as { table: string; ops: { m: string; args: any[] }[] }[],
   dismiss: vi.fn(), suspend: vi.fn(), audit: vi.fn(() => Promise.resolve()),
 }))
@@ -12,9 +13,10 @@ vi.mock("@supabase/supabase-js", () => ({
     from: (table: string) => {
       const ops: { m: string; args: any[] }[] = []
       h.ops.push({ table, ops })
+      const result = h.tableResults.length > 1 ? h.tableResults.shift()! : h.tableResults[0]
       const c: any = {}
       for (const m of ["select", "update", "eq", "is", "in", "maybeSingle", "single"]) c[m] = (...args: any[]) => { ops.push({ m, args }); return c }
-      c.then = (res: any, rej: any) => Promise.resolve(h.tableResult).then(res, rej)
+      c.then = (res: any, rej: any) => Promise.resolve(result).then(res, rej)
       return c
     },
   }),
@@ -25,13 +27,14 @@ import { PAGE_SIZE, parsePage, cleanQuery, listMessages, listAccounts, listFlags
 
 beforeEach(() => {
   h.rpcData = []; h.rpcError = null; h.rpcCalls = []; h.ops = []
-  h.tableResult = { data: null, error: null }
+  h.tableResults = [{ data: null, error: null }]
   h.dismiss.mockReset(); h.suspend.mockReset(); h.audit.mockClear()
 })
 
 describe("parsePage / cleanQuery", () => {
   it("defaults to page 1 for junk", () => { for (const v of [null, "", "abc", "0", "-3", "1.5"]) expect(parsePage(v)).toBe(1) })
   it("parses a positive integer", () => expect(parsePage("4")).toBe(4))
+  it("clamps huge pages", () => expect(parsePage("99999999")).toBe(100000))
   it("trims and caps the search text", () => {
     expect(cleanQuery("  hello  ")).toBe("hello")
     expect(cleanQuery("x".repeat(300))).toHaveLength(100)
@@ -74,6 +77,8 @@ describe("listAccounts / listFlags", () => {
 
 describe("actOnFlag", () => {
   const UUID = "11111111-1111-4111-8111-111111111111"
+  const OPEN_FLAG = { data: { sms_account_id: "acct1", status: "open" }, error: null }
+  const OWNER = { data: { user_id: "owner1" }, error: null }
   it("dismiss a legacy flag delegates to dismissFlag", async () => {
     h.dismiss.mockResolvedValue({ ok: true })
     expect(await actOnFlag("admin1", "legacy", "42", "dismiss")).toEqual({ ok: true })
@@ -84,7 +89,7 @@ describe("actOnFlag", () => {
     expect(await actOnFlag("admin1", "legacy", "42", "dismiss")).toEqual({ ok: false, error: "Log entry is not flagged" })
   })
   it("dismiss an sms_flags row updates it guarded on status=open and audits", async () => {
-    h.tableResult = { data: [{ id: UUID }], error: null }
+    h.tableResults = [{ data: [{ id: UUID }], error: null }]
     expect(await actOnFlag("admin1", "flag", UUID, "dismiss")).toEqual({ ok: true })
     const o = h.ops[0]
     expect(o.table).toBe("sms_flags")
@@ -93,19 +98,63 @@ describe("actOnFlag", () => {
     expect(h.audit).toHaveBeenCalledWith("admin1", "sms_flag_dismiss", null, expect.anything(), expect.anything())
   })
   it("dismiss with no matching open row → error", async () => {
-    h.tableResult = { data: [], error: null }
+    h.tableResults = [{ data: [], error: null }]
     expect((await actOnFlag("admin1", "flag", UUID, "dismiss")).ok).toBe(false)
   })
   it("suspend looks up the account, suspends it, then marks the flag actioned", async () => {
-    h.tableResult = { data: { sms_account_id: "acct1" }, error: null }
+    h.tableResults = [OPEN_FLAG, OWNER, { data: [{ id: UUID }], error: null }]
     h.suspend.mockResolvedValue({ ok: true, newStatus: "suspended" })
     expect(await actOnFlag("admin1", "flag", UUID, "suspend")).toEqual({ ok: true })
     expect(h.suspend).toHaveBeenCalledWith("admin1", "acct1", true)
     const updates = h.ops.filter((o) => o.ops.some((x) => x.m === "update"))
+    expect(updates).toHaveLength(1)
+    expect(updates[0].table).toBe("sms_flags")
     expect(updates[0].ops.find((x) => x.m === "update")!.args[0]).toMatchObject({ status: "actioned", resolved_by: "admin1" })
   })
+  it("suspend writes an audit row against the account owner", async () => {
+    h.tableResults = [OPEN_FLAG, OWNER, { data: [{ id: UUID }], error: null }]
+    h.suspend.mockResolvedValue({ ok: true, newStatus: "suspended" })
+    await actOnFlag("admin1", "flag", UUID, "suspend")
+    expect(h.audit).toHaveBeenCalledWith("admin1", "sms_flag_suspend", "owner1", { source: "flag", id: UUID }, { status: "actioned", accountId: "acct1" })
+  })
+  it("suspend from a legacy flag clears flagged on the send log and never touches sms_flags", async () => {
+    h.tableResults = [{ data: { sms_account_id: "acct1", flagged: true }, error: null }, OWNER, { data: [{ id: 42 }], error: null }]
+    h.suspend.mockResolvedValue({ ok: true, newStatus: "suspended" })
+    expect(await actOnFlag("admin1", "legacy", "42", "suspend")).toEqual({ ok: true })
+    expect(h.ops[0].table).toBe("sms_send_logs")
+    expect(h.ops[0].ops.filter((x) => x.m === "eq").map((x) => x.args)).toEqual([["id", 42]])
+    const upd = h.ops.find((o) => o.ops.some((x) => x.m === "update"))!
+    expect(upd.table).toBe("sms_send_logs")
+    expect(upd.ops.find((x) => x.m === "update")!.args[0]).toEqual({ flagged: false, flag_reason: null })
+    expect(upd.ops.filter((x) => x.m === "eq").map((x) => x.args)).toEqual([["id", 42], ["flagged", true]])
+    expect(h.ops.some((o) => o.table === "sms_flags")).toBe(false)
+    expect(h.audit).toHaveBeenCalledWith("admin1", "sms_flag_suspend", "owner1", { source: "legacy", id: "42" }, { status: "actioned", accountId: "acct1" })
+  })
+  it("suspended but the actioned update fails → explicit error, no audit", async () => {
+    h.tableResults = [OPEN_FLAG, OWNER, { data: null, error: { message: "db down" } }]
+    h.suspend.mockResolvedValue({ ok: true, newStatus: "suspended" })
+    expect(await actOnFlag("admin1", "flag", UUID, "suspend")).toEqual({ ok: false, error: "Account suspended, but the flag could not be marked actioned" })
+    expect(h.audit).not.toHaveBeenCalled()
+  })
+  it("suspended but the update matches 0 rows → same explicit error", async () => {
+    h.tableResults = [OPEN_FLAG, OWNER, { data: [], error: null }]
+    h.suspend.mockResolvedValue({ ok: true, newStatus: "suspended" })
+    expect((await actOnFlag("admin1", "flag", UUID, "suspend")).ok).toBe(false)
+  })
+  it("lookup error → Flag not found, nothing suspended", async () => {
+    h.tableResults = [{ data: null, error: { message: "boom" } }]
+    expect(await actOnFlag("admin1", "flag", UUID, "suspend")).toEqual({ ok: false, error: "Flag not found" })
+    expect(h.suspend).not.toHaveBeenCalled()
+  })
+  it("suspend on a non-open flag is refused", async () => {
+    h.tableResults = [{ data: { sms_account_id: "acct1", status: "dismissed" }, error: null }]
+    expect(await actOnFlag("admin1", "flag", UUID, "suspend")).toEqual({ ok: false, error: "Flag already resolved" })
+    h.tableResults = [{ data: { sms_account_id: "acct1", flagged: false }, error: null }]
+    expect(await actOnFlag("admin1", "legacy", "42", "suspend")).toEqual({ ok: false, error: "Flag already resolved" })
+    expect(h.suspend).not.toHaveBeenCalled()
+  })
   it("suspend failure is surfaced and the flag stays open", async () => {
-    h.tableResult = { data: { sms_account_id: "acct1" }, error: null }
+    h.tableResults = [OPEN_FLAG, OWNER]
     h.suspend.mockResolvedValue({ ok: false, error: "SMS account not found" })
     expect(await actOnFlag("admin1", "flag", UUID, "suspend")).toEqual({ ok: false, error: "SMS account not found" })
     expect(h.ops.some((o) => o.ops.some((x) => x.m === "update"))).toBe(false)

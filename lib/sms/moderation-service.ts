@@ -178,11 +178,14 @@ export async function dismissFlag(
   if (!(row as { flagged: boolean }).flagged)
     return { ok: false, error: "Log entry is not flagged", status: 404 }
 
-  const { error: updateErr } = await supabaseAdmin
+  const { data: updated, error: updateErr } = await supabaseAdmin
     .from("sms_send_logs")
     .update({ flagged: false, flag_reason: null })
     .eq("id", logId)
+    .eq("flagged", true)
+    .select("id")
   if (updateErr) return { ok: false, error: updateErr.message, status: 400 }
+  if (!updated || updated.length === 0) return { ok: false, error: "Log entry is not flagged", status: 404 }
 
   await writeAuditLog(
     adminId,

@@ -8,6 +8,8 @@ const h = vi.hoisted(() => {
     logRow: null as Row | null,
     rpcError: false,
     updateError: false,
+    updateRows: [{ id: "x" }] as unknown[],
+    updateEqs: [] as [string, unknown][],
     auditRows: [] as unknown[],
     rpcCallArgs: null as unknown,
     upsertRows: null as any,
@@ -34,9 +36,19 @@ const h = vi.hoisted(() => {
         if (table === "admin_audit_log") state.auditRows.push(row)
         return Promise.resolve({ data: null, error: null })
       },
-      update: (_patch: unknown) => ({
-        eq: (_c: string, _v: string) => Promise.resolve({ data: null, error: state.updateError ? { message: "update failed" } : null }),
-      }),
+      update: (_patch: unknown) => {
+        const eqs: [string, unknown][] = []
+        const c: any = {
+          eq: (col: string, v: unknown) => { eqs.push([col, v]); state.updateEqs = eqs; return c },
+          select: (_cols?: string) => c,
+          then: (res: any, rej: any) =>
+            Promise.resolve({
+              data: state.updateError ? null : state.updateRows,
+              error: state.updateError ? { message: "update failed" } : null,
+            }).then(res, rej),
+        }
+        return c
+      },
       order: (_col: string, _opts?: unknown) => Promise.resolve({ data: [], error: null }),
       upsert: (rows: any, _opts?: unknown) => { state.upsertRows = rows; return Promise.resolve({ data: null, error: null }) },
     }),
@@ -69,6 +81,8 @@ beforeEach(() => {
   h.state.logRow = null
   h.state.rpcError = false
   h.state.updateError = false
+  h.state.updateRows = [{ id: "x" }]
+  h.state.updateEqs = []
   h.state.auditRows.length = 0
   h.state.rpcCallArgs = null
   h.state.upsertRows = null
@@ -137,6 +151,15 @@ describe("dismissFlag", () => {
     expect(auditRow.action).toBe("sms_flag_dismiss")
     expect(auditRow.old_value.flagged).toBe(true)
     expect(auditRow.old_value.flag_reason).toBe("keyword:loan")
+  })
+
+  it("update is guarded on flagged=true; 0 rows updated (race) → 404, no audit", async () => {
+    h.state.logRow = { id: "l1", status: "sent", user_id: "u1", flagged: true, flag_reason: "test" }
+    h.state.updateRows = []
+    const res = await dismissFlag("admin1", "l1")
+    expect(h.state.updateEqs).toContainEqual(["flagged", true])
+    expect(res).toEqual({ ok: false, error: "Log entry is not flagged", status: 404 })
+    expect(h.state.auditRows).toHaveLength(0)
   })
 
   it("update error → 400 returned, no audit log written", async () => {
