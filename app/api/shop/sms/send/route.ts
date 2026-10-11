@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
 import { enqueueSendBatched, SMS_MAX_TOTAL } from "@/lib/sms/send-service"
 import { getShopTokens } from "@/lib/sms/shop-context-service"
+import { SMS_DISABLED_MESSAGE } from "@/lib/sms/kill-switch"
 import { getGroupActiveRecipients } from "@/lib/sms/tenant-address-book-service"
 
 const supabaseAdmin = createClient(
@@ -152,6 +153,11 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
           { success: false, error: result.error },
           { status: 403 }
+        )
+      case "SMS_DISABLED":
+        return NextResponse.json(
+          { success: false, error: result.error, message: SMS_DISABLED_MESSAGE },
+          { status: 503 }
         )
       case "INSUFFICIENT_CREDITS":
         return NextResponse.json(

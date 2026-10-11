@@ -14,6 +14,7 @@ const h = vi.hoisted(() => {
     creditOutcome: "credited" as "credited" | "pending",
     paystackRef: null as string | null, // existing paystack ref already processed
     calls: [] as { fn: string; args: any }[],
+    smsEnabled: true, // master kill switch
   }
   const fake = {
     rpc: (fn: string, args: any) => {
@@ -103,9 +104,12 @@ const h = vi.hoisted(() => {
 
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => h.fake }))
 vi.mock("./wholesale", () => ({ getWholesaleCredits: () => Promise.resolve(h.state.wholesale) }))
+vi.mock("./kill-switch", () => ({ isSmsEnabled: () => Promise.resolve(h.state.smsEnabled) }))
+const paystackSpy = vi.hoisted(() => ({ initializePayment: vi.fn(), chargeMobileMoney: vi.fn() }))
+vi.mock("@/lib/paystack", () => paystackSpy)
 vi.mock("./notify", () => ({ notifyAdminSmsShortfall: () => Promise.resolve() }))
 
-import { activateViaWallet, claimWelcomeBonus, finalizeActivationPaystack } from "./activation-service"
+import { activateViaWallet, claimWelcomeBonus, finalizeActivationPaystack, initActivationPaystack, initActivationDirectCharge } from "./activation-service"
 
 beforeEach(() => {
   h.state.calls.length = 0
@@ -116,6 +120,9 @@ beforeEach(() => {
   h.state.bonusRpcError = null
   h.state.creditOutcome = "credited"
   h.state.paystackRef = null
+  h.state.smsEnabled = true
+  paystackSpy.initializePayment.mockReset()
+  paystackSpy.chargeMobileMoney.mockReset()
 })
 
 const rpcs = () => h.state.calls.filter((c) => "fn" in c).map((c) => c.fn)
@@ -205,5 +212,51 @@ describe("claimWelcomeBonus", () => {
     const res = await claimWelcomeBonus("acc1")
     expect(res.ok).toBe(true)
     expect(res.pending).toBe(true)
+  })
+})
+
+describe("kill switch (SMS_DISABLED)", () => {
+  it("activateViaWallet is blocked: no activate RPC, wallet untouched", async () => {
+    h.state.smsEnabled = false; h.state.walletBalance = 100
+    const res = await activateViaWallet("u1", "acc1")
+    expect(res).toEqual({ ok: false, error: "SMS_DISABLED" })
+    expect(rpcs()).not.toContain("activate_sms_account")
+    expect(h.state.walletBalance).toBe(100)
+    expect(h.state.accountStatus).toBe("inactive")
+  })
+
+  it("initActivationPaystack is blocked: Paystack never called", async () => {
+    h.state.smsEnabled = false
+    const res = await initActivationPaystack("u1", "acc1", "a@b.com")
+    expect(res).toEqual({ ok: false, error: "SMS_DISABLED" })
+    expect(paystackSpy.initializePayment).not.toHaveBeenCalled()
+  })
+
+  it("initActivationDirectCharge is blocked: Paystack never called", async () => {
+    h.state.smsEnabled = false
+    const res = await initActivationDirectCharge("u1", "acc1", "a@b.com", "0241234567", "mtn")
+    expect(res).toEqual({ ok: false, error: "SMS_DISABLED" })
+    expect(paystackSpy.chargeMobileMoney).not.toHaveBeenCalled()
+  })
+
+  it("claimWelcomeBonus is blocked: no claim RPC", async () => {
+    h.state.smsEnabled = false
+    const res = await claimWelcomeBonus("acc1")
+    expect(res).toEqual({ ok: false, error: "SMS_DISABLED" })
+    expect(rpcs()).not.toContain("claim_sms_welcome_bonus")
+  })
+
+  it("switch on: wallet activation and bonus claim still work", async () => {
+    h.state.walletBalance = 100
+    expect((await activateViaWallet("u1", "acc1")).ok).toBe(true)
+    expect((await claimWelcomeBonus("acc1")).ok).toBe(true)
+  })
+
+  it("NEVER blocked: finalizeActivationPaystack (webhook for a payment already made) still activates", async () => {
+    h.state.smsEnabled = false
+    const res = await finalizeActivationPaystack("acc1", "ps-ref-off", 20)
+    expect(res.ok).toBe(true)
+    expect(rpcs()).toContain("activate_sms_account")
+    expect(h.state.accountStatus).toBe("active")
   })
 })

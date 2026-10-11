@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
 import { claimWelcomeBonus } from "@/lib/sms/activation-service"
+import { SMS_DISABLED_MESSAGE } from "@/lib/sms/kill-switch"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -31,6 +32,7 @@ export async function POST(request: NextRequest) {
 
   const result = await claimWelcomeBonus(account.id)
   if (!result.ok) {
+    if (result.error === "SMS_DISABLED") return NextResponse.json({ error: SMS_DISABLED_MESSAGE, code: "SMS_DISABLED" }, { status: 503 })
     const status = result.error === "ALREADY_CLAIMED" ? 409 : 400
     return NextResponse.json({ error: result.error }, { status })
   }

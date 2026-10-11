@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
 import { bundleVisibleTo, type OwnerType } from "@/lib/sms/foundation-rules"
 import { initializePayment } from "@/lib/paystack"
+import { isSmsEnabled, SMS_DISABLED_MESSAGE } from "@/lib/sms/kill-switch"
 
 const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
@@ -11,6 +12,7 @@ export async function POST(request: NextRequest) {
   if (!authHeader?.startsWith("Bearer ")) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const { data: { user }, error } = await supabaseAdmin.auth.getUser(authHeader.slice(7))
   if (error || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (!(await isSmsEnabled())) return NextResponse.json({ error: SMS_DISABLED_MESSAGE, code: "SMS_DISABLED" }, { status: 503 })
   if (!user.email) return NextResponse.json({ error: "Account email required" }, { status: 400 })
   const { bundleId } = await request.json()
   const account = await getOrCreateAccountForUser(user.id)

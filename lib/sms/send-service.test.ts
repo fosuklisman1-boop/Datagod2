@@ -21,6 +21,7 @@ const h = vi.hoisted(() => {
     markErrorsLeft: 0,                 // next N mark_sms_messages_sent calls error
     msgUpdates: [] as { patch: any; ids: string[] }[], // captured .update().in() (mark-sent)
     msgIdSeq: 0,                         // id generator for inserted sms_messages
+    smsEnabled: true,                    // master kill switch
   }
 
   const fake = {
@@ -129,6 +130,8 @@ vi.mock("./campaign-dispatch", () => ({
   },
 }))
 
+vi.mock("./kill-switch", () => ({ isSmsEnabled: () => Promise.resolve(h.state.smsEnabled) }))
+
 // Sender resolution + policy shadow live in ./policy-context (tested separately);
 // h.state.senderRow keeps driving which senders resolve.
 vi.mock("./policy-context", () => ({
@@ -141,7 +144,7 @@ vi.mock("./policy-context", () => ({
   shadowPolicyWithin: () => Promise.resolve({ mode: "platform", shadow: { decision: "allow", code: "OK", reason: "", flags: [], enforced: false, evaluated_at: "t" } }),
 }))
 
-import { enqueueSend } from "./send-service"
+import { enqueueSend, enqueueSendBatched } from "./send-service"
 
 beforeEach(() => {
   h.state.calls.length = 0
@@ -158,6 +161,7 @@ beforeEach(() => {
   h.state.fallbackError = false
   h.state.msgUpdates.length = 0
   h.state.msgIdSeq = 0
+  h.state.smsEnabled = true
 })
 
 // Helper: all rpc calls
@@ -165,6 +169,27 @@ const rpcs = () => h.state.calls.filter((c) => c.fn !== "from" && c.fn !== "inse
 // Helper: all inserts by table
 const inserts = (table: string) =>
   h.state.calls.filter((c) => c.fn === "insert" && c.table === table)
+
+describe("enqueueSend kill switch", () => {
+  it("switch off -> SMS_DISABLED, no debit, no inserts", async () => {
+    h.state.smsEnabled = false
+    const r = await enqueueSend("u1", "acc1", "Hello there", ["0241234567"])
+    expect(r).toEqual({ ok: false, error: "SMS_DISABLED" })
+    expect(rpcs().map((c) => c.fn)).not.toContain("debit_sms_for_send")
+    expect(h.state.calls.filter((c) => c.fn === "insert")).toHaveLength(0)
+  })
+  it("switch on -> sends as before", async () => {
+    const r = await enqueueSend("u1", "acc1", "Hello there", ["0241234567"])
+    expect(r.ok).toBe(true)
+    expect(rpcs().map((c) => c.fn)).toContain("debit_sms_for_send")
+  })
+  it("enqueueSendBatched passes SMS_DISABLED through unchanged", async () => {
+    h.state.smsEnabled = false
+    const r = await enqueueSendBatched("u1", "acc1", "Hello there", ["0241234567"])
+    expect(r).toEqual({ ok: false, error: "SMS_DISABLED" })
+    expect(rpcs().map((c) => c.fn)).not.toContain("debit_sms_for_send")
+  })
+})
 
 describe("enqueueSend", () => {
   it("blocked message → inserts log with status=blocked, no debit, ok:false", async () => {

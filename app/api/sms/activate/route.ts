@@ -7,6 +7,7 @@ import { detectMomoProvider } from "@/lib/paystack"
 import { isWalletDirectChargeEnabled, isWalletOtpRequired, isPhoneOtpVerified } from "@/lib/storefront-otp"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { logSecurityEvent } from "@/lib/security-log"
+import { SMS_DISABLED_MESSAGE } from "@/lib/sms/kill-switch"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -28,6 +29,7 @@ export async function POST(request: NextRequest) {
   if (paidFrom === "wallet") {
     const result = await activateViaWallet(user.id, account.id)
     if (!result.ok) {
+      if (result.error === "SMS_DISABLED") return NextResponse.json({ error: SMS_DISABLED_MESSAGE, code: "SMS_DISABLED" }, { status: 503 })
       const status = result.error === "INSUFFICIENT_BALANCE" ? 402 : 400
       return NextResponse.json({ error: result.error }, { status })
     }
@@ -71,14 +73,20 @@ export async function POST(request: NextRequest) {
         }
       }
       const result = await initActivationDirectCharge(user.id, account.id, user.email, phone, provider)
-      if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 })
+      if (!result.ok) {
+        if (result.error === "SMS_DISABLED") return NextResponse.json({ error: SMS_DISABLED_MESSAGE, code: "SMS_DISABLED" }, { status: 503 })
+        return NextResponse.json({ error: result.error }, { status: 400 })
+      }
       return NextResponse.json({ success: true, momoDirect: true, reference: result.reference, status: result.status })
     }
 
     // Hosted redirect. When direct charge IS the legit path, strip mobile_money so the
     // hosted page can't prompt a victim number (mirrors the Buy-Credits route).
     const result = await initActivationPaystack(user.id, account.id, user.email, directOn ? ["card", "bank_transfer"] : undefined)
-    if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 })
+    if (!result.ok) {
+      if (result.error === "SMS_DISABLED") return NextResponse.json({ error: SMS_DISABLED_MESSAGE, code: "SMS_DISABLED" }, { status: 503 })
+      return NextResponse.json({ error: result.error }, { status: 400 })
+    }
     return NextResponse.json({ authorizationUrl: result.authorizationUrl, reference: result.reference })
   }
 

@@ -6,6 +6,7 @@ import { initializePayment, chargeMobileMoney, detectMomoProvider } from "@/lib/
 import { isWalletDirectChargeEnabled, isWalletOtpRequired, isPhoneOtpVerified } from "@/lib/storefront-otp"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { logSecurityEvent } from "@/lib/security-log"
+import { isSmsEnabled, SMS_DISABLED_MESSAGE } from "@/lib/sms/kill-switch"
 
 const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
@@ -34,6 +35,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (paidFrom === "paystack") {
+    if (!(await isSmsEnabled())) return NextResponse.json({ error: SMS_DISABLED_MESSAGE, code: "SMS_DISABLED" }, { status: 503 })
     if (!user.email) return NextResponse.json({ error: "Account email required" }, { status: 400 })
     const { cost } = await quoteCredits(credits)
     if (cost <= 0) return NextResponse.json({ error: "Pricing not configured" }, { status: 400 })
@@ -94,6 +96,7 @@ export async function POST(request: NextRequest) {
 
   const result = await purchaseUnitsByQuantity(user.id, account.id, credits)
   if (!result.ok) {
+    if (result.error === "SMS_DISABLED") return NextResponse.json({ error: SMS_DISABLED_MESSAGE, code: "SMS_DISABLED" }, { status: 503 })
     const status = result.error === "NOT_ACTIVATED" ? 403 : result.error === "Insufficient wallet balance" ? 402 : 400
     return NextResponse.json({ error: result.error }, { status })
   }

@@ -487,7 +487,8 @@ export default function SmsDashboardPage() {
     }).then((r) => r.json()).catch(() => ({}))
     setBusy(false)
     if (res.error) {
-      toast.error(res.error === "NOT_ACTIVATED" ? "Activate your account first."
+      toast.error(res.code === "SMS_DISABLED" ? "SMS is temporarily unavailable. Please try again later."
+        : res.error === "NOT_ACTIVATED" ? "Activate your account first."
         : res.error === "Insufficient wallet balance" ? "Insufficient wallet balance — top up your wallet or pay with Paystack."
         : res.error)
     } else if (res.authorizationUrl) {
@@ -511,7 +512,8 @@ export default function SmsDashboardPage() {
     }).then((r) => r.json()).catch(() => ({}))
     setBuyingBundleId(null)
     if (res.error) {
-      toast.error(res.error === "Insufficient wallet balance"
+      toast.error(res.code === "SMS_DISABLED" ? "SMS is temporarily unavailable. Please try again later."
+        : res.error === "Insufficient wallet balance"
         ? "Insufficient wallet balance. Top up your wallet or pay with Paystack."
         : res.error === "NOT_ACTIVATED" ? "Activate your SMS account first." : res.error)
     } else if (res.authorizationUrl) {
@@ -753,6 +755,7 @@ export default function SmsDashboardPage() {
       const code: string = res.error ?? "UNKNOWN_ERROR"
       const map: Record<string, string> = {
         INSUFFICIENT_CREDITS: "Not enough credits. Buy a bundle first.",
+        SMS_DISABLED: "SMS is temporarily unavailable. Please try again later.",
         SEND_ERROR: "Something went wrong sending. Please try again.",
         TOO_MANY_RECIPIENTS: `A send can reach at most 5000 recipients. Split into smaller groups.`,
         BLOCKED: `Sending blocked: ${res.reason ?? "content policy"}`,

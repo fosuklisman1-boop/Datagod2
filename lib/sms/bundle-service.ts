@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js"
 import { bundleVisibleTo, canPurchaseBundle, type OwnerType } from "./foundation-rules"
 import { getWholesaleCredits } from "./wholesale"
 import { notifyAdminSmsShortfall } from "./notify"
+import { isSmsEnabled } from "./kill-switch"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -134,6 +135,7 @@ export async function isAccountActive(accountId: string): Promise<boolean> {
 /** Cash-wallet bundle purchase: race-safe wallet debit, then solvency-gated issuance.
  *  Refunds the cash only if issuance ERRORS (a 'pending' outcome is success, not a failure). */
 export async function purchaseBundleViaWallet(userId: string, accountId: string, bundleId: string): Promise<PurchaseResult> {
+  if (!(await isSmsEnabled())) return { ok: false, error: "SMS_DISABLED" }
   const { data: bundle } = await supabaseAdmin.from("sms_bundles").select("*").eq("id", bundleId).maybeSingle()
   if (!bundle) return { ok: false, error: "Bundle not found" }
   const b = bundle as Bundle
@@ -199,6 +201,7 @@ export async function purchaseUnitsByQuantity(
   accountId: string,
   credits: number
 ): Promise<PurchaseResult & { cost?: number }> {
+  if (!(await isSmsEnabled())) return { ok: false, error: "SMS_DISABLED" }
   if (!Number.isInteger(credits) || credits <= 0) return { ok: false, error: "credits must be a positive integer" }
   if (credits > MAX_CREDITS_PER_PURCHASE) return { ok: false, error: `Max ${MAX_CREDITS_PER_PURCHASE.toLocaleString()} credits per purchase` }
 

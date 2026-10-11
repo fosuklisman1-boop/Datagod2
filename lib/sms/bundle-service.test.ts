@@ -16,6 +16,7 @@ const h = vi.hoisted(() => {
     updates: [] as { table: string; patch: any; ref: any; col?: string; val?: any }[],
     updateError: false,
     duplicate: false,
+    smsEnabled: true, // master kill switch
   }
   const bundleRow = { id: "b1", name: "5k", units: 5000, price_ghs: 150, owner_type_scope: "all", active: true, mode: "platform", sort_order: 0 }
   const notifySpy = vi.fn()
@@ -80,6 +81,7 @@ const h = vi.hoisted(() => {
 
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => h.fake }))
 vi.mock("./wholesale", () => ({ getWholesaleCredits: () => Promise.resolve(h.state.wholesale) }))
+vi.mock("./kill-switch", () => ({ isSmsEnabled: () => Promise.resolve(h.state.smsEnabled) }))
 vi.mock("./notify", () => ({ notifyAdminSmsShortfall: (...a: any[]) => { h.notifySpy(...a); return Promise.resolve() } }))
 
 import { purchaseBundleViaWallet, purchaseUnitsByQuantity, quoteCredits, getPricePerCredit, creditUnitsForPaystack, allocateUnits } from "./bundle-service"
@@ -89,6 +91,7 @@ beforeEach(() => {
   h.state.updates.length = 0
   h.state.updateError = false
   h.state.duplicate = false
+  h.state.smsEnabled = true
   h.bundleRow.owner_type_scope = "all"
   delete (h.fake as any)._accountMode
   h.bundleRow.mode = "platform"
@@ -317,5 +320,45 @@ describe("per-credit pricing (free-quantity top-up)", () => {
     expect(res.ok).toBe(true)
     expect(res.pending).toBe(true)
     expect(h.notifySpy).toHaveBeenCalledWith(100)
+  })
+})
+
+describe("kill switch (SMS_DISABLED)", () => {
+  it("wallet bundle purchase is blocked: no wallet debit, no credit RPC", async () => {
+    h.state.smsEnabled = false; h.state.walletBalance = 200; h.state.wholesale = 1_000_000
+    const res = await purchaseBundleViaWallet("u1", "acc1", "b1")
+    expect(res).toEqual({ ok: false, error: "SMS_DISABLED" })
+    expect(h.state.calls).toHaveLength(0)
+    expect(h.state.walletBalance).toBe(200)
+  })
+
+  it("quantity purchase is blocked: no wallet debit, no credit RPC", async () => {
+    h.state.smsEnabled = false; h.state.walletBalance = 200; h.state.wholesale = 1_000_000
+    const res = await purchaseUnitsByQuantity("u1", "acc1", 100)
+    expect(res).toEqual({ ok: false, error: "SMS_DISABLED" })
+    expect(h.state.calls).toHaveLength(0)
+    expect(h.state.walletBalance).toBe(200)
+  })
+
+  it("switch on: both purchases still work", async () => {
+    h.state.walletBalance = 200; h.state.wholesale = 1_000_000
+    expect((await purchaseBundleViaWallet("u1", "acc1", "b1")).outcome).toBe("credited")
+    expect((await purchaseUnitsByQuantity("u1", "acc1", 100)).outcome).toBe("credited")
+  })
+
+  it("NEVER blocked: creditUnitsForPaystack (webhook for an already-made payment) still credits", async () => {
+    h.state.smsEnabled = false; h.state.wholesale = 1_000_000
+    const res = await creditUnitsForPaystack("acc1", 500, "ps-ref-off", 20)
+    expect(res.ok).toBe(true)
+    expect(res.outcome).toBe("credited")
+    expect(fns()).toContain("credit_sms_units_if_solvent")
+  })
+
+  it("NEVER blocked: admin allocateUnits still credits", async () => {
+    h.state.smsEnabled = false; h.state.wholesale = 1_000_000
+    const res = await allocateUnits("acc1", 250)
+    expect(res.ok).toBe(true)
+    expect(res.outcome).toBe("credited")
+    expect(fns()).toContain("credit_sms_units_if_solvent")
   })
 })

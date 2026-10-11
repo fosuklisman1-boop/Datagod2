@@ -2,6 +2,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { getWholesaleCredits } from "./wholesale"
 import { notifyAdminSmsShortfall } from "./notify"
+import { isSmsEnabled } from "./kill-switch"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -47,6 +48,7 @@ async function fetchAccount(accountId: string): Promise<{ id: string; status: st
  *  so there is no separate service-level debit or refund. Platform accounts are pre-active.
  *  (userId is accepted for signature stability; the RPC derives the wallet from the account.) */
 export async function activateViaWallet(_userId: string, accountId: string): Promise<ActivationResult> {
+  if (!(await isSmsEnabled())) return { ok: false, error: "SMS_DISABLED" }
   const account = await fetchAccount(accountId)
   if (!account) return { ok: false, error: "Account not found" }
 
@@ -77,6 +79,7 @@ export async function initActivationPaystack(
   userEmail: string,
   channels?: string[]
 ): Promise<{ ok: boolean; authorizationUrl?: string; reference?: string; error?: string }> {
+  if (!(await isSmsEnabled())) return { ok: false, error: "SMS_DISABLED" }
   const account = await fetchAccount(accountId)
   if (!account) return { ok: false, error: "Account not found" }
   if (account.owner_type === "platform") return { ok: false, error: "Platform accounts do not require activation" }
@@ -117,6 +120,7 @@ export async function initActivationDirectCharge(
   phone: string,
   provider: "mtn" | "vod" | "tgo"
 ): Promise<{ ok: boolean; reference?: string; status?: string; error?: string }> {
+  if (!(await isSmsEnabled())) return { ok: false, error: "SMS_DISABLED" }
   const account = await fetchAccount(accountId)
   if (!account) return { ok: false, error: "Account not found" }
   if (account.owner_type === "platform") return { ok: false, error: "Platform accounts do not require activation" }
@@ -170,6 +174,7 @@ export async function finalizeActivationPaystack(
 /** Claim the one-time welcome bonus. Solvency-gated via claim_sms_welcome_bonus RPC
  *  (which internally calls credit_sms_units_if_solvent). */
 export async function claimWelcomeBonus(accountId: string): Promise<BonusResult> {
+  if (!(await isSmsEnabled())) return { ok: false, error: "SMS_DISABLED" }
   const wholesale = await getWholesaleCredits()
   const { data, error: rpcErr } = await supabaseAdmin.rpc("claim_sms_welcome_bonus", {
     p_account_id: accountId,

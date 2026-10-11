@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
 import { purchaseBundleViaWallet } from "@/lib/sms/bundle-service"
+import { SMS_DISABLED_MESSAGE } from "@/lib/sms/kill-switch"
 
 const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
@@ -18,6 +19,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "NOT_ACTIVATED" }, { status: 403 })
   }
   const result = await purchaseBundleViaWallet(user.id, account.id, bundleId)
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 })
+  if (!result.ok) {
+    if (result.error === "SMS_DISABLED") return NextResponse.json({ error: SMS_DISABLED_MESSAGE, code: "SMS_DISABLED" }, { status: 503 })
+    return NextResponse.json({ error: result.error }, { status: 400 })
+  }
   return NextResponse.json({ success: true, pending: result.pending ?? false, unitsCredited: result.unitsCredited ?? 0 })
 }

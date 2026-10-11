@@ -3,6 +3,7 @@ import { prepareSmsMessage, type ShopTokens } from "./prepare"
 import { filterSmsContent } from "./content-filter"
 import { calculateSegments } from "./segments"
 import { resolveCampaignSender, shadowPolicyWithin } from "./policy-context"
+import { isSmsEnabled } from "./kill-switch"
 import { dispatchCampaign, type SentRow } from "./campaign-dispatch"
 
 const supabaseAdmin = createClient(
@@ -48,6 +49,7 @@ export interface EnqueueSendError {
     | "INSUFFICIENT_CREDITS"
     | "INVALID_SENDER_ID"
     | "ENQUEUE_FAILED"
+    | "SMS_DISABLED"
   reason?: string
 }
 
@@ -66,6 +68,9 @@ export async function enqueueSend(
   shopTokens?: ShopTokens,
   senderId?: string
 ): Promise<EnqueueSendResult | EnqueueSendError> {
+  // 0. Master switch (Phase 2): refuse new customer sends while the platform switch is off.
+  if (!(await isSmsEnabled())) return { ok: false, error: "SMS_DISABLED" }
+
   // 1. Recipient cap (before any debit).
   if (recipients.length > MAX_RECIPIENTS) {
     return { ok: false, error: "TOO_MANY_RECIPIENTS" }

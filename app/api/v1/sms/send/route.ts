@@ -6,6 +6,7 @@ import { applyRateLimit } from "@/lib/rate-limiter"
 import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
 import { enqueueSendBatched, SMS_MAX_TOTAL } from "@/lib/sms/send-service"
 import { apiRateLimitFor, loadSmsSettings } from "@/lib/sms/platform-settings"
+import { SMS_DISABLED_MESSAGE } from "@/lib/sms/kill-switch"
 import { getShopTokens } from "@/lib/sms/shop-context-service"
 
 const supabaseAdmin = createClient(
@@ -157,6 +158,7 @@ export async function POST(request: NextRequest) {
     // enqueueSend) — it's on us, not the caller, so it maps to 500 rather than
     // the 400 default so a well-behaved integrator will actually retry it.
     const status =
+      result.error === "SMS_DISABLED" ? 503 :
       result.error === "INSUFFICIENT_CREDITS" ? 402 :
       result.error === "NOT_ACTIVATED" || result.error === "SUSPENDED" ? 403 :
       result.error === "ENQUEUE_FAILED" ? 500 :
@@ -169,7 +171,12 @@ export async function POST(request: NextRequest) {
       responsePayload: { error: result.error },
     }).catch(() => {})
 
-    return NextResponse.json({ success: false, error: result.error }, { status })
+    return NextResponse.json(
+      result.error === "SMS_DISABLED"
+        ? { success: false, error: result.error, message: SMS_DISABLED_MESSAGE }
+        : { success: false, error: result.error },
+      { status }
+    )
   }
 
   logApiRequest({
