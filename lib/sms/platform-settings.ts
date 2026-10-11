@@ -112,7 +112,7 @@ function caps(v: unknown): Record<SmsMode, ModeCaps> {
 }
 
 /** "https://www.Bit.ly/x/" -> "bit.ly" */
-function normalizeDomain(s: string): string {
+export function normalizeDomain(s: string): string {
   return s.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/[/?#].*$/, "").replace(/\.+$/, "")
 }
 
