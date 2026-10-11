@@ -7,7 +7,7 @@ import { detectMomoProvider } from "@/lib/paystack"
 import { isWalletDirectChargeEnabled, isWalletOtpRequired, isPhoneOtpVerified } from "@/lib/storefront-otp"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { logSecurityEvent } from "@/lib/security-log"
-import { SMS_DISABLED_MESSAGE } from "@/lib/sms/kill-switch"
+import { isSmsEnabled, SMS_DISABLED_MESSAGE } from "@/lib/sms/kill-switch"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -37,6 +37,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (paidFrom === "paystack") {
+    if (!(await isSmsEnabled())) return NextResponse.json({ error: SMS_DISABLED_MESSAGE, code: "SMS_DISABLED" }, { status: 503 })
     if (!user.email) return NextResponse.json({ error: "Account email required for Paystack" }, { status: 400 })
 
     const directOn = await isWalletDirectChargeEnabled()

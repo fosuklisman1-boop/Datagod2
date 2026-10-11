@@ -196,6 +196,7 @@ export const apiDocsRegistry: ApiDocSection[] = [
       successExample: `{\n  "success": true,\n  "total": 1,\n  "batches": 1,\n  "segments": 1,\n  "credits_reserved": 1,\n  "partial": false,\n  "stopped_reason": null,\n  "invalid_skipped": 0\n}`,
       errorExamples: [
         { status: 402, body: `{ "success": false, "error": "INSUFFICIENT_CREDITS" }` },
+        { status: 503, body: `{ "success": false, "error": "SMS_DISABLED", "message": "SMS is temporarily unavailable. Please try again later." }` },
         { status: 403, body: `{ "success": false, "error": "No SMS account for this API key's owner (requires a shop, sub-agent, or admin account)" }` },
       ],
     }],

@@ -743,6 +743,7 @@ export default function SmsDashboardPage() {
       if (partial) {
         const why = stoppedReason === "INSUFFICIENT_CREDITS" ? "ran out of credits — top up and resend the rest"
           : stoppedReason === "SUSPENDED" ? "the account was suspended mid-send"
+          : stoppedReason === "SMS_DISABLED" ? "SMS was paused by the platform — resend the rest later"
           : stoppedReason === "NOT_ACTIVATED" ? "the account is no longer active"
           : "the rest could not be sent"
         toast.warning(`Sent ${total} recipient${total !== 1 ? "s" : ""}${batchTxt}, then ${why}.`)
