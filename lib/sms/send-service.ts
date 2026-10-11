@@ -571,7 +571,9 @@ async function enforcedSendLocked(
           credits_used: 0,
           credits_reserved: 0,
           status: "blocked",
-          flagged: true,
+          // Not flagged: the sms_flags row(s) recorded below are the moderation record; a flagged
+          // log too would show every enforced block twice in the admin Flagged tab/overview.
+          flagged: false,
           flag_reason: outcome.fraudFlags[0]?.reason ?? outcome.code,
           mode: outcome.mode,
           policy_shadow: outcome.shadow,

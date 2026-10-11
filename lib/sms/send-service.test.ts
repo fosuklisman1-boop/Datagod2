@@ -721,7 +721,7 @@ describe("enforcement ON", () => {
     spy.mockRestore()
   })
 
-  it("block → ONE blocked log (full count, credits 0, flagged, enforced shadow) + fraud flags recorded, no debit, safe reason only", async () => {
+  it("block → ONE blocked log (full count, credits 0, NOT flagged — the sms_flags row is the record, keeps flag_reason, enforced shadow) + fraud flags recorded, no debit, safe reason only", async () => {
     h.state.policyResult = { decision: "block", code: "CONTENT_BLOCKED", reason: "This message contains content we can't send. Edit it and try again.", flags: [fraud] }
     const r = await enqueueSendBatched("u1", "acc1", "Buy secretword now", recips(620))
     expect(r).toEqual({ ok: false, error: "BLOCKED", code: "CONTENT_BLOCKED", reason: "This message contains content we can't send. Edit it and try again." })
@@ -729,7 +729,8 @@ describe("enforcement ON", () => {
     expect(inserts("sms_send_logs")).toHaveLength(1)
     expect(logRow()).toMatchObject({
       sms_account_id: "acc1", message: "Buy secretword now", recipients_count: 620,
-      credits_used: 0, credits_reserved: 0, status: "blocked", flagged: true, mode: "platform",
+      credits_used: 0, credits_reserved: 0, status: "blocked", flagged: false, mode: "platform",
+      flag_reason: 'blocked keyword: "secretword"',
     })
     expect(logRow().policy_shadow).toMatchObject({ decision: "block", enforced: true })
     expect(rpcs().map((c) => c.fn)).not.toContain("debit_sms_for_send")
