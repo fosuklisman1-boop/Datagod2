@@ -74,10 +74,29 @@ describe("previewDraft", () => {
     expect(r.code).toBe("CAP_PER_SEND")
   })
 
+  it("never leaks admin keyword lists for a blocked-keyword draft (platform)", async () => {
+    h.settingsFn.mockResolvedValue({ ...DEFAULT_SMS_SETTINGS, blockedKeywords: ["zzsecretword"] })
+    const r = await previewDraft({ accountId: "a1", message: "win zzsecretword now", recipientCount: 1, tokens: TOKENS })
+    expect(r.decision).toBe("block")
+    expect(r.code).toBe("CONTENT_BLOCKED")
+    expect(r.flagged).toBe(true)
+    expect(JSON.stringify(r)).not.toContain("zzsecretword")
+    expect(r).not.toHaveProperty("flags")
+  })
+
+  it("never leaks keywords for a business flagged-keyword draft", async () => {
+    h.snapshot.mockResolvedValue({ ...SNAP, mode: "business" })
+    h.settingsFn.mockResolvedValue({ ...DEFAULT_SMS_SETTINGS, businessFlaggedKeywords: ["qqflagword"], businessBlockedKeywords: [] })
+    const r = await previewDraft({ accountId: "a1", message: "special qqflagword offer", recipientCount: 1, tokens: TOKENS })
+    expect(r.flagged).toBe(true)
+    expect(JSON.stringify(r)).not.toContain("qqflagword")
+    expect(r).not.toHaveProperty("flags")
+  })
+
   it("never throws: evaluator/context errors -> advisory allow + unavailable", async () => {
     h.usage.mockRejectedValue(new Error("boom"))
     const r = await previewDraft({ accountId: "a1", message: "hello there", recipientCount: 1, tokens: TOKENS })
-    expect(r).toMatchObject({ decision: "allow", code: "OK", unavailable: true, flags: [] })
+    expect(r).toMatchObject({ decision: "allow", code: "OK", unavailable: true, flagged: false })
   })
 
   it("account not found -> advisory unavailable", async () => {

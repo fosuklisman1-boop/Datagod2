@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
+import { applyRateLimit } from "@/lib/rate-limiter"
 import { resolveAccount } from "@/lib/sms/tenant-auth"
 import { getShopTokens } from "@/lib/sms/shop-context-service"
 import { previewDraft } from "@/lib/sms/compose-preview"
@@ -8,6 +9,8 @@ const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
+
+const PREVIEW_LIMIT_PER_MIN = 60
 
 const EMPTY_TOKENS = { shop_name: "", shop_link: "", shop_phone: "", shop_whatsapp: "" }
 
@@ -19,6 +22,11 @@ export async function POST(request: NextRequest) {
   const auth = await resolveAccount(request)
   if (auth.error) return auth.error
   const { account } = auth
+
+  const rateLimit = await applyRateLimit(request, "sms_compose_preview", PREVIEW_LIMIT_PER_MIN, 60 * 1000, account.id)
+  if (!rateLimit.allowed) {
+    return NextResponse.json({ success: false, error: "Too many preview requests. Please slow down." }, { status: 429 })
+  }
 
   let body: unknown
   try {
@@ -60,7 +68,7 @@ export async function POST(request: NextRequest) {
     console.error("[SMS-PREVIEW] route failed:", e)
     return NextResponse.json({
       success: true,
-      data: { decision: "allow", code: "OK", reason: "Preview unavailable.", flags: [], unavailable: true },
+      data: { decision: "allow", code: "OK", reason: "Preview unavailable.", flagged: false, unavailable: true },
     })
   }
 }
