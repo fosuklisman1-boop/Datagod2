@@ -91,5 +91,17 @@ describe("POST /api/v1/sms/send scheduled_at", () => {
     expect(await res.json()).toMatchObject({ sandbox: true, scheduled: false, scheduled_for: null })
     const bad = await call({ message: "Hello world", recipients: ["0241234567"], scheduled_at: "nope" })
     expect(bad.status).toBe(400)
+    expect(h.batched).not.toHaveBeenCalled()
+  })
+
+  it("sandbox echoes a valid scheduled_at (status 'scheduled', scheduled_for ISO), still no enqueue", async () => {
+    h.env = "test"
+    const at = new Date(Date.now() + 3_600_000)
+    const res = await call({ message: "Hello world", recipients: ["0241234567"], scheduled_at: at.toISOString().replace("Z", "+00:00") })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({
+      sandbox: true, status: "scheduled", scheduled: true, scheduled_for: at.toISOString(), held: false, send_log_id: null,
+    })
+    expect(h.batched).not.toHaveBeenCalled()
   })
 })

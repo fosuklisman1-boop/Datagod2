@@ -106,10 +106,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       // Same shape as a live send; nothing is logged in the sandbox, so there is no log id.
-      status: "queued",
+      // A valid scheduled_at is echoed (nothing is stored) so test integrators see the real shape.
+      status: scheduledFor ? "scheduled" : "queued",
       held: false,
-      scheduled: false,
-      scheduled_for: null,
+      scheduled: !!scheduledFor,
+      scheduled_for: scheduledFor ? scheduledFor.toISOString() : null,
       send_log_id: null,
       total: uniqueRecipients.length,
       batches: 1,
