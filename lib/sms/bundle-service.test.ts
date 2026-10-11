@@ -106,7 +106,7 @@ vi.mock("./wholesale", () => ({ getWholesaleCredits: () => Promise.resolve(h.sta
 vi.mock("./kill-switch", () => ({ isSmsEnabled: () => Promise.resolve(h.state.smsEnabled) }))
 vi.mock("./notify", () => ({ notifyAdminSmsShortfall: (...a: any[]) => { h.notifySpy(...a); return Promise.resolve() } }))
 
-import { purchaseBundleViaWallet, purchaseUnitsByQuantity, quoteCredits, getPricePerCredit, creditUnitsForPaystack, allocateUnits, canDeleteBundle, BUNDLE_DELETE_MIN_INACTIVE_MS, deleteBundle } from "./bundle-service"
+import { purchaseBundleViaWallet, purchaseUnitsByQuantity, quoteCredits, getPricePerCredit, creditUnitsForPaystack, allocateUnits, canDeleteBundle, BUNDLE_DELETE_MIN_INACTIVE_MS, deleteBundle, validateBundleInput } from "./bundle-service"
 
 beforeEach(() => {
   h.state.calls.length = 0
@@ -397,6 +397,20 @@ describe("kill switch (SMS_DISABLED)", () => {
     expect(res.ok).toBe(true)
     expect(res.outcome).toBe("credited")
     expect(fns()).toContain("credit_sms_units_if_solvent")
+  })
+})
+
+describe("validateBundleInput (pure)", () => {
+  it("accepts valid and absent fields", () => {
+    expect(validateBundleInput({ units: 1000, price_ghs: 35.5 })).toBeNull()
+    expect(validateBundleInput({})).toBeNull()
+    expect(validateBundleInput({ units: 10_000_000, price_ghs: 100_000 })).toBeNull()
+  })
+  it("rejects bad units", () => {
+    for (const units of [0, -1, 1.5, 10_000_001, "5", NaN, null]) expect(validateBundleInput({ units })).toMatch(/units/)
+  })
+  it("rejects bad prices", () => {
+    for (const price_ghs of [0, -1, 100_001, NaN, Infinity, "5", null]) expect(validateBundleInput({ price_ghs })).toMatch(/price_ghs/)
   })
 })
 

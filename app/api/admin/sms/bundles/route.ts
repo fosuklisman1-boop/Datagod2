@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
-import { listAllBundles, createBundle, updateBundle, deleteBundle } from "@/lib/sms/bundle-service"
+import { listAllBundles, createBundle, updateBundle, deleteBundle, validateBundleInput } from "@/lib/sms/bundle-service"
 import { adminGuard } from "@/lib/sms/admin-guard"
 
 export async function GET(request: NextRequest) {
@@ -13,6 +13,8 @@ export async function POST(request: NextRequest) {
   if (!g.ok) return g.response
   const body = await request.json()
   if (!body.name || !body.units || body.price_ghs == null) return NextResponse.json({ error: "name, units, price_ghs required" }, { status: 400 })
+  const invalid = validateBundleInput({ units: body.units, price_ghs: body.price_ghs })
+  if (invalid) return NextResponse.json({ error: invalid }, { status: 400 })
   try {
     return NextResponse.json({ bundle: await createBundle(body) })
   } catch (e) {
@@ -26,6 +28,8 @@ export async function PATCH(request: NextRequest) {
   const body = await request.json()
   if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 })
   const { id, ...patch } = body
+  const invalid = validateBundleInput({ units: patch.units, price_ghs: patch.price_ghs })
+  if (invalid) return NextResponse.json({ error: invalid }, { status: 400 })
   try {
     return NextResponse.json({ bundle: await updateBundle(id, patch) })
   } catch (e) {

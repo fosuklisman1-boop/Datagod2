@@ -1,7 +1,7 @@
 /** Admin overview (Phase 2 spec §4.1): stat cards, tab counts, supply snapshot, policy preview. */
 import { createClient } from "@supabase/supabase-js"
 import { getWholesaleSnapshot, type WholesaleSnapshot } from "./wholesale"
-import { loadSmsSettings } from "./platform-settings"
+import { getAdminSettings } from "./admin-settings"
 import { getRoutingConfig } from "./routing"
 
 const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
@@ -77,7 +77,7 @@ export async function getOverview(): Promise<Overview> {
     supabaseAdmin.rpc("sms_admin_overview"),
     supabaseAdmin.rpc("sms_policy_preview", { p_days: 7 }),
     getWholesaleSnapshot(),
-    loadSmsSettings(),
+    getAdminSettings(), // fresh + fail-loud: the kill-switch state must never come from the 60 s cache
     getRoutingConfig(),
   ])
   if (overview.error) throw new Error(`overview failed: ${overview.error.message}`)
@@ -86,6 +86,6 @@ export async function getOverview(): Promise<Overview> {
     ((overview.data as OverviewRow[] | null) ?? [])[0] ?? null,
     (preview.data as PreviewRow[] | null) ?? [],
     supply,
-    { featureEnabled: settings.featureEnabled, policyEnforced: settings.policyEnforced, provider: String(routing.primary) }
+    { featureEnabled: settings.settings.featureEnabled, policyEnforced: settings.settings.policyEnforced, provider: String(routing.primary) }
   )
 }

@@ -44,6 +44,26 @@ export async function listAllBundles(): Promise<Bundle[]> {
   return (data as Bundle[]) ?? []
 }
 
+export const BUNDLE_MAX_UNITS = 10_000_000
+export const BUNDLE_MAX_PRICE_GHS = 100_000
+
+/** Pure admin-input check for create (all fields required) and patch (only present fields). Returns an error message or null. */
+export function validateBundleInput(input: { units?: unknown; price_ghs?: unknown }): string | null {
+  if (input.units !== undefined) {
+    const u = input.units
+    if (typeof u !== "number" || !Number.isInteger(u) || u < 1 || u > BUNDLE_MAX_UNITS) {
+      return `units must be a whole number from 1 to ${BUNDLE_MAX_UNITS.toLocaleString("en-US")}`
+    }
+  }
+  if (input.price_ghs !== undefined) {
+    const p = input.price_ghs
+    if (typeof p !== "number" || !Number.isFinite(p) || p <= 0 || p > BUNDLE_MAX_PRICE_GHS) {
+      return `price_ghs must be a number above 0 and at most ${BUNDLE_MAX_PRICE_GHS.toLocaleString("en-US")}`
+    }
+  }
+  return null
+}
+
 function assertBundleMode(mode: unknown) {
   if (mode !== "platform" && mode !== "business") throw new Error("mode must be platform or business")
 }
