@@ -258,6 +258,22 @@ export async function enqueueSend(
         if (error) console.error("[SMS-SEND] enqueue rollback refund failed:", error.message)
       })
     console.error("[SMS-SEND] enqueue failed after debit (refunded):", insertErr)
+    // Enforced path: the log row may already exist with no (or partial) messages. Close it
+    // (refund already done above) so a later admin release/reject can never refund it again.
+    // Conditional on its status so a concurrently-moved log is never overwritten.
+    // (Record-only path left exactly as before.)
+    if (enforced && sendLogId) {
+      try {
+        const { error: orphanErr } = await supabaseAdmin
+          .from("sms_send_logs")
+          .update({ status: "failed", credits_reserved: 0 })
+          .eq("id", sendLogId)
+          .in("status", ["queued", "held"])
+        if (orphanErr) console.error("[SMS-SEND] could not close orphan send log", sendLogId, orphanErr.message)
+      } catch (e) {
+        console.error("[SMS-SEND] could not close orphan send log", sendLogId, e)
+      }
+    }
     return { ok: false, error: "ENQUEUE_FAILED" }
   }
 

@@ -98,6 +98,7 @@ const h = vi.hoisted(() => {
             const filters: Record<string, any> = { [col]: val }
             const chain: any = {
               eq: (c2: string, v2: any) => { filters[c2] = v2; return chain },
+              in: (c2: string, v2: any) => { filters[`in:${c2}`] = v2; return chain },
               not: (c2: string, op: string, v2: any) => { filters[`not:${c2}:${op}`] = v2; return chain },
               lt: () => Promise.resolve({ data: null, error: null }),
               then: (resolve: any) => {
@@ -105,6 +106,9 @@ const h = vi.hoisted(() => {
                   state.calls.push({ fn: "ledger-link", table, args: { patch, filters } })
                   if (state.linkThrows) throw new Error("link boom")
                   if (state.linkError) return resolve({ data: null, error: { message: state.linkError } })
+                }
+                if (table === "sms_send_logs" && Object.keys(filters).some((k) => k.startsWith("in:"))) {
+                  state.calls.push({ fn: "log-orphan", table, args: { patch, filters } })
                 }
                 if (table === "sms_messages" && patch.status === "pending") {
                   state.calls.push({ fn: "release", table, args: { patch, filters } })
@@ -783,6 +787,30 @@ describe("enforcement ON", () => {
     const r = await enqueueSendBatched("u1", "acc1", "Hello world", recips(1))
     expect(r).toMatchObject({ ok: false, error: "ENQUEUE_FAILED" })
     expect(rpcs().find((c) => c.fn === "adjust_sms_units")!.args.p_delta).toBe(1)
+    // The orphan 'held' log is closed so a later admin reject can never refund it a second time.
+    const orphan = h.state.calls.filter((c) => c.fn === "log-orphan")
+    expect(orphan).toHaveLength(1)
+    expect(orphan[0].args.patch).toEqual({ status: "failed", credits_reserved: 0 })
+    expect(orphan[0].args.filters).toEqual({ id: "log-1", "in:status": ["queued", "held"] })
+    const names = h.state.calls.map((c) => c.fn)
+    expect(names.indexOf("log-orphan")).toBeGreaterThan(names.indexOf("adjust_sms_units"))
+    spy.mockRestore()
+  })
+
+  it("allow: message insert failure also closes the orphan queued log (enforced only)", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    h.state.insertMsgError = "boom"
+    await enqueueSendBatched("u1", "acc1", "Hello world", recips(1))
+    expect(h.state.calls.filter((c) => c.fn === "log-orphan")).toHaveLength(1)
+    spy.mockRestore()
+  })
+
+  it("log insert itself failing → no orphan update (there is no log)", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    h.state.policyResult = { decision: "hold", code: "REVIEW_HOLD", reason: "r", flags: [] }
+    h.state.insertLogError = "log boom"
+    await enqueueSendBatched("u1", "acc1", "Hello world", recips(1))
+    expect(h.state.calls.filter((c) => c.fn === "log-orphan")).toHaveLength(0)
     spy.mockRestore()
   })
 
