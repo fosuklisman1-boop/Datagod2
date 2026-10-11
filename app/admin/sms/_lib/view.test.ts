@@ -2,8 +2,38 @@ import { describe, it, expect } from "vitest"
 import {
   formatCount, formatGhs, formatPerSms, maskIdCard, waLink, statusTone, toneClass, statusLabel, timeAgo, pageInfo,
   messageBreakdown, accountCredits, groupReviews, bannerFor, previewTotals, tabFromParam, TAB_IDS, parseList, providerLabel, supplyHeadline,
-  shouldResetPage, formatRate,
+  shouldResetPage, formatRate, parseApiLimit, parseAllocateUnits, parseBundleDraft,
 } from "./view"
+
+describe("admin form parsers", () => {
+  it("parseApiLimit", () => {
+    expect(parseApiLimit("")).toEqual({ ok: true, value: null })
+    expect(parseApiLimit(" 60 ")).toEqual({ ok: true, value: 60 })
+    expect(parseApiLimit("10000")).toEqual({ ok: true, value: 10000 })
+    expect(parseApiLimit("10001").ok).toBe(false)
+    expect(parseApiLimit("0").ok).toBe(false)
+    expect(parseApiLimit("1.5").ok).toBe(false)
+    expect(parseApiLimit("abc").ok).toBe(false)
+  })
+  it("parseAllocateUnits", () => {
+    expect(parseAllocateUnits("500")).toEqual({ ok: true, value: 500 })
+    expect(parseAllocateUnits("1000000").ok).toBe(true)
+    expect(parseAllocateUnits("1000001").ok).toBe(false)
+    expect(parseAllocateUnits("").ok).toBe(false)
+    expect(parseAllocateUnits("0").ok).toBe(false)
+    expect(parseAllocateUnits("-5").ok).toBe(false)
+    expect(parseAllocateUnits("2.5").ok).toBe(false)
+  })
+  it("parseBundleDraft", () => {
+    expect(parseBundleDraft({ name: " Starter ", units: "1000", price: "35.5", sort: "0" })).toEqual({ ok: true, value: { name: "Starter", units: 1000, price: 35.5, sort: 0 } })
+    expect(parseBundleDraft({ name: "", units: "1", price: "1", sort: "0" }).ok).toBe(false)
+    expect(parseBundleDraft({ name: "a", units: "0", price: "1", sort: "0" }).ok).toBe(false)
+    expect(parseBundleDraft({ name: "a", units: "1", price: "", sort: "0" }).ok).toBe(false)
+    expect(parseBundleDraft({ name: "a", units: "1", price: "-1", sort: "0" }).ok).toBe(false)
+    expect(parseBundleDraft({ name: "a", units: "1", price: "1", sort: "x" }).ok).toBe(false)
+    expect(parseBundleDraft({ name: "a", units: "1", price: "1", sort: "-2" }).ok).toBe(true)
+  })
+})
 
 describe("numbers and money", () => {
   it("formatCount", () => {

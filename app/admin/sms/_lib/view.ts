@@ -133,6 +133,41 @@ export function tabFromParam(p: string | null | undefined): TabId {
   return (TAB_IDS as readonly string[]).includes(p ?? "") ? (p as TabId) : "business-reviews"
 }
 
+export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string }
+
+/** API rate-limit override input: empty = platform default (null); otherwise a whole number 1–10,000. */
+export function parseApiLimit(input: string): Parsed<number | null> {
+  const t = (input ?? "").trim()
+  if (t === "") return { ok: true, value: null }
+  const n = Number(t)
+  if (/^\d+$/.test(t) && n >= 1 && n <= 10000) return { ok: true, value: n }
+  return { ok: false, error: "Enter a whole number from 1 to 10,000, or leave empty for the default" }
+}
+
+/** Credit allocation input: whole number 1–1,000,000. */
+export function parseAllocateUnits(input: string): Parsed<number> {
+  const t = (input ?? "").trim()
+  const n = Number(t)
+  if (/^\d+$/.test(t) && n >= 1 && n <= 1_000_000) return { ok: true, value: n }
+  return { ok: false, error: "Enter a whole number from 1 to 1,000,000" }
+}
+
+export interface BundleDraftInput { name: string; units: string; price: string; sort: string }
+/** Validates the bundle form; returns the numeric fields on success. */
+export function parseBundleDraft(d: BundleDraftInput): Parsed<{ name: string; units: number; price: number; sort: number }> {
+  const name = (d.name ?? "").trim()
+  if (!name) return { ok: false, error: "Give the bundle a name" }
+  const unitsText = (d.units ?? "").trim()
+  const units = Number(unitsText)
+  if (!/^\d+$/.test(unitsText) || units < 1) return { ok: false, error: "Credits must be a whole number above 0" }
+  const priceText = (d.price ?? "").trim()
+  const price = Number(priceText)
+  if (priceText === "" || !Number.isFinite(price) || price < 0) return { ok: false, error: "Enter a valid price" }
+  const sortText = (d.sort ?? "").trim()
+  if (!/^-?\d+$/.test(sortText)) return { ok: false, error: "Sort order must be a whole number" }
+  return { ok: true, value: { name, units, price, sort: Number(sortText) } }
+}
+
 /** Comma/newline separated text → trimmed, de-duplicated (case-insensitive), no empties. */
 export function parseList(text: string): string[] {
   const seen = new Set<string>(); const out: string[] = []
