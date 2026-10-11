@@ -6,13 +6,14 @@
 import { createClient } from "@supabase/supabase-js"
 import { writeAuditLog } from "./moderation-service"
 import { invalidateSmsSettingsCache, normalizeDomain, parseSmsSettings, SMS_SETTING_KEYS, type SmsPlatformSettings } from "./platform-settings"
-import { validateSenderName } from "./sender-name"
+import { normalizeSenderName, validateSenderName } from "./sender-name"
 
 const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
 export const ALLOWED_ROLES = ["shop_owner", "sub_agent", "dealer", "user"] as const
 const MAX_LIST = 500
 const MAX_KEYWORD = 60
+const MAX_PLATFORM_SENDERS = 20
 
 type Row = { key: string; value: unknown }
 export type ValidationResult = { ok: true; rows: Row[] } | { ok: false; error: string }
@@ -84,6 +85,24 @@ export function validateSection(section: string, values: unknown): ValidationRes
       }
       if (names.length > 200) return fail("The sender pool can hold at most 200 names")
       return { ok: true, rows: [{ key: "sms_sender_pool", value: names }] }
+    }
+    case "platform_senders": {
+      if (!Array.isArray(values.platformSenders)) return fail("platformSenders must be a list")
+      const names: string[] = []
+      for (const raw of values.platformSenders) {
+        if (typeof raw !== "string") return fail("Sender names must be text")
+        const c = validateSenderName(raw, [])
+        if (!c.ok) return fail(`"${raw}": ${c.reason}`)
+        if (!names.includes(c.name)) names.push(c.name)
+      }
+      if (names.length > MAX_PLATFORM_SENDERS) return fail(`Platform sender names can hold at most ${MAX_PLATFORM_SENDERS} names`)
+      const rawDefault = values.platformDefaultSender
+      if (rawDefault !== null && rawDefault !== undefined && typeof rawDefault !== "string") return fail("Default sender must be text or empty")
+      const def = typeof rawDefault === "string" ? normalizeSenderName(rawDefault) : ""
+      if (def && !names.includes(def)) {
+        return fail(`The default sender "${def}" is not in the list. Choose another default (or "None") before removing it, or add it back to the list.`)
+      }
+      return { ok: true, rows: [{ key: "sms_platform_senders", value: names }, { key: "sms_platform_default_sender", value: def }] }
     }
     case "platform_keywords": {
       const k = cleanKeywords(values.blockedKeywords, "Blocked keywords")

@@ -11,6 +11,22 @@ import {
 } from "./platform-settings"
 
 describe("parseSmsSettings", () => {
+  it("platform senders: default [] / null", () => {
+    const s = parseSmsSettings([])
+    expect(s.platformSenders).toEqual([])
+    expect(s.platformDefaultSender).toBeNull()
+  })
+  it("platform senders: upper-cased list and default; blank default is null; non-string default is null", () => {
+    const s = parseSmsSettings([
+      { key: "sms_platform_senders", value: ["clingdtgod2", " Kings "] },
+      { key: "sms_platform_default_sender", value: " clingdtgod2 " },
+    ])
+    expect(s.platformSenders).toEqual(["CLINGDTGOD2", "KINGS"])
+    expect(s.platformDefaultSender).toBe("CLINGDTGOD2")
+    expect(parseSmsSettings([{ key: "sms_platform_default_sender", value: "" }]).platformDefaultSender).toBeNull()
+    expect(parseSmsSettings([{ key: "sms_platform_default_sender", value: 7 }]).platformDefaultSender).toBeNull()
+    expect(parseSmsSettings([{ key: "sms_platform_default_sender", value: { value: "abc" } }]).platformDefaultSender).toBe("ABC")
+  })
   it("returns defaults for no rows", () => expect(parseSmsSettings([])).toEqual(DEFAULT_SMS_SETTINGS))
   it("reads scalars, arrays and caps", () => {
     const s = parseSmsSettings([

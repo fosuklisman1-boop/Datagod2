@@ -54,6 +54,38 @@ describe("validateSection", () => {
     expect(validateSection("sender_pool", { senderPool: ["ab"] }).ok).toBe(false)
     expect(validateSection("sender_pool", { senderPool: ["bad-name!"] }).ok).toBe(false)
   })
+  it("platform_senders: validated, upper-cased, de-duplicated; default must be in the list", () => {
+    expect(rows(validateSection("platform_senders", { platformSenders: ["clingdtgod2", "CLINGDTGOD2", "Kings Co"], platformDefaultSender: "clingdtgod2" })))
+      .toEqual([{ key: "sms_platform_senders", value: ["CLINGDTGOD2", "KINGS CO"] }, { key: "sms_platform_default_sender", value: "CLINGDTGOD2" }])
+    // no default: stored as "" (value column is NOT NULL jsonb)
+    expect(rows(validateSection("platform_senders", { platformSenders: ["ABC"], platformDefaultSender: null })))
+      .toEqual([{ key: "sms_platform_senders", value: ["ABC"] }, { key: "sms_platform_default_sender", value: "" }])
+    expect(rows(validateSection("platform_senders", { platformSenders: [], platformDefaultSender: "" })))
+      .toEqual([{ key: "sms_platform_senders", value: [] }, { key: "sms_platform_default_sender", value: "" }])
+  })
+  it("platform_senders: rejects bad names, 12 chars, >20 names", () => {
+    expect(validateSection("platform_senders", { platformSenders: ["ab"], platformDefaultSender: null }).ok).toBe(false)
+    expect(validateSection("platform_senders", { platformSenders: ["CLINGSDTGOD1"], platformDefaultSender: null }).ok).toBe(false)
+    expect(validateSection("platform_senders", { platformSenders: ["bad-name!"], platformDefaultSender: null }).ok).toBe(false)
+    expect(validateSection("platform_senders", { platformSenders: "ABC", platformDefaultSender: null }).ok).toBe(false)
+    const many = Array.from({ length: 21 }, (_, i) => `NAME${String.fromCharCode(65 + i)}`)
+    expect(validateSection("platform_senders", { platformSenders: many, platformDefaultSender: null }).ok).toBe(false)
+    expect(validateSection("platform_senders", { platformSenders: many.slice(0, 20), platformDefaultSender: null }).ok).toBe(true)
+  })
+  it("platform_senders: default not in list is rejected with a clear message", () => {
+    const r = validateSection("platform_senders", { platformSenders: ["ABC"], platformDefaultSender: "XYZ" })
+    expect(r.ok).toBe(false)
+    expect(!r.ok && r.error).toMatch(/default.*XYZ.*not in the list/i)
+    // removing the current default from the list while it is still selected
+    expect(validateSection("platform_senders", { platformSenders: [], platformDefaultSender: "ABC" }).ok).toBe(false)
+  })
+  it("platform_senders saves through saveSection, audits and invalidates the cache", async () => {
+    const r = await saveSection("admin1", "platform_senders", { platformSenders: ["ABC"], platformDefaultSender: "ABC" })
+    expect(r.ok).toBe(true)
+    expect(h.upserts[0]).toHaveLength(2)
+    expect(h.audit).toHaveBeenCalledOnce()
+    expect(h.invalidate).toHaveBeenCalledOnce()
+  })
   it("platform_keywords: trimmed, de-duplicated case-insensitively, no empties", () => {
     expect(rows(validateSection("platform_keywords", { blockedKeywords: [" Loan ", "loan", "", "win big"] }))).toEqual([{ key: "sms_blocked_keywords", value: ["Loan", "win big"] }])
     expect(validateSection("platform_keywords", { blockedKeywords: ["x".repeat(61)] }).ok).toBe(false)

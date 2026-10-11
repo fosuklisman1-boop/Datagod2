@@ -24,6 +24,10 @@ export interface SmsPlatformSettings {
   protectedSenderNames: string[]
   hubtelCostPerSms: number
   hubtelLowBalanceGhs: number
+  /** Admin-managed platform sender names (Hubtel sends only). */
+  platformSenders: string[]
+  /** Must be one of platformSenders to take effect; null = use the env/hardcoded name. */
+  platformDefaultSender: string | null
 }
 
 export const DEFAULT_SMS_SETTINGS: SmsPlatformSettings = {
@@ -52,6 +56,8 @@ export const DEFAULT_SMS_SETTINGS: SmsPlatformSettings = {
   ],
   hubtelCostPerSms: 0.035,
   hubtelLowBalanceGhs: 50,
+  platformSenders: [],
+  platformDefaultSender: null,
 }
 
 export const SMS_SETTING_KEYS = [
@@ -59,7 +65,7 @@ export const SMS_SETTING_KEYS = [
   "sms_blocked_keywords", "sms_business_blocked_keywords", "sms_business_flagged_keywords",
   "sms_business_allowed_domains", "sms_auto_suspend_flags", "sms_flag_review_threshold",
   "sms_api_rate_limit_default", "sms_protected_sender_names", "sms_hubtel_cost_per_sms",
-  "sms_hubtel_low_balance_ghs",
+  "sms_hubtel_low_balance_ghs", "sms_platform_senders", "sms_platform_default_sender",
 ] as const
 
 /** Older admin screens wrapped values as {enabled}/{value}/{amount}; read only the keys that make sense for the target type. */
@@ -98,6 +104,13 @@ function list(v: unknown, d: readonly string[]): string[] {
   if (out.length === 0 && raw.some((x) => !(typeof x === "string" && x.trim() === ""))) return [...d]
   return out
 }
+/** Blank / non-string -> null, else trimmed + upper-cased. */
+function optName(v: unknown): string | null {
+  const u = unwrap(v, ["value"])
+  if (typeof u !== "string") return null
+  const t = u.trim().toUpperCase()
+  return t || null
+}
 function caps(v: unknown): Record<SmsMode, ModeCaps> {
   const d = DEFAULT_SMS_SETTINGS.caps
   const u = unwrap(v, ["value"])
@@ -135,6 +148,8 @@ export function parseSmsSettings(rows: { key: string; value: unknown }[]): SmsPl
     protectedSenderNames: list(m.get("sms_protected_sender_names"), d.protectedSenderNames),
     hubtelCostPerSms: num(m.get("sms_hubtel_cost_per_sms"), d.hubtelCostPerSms, 0.0001, 10),
     hubtelLowBalanceGhs: num(m.get("sms_hubtel_low_balance_ghs"), d.hubtelLowBalanceGhs, 0, 1_000_000),
+    platformSenders: list(m.get("sms_platform_senders"), d.platformSenders).map((s) => s.toUpperCase()),
+    platformDefaultSender: optName(m.get("sms_platform_default_sender")),
   }
 }
 
