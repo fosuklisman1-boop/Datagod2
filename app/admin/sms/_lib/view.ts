@@ -202,6 +202,15 @@ export function heldActionMessage(
   return credits > 0 ? `Rejected — ${plural(credits, "credit")} refunded` : "Rejected"
 }
 
+/** Toast text after PATCH { review_hold } on an account. */
+export function reviewHoldMessage(hold: boolean, d: { review_hold_changed?: boolean; flags_closed?: number | null }): string {
+  if (hold) return d.review_hold_changed ? "Account placed on review hold" : "Account was already on review hold"
+  if (!d.review_hold_changed) return "Review hold was already cleared"
+  if (d.flags_closed === null) return "Review hold cleared — open flags could not be closed; dismiss them in the Flagged tab"
+  const n = num(d.flags_closed)
+  return n > 0 ? `Review hold cleared — ${plural(n, "open flag")} closed` : "Review hold cleared"
+}
+
 /** Comma/newline separated text → trimmed, de-duplicated (case-insensitive), no empties. */
 export function parseList(text: string): string[] {
   const seen = new Set<string>(); const out: string[] = []

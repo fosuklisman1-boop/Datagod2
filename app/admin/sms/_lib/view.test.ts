@@ -3,7 +3,7 @@ import {
   formatCount, formatGhs, formatPerSms, maskIdCard, waLink, statusTone, toneClass, statusLabel, timeAgo, pageInfo,
   messageBreakdown, accountCredits, groupReviews, bannerFor, previewTotals, tabFromParam, TAB_IDS, parseList, providerLabel, supplyHeadline,
   shouldResetPage, formatRate, parseApiLimit, parseAllocateUnits, parseBundleDraft, toNumberOrNaN,
-  heldSummary, heldActionMessage, isValidRejectReason,
+  heldSummary, heldActionMessage, isValidRejectReason, reviewHoldMessage,
 } from "./view"
 
 describe("admin form parsers", () => {
@@ -231,5 +231,19 @@ describe("held campaigns", () => {
     expect(heldActionMessage("reject", { already: false, refundedCredits: 1000 })).toBe("Rejected — 1,000 credits refunded")
     expect(heldActionMessage("reject", { already: false, refundedCredits: 0 })).toBe("Rejected")
     expect(heldActionMessage("reject", { already: true, refundedCredits: 0 })).toBe("Already rejected")
+  })
+})
+
+describe("reviewHoldMessage", () => {
+  it("clear", () => {
+    expect(reviewHoldMessage(false, { review_hold_changed: true, flags_closed: 3 })).toBe("Review hold cleared — 3 open flags closed")
+    expect(reviewHoldMessage(false, { review_hold_changed: true, flags_closed: 1 })).toBe("Review hold cleared — 1 open flag closed")
+    expect(reviewHoldMessage(false, { review_hold_changed: true, flags_closed: 0 })).toBe("Review hold cleared")
+    expect(reviewHoldMessage(false, { review_hold_changed: true, flags_closed: null })).toBe("Review hold cleared — open flags could not be closed; dismiss them in the Flagged tab")
+    expect(reviewHoldMessage(false, { review_hold_changed: false })).toBe("Review hold was already cleared")
+  })
+  it("set", () => {
+    expect(reviewHoldMessage(true, { review_hold_changed: true })).toBe("Account placed on review hold")
+    expect(reviewHoldMessage(true, { review_hold_changed: false })).toBe("Account was already on review hold")
   })
 })

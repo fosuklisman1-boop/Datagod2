@@ -9,10 +9,10 @@ import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { api, apiRaw, type AccountRow, type Page } from "../_lib/api"
 import { useLoad } from "../_lib/useLoad"
-import { accountCredits, formatCount, parseAllocateUnits, parseApiLimit, shouldResetPage } from "../_lib/view"
+import { accountCredits, formatCount, parseAllocateUnits, parseApiLimit, reviewHoldMessage, shouldResetPage } from "../_lib/view"
 import { ConfirmDialog, CopyButton, EmptyState, ErrorBox, LoadingRows, Pager, StatusBadge } from "./ui-bits"
 
-type Dialog = null | { kind: "suspend" | "mode" | "limit" | "allocate"; row: AccountRow }
+type Dialog = null | { kind: "suspend" | "mode" | "limit" | "allocate" | "hold"; row: AccountRow }
 
 function Actions({ row, open, disabled }: { row: AccountRow; open: (d: Dialog) => void; disabled?: boolean }) {
   return (
@@ -22,6 +22,9 @@ function Actions({ row, open, disabled }: { row: AccountRow; open: (d: Dialog) =
           {row.status === "suspended" ? "Unsuspend" : "Suspend"}
         </Button>
       )}
+      <Button size="sm" variant={row.review_hold ? "default" : "outline"} disabled={disabled} onClick={() => open({ kind: "hold", row })}>
+        {row.review_hold ? "Clear hold" : "Place on hold"}
+      </Button>
       <Button size="sm" variant="outline" disabled={disabled} onClick={() => open({ kind: "mode", row })}>Change mode</Button>
       <Button size="sm" variant="outline" disabled={disabled} onClick={() => open({ kind: "limit", row })}>API limit</Button>
       <Button size="sm" variant="outline" disabled={disabled} onClick={() => open({ kind: "allocate", row })}>Allocate credits</Button>
@@ -79,6 +82,11 @@ export default function AccountsTab({ onChanged }: { onChanged: () => void }) {
         const res = await api("/api/admin/shop-sms", { method: "POST", body: JSON.stringify({ action: "set_suspended", accountId: row.id, suspended: row.status !== "suspended" }) })
         if (!res.success) return void toast.error(res.error ?? "Could not update the account")
         done(row.status === "suspended" ? "Account unsuspended" : "Account suspended")
+      } else if (kind === "hold") {
+        const next = !row.review_hold
+        const res = await api<{ review_hold_changed?: boolean; flags_closed?: number | null }>(`/api/admin/sms-platform/accounts/${row.id}`, { method: "PATCH", body: JSON.stringify({ review_hold: next }) })
+        if (!res.success) return void toast.error(res.error ?? "Could not update the review hold")
+        done(reviewHoldMessage(next, res.data ?? {}))
       } else if (kind === "mode") {
         const next = row.mode === "business" ? "platform" : "business"
         const res = await api(`/api/admin/sms-platform/accounts/${row.id}`, { method: "PATCH", body: JSON.stringify({ mode: next }) })
@@ -158,6 +166,12 @@ export default function AccountsTab({ onChanged }: { onChanged: () => void }) {
       <ConfirmDialog open={dialog?.kind === "suspend"} onOpenChange={(o) => !o && setDialog(null)} busy={busy} destructive={!suspended}
         title={suspended ? "Unsuspend this account?" : "Suspend this account?"} confirmLabel={suspended ? "Unsuspend" : "Suspend"}
         description={<><b className="break-all">{who}</b>: {suspended ? "the customer can send SMS again." : "the customer can't send SMS or buy credits until you unsuspend them."}</>}
+        onConfirm={confirm} />
+      <ConfirmDialog open={dialog?.kind === "hold"} onOpenChange={(o) => !o && setDialog(null)} busy={busy} destructive={!row?.review_hold}
+        title={row?.review_hold ? "Clear the review hold?" : "Place this account on review hold?"} confirmLabel={row?.review_hold ? "Clear hold" : "Place on hold"}
+        description={<><b className="break-all">{who}</b>: {row?.review_hold
+          ? "new sends from this account will go out normally again. The account’s open info flags are closed so the hold isn’t re-applied by the next flag. Campaigns already held stay in the Flagged tab for you to release or reject."
+          : "while sending rules are enforced, every new send from this account is held (credits taken) until you release or reject it in the Flagged tab."}</>}
         onConfirm={confirm} />
       <ConfirmDialog open={dialog?.kind === "mode"} onOpenChange={(o) => !o && setDialog(null)} busy={busy}
         title={row?.mode === "business" ? "Switch to Platform mode?" : "Switch to Business mode?"} confirmLabel="Switch mode"
