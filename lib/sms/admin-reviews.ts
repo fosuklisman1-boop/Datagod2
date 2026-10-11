@@ -25,12 +25,14 @@ export async function loadAccountInfo(accountIds: string[]): Promise<Map<string,
   if (ids.length === 0) return map
   const accounts: { id: string; user_id: string; mode: "platform" | "business"; owner_type: string }[] = []
   for (const part of chunks(ids, CHUNK)) {
-    const { data } = await supabaseAdmin.from("sms_accounts").select("id, user_id, mode, owner_type").in("id", part)
+    const { data, error } = await supabaseAdmin.from("sms_accounts").select("id, user_id, mode, owner_type").in("id", part)
+    if (error) throw new Error(`sms_accounts lookup failed: ${error.message}`)
     accounts.push(...((data ?? []) as typeof accounts))
   }
   const emails = new Map<string, string | null>()
   for (const part of chunks([...new Set(accounts.map((a) => a.user_id))], CHUNK)) {
-    const { data } = await supabaseAdmin.from("users").select("id, email").in("id", part)
+    const { data, error } = await supabaseAdmin.from("users").select("id, email").in("id", part)
+    if (error) throw new Error(`users lookup failed: ${error.message}`)
     for (const u of (data ?? []) as { id: string; email: string | null }[]) emails.set(u.id, u.email)
   }
   for (const a of accounts) {
@@ -63,10 +65,11 @@ export async function listSenderIdsForAdmin(
     .select("id, sender_id, local_status, kyc_free, is_pool, approved_at, revoked_at, rejection_reason, submitted_at, created_at, sms_account_id")
     .order("created_at", { ascending: false }).limit(500)
   if (SENDER_STATUSES.has(status)) q = q.eq("local_status", status)
-  const { data } = await q
-  let rows = (data ?? []) as SenderRow[]
-  if (scope === "tenant") rows = rows.filter((r) => r.sms_account_id)
-  if (scope === "global") rows = rows.filter((r) => !r.sms_account_id)
+  if (scope === "tenant") q = q.not("sms_account_id", "is", null)
+  if (scope === "global") q = q.is("sms_account_id", null)
+  const { data, error } = await q
+  if (error) throw new Error(`sender ids lookup failed: ${error.message}`)
+  const rows = (data ?? []) as SenderRow[]
   const info = await loadAccountInfo(rows.map((r) => r.sms_account_id ?? ""))
   return attachAccounts(rows, info)
 }

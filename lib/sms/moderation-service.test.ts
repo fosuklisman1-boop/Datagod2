@@ -11,6 +11,7 @@ const h = vi.hoisted(() => {
     updateRows: [{ id: "x" }] as unknown[],
     updateEqs: [] as [string, unknown][],
     auditRows: [] as unknown[],
+    auditError: false,
     rpcCallArgs: null as unknown,
     upsertRows: null as any,
   }
@@ -34,7 +35,7 @@ const h = vi.hoisted(() => {
       }),
       insert: (row: unknown) => {
         if (table === "admin_audit_log") state.auditRows.push(row)
-        return Promise.resolve({ data: null, error: null })
+        return Promise.resolve({ data: null, error: table === "admin_audit_log" && state.auditError ? { message: "audit down" } : null })
       },
       update: (_patch: unknown) => {
         const eqs: [string, unknown][] = []
@@ -74,7 +75,7 @@ vi.mock("./revenue-aggregation", () => ({
   aggregateRevenue: (_raw: unknown) => ({ activations: 0, activationTotal: 0, bundleTotal: 0, creditsSold: 0 }),
 }))
 
-import { suspendSmsAccount, dismissFlag, updateSmsSettings } from "./moderation-service"
+import { suspendSmsAccount, dismissFlag, updateSmsSettings, writeAuditLog } from "./moderation-service"
 
 beforeEach(() => {
   h.state.account = null
@@ -84,8 +85,19 @@ beforeEach(() => {
   h.state.updateRows = [{ id: "x" }]
   h.state.updateEqs = []
   h.state.auditRows.length = 0
+  h.state.auditError = false
   h.state.rpcCallArgs = null
   h.state.upsertRows = null
+})
+
+describe("writeAuditLog", () => {
+  it("logs (does not swallow) a failed insert with action and target", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    h.state.auditError = true
+    await expect(writeAuditLog("a1", "some_action", "u9", null, { x: 1 })).resolves.toBeUndefined()
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining("action=some_action, target=u9"), "audit down")
+    spy.mockRestore()
+  })
 })
 
 describe("suspendSmsAccount", () => {

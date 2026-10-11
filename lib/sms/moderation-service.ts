@@ -75,13 +75,14 @@ export async function writeAuditLog(
   oldValue: unknown,
   newValue: unknown
 ): Promise<void> {
-  await supabaseAdmin.from("admin_audit_log").insert({
+  const { error } = await supabaseAdmin.from("admin_audit_log").insert({
     admin_id: adminId,
     action,
     target_user_id: targetUserId ?? null,
     old_value: oldValue ? JSON.parse(JSON.stringify(oldValue)) : null,
     new_value: newValue ? JSON.parse(JSON.stringify(newValue)) : null,
   })
+  if (error) console.error(`[SMS-AUDIT] admin_audit_log insert failed (action=${action}, target=${targetUserId ?? "none"}):`, error.message)
 }
 
 // ---------- Public API ----------

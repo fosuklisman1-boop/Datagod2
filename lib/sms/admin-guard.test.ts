@@ -15,9 +15,24 @@ describe("adminGuard", () => {
   it("passes an admin read and returns the admin id", async () => {
     expect(await adminGuard(req())).toEqual({ ok: true, adminId: "admin-1" })
   })
-  it("passes a cron-secret read (no userId) with adminId null", async () => {
+  it("refuses a cron-secret read (no userId) by default (403)", async () => {
     h.auth = { isAdmin: true }
-    expect(await adminGuard(req())).toEqual({ ok: true, adminId: null })
+    const r = await adminGuard(req())
+    expect(r.ok).toBe(false)
+    if (!r.ok) {
+      expect(r.response.status).toBe(403)
+      expect(await r.response.json()).toEqual({ success: false, error: "Admin user required" })
+    }
+  })
+  it("allows a cron-secret read only with allowCron:true", async () => {
+    h.auth = { isAdmin: true }
+    expect(await adminGuard(req(), { allowCron: true })).toEqual({ ok: true, adminId: null })
+  })
+  it("still refuses a cron-secret write even with allowCron:true", async () => {
+    h.auth = { isAdmin: true }
+    const r = await adminGuard(req(), { write: true, allowCron: true })
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.response.status).toBe(403)
   })
   it("refuses a write without a real admin user (403)", async () => {
     h.auth = { isAdmin: true }

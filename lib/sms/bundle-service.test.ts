@@ -297,6 +297,14 @@ describe("per-mode bundles + revenue", () => {
     expect(h.state.calls.filter((c) => c.fn === "deduct_wallet")).toHaveLength(0)
   })
 
+  it("allocateUnits passes an idempotency ref through (null by default)", async () => {
+    h.state.wholesale = 1_000_000
+    await allocateUnits("acc1", 10)
+    await allocateUnits("acc1", 10, "admin_alloc:r1")
+    const refs = h.state.calls.filter((c) => c.fn === "credit_sms_units_if_solvent").map((c) => c.args.p_ref)
+    expect(refs).toEqual([null, "admin_alloc:r1"])
+  })
+
   it("admin allocation never records revenue", async () => {
     h.state.wholesale = 1_000_000
     await allocateUnits("acc1", 100)

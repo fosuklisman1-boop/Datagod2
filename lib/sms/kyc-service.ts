@@ -142,7 +142,8 @@ export async function submitKyc(accountId: string): Promise<Result<KycProfile>> 
 export async function listKycForAdmin(status: KycStatus | "all" = "submitted"): Promise<PublicKyc[]> {
   let q = supabaseAdmin.from("sms_business_profiles").select("*").order("submitted_at", { ascending: false, nullsFirst: false }).limit(200)
   if (status !== "all") q = q.eq("status", status)
-  const { data } = await q
+  const { data, error } = await q
+  if (error) throw new Error(`kyc list failed: ${error.message}`)
   return ((data ?? []) as KycProfile[]).map(toPublicKyc)
 }
 

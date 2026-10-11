@@ -437,6 +437,12 @@ describe("review fixes", () => {
     spy.mockRestore()
   })
 
+  it("listKycForAdmin throws when the query errors", async () => {
+    h.state.failSelect = true
+    await expect(listKycForAdmin("submitted")).rejects.toThrow(/kyc list failed/)
+    h.state.failSelect = false
+  })
+
   it("listKycForAdmin output has no document paths", async () => {
     profiles().push({ id: "s1", sms_account_id: "acct1", status: "submitted", ghana_card_doc_path: "acct1/g.png", registration_doc_path: "acct1/r.png", created_at: "2026-01-01" })
     const list = await listKycForAdmin("submitted")

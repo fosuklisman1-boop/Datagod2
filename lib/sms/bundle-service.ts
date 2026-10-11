@@ -231,11 +231,11 @@ export async function purchaseUnitsByQuantity(
   return { ...res, cost }
 }
 
-/** Admin manual allocation — also solvency-gated (can land pending). ref=null so repeated
- *  deliberate allocations are never deduped. */
-export async function allocateUnits(accountId: string, units: number): Promise<PurchaseResult> {
+/** Admin manual allocation — also solvency-gated (can land pending). ref defaults to null so repeated
+ *  deliberate allocations are never deduped; pass a ref (admin_alloc:<requestId>) to make a retry idempotent. */
+export async function allocateUnits(accountId: string, units: number, ref: string | null = null): Promise<PurchaseResult> {
   if (!Number.isInteger(units) || units <= 0) return { ok: false, error: "units must be a positive integer" }
-  return issueUnits(accountId, units, "admin_alloc", null)
+  return issueUnits(accountId, units, "admin_alloc", ref)
 }
 
 /** Credit units after a confirmed Paystack SMS-bundle payment. Idempotent on the paystack ref. */
