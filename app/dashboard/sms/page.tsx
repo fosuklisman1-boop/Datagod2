@@ -76,6 +76,7 @@ function OrderConfirmationCard() {
             <p className="text-sm font-semibold text-foreground">Order confirmation SMS</p>
             <p className="text-xs text-muted-foreground">{ORDER_CONFIRMATION_HELP}</p>
             {t.reason && <p className="mt-1 text-xs text-warning">{t.reason}</p>}
+            {t.warning && <p className="mt-1 text-xs text-warning">{t.warning}</p>}
           </div>
         </div>
         <Switch

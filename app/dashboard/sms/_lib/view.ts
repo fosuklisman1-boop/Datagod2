@@ -332,11 +332,18 @@ export interface ConfirmationState { useOwnSender: boolean; canEnable: boolean; 
 export function confirmationToggleState(
   s: ConfirmationState | null | undefined,
   saving: boolean
-): { checked: boolean; disabled: boolean; reason: string | null } {
-  if (!s) return { checked: false, disabled: true, reason: null }
+): { checked: boolean; disabled: boolean; reason: string | null; warning: string | null } {
+  if (!s) return { checked: false, disabled: true, reason: null, warning: null }
   // Turning OFF is always allowed; only turning ON needs eligibility.
   const blocked = !s.canEnable && !s.useOwnSender
-  return { checked: s.useOwnSender, disabled: saving || blocked, reason: blocked ? (s.reason ?? "Not available yet.") : null }
+  // ON but no longer eligible: confirmations silently go out from the platform sender.
+  const degraded = !s.canEnable && s.useOwnSender
+  return {
+    checked: s.useOwnSender,
+    disabled: saving || blocked,
+    reason: blocked ? (s.reason ?? "Not available yet.") : null,
+    warning: degraded ? `Currently sending from the platform sender: ${s.reason ?? "your sender ID isn’t available."}` : null,
+  }
 }
 
 export const isCancelledLog =(l: { status: string; cancelled?: boolean | null }) => l.status === "failed" && l.cancelled === true
