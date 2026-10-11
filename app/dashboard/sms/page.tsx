@@ -776,7 +776,7 @@ export default function SmsDashboardPage() {
     }).then((r) => r.json()).catch(() => ({}))
     setBusy(false)
     if (res.success) {
-      toast.success(`Requested “${sid.toUpperCase()}”. Approval is reviewed automatically — check back shortly.`)
+      toast.success(`Requested “${sid.toUpperCase()}”. Your request will be reviewed by the Datagod team — check back shortly.`)
       setNewSender(""); await loadSenderIds()
     } else toast.error(res.error ?? "Could not request sender ID")
   }

@@ -10,6 +10,8 @@
  */
 
 import { createClient } from "@supabase/supabase-js"
+import { hubtelConfigFromEnv } from "./providers/hubtel"
+import { fetchDisbursementBalance } from "@/lib/ussd-hubtel/relay"
 
 const VALID_PROVIDERS = ["moolre", "mnotify", "brevo", "hubtel"] as const
 type Provider = (typeof VALID_PROVIDERS)[number]
@@ -161,6 +163,24 @@ export async function setRoutingConfig(patch: {
   }
 
   if (writes.length === 0) return { ok: false, error: "No routing fields to update" }
+
+  // Hubtel guard: credentials are needed for any role; as PRIMARY the relay balance check must also pass.
+  const hubtelAsPrimary = patch.primary === "hubtel"
+  const hubtelAsFallback = (patch.fallbacks ?? []).includes("hubtel")
+  if (hubtelAsPrimary || hubtelAsFallback) {
+    if (!hubtelConfigFromEnv()) {
+      return { ok: false, error: "Hubtel credentials are not set in Vercel (HUBTEL_SMS_CLIENT_ID / HUBTEL_SMS_CLIENT_SECRET)." }
+    }
+    if (hubtelAsPrimary) {
+      const bal = await fetchDisbursementBalance()
+      if (!bal.ok) {
+        return {
+          ok: false,
+          error: `Hubtel balance check via the relay failed: ${bal.error} — redeploy the relay with /balance and set HUBTEL_DISBURSEMENT_ACCOUNT first.`,
+        }
+      }
+    }
+  }
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

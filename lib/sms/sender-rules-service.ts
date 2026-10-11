@@ -7,6 +7,8 @@ import { createClient } from "@supabase/supabase-js"
 import { validateSenderName } from "./sender-name"
 import { loadSmsSettings, type SmsMode } from "./platform-settings"
 import { writeAuditLog } from "./moderation-service"
+import { getRoutingConfig } from "./routing"
+import { hubtelConfigFromEnv } from "./providers/hubtel"
 
 const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
@@ -118,11 +120,28 @@ async function getRow(id: string): Promise<SenderRow | null> {
   return (data as SenderRow | null) ?? null
 }
 
+const HUBTEL_NOT_ACTIVE_ERROR =
+  "New sender IDs can be approved once Hubtel is the active SMS provider — Moolre/mNotify would not recognise them yet."
+
+/**
+ * Tenant sender IDs are only "active" locally (not registered with Moolre/mNotify), so approval
+ * is safe only when Hubtel (which passes any sender through) is the primary provider with creds.
+ */
+export async function senderApprovalReady(): Promise<boolean> {
+  try {
+    const routing = await getRoutingConfig()
+    return routing.primary === "hubtel" && !!hubtelConfigFromEnv()
+  } catch {
+    return false
+  }
+}
+
 export async function approveSenderIdRequest(adminId: string | null, id: string): Promise<Result<SenderRow>> {
   if (!adminId) return NO_ADMIN
   const row = await getRow(id)
   if (!row || !row.sms_account_id) return { ok: false, error: "Sender ID not found" }
   if (row.local_status !== "pending") return { ok: false, error: `Only pending requests can be approved (this one is ${row.local_status}).` }
+  if (!(await senderApprovalReady())) return { ok: false, error: HUBTEL_NOT_ACTIVE_ERROR }
   const acct = await accountInfo(row.sms_account_id)
   if (!acct) return { ok: false, error: "SMS account not found" }
   if (acct.mode === "platform") {

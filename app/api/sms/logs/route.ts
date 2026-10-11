@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
 
   const { data: logs, error: logsError } = await supabaseAdmin
     .from("sms_send_logs")
-    .select("*")
+    .select("id, status, message, sender_id, recipients_count, segments, credits_reserved, credits_used, created_at, completed_at")
     .eq("sms_account_id", account.id)
     .order("created_at", { ascending: false })
     .limit(30)

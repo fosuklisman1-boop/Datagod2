@@ -45,6 +45,18 @@ vi.mock("@supabase/supabase-js", () => ({
   })),
 }))
 
+const hub = vi.hoisted(() => ({
+  creds: true,
+  balance: { ok: true, amountGhs: 10 } as { ok: true; amountGhs: number } | { ok: false; error: string },
+  balanceCalls: 0,
+}))
+vi.mock("./providers/hubtel", () => ({
+  hubtelConfigFromEnv: () => (hub.creds ? { clientId: "i", clientSecret: "s" } : null),
+}))
+vi.mock("@/lib/ussd-hubtel/relay", () => ({
+  fetchDisbursementBalance: () => { hub.balanceCalls++; return Promise.resolve(hub.balance) },
+}))
+
 // Import AFTER mock registration
 import { parseRoutingConfig, setRoutingConfig, invalidateRoutingCache, narrowProvidersForSender } from "./routing"
 
@@ -133,6 +145,61 @@ describe("setRoutingConfig", () => {
     const res = await setRoutingConfig({})
     expect(res.ok).toBe(false)
     expect((res as { error: string }).error).toMatch(/No routing fields/)
+  })
+})
+
+describe("setRoutingConfig hubtel guard", () => {
+  beforeEach(() => {
+    mockSettings.reset()
+    invalidateRoutingCache()
+    hub.creds = true
+    hub.balance = { ok: true, amountGhs: 10 }
+    hub.balanceCalls = 0
+  })
+
+  it("rejects hubtel primary when credentials are missing, without writing", async () => {
+    hub.creds = false
+    const res = await setRoutingConfig({ primary: "hubtel" })
+    expect(res.ok).toBe(false)
+    expect((res as { error: string }).error).toMatch(/Hubtel credentials are not set in Vercel/)
+    expect(mockSettings.updates).toHaveLength(0)
+  })
+
+  it("rejects hubtel primary when the relay balance check fails, naming the error", async () => {
+    hub.balance = { ok: false, error: "relay not configured" }
+    const res = await setRoutingConfig({ primary: "hubtel" })
+    expect(res.ok).toBe(false)
+    const msg = (res as { error: string }).error
+    expect(msg).toMatch(/balance check via the relay failed: relay not configured/)
+    expect(msg).toMatch(/HUBTEL_DISBURSEMENT_ACCOUNT/)
+    expect(mockSettings.updates).toHaveLength(0)
+  })
+
+  it("accepts hubtel primary when creds are set and the balance check passes", async () => {
+    const res = await setRoutingConfig({ primary: "hubtel" })
+    expect(res.ok).toBe(true)
+    expect(mockSettings.updates.find((u) => u.key === "sms_primary_provider")?.patch.value).toBe("hubtel")
+  })
+
+  it("hubtel as fallback only needs credentials (no balance check)", async () => {
+    hub.balance = { ok: false, error: "down" }
+    const ok = await setRoutingConfig({ primary: "moolre", fallbacks: ["hubtel"] })
+    expect(ok.ok).toBe(true)
+    expect(hub.balanceCalls).toBe(0)
+
+    hub.creds = false
+    mockSettings.updates = []
+    const bad = await setRoutingConfig({ fallbacks: ["hubtel"] })
+    expect(bad.ok).toBe(false)
+    expect((bad as { error: string }).error).toMatch(/credentials are not set/)
+    expect(mockSettings.updates).toHaveLength(0)
+  })
+
+  it("non-hubtel changes never touch the guard", async () => {
+    hub.creds = false
+    const res = await setRoutingConfig({ primary: "moolre", fallbacks: ["mnotify"] })
+    expect(res.ok).toBe(true)
+    expect(hub.balanceCalls).toBe(0)
   })
 })
 

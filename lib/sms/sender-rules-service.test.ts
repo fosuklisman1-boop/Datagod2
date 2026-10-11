@@ -81,6 +81,14 @@ vi.mock("./moderation-service", () => ({
   writeAuditLog: (...a: any[]) => { h.state.audit.push(a); return Promise.resolve() },
 }))
 
+const gate = vi.hoisted(() => ({ primary: "hubtel" as string, creds: true, routingThrows: false }))
+vi.mock("./routing", () => ({
+  getRoutingConfig: () => gate.routingThrows ? Promise.reject(new Error("db")) : Promise.resolve({ primary: gate.primary, fallbacks: [] }),
+}))
+vi.mock("./providers/hubtel", () => ({
+  hubtelConfigFromEnv: () => (gate.creds ? { clientId: "i", clientSecret: "s" } : null),
+}))
+
 import {
   planModeChange, senderLimitFor, requestSenderId, approveSenderIdRequest, rejectSenderIdRequest,
   revokeSenderId, setAccountMode, setApiRateLimitOverride,
@@ -93,6 +101,7 @@ const T = (name: string) => (h.state.tables[name] ??= [])
 const find = (id: string) => T("sms_sender_ids").find((r) => r.id === id)!
 
 beforeEach(() => {
+  gate.primary = "hubtel"; gate.creds = true; gate.routingThrows = false
   h.state.tables = {
     sms_accounts: [
       { id: "P", mode: "platform", default_sender_id: null, user_id: "uP" },
@@ -193,6 +202,19 @@ describe("approveSenderIdRequest", () => {
     expect(find("a")).toMatchObject({ approved_by: "admin1", local_status: "active" })
     expect(T("sms_accounts").find((a) => a.id === "B")!.default_sender_id).toBe("a")
     expect(h.state.audit[0][1]).toBe("sms_sender_approve")
+  })
+  it.each([
+    ["primary is moolre", () => { gate.primary = "moolre" }],
+    ["hubtel creds missing", () => { gate.creds = false }],
+    ["routing lookup fails", () => { gate.routingThrows = true }],
+  ])("refuses approval when %s, leaving the request pending", async (_n, setup) => {
+    setup()
+    T("sms_sender_ids").push(sid("a", "ACME", "B", "pending"))
+    const r = await approveSenderIdRequest("admin1", "a")
+    expect(r).toMatchObject({ ok: false })
+    expect((r as { error: string }).error).toMatch(/once Hubtel is the active SMS provider/)
+    expect(find("a").local_status).toBe("pending")
+    expect(h.state.audit).toHaveLength(0)
   })
   it("keeps an existing default sender", async () => {
     T("sms_accounts").find((a) => a.id === "B")!.default_sender_id = "old"
