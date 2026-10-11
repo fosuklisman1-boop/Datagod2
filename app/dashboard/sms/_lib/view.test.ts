@@ -136,3 +136,45 @@ describe("ported helpers", () => {
     expect(INSERT_CHIPS).toHaveLength(6)
   })
 })
+
+import { RECORD_CHIPS, chipStatus, pageCount, formatCount, timeAgo, recipientStatus, toneBadgeClass } from "./view"
+
+describe("records helpers", () => {
+  it("maps chips to status values", () => {
+    expect(RECORD_CHIPS.map((c) => c.label)).toEqual(["All", "Queued", "Processing", "Completed", "Partial", "Failed", "Held"])
+    expect(chipStatus("all")).toBe("")
+    expect(chipStatus("processing")).toBe("sending")
+    expect(chipStatus("completed")).toBe("sent")
+    expect(chipStatus("held")).toBe("held")
+    expect(chipStatus("bogus")).toBe("")
+  })
+  it("pageCount is at least 1", () => {
+    expect(pageCount(0)).toBe(1)
+    expect(pageCount(25)).toBe(1)
+    expect(pageCount(26)).toBe(2)
+    expect(pageCount(NaN)).toBe(1)
+  })
+  it("formatCount", () => {
+    expect(formatCount(12345)).toBe("12,345")
+    expect(formatCount(undefined)).toBe("0")
+  })
+  it("timeAgo", () => {
+    const now = Date.parse("2026-10-11T12:00:00Z")
+    expect(timeAgo("2026-10-11T11:59:50Z", now)).toBe("just now")
+    expect(timeAgo("2026-10-11T11:30:00Z", now)).toBe("30m ago")
+    expect(timeAgo("2026-10-11T09:00:00Z", now)).toBe("3h ago")
+    expect(timeAgo("2026-10-08T12:00:00Z", now)).toBe("3d ago")
+    expect(timeAgo("garbage", now)).toBe("")
+  })
+  it("recipientStatus", () => {
+    expect(recipientStatus({ status: "sent", delivery_status: "delivered" }).label).toBe("Delivered")
+    expect(recipientStatus({ status: "failed", refunded: true }).label).toBe("Refunded")
+    expect(recipientStatus({ status: "failed" }).tone).toBe("danger")
+    expect(recipientStatus({ status: "sent", delivery_status: "pending" }).label).toBe("Sent")
+    expect(recipientStatus({ status: "claimed" }).label).toBe("Sending")
+    expect(recipientStatus({ status: "pending" }).label).toBe("Queued")
+  })
+  it("toneBadgeClass distinguishes tones", () => {
+    expect(toneBadgeClass("success")).not.toBe(toneBadgeClass("danger"))
+  })
+})

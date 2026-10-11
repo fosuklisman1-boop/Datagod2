@@ -146,3 +146,64 @@ export const limitsLine = (l: { perSend: number; perHour: number; perDay: number
   `${l.perSend.toLocaleString("en-US")} recipients/send · ${l.perHour.toLocaleString("en-US")} sends/hour · ${l.perDay.toLocaleString("en-US")} recipients/day`
 
 export const MOMO_PHONE = /^0?\d{9}$/
+
+// ─── Records ──────────────────────────────────────────────────────────────
+export const RECORDS_PAGE_SIZE = 25
+
+/** Status filter chips on the Records list; `values` are sms_send_logs.status values ([] = no filter). */
+export const RECORD_CHIPS: { key: string; label: string; values: string[] }[] = [
+  { key: "all", label: "All", values: [] },
+  { key: "queued", label: "Queued", values: ["queued"] },
+  { key: "processing", label: "Processing", values: ["sending"] },
+  { key: "completed", label: "Completed", values: ["sent"] },
+  { key: "partial", label: "Partial", values: ["partial"] },
+  { key: "failed", label: "Failed", values: ["failed"] },
+  { key: "held", label: "Held", values: ["held"] },
+]
+
+/** Value for `?status=` for a chip key ("" = all; unknown keys also mean all). */
+export function chipStatus(key: string): string {
+  return RECORD_CHIPS.find((c) => c.key === key)?.values[0] ?? ""
+}
+
+export function pageCount(total: number, pageSize = RECORDS_PAGE_SIZE): number {
+  return Math.max(1, Math.ceil((Number(total) || 0) / pageSize))
+}
+
+export function formatCount(n: unknown): string {
+  const v = Number(n)
+  return Number.isFinite(v) ? v.toLocaleString("en-US") : "0"
+}
+
+export function toneBadgeClass(t: Tone): string {
+  switch (t) {
+    case "success": return "border-transparent bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+    case "warning": return "border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-300"
+    case "danger": return "border-transparent bg-red-500/15 text-red-700 dark:text-red-300"
+    case "info": return "border-transparent bg-primary/10 text-primary"
+    default: return "border-transparent bg-muted text-muted-foreground"
+  }
+}
+
+export function timeAgo(iso: string, now = Date.now()): string {
+  const diff = now - new Date(iso).getTime()
+  if (!Number.isFinite(diff)) return ""
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return "just now"
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.floor(hrs / 24)
+  if (days < 30) return `${days}d ago`
+  return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
+}
+
+/** Customer wording for one recipient row of a batch. */
+export function recipientStatus(m: { status: string; delivery_status?: string | null; refunded?: boolean | null }): { label: string; tone: Tone } {
+  if (m.refunded) return { label: "Refunded", tone: "muted" }
+  if (m.delivery_status === "delivered") return { label: "Delivered", tone: "success" }
+  if (m.status === "failed" || m.delivery_status === "failed") return { label: "Failed", tone: "danger" }
+  if (m.status === "sent") return { label: "Sent", tone: "info" }
+  if (m.status === "claimed") return { label: "Sending", tone: "info" }
+  return { label: "Queued", tone: "muted" }
+}
