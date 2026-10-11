@@ -529,14 +529,15 @@ async function enforcedSendBatched(
   // Per-account lease: taken BEFORE the usage/policy read and released only after this send's
   // last log row exists, so a parallel send can't read the same usage and slip past the caps.
   const lock = await trySendLock(accountId)
-  if (lock === "error") {
+  if (lock.status === "error") {
     return { ok: false, error: "POLICY_REJECTED", code: "POLICY_UNAVAILABLE", reason: POLICY_UNAVAILABLE_REASON }
   }
-  if (lock === "busy") return { ok: false, error: "SEND_IN_PROGRESS", reason: SEND_IN_PROGRESS_MESSAGE }
+  if (lock.status === "busy") return { ok: false, error: "SEND_IN_PROGRESS", reason: SEND_IN_PROGRESS_MESSAGE }
   try {
     return await enforcedSendLocked(userId, accountId, message, recipients, prepared, sender, shopTokens, senderId)
   } finally {
-    await releaseSendLock(accountId)
+    // Owner-scoped: if this send outlived its lease and another send took it, this is a no-op.
+    await releaseSendLock(accountId, lock.token)
   }
 }
 

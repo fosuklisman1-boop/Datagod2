@@ -35,7 +35,7 @@ const h = vi.hoisted(() => {
     policyNull: false,                   // evaluatePolicy finds no account
     policyArgs: [] as any[],             // args the evaluation was called with
     flagRpcError: null as null | string, // record_sms_flags errors
-    lockGranted: true,                   // sms_try_send_lock result
+    lockGranted: true,                   // sms_try_send_lock returns a token (true) or NULL (busy)
     lockError: null as null | string,    // sms_try_send_lock errors
     releaseError: null as null | string, // sms_release_send_lock errors
   }
@@ -54,7 +54,7 @@ const h = vi.hoisted(() => {
       }
       if (fn === "sms_try_send_lock") {
         if (state.lockError) return Promise.resolve({ data: null, error: { message: state.lockError } })
-        return Promise.resolve({ data: state.lockGranted, error: null })
+        return Promise.resolve({ data: state.lockGranted ? "tok-1" : null, error: null })
       }
       if (fn === "sms_release_send_lock") {
         if (state.releaseError) return Promise.resolve({ data: null, error: { message: state.releaseError } })
@@ -880,18 +880,18 @@ describe("enforcement ON", () => {
   })
 
   describe("per-account send lease (parallel sends cannot all read the same usage)", () => {
-    it("acquired (30 s) BEFORE the policy read, released AFTER the last log insert", async () => {
+    it("acquired (330 s) BEFORE the policy read, released AFTER the last log insert", async () => {
       const r = await enqueueSendBatched("u1", "acc1", "Hello world", recips(620))
       expect(r.ok).toBe(true)
       const names = h.state.calls.map((c) => c.fn)
       expect(lockCalls().map((c) => c.fn)).toEqual(["sms_try_send_lock", "sms_release_send_lock"])
-      expect(lockCalls()[0].args).toEqual({ p_account_id: "acc1", p_seconds: 30 })
-      expect(lockCalls()[1].args).toEqual({ p_account_id: "acc1" })
+      expect(lockCalls()[0].args).toEqual({ p_account_id: "acc1", p_seconds: 330 })
+      expect(lockCalls()[1].args).toEqual({ p_account_id: "acc1", p_token: "tok-1" }) // released with ITS token
       expect(names.indexOf("sms_try_send_lock")).toBeLessThan(names.indexOf("evaluatePolicy"))
       expect(names.indexOf("sms_release_send_lock")).toBeGreaterThan(names.lastIndexOf("insert"))
     })
 
-    it("lease held by another send → SEND_IN_PROGRESS, no evaluation, no writes, no release", async () => {
+    it("lock RPC returns NULL (lease held by another send) → SEND_IN_PROGRESS, no evaluation, no writes, no release", async () => {
       h.state.lockGranted = false
       const r = await enqueueSendBatched("u1", "acc1", "Hello world", recips(1))
       expect(r).toEqual({ ok: false, error: "SEND_IN_PROGRESS", reason: "Another send from your account is still being processed. Please try again in a few seconds." })

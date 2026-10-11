@@ -52,27 +52,27 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers())
 
 describe("send lease helpers", () => {
-  it("trySendLock: true → acquired, false → busy, error/throw → error", async () => {
-    h.state.rpcResult = { data: true, error: null }
-    expect(await trySendLock("a1")).toBe("acquired")
+  it("trySendLock: token → acquired (with token), NULL → busy, error/throw → error", async () => {
+    h.state.rpcResult = { data: "3f1c-token", error: null }
+    expect(await trySendLock("a1")).toEqual({ status: "acquired", token: "3f1c-token" })
     expect(h.state.rpcCalls[0]).toEqual({ fn: "sms_try_send_lock", args: { p_account_id: "a1", p_seconds: SEND_LOCK_SECONDS } })
-    h.state.rpcResult = { data: false, error: null }
-    expect(await trySendLock("a1")).toBe("busy")
+    h.state.rpcResult = { data: null, error: null }
+    expect(await trySendLock("a1")).toEqual({ status: "busy" })
     const spy = vi.spyOn(console, "error").mockImplementation(() => {})
     h.state.rpcResult = { data: null, error: { message: "down" } }
-    expect(await trySendLock("a1")).toBe("error")
+    expect(await trySendLock("a1")).toEqual({ status: "error" })
     h.state.rpcThrows = true
-    expect(await trySendLock("a1")).toBe("error")
+    expect(await trySendLock("a1")).toEqual({ status: "error" })
     spy.mockRestore()
   })
   it("releaseSendLock never throws", async () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {})
     h.state.rpcThrows = true
-    await expect(releaseSendLock("a1")).resolves.toBeUndefined()
+    await expect(releaseSendLock("a1", "tok")).resolves.toBeUndefined()
     h.state.rpcThrows = false
     h.state.rpcResult = { data: null, error: { message: "down" } }
-    await expect(releaseSendLock("a1")).resolves.toBeUndefined()
-    expect(h.state.rpcCalls.at(-1)).toEqual({ fn: "sms_release_send_lock", args: { p_account_id: "a1" } })
+    await expect(releaseSendLock("a1", "tok")).resolves.toBeUndefined()
+    expect(h.state.rpcCalls.at(-1)).toEqual({ fn: "sms_release_send_lock", args: { p_account_id: "a1", p_token: "tok" } })
     spy.mockRestore()
   })
 })
@@ -190,7 +190,24 @@ describe("migration 20261013_sms_policy_enforcement_2.sql (static contract)", ()
     expect(fn).toMatch(/p_account_id\s+UUID,\s*p_seconds\s+INT/)
     expect(fn).toMatch(/send_lock_until IS NULL OR send_lock_until < now\(\)/)
     expect(fn).toMatch(/make_interval\(secs => p_seconds\)/)
-    expect(fn).toMatch(/GET DIAGNOSTICS v_n = ROW_COUNT/)
+    expect(fn).toMatch(/RETURNS UUID/)
+    expect(fn).toMatch(/send_lock_owner = v_token/)
+    expect(fn).toMatch(/RETURNING send_lock_owner INTO v_owner/)
+    expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS send_lock_owner UUID/)
+  })
+  it("release is owner-scoped (token)", () => {
+    const fn = sql.slice(sql.indexOf("FUNCTION sms_release_send_lock(p_account_id"), sql.indexOf("$$;", sql.indexOf("FUNCTION sms_release_send_lock(p_account_id")))
+    expect(fn).toMatch(/p_account_id UUID, p_token UUID/)
+    expect(fn).toMatch(/WHERE id = p_account_id AND send_lock_owner = p_token/)
+    expect(fn).toMatch(/send_lock_owner = NULL/)
+  })
+  it("lease outlives the send routes' maxDuration (300 s)", () => {
+    expect(SEND_LOCK_SECONDS).toBe(330)
+    for (const r of ["app/api/shop/sms/send/route.ts", "app/api/v1/sms/send/route.ts"]) {
+      const src = fs.readFileSync(path.join(__dirname, "..", "..", r), "utf8")
+      const max = Number(/export const maxDuration = (\d+)/.exec(src)![1])
+      expect(SEND_LOCK_SECONDS).toBeGreaterThan(max)
+    }
   })
   it("hides policy_shadow + flag_reason from browser roles, keeps every other column for authenticated", () => {
     expect(sql).toMatch(/REVOKE SELECT ON sms_send_logs FROM anon, authenticated;/)
@@ -203,7 +220,7 @@ describe("migration 20261013_sms_policy_enforcement_2.sql (static contract)", ()
     expect(sql).not.toMatch(/^REVOKE[^;]*service_role/m) // statements only (comments mention it)
   })
   it("lease functions are service-role only", () => {
-    for (const sig of ["sms_try_send_lock\\(UUID, INT\\)", "sms_release_send_lock\\(UUID\\)"]) {
+    for (const sig of ["sms_try_send_lock\\(UUID, INT\\)", "sms_release_send_lock\\(UUID, UUID\\)"]) {
       expect(sql).toMatch(new RegExp(`REVOKE ALL ON FUNCTION ${sig}\\s+FROM PUBLIC, anon, authenticated`))
       expect(sql).toMatch(new RegExp(`GRANT\\s+EXECUTE ON FUNCTION ${sig}\\s+TO service_role`))
     }
