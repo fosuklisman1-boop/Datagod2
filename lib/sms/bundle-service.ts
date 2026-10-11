@@ -266,8 +266,11 @@ export async function deleteBundle(adminId: string, id: string): Promise<{ ok: t
   if (!b) return { ok: false, error: "Bundle not found" }
   const can = canDeleteBundle(b as { active: boolean; updated_at: string })
   if (!can.ok) return can
-  const { error } = await supabaseAdmin.from("sms_bundles").delete().eq("id", id).eq("active", false)
+  const cutoff = new Date(Date.now() - BUNDLE_DELETE_MIN_INACTIVE_MS).toISOString()
+  const { data: gone, error } = await supabaseAdmin.from("sms_bundles").delete()
+    .eq("id", id).eq("active", false).lte("updated_at", cutoff).select("id")
   if (error) return { ok: false, error: "Could not delete the bundle" }
+  if (!gone?.length) return { ok: false, error: "Bundle changed — reload and try again" }
   await writeAuditLog(adminId, "sms_bundle_delete", null, { id, name: (b as { name: string }).name }, null).catch(() => {})
   return { ok: true }
 }

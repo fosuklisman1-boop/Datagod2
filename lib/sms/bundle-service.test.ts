@@ -20,6 +20,7 @@ const h = vi.hoisted(() => {
     bundleMissing: false, // sms_bundles lookup returns nothing
     deletes: [] as { table: string; cols: [string, any][] }[],
     deleteError: false,
+    deleteZeroRows: false,
     inserts: [] as { table: string; row: any }[],
   }
   const bundleRow = { id: "b1", name: "5k", units: 5000, price_ghs: 150, owner_type_scope: "all", active: true, mode: "platform", sort_order: 0 }
@@ -56,11 +57,12 @@ const h = vi.hoisted(() => {
       delete: () => {
         const cols: [string, any][] = []
         const chain: any = {
-          eq: (c: string, v: any) => {
-            cols.push([c, v])
-            if (cols.length < 2) return chain
+          eq: (c: string, v: any) => { cols.push([c, v]); return chain },
+          lte: (c: string, v: any) => { cols.push([c + "<=", v]); return chain },
+          select: () => {
             state.deletes.push({ table, cols })
-            return Promise.resolve({ data: null, error: state.deleteError ? { message: "del boom" } : null })
+            if (state.deleteError) return Promise.resolve({ data: null, error: { message: "del boom" } })
+            return Promise.resolve({ data: state.deleteZeroRows ? [] : [{ id: "b1" }], error: null })
           },
         }
         return chain
@@ -115,6 +117,7 @@ beforeEach(() => {
   h.state.bundleMissing = false
   h.state.deletes.length = 0
   h.state.deleteError = false
+  h.state.deleteZeroRows = false
   h.state.inserts.length = 0
   delete (h.bundleRow as any).updated_at
   h.bundleRow.active = true
@@ -435,11 +438,23 @@ describe("deleteBundle", () => {
     h.bundleRow.active = false
     ;(h.bundleRow as any).updated_at = old()
     expect(await deleteBundle("admin1", "b1")).toEqual({ ok: true })
-    expect(h.state.deletes).toEqual([{ table: "sms_bundles", cols: [["id", "b1"], ["active", false]] }])
+    expect(h.state.deletes).toHaveLength(1)
+    const d = h.state.deletes[0]
+    expect(d.cols.slice(0, 2)).toEqual([["id", "b1"], ["active", false]])
+    expect(d.cols[2][0]).toBe("updated_at<=")
+    const cutoffMs = Date.parse(d.cols[2][1])
+    expect(Math.abs(cutoffMs - (Date.now() - BUNDLE_DELETE_MIN_INACTIVE_MS))).toBeLessThan(5000)
     const audit = h.state.inserts.find((i) => i.table === "admin_audit_log")
     expect(audit?.row.action).toBe("sms_bundle_delete")
     expect(audit?.row.admin_id).toBe("admin1")
     expect(audit?.row.old_value).toEqual({ id: "b1", name: "5k" })
+  })
+  it("0 rows deleted (bundle changed under us) → refusal, no audit row", async () => {
+    h.bundleRow.active = false
+    ;(h.bundleRow as any).updated_at = old()
+    h.state.deleteZeroRows = true
+    expect(await deleteBundle("admin1", "b1")).toEqual({ ok: false, error: "Bundle changed — reload and try again" })
+    expect(h.state.inserts).toHaveLength(0)
   })
   it("delete error → failure, no audit row", async () => {
     h.bundleRow.active = false
