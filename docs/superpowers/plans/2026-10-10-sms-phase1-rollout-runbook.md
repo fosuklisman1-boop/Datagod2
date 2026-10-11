@@ -52,3 +52,11 @@ per account), 2 paused; credits unchanged (2,388); `sms_policy_enforced=false`.
 - **Bundle delete** only if inactive ≥ 48 h (a DB trigger restarts the clock on every deactivation); otherwise Deactivate.
 - **Migrations applied live**: `20261011_sms_admin_console.sql`, `20261011_sms_bundle_deactivation_clock.sql`.
 - Known gap: the legacy `updateSmsSettings` writer (and `/api/admin/shop-sms` PATCH) is unvalidated; the new Settings tab is the validated path.
+
+## Phase 3a — customer pages (shipped; enforcement still OFF)
+
+- `/dashboard/sms` is now Home; sub-pages: `compose`, `records` (+ `records/[id]`), `contacts`, `credits`, `business`. The 2,035-line page is gone. "Buy any amount" is no longer reachable from the UI (the `/api/sms/units/purchase` route still exists, unused).
+- New reads: `GET /api/sms/home`, `/api/sms/ledger`, paged/filtered `/api/sms/logs`, `POST /api/sms/compose/preview` (advisory, read-only, rate-limited, returns no keyword text).
+- Migrations applied live 2026-10-11/12: `20261012_sms_customer_reads.sql` (`sms_customer_stats`), `20261012_sms_ledger_campaign_link.sql` (`debit_sms_for_send` now returns `debit_tx_id`; new debits link to their campaign, older ones stay unlinked), `20261012_sms_ledger_tx_index.sql`.
+- Policy rule decided for 3b: one user send (up to 5,000 recipients, batched by 500 internally) counts as ONE send for caps — evaluate once on the whole list before batching.
+- Known gaps (not bugs): `loadDefaultSender` picks the oldest active own sender (what the shop send route does) while the v1 API/admin console prefer `sms_accounts.default_sender_id`; a rejected KYC application starts a new draft and carries nothing over (UI now says so); the order-confirmation toggle on Home is disabled until Phase 4.
