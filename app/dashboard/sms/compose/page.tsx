@@ -14,7 +14,8 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { smsFetch } from "../_lib/api"
 import { useSmsAccount } from "../_lib/useSmsAccount"
-import { addNumbers, costSummary, resolveTokens, sendErrorMessage, sendOutcomeMessage, MAX_RECIPIENTS, type ShopTokens } from "../_lib/view"
+import { addNumbers, costSummary, fromLocalInputValue, resolveTokens, scheduleError, sendErrorMessage, sendOutcomeMessage, MAX_RECIPIENTS, type ShopTokens } from "../_lib/view"
+import { SchedulePicker } from "../_components/compose/SchedulePicker"
 import { SmsShell } from "../_components/SmsShell"
 import { RecipientsPicker } from "../_components/compose/RecipientsPicker"
 import { MessageEditor } from "../_components/compose/MessageEditor"
@@ -40,6 +41,8 @@ export default function SmsComposePage() {
   const [busy, setBusy] = useState(false)
   const [sendConfirm, setSendConfirm] = useState<SendConfirm>(CLOSED_CONFIRM)
   const [templatesOpen, setTemplatesOpen] = useState(false)
+  const [sendLater, setSendLater] = useState(false)
+  const [scheduleValue, setScheduleValue] = useState("") // datetime-local, read as GMT
 
   const [senders, setSenders] = useState<ComposeSender[]>([])
   const [groups, setGroups] = useState<ComposeGroup[]>([])
@@ -124,9 +127,11 @@ export default function SmsComposePage() {
   const isPlatform = account?.ownerType === "platform"
   const isSuspended = account?.status === "suspended"
   const canSend = (isActive || isPlatform) && !isSuspended && featureEnabled !== false
+  const scheduleIso = sendLater ? fromLocalInputValue(scheduleValue) : null
+  const scheduleInvalid = sendLater && scheduleError(scheduleIso, new Date()) !== null
   const sendDisabled =
     !canSend || sending || message.trim().length < 3 ||
-    (recipients.length === 0 && !selectedGroupId) || overBudgetBlocks
+    (recipients.length === 0 && !selectedGroupId) || overBudgetBlocks || scheduleInvalid
 
   const policy = usePolicyPreview(message, selectedSenderId, estRecipients)
 
@@ -155,11 +160,17 @@ export default function SmsComposePage() {
 
   async function doSend() {
     if (!account) return
+    // Re-check at click time: the time may have drifted inside the 2-minute minimum while the page sat open.
+    const at = sendLater ? fromLocalInputValue(scheduleValue) : null
+    if (sendLater) {
+      const err = scheduleError(at, new Date())
+      if (err) { setSendConfirm((c) => ({ ...c, open: false })); toast.error(err); return }
+    }
     setSendConfirm((c) => ({ ...c, open: false }))
     setSending(true)
-    const r = await smsFetch<{ total?: number; creditsReserved?: number; batches?: number; partial?: boolean; stoppedReason?: string; held?: boolean; sendLogId?: string | number | null }>(
+    const r = await smsFetch<{ total?: number; creditsReserved?: number; batches?: number; partial?: boolean; stoppedReason?: string; held?: boolean; scheduled?: boolean; scheduledFor?: string | null; sendLogId?: string | number | null }>(
       "/api/shop/sms/send",
-      { method: "POST", body: JSON.stringify({ message, recipients, groupId: selectedGroupId || undefined, senderId: selectedSenderId || undefined }) },
+      { method: "POST", body: JSON.stringify({ message, recipients, groupId: selectedGroupId || undefined, senderId: selectedSenderId || undefined, ...(at ? { scheduledAt: at } : {}) }) },
     )
     setSending(false)
     if (!r.ok) {
@@ -172,7 +183,7 @@ export default function SmsComposePage() {
     const outcome = sendOutcomeMessage(r.data ?? {})
     if (outcome.tone === "warning") toast.warning(outcome.text)
     else toast.success(outcome.text)
-    setMessage(""); setRecipients([]); setSelectedGroupId("")
+    setMessage(""); setRecipients([]); setSelectedGroupId(""); setSendLater(false); setScheduleValue("")
     void reload()
     router.push("/dashboard/sms/records")
   }
@@ -236,9 +247,15 @@ export default function SmsComposePage() {
 
           <PolicyNote preview={policy} />
 
+          <SchedulePicker
+            enabled={sendLater} onEnabledChange={setSendLater}
+            value={scheduleValue} onValueChange={setScheduleValue}
+            iso={scheduleIso} disabled={sending}
+          />
+
           <Button onClick={sendMessage} disabled={sendDisabled} className="w-full" size="lg">
             {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            {sending ? "Sending…" : "Send SMS"}
+            {sending ? (sendLater ? "Scheduling…" : "Sending…") : sendLater ? "Schedule SMS" : "Send SMS"}
           </Button>
 
           {/* Group-send confirmation: real opt-out-filtered count + cost */}
