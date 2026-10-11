@@ -23,6 +23,7 @@ vi.mock("@supabase/supabase-js", () => ({
 }))
 vi.mock("./platform-settings", () => ({ loadSmsSettings: h.settings }))
 vi.mock("@/lib/sms-service", () => ({ platformSenderName: () => "TESTSENDER" }))
+vi.mock("./platform-sender", () => ({ resolvePlatformSender: () => Promise.resolve("RESOLVEDSENDER") }))
 
 import { RECORDS_PAGE_SIZE, getHomeSummary, listRecords, listLedger, getRecord } from "./customer-reads"
 
@@ -51,7 +52,7 @@ describe("getHomeSummary", () => {
     expect(r.limits).toEqual({ perSend: 1000, perHour: 2000, perDay: 99 })
     expect(r.stats).toEqual({ campaigns: 4, recipients: 120, creditsUsed: 130 })
     expect(r.featureEnabled).toBe(true)
-    expect(r.platformSender).toBe("TESTSENDER")
+    expect(r.platformSender).toBe("RESOLVEDSENDER")
     expect(r.senderPool).toEqual(["ALERTS", "PAYCO"])
     expect(r.defaultSender).toBeNull()
     expect(r.recentLedger).toHaveLength(1)

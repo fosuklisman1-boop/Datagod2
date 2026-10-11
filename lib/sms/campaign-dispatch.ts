@@ -14,7 +14,8 @@ import {
   HUBTEL_BATCH_CHUNK, hubtelConfigFromEnv, hubtelSendBatchPersonalized, hubtelSendBatchSimple,
   isValidHubtelMsisdn, toHubtelMsisdn, type HubtelSendResult,
 } from "./providers/hubtel"
-import { platformSenderName, sendSMSBulkViaMoolre } from "@/lib/sms-service"
+import { sendSMSBulkViaMoolre } from "@/lib/sms-service"
+import { resolvePlatformSender } from "./platform-sender"
 import { notifyHubtelOutOfFunds } from "./notify"
 
 export interface DispatchItem { id: string; phone: string; message: string }
@@ -93,7 +94,7 @@ export async function dispatchCampaign(
     return out
   }
 
-  const from = senderId ?? platformSenderName()
+  const from = senderId ?? (await resolvePlatformSender())
   const out: DispatchResult = { provider: "hubtel", sent: [], fallbackSent: [], outOfFunds: false }
   // Hubtel can reject a whole batch over one bad number: leave unaddressable rows pending
   // (the drain's single-send path validates and fails/refunds them individually).

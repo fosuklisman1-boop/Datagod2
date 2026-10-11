@@ -2,7 +2,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { loadSmsSettings, type SmsMode } from "./platform-settings"
 import { loadDefaultSender } from "./default-sender"
-import { platformSenderName } from "@/lib/sms-service"
+import { resolvePlatformSender } from "./platform-sender"
 
 const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
@@ -137,7 +137,7 @@ export async function getHomeSummary(accountId: string) {
     stats,
     recentLedger: ledger,
     featureEnabled: settings.featureEnabled,
-    platformSender: platformSenderName(),
+    platformSender: await resolvePlatformSender(),
     /** Exactly what the send route picks when the client chooses no sender; null = platform default. */
     defaultSender,
     /** Shared sender names a business-mode account may send as (resolveCampaignSender accepts them); [] otherwise. */

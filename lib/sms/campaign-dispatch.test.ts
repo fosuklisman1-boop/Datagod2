@@ -15,7 +15,8 @@ vi.mock("./providers/hubtel", async (orig) => ({
   hubtelSendBatchSimple: h.simple,
   hubtelSendBatchPersonalized: h.personalized,
 }))
-vi.mock("@/lib/sms-service", () => ({ sendSMSBulkViaMoolre: h.moolre, platformSenderName: () => "PLATFORM" }))
+vi.mock("@/lib/sms-service", () => ({ sendSMSBulkViaMoolre: h.moolre, platformSenderName: () => "ENVNAME" }))
+vi.mock("./platform-sender", () => ({ resolvePlatformSender: () => Promise.resolve("RESOLVED") }))
 vi.mock("./notify", () => ({ notifyHubtelOutOfFunds: h.outOfFunds }))
 
 import { dispatchCampaign } from "./campaign-dispatch"
@@ -37,7 +38,7 @@ describe("dispatchCampaign", () => {
     h.simple.mockImplementation(async (_c: unknown, m: { recipients: string[] }) => accepted(m.recipients.map((r) => ({ phone: r }))))
     const r = await dispatchCampaign(items(150), null)
     expect(h.simple).toHaveBeenCalledTimes(2)
-    expect(h.simple.mock.calls[0][1].from).toBe("PLATFORM")
+    expect(h.simple.mock.calls[0][1].from).toBe("RESOLVED")
     expect(r.provider).toBe("hubtel")
     expect(r.sent).toHaveLength(150)
     expect(r.sent[0]).toEqual({ id: "id0", mid: "m0", bid: "b1" })
@@ -83,6 +84,12 @@ describe("dispatchCampaign", () => {
     expect(h.simple).not.toHaveBeenCalled()
     expect(r.provider).toBe("moolre")
     expect(r.sent.map((s) => s.id)).toEqual(["id0", "id1", "id2"])
+  })
+  it("moolre path with no sender passes none (Moolre keeps its own env name, never the Hubtel platform sender)", async () => {
+    h.primary = "moolre"
+    h.moolre.mockResolvedValue({ ok: true })
+    await dispatchCampaign(items(2), null)
+    expect(h.moolre.mock.calls[0][1]).toBeUndefined()
   })
   it("unknown outcome on a platform-sender chunk: counted sent (no ids), callback flagged unconfirmed, Moolre NOT called", async () => {
     h.simple.mockResolvedValue({ outcome: "unknown", httpStatus: 0, bodyStatus: null, messages: [] })

@@ -4,6 +4,7 @@ import { notifyAdmins as sendAdminEmail } from './email-service'
 import { getRoutingConfig, narrowProvidersForSender } from '@/lib/sms/routing'
 import { hubtelConfigFromEnv, hubtelSendSingle, toHubtelMsisdn, isValidHubtelMsisdn } from '@/lib/sms/providers/hubtel'
 import { notifyHubtelOutOfFunds } from '@/lib/sms/notify'
+import { resolvePlatformSender } from '@/lib/sms/platform-sender'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -767,7 +768,7 @@ export function platformSenderName(): string {
 async function sendSMSViaHubtel(payload: SMSPayload): Promise<SendSMSResponse> {
   const cfg = hubtelConfigFromEnv()
   if (!cfg) return { success: false, error: 'Hubtel not configured', provider: 'hubtel' }
-  const from = payload.senderId?.trim() ? payload.senderId.trim().toUpperCase() : platformSenderName()
+  const from = payload.senderId?.trim() ? payload.senderId.trim().toUpperCase() : await resolvePlatformSender()
 
   const failHubtel = async (error: string): Promise<SendSMSResponse> => {
     if (!payload.skipLogging) {
