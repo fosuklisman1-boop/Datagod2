@@ -64,6 +64,11 @@ describe("kyc helpers", () => {
     expect(kycSubmitGaps(kycFormFromProfile(profile()), profile())).toEqual([])
     expect(kycSubmitGaps(kycFormFromProfile(profile()), profile({ has_ghana_card_doc: false }))).toEqual(["Ghana Card photo"])
   })
+  it("rejected profiles carry nothing over to the new draft", () => {
+    const rej = profile({ status: "rejected" })
+    expect(kycSubmitGaps(kycFormFromProfile(rej), rej)).toEqual(["Ghana Card number", "Ghana Card photo"])
+    expect(kycSubmitGaps({ ...kycFormFromProfile(rej), ghana_card_number: "GHA-123456789-0" }, rej)).toEqual(["Ghana Card photo"])
+  })
   it("file check", () => {
     expect(checkKycFile({ type: "image/png", size: 1000 })).toBeNull()
     expect(checkKycFile({ type: "text/plain", size: 1000 })).toMatch(/JPG/)

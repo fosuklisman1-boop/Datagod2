@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { smsFetch, type LedgerEntry, type Page } from "../../_lib/api"
 import { formatCount, formatDelta, pageCount, timeAgo } from "../../_lib/view"
 
-export function CreditHistory() {
+export function CreditHistory({ refreshKey = 0 }: { refreshKey?: number } = {}) {
   const [page, setPage] = useState(1)
   const [rows, setRows] = useState<LedgerEntry[]>([])
   const [total, setTotal] = useState(0)
@@ -39,6 +39,16 @@ export function CreditHistory() {
   }, [])
 
   useEffect(() => { void load(page) }, [load, page])
+
+  // A purchase happened: new rows land on page 1 (newest first).
+  const firstKey = useRef(refreshKey)
+  useEffect(() => {
+    if (refreshKey === firstKey.current) return
+    firstKey.current = refreshKey
+    if (page !== 1) setPage(1) // effect above reloads
+    else void load(1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey])
 
   const pages = pageCount(total)
 

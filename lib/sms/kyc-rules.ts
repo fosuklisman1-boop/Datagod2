@@ -73,6 +73,15 @@ export function missingForSubmit(row: Partial<Record<(typeof REQUIRED_FOR_SUBMIT
   return REQUIRED_FOR_SUBMIT.filter((k) => !row[k])
 }
 
+const SUBMIT_LABELS: Record<string, string> = {
+  business_name: "Business name", description: "Description", whatsapp_number: "WhatsApp number",
+  ghana_card_last4: "Ghana Card number", ghana_card_doc_path: "Ghana Card photo", registration_doc_path: "Business registration document",
+}
+/** Customer-facing names for missingForSubmit keys (the keys themselves stay stable for callers). */
+export function submitLabels(keys: string[]): string[] {
+  return keys.map((k) => SUBMIT_LABELS[k] ?? k)
+}
+
 export function nextKycStatus(current: KycStatus | null, action: KycAction): KycStatus | null {
   switch (action) {
     case "save": return current === null || current === "draft" || current === "rejected" ? "draft" : null

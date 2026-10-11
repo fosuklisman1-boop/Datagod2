@@ -7,7 +7,7 @@
  * are never logged, put in notifications, or returned to customers (see toPublicKyc).
  */
 import { createClient } from "@supabase/supabase-js"
-import { docExtension, matchesDocSignature, missingForSubmit, nextKycStatus, validateKycDraft, type KycDraftInput, type KycStatus } from "./kyc-rules"
+import { docExtension, matchesDocSignature, missingForSubmit, submitLabels, nextKycStatus, validateKycDraft, type KycDraftInput, type KycStatus } from "./kyc-rules"
 import { setAccountMode } from "./sender-rules-service"
 import { notifyAdminsThrottled } from "./notify"
 import { writeAuditLog } from "./moderation-service"
@@ -128,7 +128,7 @@ export async function submitKyc(accountId: string): Promise<Result<KycProfile>> 
   const current = loaded.data
   if (!current || !nextKycStatus(current.status, "submit")) return { ok: false, error: "There is no draft to submit." }
   const missing = missingForSubmit(current)
-  if (missing.length) return { ok: false, error: `Complete these first: ${missing.join(", ")}.` }
+  if (missing.length) return { ok: false, error: `Complete these first: ${submitLabels(missing).join(", ")}.` }
   const { data, error } = await supabaseAdmin.from("sms_business_profiles")
     .update({ status: "submitted", submitted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
     .eq("id", current.id).eq("status", "draft").select("*").maybeSingle()

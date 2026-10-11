@@ -16,7 +16,7 @@ import {
 
 interface Bundle { id: string; name: string; units: number; price_ghs: number }
 
-export function BundleCards() {
+export function BundleCards({ onPurchased }: { onPurchased?: () => void } = {}) {
   const { account, featureEnabled, walletBalance, profitBalance, reload } = useSmsAccount()
   const [bundles, setBundles] = useState<Bundle[]>([])
   const [loaded, setLoaded] = useState(false)
@@ -44,19 +44,24 @@ export function BundleCards() {
     if (buying.current || blocked) return
     buying.current = true
     setBuyingBundleId(b.id)
+    let redirecting = false
     try {
       const method = purchaseMethod(walletBalance, b.price_ghs)
       const endpoint = method === "wallet" ? "/api/sms/units/purchase-wallet" : "/api/sms/units/purchase-paystack"
       const r = await smsFetch(endpoint, { method: "POST", body: JSON.stringify({ bundleId: b.id }) })
       if (!r.ok) { toast.error(buyErrorMessage(r.error, r.code)); return }
       const out = purchaseOutcome(r.body as { authorizationUrl?: unknown; pending?: unknown })
-      if (out.kind === "redirect" && out.url) { window.location.href = out.url; return }
+      if (out.kind === "redirect" && out.url) { redirecting = true; window.location.href = out.url; return }
       if (out.kind === "pending") toast.info("Payment received — credits pending SMS supply top-up.")
       else toast.success("SMS credits added!")
       await reload()
+      onPurchased?.()
     } finally {
-      buying.current = false
-      if (alive.current) setBuyingBundleId(null)
+      // While navigating to Paystack, keep Buy disabled.
+      if (!redirecting) {
+        buying.current = false
+        if (alive.current) setBuyingBundleId(null)
+      }
     }
   }
 

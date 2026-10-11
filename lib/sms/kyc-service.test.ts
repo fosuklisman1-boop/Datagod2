@@ -183,7 +183,8 @@ describe("submitKyc", () => {
     const r = await submitKyc("acct1")
     expect(r.ok).toBe(false)
     if (!r.ok) {
-      for (const f of ["description", "whatsapp_number", "ghana_card_last4", "ghana_card_doc_path"]) expect(r.error).toContain(f)
+      for (const f of ["Description", "WhatsApp number", "Ghana Card number", "Ghana Card photo"]) expect(r.error).toContain(f)
+      expect(r.error).not.toMatch(/_path|_last4/)
     }
     expect(profiles()[0].status).toBe("draft")
   })

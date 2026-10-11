@@ -98,7 +98,8 @@ export function KycForm({ profile, mode, onProfile, onChanged }: Props) {
     setBusy(null)
   }
 
-  const ending = cardEnding(profile?.ghana_card_last4)
+  // A rejected application is replaced by a fresh draft: no card number or documents carry over.
+  const ending = status === "rejected" ? null : cardEnding(profile?.ghana_card_last4)
 
   return (
     <Card>
@@ -113,7 +114,7 @@ export function KycForm({ profile, mode, onProfile, onChanged }: Props) {
             <AlertDescription>
               <p className="font-medium">Your application was not approved.</p>
               {profile?.rejection_reason && <p className="mt-0.5">{profile.rejection_reason}</p>}
-              <p className="mt-1 text-xs">Edit your details below and resubmit. Please upload your documents again.</p>
+              <p className="mt-1 text-xs">Edit your details below and resubmit. You will need to re-enter your Ghana Card number and upload your documents again.</p>
             </AlertDescription>
           </Alert>
         )}

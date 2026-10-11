@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { validateKycDraft, missingForSubmit, nextKycStatus, docExtension, matchesDocSignature, KYC_DOC_MAX_BYTES } from "./kyc-rules"
+import { validateKycDraft, missingForSubmit, submitLabels, nextKycStatus, docExtension, matchesDocSignature, KYC_DOC_MAX_BYTES } from "./kyc-rules"
 
 describe("validateKycDraft", () => {
   it("accepts a full draft, keeps only the card's last 4, normalises phone + website", () => {
@@ -31,6 +31,11 @@ describe("missingForSubmit", () => {
   it("nothing missing", () => expect(missingForSubmit(full)).toEqual([]))
   it("lists missing fields", () => expect(missingForSubmit({ ...full, ghana_card_doc_path: null, description: null }))
     .toEqual(["description", "ghana_card_doc_path"]))
+})
+
+describe("submitLabels", () => {
+  it("maps keys to readable names", () => expect(submitLabels(["ghana_card_last4", "ghana_card_doc_path", "registration_doc_path", "description", "x"]))
+    .toEqual(["Ghana Card number", "Ghana Card photo", "Business registration document", "Description", "x"]))
 })
 
 describe("nextKycStatus", () => {

@@ -19,9 +19,11 @@ interface Props {
 }
 
 export function DocumentUploads({ profile, editable, disabled, onUploaded }: Props) {
+  // Rejected: the next save/upload starts a new draft with no documents, so show them as not uploaded.
+  const rejected = profile?.status === "rejected"
   const rows: { kind: Kind; label: string; hint: string; has: boolean }[] = [
-    { kind: "ghana_card", label: "Ghana Card photo", hint: "Required. A clear photo of the front of your card.", has: !!profile?.has_ghana_card_doc },
-    { kind: "registration", label: "Business registration", hint: "Optional. Certificate or similar document.", has: !!profile?.has_registration_doc },
+    { kind: "ghana_card", label: "Ghana Card photo", hint: "Required. A clear photo of the front of your card.", has: !rejected && !!profile?.has_ghana_card_doc },
+    { kind: "registration", label: "Business registration", hint: "Optional. Certificate or similar document.", has: !rejected && !!profile?.has_registration_doc },
   ]
   return (
     <fieldset className="space-y-2">

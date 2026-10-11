@@ -328,11 +328,13 @@ export function kycFieldErrors(f: KycForm): Record<string, string> {
 /** Required items still missing before Submit is meaningful. */
 export function kycSubmitGaps(f: KycForm, p: KycProfileView | null): string[] {
   const gaps: string[] = []
+  // A rejected application is replaced by a fresh draft that carries over no card number or documents.
+  const carried = p?.status !== "rejected"
   if (!f.business_name.trim()) gaps.push("Business name")
   if (!f.description.trim()) gaps.push("Description")
   if (!f.whatsapp_number.trim()) gaps.push("WhatsApp number")
-  if (!f.ghana_card_number.trim() && !p?.ghana_card_last4) gaps.push("Ghana Card number")
-  if (!p?.has_ghana_card_doc) gaps.push("Ghana Card photo")
+  if (!f.ghana_card_number.trim() && !(carried && p?.ghana_card_last4)) gaps.push("Ghana Card number")
+  if (!(carried && p?.has_ghana_card_doc)) gaps.push("Ghana Card photo")
   return gaps
 }
 
