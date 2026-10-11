@@ -91,7 +91,7 @@ describe("held campaigns in the Flagged list", () => {
     expect(r.rows[0]).toEqual({
       id: "held:42", source: "held", log_id: 42, sms_account_id: "acct1", user_id: "u1", email: "a@b.c",
       severity: "info", status: "open", reason: "Your account is under review.", code: "REVIEW_HOLD",
-      message: "Promo", sender_id: "SHOP", recipients_count: 500, segments: 2, credits_reserved: 1000, created_at: "2026-10-11T10:00:00Z",
+      message: "Promo", sender_id: "SHOP", recipients_count: 500, segments: 2, credits_reserved: 1000, created_at: "2026-10-11T10:00:00Z", scheduled_for: null,
     })
     expect(r.rows[1]).toMatchObject({ id: "held:43", reason: "Held for review", code: null })
     const q = h.ops[0]

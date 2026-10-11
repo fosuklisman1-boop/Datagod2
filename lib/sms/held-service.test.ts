@@ -90,6 +90,63 @@ describe("releaseHeldCampaign", () => {
     })
   }
 
+  describe("a held SCHEDULED send", () => {
+    const FUTURE = new Date(Date.now() + 3 * 86_400_000)
+    FUTURE.setUTCHours(9, 5, 0, 0)
+    const FUTURE_ISO = FUTURE.toISOString()
+
+    it("future scheduled_for → held→scheduled, no claim or dispatch, notifies with the send time", async () => {
+      h.tables = {
+        sms_send_logs: [{ data: { ...HELD_LOG, scheduled_for: FUTURE_ISO }, error: null }, { data: [{ id: 42 }], error: null }],
+        sms_accounts: [OWNER],
+        notifications: [{ data: null, error: null }],
+      }
+      const r = await releaseHeldCampaign("admin1", "42")
+      expect(r).toEqual({ ok: true, already: false, placed: 0, scheduled: true, scheduledFor: FUTURE_ISO })
+
+      const [flip] = updates("sms_send_logs")
+      expect(patchOf(flip)).toMatchObject({ status: "scheduled" })
+      expect(patchOf(flip).policy_shadow).toMatchObject({ decision: "hold", review: { outcome: "released", by: "admin1" } })
+      expect(eqs(flip)).toEqual([["id", 42], ["status", "held"]])
+      expect(updates("sms_send_logs")).toHaveLength(1)
+      expect(updates("sms_messages")).toHaveLength(0)
+      expect(h.dispatch).not.toHaveBeenCalled()
+      expect(h.rpcCalls.some((c) => c.fn === "recompute_sms_send_result")).toBe(false)
+
+      const [n] = notificationInserts()
+      expect(n.message).toMatch(/approved/i)
+      expect(n.message).toContain(`${String(FUTURE.getUTCHours()).padStart(2, "0")}:05 GMT`)
+      expect(h.audit).toHaveBeenCalledWith("admin1", "sms_held_release", "owner1", { logId: 42, status: "held" }, { status: "scheduled", scheduledFor: FUTURE_ISO })
+    })
+
+    it("double release of a scheduled-approved log is a no-op", async () => {
+      h.tables = { sms_send_logs: [{ data: { ...HELD_LOG, status: "scheduled", scheduled_for: FUTURE_ISO, policy_shadow: { review: { outcome: "released" } } }, error: null }] }
+      expect(await releaseHeldCampaign("admin1", "42")).toEqual({ ok: true, already: true, status: "scheduled" })
+      expect(updates("sms_send_logs")).toHaveLength(0)
+      expect(notificationInserts()).toHaveLength(0)
+    })
+
+    it("a scheduled log that was never held → NOT_HELD", async () => {
+      h.tables = { sms_send_logs: [{ data: { ...HELD_LOG, status: "scheduled", scheduled_for: FUTURE_ISO, policy_shadow: null }, error: null }] }
+      expect(await releaseHeldCampaign("admin1", "42")).toMatchObject({ ok: false, code: "NOT_HELD" })
+    })
+
+    it("past scheduled_for → today's behaviour (queued + dispatched now)", async () => {
+      heldScenario()
+      h.tables.sms_send_logs[0] = { data: { ...HELD_LOG, scheduled_for: new Date(Date.now() - 60_000).toISOString() }, error: null }
+      expect(await releaseHeldCampaign("admin1", "42")).toEqual({ ok: true, already: false, placed: 1 })
+      expect(patchOf(updates("sms_send_logs")[0])).toMatchObject({ status: "queued" })
+      expect(h.dispatch).toHaveBeenCalledTimes(1)
+    })
+
+    it("null scheduled_for → today's behaviour", async () => {
+      heldScenario()
+      h.tables.sms_send_logs[0] = { data: { ...HELD_LOG, scheduled_for: null }, error: null }
+      expect(await releaseHeldCampaign("admin1", "42")).toEqual({ ok: true, already: false, placed: 1 })
+      expect(h.dispatch).toHaveBeenCalledTimes(1)
+    })
+  })
+
   it("refuses an invalid id before touching the DB", async () => {
     const r = await releaseHeldCampaign("admin1", "abc")
     expect(r).toMatchObject({ ok: false, code: "INVALID" })

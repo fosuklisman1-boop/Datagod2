@@ -28,7 +28,12 @@ const MAX_REJECT_REASON = 500
 
 export type HeldErrorCode = "INVALID" | "NOT_FOUND" | "NOT_HELD" | "REJECTED" | "SMS_DISABLED" | "DB"
 export type HeldError = { ok: false; code: HeldErrorCode; error: string }
-export type ReleaseResult = { ok: true; already: false; placed: number } | { ok: true; already: true; status: string } | HeldError
+export type ReleaseResult =
+  | { ok: true; already: false; placed: number }
+  /** Approved, but scheduled_for is still ahead: stored 'scheduled'; the sms-scheduled cron sends it then. */
+  | { ok: true; already: false; placed: 0; scheduled: true; scheduledFor: string }
+  | { ok: true; already: true; status: string }
+  | HeldError
 export type RejectResult = { ok: true; already: boolean; refundedCredits: number; refundedMessages: number } | HeldError
 
 export const SMS_OFF_RELEASE_MESSAGE = "SMS sending is switched off. Turn SMS back on in Settings before releasing held campaigns."
@@ -43,7 +48,20 @@ export function parseLogId(raw: unknown): number | null {
 
 const fail = (code: HeldErrorCode, error: string): HeldError => ({ ok: false, code, error })
 
-interface LogRow { id: number | string; sms_account_id: string; status: string; sender_id: string | null; policy_shadow: Record<string, unknown> | null }
+interface LogRow {
+  id: number | string; sms_account_id: string; status: string; sender_id: string | null
+  policy_shadow: Record<string, unknown> | null; scheduled_for?: string | null
+}
+const LOG_COLS = "id, sms_account_id, status, sender_id, policy_shadow, scheduled_for"
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+/** "1 Jan, 09:00 GMT" (Ghana time is GMT) — same shape as the customer Records page. */
+export function formatGmt(iso: string): string {
+  const d = new Date(iso)
+  if (!Number.isFinite(d.getTime())) return iso
+  const hh = String(d.getUTCHours()).padStart(2, "0"), mm = String(d.getUTCMinutes()).padStart(2, "0")
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}, ${hh}:${mm} GMT`
+}
 
 function reviewOutcome(shadow: unknown): string | null {
   const review = (shadow as { review?: { outcome?: unknown } } | null)?.review
@@ -56,6 +74,10 @@ function settledRelease(log: Pick<LogRow, "status" | "policy_shadow">): ReleaseR
     return fail("REJECTED", "This campaign was rejected; it can't be released.")
   }
   if (["queued", "sending", "sent", "partial"].includes(log.status)) {
+    return { ok: true, already: true, status: log.status }
+  }
+  // Approved for a future schedule (held→scheduled). A plain scheduled send was never held.
+  if (log.status === "scheduled" && reviewOutcome(log.policy_shadow) === "released") {
     return { ok: true, already: true, status: log.status }
   }
   // 'failed' counts as already released only if a release actually happened; an orphan log that
@@ -104,7 +126,7 @@ export async function releaseHeldCampaign(adminId: string, rawLogId: string | nu
 
   const { data, error } = await supabaseAdmin
     .from("sms_send_logs")
-    .select("id, sms_account_id, status, sender_id, policy_shadow")
+    .select(LOG_COLS)
     .eq("id", logId)
     .maybeSingle()
   if (error) return fail("DB", "Could not load the campaign")
@@ -112,23 +134,37 @@ export async function releaseHeldCampaign(adminId: string, rawLogId: string | nu
   if (!log) return fail("NOT_FOUND", "Campaign not found")
   if (log.status !== "held") return settledRelease(log)
 
-  // Release is a send: honour the master switch (reject is never blocked).
-  if (!(await isSmsEnabled())) return fail("SMS_DISABLED", SMS_OFF_RELEASE_MESSAGE)
+  // A held SCHEDULED send whose time is still ahead is approved into 'scheduled', not sent now:
+  // the sms-scheduled cron sends it at scheduled_for (honouring the master switch then), and the
+  // customer can still cancel it from Records. Past/absent scheduled_for → send now, as before.
+  const schedMs = log.scheduled_for ? Date.parse(log.scheduled_for) : NaN
+  const futureSchedule = Number.isFinite(schedMs) && schedMs > Date.now() ? log.scheduled_for! : null
 
-  // The gate: conditional held→queued. A concurrent release/reject makes this match nothing.
+  // Release now is a send: honour the master switch (reject is never blocked).
+  if (!futureSchedule && !(await isSmsEnabled())) return fail("SMS_DISABLED", SMS_OFF_RELEASE_MESSAGE)
+
+  // The gate: conditional held→queued|scheduled. A concurrent release/reject makes this match nothing.
   const shadow = log.policy_shadow && typeof log.policy_shadow === "object" ? log.policy_shadow : {}
   const { data: flipped, error: flipErr } = await supabaseAdmin
     .from("sms_send_logs")
-    .update({ status: "queued", policy_shadow: { ...shadow, review: { outcome: "released", by: adminId, at: new Date().toISOString() } } })
+    .update({ status: futureSchedule ? "scheduled" : "queued", policy_shadow: { ...shadow, review: { outcome: "released", by: adminId, at: new Date().toISOString() } } })
     .eq("id", logId)
     .eq("status", "held")
     .select("id")
   if (flipErr) return fail("DB", "Could not release the campaign")
   if (!flipped || (flipped as unknown[]).length === 0) {
     const { data: again } = await supabaseAdmin
-      .from("sms_send_logs").select("id, sms_account_id, status, sender_id, policy_shadow").eq("id", logId).maybeSingle()
+      .from("sms_send_logs").select(LOG_COLS).eq("id", logId).maybeSingle()
     if (!again) return fail("DB", "Could not release the campaign")
     return (again as LogRow).status === "held" ? fail("DB", "Could not release the campaign") : settledRelease(again as LogRow)
+  }
+
+  if (futureSchedule) {
+    const owner = await ownerOf(log.sms_account_id)
+    await notifyOwner(owner, logId, "SMS campaign approved",
+      `Your SMS campaign #${logId} was approved after review and will be sent at ${formatGmt(futureSchedule)}.`)
+    await audit(adminId, "sms_held_release", owner, { logId, status: "held" }, { status: "scheduled", scheduledFor: futureSchedule })
+    return { ok: true, already: false, placed: 0, scheduled: true, scheduledFor: futureSchedule }
   }
 
   // From here the campaign is an ordinary queued send: the drain may take any row we don't.

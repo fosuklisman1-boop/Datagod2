@@ -56,6 +56,8 @@ export interface HeldRow {
   segments: number
   credits_reserved: number
   created_at: string
+  /** Set when the held send was scheduled: a release before this time keeps it scheduled. */
+  scheduled_for: string | null
 }
 
 export const HELD_LIMIT = 100
@@ -64,7 +66,7 @@ export const HELD_LIMIT = 100
 export async function listHeldCampaigns(): Promise<{ rows: HeldRow[]; total: number }> {
   const { data, error, count } = await supabaseAdmin
     .from("sms_send_logs")
-    .select("id, sms_account_id, message, sender_id, recipients_count, segments, credits_reserved, created_at, policy_shadow", { count: "exact" })
+    .select("id, sms_account_id, message, sender_id, recipients_count, segments, credits_reserved, created_at, policy_shadow, scheduled_for", { count: "exact" })
     .eq("status", "held")
     .order("created_at", { ascending: true })
     .limit(HELD_LIMIT)
@@ -72,6 +74,7 @@ export async function listHeldCampaigns(): Promise<{ rows: HeldRow[]; total: num
   const logs = (data ?? []) as {
     id: number | string; sms_account_id: string; message: string; sender_id: string | null; recipients_count: number
     segments: number; credits_reserved: number; created_at: string; policy_shadow: { reason?: unknown; code?: unknown } | null
+    scheduled_for?: string | null
   }[]
   if (logs.length === 0) return { rows: [], total: count ?? 0 }
 
@@ -101,6 +104,7 @@ export async function listHeldCampaigns(): Promise<{ rows: HeldRow[]; total: num
       code: typeof l.policy_shadow?.code === "string" ? l.policy_shadow.code : null,
       message: l.message, sender_id: l.sender_id, recipients_count: Number(l.recipients_count) || 0,
       segments: Number(l.segments) || 0, credits_reserved: Number(l.credits_reserved) || 0, created_at: l.created_at,
+      scheduled_for: l.scheduled_for ?? null,
     }
   })
   return { rows, total: count ?? rows.length }
