@@ -180,6 +180,8 @@ export async function enqueueSend(
       flag_reason: filterResult.reason ?? "blocked",
       mode,
       policy_shadow: shadow,
+      // Tag a blocked order confirmation (source only; a blocked send is never scheduled).
+      ...(extraLogCols.source ? { source: extraLogCols.source } : {}),
     })
     return { ok: false, error: "BLOCKED", reason: filterResult.reason }
   }

@@ -1085,6 +1085,19 @@ describe("scheduled sends", () => {
     expect(logRows()[0]).not.toHaveProperty("source")
   })
 
+  it("content-filter blocked log carries a non-default source (only source), default stays untagged", async () => {
+    const BAD = "Congratulations, you have won a prize!"
+    await enqueueSend("u1", "acc1", BAD, ["0241234567"], undefined, undefined, undefined, undefined, { source: "order_confirmation", scheduledFor: AT })
+    expect(logRows()[0]).toMatchObject({ status: "blocked", source: "order_confirmation" })
+    expect(logRows()[0]).not.toHaveProperty("scheduled_for")
+    for (const opts of [undefined, { source: "campaign" as const }]) {
+      h.state.calls.length = 0
+      await enqueueSend("u1", "acc1", BAD, ["0241234567"], undefined, undefined, undefined, undefined, opts)
+      expect(logRows()[0].status).toBe("blocked")
+      expect(logRows()[0]).not.toHaveProperty("source")
+    }
+  })
+
   it("scheduled + source → both written", async () => {
     await enqueueSend("u1", "acc1", "Hello world", ["0241234567"], undefined, undefined, undefined, undefined, { scheduledFor: AT, source: "order_confirmation" })
     expect(logRows()[0]).toMatchObject({ status: "scheduled", scheduled_for: AT.toISOString(), source: "order_confirmation" })
