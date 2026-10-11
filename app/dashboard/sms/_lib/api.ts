@@ -18,16 +18,16 @@ export type SmsResult<T> =
  * Never throws.
  */
 export async function smsFetch<T = unknown>(path: string, init?: RequestInit): Promise<SmsResult<T>> {
-  const t = await token()
-  const headers: Record<string, string> = { Authorization: `Bearer ${t}` }
-  if (typeof init?.body === "string") headers["Content-Type"] = "application/json"
   let res: Response
   try {
+    const t = await token()
+    const headers: Record<string, string> = { Authorization: `Bearer ${t}` }
+    if (typeof init?.body === "string") headers["Content-Type"] = "application/json"
     res = await fetch(path, { ...init, headers: { ...headers, ...((init?.headers as Record<string, string>) || {}) } })
   } catch (e) {
     return { ok: false, status: 0, error: e instanceof Error ? e.message : "Network error", body: {} }
   }
-  const body = (await res.json().catch(() => ({}))) as Record<string, unknown>
+  const body = ((await res.json().catch(() => null)) ?? {}) as Record<string, unknown>
   if (res.ok && body.success !== false && !body.error) {
     return { ok: true, status: res.status, data: ("data" in body ? body.data : body) as T, body }
   }
@@ -66,6 +66,8 @@ export interface SmsHome {
   stats: SmsStats
   recentLedger: LedgerEntry[]
   featureEnabled: boolean
+  /** Default sender name used when the account has no active own sender ID. */
+  platformSender: string
 }
 
 export interface Page<T> { rows: T[]; total: number; page: number; pageSize: number }

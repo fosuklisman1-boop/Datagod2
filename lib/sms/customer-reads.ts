@@ -1,6 +1,7 @@
 /** Customer-facing read model for the SMS pages (Phase 3): home summary, records, credit ledger. Throws on DB errors. */
 import { createClient } from "@supabase/supabase-js"
 import { loadSmsSettings, type SmsMode } from "./platform-settings"
+import { platformSenderName } from "@/lib/sms-service"
 
 const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
@@ -78,6 +79,7 @@ export async function getHomeSummary(accountId: string) {
     stats,
     recentLedger: ledger,
     featureEnabled: settings.featureEnabled,
+    platformSender: platformSenderName(),
   }
 }
 

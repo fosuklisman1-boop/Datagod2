@@ -102,6 +102,16 @@ export function SmsShell({ children, backToHome = false, subtitle }: SmsShellPro
           </Alert>
         )}
 
+        {error && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
+              <span>Couldn’t refresh your SMS account. Showing the last loaded data.</span>
+              <Button size="sm" variant="outline" onClick={() => { void reload() }}>Retry</Button>
+            </AlertDescription>
+          </Alert>
+        )}
+
         {!featureEnabled && (
           <Alert className="border-warning/30 bg-warning/10">
             <Info className="h-4 w-4" />

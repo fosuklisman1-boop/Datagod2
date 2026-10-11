@@ -13,9 +13,6 @@ import { limitsLine } from "./_lib/view"
 import { SmsShell } from "./_components/SmsShell"
 import { ActivationCard } from "./_components/ActivationCard"
 
-/** Shown when the account has no active sender ID of its own. */
-const PLATFORM_SENDER_NAME = "Datagod"
-
 interface SenderRow { sender_id: string; local_status: string }
 
 function timeAgo(iso: string): string {
@@ -39,7 +36,7 @@ const TILES = [
 ]
 
 export default function SmsHomePage() {
-  const { account, limits, stats, recentLedger, walletBalance, profitBalance } = useSmsAccount()
+  const { account, limits, stats, recentLedger, walletBalance, profitBalance, platformSender } = useSmsAccount()
   const [senders, setSenders] = useState<SenderRow[] | null>(null)
 
   useEffect(() => {
@@ -56,7 +53,7 @@ export default function SmsHomePage() {
   const showActivation = !!account && !isPlatform && !isActive && !isSuspended
 
   const activeSender = senders?.find((s) => s.local_status === "active")?.sender_id
-  const sendingAs = activeSender ?? PLATFORM_SENDER_NAME
+  const sendingAs = activeSender ?? platformSender ?? "the default sender"
   const canSend = isActive || isPlatform
 
   return (

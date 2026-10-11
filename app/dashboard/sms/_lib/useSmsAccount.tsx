@@ -13,6 +13,8 @@ export interface SmsAccountState {
   recentLedger: LedgerEntry[]
   /** Kill-switch state; defaults to true until /api/sms/home says otherwise. */
   featureEnabled: boolean
+  /** Platform default sender name (null until /api/sms/home has loaded once). */
+  platformSender: string | null
   walletBalance: number
   profitBalance: number
   loading: boolean
@@ -39,7 +41,7 @@ export function SmsAccountProvider({ children }: { children: ReactNode }) {
   useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
 
   // Informational wallet cards. A shop is optional (e.g. sub-agent accounts), so both fetches are best-effort.
-  const loadWallets = useCallback(async () => {
+  const loadWallets = useCallback(async (mine: number) => {
     try {
       const { data: { session } } = await supabase.auth.getSession()
       const uid = session?.user?.id
@@ -51,11 +53,11 @@ export function SmsAccountProvider({ children }: { children: ReactNode }) {
               .then((r) => (r.ok ? r.json() : null)).catch(() => null)
           : null,
       ])
-      if (!alive.current) return
+      if (!alive.current || mine !== seq.current) return
       if (walletRes) setWalletBalance(walletRes.balance || 0)
       if (userShop?.id) {
         const bal = await shopProfitService.getShopBalanceFromTable(userShop.id).catch(() => null)
-        if (alive.current) setProfitBalance(bal?.available_balance || 0)
+        if (alive.current && mine === seq.current) setProfitBalance(bal?.available_balance || 0)
       }
     } catch { /* non-fatal: cards just show 0 */ }
   }, [])
@@ -63,18 +65,24 @@ export function SmsAccountProvider({ children }: { children: ReactNode }) {
   const reload = useCallback(async () => {
     const mine = ++seq.current
     try {
+      void loadWallets(mine) // best-effort; never blocks the skeleton
       const [acc, hm] = await Promise.all([
         smsFetch<{ account?: SmsAccount }>("/api/sms/account"),
         smsFetch<SmsHome>("/api/sms/home"),
-        loadWallets(),
       ])
       if (!alive.current || mine !== seq.current) return
       const a = acc.ok ? (acc.body.account as SmsAccount | undefined) ?? null : null
-      setAccount(a)
-      // A clean 403 is a by-design "not entitled", not a connectivity failure.
-      setNotEntitled(!a && acc.status === 403)
-      setError(!a && acc.status !== 403)
-      setHome(hm.ok ? hm.data : null)
+      if (a) {
+        setAccount(a); setNotEntitled(false); setError(false)
+      } else if (acc.status === 403) {
+        // Definitive: no entitlement. Clear everything.
+        setAccount(null); setHome(null); setNotEntitled(true); setError(false)
+      } else {
+        // Transient failure: keep the last good account/home so mounted pages survive.
+        setError(true)
+      }
+      // Keep the previous home if this refresh of it failed.
+      if (hm.ok) setHome(hm.data)
     } catch {
       if (alive.current && mine === seq.current) setError(true)
     } finally {
@@ -91,6 +99,7 @@ export function SmsAccountProvider({ children }: { children: ReactNode }) {
     stats: home?.stats ?? null,
     recentLedger: home?.recentLedger ?? [],
     featureEnabled: home?.featureEnabled ?? true,
+    platformSender: home?.platformSender ?? null,
     walletBalance,
     profitBalance,
     loading,

@@ -63,7 +63,10 @@ export function MomoDialog({ open, onClose, cost, walletOtp }: MomoDialogProps) 
   useEffect(() => { if (open) { stopPoll(); setF(INITIAL) } }, [open, stopPoll])
 
   function close() {
-    stopPoll()
+    // Closing mid-charge must NOT stop the confirmation poll: the user may have
+    // approved the prompt, and we still toast + reload when activation lands.
+    // (Unmount or reopening the dialog still cancels it.)
+    if (f.stage !== "awaiting") stopPoll()
     otpCooldown.reset()
     setF((m) => ({ ...m, stage: "form", otpSent: false, otpVerified: false, otpCode: "", message: "" }))
     onClose()
