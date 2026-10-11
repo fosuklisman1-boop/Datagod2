@@ -7,6 +7,7 @@ import { createClient } from "@supabase/supabase-js"
 import { writeAuditLog } from "./moderation-service"
 import { invalidateSmsSettingsCache, normalizeDomain, parseSmsSettings, SMS_SETTING_KEYS, type SmsPlatformSettings } from "./platform-settings"
 import { normalizeSenderName, validateSenderName } from "./sender-name"
+import { HUBTEL_MANUAL_BALANCE_KEY, MANUAL_BALANCE_MAX_GHS } from "./hubtel-manual-balance"
 
 const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
@@ -55,7 +56,21 @@ function validateCaps(v: unknown): ValidationResult {
   return { ok: true, rows: [{ key: "sms_caps", value: out }] }
 }
 
-export function validateSection(section: string, values: unknown): ValidationResult {
+/** Server-side context for sections whose stored value records who/when (never taken from the client). */
+export interface SectionContext { adminId?: string; now?: Date }
+
+/** Manual Hubtel balance: amount 0–1,000,000 GH₵ (≤ 2 decimals) or null to clear; setAt/setBy stamped here. */
+function validateManualBalance(values: Record<string, unknown>, ctx: SectionContext): ValidationResult {
+  if (!ctx.adminId) return fail("Admin user required")
+  const stamp = { setAt: (ctx.now ?? new Date()).toISOString(), setBy: ctx.adminId }
+  const a = values.amountGhs
+  if (a === null) return { ok: true, rows: [{ key: HUBTEL_MANUAL_BALANCE_KEY, value: { amountGhs: null, ...stamp } }] }
+  if (!isNum(a, 0, MANUAL_BALANCE_MAX_GHS)) return fail("Hubtel balance must be a number from 0 to 1,000,000")
+  if (Math.abs(Math.round(a * 100) - a * 100) > 1e-6) return fail("Hubtel balance can have at most 2 decimal places")
+  return { ok: true, rows: [{ key: HUBTEL_MANUAL_BALANCE_KEY, value: { amountGhs: Math.round(a * 100) / 100, ...stamp } }] }
+}
+
+export function validateSection(section: string, values: unknown, ctx: SectionContext = {}): ValidationResult {
   if (!isObj(values)) return fail("Invalid values")
   switch (section) {
     case "switch":
@@ -142,6 +157,8 @@ export function validateSection(section: string, values: unknown): ValidationRes
       if (!isNum(values.hubtelCostPerSms, 0.0001, 10)) return fail("Hubtel cost per SMS must be between 0.0001 and 10")
       if (!isNum(values.hubtelLowBalanceGhs, 0, 1_000_000)) return fail("Low-balance alert must be between 0 and 1,000,000")
       return { ok: true, rows: [{ key: "sms_hubtel_cost_per_sms", value: values.hubtelCostPerSms }, { key: "sms_hubtel_low_balance_ghs", value: values.hubtelLowBalanceGhs }] }
+    case "hubtel_manual_balance":
+      return validateManualBalance(values, ctx)
     default:
       return fail("Unknown settings section")
   }
@@ -151,7 +168,7 @@ export type SaveResult = { ok: true; updated: string[] } | { ok: false; error: s
 
 export async function saveSection(adminId: string, section: string, values: unknown): Promise<SaveResult> {
   if (!adminId) return { ok: false, error: "Admin user required" }
-  const v = validateSection(section, values)
+  const v = validateSection(section, values, { adminId, now: new Date() })
   if (!v.ok) return { ok: false, error: v.error }
   const keys = v.rows.map((r) => r.key)
 

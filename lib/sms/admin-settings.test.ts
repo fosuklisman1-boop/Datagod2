@@ -121,6 +121,34 @@ describe("validateSection", () => {
     ])
     expect(validateSection("hubtel", { hubtelCostPerSms: 0, hubtelLowBalanceGhs: 50 }).ok).toBe(false)
   })
+  describe("hubtel_manual_balance", () => {
+    const ctx = { adminId: "admin-9", now: new Date("2026-10-12T09:30:00.000Z") }
+    it("server-stamps setAt and setBy (client-supplied ones are ignored)", () => {
+      expect(rows(validateSection("hubtel_manual_balance", { amountGhs: 150.25, setAt: "2020-01-01T00:00:00Z", setBy: "evil" }, ctx))).toEqual([
+        { key: "sms_hubtel_manual_balance", value: { amountGhs: 150.25, setAt: "2026-10-12T09:30:00.000Z", setBy: "admin-9" } },
+      ])
+    })
+    it("accepts 0 and 1,000,000", () => {
+      expect(validateSection("hubtel_manual_balance", { amountGhs: 0 }, ctx).ok).toBe(true)
+      expect(validateSection("hubtel_manual_balance", { amountGhs: 1_000_000 }, ctx).ok).toBe(true)
+    })
+    it.each([[-0.01], [1_000_000.01], [NaN], [Infinity], ["100"], [undefined], [12.345]])("rejects %s", (amountGhs) => {
+      expect(validateSection("hubtel_manual_balance", { amountGhs }, ctx).ok).toBe(false)
+    })
+    it("normalises float noise to 2 decimals", () => {
+      const r = rows(validateSection("hubtel_manual_balance", { amountGhs: 0.1 + 0.2 }, ctx))
+      expect(r[0].value.amountGhs).toBe(0.3)
+    })
+    it("null clears it (stored as a cleared marker that parses to no balance), still stamped", () => {
+      expect(rows(validateSection("hubtel_manual_balance", { amountGhs: null }, ctx))).toEqual([
+        { key: "sms_hubtel_manual_balance", value: { amountGhs: null, setAt: "2026-10-12T09:30:00.000Z", setBy: "admin-9" } },
+      ])
+    })
+    it("requires a real admin id", () => {
+      expect(validateSection("hubtel_manual_balance", { amountGhs: 5 }).ok).toBe(false)
+      expect(validateSection("hubtel_manual_balance", { amountGhs: 5 }, { adminId: "" }).ok).toBe(false)
+    })
+  })
   it("refuses unknown sections, including the enforcement flag", () => {
     expect(validateSection("enforcement", { policyEnforced: true }).ok).toBe(false)
     expect(validateSection("nope", {}).ok).toBe(false)
@@ -157,6 +185,22 @@ describe("saveSection", () => {
     expect(r).toEqual({ ok: false, error: "Could not read the current settings" })
     expect(h.upserts).toHaveLength(0)
     expect(h.audit).not.toHaveBeenCalled()
+  })
+  it("hubtel_manual_balance: stamps the saving admin + now, audits old/new, invalidates the cache", async () => {
+    const old = { amountGhs: 50, setAt: "2026-10-01T00:00:00.000Z", setBy: "admin-0" }
+    h.oldRows = [{ key: "sms_hubtel_manual_balance", value: old }]
+    const before = Date.now()
+    const r = await saveSection("admin1", "hubtel_manual_balance", { amountGhs: 99, setBy: "someone-else" })
+    expect(r).toEqual({ ok: true, updated: ["sms_hubtel_manual_balance"] })
+    const written = h.upserts[0][0].value
+    expect(written.amountGhs).toBe(99)
+    expect(written.setBy).toBe("admin1")
+    expect(Date.parse(written.setAt)).toBeGreaterThanOrEqual(before - 1000)
+    expect(Date.parse(written.setAt)).toBeLessThanOrEqual(Date.now() + 1000)
+    expect(h.audit).toHaveBeenCalledWith("admin1", "sms_settings_update", null,
+      { section: "hubtel_manual_balance", values: { sms_hubtel_manual_balance: old } },
+      { section: "hubtel_manual_balance", values: { sms_hubtel_manual_balance: written } })
+    expect(h.invalidate).toHaveBeenCalledOnce()
   })
   it("refuses a missing admin id", async () => {
     expect((await saveSection("", "switch", { featureEnabled: true })).ok).toBe(false)
