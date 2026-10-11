@@ -37,7 +37,7 @@ export function parseHubtelManualBalance(v: unknown): HubtelManualBalance | null
 }
 
 /** True when a manual balance exists, is younger than 30 days and not (meaningfully) in the future. */
-export function isManualBalanceFresh(mb: HubtelManualBalance | null | undefined, now = Date.now()): mb is HubtelManualBalance {
+export function isManualBalanceFresh(mb: HubtelManualBalance | null | undefined, now = Date.now()): boolean {
   if (!mb) return false
   const at = Date.parse(mb.setAt)
   if (!Number.isFinite(at)) return false

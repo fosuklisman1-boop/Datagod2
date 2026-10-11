@@ -90,7 +90,7 @@ export async function resolveHubtelBalance(): Promise<HubtelBalanceResult> {
   try {
     const settings = await loadSmsSettings()
     const mb = settings.hubtelManualBalance
-    if (!isManualBalanceFresh(mb)) {
+    if (!mb || !isManualBalanceFresh(mb)) {
       return { ok: false, error: mb ? `${relay.error}; the manual Hubtel balance set ${mb.setAt} is older than 30 days and is ignored` : relay.error }
     }
     const rate = (await cachedMaxObservedRate()) ?? settings.hubtelCostPerSms
