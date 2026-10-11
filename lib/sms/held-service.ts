@@ -17,17 +17,11 @@
  */
 import { createClient } from "@supabase/supabase-js"
 import { isSmsEnabled } from "./kill-switch"
-import { dispatchCampaign, type SentRow } from "./campaign-dispatch"
+import { claimPendingForLog, dispatchClaimed } from "./dispatch-claimed"
 import { writeAuditLog } from "./moderation-service"
 
 const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
-/** Must match send-drain's MAX_ATTEMPTS / recompute_sms_send_result's default. */
-const MAX_ATTEMPTS = 3
-/** Same as enqueueSend: stop starting chunks 1 min before the drain's 5-min stale-claim reaper. */
-const DISPATCH_WINDOW_MS = 4 * 60_000
-/** Ids per hand-back update (keeps the .in() filter well inside URL limits). */
-const RELEASE_CHUNK = 100
 const NOTIFY_TYPE ="sms_campaign_review"
 export const MIN_REJECT_REASON = 3
 const MAX_REJECT_REASON = 500
@@ -104,88 +98,6 @@ async function audit(adminId: string, action: string, target: string | null, old
   }
 }
 
-/**
- * Dispatch rows this caller has claimed, exactly as enqueueSend step 7 does (that code lives in
- * send-service and is not exported): per-chunk mark-sent with retries and a plain-update fallback,
- * Hubtel "unknown" tagging, first batch id on the log, unplaced rows handed back to the drain,
- * then the parent status rollup. Returns how many rows a provider accepted.
- */
-async function dispatchClaimed(
-  sendLogId: number,
-  items: { id: string; phone: string; message: string }[],
-  senderId: string | null,
-  claimedAtMs: number,
-): Promise<number> {
-  const placedUnmarked = new Set<string>()
-  let placed = 0
-  try {
-    if (items.length > 0) {
-      const mark = async (provider: string, rows: SentRow[], info: { unconfirmed: boolean }) => {
-        if (rows.length === 0) return
-        let error: { message?: string } | null = null
-        for (let attempt = 0; attempt < 3; attempt++) {
-          if (attempt > 0) await new Promise((r) => setTimeout(r, attempt === 1 ? 250 : 1000))
-          ;({ error } = await supabaseAdmin.rpc("mark_sms_messages_sent", { p_provider: provider, p_rows: rows }))
-          if (!error) break
-        }
-        if (error) {
-          console.error(`[SMS-HELD] mark-sent RPC (${provider}) failed after retries; trying plain update:`, error.message)
-          const ids = rows.map((r) => r.id)
-          const { error: fbErr } = await supabaseAdmin
-            .from("sms_messages")
-            .update({ status: "sent", provider, processed_at: new Date().toISOString() })
-            .in("id", ids)
-            .eq("status", "claimed")
-          if (fbErr) {
-            console.error(`[SMS-HELD] mark-sent fallback (${provider}) failed; rows held for the reaper:`, fbErr.message)
-            for (const id of ids) placedUnmarked.add(id)
-            return
-          }
-        }
-        if (provider === "hubtel" && info.unconfirmed) {
-          const { error: tagErr } = await supabaseAdmin
-            .from("sms_messages")
-            .update({ last_error: "hubtel_unconfirmed" })
-            .in("id", rows.map((r) => r.id))
-          if (tagErr) console.error("[SMS-HELD] unconfirmed tagging failed:", tagErr.message)
-        }
-      }
-      const result = await dispatchCampaign(items, senderId, mark, claimedAtMs + DISPATCH_WINDOW_MS)
-      placed = result.sent.length + result.fallbackSent.length
-      const firstBatch = result.sent.find((r) => r.bid)?.bid
-      if (firstBatch) {
-        await supabaseAdmin.from("sms_send_logs").update({ provider_batch_id: firstBatch, provider: "hubtel" }).eq("id", sendLogId)
-      }
-    }
-  } catch (e) {
-    console.error("[SMS-HELD] dispatch failed (rows stay pending for the drain):", e)
-  } finally {
-    // Hand back ONLY the rows this call claimed. After the held→queued flip the cron drain may have
-    // claimed other rows of this log and still be sending them: never reset those (double send).
-    // Placed rows are already 'sent' (the status filter skips them); placed-but-unmarked rows stay
-    // claimed for the reaper. Chunked: a 500-id .in() would overflow the request URL.
-    const mine = items.map((i) => i.id).filter((id) => !placedUnmarked.has(id))
-    for (let i = 0; i < mine.length; i += RELEASE_CHUNK) {
-      try {
-        const { error: relErr } = await supabaseAdmin
-          .from("sms_messages")
-          .update({ status: "pending", claimed_at: null })
-          .eq("send_log_id", sendLogId)
-          .eq("status", "claimed")
-          .in("id", mine.slice(i, i + RELEASE_CHUNK))
-        if (relErr) console.error("[SMS-HELD] release of unplaced rows failed (stale-claim reaper will recover):", relErr.message)
-      } catch (e) {
-        console.error("[SMS-HELD] release of unplaced rows threw (stale-claim reaper will recover):", e)
-      }
-    }
-  }
-  try {
-    const { error } = await supabaseAdmin.rpc("recompute_sms_send_result", { p_send_log_id: sendLogId, max_attempts: MAX_ATTEMPTS })
-    if (error) console.warn("[SMS-HELD] recompute failed:", error)
-  } catch { /* non-fatal: the drain recomputes too */ }
-  return placed
-}
-
 export async function releaseHeldCampaign(adminId: string, rawLogId: string | number): Promise<ReleaseResult> {
   const logId = parseLogId(rawLogId)
   if (logId === null) return fail("INVALID", "Invalid campaign id")
@@ -221,18 +133,10 @@ export async function releaseHeldCampaign(adminId: string, rawLogId: string | nu
 
   // From here the campaign is an ordinary queued send: the drain may take any row we don't.
   // Claim the still-pending rows for an instant dispatch (conditional, so no row is double-claimed).
-  const claimedAt = new Date()
-  const { data: claimed, error: claimErr } = await supabaseAdmin
-    .from("sms_messages")
-    .update({ status: "claimed", claimed_at: claimedAt.toISOString() })
-    .eq("send_log_id", logId)
-    .eq("status", "pending")
-    .select("id, phone, rendered_message")
-  if (claimErr) console.error("[SMS-HELD] claim failed; the drain will send the campaign:", claimErr.message)
-  const items = ((claimErr ? [] : claimed ?? []) as { id: string; phone: string; rendered_message: string }[])
-    .map((m) => ({ id: m.id, phone: m.phone, message: m.rendered_message }))
+  const claimedAtMs = Date.now()
+  const items = await claimPendingForLog(supabaseAdmin, logId)
 
-  const placed = await dispatchClaimed(logId, items, log.sender_id ?? null, claimedAt.getTime())
+  const placed = await dispatchClaimed(supabaseAdmin, logId, items, log.sender_id ?? null, claimedAtMs)
 
   const owner = await ownerOf(log.sms_account_id)
   await notifyOwner(owner, logId, "SMS campaign approved",
