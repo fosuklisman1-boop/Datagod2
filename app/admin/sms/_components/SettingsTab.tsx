@@ -6,6 +6,7 @@ import { useLoad } from "../_lib/useLoad"
 import { providerLabel } from "../_lib/view"
 import { ErrorBox, LoadingRows } from "./ui-bits"
 import { PlatformSendersSection } from "./PlatformSendersSection"
+import { HubtelBalanceSection } from "./HubtelBalanceSection"
 import { ApiLimitSection, BusinessListsSection, CapsSection, HubtelSection, ModerationSection, PlatformKeywordsSection, PricingSection, RolesSection, SenderPoolSection } from "./SettingsSections"
 
 export default function SettingsTab({ provider }: { provider: string }) {
@@ -51,6 +52,7 @@ export default function SettingsTab({ provider }: { provider: string }) {
         <ApiLimitSection key={k("api_limit")} s={s} onSaved={saved("api_limit")} />
         <PricingSection key={k("pricing")} d={d} onSaved={saved("pricing")} />
         <HubtelSection key={k("hubtel")} s={s} onSaved={saved("hubtel")} />
+        <HubtelBalanceSection key={k("hubtel_manual_balance")} onSaved={saved("hubtel_manual_balance")} />
         <PlatformSendersSection key={k("platform_senders")} s={s} onSaved={saved("platform_senders")} />
       </div>
     </div>

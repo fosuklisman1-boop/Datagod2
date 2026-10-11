@@ -22,7 +22,7 @@ export async function apiRaw<T = Record<string, unknown>>(path: string, init?: R
 export interface Page<T> { rows: T[]; total: number; page: number; pageSize: number }
 export interface AccountInfo { user_id: string; email: string | null; mode: "platform" | "business"; owner_type: string }
 
-export interface Supply { provider: "hubtel" | "moolre"; backedCredits: number; balanceGhs: number | null; ratePerSms: number | null; queuedUnsent: number | null; error?: string }
+export interface Supply { provider: "hubtel" | "moolre"; backedCredits: number; balanceGhs: number | null; ratePerSms: number | null; queuedUnsent: number | null; balanceSource?: "relay" | "manual"; manualSetAt?: string; error?: string }
 export interface OverviewData {
   stats: { recordedRevenueGhs: number; bundleRevenueGhs: number; activationRevenueGhs: number; creditsSold: number; purchases: number; pendingReviews: number; pendingSenders: number; fraudFlags: number }
   tabCounts: { businessReviews: number; senderIds: number; flagged: number }
@@ -87,6 +87,7 @@ export interface SettingsData {
     autoSuspendFlags: number; flagReviewThreshold: number; apiRateLimitDefault: number
     hubtelCostPerSms: number; hubtelLowBalanceGhs: number
     platformSenders: string[]; platformDefaultSender: string | null
+    hubtelManualBalance: { amountGhs: number; setAt: string; setBy: string } | null
   }
   pricing: { activationFee: number; welcomeBonusCredits: number; pricePerCredit: number }
 }
