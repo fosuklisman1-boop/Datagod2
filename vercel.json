@@ -114,6 +114,10 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/sms-scheduled",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/sms-hubtel-dlr",
       "schedule": "*/2 * * * *"
     },
