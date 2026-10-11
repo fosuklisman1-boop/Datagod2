@@ -11,6 +11,9 @@
 -- Additive: nothing calls the new functions until the Phase 4a code ships.
 
 BEGIN;
+-- Fail fast instead of stalling sends/drain behind a long-running reader (ALTER TABLE takes an
+-- ACCESS EXCLUSIVE lock); if it times out, just re-run.
+SET LOCAL lock_timeout = '5s';
 
 -- 1. Columns, constraint, index ---------------------------------------------------------------
 ALTER TABLE sms_send_logs
@@ -39,6 +42,8 @@ BEGIN
     SELECT s.id
     FROM sms_send_logs s
     WHERE s.status = 'scheduled' AND s.scheduled_for <= now()
+      -- never promote a suspended account's send (the cron cancels + refunds those instead)
+      AND NOT EXISTS (SELECT 1 FROM sms_accounts a WHERE a.id = s.sms_account_id AND a.status = 'suspended')
     ORDER BY s.scheduled_for, s.id
     LIMIT GREATEST(p_limit, 1)
     FOR UPDATE SKIP LOCKED
