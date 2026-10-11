@@ -25,7 +25,7 @@ export type EnforcementCode = PolicyCode | "POLICY_UNAVAILABLE"
 type Thresholds = Pick<SmsPlatformSettings, "autoSuspendFlags" | "flagReviewThreshold">
 
 export type EnforcementOutcome =
-  | { kind: "allow" | "hold"; mode: SmsMode; shadow: PolicyShadow }
+  | { kind: "allow" | "hold"; mode: SmsMode; shadow: PolicyShadow; thresholds: Thresholds }
   | { kind: "block"; mode: SmsMode; shadow: PolicyShadow; code: PolicyCode; reason: string; fraudFlags: PolicyFlag[]; thresholds: Thresholds }
   | { kind: "reject"; code: EnforcementCode; reason: string }
 
@@ -54,15 +54,16 @@ export async function isPolicyEnforced(): Promise<boolean> {
 /** Pure: map a policy result to what the send path must do. */
 export function decideOutcome(r: PolicyResult, mode: SmsMode, thresholds: Thresholds, now = new Date()): EnforcementOutcome {
   const shadow = buildShadow(r, true, now)
+  const t: Thresholds = { autoSuspendFlags: thresholds.autoSuspendFlags, flagReviewThreshold: thresholds.flagReviewThreshold }
   switch (r.decision) {
     case "allow":
     case "hold":
-      return { kind: r.decision, mode, shadow }
+      return { kind: r.decision, mode, shadow, thresholds: t }
     case "block":
       return {
         kind: "block", mode, shadow, code: r.code, reason: r.reason,
         fraudFlags: r.flags.filter((f) => f.severity === "fraud"),
-        thresholds: { autoSuspendFlags: thresholds.autoSuspendFlags, flagReviewThreshold: thresholds.flagReviewThreshold },
+        thresholds: t,
       }
     default: // reject | unavailable
       return { kind: "reject", code: r.code, reason: r.reason }
@@ -95,18 +96,19 @@ export async function evaluateForEnforcement(args: PolicyArgs, ms = ENFORCE_TIME
 }
 
 /**
- * Record fraud flags through the atomic DB function record_sms_flags (migration
- * 20261013_sms_policy_enforcement.sql): inserts sms_flags rows, increments fraud_flag_count,
- * auto-suspends at autoSuspendFlags and sets review_hold at flagReviewThreshold — all counting
- * lives in SQL. Never throws: a recording failure must not turn a block into a send.
+ * Record policy flags (fraud and info) through the atomic DB function record_sms_flags
+ * (migration 20261013_sms_policy_enforcement.sql): inserts one sms_flags row per flag,
+ * increments fraud_flag_count by the fraud ones, auto-suspends at autoSuspendFlags and sets
+ * review_hold once OPEN flags (any severity) reach flagReviewThreshold — all counting lives in
+ * SQL. Never throws: a recording failure must not turn a block into a send, nor fail a paid send.
  */
-export async function recordFraudFlags(args: {
+export async function recordFlags(args: {
   accountId: string
   sendLogId: string | number | null
   flags: PolicyFlag[]
   thresholds: Thresholds
 }): Promise<void> {
-  const flags = args.flags.filter((f) => f.severity === "fraud")
+  const flags = args.flags.filter((f) => f.severity === "fraud" || f.severity === "info")
   if (flags.length === 0) return
   try {
     const { error } = await supabaseAdmin.rpc("record_sms_flags", {

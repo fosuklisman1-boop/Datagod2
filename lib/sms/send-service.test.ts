@@ -771,6 +771,44 @@ describe("enforcement ON", () => {
     expect(fns).not.toContain("recompute_sms_send_result")
   })
 
+  const info = { severity: "info", reason: 'flagged keyword: "promo"', matched: "promo" }
+  const flagCalls = () => rpcs().filter((c) => c.fn === "record_sms_flags")
+
+  it("allow with info flags → flags recorded against the first send log, after it exists", async () => {
+    h.state.policyResult = { decision: "allow", code: "OK", reason: "", flags: [info] }
+    const r = await enqueueSendBatched("u1", "acc1", "Big promo today", recips(620))
+    expect(r).toMatchObject({ ok: true, held: false })
+    expect(flagCalls()).toHaveLength(1)
+    expect(flagCalls()[0].args).toEqual({ p_account_id: "acc1", p_send_log_id: "log-1", p_flags: [info], p_auto_suspend: 2, p_review_threshold: 5 })
+    const names = h.state.calls.map((c) => c.fn)
+    expect(names.indexOf("record_sms_flags")).toBeGreaterThan(names.lastIndexOf("insert"))
+  })
+
+  it("hold with info flags → flags recorded too", async () => {
+    h.state.policyResult = { decision: "hold", code: "REVIEW_HOLD", reason: "r", flags: [info] }
+    await enqueueSendBatched("u1", "acc1", "Big promo today", recips(1))
+    expect(flagCalls()).toHaveLength(1)
+    expect(flagCalls()[0].args.p_flags).toEqual([info])
+  })
+
+  it("allow without flags → no flag call; failed send (no log) → no flag call", async () => {
+    await enqueueSendBatched("u1", "acc1", "Hello world", recips(1))
+    expect(flagCalls()).toHaveLength(0)
+    h.state.policyResult = { decision: "allow", code: "OK", reason: "", flags: [info] }
+    h.state.debitError = "INSUFFICIENT_CREDITS"
+    await enqueueSendBatched("u1", "acc1", "Big promo", recips(1))
+    expect(flagCalls()).toHaveLength(0)
+  })
+
+  it("a failing flag RPC never fails a paid allow send", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    h.state.flagRpcError = "rpc down"
+    h.state.policyResult = { decision: "allow", code: "OK", reason: "", flags: [info] }
+    const r = await enqueueSendBatched("u1", "acc1", "Big promo", recips(1))
+    expect(r).toMatchObject({ ok: true, sendLogId: "log-1" })
+    spy.mockRestore()
+  })
+
   it("hold over 500 recipients → every chunk held, still evaluated once, nothing dispatched", async () => {
     h.state.policyResult = { decision: "hold", code: "REVIEW_HOLD", reason: "r", flags: [] }
     const r = await enqueueSendBatched("u1", "acc1", "Hello world", recips(620))

@@ -31,7 +31,7 @@ vi.mock("./platform-settings", async (orig) => {
 })
 
 import {
-  decideOutcome, evaluateForEnforcement, isPolicyEnforced, recordFraudFlags, policyRejectedStatus, POLICY_UNAVAILABLE_REASON,
+  decideOutcome, evaluateForEnforcement, isPolicyEnforced, recordFlags, policyRejectedStatus, POLICY_UNAVAILABLE_REASON,
   customerBlockedReason, BLOCKED_SAFE_REASON,
 } from "./enforcement"
 import { DEFAULT_SMS_SETTINGS } from "./platform-settings"
@@ -81,7 +81,7 @@ describe("isPolicyEnforced", () => {
 describe("decideOutcome", () => {
   it("allow / hold carry an enforced:true shadow", () => {
     const a = decideOutcome({ decision: "allow", code: "OK", reason: "", flags: [info] }, "business", T, now)
-    expect(a).toEqual({ kind: "allow", mode: "business", shadow: { decision: "allow", code: "OK", reason: "", flags: [info], enforced: true, evaluated_at: now.toISOString() } })
+    expect(a).toEqual({ kind: "allow", mode: "business", thresholds: T, shadow: { decision: "allow", code: "OK", reason: "", flags: [info], enforced: true, evaluated_at: now.toISOString() } })
     const h1 = decideOutcome({ decision: "hold", code: "REVIEW_HOLD", reason: "under review", flags: [] }, "platform", T, now)
     expect(h1).toMatchObject({ kind: "hold", shadow: { decision: "hold", enforced: true } })
   })
@@ -132,25 +132,25 @@ describe("evaluateForEnforcement", () => {
   })
 })
 
-describe("recordFraudFlags", () => {
-  it("calls record_sms_flags with the fraud flags and thresholds", async () => {
-    await recordFraudFlags({ accountId: "a1", sendLogId: 42, flags: [info, fraud], thresholds: T })
+describe("recordFlags", () => {
+  it("calls record_sms_flags with every flag given (fraud + info) and the thresholds", async () => {
+    await recordFlags({ accountId: "a1", sendLogId: 42, flags: [info, fraud], thresholds: T })
     expect(h.state.rpcCalls).toEqual([{ fn: "record_sms_flags", args: {
-      p_account_id: "a1", p_send_log_id: 42, p_flags: [fraud], p_auto_suspend: 2, p_review_threshold: 5,
+      p_account_id: "a1", p_send_log_id: 42, p_flags: [info, fraud], p_auto_suspend: 2, p_review_threshold: 5,
     } }])
   })
 
-  it("no fraud flags → no call", async () => {
-    await recordFraudFlags({ accountId: "a1", sendLogId: 42, flags: [info], thresholds: T })
+  it("no flags → no call", async () => {
+    await recordFlags({ accountId: "a1", sendLogId: 42, flags: [], thresholds: T })
     expect(h.state.rpcCalls).toHaveLength(0)
   })
 
   it("never throws on an RPC error or throw", async () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {})
     h.state.rpcResult = { data: null, error: { message: "down" } }
-    await expect(recordFraudFlags({ accountId: "a1", sendLogId: null, flags: [fraud], thresholds: T })).resolves.toBeUndefined()
+    await expect(recordFlags({ accountId: "a1", sendLogId: null, flags: [fraud], thresholds: T })).resolves.toBeUndefined()
     h.state.rpcThrows = true
-    await expect(recordFraudFlags({ accountId: "a1", sendLogId: null, flags: [fraud], thresholds: T })).resolves.toBeUndefined()
+    await expect(recordFlags({ accountId: "a1", sendLogId: null, flags: [fraud], thresholds: T })).resolves.toBeUndefined()
     expect(spy).toHaveBeenCalled()
     spy.mockRestore()
   })

@@ -5,7 +5,7 @@ import { calculateSegments } from "./segments"
 import { resolveCampaignSender, shadowPolicyWithin, type PolicyShadow } from "./policy-context"
 import { isSmsEnabled } from "./kill-switch"
 import { dispatchCampaign, type SentRow } from "./campaign-dispatch"
-import { evaluateForEnforcement, isPolicyEnforced, recordFraudFlags, type EnforcementCode } from "./enforcement"
+import { evaluateForEnforcement, isPolicyEnforced, recordFlags, type EnforcementCode } from "./enforcement"
 import type { SmsMode } from "./platform-settings"
 
 const supabaseAdmin = createClient(
@@ -553,15 +553,22 @@ async function enforcedSendBatched(
     } catch (e) {
       console.error("[SMS-ENFORCE] blocked log insert threw:", e)
     }
-    await recordFraudFlags({ accountId, sendLogId: blockedLogId, flags: outcome.fraudFlags, thresholds: outcome.thresholds })
+    await recordFlags({ accountId, sendLogId: blockedLogId, flags: outcome.fraudFlags, thresholds: outcome.thresholds })
     // `code` marks this reason as policy-written customer text (see customerBlockedReason).
     return { ok: false, error: "BLOCKED", code: outcome.code, reason: outcome.reason }
   }
 
   const policy: ChunkPolicy = { decision: outcome.kind, mode: outcome.mode, shadow: outcome.shadow }
-  return runSequentialBatches(
+  const result = await runSequentialBatches(
     recipients,
     (chunk) => enqueueSend(userId, accountId, message, chunk, shopTokens, senderId, policy),
     BATCH_OPTS
   )
+  // Flags the policy raised on an allowed/held send (business info flags, e.g. flagged keywords)
+  // count toward the review-hold threshold. Attached to the first log; best-effort (recordFlags
+  // never throws) so a paid send is never failed by it. No log → nothing was sent → nothing recorded.
+  if (result.ok && result.sendLogId && outcome.shadow.flags.length > 0) {
+    await recordFlags({ accountId, sendLogId: result.sendLogId, flags: outcome.shadow.flags, thresholds: outcome.thresholds })
+  }
+  return result
 }
