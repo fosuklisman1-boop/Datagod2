@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { smsFetch } from "../_lib/api"
 import { useSmsAccount } from "../_lib/useSmsAccount"
-import { addNumbers, costSummary, resolveTokens, sendErrorMessage, HELD_SEND_MESSAGE, MAX_RECIPIENTS, type ShopTokens } from "../_lib/view"
+import { addNumbers, costSummary, resolveTokens, sendErrorMessage, sendOutcomeMessage, MAX_RECIPIENTS, type ShopTokens } from "../_lib/view"
 import { SmsShell } from "../_components/SmsShell"
 import { RecipientsPicker } from "../_components/compose/RecipientsPicker"
 import { MessageEditor } from "../_components/compose/MessageEditor"
@@ -168,21 +168,10 @@ export default function SmsComposePage() {
       toast.error(sendErrorMessage(r.error, reason, msg))
       return
     }
-    const { total = 0, creditsReserved = 0, batches = 1, partial, stoppedReason, held } = r.data ?? {}
-    const batchTxt = batches > 1 ? ` in ${batches} batches` : ""
-    if (held) {
-      // Held by the send policy: credits reserved, nothing sent until an admin reviews it.
-      toast.success(HELD_SEND_MESSAGE)
-    } else if (partial) {
-      const why = stoppedReason === "INSUFFICIENT_CREDITS" ? "ran out of credits — top up and resend the rest"
-        : stoppedReason === "SUSPENDED" ? "the account was suspended mid-send"
-        : stoppedReason === "SMS_DISABLED" ? "SMS was paused by the platform — resend the rest later"
-        : stoppedReason === "NOT_ACTIVATED" ? "the account is no longer active"
-        : "the rest could not be sent"
-      toast.warning(`Sent ${total} recipient${total !== 1 ? "s" : ""}${batchTxt}, then ${why}.`)
-    } else {
-      toast.success(`Queued ${total} recipient${total !== 1 ? "s" : ""}${batchTxt} (${creditsReserved} credits)`)
-    }
+    // Held and partial can both be true (e.g. chunk 1 held, chunk 2 out of credits): show both.
+    const outcome = sendOutcomeMessage(r.data ?? {})
+    if (outcome.tone === "warning") toast.warning(outcome.text)
+    else toast.success(outcome.text)
     setMessage(""); setRecipients([]); setSelectedGroupId("")
     void reload()
     router.push("/dashboard/sms/records")

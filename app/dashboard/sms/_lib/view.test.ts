@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest"
 import {
   addNumbers, costSummary, bestValueId, perSms, ledgerLabel, sendErrorMessage, logStatus, isInFlight,
   limitsLine, MOMO_PHONE, resolveTokens, splitNumbers, parseRows, contactName, senderSuggestions,
-  MAX_RECIPIENTS, INSERT_CHIPS, HELD_SEND_MESSAGE,
+  MAX_RECIPIENTS, INSERT_CHIPS, HELD_SEND_MESSAGE, sendOutcomeMessage, partialStopReason, recipientErrorText,
 } from "./view"
 
 describe("addNumbers", () => {
@@ -188,5 +188,41 @@ describe("records helpers", () => {
   })
   it("toneBadgeClass distinguishes tones", () => {
     expect(toneBadgeClass("success")).not.toBe(toneBadgeClass("danger"))
+  })
+})
+
+describe("sendOutcomeMessage", () => {
+  it("held AND partial shows both the review and the partial warning", () => {
+    const r = sendOutcomeMessage({ held: true, partial: true, stoppedReason: "INSUFFICIENT_CREDITS", total: 500, batches: 1 })
+    expect(r.tone).toBe("warning")
+    expect(r.text).toBe("500 recipients sent for a quick review — you'll be notified. The rest were not sent: ran out of credits — top up and resend the rest.")
+  })
+  it("held only", () => {
+    expect(sendOutcomeMessage({ held: true, partial: false, total: 1200 })).toEqual({ tone: "success", text: HELD_SEND_MESSAGE })
+  })
+  it("partial only", () => {
+    expect(sendOutcomeMessage({ partial: true, stoppedReason: "SUSPENDED", total: 1000, batches: 2 }))
+      .toEqual({ tone: "warning", text: "Sent 1,000 recipients in 2 batches, then the account was suspended mid-send." })
+  })
+  it("normal", () => {
+    expect(sendOutcomeMessage({ total: 1, batches: 1, creditsReserved: 2 })).toEqual({ tone: "success", text: "Queued 1 recipient (2 credits)" })
+  })
+  it("partialStopReason maps known codes and falls back", () => {
+    expect(partialStopReason("SMS_DISABLED")).toBe("SMS was paused by the platform — resend the rest later")
+    expect(partialStopReason("NOT_ACTIVATED")).toBe("the account is no longer active")
+    expect(partialStopReason("SEND_ERROR")).toBe("the rest could not be sent")
+    expect(partialStopReason(undefined)).toBe("the rest could not be sent")
+  })
+})
+
+describe("recipientErrorText", () => {
+  it("maps internal codes to friendly text", () => {
+    expect(recipientErrorText("held_rejected")).toBe("Not approved after review — credits refunded")
+    expect(recipientErrorText("hubtel_unconfirmed")).toBe("Delivery could not be confirmed")
+  })
+  it("keeps ordinary provider errors and empties", () => {
+    expect(recipientErrorText("Invalid destination number")).toBe("Invalid destination number")
+    expect(recipientErrorText(null)).toBe("")
+    expect(recipientErrorText(undefined)).toBe("")
   })
 })

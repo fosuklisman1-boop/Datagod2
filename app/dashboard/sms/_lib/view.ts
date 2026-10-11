@@ -151,6 +151,47 @@ export function sendErrorMessage(code: string | undefined, reason?: string, fall
 /** Toast for a send the policy held for admin review (credits reserved, nothing sent yet). */
 export const HELD_SEND_MESSAGE = "Sent for a quick review — you'll be notified"
 
+/** Why a batched send stopped part-way (BatchedSendResult.stoppedReason → customer text). */
+export function partialStopReason(stoppedReason: string | undefined): string {
+  switch (stoppedReason) {
+    case "INSUFFICIENT_CREDITS": return "ran out of credits — top up and resend the rest"
+    case "SUSPENDED": return "the account was suspended mid-send"
+    case "SMS_DISABLED": return "SMS was paused by the platform — resend the rest later"
+    case "NOT_ACTIVATED": return "the account is no longer active"
+    default: return "the rest could not be sent"
+  }
+}
+
+const recipientsText = (n: number) => `${n.toLocaleString("en-US")} recipient${n !== 1 ? "s" : ""}`
+
+/** Toast after a successful POST /api/shop/sms/send (held and/or partial outcomes included). */
+export function sendOutcomeMessage(r: {
+  held?: boolean; partial?: boolean; stoppedReason?: string; total?: number; batches?: number; creditsReserved?: number
+}): { tone: "success" | "warning"; text: string } {
+  const total = r.total ?? 0
+  const batches = r.batches ?? 1
+  const batchTxt = batches > 1 ? ` in ${batches} batches` : ""
+  if (r.held && r.partial) {
+    return {
+      tone: "warning",
+      text: `${recipientsText(total)} sent for a quick review — you'll be notified. The rest were not sent: ${partialStopReason(r.stoppedReason)}.`,
+    }
+  }
+  if (r.held) return { tone: "success", text: HELD_SEND_MESSAGE }
+  if (r.partial) return { tone: "warning", text: `Sent ${recipientsText(total)}${batchTxt}, then ${partialStopReason(r.stoppedReason)}.` }
+  return { tone: "success", text: `Queued ${recipientsText(total)}${batchTxt} (${r.creditsReserved ?? 0} credits)` }
+}
+
+/** Internal per-recipient error codes → customer text. Anything else (provider messages) shows as-is. */
+const RECIPIENT_ERRORS: Record<string, string> = {
+  held_rejected: "Not approved after review — credits refunded",
+  hubtel_unconfirmed: "Delivery could not be confirmed",
+}
+export function recipientErrorText(lastError: string | null | undefined): string {
+  if (!lastError) return ""
+  return RECIPIENT_ERRORS[lastError] ?? lastError
+}
+
 export const limitsLine =(l: { perSend: number; perHour: number; perDay: number }) =>
   `${l.perSend.toLocaleString("en-US")} recipients/send · ${l.perHour.toLocaleString("en-US")} sends/hour · ${l.perDay.toLocaleString("en-US")} recipients/day`
 
