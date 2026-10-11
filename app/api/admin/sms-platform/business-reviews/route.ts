@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from "next/server"
-import { verifyAdminAccess } from "@/lib/admin-auth"
-import { listKycForAdmin } from "@/lib/sms/kyc-service"
+import { adminGuard } from "@/lib/sms/admin-guard"
+import { listBusinessReviews } from "@/lib/sms/admin-reviews"
 
-// GET ?status=submitted|approved|rejected|draft|all (default submitted)
+// GET ?status=submitted|approved|rejected|draft|all (default submitted) — rows include { account: { user_id, email, mode } }
 export async function GET(request: NextRequest) {
-  const auth = await verifyAdminAccess(request)
-  if (!auth.isAdmin) return auth.errorResponse!
-  if (!auth.userId) return NextResponse.json({ success: false, error: "Admin user required" }, { status: 403 })
-  const s = request.nextUrl.searchParams.get("status") ?? "submitted"
-  if (!["submitted", "approved", "rejected", "draft", "all"].includes(s)) {
-    return NextResponse.json({ success: false, error: "invalid status" }, { status: 400 })
+  const g = await adminGuard(request)
+  if (!g.ok) return g.response
+  try {
+    return NextResponse.json({ success: true, data: await listBusinessReviews(request.nextUrl.searchParams.get("status") ?? "submitted") })
+  } catch (e) {
+    console.error("[SMS-ADMIN] business reviews failed:", e)
+    return NextResponse.json({ success: false, error: "Could not load applications" }, { status: 500 })
   }
-  return NextResponse.json({ success: true, data: await listKycForAdmin(s as "submitted") })
 }

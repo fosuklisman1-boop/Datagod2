@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
-import { verifyAdminAccess } from "@/lib/admin-auth"
-import { allocateUnits } from "@/lib/sms/bundle-service"
+import { adminGuard } from "@/lib/sms/admin-guard"
+import { allocateCredits } from "@/lib/sms/admin-actions"
 
+// POST { accountId, units } — admin credit allocation (solvency-gated; may land as pending). Requires a real admin user; audited.
 export async function POST(request: NextRequest) {
-  const auth = await verifyAdminAccess(request)
-  if (!auth.isAdmin) return auth.errorResponse!
-  const { accountId, units } = await request.json()
-  if (!accountId || !units) return NextResponse.json({ error: "accountId and units required" }, { status: 400 })
-  const result = await allocateUnits(accountId, Number(units))
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 })
-  return NextResponse.json({ success: true, pending: result.pending ?? false, unitsCredited: result.unitsCredited ?? 0 })
+  const g = await adminGuard(request, { write: true })
+  if (!g.ok) return g.response
+  let body: { accountId?: string; units?: unknown }
+  try { body = await request.json() } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }) }
+  const r = await allocateCredits(g.adminId!, String(body.accountId ?? ""), Number(body.units))
+  if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 })
+  return NextResponse.json({ success: true, pending: r.pending, unitsCredited: r.unitsCredited })
 }
