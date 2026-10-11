@@ -11,7 +11,9 @@ const HOME_LEDGER_ROWS = 5
 const STATS_DAYS = 30
 const MESSAGE_CHUNK = 1000
 const RECORD_STATUSES = new Set(["queued", "sending", "sent", "partial", "failed", "blocked", "held", "scheduled"])
-const LOG_COLUMNS = "id, status, message, sender_id, recipients_count, segments, credits_reserved, credits_used, created_at, completed_at"
+const LEGACY_LOG_COLUMNS = "id, status, message, sender_id, recipients_count, segments, credits_reserved, credits_used, created_at, completed_at"
+// Phase 4 (migration 20261016) adds scheduled_for + source.
+const LOG_COLUMNS = `${LEGACY_LOG_COLUMNS}, scheduled_for, source`
 const LEDGER_COLUMNS = "id, delta, reason, balance_after, send_log_id, created_at"
 
 export interface Page<T> { rows: T[]; total: number; page: number; pageSize: number }
@@ -30,6 +32,11 @@ function ledgerLabel(reason: string, sendLogId: number | null): string {
     case "campaign_refund": return sendLogId ? `Refund — campaign #${sendLogId}` : "Refund — failed delivery"
     default: return "Credit adjustment"
   }
+}
+
+/** Postgres undefined_column: the Phase 4 columns are not there yet (migration not applied). */
+function isMissingColumn(e: { code?: string } | null): boolean {
+  return !!e && e.code === "42703"
 }
 
 /** PostgREST answers a range past the end of the data with 416 / PGRST103 (and no total). */
@@ -101,10 +108,12 @@ export async function listRecords(accountId: string, i: { status: string; page: 
     if (RECORD_STATUSES.has(i.status)) q = q.eq("status", i.status)
     return q
   }
-  const { data, error, count } = await filtered(LOG_COLUMNS, { count: "exact" })
+  const pageOf = (cols: string) => filtered(cols, { count: "exact" })
     .order("created_at", { ascending: false })
     .order("id", { ascending: false })
     .range(from, from + RECORDS_PAGE_SIZE - 1)
+  let { data, error, count } = await pageOf(LOG_COLUMNS)
+  if (isMissingColumn(error)) ({ data, error, count } = await pageOf(LEGACY_LOG_COLUMNS))
   if (isOutOfRange(error)) {
     const head = await filtered("id", { count: "exact", head: true })
     if (head.error) throw new Error(head.error.message)
@@ -137,8 +146,10 @@ interface MessageRow { status: string; delivery_status: string | null; refunded:
 
 /** One batch with its per-recipient rows and delivery counts, or null if it is not this account's. */
 export async function getRecord(accountId: string, logId: number) {
-  const { data: log, error: logErr } = await supabaseAdmin.from("sms_send_logs")
-    .select(LOG_COLUMNS).eq("id", logId).eq("sms_account_id", accountId).maybeSingle()
+  const logOf = (cols: string) => supabaseAdmin.from("sms_send_logs")
+    .select(cols).eq("id", logId).eq("sms_account_id", accountId).maybeSingle()
+  let { data: log, error: logErr } = await logOf(LOG_COLUMNS)
+  if (isMissingColumn(logErr)) ({ data: log, error: logErr } = await logOf(LEGACY_LOG_COLUMNS))
   if (logErr) throw new Error(logErr.message)
   if (!log) return null
 
@@ -163,5 +174,5 @@ export async function getRecord(accountId: string, logId: number) {
     else counts.pending++
     if (m.refunded) counts.refunded++
   }
-  return { log: log as Record<string, unknown>, messages, counts }
+  return { log: log as unknown as Record<string, unknown>, messages, counts }
 }

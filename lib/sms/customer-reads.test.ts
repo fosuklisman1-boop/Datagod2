@@ -137,6 +137,50 @@ describe("listRecords", () => {
     h.tables.sms_send_logs = { data: null, error: { message: "boom" } }
     await expect(listRecords("acct1", { status: "", page: 1 })).rejects.toThrow("boom")
   })
+  it("selects scheduled_for + source and filters the 'scheduled' status", async () => {
+    h.tables.sms_send_logs = { data: [{ id: 3, status: "scheduled", scheduled_for: "2026-10-20T09:30:00Z", source: "campaign" }], error: null, count: 1 }
+    const r = await listRecords("acct1", { status: "scheduled", page: 1 })
+    expect(r.rows[0]).toMatchObject({ scheduled_for: "2026-10-20T09:30:00Z", source: "campaign" })
+    const sel = opsOf("sms_send_logs").find((o) => o.m === "select")!
+    expect(sel.args[0]).toMatch(/\bscheduled_for\b/)
+    expect(sel.args[0]).toMatch(/\bsource\b/)
+    expect(opsOf("sms_send_logs")).toContainEqual({ m: "eq", args: ["status", "scheduled"] })
+  })
+})
+
+describe("before the Phase 4 migration (columns missing)", () => {
+  // Mimics PostgREST: selecting an unknown column fails with 42703; the legacy column list works.
+  const missingCols = () => {
+    let n = 0
+    Object.defineProperty(h.tables, "sms_send_logs", {
+      configurable: true, enumerable: true,
+      get: () => (n++ === 0
+        ? { data: null, error: { message: "column sms_send_logs.scheduled_for does not exist", code: "42703" } }
+        : { data: [{ id: 3, status: "sent" }], error: null, count: 1 }),
+    })
+  }
+  it("listRecords retries with the legacy columns", async () => {
+    missingCols()
+    const r = await listRecords("acct1", { status: "", page: 1 })
+    expect(r.rows).toEqual([{ id: 3, status: "sent" }])
+    const sels = opsOf("sms_send_logs").filter((o) => o.m === "select").map((o) => o.args[0] as string)
+    expect(sels).toHaveLength(2)
+    expect(sels[1]).not.toMatch(/scheduled_for|source/)
+  })
+  it("getRecord retries with the legacy columns", async () => {
+    missingCols()
+    h.tables.sms_messages = { data: [], error: null }
+    const r = await getRecord("acct1", 3)
+    expect(r?.log).toEqual([{ id: 3, status: "sent" }])
+    const sels = opsOf("sms_send_logs").filter((o) => o.m === "select").map((o) => o.args[0] as string)
+    expect(sels).toHaveLength(2)
+    expect(sels[1]).not.toMatch(/scheduled_for|source/)
+  })
+  it("other errors are not retried", async () => {
+    h.tables.sms_send_logs = { data: null, error: { message: "boom", code: "XX000" } }
+    await expect(listRecords("acct1", { status: "", page: 1 })).rejects.toThrow("boom")
+    expect(opsOf("sms_send_logs").filter((o) => o.m === "select")).toHaveLength(1)
+  })
 })
 
 describe("out-of-range pages", () => {
@@ -205,6 +249,9 @@ describe("getRecord", () => {
     expect(r?.counts).toEqual({ delivered: 1, failed: 2, pending: 1, refunded: 2 })
     expect(opsOf("sms_send_logs")).toContainEqual({ m: "eq", args: ["sms_account_id", "acct1"] })
     expect(opsOf("sms_messages")).toContainEqual({ m: "eq", args: ["sms_account_id", "acct1"] })
+    const sel = opsOf("sms_send_logs").find((o) => o.m === "select")!
+    expect(sel.args[0]).toMatch(/\bscheduled_for\b/)
+    expect(sel.args[0]).toMatch(/\bsource\b/)
   })
   it("returns null when the batch is not the account's", async () => {
     h.tables.sms_send_logs = { data: null, error: null }
