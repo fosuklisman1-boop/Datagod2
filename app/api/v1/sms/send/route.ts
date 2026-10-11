@@ -9,6 +9,7 @@ import { apiRateLimitFor, loadSmsSettings } from "@/lib/sms/platform-settings"
 import { SMS_DISABLED_MESSAGE } from "@/lib/sms/kill-switch"
 import { customerBlockedReason, policyRejectedStatus, SEND_IN_PROGRESS_MESSAGE } from "@/lib/sms/enforcement"
 import { getShopTokens } from "@/lib/sms/shop-context-service"
+import { checkSchedule } from "@/lib/sms/schedule"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -17,7 +18,7 @@ const supabaseAdmin = createClient(
 
 /**
  * POST /api/v1/sms/send
- * Body: { message: string, recipients: string[], sender_id?: string }
+ * Body: { message: string, recipients: string[], sender_id?: string, scheduled_at?: string (ISO 8601 with offset) }
  */
 // Instant campaign dispatch can run for minutes (up to 5 Hubtel/Moolre batches per send).
 export const maxDuration = 300
@@ -67,7 +68,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Invalid JSON body" }, { status: 400 })
   }
 
-  const { message, recipients, sender_id } = body
+  const { message, recipients, sender_id, scheduled_at } = body
   if (typeof message !== "string" || message.length < 3 || message.length > 1000) {
     return NextResponse.json({ success: false, error: "message must be a string between 3 and 1000 characters" }, { status: 400 })
   }
@@ -82,6 +83,15 @@ export async function POST(request: NextRequest) {
   // "" almost certainly meant to omit the field.
   if (sender_id !== undefined && (typeof sender_id !== "string" || sender_id.trim().length === 0)) {
     return NextResponse.json({ success: false, error: "sender_id must be a non-empty string" }, { status: 400 })
+  }
+  // Optional scheduling: 2 minutes to 30 days ahead. null/omitted = send now. Validated before any write.
+  let scheduledFor: Date | undefined
+  if (scheduled_at !== undefined && scheduled_at !== null) {
+    const sched = checkSchedule(scheduled_at)
+    if (!sched.ok) {
+      return NextResponse.json({ success: false, error: "INVALID_SCHEDULE", message: sched.message }, { status: 400 })
+    }
+    scheduledFor = sched.at
   }
 
   const uniqueRecipients = Array.from(new Set(recipients as string[]))
@@ -98,6 +108,8 @@ export async function POST(request: NextRequest) {
       // Same shape as a live send; nothing is logged in the sandbox, so there is no log id.
       status: "queued",
       held: false,
+      scheduled: false,
+      scheduled_for: null,
       send_log_id: null,
       total: uniqueRecipients.length,
       batches: 1,
@@ -144,7 +156,9 @@ export async function POST(request: NextRequest) {
 
   let result: Awaited<ReturnType<typeof enqueueSendBatched>>
   try {
-    result = await enqueueSendBatched(user.id, account!.id, message, uniqueRecipients, tokens, effectiveSenderId)
+    result = scheduledFor
+      ? await enqueueSendBatched(user.id, account!.id, message, uniqueRecipients, tokens, effectiveSenderId, { scheduledFor })
+      : await enqueueSendBatched(user.id, account!.id, message, uniqueRecipients, tokens, effectiveSenderId)
   } catch (e) {
     console.error("[V1-SMS-SEND] batched send threw:", e)
     logApiRequest({
@@ -199,13 +213,16 @@ export async function POST(request: NextRequest) {
     userId: user.id, apiKeyId: user.api_key_id, method: "POST", endpoint: "/api/v1/sms/send",
     statusCode: 200, request, durationMs,
     requestPayload: { recipients_count: uniqueRecipients.length },
-    responsePayload: { total: result.totalQueued, batches: result.batches, held: result.held },
+    responsePayload: { total: result.totalQueued, batches: result.batches, held: result.held, scheduled: result.scheduled },
   }).catch(() => {})
 
   return NextResponse.json({
     success: true,
-    status: result.held ? "held" : "queued",
+    status: result.held ? "held" : result.scheduled ? "scheduled" : "queued",
     held: result.held,
+    // Scheduled: credits reserved now; sent automatically at scheduled_for (ISO 8601, UTC).
+    scheduled: result.scheduled,
+    scheduled_for: result.scheduledFor,
     send_log_id: result.sendLogId,
     total: result.totalQueued,
     batches: result.batches,

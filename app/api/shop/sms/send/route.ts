@@ -7,6 +7,7 @@ import { getShopTokens } from "@/lib/sms/shop-context-service"
 import { loadDefaultSender } from "@/lib/sms/default-sender"
 import { SMS_DISABLED_MESSAGE } from "@/lib/sms/kill-switch"
 import { getGroupActiveRecipients } from "@/lib/sms/tenant-address-book-service"
+import { checkSchedule } from "@/lib/sms/schedule"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -42,11 +43,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Invalid JSON" }, { status: 400 })
   }
 
-  const { message, recipients, groupId, senderId } = (body ?? {}) as {
+  const { message, recipients, groupId, senderId, scheduledAt } = (body ?? {}) as {
     message?: unknown
     recipients?: unknown
     groupId?: unknown
     senderId?: unknown
+    scheduledAt?: unknown
   }
 
   if (senderId !== undefined && typeof senderId !== "string") {
@@ -65,6 +67,16 @@ export async function POST(request: NextRequest) {
       { success: false, error: "message must be a string between 3 and 1000 characters" },
       { status: 400 }
     )
+  }
+
+  // Optional scheduling (Phase 4a): validated before any lookup or write. null/omitted = send now.
+  let scheduledFor: Date | undefined
+  if (scheduledAt !== undefined && scheduledAt !== null) {
+    const sched = checkSchedule(scheduledAt)
+    if (!sched.ok) {
+      return NextResponse.json({ success: false, error: "INVALID_SCHEDULE", message: sched.message }, { status: 400 })
+    }
+    scheduledFor = sched.at
   }
 
   // Build the recipient list from explicit chips and/or a saved group. The group
@@ -125,7 +137,9 @@ export async function POST(request: NextRequest) {
   // Enqueue — auto-batches into 500s when the list is larger.
   let result: Awaited<ReturnType<typeof enqueueSendBatched>>
   try {
-    result = await enqueueSendBatched(user.id, account.id, message, finalRecipients, tokens, effectiveSenderId)
+    result = scheduledFor
+      ? await enqueueSendBatched(user.id, account.id, message, finalRecipients, tokens, effectiveSenderId, { scheduledFor })
+      : await enqueueSendBatched(user.id, account.id, message, finalRecipients, tokens, effectiveSenderId)
   } catch (e) {
     // A throw here only escapes when the FIRST batch threw (enqueueSendBatched
     // converts later-batch throws into a partial success), so nothing was charged.
@@ -197,6 +211,9 @@ export async function POST(request: NextRequest) {
       stoppedReason: result.stoppedReason,
       // true = held for a quick admin review: credits reserved, nothing sent yet.
       held: result.held,
+      // true = scheduled: credits reserved now, sent automatically at scheduledFor (ISO, UTC).
+      scheduled: result.scheduled,
+      scheduledFor: result.scheduledFor,
       sendLogId: result.sendLogId,
     },
   })
