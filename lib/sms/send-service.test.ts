@@ -38,6 +38,8 @@ const h = vi.hoisted(() => {
     lockGranted: true,                   // sms_try_send_lock returns a token (true) or NULL (busy)
     lockError: null as null | string,    // sms_try_send_lock errors
     releaseError: null as null | string, // sms_release_send_lock errors
+    neutraliseError: null as null | string, // orphan sms_messages neutralise update errors
+    neutraliseThrows: false,             // ...or throws
   }
 
   const fake = {
@@ -123,6 +125,11 @@ const h = vi.hoisted(() => {
                 }
                 if (table === "sms_messages" && patch.status === "pending") {
                   state.calls.push({ fn: "release", table, args: { patch, filters } })
+                }
+                if (table === "sms_messages" && patch.status === "failed") {
+                  state.calls.push({ fn: "msg-neutralise", table, args: { patch, filters } })
+                  if (state.neutraliseThrows) throw new Error("neutralise boom")
+                  if (state.neutraliseError) return resolve({ data: null, error: { message: state.neutraliseError } })
                 }
                 resolve({ data: null, error: null })
               },
@@ -231,6 +238,8 @@ beforeEach(() => {
   h.state.lockGranted = true
   h.state.lockError = null
   h.state.releaseError = null
+  h.state.neutraliseError = null
+  h.state.neutraliseThrows = false
 })
 
 // ── Enforcement OFF must be byte-for-byte today's behaviour ──────────────────────────────
@@ -1180,6 +1189,57 @@ describe("scheduled sends", () => {
     h.state.insertMsgError = "boom"
     await enqueueSend("u1", "acc1", "Hello world", ["0241234567"])
     expect(h.state.calls.filter((c) => c.fn === "log-orphan")).toHaveLength(0)
+    expect(h.state.calls.filter((c) => c.fn === "msg-neutralise")).toHaveLength(0)
+    spy.mockRestore()
+  })
+
+  const neutralises = () => h.state.calls.filter((c) => c.fn === "msg-neutralise")
+  const NEUTRALISE = {
+    patch: { status: "failed", attempts: 3, refunded: true, last_error: "enqueue_rolled_back" },
+    filters: { send_log_id: "log-1", "in:status": ["pending", "claimed"] },
+  }
+
+  it("orphan close neutralises any committed messages of the log, after the refund and BEFORE the log flips (scheduled)", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    h.state.insertMsgError = "response lost"
+    await enqueueSend("u1", "acc1", "Hello world", ["0241234567"], undefined, undefined, undefined, undefined, { scheduledFor: AT })
+    expect(neutralises()).toHaveLength(1)
+    expect(neutralises()[0].args).toEqual(NEUTRALISE)
+    const names = fns()
+    expect(names.indexOf("msg-neutralise")).toBeGreaterThan(names.indexOf("adjust_sms_units"))
+    expect(names.indexOf("msg-neutralise")).toBeLessThan(names.indexOf("log-orphan"))
+    spy.mockRestore()
+  })
+
+  it("orphan close neutralises messages on the enforced paths too (hold and allow)", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    h.state.policyEnforced = true
+    h.state.insertMsgError = "response lost"
+    for (const res of [
+      { decision: "hold", code: "REVIEW_HOLD", reason: "r", flags: [] },
+      { decision: "allow", code: "OK", reason: "", flags: [] },
+    ]) {
+      h.state.calls.length = 0
+      h.state.policyResult = res
+      await enqueueSendBatched("u1", "acc1", "Hello world", recips(1))
+      expect(neutralises(), res.decision).toHaveLength(1)
+      expect(neutralises()[0].args).toEqual(NEUTRALISE)
+    }
+    spy.mockRestore()
+  })
+
+  it("a failing or throwing neutralise is logged, never thrown, and the log is still closed", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    h.state.insertMsgError = "response lost"
+    for (const mode of ["error", "throw"] as const) {
+      h.state.calls.length = 0
+      h.state.neutraliseError = mode === "error" ? "db down" : null
+      h.state.neutraliseThrows = mode === "throw"
+      const r = await enqueueSend("u1", "acc1", "Hello world", ["0241234567"], undefined, undefined, undefined, undefined, { scheduledFor: AT })
+      expect(r).toMatchObject({ ok: false, error: "ENQUEUE_FAILED" })
+      expect(h.state.calls.filter((c) => c.fn === "log-orphan"), mode).toHaveLength(1)
+    }
+    expect(spy.mock.calls.some((c) => String(c[0]).includes("could not neutralise orphan messages"))).toBe(true)
     spy.mockRestore()
   })
 })

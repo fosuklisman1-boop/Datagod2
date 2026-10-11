@@ -304,6 +304,20 @@ export async function enqueueSend(
     // A scheduled log is closed on every path too: otherwise the cron would later promote a log
     // whose credits were already refunded here. (Unscheduled record-only path left as before.)
     if ((enforced || scheduledIso !== null) && sendLogId) {
+      // The message INSERT may have committed even though its response errored. Neutralise any such
+      // rows BEFORE the log leaves held/scheduled (which is what keeps the drain off them), so the
+      // drain can never send already-refunded messages for free. Nothing was dispatched yet, so
+      // 'claimed' rows (allow path, pre-claimed) are covered too. Best-effort, never throws.
+      try {
+        const { error: msgErr } = await supabaseAdmin
+          .from("sms_messages")
+          .update({ status: "failed", attempts: 3, refunded: true, last_error: "enqueue_rolled_back" })
+          .eq("send_log_id", sendLogId)
+          .in("status", ["pending", "claimed"])
+        if (msgErr) console.error("[SMS-SEND] could not neutralise orphan messages", sendLogId, msgErr.message)
+      } catch (e) {
+        console.error("[SMS-SEND] could not neutralise orphan messages", sendLogId, e)
+      }
       try {
         const { error: orphanErr } = await supabaseAdmin
           .from("sms_send_logs")
