@@ -1,19 +1,22 @@
 import { NextRequest, NextResponse } from "next/server"
 import { adminGuard } from "@/lib/sms/admin-guard"
 import { setAccountMode, setApiRateLimitOverride } from "@/lib/sms/sender-rules-service"
+import { setReviewHold } from "@/lib/sms/review-hold-service"
 
-// PATCH { mode?: "platform" | "business", api_rate_limit_override?: number | null }
+// PATCH { mode?: "platform" | "business", api_rate_limit_override?: number | null, review_hold?: boolean }
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const g = await adminGuard(request, { write: true })
   if (!g.ok) return g.response
   const { id } = await params
-  let body: { mode?: string; api_rate_limit_override?: number | null }
+  let body: { mode?: string; api_rate_limit_override?: number | null; review_hold?: unknown }
   try { body = await request.json() } catch { return NextResponse.json({ success: false, error: "Invalid JSON body" }, { status: 400 }) }
+  if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({ success: false, error: "Invalid JSON body" }, { status: 400 })
   const adminId = g.adminId!
   const rl = body.api_rate_limit_override
-  if (body.mode === undefined && rl === undefined) return NextResponse.json({ success: false, error: "Nothing to update" }, { status: 400 })
+  if (body.mode === undefined && rl === undefined && body.review_hold === undefined) return NextResponse.json({ success: false, error: "Nothing to update" }, { status: 400 })
   if (body.mode !== undefined && body.mode !== "platform" && body.mode !== "business") return NextResponse.json({ success: false, error: "mode must be platform or business" }, { status: 400 })
   if (rl !== undefined && rl !== null && !(Number.isInteger(rl) && rl >= 1 && rl <= 10_000)) return NextResponse.json({ success: false, error: "api_rate_limit_override must be null or a whole number from 1 to 10000" }, { status: 400 })
+  if (body.review_hold !== undefined && typeof body.review_hold !== "boolean") return NextResponse.json({ success: false, error: "review_hold must be true or false" }, { status: 400 })
   const out: Record<string, unknown> = {}
   if (body.mode !== undefined) {
     const r = await setAccountMode(adminId, id, body.mode)
@@ -24,6 +27,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const r = await setApiRateLimitOverride(adminId, id, body.api_rate_limit_override)
     if (!r.ok) return NextResponse.json({ success: false, error: r.error }, { status: 400 })
     out.api_rate_limit_override = r.data.api_rate_limit_override
+  }
+  if (typeof body.review_hold === "boolean") {
+    const r = await setReviewHold(adminId, id, body.review_hold)
+    if (!r.ok) return NextResponse.json({ success: false, error: r.error }, { status: r.notFound ? 404 : 400 })
+    out.review_hold = r.review_hold
+    out.review_hold_changed = r.changed
+    out.flags_closed = r.flagsClosed
   }
   return NextResponse.json({ success: true, data: out })
 }
