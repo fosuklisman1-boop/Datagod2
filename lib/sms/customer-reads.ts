@@ -30,6 +30,11 @@ function ledgerLabel(reason: string, sendLogId: number | null): string {
   }
 }
 
+/** PostgREST answers a range past the end of the data with 416 / PGRST103 (and no total). */
+function isOutOfRange(e: { code?: string; status?: number } | null): boolean {
+  return !!e && (e.code === "PGRST103" || e.status === 416)
+}
+
 function toLedgerRow(r: Omit<LedgerRow, "label">): LedgerRow {
   return { ...r, label: ledgerLabel(r.reason, r.send_log_id ?? null) }
 }
@@ -79,14 +84,22 @@ export async function getHomeSummary(accountId: string) {
 export async function listRecords(accountId: string, i: { status: string; page: number }): Promise<Page<Record<string, unknown>>> {
   const page = Math.max(1, Math.floor(i.page) || 1)
   const from = (page - 1) * RECORDS_PAGE_SIZE
-  let q = supabaseAdmin.from("sms_send_logs").select(LOG_COLUMNS, { count: "exact" }).eq("sms_account_id", accountId)
-  if (RECORD_STATUSES.has(i.status)) q = q.eq("status", i.status)
-  const { data, error, count } = await q
+  const filtered = (cols: string, opts: { count: "exact"; head?: boolean }) => {
+    let q = supabaseAdmin.from("sms_send_logs").select(cols, opts).eq("sms_account_id", accountId)
+    if (RECORD_STATUSES.has(i.status)) q = q.eq("status", i.status)
+    return q
+  }
+  const { data, error, count } = await filtered(LOG_COLUMNS, { count: "exact" })
     .order("created_at", { ascending: false })
     .order("id", { ascending: false })
     .range(from, from + RECORDS_PAGE_SIZE - 1)
+  if (isOutOfRange(error)) {
+    const head = await filtered("id", { count: "exact", head: true })
+    if (head.error) throw new Error(head.error.message)
+    return { rows: [], total: head.count ?? 0, page, pageSize: RECORDS_PAGE_SIZE }
+  }
   if (error) throw new Error(error.message)
-  return { rows: (data ?? []) as Record<string, unknown>[], total: count ?? 0, page, pageSize: RECORDS_PAGE_SIZE }
+  return { rows: (data ?? []) as unknown as Record<string, unknown>[], total: count ?? 0, page, pageSize: RECORDS_PAGE_SIZE }
 }
 
 export async function listLedger(accountId: string, pageNum: number): Promise<Page<LedgerRow>> {
@@ -98,6 +111,12 @@ export async function listLedger(accountId: string, pageNum: number): Promise<Pa
     .order("created_at", { ascending: false })
     .order("id", { ascending: false })
     .range(from, from + RECORDS_PAGE_SIZE - 1)
+  if (isOutOfRange(error)) {
+    const head = await supabaseAdmin.from("sms_unit_transactions")
+      .select("id", { count: "exact", head: true }).eq("sms_account_id", accountId)
+    if (head.error) throw new Error(head.error.message)
+    return { rows: [], total: head.count ?? 0, page, pageSize: RECORDS_PAGE_SIZE }
+  }
   if (error) throw new Error(error.message)
   return { rows: ((data ?? []) as Omit<LedgerRow, "label">[]).map(toLedgerRow), total: count ?? 0, page, pageSize: RECORDS_PAGE_SIZE }
 }

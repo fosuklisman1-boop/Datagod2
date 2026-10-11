@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
 const h = vi.hoisted(() => ({
-  tables: {} as Record<string, { data: any; error: null | { message: string }; count?: number }>,
+  tables: {} as Record<string, { data: any; error: null | { message: string; code?: string }; count?: number }>,
+  heads: {} as Record<string, { data: any; error: null | { message: string }; count?: number }>,
   rpcData: [] as any[], rpcError: null as null | { message: string }, rpcCalls: [] as { fn: string; args: any }[],
   ops: [] as { table: string; ops: { m: string; args: any[] }[] }[],
   settings: vi.fn(),
@@ -12,9 +13,10 @@ vi.mock("@supabase/supabase-js", () => ({
     from: (table: string) => {
       const ops: { m: string; args: any[] }[] = []
       h.ops.push({ table, ops })
+      let head = false
       const c: any = {}
-      for (const m of ["select", "eq", "order", "limit", "range", "maybeSingle"]) c[m] = (...args: any[]) => { ops.push({ m, args }); return c }
-      c.then = (res: any, rej: any) => Promise.resolve(h.tables[table] ?? { data: null, error: null }).then(res, rej)
+      for (const m of ["select", "eq", "order", "limit", "range", "maybeSingle"]) c[m] = (...args: any[]) => { if (m === "select" && args[1]?.head) head = true; ops.push({ m, args }); return c }
+      c.then = (res: any, rej: any) => Promise.resolve((head ? h.heads[table] : h.tables[table]) ?? { data: null, error: null }).then(res, rej)
       return c
     },
   }),
@@ -30,7 +32,7 @@ const SETTINGS = {
 const opsOf = (table: string) => h.ops.filter((o) => o.table === table).flatMap((o) => o.ops)
 
 beforeEach(() => {
-  h.tables = {}; h.rpcData = []; h.rpcError = null; h.rpcCalls = []; h.ops = []
+  h.tables = {}; h.heads = {}; h.rpcData = []; h.rpcError = null; h.rpcCalls = []; h.ops = []
   h.settings.mockReset(); h.settings.mockResolvedValue(SETTINGS)
 })
 
@@ -97,6 +99,20 @@ describe("listRecords", () => {
   it("throws on a DB error", async () => {
     h.tables.sms_send_logs = { data: null, error: { message: "boom" } }
     await expect(listRecords("acct1", { status: "", page: 1 })).rejects.toThrow("boom")
+  })
+})
+
+describe("out-of-range pages", () => {
+  it("listRecords returns empty rows with the head-count total instead of throwing", async () => {
+    h.tables.sms_send_logs = { data: null, error: { message: "Requested range not satisfiable", code: "PGRST103" } }
+    h.heads.sms_send_logs = { data: null, error: null, count: 12 }
+    expect(await listRecords("acct1", { status: "held", page: 9 })).toEqual({ rows: [], total: 12, page: 9, pageSize: RECORDS_PAGE_SIZE })
+    expect(opsOf("sms_send_logs")).toContainEqual({ m: "eq", args: ["status", "held"] })
+  })
+  it("listLedger returns empty rows with the head-count total instead of throwing", async () => {
+    h.tables.sms_unit_transactions = { data: null, error: { message: "Requested range not satisfiable", code: "PGRST103" } }
+    h.heads.sms_unit_transactions = { data: null, error: null, count: 7 }
+    expect(await listLedger("acct1", 5)).toEqual({ rows: [], total: 7, page: 5, pageSize: RECORDS_PAGE_SIZE })
   })
 })
 
