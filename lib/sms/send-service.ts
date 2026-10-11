@@ -138,7 +138,7 @@ export async function enqueueSend(
   const creditsNeeded = seg * validPhones.length
 
   // 5. Atomic gate + debit (reserve credits for the deliverable recipients only).
-  const { error: rpcError } = await supabaseAdmin.rpc("debit_sms_for_send", {
+  const { data: debitData, error: rpcError } = await supabaseAdmin.rpc("debit_sms_for_send", {
     p_account_id: accountId,
     p_credits: creditsNeeded,
   })
@@ -149,6 +149,9 @@ export async function enqueueSend(
     if (msg.includes("INSUFFICIENT_CREDITS")) return { ok: false, error: "INSUFFICIENT_CREDITS" }
     throw rpcError
   }
+  // Ledger row id of this debit (added by 20261012_sms_ledger_campaign_link; absent before it).
+  const debitTxId: number | null =
+    (Array.isArray(debitData) ? debitData[0]?.debit_tx_id : (debitData as { debit_tx_id?: number } | null)?.debit_tx_id) ?? null
 
   // 6. ENQUEUE (durable). Refund ONLY if the enqueue itself fails — at that point
   //    nothing was sent. Dispatch happens in step 7, AFTER this block, so a
@@ -179,6 +182,21 @@ export async function enqueueSend(
     if (logError || !logData) throw logError ?? new Error("Failed to insert sms_send_logs row")
 
     sendLogId = logData.id
+
+    // Link the debit to this campaign so Credit History can show "Campaign #id". Best-effort:
+    // credits are already taken, so a failed link must NEVER fail (or refund) the send.
+    if (debitTxId != null) {
+      try {
+        const { error: linkErr } = await supabaseAdmin
+          .from("sms_unit_transactions")
+          .update({ send_log_id: sendLogId })
+          .eq("id", debitTxId)
+          .eq("sms_account_id", accountId)
+        if (linkErr) console.error("[SMS-LEDGER] failed to link debit to send log:", linkErr.message)
+      } catch (linkEx) {
+        console.error("[SMS-LEDGER] failed to link debit to send log:", linkEx)
+      }
+    }
     const rows = validPhones.map((phone) => ({
       send_log_id: sendLogId,
       sms_account_id: accountId,

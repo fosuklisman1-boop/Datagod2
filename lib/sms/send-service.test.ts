@@ -22,6 +22,9 @@ const h = vi.hoisted(() => {
     msgUpdates: [] as { patch: any; ids: string[] }[], // captured .update().in() (mark-sent)
     msgIdSeq: 0,                         // id generator for inserted sms_messages
     smsEnabled: true,                    // master kill switch
+    debitTxId: 77 as number | null,      // ledger row id the debit RPC returns (null = pre-migration RPC)
+    linkError: null as null | string,    // if set, the sms_unit_transactions link update errors
+    linkThrows: false,                   // the link update throws
   }
 
   const fake = {
@@ -31,7 +34,10 @@ const h = vi.hoisted(() => {
         if (state.debitError) {
           return Promise.resolve({ data: null, error: { message: state.debitError } })
         }
-        return Promise.resolve({ data: null, error: null })
+        return Promise.resolve({
+          data: state.debitTxId == null ? [{ balance_after: 90 }] : [{ balance_after: 90, debit_tx_id: state.debitTxId }],
+          error: null,
+        })
       }
       if (fn === "mark_sms_messages_sent" && state.markErrorsLeft > 0) {
         state.markErrorsLeft--
@@ -81,6 +87,11 @@ const h = vi.hoisted(() => {
               not: (c2: string, op: string, v2: any) => { filters[`not:${c2}:${op}`] = v2; return chain },
               lt: () => Promise.resolve({ data: null, error: null }),
               then: (resolve: any) => {
+                if (table === "sms_unit_transactions") {
+                  state.calls.push({ fn: "ledger-link", table, args: { patch, filters } })
+                  if (state.linkThrows) throw new Error("link boom")
+                  if (state.linkError) return resolve({ data: null, error: { message: state.linkError } })
+                }
                 if (table === "sms_messages" && patch.status === "pending") {
                   state.calls.push({ fn: "release", table, args: { patch, filters } })
                 }
@@ -162,6 +173,9 @@ beforeEach(() => {
   h.state.msgUpdates.length = 0
   h.state.msgIdSeq = 0
   h.state.smsEnabled = true
+  h.state.debitTxId = 77
+  h.state.linkError = null
+  h.state.linkThrows = false
 })
 
 // Helper: all rpc calls
@@ -266,6 +280,44 @@ describe("enqueueSend", () => {
     const msgInserts = inserts("sms_messages")
     // All 3 recipients are valid Ghanaian numbers
     expect(msgInserts.length).toBeGreaterThan(0)
+  })
+
+  const links = () => h.state.calls.filter((c) => c.fn === "ledger-link")
+  const dispatchesCount = () => h.state.calls.filter((c) => c.fn === "bulk").length
+
+  it("links the debit ledger row to the send log (send_log_id)", async () => {
+    const result = await enqueueSend("u1", "acc1", "Hello world", ["0241234567"])
+    expect(result.ok).toBe(true)
+    expect(links()).toHaveLength(1)
+    expect(links()[0].args.patch).toEqual({ send_log_id: "log-1" })
+    expect(links()[0].args.filters.id).toBe(77)
+    expect(links()[0].args.filters.sms_account_id).toBe("acc1")
+  })
+
+  it("a failed ledger link never fails the paid send (logs [SMS-LEDGER])", async () => {
+    h.state.linkError = "db down"
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const result = await enqueueSend("u1", "acc1", "Hello world", ["0241234567"])
+    expect(result.ok).toBe(true)
+    expect(spy.mock.calls.some((c) => String(c[0]).includes("[SMS-LEDGER]"))).toBe(true)
+    expect(dispatchesCount()).toBe(1)
+    spy.mockRestore()
+  })
+
+  it("a throwing ledger link never fails the paid send", async () => {
+    h.state.linkThrows = true
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const result = await enqueueSend("u1", "acc1", "Hello world", ["0241234567"])
+    expect(result.ok).toBe(true)
+    expect(spy.mock.calls.some((c) => String(c[0]).includes("[SMS-LEDGER]"))).toBe(true)
+    spy.mockRestore()
+  })
+
+  it("skips the link when the RPC returns no tx id (pre-migration RPC)", async () => {
+    h.state.debitTxId = null
+    const result = await enqueueSend("u1", "acc1", "Hello world", ["0241234567"])
+    expect(result.ok).toBe(true)
+    expect(links()).toHaveLength(0)
   })
 
   const dispatches = () => h.state.calls.filter((c) => c.fn === "bulk")
