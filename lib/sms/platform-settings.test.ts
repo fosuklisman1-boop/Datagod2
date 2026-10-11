@@ -27,6 +27,14 @@ describe("parseSmsSettings", () => {
     expect(parseSmsSettings([{ key: "sms_platform_default_sender", value: 7 }]).platformDefaultSender).toBeNull()
     expect(parseSmsSettings([{ key: "sms_platform_default_sender", value: { value: "abc" } }]).platformDefaultSender).toBe("ABC")
   })
+  it("hubtel manual balance: null by default; parsed when valid; invalid shapes ignored", () => {
+    expect(parseSmsSettings([]).hubtelManualBalance).toBeNull()
+    const mb = { amountGhs: 200, setAt: "2026-10-12T10:00:00.000Z", setBy: "admin-1" }
+    expect(parseSmsSettings([{ key: "sms_hubtel_manual_balance", value: mb }]).hubtelManualBalance).toEqual(mb)
+    expect(parseSmsSettings([{ key: "sms_hubtel_manual_balance", value: { amountGhs: -5, setAt: mb.setAt, setBy: "a" } }]).hubtelManualBalance).toBeNull()
+    expect(parseSmsSettings([{ key: "sms_hubtel_manual_balance", value: { amountGhs: null, setAt: mb.setAt, setBy: "a" } }]).hubtelManualBalance).toBeNull()
+    expect(parseSmsSettings([{ key: "sms_hubtel_manual_balance", value: 200 }]).hubtelManualBalance).toBeNull()
+  })
   it("returns defaults for no rows", () => expect(parseSmsSettings([])).toEqual(DEFAULT_SMS_SETTINGS))
   it("reads scalars, arrays and caps", () => {
     const s = parseSmsSettings([

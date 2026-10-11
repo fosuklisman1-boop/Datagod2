@@ -4,6 +4,7 @@
  * objects ({enabled}, {value}) or comma strings, and a bad value must never break sending.
  */
 import { createClient } from "@supabase/supabase-js"
+import { parseHubtelManualBalance, type HubtelManualBalance } from "./hubtel-manual-balance"
 
 export type SmsMode = "platform" | "business"
 export interface ModeCaps { per_send: number; per_hour: number; per_day: number }
@@ -28,6 +29,8 @@ export interface SmsPlatformSettings {
   platformSenders: string[]
   /** Must be one of platformSenders to take effect; null = use the env/hardcoded name. */
   platformDefaultSender: string | null
+  /** Manual Hubtel balance fallback (used only while the relay /balance fails); null = none. */
+  hubtelManualBalance: HubtelManualBalance | null
 }
 
 export const DEFAULT_SMS_SETTINGS: SmsPlatformSettings = {
@@ -58,6 +61,7 @@ export const DEFAULT_SMS_SETTINGS: SmsPlatformSettings = {
   hubtelLowBalanceGhs: 50,
   platformSenders: [],
   platformDefaultSender: null,
+  hubtelManualBalance: null,
 }
 
 export const SMS_SETTING_KEYS = [
@@ -66,6 +70,7 @@ export const SMS_SETTING_KEYS = [
   "sms_business_allowed_domains", "sms_auto_suspend_flags", "sms_flag_review_threshold",
   "sms_api_rate_limit_default", "sms_protected_sender_names", "sms_hubtel_cost_per_sms",
   "sms_hubtel_low_balance_ghs", "sms_platform_senders", "sms_platform_default_sender",
+  "sms_hubtel_manual_balance",
 ] as const
 
 /** Older admin screens wrapped values as {enabled}/{value}/{amount}; read only the keys that make sense for the target type. */
@@ -150,6 +155,7 @@ export function parseSmsSettings(rows: { key: string; value: unknown }[]): SmsPl
     hubtelLowBalanceGhs: num(m.get("sms_hubtel_low_balance_ghs"), d.hubtelLowBalanceGhs, 0, 1_000_000),
     platformSenders: list(m.get("sms_platform_senders"), d.platformSenders).map((s) => s.toUpperCase()),
     platformDefaultSender: optName(m.get("sms_platform_default_sender")),
+    hubtelManualBalance: parseHubtelManualBalance(m.get("sms_hubtel_manual_balance")),
   }
 }
 
