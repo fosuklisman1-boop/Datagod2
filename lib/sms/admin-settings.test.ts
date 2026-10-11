@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
 const h = vi.hoisted(() => ({
-  oldRows: [] as { key: string; value: unknown }[], upserts: [] as any[], upsertError: null as null | { message: string },
+  oldRows: [] as { key: string; value: unknown }[], selectError: null as null | { message: string }, upserts: [] as any[], upsertError: null as null | { message: string },
   audit: vi.fn(() => Promise.resolve()), invalidate: vi.fn(),
 }))
 vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
     from: () => ({
-      select: () => ({ in: () => Promise.resolve({ data: h.oldRows, error: null }) }),
+      select: () => ({ in: () => Promise.resolve({ data: h.oldRows, error: h.selectError }) }),
       upsert: (rows: any) => { h.upserts.push(rows); return Promise.resolve({ error: h.upsertError }) },
     }),
   }),
@@ -15,9 +15,9 @@ vi.mock("@supabase/supabase-js", () => ({
 vi.mock("./moderation-service", () => ({ writeAuditLog: h.audit }))
 vi.mock("./platform-settings", async (orig) => ({ ...(await orig<typeof import("./platform-settings")>()), invalidateSmsSettingsCache: h.invalidate }))
 
-import { validateSection, saveSection, parsePricing } from "./admin-settings"
+import { validateSection, saveSection, parsePricing, getAdminSettings } from "./admin-settings"
 
-beforeEach(() => { h.oldRows = []; h.upserts = []; h.upsertError = null; h.audit.mockClear(); h.invalidate.mockClear() })
+beforeEach(() => { h.selectError = null; h.oldRows = []; h.upserts = []; h.upsertError = null; h.audit.mockClear(); h.invalidate.mockClear() })
 
 const rows = (r: any) => (r.ok ? r.rows : null)
 
@@ -77,6 +77,10 @@ describe("validateSection", () => {
     ])
     expect(validateSection("pricing", { activationFee: -1, welcomeBonusCredits: 10, pricePerCredit: 0.025 }).ok).toBe(false)
     expect(validateSection("pricing", { activationFee: 0, welcomeBonusCredits: 1.5, pricePerCredit: 0.025 }).ok).toBe(false)
+    expect(validateSection("pricing", { activationFee: 0, welcomeBonusCredits: 0, pricePerCredit: 0.025 }).ok).toBe(false)
+    expect(validateSection("pricing", { activationFee: 0, welcomeBonusCredits: 1, pricePerCredit: 0.0005 }).ok).toBe(false)
+    expect(rows(validateSection("pricing", { activationFee: 20.005, welcomeBonusCredits: 1, pricePerCredit: 0.001 }))[0])
+      .toEqual({ key: "sms_activation_fee", value: { amount: Math.round(20.005 * 100) / 100 } })
     expect(validateSection("pricing", { activationFee: 0, welcomeBonusCredits: 0, pricePerCredit: 0 }).ok).toBe(false)
   })
   it("hubtel cost + low-balance threshold", () => {
@@ -115,9 +119,33 @@ describe("saveSection", () => {
     expect(h.audit).not.toHaveBeenCalled()
     expect(h.invalidate).not.toHaveBeenCalled()
   })
+  it("aborts when the current values cannot be read", async () => {
+    h.selectError = { message: "x" }
+    const r = await saveSection("admin1", "switch", { featureEnabled: true })
+    expect(r).toEqual({ ok: false, error: "Could not read the current settings" })
+    expect(h.upserts).toHaveLength(0)
+    expect(h.audit).not.toHaveBeenCalled()
+  })
   it("refuses a missing admin id", async () => {
     expect((await saveSection("", "switch", { featureEnabled: true })).ok).toBe(false)
     expect(h.upserts).toHaveLength(0)
+  })
+})
+
+describe("getAdminSettings", () => {
+  it("rejects when the read fails", async () => {
+    h.selectError = { message: "down" }
+    await expect(getAdminSettings()).rejects.toThrow()
+  })
+  it("parses fresh rows", async () => {
+    h.oldRows = [{ key: "sms_feature_enabled", value: false }, { key: "sms_activation_fee", value: { amount: 20 } }]
+    const r = await getAdminSettings()
+    expect(r.settings.featureEnabled).toBe(false)
+    expect(r.pricing.activationFee).toBe(20)
+  })
+  it("garbage pricing falls back to defaults", async () => {
+    h.oldRows = [{ key: "sms_activation_fee", value: { amount: "x" } }]
+    expect((await getAdminSettings()).pricing).toEqual({ activationFee: 0, welcomeBonusCredits: 0, pricePerCredit: 0.04 })
   })
 })
 

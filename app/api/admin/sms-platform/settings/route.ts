@@ -18,8 +18,18 @@ export async function PATCH(request: NextRequest) {
   const g = await adminGuard(request, { write: true })
   if (!g.ok) return g.response
   let body: { section?: string; values?: unknown }
-  try { body = await request.json() } catch { return NextResponse.json({ success: false, error: "Invalid JSON body" }, { status: 400 }) }
+  try {
+    const parsed = await request.json()
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("bad body")
+    body = parsed
+  } catch { return NextResponse.json({ success: false, error: "Invalid JSON body" }, { status: 400 }) }
   const r = await saveSection(g.adminId!, String(body.section ?? ""), body.values)
   if (!r.ok) return NextResponse.json({ success: false, error: r.error }, { status: 400 })
-  return NextResponse.json({ success: true, data: await getAdminSettings() })
+  // The save is already committed; a failed re-read must not look like a failed save.
+  try {
+    return NextResponse.json({ success: true, data: await getAdminSettings(), updated: r.updated })
+  } catch (e) {
+    console.error("[SMS-ADMIN] settings reload after save failed:", e)
+    return NextResponse.json({ success: true, data: null, updated: r.updated })
+  }
 }

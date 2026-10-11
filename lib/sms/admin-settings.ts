@@ -5,7 +5,7 @@
  */
 import { createClient } from "@supabase/supabase-js"
 import { writeAuditLog } from "./moderation-service"
-import { invalidateSmsSettingsCache, loadSmsSettings, normalizeDomain, type SmsPlatformSettings } from "./platform-settings"
+import { invalidateSmsSettingsCache, normalizeDomain, parseSmsSettings, SMS_SETTING_KEYS, type SmsPlatformSettings } from "./platform-settings"
 import { validateSenderName } from "./sender-name"
 
 const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
@@ -112,8 +112,8 @@ export function validateSection(section: string, values: unknown): ValidationRes
     }
     case "pricing":
       if (!isNum(values.activationFee, 0, 10_000)) return fail("Activation fee must be between 0 and 10,000")
-      if (!isInt(values.welcomeBonusCredits, 0, 100_000)) return fail("Welcome bonus must be a whole number from 0 to 100,000")
-      if (!isNum(values.pricePerCredit, 0, 100, true)) return fail("Price per credit must be greater than 0 and at most 100")
+      if (!isInt(values.welcomeBonusCredits, 1, 100_000)) return fail("Welcome bonus must be a whole number from 1 to 100,000")
+      if (!isNum(values.pricePerCredit, 0.001, 100)) return fail("Price per credit must be between 0.001 and 100")
       return { ok: true, rows: [
         { key: "sms_activation_fee", value: { amount: Math.round(values.activationFee * 100) / 100 } },
         { key: "sms_welcome_bonus_credits", value: { units: values.welcomeBonusCredits } },
@@ -136,7 +136,11 @@ export async function saveSection(adminId: string, section: string, values: unkn
   if (!v.ok) return { ok: false, error: v.error }
   const keys = v.rows.map((r) => r.key)
 
-  const { data: oldRows } = await supabaseAdmin.from("tenant_global_settings").select("key, value").in("key", keys)
+  const { data: oldRows, error: readError } = await supabaseAdmin.from("tenant_global_settings").select("key, value").in("key", keys)
+  if (readError) {
+    console.error("[SMS-ADMIN] settings read failed:", readError.message)
+    return { ok: false, error: "Could not read the current settings" }
+  }
   const oldValues = Object.fromEntries(((oldRows ?? []) as Row[]).map((r) => [r.key, r.value]))
 
   const { error } = await supabaseAdmin.from("tenant_global_settings").upsert(v.rows, { onConflict: "key" })
@@ -171,11 +175,11 @@ export function parsePricing(rows: Row[]): Pricing {
 
 export interface AdminSettings { settings: SmsPlatformSettings; pricing: Pricing }
 
+/** Fresh, uncached, fail-loud read: a failed read must not show defaults as if they were saved. */
 export async function getAdminSettings(): Promise<AdminSettings> {
-  const [settings, pricingRows] = await Promise.all([
-    loadSmsSettings(),
-    supabaseAdmin.from("tenant_global_settings").select("key, value")
-      .in("key", ["sms_activation_fee", "sms_welcome_bonus_credits", "sms_price_per_credit"]),
-  ])
-  return { settings, pricing: parsePricing((pricingRows.data ?? []) as Row[]) }
+  const { data, error } = await supabaseAdmin.from("tenant_global_settings").select("key, value")
+    .in("key", [...SMS_SETTING_KEYS, "sms_activation_fee", "sms_welcome_bonus_credits", "sms_price_per_credit"])
+  if (error) throw new Error(`settings read failed: ${error.message}`)
+  const rows = (data ?? []) as Row[]
+  return { settings: parseSmsSettings(rows), pricing: parsePricing(rows) }
 }
