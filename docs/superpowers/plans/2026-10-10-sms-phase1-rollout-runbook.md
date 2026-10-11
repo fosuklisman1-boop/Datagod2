@@ -60,3 +60,26 @@ per account), 2 paused; credits unchanged (2,388); `sms_policy_enforced=false`.
 - Migrations applied live 2026-10-11/12: `20261012_sms_customer_reads.sql` (`sms_customer_stats`), `20261012_sms_ledger_campaign_link.sql` (`debit_sms_for_send` now returns `debit_tx_id`; new debits link to their campaign, older ones stay unlinked), `20261012_sms_ledger_tx_index.sql`.
 - Policy rule decided for 3b: one user send (up to 5,000 recipients, batched by 500 internally) counts as ONE send for caps — evaluate once on the whole list before batching.
 - Known gaps (not bugs): `loadDefaultSender` picks the oldest active own sender (what the shop send route does) while the v1 API/admin console prefer `sms_accounts.default_sender_id`; a rejected KYC application starts a new draft and carries nothing over (UI now says so); the order-confirmation toggle on Home is disabled until Phase 4.
+
+## Phase 3b — enforcement, held campaigns, and the flip (built; enforcement still OFF)
+
+**State:** all code ships dark. `tenant_global_settings.sms_policy_enforced` is JSONB `false`. With it false, the send path is byte-for-byte the pre-3b path (pinned by `lib/sms/__fixtures__/send-service.enforcement-off.calls.json`).
+
+**Migrations (all applied live 2026-10-12, in this order):** `20261013_sms_policy_enforcement.sql` (`record_sms_flags`; `claim_sms_messages` skips held/scheduled logs), `20261013_sms_policy_enforcement_2.sql` (owned per-account send lease; browser roles lose SELECT on `sms_send_logs.policy_shadow` and `.flag_reason`), `20261014_sms_held_reject.sql` (`reject_held_sms_campaign`). They MUST be present before the flip (they are).
+
+**What the flip changes (customers):** per-send / per-hour / per-day caps, blocked keywords and non-own links (platform mode), fraud flags → auto-suspend (default 2) and review hold (default 5 open flags), held campaigns. Rejections carry a customer-safe reason only (no keyword text). One user send (up to 5,000 recipients) is evaluated ONCE and counts as one send. Admin broadcast and OTP/transactional messages never go through `enqueueSend` and stay exempt. If the policy evaluator itself fails or takes >10 s, the send is refused (`POLICY_UNAVAILABLE`, fail closed).
+**Accepted trade-offs:** while enforced, parallel sends from the SAME account run one at a time — extra requests get `429 SEND_IN_PROGRESS` (callers retry; the lease is released as soon as a send finishes and expires after 330 s if a function instance dies). A business-mode held send of more than 500 recipients creates one held log per 500 chunk; release/reject act per log.
+
+**Admin tools for the aftermath:** Flagged tab → "Held for review" (Release sends it; Reject refunds exactly the unsent messages and tells the customer the reason; both audited and notify the customer). Accounts tab → "Clear hold" / "Place on hold" (clearing also dismisses the account's open INFO flags; open FRAUD flags still count toward the review threshold, so action them in the Flagged tab first).
+
+**Before flipping — checklist (do not flip until all are true):**
+1. The Policy preview on `/admin/sms` (Overview) has meaningful data. As of 2026-10-12 only 1 send had a recorded shadow decision (shadow recording began with Phase 1 and SMS volume is low) — **there is not yet enough real traffic to judge the rules.** Wait for at least a few dozen real sends, or send a handful of representative test messages (short, long, with a link, with a blocked keyword) from a test account and confirm the Compose preview note matches intent.
+2. Settings reviewed on the Settings tab: caps (platform 300/20/500, business 1000/2000/1,000,000), blocked keywords, business flagged keywords, allowed domains, auto-suspend (2) and review threshold (5). `sms_feature_enabled` is true.
+3. Someone is available to watch the Flagged tab and Messages tab for the first hour after flipping.
+
+**Flip (controller-run, needs the owner's explicit go-ahead):**
+`UPDATE tenant_global_settings SET value = 'true'::jsonb WHERE key = 'sms_policy_enforced';` — takes effect within ~60 s per instance (settings cache).
+
+**Watch for an hour:** Messages tab (blocked/held counts), Flagged tab (new fraud flags, held campaigns), customer complaints about "SMS blocked", any account auto-suspended.
+
+**Rollback (instant, safe):** `UPDATE tenant_global_settings SET value = 'false'::jsonb WHERE key = 'sms_policy_enforced';` (≤ 60 s). Already-held campaigns stay held until an admin releases or rejects them; release them from the Flagged tab. Suspended accounts / review holds set during enforcement are NOT auto-reverted — clear them from the Accounts tab if the cause was a rule you are rolling back.
