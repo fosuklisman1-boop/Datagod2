@@ -48,7 +48,7 @@ async function cachedMaxObservedRate(): Promise<number | null> {
 }
 
 /** Segments of messages queued but not yet sent (and not refunded) — already-sold supply. Throws on error. */
-async function queuedUnsentUnits(): Promise<number> {
+export async function queuedUnsentUnits(): Promise<number> {
   const { data, error } = await supabaseAdmin.rpc("sms_queued_unsent_units")
   if (error) throw new Error(`backlog lookup failed: ${error.message}`)
   const n = Number(data)
@@ -86,5 +86,65 @@ export async function getWholesaleCredits(): Promise<number> {
     notifyAdminsThrottled("sms_wholesale_supply_unknown", "SMS supply check failing",
       `SMS credit sales are paused: ${message}. Check the database and the Hubtel/Moolre balance sources.`).catch(() => {})
     return 0
+  }
+}
+
+export interface WholesaleSnapshot {
+  provider: "hubtel" | "moolre"
+  backedCredits: number
+  /** Hubtel Disbursement balance in GH₵ (null for Moolre or when unreadable). */
+  balanceGhs: number | null
+  /** Per-SMS rate used for the Hubtel calculation. */
+  ratePerSms: number | null
+  /** Units already deducted from customers but not yet sent. */
+  queuedUnsent: number | null
+  error?: string
+}
+
+/** Pure: assemble the Hubtel snapshot from already-fetched inputs. */
+export function composeHubtelSnapshot(i: {
+  balance: { ok: true; amountGhs: number } | { ok: false; error: string }
+  rate: number
+  queued: number | null
+}): WholesaleSnapshot {
+  const base = { provider: "hubtel" as const, ratePerSms: i.rate }
+  if (!i.balance.ok) {
+    return { ...base, backedCredits: 0, balanceGhs: null, queuedUnsent: i.queued, error: `Hubtel balance unavailable: ${i.balance.error}` }
+  }
+  if (i.queued === null) {
+    return { ...base, backedCredits: 0, balanceGhs: i.balance.amountGhs, queuedUnsent: null, error: "Queued-message count unavailable" }
+  }
+  return {
+    ...base,
+    balanceGhs: i.balance.amountGhs,
+    queuedUnsent: i.queued,
+    backedCredits: Math.max(0, backedCredits(i.balance.amountGhs, i.rate) - i.queued),
+  }
+}
+
+/**
+ * Read-only view of the supply the solvency gate sees, for the admin Supply strip. Mirrors
+ * getWholesaleCredits() but sends no alerts and NEVER throws; failures come back as
+ * { backedCredits: 0, error } so the UI can explain a 0. (getWholesaleCredits stays authoritative.)
+ */
+export async function getWholesaleSnapshot(): Promise<WholesaleSnapshot> {
+  try {
+    const routing = await getRoutingConfig()
+    if (routing.primary === "hubtel" && hubtelConfigFromEnv()) {
+      const settings = await loadSmsSettings()
+      const [balance, observed, queued] = await Promise.all([
+        fetchDisbursementBalance(),
+        maxObservedHubtelRate().catch(() => undefined),
+        queuedUnsentUnits().catch(() => null),
+      ])
+      if (observed === undefined) {
+        return { provider: "hubtel", backedCredits: 0, balanceGhs: balance.ok ? balance.amountGhs : null, ratePerSms: null, queuedUnsent: queued, error: "Rate lookup failed" }
+      }
+      return composeHubtelSnapshot({ balance, rate: observed ?? settings.hubtelCostPerSms, queued })
+    }
+    const [moolre, queued] = await Promise.all([queryMoolreSmsBalance(), queuedUnsentUnits()])
+    return { provider: "moolre", backedCredits: Math.max(0, moolre - queued), balanceGhs: null, ratePerSms: null, queuedUnsent: queued }
+  } catch (e) {
+    return { provider: "moolre", backedCredits: 0, balanceGhs: null, ratePerSms: null, queuedUnsent: null, error: e instanceof Error ? e.message : "Supply check failed" }
   }
 }

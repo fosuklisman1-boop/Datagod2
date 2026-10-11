@@ -39,7 +39,7 @@ vi.mock("@supabase/supabase-js", () => ({
   }),
 }))
 
-import { backedCredits, getWholesaleCredits, resetObservedRateCache } from "./wholesale"
+import { backedCredits, getWholesaleCredits, resetObservedRateCache, composeHubtelSnapshot, getWholesaleSnapshot } from "./wholesale"
 
 beforeEach(() => {
   h.primary = "hubtel"; h.hubtelCfg = {}; h.balance = { ok: true, amountGhs: 35 }; h.observed = null
@@ -171,5 +171,36 @@ describe("getWholesaleCredits", () => {
   it("fails closed if routing itself throws", async () => {
     h.routingThrows = true
     expect(await getWholesaleCredits()).toBe(0)
+  })
+})
+
+describe("composeHubtelSnapshot (pure)", () => {
+  it("backed = floor(balance/rate) − queued", () => {
+    expect(composeHubtelSnapshot({ balance: { ok: true, amountGhs: 35 }, rate: 0.035, queued: 300 }))
+      .toEqual({ provider: "hubtel", backedCredits: 700, balanceGhs: 35, ratePerSms: 0.035, queuedUnsent: 300 })
+  })
+  it("never negative", () => {
+    expect(composeHubtelSnapshot({ balance: { ok: true, amountGhs: 1 }, rate: 0.035, queued: 500 }).backedCredits).toBe(0)
+  })
+  it("balance unreadable → 0 with the reason", () => {
+    const s = composeHubtelSnapshot({ balance: { ok: false, error: "relay not configured" }, rate: 0.035, queued: 0 })
+    expect(s).toMatchObject({ backedCredits: 0, balanceGhs: null, error: "Hubtel balance unavailable: relay not configured" })
+  })
+  it("queued backlog unknown → 0 with the reason", () => {
+    const s = composeHubtelSnapshot({ balance: { ok: true, amountGhs: 35 }, rate: 0.035, queued: null })
+    expect(s).toMatchObject({ backedCredits: 0, queuedUnsent: null, error: "Queued-message count unavailable" })
+  })
+})
+
+describe("getWholesaleSnapshot", () => {
+  it("moolre primary → moolre balance minus queued, provider moolre", async () => {
+    h.primary = "moolre"; h.moolre = 900; h.backlog = 250
+    expect(await getWholesaleSnapshot()).toMatchObject({ provider: "moolre", backedCredits: 650, balanceGhs: null, queuedUnsent: 250 })
+  })
+  it("never throws: a failing source yields backedCredits 0 and an error", async () => {
+    h.primary = "moolre"; h.backlog = "boom" as any
+    const s = await getWholesaleSnapshot()
+    expect(s.backedCredits).toBe(0)
+    expect(s.error).toBeTruthy()
   })
 })
