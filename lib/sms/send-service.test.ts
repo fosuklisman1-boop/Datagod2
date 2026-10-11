@@ -1228,6 +1228,22 @@ describe("scheduled sends", () => {
     spy.mockRestore()
   })
 
+  it("order confirmation (unenforced, unscheduled): enqueue failure neutralises committed rows and closes the log", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    h.state.insertMsgError = "response lost"
+    const r = await enqueueSend("u1", "acc1", "Hello world", ["0241234567"], undefined, undefined, undefined, undefined, { source: "order_confirmation" })
+    expect(r).toMatchObject({ ok: false, error: "ENQUEUE_FAILED" })
+    expect(neutralises()).toHaveLength(1)
+    expect(neutralises()[0].args).toEqual(NEUTRALISE)
+    expect(h.state.calls.filter((c) => c.fn === "log-orphan")).toHaveLength(1)
+    // source "campaign" is the ordinary path: untouched.
+    h.state.calls.length = 0
+    await enqueueSend("u1", "acc1", "Hello world", ["0241234567"], undefined, undefined, undefined, undefined, { source: "campaign" })
+    expect(neutralises()).toHaveLength(0)
+    expect(h.state.calls.filter((c) => c.fn === "log-orphan")).toHaveLength(0)
+    spy.mockRestore()
+  })
+
   it("a failing or throwing neutralise is logged, never thrown, and the log is still closed", async () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {})
     h.state.insertMsgError = "response lost"

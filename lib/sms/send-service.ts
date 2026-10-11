@@ -303,7 +303,9 @@ export async function enqueueSend(
     // Conditional on its status so a concurrently-moved log is never overwritten.
     // A scheduled log is closed on every path too: otherwise the cron would later promote a log
     // whose credits were already refunded here. (Unscheduled record-only path left as before.)
-    if ((enforced || scheduledIso !== null) && sendLogId) {
+    // Order confirmations too: a surviving row would be sent by the drain ON TOP of the caller's
+    // free fallback message.
+    if ((enforced || scheduledIso !== null || opts?.source === "order_confirmation") && sendLogId) {
       // The message INSERT may have committed even though its response errored. Neutralise any such
       // rows BEFORE the log leaves held/scheduled (which is what keeps the drain off them), so the
       // drain can never send already-refunded messages for free. Nothing was dispatched yet, so
