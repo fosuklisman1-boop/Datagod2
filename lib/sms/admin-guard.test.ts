@@ -28,6 +28,13 @@ describe("adminGuard", () => {
   it("allows a write with a real admin user", async () => {
     expect(await adminGuard(req(), { write: true })).toEqual({ ok: true, adminId: "admin-1" })
   })
+  it("honours the admin rate limit (isAdmin true + 429 errorResponse)", async () => {
+    const { NextResponse } = await import("next/server")
+    h.auth = { isAdmin: true, userId: "a", errorResponse: NextResponse.json({ error: "slow down" }, { status: 429 }) }
+    const r = await adminGuard(req())
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.response.status).toBe(429)
+  })
   it("returns the auth error response for non-admins", async () => {
     const { NextResponse } = await import("next/server")
     h.auth = { isAdmin: false, errorResponse: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) }

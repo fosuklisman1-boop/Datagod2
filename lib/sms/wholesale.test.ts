@@ -197,6 +197,26 @@ describe("getWholesaleSnapshot", () => {
     h.primary = "moolre"; h.moolre = 900; h.backlog = 250
     expect(await getWholesaleSnapshot()).toMatchObject({ provider: "moolre", backedCredits: 650, balanceGhs: null, queuedUnsent: 250 })
   })
+  it("hubtel live path: observed rate preferred over the settings cost", async () => {
+    h.observed = 0.05
+    expect(await getWholesaleSnapshot()).toEqual({ provider: "hubtel", backedCredits: 700, balanceGhs: 35, ratePerSms: 0.05, queuedUnsent: 0 })
+  })
+  it("hubtel live path: rate lookup failure → 0 with 'Rate lookup failed'", async () => {
+    h.observedError = { message: "timeout" }
+    const s = await getWholesaleSnapshot()
+    expect(s.backedCredits).toBe(0)
+    expect(s.error).toContain("Rate lookup failed")
+    expect(s.error).toContain("timeout")
+    expect(s.ratePerSms).toBe(0.035)
+  })
+  it("hubtel live path: unreadable balance keeps the balance error even if the rate also fails", async () => {
+    h.observedError = { message: "timeout" }; h.balance = { ok: false, error: "relay down" }
+    expect((await getWholesaleSnapshot()).error).toContain("Hubtel balance unavailable: relay down")
+  })
+  it("primary hubtel but not configured → moolre branch", async () => {
+    h.hubtelCfg = null; h.moolre = 900; h.backlog = 250
+    expect(await getWholesaleSnapshot()).toMatchObject({ provider: "moolre", backedCredits: 650 })
+  })
   it("never throws: a failing source yields backedCredits 0 and an error", async () => {
     h.primary = "moolre"; h.backlog = "boom" as any
     const s = await getWholesaleSnapshot()

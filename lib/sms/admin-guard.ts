@@ -11,7 +11,13 @@ export type AdminGuardResult =
 
 export async function adminGuard(request: NextRequest, opts: { write?: boolean } = {}): Promise<AdminGuardResult> {
   const auth = await verifyAdminAccess(request)
-  if (!auth.isAdmin) return { ok: false, response: auth.errorResponse! }
+  // errorResponse can accompany isAdmin:true (admin rate limit → 429), so check both.
+  if (!auth.isAdmin || auth.errorResponse) {
+    return {
+      ok: false,
+      response: auth.errorResponse ?? NextResponse.json({ success: false, error: "Admin access required" }, { status: 403 }),
+    }
+  }
   const adminId = (auth as { userId?: string }).userId ?? null
   if (opts.write && !adminId) {
     return { ok: false, response: NextResponse.json({ success: false, error: "Admin user required" }, { status: 403 }) }

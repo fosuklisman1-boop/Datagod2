@@ -134,11 +134,14 @@ export async function getWholesaleSnapshot(): Promise<WholesaleSnapshot> {
       const settings = await loadSmsSettings()
       const [balance, observed, queued] = await Promise.all([
         fetchDisbursementBalance(),
-        maxObservedHubtelRate().catch(() => undefined),
+        cachedMaxObservedRate().catch((e): { failed: string } => ({ failed: e instanceof Error ? e.message : String(e) })),
         queuedUnsentUnits().catch(() => null),
       ])
-      if (observed === undefined) {
-        return { provider: "hubtel", backedCredits: 0, balanceGhs: balance.ok ? balance.amountGhs : null, ratePerSms: null, queuedUnsent: queued, error: "Rate lookup failed" }
+      if (!balance.ok) {
+        return composeHubtelSnapshot({ balance, rate: settings.hubtelCostPerSms, queued })
+      }
+      if (observed !== null && typeof observed === "object") {
+        return { provider: "hubtel", backedCredits: 0, balanceGhs: balance.amountGhs, ratePerSms: settings.hubtelCostPerSms, queuedUnsent: queued, error: `Rate lookup failed: ${observed.failed}` }
       }
       return composeHubtelSnapshot({ balance, rate: observed ?? settings.hubtelCostPerSms, queued })
     }
