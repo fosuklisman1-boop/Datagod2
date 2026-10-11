@@ -168,6 +168,13 @@ export function parseBundleDraft(d: BundleDraftInput): Parsed<{ name: string; un
   return { ok: true, value: { name, units, price, sort: Number(sortText) } }
 }
 
+/** Settings number input → number. Empty/whitespace/non-numeric → NaN so the server's validation message shows (never a silent 0). */
+export function toNumberOrNaN(text: string): number {
+  const t = (text ?? "").trim()
+  if (!/^[+-]?(\d+\.?\d*|\.\d+)$/.test(t)) return NaN
+  return Number(t)
+}
+
 /** Comma/newline separated text → trimmed, de-duplicated (case-insensitive), no empties. */
 export function parseList(text: string): string[] {
   const seen = new Set<string>(); const out: string[] = []

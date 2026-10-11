@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest"
 import {
   formatCount, formatGhs, formatPerSms, maskIdCard, waLink, statusTone, toneClass, statusLabel, timeAgo, pageInfo,
   messageBreakdown, accountCredits, groupReviews, bannerFor, previewTotals, tabFromParam, TAB_IDS, parseList, providerLabel, supplyHeadline,
-  shouldResetPage, formatRate, parseApiLimit, parseAllocateUnits, parseBundleDraft,
+  shouldResetPage, formatRate, parseApiLimit, parseAllocateUnits, parseBundleDraft, toNumberOrNaN,
 } from "./view"
 
 describe("admin form parsers", () => {
@@ -184,6 +184,17 @@ describe("tabs and lists", () => {
     expect(tabFromParam("accounts")).toBe("accounts")
     expect(tabFromParam("nope")).toBe("business-reviews")
     expect(tabFromParam(null)).toBe("business-reviews")
+  })
+  it("toNumberOrNaN trims and converts; empty or non-numeric is NaN, never 0", () => {
+    expect(toNumberOrNaN(" 12 ")).toBe(12)
+    expect(toNumberOrNaN("0")).toBe(0)
+    expect(toNumberOrNaN("0.035")).toBe(0.035)
+    expect(toNumberOrNaN(".5")).toBe(0.5)
+    expect(toNumberOrNaN("")).toBeNaN()
+    expect(toNumberOrNaN("   ")).toBeNaN()
+    expect(toNumberOrNaN("abc")).toBeNaN()
+    expect(toNumberOrNaN("1,000")).toBeNaN()
+    expect(toNumberOrNaN("0x10")).toBeNaN()
   })
   it("parseList splits on commas/newlines, trims, de-dupes case-insensitively", () => {
     expect(parseList("loan, Win Big\nLOAN ,, promo ")).toEqual(["loan", "Win Big", "promo"])
