@@ -159,10 +159,10 @@ export function parseBundleDraft(d: BundleDraftInput): Parsed<{ name: string; un
   if (!name) return { ok: false, error: "Give the bundle a name" }
   const unitsText = (d.units ?? "").trim()
   const units = Number(unitsText)
-  if (!/^\d+$/.test(unitsText) || units < 1) return { ok: false, error: "Credits must be a whole number above 0" }
+  if (!/^\d+$/.test(unitsText) || units < 1 || units > 10_000_000) return { ok: false, error: "Credits must be a whole number from 1 to 10,000,000" }
   const priceText = (d.price ?? "").trim()
   const price = Number(priceText)
-  if (priceText === "" || !Number.isFinite(price) || price < 0) return { ok: false, error: "Enter a valid price" }
+  if (!/^\d+(\.\d{1,2})?$/.test(priceText) || !(price > 0) || price > 100_000) return { ok: false, error: "Enter a price above 0 (up to 2 decimals)" }
   const sortText = (d.sort ?? "").trim()
   if (!/^-?\d+$/.test(sortText)) return { ok: false, error: "Sort order must be a whole number" }
   return { ok: true, value: { name, units, price, sort: Number(sortText) } }

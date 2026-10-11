@@ -30,6 +30,14 @@ describe("admin form parsers", () => {
     expect(parseBundleDraft({ name: "a", units: "0", price: "1", sort: "0" }).ok).toBe(false)
     expect(parseBundleDraft({ name: "a", units: "1", price: "", sort: "0" }).ok).toBe(false)
     expect(parseBundleDraft({ name: "a", units: "1", price: "-1", sort: "0" }).ok).toBe(false)
+    for (const price of ["0", "0.00", "0x10", "1e3", "1.234", ".5", "-1", "100001", "abc"]) {
+      expect(parseBundleDraft({ name: "a", units: "1", price, sort: "0" }).ok).toBe(false)
+    }
+    expect(parseBundleDraft({ name: "a", units: "1", price: "0.5", sort: "0" }).ok).toBe(true)
+    for (const units of ["0x10", "1e3", "1.5", "10000001", "-1"]) {
+      expect(parseBundleDraft({ name: "a", units, price: "1", sort: "0" }).ok).toBe(false)
+    }
+    expect(parseBundleDraft({ name: "a", units: "10000000", price: "1", sort: "0" }).ok).toBe(true)
     expect(parseBundleDraft({ name: "a", units: "1", price: "1", sort: "x" }).ok).toBe(false)
     expect(parseBundleDraft({ name: "a", units: "1", price: "1", sort: "-2" }).ok).toBe(true)
   })
