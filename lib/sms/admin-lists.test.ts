@@ -15,7 +15,7 @@ vi.mock("@supabase/supabase-js", () => ({
       h.ops.push({ table, ops })
       const result = h.tableResults.length > 1 ? h.tableResults.shift()! : h.tableResults[0]
       const c: any = {}
-      for (const m of ["select", "update", "eq", "is", "in", "maybeSingle", "single"]) c[m] = (...args: any[]) => { ops.push({ m, args }); return c }
+      for (const m of ["select", "update", "eq", "is", "in", "order", "limit", "maybeSingle", "single"]) c[m] = (...args: any[]) => { ops.push({ m, args }); return c }
       c.then = (res: any, rej: any) => Promise.resolve(result).then(res, rej)
       return c
     },
@@ -23,7 +23,7 @@ vi.mock("@supabase/supabase-js", () => ({
 }))
 vi.mock("./moderation-service", () => ({ dismissFlag: h.dismiss, suspendSmsAccount: h.suspend, writeAuditLog: h.audit }))
 
-import { PAGE_SIZE, parsePage, cleanQuery, listMessages, listAccounts, listFlags, actOnFlag } from "./admin-lists"
+import { PAGE_SIZE, parsePage, cleanQuery, listMessages, listAccounts, listFlags, listHeldCampaigns, actOnFlag } from "./admin-lists"
 
 beforeEach(() => {
   h.rpcData = []; h.rpcError = null; h.rpcCalls = []; h.ops = []
@@ -72,6 +72,52 @@ describe("listAccounts / listFlags", () => {
     await listFlags({ severity: "x", status: "y", page: 1 })
     expect(h.rpcCalls[0].args).toMatchObject({ p_severity: "fraud", p_status: "open" })
     expect(h.rpcCalls[1].args).toMatchObject({ p_severity: "", p_status: "" })
+  })
+})
+
+describe("held campaigns in the Flagged list", () => {
+  const LOG = {
+    id: 42, sms_account_id: "acct1", message: "Promo", sender_id: "SHOP", recipients_count: 500, segments: 2,
+    credits_reserved: 1000, created_at: "2026-10-11T10:00:00Z", policy_shadow: { decision: "hold", code: "REVIEW_HOLD", reason: "Your account is under review." },
+  }
+  it("lists each held log as its own row (id held:<logId>) with owner, email, recipients, credits", async () => {
+    h.tableResults = [
+      { data: [LOG, { ...LOG, id: 43, policy_shadow: null }], error: null, count: 2 } as any,
+      { data: [{ id: "acct1", user_id: "u1" }], error: null },
+      { data: [{ id: "u1", email: "a@b.c" }], error: null },
+    ]
+    const r = await listHeldCampaigns()
+    expect(r.total).toBe(2)
+    expect(r.rows[0]).toEqual({
+      id: "held:42", source: "held", log_id: 42, sms_account_id: "acct1", user_id: "u1", email: "a@b.c",
+      severity: "info", status: "open", reason: "Your account is under review.", code: "REVIEW_HOLD",
+      message: "Promo", sender_id: "SHOP", recipients_count: 500, segments: 2, credits_reserved: 1000, created_at: "2026-10-11T10:00:00Z",
+    })
+    expect(r.rows[1]).toMatchObject({ id: "held:43", reason: "Held for review", code: null })
+    const q = h.ops[0]
+    expect(q.table).toBe("sms_send_logs")
+    expect(q.ops.filter((x) => x.m === "eq").map((x) => x.args)).toEqual([["status", "held"]])
+    expect(q.ops.find((x) => x.m === "order")!.args).toEqual(["created_at", { ascending: true }])
+  })
+  it("owner lookup failure still lists the campaigns", async () => {
+    h.tableResults = [{ data: [LOG], error: null, count: 1 } as any, { data: null, error: { message: "x" } }]
+    const r = await listHeldCampaigns()
+    expect(r.rows[0]).toMatchObject({ id: "held:42", user_id: null, email: null })
+  })
+  it("throws on a held query error", async () => {
+    h.tableResults = [{ data: null, error: { message: "boom" } }]
+    await expect(listHeldCampaigns()).rejects.toThrow("boom")
+  })
+  it("listFlags adds held rows on page 1 for All/Info + open only", async () => {
+    h.tableResults = [{ data: [LOG], error: null, count: 1 } as any, { data: [], error: null }]
+    const r = await listFlags({ severity: "", status: "open", page: 1 })
+    expect(r.held.map((x) => x.id)).toEqual(["held:42"])
+    expect(r.heldTotal).toBe(1)
+    h.ops = []
+    expect((await listFlags({ severity: "fraud", status: "open", page: 1 })).held).toEqual([])
+    expect((await listFlags({ severity: "info", status: "open", page: 2 })).held).toEqual([])
+    expect((await listFlags({ severity: "", status: "dismissed", page: 1 })).held).toEqual([])
+    expect(h.ops.some((o) => o.table === "sms_send_logs")).toBe(false)
   })
 })
 
