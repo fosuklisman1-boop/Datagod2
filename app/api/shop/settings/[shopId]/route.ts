@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { shopHandleOrFilter } from "@/lib/shop-handle"
 import { normalizeWhatsAppLink } from "@/lib/whatsapp-link"
+import { canUseOwnSenderForConfirmations } from "@/lib/sms/order-confirmation"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -30,7 +31,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     const { data: settings, error } = await supabase
       .from("shop_settings")
-      .select("id, shop_id, whatsapp_link, community_link, announcement_enabled, announcement_title, announcement_message, order_confirmation_sms_enabled, created_at, updated_at")
+      .select("id, shop_id, whatsapp_link, community_link, announcement_enabled, announcement_title, announcement_message, order_confirmation_sms_enabled, order_confirmation_use_own_sender, created_at, updated_at")
       .eq("shop_id", shopId)
       .single()
 
@@ -49,6 +50,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         announcement_message: "",
         // No row yet == never explicitly turned off, so this stays true.
         order_confirmation_sms_enabled: true,
+        order_confirmation_use_own_sender: false,
         created_at: null,
         updated_at: null,
       })
@@ -58,6 +60,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     // explicitly turned off" rather than surfacing NULL to the UI.
     if (settings.order_confirmation_sms_enabled === null) {
       settings.order_confirmation_sms_enabled = true
+    }
+    // Opt-in billed sender: NULL (pre-column row) means off.
+    if (settings.order_confirmation_use_own_sender == null) {
+      settings.order_confirmation_use_own_sender = false
     }
 
     return NextResponse.json(settings)
@@ -126,11 +132,27 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       announcement_enabled,
       announcement_title,
       announcement_message,
-      order_confirmation_sms_enabled
+      order_confirmation_sms_enabled,
+      order_confirmation_use_own_sender
     } = body
 
     if (order_confirmation_sms_enabled !== undefined && typeof order_confirmation_sms_enabled !== "boolean") {
       return NextResponse.json({ error: "order_confirmation_sms_enabled must be a boolean" }, { status: 400 })
+    }
+
+    if (order_confirmation_use_own_sender !== undefined && typeof order_confirmation_use_own_sender !== "boolean") {
+      return NextResponse.json({ error: "order_confirmation_use_own_sender must be a boolean" }, { status: 400 })
+    }
+
+    // Billing confirmations to the shop's own sender needs an active SMS account + active sender.
+    if (order_confirmation_use_own_sender === true) {
+      const check = await canUseOwnSenderForConfirmations(shopId)
+      if (!check.ok) {
+        return NextResponse.json(
+          { error: check.reason ?? "You need an active SMS account and sender ID to use your own sender for order confirmations." },
+          { status: 400 }
+        )
+      }
     }
 
     console.log(`[SHOP-SETTINGS] Received whatsapp_link: ${whatsapp_link}`)
@@ -200,6 +222,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
           announcement_title: announcement_title !== undefined ? announcement_title : existingSettings?.announcement_title,
           announcement_message: announcement_message !== undefined ? announcement_message : existingSettings?.announcement_message,
           order_confirmation_sms_enabled: order_confirmation_sms_enabled !== undefined ? order_confirmation_sms_enabled : existingSettings?.order_confirmation_sms_enabled,
+          order_confirmation_use_own_sender: order_confirmation_use_own_sender !== undefined ? order_confirmation_use_own_sender : existingSettings?.order_confirmation_use_own_sender ?? false,
           updated_at: new Date().toISOString(),
         })
         .eq("id", existingSettings.id)
@@ -224,6 +247,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
             announcement_title: announcement_title || "",
             announcement_message: announcement_message || "",
             order_confirmation_sms_enabled: order_confirmation_sms_enabled !== undefined ? order_confirmation_sms_enabled : true,
+            order_confirmation_use_own_sender: order_confirmation_use_own_sender !== undefined ? order_confirmation_use_own_sender : false,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           },
