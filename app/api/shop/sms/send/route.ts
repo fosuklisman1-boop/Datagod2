@@ -142,7 +142,8 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         )
       case "SEND_IN_PROGRESS":
-        // Another enforced send from this account holds the per-account lease (≤30 s).
+        // Another enforced send from this account holds the per-account lease (released when that
+        // send finishes; expires after SEND_LOCK_SECONDS = 330 s if its instance died). Retry.
         return NextResponse.json(
           { success: false, error: result.error, reason: SEND_IN_PROGRESS_MESSAGE },
           { status: 429 }

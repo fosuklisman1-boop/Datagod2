@@ -198,6 +198,7 @@ export const apiDocsRegistry: ApiDocSection[] = [
         { status: 402, body: `{ "success": false, "error": "INSUFFICIENT_CREDITS" }` },
         { status: 400, body: `{ "success": false, "error": "POLICY_REJECTED", "code": "CAP_PER_HOUR", "reason": "You've reached 20 sends this hour. Try again within the hour." }` },
         { status: 400, body: `{ "success": false, "error": "BLOCKED", "reason": "This message contains content we can't send." }` },
+        { status: 429, body: `{ "success": false, "error": "SEND_IN_PROGRESS", "reason": "Another send from your account is still being processed; retry shortly." }` },
         { status: 503, body: `{ "success": false, "error": "SMS_DISABLED", "message": "SMS is temporarily unavailable. Please try again later." }` },
         { status: 403, body: `{ "success": false, "error": "No SMS account for this API key's owner (requires a shop, sub-agent, or admin account)" }` },
       ],
