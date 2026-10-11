@@ -41,6 +41,38 @@ export function customerBlockedReason(r: { code?: string; reason?: string }): st
   return r.code && r.reason?.trim() ? r.reason : BLOCKED_SAFE_REASON
 }
 
+// ── Per-account send lease (migration 20261013_sms_policy_enforcement_2.sql) ──────────────────
+// Usage (sms_account_usage) only counts a send once its log row exists, so parallel sends would
+// all read the same usage and pass the caps together. Enforced sends therefore hold a short
+// per-account lease from before the policy read until their last log row is written.
+export const SEND_LOCK_SECONDS = 30
+export const SEND_IN_PROGRESS_MESSAGE = "Another send from your account is still being processed. Please try again in a few seconds."
+
+/** "acquired" | "busy" | "error" (an RPC error must make the caller fail CLOSED). Never throws. */
+export async function trySendLock(accountId: string): Promise<"acquired" | "busy" | "error"> {
+  try {
+    const { data, error } = await supabaseAdmin.rpc("sms_try_send_lock", { p_account_id: accountId, p_seconds: SEND_LOCK_SECONDS })
+    if (error) {
+      console.error("[SMS-ENFORCE] sms_try_send_lock failed; refusing the send:", error.message)
+      return "error"
+    }
+    return data === true ? "acquired" : "busy"
+  } catch (e) {
+    console.error("[SMS-ENFORCE] sms_try_send_lock threw; refusing the send:", e)
+    return "error"
+  }
+}
+
+/** Best-effort release; on failure the lease simply expires after SEND_LOCK_SECONDS. Never throws. */
+export async function releaseSendLock(accountId: string): Promise<void> {
+  try {
+    const { error } = await supabaseAdmin.rpc("sms_release_send_lock", { p_account_id: accountId })
+    if (error) console.error("[SMS-ENFORCE] sms_release_send_lock failed (lease will expire):", error.message)
+  } catch (e) {
+    console.error("[SMS-ENFORCE] sms_release_send_lock threw (lease will expire):", e)
+  }
+}
+
 /** HTTP status for a POLICY_REJECTED send: 503 when it's a temporary outage, else 400. */
 export function policyRejectedStatus(code: EnforcementCode | undefined): 400 | 503 {
   return code === "FEATURE_DISABLED" || code === "POLICY_UNAVAILABLE" ? 503 : 400

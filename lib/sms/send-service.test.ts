@@ -35,6 +35,9 @@ const h = vi.hoisted(() => {
     policyNull: false,                   // evaluatePolicy finds no account
     policyArgs: [] as any[],             // args the evaluation was called with
     flagRpcError: null as null | string, // record_sms_flags errors
+    lockGranted: true,                   // sms_try_send_lock result
+    lockError: null as null | string,    // sms_try_send_lock errors
+    releaseError: null as null | string, // sms_release_send_lock errors
   }
 
   const fake = {
@@ -48,6 +51,14 @@ const h = vi.hoisted(() => {
           data: state.debitTxId == null ? [{ balance_after: 90 }] : [{ balance_after: 90, debit_tx_id: state.debitTxId }],
           error: null,
         })
+      }
+      if (fn === "sms_try_send_lock") {
+        if (state.lockError) return Promise.resolve({ data: null, error: { message: state.lockError } })
+        return Promise.resolve({ data: state.lockGranted, error: null })
+      }
+      if (fn === "sms_release_send_lock") {
+        if (state.releaseError) return Promise.resolve({ data: null, error: { message: state.releaseError } })
+        return Promise.resolve({ data: null, error: null })
       }
       if (fn === "record_sms_flags") {
         if (state.flagRpcError) return Promise.resolve({ data: null, error: { message: state.flagRpcError } })
@@ -217,6 +228,9 @@ beforeEach(() => {
   h.state.policyNull = false
   h.state.policyArgs = []
   h.state.flagRpcError = null
+  h.state.lockGranted = true
+  h.state.lockError = null
+  h.state.releaseError = null
 })
 
 // ── Enforcement OFF must be byte-for-byte today's behaviour ──────────────────────────────
@@ -644,7 +658,10 @@ describe("enqueueSend", () => {
 // ── Enforcement ON (settings.policyEnforced) ──────────────────────────────────────────────
 describe("enforcement ON", () => {
   const recips = (n: number) => Array.from({ length: n }, (_, i) => `024${String(i).padStart(7, "0")}`)
-  const dbCalls = () => h.state.calls.filter((c) => c.fn !== "evaluatePolicy")
+  const LOCK_FNS = ["sms_try_send_lock", "sms_release_send_lock"]
+  // DB work other than the policy read and the per-account send lease.
+  const dbCalls = () => h.state.calls.filter((c) => c.fn !== "evaluatePolicy" && !LOCK_FNS.includes(c.fn))
+  const lockCalls = () => h.state.calls.filter((c) => LOCK_FNS.includes(c.fn))
   const logRow = (i = 0) => { const x = inserts("sms_send_logs")[i]; return Array.isArray(x.args) ? x.args[0] : x.args }
   const msgRows = () => inserts("sms_messages").flatMap((x) => (Array.isArray(x.args) ? x.args : [x.args]))
   const fraud = { severity: "fraud", reason: 'blocked keyword: "secretword"', matched: "secretword" }
@@ -860,6 +877,72 @@ describe("enforcement ON", () => {
     expect(await enqueueSendBatched("u1", "acc1", "Hello world", recips(1), undefined, "ghost")).toEqual({ ok: false, error: "INVALID_SENDER_ID" })
     expect(h.state.policyArgs).toHaveLength(0)
     expect(dbCalls()).toEqual([])
+  })
+
+  describe("per-account send lease (parallel sends cannot all read the same usage)", () => {
+    it("acquired (30 s) BEFORE the policy read, released AFTER the last log insert", async () => {
+      const r = await enqueueSendBatched("u1", "acc1", "Hello world", recips(620))
+      expect(r.ok).toBe(true)
+      const names = h.state.calls.map((c) => c.fn)
+      expect(lockCalls().map((c) => c.fn)).toEqual(["sms_try_send_lock", "sms_release_send_lock"])
+      expect(lockCalls()[0].args).toEqual({ p_account_id: "acc1", p_seconds: 30 })
+      expect(lockCalls()[1].args).toEqual({ p_account_id: "acc1" })
+      expect(names.indexOf("sms_try_send_lock")).toBeLessThan(names.indexOf("evaluatePolicy"))
+      expect(names.indexOf("sms_release_send_lock")).toBeGreaterThan(names.lastIndexOf("insert"))
+    })
+
+    it("lease held by another send → SEND_IN_PROGRESS, no evaluation, no writes, no release", async () => {
+      h.state.lockGranted = false
+      const r = await enqueueSendBatched("u1", "acc1", "Hello world", recips(1))
+      expect(r).toEqual({ ok: false, error: "SEND_IN_PROGRESS", reason: "Another send from your account is still being processed. Please try again in a few seconds." })
+      expect(h.state.policyArgs).toHaveLength(0)
+      expect(dbCalls()).toEqual([])
+      expect(lockCalls().map((c) => c.fn)).toEqual(["sms_try_send_lock"])
+    })
+
+    it("lock RPC error → fails CLOSED (POLICY_UNAVAILABLE), nothing evaluated or written", async () => {
+      const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+      h.state.lockError = "db down"
+      const r = await enqueueSendBatched("u1", "acc1", "Hello world", recips(1))
+      expect(r).toMatchObject({ ok: false, error: "POLICY_REJECTED", code: "POLICY_UNAVAILABLE" })
+      expect(String((r as any).reason)).not.toContain("db down")
+      expect(h.state.policyArgs).toHaveLength(0)
+      expect(dbCalls()).toEqual([])
+      spy.mockRestore()
+    })
+
+    it("released after reject, block and hold", async () => {
+      for (const res of [
+        { decision: "reject", code: "CAP_PER_HOUR", reason: "x", flags: [] },
+        { decision: "block", code: "CONTENT_BLOCKED", reason: "x", flags: [fraud] },
+        { decision: "hold", code: "REVIEW_HOLD", reason: "x", flags: [] },
+      ]) {
+        h.state.calls.length = 0
+        h.state.policyResult = res
+        await enqueueSendBatched("u1", "acc1", "Hello world", recips(1))
+        expect(lockCalls().map((c) => c.fn), res.decision).toEqual(["sms_try_send_lock", "sms_release_send_lock"])
+      }
+    })
+
+    it("released even when the send throws", async () => {
+      h.state.debitError = "connection reset" // unmapped debit error → enqueueSend throws
+      await expect(enqueueSendBatched("u1", "acc1", "Hello world", recips(1))).rejects.toBeTruthy()
+      expect(lockCalls().map((c) => c.fn)).toEqual(["sms_try_send_lock", "sms_release_send_lock"])
+    })
+
+    it("a failing release never fails the send (the lease expires on its own)", async () => {
+      const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+      h.state.releaseError = "down"
+      const r = await enqueueSendBatched("u1", "acc1", "Hello world", recips(1))
+      expect(r.ok).toBe(true)
+      spy.mockRestore()
+    })
+
+    it("enforcement OFF never touches the lease", async () => {
+      h.state.policyEnforced = false
+      await enqueueSendBatched("u1", "acc1", "Hello world", recips(620))
+      expect(lockCalls()).toEqual([])
+    })
   })
 
   it("empty / over-ceiling lists are refused before evaluation", async () => {

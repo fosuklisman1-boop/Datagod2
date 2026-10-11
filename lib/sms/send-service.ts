@@ -5,7 +5,11 @@ import { calculateSegments } from "./segments"
 import { resolveCampaignSender, shadowPolicyWithin, type PolicyShadow } from "./policy-context"
 import { isSmsEnabled } from "./kill-switch"
 import { dispatchCampaign, type SentRow } from "./campaign-dispatch"
-import { evaluateForEnforcement, isPolicyEnforced, recordFlags, type EnforcementCode } from "./enforcement"
+import {
+  evaluateForEnforcement, isPolicyEnforced, recordFlags, releaseSendLock, trySendLock,
+  POLICY_UNAVAILABLE_REASON, SEND_IN_PROGRESS_MESSAGE, type EnforcementCode,
+} from "./enforcement"
+import type { PolicySender } from "./policy"
 import type { SmsMode } from "./platform-settings"
 
 const supabaseAdmin = createClient(
@@ -57,6 +61,7 @@ export interface EnqueueSendError {
     | "ENQUEUE_FAILED"
     | "SMS_DISABLED"
     | "POLICY_REJECTED"
+    | "SEND_IN_PROGRESS"
   /** Customer-safe text only (never matched keywords / flag details). */
   reason?: string
   /** Policy code, set with POLICY_REJECTED. */
@@ -521,6 +526,30 @@ async function enforcedSendBatched(
   }
   if (!prepared || prepared.trim().length === 0) return { ok: false, error: "EMPTY_MESSAGE" }
 
+  // Per-account lease: taken BEFORE the usage/policy read and released only after this send's
+  // last log row exists, so a parallel send can't read the same usage and slip past the caps.
+  const lock = await trySendLock(accountId)
+  if (lock === "error") {
+    return { ok: false, error: "POLICY_REJECTED", code: "POLICY_UNAVAILABLE", reason: POLICY_UNAVAILABLE_REASON }
+  }
+  if (lock === "busy") return { ok: false, error: "SEND_IN_PROGRESS", reason: SEND_IN_PROGRESS_MESSAGE }
+  try {
+    return await enforcedSendLocked(userId, accountId, message, recipients, prepared, sender, shopTokens, senderId)
+  } finally {
+    await releaseSendLock(accountId)
+  }
+}
+
+async function enforcedSendLocked(
+  userId: string,
+  accountId: string,
+  message: string,
+  recipients: string[],
+  prepared: string,
+  sender: PolicySender,
+  shopTokens?: ShopTokens,
+  senderId?: string
+): Promise<BatchedSendResult | EnqueueSendError> {
   const outcome = await evaluateForEnforcement({ accountId, sender, recipientCount: recipients.length, message: prepared })
 
   if (outcome.kind === "reject") {

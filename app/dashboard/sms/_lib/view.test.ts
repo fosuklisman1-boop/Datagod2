@@ -73,6 +73,9 @@ describe("sendErrorMessage", () => {
     expect(sendErrorMessage("POLICY_REJECTED")).toBe("This send isn't allowed right now. Check your limits and message, then try again.")
     expect(sendErrorMessage("POLICY_REJECTED", "   ")).toBe("This send isn't allowed right now. Check your limits and message, then try again.")
   })
+  it("SEND_IN_PROGRESS asks to retry in a few seconds", () => {
+    expect(sendErrorMessage("SEND_IN_PROGRESS")).toBe("Another send from your account is still being processed. Please try again in a few seconds.")
+  })
   it("held sends get the review message", () => {
     expect(HELD_SEND_MESSAGE).toBe("Sent for a quick review — you'll be notified")
   })

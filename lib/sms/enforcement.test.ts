@@ -32,7 +32,7 @@ vi.mock("./platform-settings", async (orig) => {
 
 import {
   decideOutcome, evaluateForEnforcement, isPolicyEnforced, recordFlags, policyRejectedStatus, POLICY_UNAVAILABLE_REASON,
-  customerBlockedReason, BLOCKED_SAFE_REASON,
+  customerBlockedReason, BLOCKED_SAFE_REASON, trySendLock, releaseSendLock, SEND_LOCK_SECONDS,
 } from "./enforcement"
 import { DEFAULT_SMS_SETTINGS } from "./platform-settings"
 
@@ -50,6 +50,32 @@ beforeEach(() => {
   h.state.policyEnforced = false
 })
 afterEach(() => vi.useRealTimers())
+
+describe("send lease helpers", () => {
+  it("trySendLock: true → acquired, false → busy, error/throw → error", async () => {
+    h.state.rpcResult = { data: true, error: null }
+    expect(await trySendLock("a1")).toBe("acquired")
+    expect(h.state.rpcCalls[0]).toEqual({ fn: "sms_try_send_lock", args: { p_account_id: "a1", p_seconds: SEND_LOCK_SECONDS } })
+    h.state.rpcResult = { data: false, error: null }
+    expect(await trySendLock("a1")).toBe("busy")
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    h.state.rpcResult = { data: null, error: { message: "down" } }
+    expect(await trySendLock("a1")).toBe("error")
+    h.state.rpcThrows = true
+    expect(await trySendLock("a1")).toBe("error")
+    spy.mockRestore()
+  })
+  it("releaseSendLock never throws", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    h.state.rpcThrows = true
+    await expect(releaseSendLock("a1")).resolves.toBeUndefined()
+    h.state.rpcThrows = false
+    h.state.rpcResult = { data: null, error: { message: "down" } }
+    await expect(releaseSendLock("a1")).resolves.toBeUndefined()
+    expect(h.state.rpcCalls.at(-1)).toEqual({ fn: "sms_release_send_lock", args: { p_account_id: "a1" } })
+    spy.mockRestore()
+  })
+})
 
 describe("customerBlockedReason", () => {
   it("legacy filter rule text is never shown; policy blocks keep their customer reason", () => {
@@ -153,6 +179,24 @@ describe("recordFlags", () => {
     await expect(recordFlags({ accountId: "a1", sendLogId: null, flags: [fraud], thresholds: T })).resolves.toBeUndefined()
     expect(spy).toHaveBeenCalled()
     spy.mockRestore()
+  })
+})
+
+describe("migration 20261013_sms_policy_enforcement_2.sql (static contract)", () => {
+  const sql = fs.readFileSync(path.join(__dirname, "..", "..", "migrations", "20261013_sms_policy_enforcement_2.sql"), "utf8")
+  it("lease: nullable column + one atomic conditional UPDATE + row-count result", () => {
+    expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS send_lock_until TIMESTAMPTZ/)
+    const fn = sql.slice(sql.indexOf("FUNCTION sms_try_send_lock"), sql.indexOf("$$;", sql.indexOf("FUNCTION sms_try_send_lock")))
+    expect(fn).toMatch(/p_account_id\s+UUID,\s*p_seconds\s+INT/)
+    expect(fn).toMatch(/send_lock_until IS NULL OR send_lock_until < now\(\)/)
+    expect(fn).toMatch(/make_interval\(secs => p_seconds\)/)
+    expect(fn).toMatch(/GET DIAGNOSTICS v_n = ROW_COUNT/)
+  })
+  it("lease functions are service-role only", () => {
+    for (const sig of ["sms_try_send_lock\\(UUID, INT\\)", "sms_release_send_lock\\(UUID\\)"]) {
+      expect(sql).toMatch(new RegExp(`REVOKE ALL ON FUNCTION ${sig}\\s+FROM PUBLIC, anon, authenticated`))
+      expect(sql).toMatch(new RegExp(`GRANT\\s+EXECUTE ON FUNCTION ${sig}\\s+TO service_role`))
+    }
   })
 })
 

@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
 import { enqueueSendBatched, SMS_MAX_TOTAL } from "@/lib/sms/send-service"
-import { customerBlockedReason, policyRejectedStatus } from "@/lib/sms/enforcement"
+import { customerBlockedReason, policyRejectedStatus, SEND_IN_PROGRESS_MESSAGE } from "@/lib/sms/enforcement"
 import { getShopTokens } from "@/lib/sms/shop-context-service"
 import { loadDefaultSender } from "@/lib/sms/default-sender"
 import { SMS_DISABLED_MESSAGE } from "@/lib/sms/kill-switch"
@@ -140,6 +140,12 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
           { success: false, error: result.error, reason: customerBlockedReason(result) },
           { status: 400 }
+        )
+      case "SEND_IN_PROGRESS":
+        // Another enforced send from this account holds the per-account lease (≤30 s).
+        return NextResponse.json(
+          { success: false, error: result.error, reason: SEND_IN_PROGRESS_MESSAGE },
+          { status: 429 }
         )
       case "POLICY_REJECTED":
         // Send policy (enforced) said no. `reason` is customer-safe text; nothing was charged.

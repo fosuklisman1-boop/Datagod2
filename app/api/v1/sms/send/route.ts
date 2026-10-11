@@ -7,7 +7,7 @@ import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
 import { enqueueSendBatched, SMS_MAX_TOTAL } from "@/lib/sms/send-service"
 import { apiRateLimitFor, loadSmsSettings } from "@/lib/sms/platform-settings"
 import { SMS_DISABLED_MESSAGE } from "@/lib/sms/kill-switch"
-import { customerBlockedReason, policyRejectedStatus } from "@/lib/sms/enforcement"
+import { customerBlockedReason, policyRejectedStatus, SEND_IN_PROGRESS_MESSAGE } from "@/lib/sms/enforcement"
 import { getShopTokens } from "@/lib/sms/shop-context-service"
 
 const supabaseAdmin = createClient(
@@ -161,6 +161,7 @@ export async function POST(request: NextRequest) {
     const status =
       result.error === "SMS_DISABLED" ? 503 :
       result.error === "POLICY_REJECTED" ? policyRejectedStatus(result.code) :
+      result.error === "SEND_IN_PROGRESS" ? 429 :
       result.error === "INSUFFICIENT_CREDITS" ? 402 :
       result.error === "NOT_ACTIVATED" || result.error === "SUSPENDED" ? 403 :
       result.error === "ENQUEUE_FAILED" ? 500 :
@@ -179,6 +180,8 @@ export async function POST(request: NextRequest) {
         ? { success: false, error: result.error, message: SMS_DISABLED_MESSAGE }
         : result.error === "POLICY_REJECTED"
           ? { success: false, error: result.error, code: result.code, reason: result.reason }
+          : result.error === "SEND_IN_PROGRESS"
+            ? { success: false, error: result.error, reason: SEND_IN_PROGRESS_MESSAGE }
           : result.error === "BLOCKED"
             ? { success: false, error: result.error, reason: customerBlockedReason(result) }
             : { success: false, error: result.error },

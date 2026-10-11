@@ -143,6 +143,7 @@ export function sendErrorMessage(code: string | undefined, reason?: string, fall
     case "INVALID_SENDER_ID": return "That sender ID isn't available on your account."
     case "TOO_MANY_RECIPIENTS": return `You can send to at most ${MAX_RECIPIENTS.toLocaleString("en-US")} recipients at once.`
     case "SEND_ERROR": return "Sending failed — please try again."
+    case "SEND_IN_PROGRESS": return "Another send from your account is still being processed. Please try again in a few seconds."
     default: return fallback ?? code ?? "Something went wrong"
   }
 }
