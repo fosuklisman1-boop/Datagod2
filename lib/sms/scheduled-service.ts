@@ -115,6 +115,10 @@ export interface DispatchSummary {
 }
 export type ScheduledRunResult = DispatchSummary | { skipped: "sms_disabled" }
 
+/** The "SMS is off" note is logged at most this often per instance. */
+export const SMS_OFF_LOG_INTERVAL_MS = 60 * 60_000
+let lastSmsOffLogMs = Number.NEGATIVE_INFINITY
+
 interface DueRow { id: number | string; sms_account_id: string }
 interface PromotedRow { out_id: number | string; out_account_id: string; out_sender_id: string | null }
 
@@ -126,7 +130,12 @@ interface PromotedRow { out_id: number | string; out_account_id: string; out_sen
 export async function runScheduledDispatch(opts: { limit?: number; deadlineMs: number; hardDeadlineMs?: number }): Promise<ScheduledRunResult> {
   const limit = Math.max(1, Math.floor(opts.limit ?? 50))
   if (!(await isSmsEnabled())) {
-    console.log("[SMS-SCHEDULED] SMS is switched off; due scheduled sends stay scheduled")
+    // Throttled: the cron runs every minute, possibly for days while the switch is off.
+    const now = Date.now()
+    if (now - lastSmsOffLogMs >= SMS_OFF_LOG_INTERVAL_MS) {
+      lastSmsOffLogMs = now
+      console.log("[SMS-SCHEDULED] SMS is switched off; due scheduled sends stay scheduled (logged at most hourly)")
+    }
     return { skipped: "sms_disabled" }
   }
   const s: DispatchSummary = { promoted: 0, dispatched: 0, placed: 0, cancelled: 0, deferred: 0, errors: 0 }

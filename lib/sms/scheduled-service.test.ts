@@ -46,7 +46,7 @@ vi.mock("./dispatch-claimed", () => ({
 }))
 vi.mock("./moderation-service", () => ({ writeAuditLog: () => Promise.resolve() }))
 
-import { cancelScheduledCampaign, runScheduledDispatch } from "./scheduled-service"
+import { cancelScheduledCampaign, runScheduledDispatch, SMS_OFF_LOG_INTERVAL_MS } from "./scheduled-service"
 
 const ok = (data: any): Result => ({ data, error: null })
 function opsFor(table: string) { return h.ops.filter((o) => o.table === table) }
@@ -143,6 +143,28 @@ describe("runScheduledDispatch", () => {
     expect(await runScheduledDispatch({ deadlineMs: FAR() })).toEqual({ skipped: "sms_disabled" })
     expect(h.rpcCalls).toHaveLength(0)
     expect(h.ops).toHaveLength(0)
+  })
+
+  it("kill switch off: the 'switched off' note is logged at most once per SMS_OFF_LOG_INTERVAL_MS", async () => {
+    h.smsEnabled = false
+    const log = vi.spyOn(console, "log").mockImplementation(() => {})
+    const T = Date.now() + 10 * 3_600_000 // well past any earlier note from this file
+    const clock = vi.spyOn(Date, "now")
+    const offNotes = () => log.mock.calls.filter((c) => String(c[0]).includes("SMS is switched off")).length
+    try {
+      for (const [at, expected] of [
+        [T, 1], [T + 60_000, 1], [T + SMS_OFF_LOG_INTERVAL_MS - 1, 1], [T + SMS_OFF_LOG_INTERVAL_MS, 2], [T + SMS_OFF_LOG_INTERVAL_MS + 60_000, 2],
+      ] as const) {
+        clock.mockReturnValue(at)
+        expect(await runScheduledDispatch({ deadlineMs: at + 100_000 })).toEqual({ skipped: "sms_disabled" })
+        expect(offNotes()).toBe(expected)
+      }
+      expect(h.rpcCalls).toHaveLength(0)
+      expect(h.ops).toHaveLength(0)
+    } finally {
+      clock.mockRestore()
+      log.mockRestore()
+    }
   })
 
   it("due → promoted (atomic RPC) → claimed → dispatched with the log's sender", async () => {
