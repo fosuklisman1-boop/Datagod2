@@ -114,9 +114,11 @@ describe("releaseHeldCampaign", () => {
     const msgUpdates = updates("sms_messages")
     expect(patchOf(msgUpdates[0])).toMatchObject({ status: "claimed" })
     expect(eqs(msgUpdates[0])).toEqual([["send_log_id", 42], ["status", "pending"]])
-    // release of rows dispatch did not place
+    // hand-back of rows dispatch did not place — scoped to the rows THIS call claimed
     expect(patchOf(msgUpdates[1])).toEqual({ status: "pending", claimed_at: null })
     expect(eqs(msgUpdates[1])).toEqual([["send_log_id", 42], ["status", "claimed"]])
+    expect(msgUpdates[1].ops.find((x) => x.m === "in")!.args).toEqual(["id", ["m1", "m2"]])
+    expect(msgUpdates).toHaveLength(2)
 
     expect(h.dispatch).toHaveBeenCalledTimes(1)
     const [items, sender] = h.dispatch.mock.calls[0]
@@ -131,6 +133,33 @@ describe("releaseHeldCampaign", () => {
     // first provider batch id recorded on the log
     expect(patchOf(logUpdates[1])).toEqual({ provider_batch_id: "b1", provider: "hubtel" })
   })
+
+  it("never resets rows the cron drain claimed (not in this call's items)", async () => {
+    heldScenario()
+    // This call claimed only m1; the drain holds m9 of the same log (claimed, mid-send).
+    h.tables.sms_messages = [{ data: [{ id: "m1", phone: "+233241111111", rendered_message: "Hello" }], error: null }, { data: null, error: null }]
+    h.dispatch.mockResolvedValue({ provider: "hubtel", sent: [], fallbackSent: [], outOfFunds: false })
+    await releaseHeldCampaign("admin1", "42")
+    const handBack = updates("sms_messages")[1]
+    expect(handBack.ops.find((x) => x.m === "in")!.args).toEqual(["id", ["m1"]])
+    expect(JSON.stringify(handBack.ops)).not.toContain("m9")
+  })
+
+  it("hand-back is chunked (100 ids per update) and excludes placed-but-unmarked rows", async () => {
+    heldScenario()
+    const rows = Array.from({ length: 250 }, (_, i) => ({ id: `m${i}`, phone: "+233241111111", rendered_message: "Hi" }))
+    h.tables.sms_messages = [{ data: rows, error: null }, { data: null, error: { message: "fallback down" } }, { data: null, error: null }]
+    h.rpcResults.mark_sms_messages_sent = { data: null, error: { message: "rpc down" } }
+    h.dispatch.mockImplementation(async (_items: any[], _s: any, mark: any) => {
+      await mark("moolre", [{ id: "m0", mid: null, bid: null }], { unconfirmed: false })
+      return { provider: "moolre", sent: [{ id: "m0", mid: null, bid: null }], fallbackSent: [], outOfFunds: false }
+    })
+    await releaseHeldCampaign("admin1", "42")
+    const handBacks = updates("sms_messages").filter((o) => patchOf(o).status === "pending")
+    const ids = handBacks.map((o) => o.ops.find((x) => x.m === "in")!.args[1] as string[])
+    expect(ids.map((a) => a.length)).toEqual([100, 100, 49])
+    expect(ids.flat()).not.toContain("m0")
+  }, 10_000)
 
   it("notifies the customer in-app and audits sms_held_release", async () => {
     heldScenario()
@@ -172,6 +201,19 @@ describe("releaseHeldCampaign", () => {
     expect(h.dispatch).not.toHaveBeenCalled()
   })
 
+  it("a failed log counts as already released only when it was released", async () => {
+    h.tables = { sms_send_logs: [{ data: { ...HELD_LOG, status: "failed", policy_shadow: { review: { outcome: "released" } } }, error: null }] }
+    expect(await releaseHeldCampaign("admin1", "42")).toEqual({ ok: true, already: true, status: "failed" })
+  })
+
+  it("an orphan log closed as failed by enqueueSend (never released) → NOT_HELD", async () => {
+    h.tables = { sms_send_logs: [{ data: { ...HELD_LOG, status: "failed", policy_shadow: { decision: "hold" } }, error: null }] }
+    expect(await releaseHeldCampaign("admin1", "42")).toMatchObject({ ok: false, code: "NOT_HELD" })
+    h.tables = { sms_send_logs: [{ data: { ...HELD_LOG, status: "failed", policy_shadow: null }, error: null }] }
+    expect(await releaseHeldCampaign("admin1", "42")).toMatchObject({ ok: false, code: "NOT_HELD" })
+    expect(h.dispatch).not.toHaveBeenCalled()
+  })
+
   it("refuses statuses that were never held (blocked)", async () => {
     h.tables = { sms_send_logs: [{ data: { ...HELD_LOG, status: "blocked", policy_shadow: null }, error: null }] }
     expect(await releaseHeldCampaign("admin1", "42")).toMatchObject({ ok: false, code: "NOT_HELD" })
@@ -205,6 +247,8 @@ describe("releaseHeldCampaign", () => {
     const r = await releaseHeldCampaign("admin1", "42")
     expect(r).toEqual({ ok: true, already: false, placed: 0 })
     expect(h.dispatch).not.toHaveBeenCalled()
+    // nothing claimed by this call → no hand-back update at all (only the failed claim)
+    expect(updates("sms_messages")).toHaveLength(1)
   })
 
   it("notification failure is fail-soft", async () => {

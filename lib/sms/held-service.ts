@@ -26,7 +26,9 @@ const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, proces
 const MAX_ATTEMPTS = 3
 /** Same as enqueueSend: stop starting chunks 1 min before the drain's 5-min stale-claim reaper. */
 const DISPATCH_WINDOW_MS = 4 * 60_000
-const NOTIFY_TYPE = "sms_campaign_review"
+/** Ids per hand-back update (keeps the .in() filter well inside URL limits). */
+const RELEASE_CHUNK = 100
+const NOTIFY_TYPE ="sms_campaign_review"
 export const MIN_REJECT_REASON = 3
 const MAX_REJECT_REASON = 500
 
@@ -59,7 +61,12 @@ function settledRelease(log: Pick<LogRow, "status" | "policy_shadow">): ReleaseR
   if (log.status === "failed" && reviewOutcome(log.policy_shadow) === "rejected") {
     return fail("REJECTED", "This campaign was rejected; it can't be released.")
   }
-  if (["queued", "sending", "sent", "partial", "failed"].includes(log.status)) {
+  if (["queued", "sending", "sent", "partial"].includes(log.status)) {
+    return { ok: true, already: true, status: log.status }
+  }
+  // 'failed' counts as already released only if a release actually happened; an orphan log that
+  // enqueueSend closed as failed (refunded, nothing sent) was never released.
+  if (log.status === "failed" && reviewOutcome(log.policy_shadow) === "released") {
     return { ok: true, already: true, status: log.status }
   }
   return fail("NOT_HELD", `This campaign is not held for review (status: ${log.status}).`)
@@ -153,17 +160,23 @@ async function dispatchClaimed(
   } catch (e) {
     console.error("[SMS-HELD] dispatch failed (rows stay pending for the drain):", e)
   } finally {
-    try {
-      let rel = supabaseAdmin
-        .from("sms_messages")
-        .update({ status: "pending", claimed_at: null })
-        .eq("send_log_id", sendLogId)
-        .eq("status", "claimed")
-      if (placedUnmarked.size > 0) rel = rel.not("id", "in", `(${[...placedUnmarked].join(",")})`)
-      const { error: relErr } = await rel
-      if (relErr) console.error("[SMS-HELD] release of unplaced rows failed (stale-claim reaper will recover):", relErr.message)
-    } catch (e) {
-      console.error("[SMS-HELD] release of unplaced rows threw (stale-claim reaper will recover):", e)
+    // Hand back ONLY the rows this call claimed. After the held→queued flip the cron drain may have
+    // claimed other rows of this log and still be sending them: never reset those (double send).
+    // Placed rows are already 'sent' (the status filter skips them); placed-but-unmarked rows stay
+    // claimed for the reaper. Chunked: a 500-id .in() would overflow the request URL.
+    const mine = items.map((i) => i.id).filter((id) => !placedUnmarked.has(id))
+    for (let i = 0; i < mine.length; i += RELEASE_CHUNK) {
+      try {
+        const { error: relErr } = await supabaseAdmin
+          .from("sms_messages")
+          .update({ status: "pending", claimed_at: null })
+          .eq("send_log_id", sendLogId)
+          .eq("status", "claimed")
+          .in("id", mine.slice(i, i + RELEASE_CHUNK))
+        if (relErr) console.error("[SMS-HELD] release of unplaced rows failed (stale-claim reaper will recover):", relErr.message)
+      } catch (e) {
+        console.error("[SMS-HELD] release of unplaced rows threw (stale-claim reaper will recover):", e)
+      }
     }
   }
   try {
