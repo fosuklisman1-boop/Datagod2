@@ -49,6 +49,11 @@ const hub = vi.hoisted(() => ({
   creds: true,
   balance: { ok: true, amountGhs: 10 } as { ok: true; amountGhs: number } | { ok: false; error: string },
   balanceCalls: 0,
+  manual: null as null | { amountGhs: number; setAt: string; setBy: string },
+  settingsThrows: false,
+}))
+vi.mock("./platform-settings", () => ({
+  loadSmsSettings: () => (hub.settingsThrows ? Promise.reject(new Error("db down")) : Promise.resolve({ hubtelManualBalance: hub.manual })),
 }))
 vi.mock("./providers/hubtel", () => ({
   hubtelConfigFromEnv: () => (hub.creds ? { clientId: "i", clientSecret: "s" } : null),
@@ -155,6 +160,39 @@ describe("setRoutingConfig hubtel guard", () => {
     hub.creds = true
     hub.balance = { ok: true, amountGhs: 10 }
     hub.balanceCalls = 0
+    hub.manual = null
+    hub.settingsThrows = false
+  })
+
+  it("relay /balance down but a manual balance set within 30 days → accepted", async () => {
+    hub.balance = { ok: false, error: "relay/hubtel 403" }
+    hub.manual = { amountGhs: 100, setAt: new Date(Date.now() - 2 * 86_400_000).toISOString(), setBy: "a" }
+    const res = await setRoutingConfig({ primary: "hubtel" })
+    expect(res.ok).toBe(true)
+    expect(mockSettings.updates.find((u) => u.key === "sms_primary_provider")?.patch.value).toBe("hubtel")
+  })
+
+  it("relay down + manual balance older than 30 days → refused, mentions the manual option", async () => {
+    hub.balance = { ok: false, error: "relay/hubtel 403" }
+    hub.manual = { amountGhs: 100, setAt: new Date(Date.now() - 31 * 86_400_000).toISOString(), setBy: "a" }
+    const res = await setRoutingConfig({ primary: "hubtel" })
+    expect(res.ok).toBe(false)
+    expect((res as { error: string }).error).toMatch(/manual Hubtel balance/i)
+    expect(mockSettings.updates).toHaveLength(0)
+  })
+
+  it("relay down + settings unreadable → refused (fail closed)", async () => {
+    hub.balance = { ok: false, error: "relay/hubtel 403" }
+    hub.settingsThrows = true
+    const res = await setRoutingConfig({ primary: "hubtel" })
+    expect(res.ok).toBe(false)
+    expect(mockSettings.updates).toHaveLength(0)
+  })
+
+  it("manual balance does not bypass the credentials check", async () => {
+    hub.creds = false
+    hub.manual = { amountGhs: 100, setAt: new Date().toISOString(), setBy: "a" }
+    expect((await setRoutingConfig({ primary: "hubtel" })).ok).toBe(false)
   })
 
   it("rejects hubtel primary when credentials are missing, without writing", async () => {

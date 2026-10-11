@@ -12,6 +12,8 @@
 import { createClient } from "@supabase/supabase-js"
 import { hubtelConfigFromEnv } from "./providers/hubtel"
 import { fetchDisbursementBalance } from "@/lib/ussd-hubtel/relay"
+import { loadSmsSettings } from "./platform-settings"
+import { isManualBalanceFresh } from "./hubtel-manual-balance"
 
 const VALID_PROVIDERS = ["moolre", "mnotify", "brevo", "hubtel"] as const
 type Provider = (typeof VALID_PROVIDERS)[number]
@@ -127,6 +129,16 @@ export async function getRoutingConfig(): Promise<RoutingConfig> {
 // setRoutingConfig — persist routing to admin_settings (JSONB) + bust the cache
 // ---------------------------------------------------------------------------
 
+/** A manual Hubtel balance set within the last 30 days exists. Any read failure ⇒ false (fail closed). */
+async function hasFreshManualHubtelBalance(): Promise<boolean> {
+  try {
+    const s = await loadSmsSettings()
+    return isManualBalanceFresh(s.hubtelManualBalance)
+  } catch {
+    return false
+  }
+}
+
 /** True if `p` is one of the providers we know how to route to. */
 export function isValidProvider(p: unknown): p is Provider {
   return typeof p === "string" && (VALID_PROVIDERS as readonly string[]).includes(p)
@@ -164,7 +176,8 @@ export async function setRoutingConfig(patch: {
 
   if (writes.length === 0) return { ok: false, error: "No routing fields to update" }
 
-  // Hubtel guard: credentials are needed for any role; as PRIMARY the relay balance check must also pass.
+  // Hubtel guard: credentials are needed for any role; as PRIMARY the relay balance check must pass,
+  // OR a manual Hubtel balance must have been set within the last 30 days (design 2026-10-12 §B).
   const hubtelAsPrimary = patch.primary === "hubtel"
   const hubtelAsFallback = (patch.fallbacks ?? []).includes("hubtel")
   if (hubtelAsPrimary || hubtelAsFallback) {
@@ -173,10 +186,10 @@ export async function setRoutingConfig(patch: {
     }
     if (hubtelAsPrimary) {
       const bal = await fetchDisbursementBalance()
-      if (!bal.ok) {
+      if (!bal.ok && !(await hasFreshManualHubtelBalance())) {
         return {
           ok: false,
-          error: `Hubtel balance check via the relay failed: ${bal.error} — redeploy the relay with /balance and set HUBTEL_DISBURSEMENT_ACCOUNT first.`,
+          error: `Hubtel balance check via the relay failed: ${bal.error} — redeploy the relay with /balance and set HUBTEL_DISBURSEMENT_ACCOUNT first, or set a manual Hubtel balance (SMS Platform → Settings → "Hubtel balance (manual fallback)").`,
         }
       }
     }
