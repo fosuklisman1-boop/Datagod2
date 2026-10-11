@@ -5,8 +5,8 @@ export type { ApiResult } from "../../sms-centre/_lib/api"
 
 /** For legacy admin routes that don't use the {success,data} envelope (bundles, allocate). */
 export async function apiRaw<T = Record<string, unknown>>(path: string, init?: RequestInit): Promise<{ ok: boolean; status: number; body: T | null }> {
-  const t = await authToken()
   try {
+    const t = await authToken()
     const res = await fetch(path, {
       ...init,
       headers: { Authorization: `Bearer ${t}`, ...(init?.body ? { "Content-Type": "application/json" } : {}), ...(init?.headers || {}) },

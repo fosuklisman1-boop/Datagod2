@@ -1,5 +1,5 @@
 "use client"
-import { useEffect, useState, type ReactNode } from "react"
+import { useEffect, useId, useState, type ReactNode } from "react"
 import { Check, Copy, Loader2, X } from "lucide-react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
@@ -74,29 +74,37 @@ export function ConfirmDialog(props: {
   onConfirm: (reason: string) => void | Promise<void>
 }) {
   const [reason, setReason] = useState("")
+  const [submitting, setSubmitting] = useState(false)
+  const reasonId = useId()
   useEffect(() => { if (!props.open) setReason("") }, [props.open])
   const min = props.minReason ?? 3
   const needsReason = !!props.reasonLabel
   const invalid = needsReason && reason.trim().length < min
+  const busy = !!props.busy || submitting
+  async function confirm() {
+    if (busy) return
+    setSubmitting(true)
+    try { await props.onConfirm(reason.trim()) } finally { setSubmitting(false) }
+  }
   return (
-    <Dialog open={props.open} onOpenChange={(o) => { if (!props.busy) { props.onOpenChange(o); if (!o) setReason("") } }}>
+    <Dialog open={props.open} onOpenChange={(o) => { if (!busy) { props.onOpenChange(o); if (!o) setReason("") } }}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{props.title}</DialogTitle>
-          {props.description && <DialogDescription>{props.description}</DialogDescription>}
+          {props.description && <DialogDescription asChild><div>{props.description}</div></DialogDescription>}
         </DialogHeader>
         {props.children}
         {needsReason && (
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">{props.reasonLabel}</label>
-            <Textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} maxLength={500} />
+            <label htmlFor={reasonId} className="text-sm font-medium">{props.reasonLabel}</label>
+            <Textarea id={reasonId} value={reason} onChange={(e) => setReason(e.target.value)} rows={3} maxLength={500} />
             {invalid && reason.length > 0 && <p className="text-xs text-red-600">At least {min} characters.</p>}
           </div>
         )}
         <DialogFooter>
-          <Button variant="outline" disabled={props.busy} onClick={() => props.onOpenChange(false)}>Cancel</Button>
-          <Button variant={props.destructive ? "destructive" : "default"} disabled={props.busy || invalid} onClick={() => void props.onConfirm(reason.trim())}>
-            {props.busy && <Loader2 className="size-4 animate-spin" />}{props.confirmLabel}
+          <Button variant="outline" disabled={busy} onClick={() => props.onOpenChange(false)}>Cancel</Button>
+          <Button variant={props.destructive ? "destructive" : "default"} disabled={busy || invalid} onClick={() => void confirm()}>
+            {busy && <Loader2 className="size-4 animate-spin" />}{props.confirmLabel}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -109,20 +117,21 @@ export function ChipsInput({ value, onChange, placeholder, transform }: {
   value: string[]; onChange: (v: string[]) => void; placeholder?: string; transform?: (s: string) => string
 }) {
   const [text, setText] = useState("")
-  function add() {
-    const incoming = parseList(text).map((s) => (transform ? transform(s) : s))
-    if (incoming.length === 0) return
+  function addText(raw: string) {
+    const incoming = parseList(raw).map((s) => (transform ? transform(s) : s)).filter((s) => s.length > 0)
+    if (incoming.length === 0) { setText(""); return }
     const seen = new Set(value.map((v) => v.toLowerCase()))
     const next = [...value]
     for (const i of incoming) if (!seen.has(i.toLowerCase())) { seen.add(i.toLowerCase()); next.push(i) }
     onChange(next); setText("")
   }
+  const add = () => addText(text)
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap gap-1.5">
         {value.length === 0 && <span className="text-sm text-muted-foreground">None</span>}
         {value.map((v) => (
-          <Badge key={v} variant="secondary" className="gap-1 font-mono">
+          <Badge key={v.toLowerCase()} variant="secondary" className="gap-1 font-mono">
             {v}
             <button type="button" aria-label={`Remove ${v}`} onClick={() => onChange(value.filter((x) => x !== v))}><X className="size-3" /></button>
           </Badge>
@@ -130,6 +139,8 @@ export function ChipsInput({ value, onChange, placeholder, transform }: {
       </div>
       <div className="flex gap-2">
         <Input value={text} placeholder={placeholder} onChange={(e) => setText(e.target.value)}
+          onPaste={(e) => { e.preventDefault(); addText(`${text},${e.clipboardData.getData("text")}`) }}
+          onBlur={() => { if (text.trim()) add() }}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add() } }} />
         <Button type="button" variant="outline" onClick={add}>Add</Button>
       </div>

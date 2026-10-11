@@ -21,6 +21,12 @@ export function formatPerSms(priceGhs: unknown, units: unknown): string {
   return `GH₵${(num(priceGhs) / u).toFixed(4).replace(/0+$/, "").replace(/\.$/, "")}`
 }
 
+/** Per-SMS rate with trailing zeros trimmed (e.g. 0.035 -> GH₵0.035). */
+export function formatRate(rate: unknown): string {
+  if (rate === null || rate === undefined || !Number.isFinite(Number(rate))) return "—"
+  return `GH₵${Number(rate).toFixed(4).replace(/0+$/, "").replace(/\.$/, "")}`
+}
+
 /** Only the last 4 digits of a Ghana Card number are ever stored. */
 export function maskIdCard(last4: string | null | undefined): string {
   return last4 && /^\d{4}$/.test(last4) ? `ID ending ${last4}` : "—"
@@ -62,6 +68,7 @@ export function timeAgo(iso: string | null | undefined, now = Date.now()): strin
   if (!iso) return "—"
   const t = Date.parse(iso)
   if (!Number.isFinite(t)) return "—"
+  if (t > now) return "soon"
   const s = Math.max(0, Math.floor((now - t) / 1000))
   if (s < 60) return "just now"
   const m = Math.floor(s / 60)
@@ -110,6 +117,7 @@ export function supplyHeadline(s: { backedCredits: number; error?: string }): st
 export function bannerFor(o: { featureEnabled: boolean; provider: string; supply: { backedCredits: number; error?: string } }): { tone: Tone; text: string } {
   if (!o.featureEnabled) return { tone: "danger", text: "Paused — customers cannot send SMS or buy credits" }
   if (o.supply.error) return { tone: "warning", text: `Live — but credit sales may be paused: ${o.supply.error}` }
+  if (o.supply.backedCredits <= 0) return { tone: "warning", text: "Live — but credit sales are paused: no backed supply" }
   return { tone: "success", text: "Live — customers can buy credits and send SMS" }
 }
 export function previewTotals(rows: { decision: string; code: string; count: number }[]) {

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest"
 import {
   formatCount, formatGhs, formatPerSms, maskIdCard, waLink, statusTone, toneClass, statusLabel, timeAgo, pageInfo,
   messageBreakdown, accountCredits, groupReviews, bannerFor, previewTotals, tabFromParam, TAB_IDS, parseList, providerLabel, supplyHeadline,
-  shouldResetPage,
+  shouldResetPage, formatRate,
 } from "./view"
 
 describe("numbers and money", () => {
@@ -23,6 +23,15 @@ describe("numbers and money", () => {
     expect(formatPerSms(150, 5000)).toBe("GH₵0.03")
     expect(formatPerSms(10, 10)).toBe("GH₵1")
     expect(formatPerSms(10, 0)).toBe("—")
+    expect(formatPerSms(10, -5)).toBe("—")
+  })
+  it("formatRate trims trailing zeros", () => {
+    expect(formatRate(0.035)).toBe("GH₵0.035")
+    expect(formatRate(0.03)).toBe("GH₵0.03")
+    expect(formatRate(1)).toBe("GH₵1")
+    expect(formatRate(0.0349999)).toBe("GH₵0.035")
+    expect(formatRate(null)).toBe("—")
+    expect(formatRate(undefined)).toBe("—")
   })
 })
 
@@ -72,6 +81,19 @@ describe("timeAgo / pageInfo", () => {
     expect(timeAgo(null, now)).toBe("—")
     expect(timeAgo("junk", now)).toBe("—")
   })
+  it("timeAgo boundaries", () => {
+    expect(timeAgo("2026-10-11T11:59:01Z", now)).toBe("just now") // 59s
+    expect(timeAgo("2026-10-11T11:59:00Z", now)).toBe("1 min ago") // 60s
+    expect(timeAgo("2026-10-11T11:00:01Z", now)).toBe("59 min ago")
+    expect(timeAgo("2026-10-11T11:00:00Z", now)).toBe("1 h ago")
+    expect(timeAgo("2026-10-10T12:00:01Z", now)).toBe("23 h ago")
+    expect(timeAgo("2026-10-10T12:00:00Z", now)).toBe("1 d ago")
+    expect(timeAgo("2026-09-12T12:00:00Z", now)).toBe("29 d ago")
+    expect(timeAgo("2026-09-11T12:00:00Z", now)).toBe("2026-09-11")
+  })
+  it("timeAgo future timestamps", () => {
+    expect(timeAgo("2026-10-11T12:05:00Z", now)).toBe("soon")
+  })
   it("pageInfo", () => {
     expect(pageInfo(1, 25, 0)).toEqual({ pages: 1, from: 0, to: 0 })
     expect(pageInfo(2, 25, 57)).toEqual({ pages: 3, from: 26, to: 50 })
@@ -106,6 +128,12 @@ describe("banner / supply / preview", () => {
     const w = bannerFor({ ...ok, supply: { backedCredits: 0, error: "Hubtel balance unavailable: x" } })
     expect(w.tone).toBe("warning")
     expect(w.text).toContain("Hubtel balance unavailable: x")
+  })
+  it("bannerFor: zero backed supply warns, positive unchanged, paused/error take priority", () => {
+    expect(bannerFor({ ...ok, supply: { backedCredits: 0 } })).toEqual({ tone: "warning", text: "Live — but credit sales are paused: no backed supply" })
+    expect(bannerFor({ ...ok, supply: { backedCredits: 1 } }).tone).toBe("success")
+    expect(bannerFor({ ...ok, featureEnabled: false, supply: { backedCredits: 0 } }).tone).toBe("danger")
+    expect(bannerFor({ ...ok, supply: { backedCredits: 0, error: "e" } }).text).toContain("e")
   })
   it("supplyHeadline + providerLabel", () => {
     expect(providerLabel("hubtel")).toBe("Hubtel")

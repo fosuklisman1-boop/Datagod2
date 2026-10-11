@@ -12,8 +12,8 @@ function Stat({ icon, label, value, note }: { icon: ReactNode; label: string; va
         <div className="clay-icon flex size-10 shrink-0 items-center justify-center bg-primary/10 text-primary">{icon}</div>
         <div className="min-w-0">
           <p className="text-xs text-muted-foreground">{label}</p>
-          <p className="truncate text-xl font-semibold tabular-nums">{value}</p>
-          {note && <p className="mt-0.5 text-xs text-muted-foreground">{note}</p>}
+          <p className="break-words text-xl font-semibold tabular-nums">{value}</p>
+          {note && <p className="mt-0.5 break-words text-xs leading-snug text-muted-foreground">{note}</p>}
         </div>
       </CardContent>
     </Card>
@@ -24,7 +24,7 @@ export default function StatCards({ overview }: { overview: OverviewData }) {
   const s = overview.stats
   const u = overview.unrecorded
   return (
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 2xl:grid-cols-6">
       <Stat icon={<BadgeDollarSign className="size-5" />} label="Recorded revenue" value={formatGhs(s.recordedRevenueGhs)}
         note={u.purchases > 0 ? `${formatCount(u.purchases)} earlier purchases (${formatCount(u.credits)} credits) have no recorded amount` : undefined} />
       <Stat icon={<Coins className="size-5" />} label="Credits sold" value={formatCount(s.creditsSold)} />
