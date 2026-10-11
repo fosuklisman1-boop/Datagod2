@@ -186,7 +186,7 @@ export const apiDocsRegistry: ApiDocSection[] = [
     operations: [{
       method: "POST",
       path: "/api/v1/sms/send",
-      description: "Send an SMS to one or more recipients using your own SMS account credits. Requires a shop, sub-agent, or admin account. A send held for a quick review still returns 200, with \"status\": \"held\" and \"held\": true (it goes out once approved).",
+      description: "Send an SMS to one or more recipients using your own SMS account credits. Requires a shop, sub-agent, or admin account. A send held for a quick review still returns 200, with \"status\": \"held\" and \"held\": true (it goes out once approved). send_log_id is the send's log id; a send of more than 500 recipients is split into batches of 500 and send_log_id is the FIRST batch's log.",
       params: [
         { name: "message", type: "string", required: true, description: "3-1000 characters" },
         { name: "recipients", type: "string[]", required: true, description: "Up to 5000 phone numbers" },
@@ -198,7 +198,9 @@ export const apiDocsRegistry: ApiDocSection[] = [
         { status: 402, body: `{ "success": false, "error": "INSUFFICIENT_CREDITS" }` },
         { status: 400, body: `{ "success": false, "error": "POLICY_REJECTED", "code": "CAP_PER_HOUR", "reason": "You've reached 20 sends this hour. Try again within the hour." }` },
         { status: 400, body: `{ "success": false, "error": "BLOCKED", "reason": "This message contains content we can't send." }` },
-        { status: 429, body: `{ "success": false, "error": "SEND_IN_PROGRESS", "reason": "Another send from your account is still being processed; retry shortly." }` },
+        { status: 429, body: `{ "success": false, "error": "SEND_IN_PROGRESS", "reason": "Another send from your account is still being processed. Please try again in a few seconds." }` },
+        { status: 503, body: `{ "success": false, "error": "POLICY_REJECTED", "code": "POLICY_UNAVAILABLE", "reason": "We couldn't check this send right now. Nothing was charged — please try again in a minute." }` },
+        { status: 503, body: `{ "success": false, "error": "POLICY_REJECTED", "code": "FEATURE_DISABLED", "reason": "SMS sending is temporarily unavailable. Please try again later." }` },
         { status: 503, body: `{ "success": false, "error": "SMS_DISABLED", "message": "SMS is temporarily unavailable. Please try again later." }` },
         { status: 403, body: `{ "success": false, "error": "No SMS account for this API key's owner (requires a shop, sub-agent, or admin account)" }` },
       ],

@@ -95,6 +95,10 @@ export async function POST(request: NextRequest) {
     }).catch(() => {})
     return NextResponse.json({
       success: true,
+      // Same shape as a live send; nothing is logged in the sandbox, so there is no log id.
+      status: "queued",
+      held: false,
+      send_log_id: null,
       total: uniqueRecipients.length,
       batches: 1,
       segments: 1,
