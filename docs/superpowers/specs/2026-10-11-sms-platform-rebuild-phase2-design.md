@@ -39,7 +39,7 @@ lib/sms/admin-overview.ts (+test)   overview/stat logic
 lib/sms/admin-lists.ts (+test)      messages / accounts / flags listing (search + paging)
 lib/sms/admin-settings.ts (+test)   validate + save the SMS settings, audit, cache invalidation
 lib/sms/kill-switch.ts (+test)      assertSmsEnabled()
-migrations/20261011_sms_admin_console.sql   overview + list SQL functions (+ purchase-amount backfill, §5)
+migrations/20261011_sms_admin_console.sql   overview + list SQL functions (no backfill, see §5)
 app/api/admin/sms-platform/...      thin routes over the lib services
 ```
 UI uses the existing design system: `DashboardLayout`, `PageHeaderBanner`, shadcn `Tabs/Card/Badge/Dialog/Table`,
@@ -65,7 +65,7 @@ All routes: `verifyAdminAccess`; **writes also require `auth.userId`** (the CRON
 ### 4.1 Overview — `GET /api/admin/sms-platform/overview`
 Returns `{ stats, tabCounts, supply, featureEnabled, policyEnforced, provider, unrecordedPurchases, policyPreview }`.
 - **Total Revenue (GH₵)** = Σ `sms_unit_transactions.amount_ghs` where reason ∈ (`bundle_wallet`,`bundle_paystack`) and delta > 0, **plus** Σ `sms_accounts.amount_paid` (activation fees). Pending credits are not summed (settled rows keep their amount; counting both would double-count).
-- **Credits Sold** = Σ delta of those bundle rows. **Purchases** = their count. `unrecordedPurchases` = those with `amount_ghs IS NULL`.
+- **Credits Sold** = Σ delta of those bundle rows. **Purchases** = their count. `unrecordedPurchases`/`unrecordedCredits` = those with `amount_ghs IS NULL`.
 - **Pending Reviews** = `sms_business_profiles.status='submitted'`. **Pending Senders** = tenant `sms_sender_ids.local_status='pending'`. **Fraud Flags** = open `sms_flags` severity `fraud` + legacy `sms_send_logs.flagged`.
 - **Supply** comes from `getWholesaleCredits()`'s inputs, exposed as a snapshot `{provider, backedCredits, balanceGhs|null, queuedUnsent, error?}` so the UI can say *why* the number is 0 (relay failing, balance unreadable) instead of just showing 0. (`lib/sms/wholesale.ts` gains `getWholesaleSnapshot()`; `getWholesaleCredits()` wraps it unchanged.)
 - **Policy preview** = counts of recorded `policy_shadow` decisions by `decision`/`code` over the last 7 days.
@@ -83,13 +83,8 @@ Provider routing keeps using `/api/admin/sms-settings` (its Hubtel readiness gua
 ### 4.4 Existing endpoints reused
 Business reviews (`business-reviews`, `[id]` incl. `retry_mode`), sender IDs (`sender-ids/[id]`), account PATCH (mode / API-limit), `sms/allocate`, `sms/bundles` (+ new DELETE with the 48 h guard), `shop-sms` POST (suspend/dismiss).
 
-## 5. Revenue history backfill
-56 bundle purchases (38 wallet, 18 Paystack, 2026-06-17 → 2026-10-07) predate amount recording and the old summary function
-returns 0 bundle revenue. A one-time, idempotent step in the Phase 2 migration fills `amount_ghs` where it can be derived
-**exactly**: Paystack purchases from the matching payment record (ref → amount); wallet purchases from the wallet debit
-that matches the ref's user/time. Anything not exactly matchable stays `NULL` — never estimated — and the card shows
-"N earlier purchases have no recorded amount". The migration reports matched/unmatched counts, and the plan's first step is
-a read-only investigation of the payment/wallet tables to confirm the matching rule before writing it.
+## 5. Revenue history (amended 2026-10-11 after investigating the data)
+56 bundle purchases (38 wallet, 18 Paystack, 2026-06-17 → 2026-10-07) predate amount recording, and the old summary function returns 0 bundle revenue. **An exact backfill is not possible**: the 18 Paystack purchases (refs `smsqty-…`) left no row in `payment_attempts`, `wallet_payments` or `transactions` (they exist only at Paystack), and the 37 wallet quantity purchases were priced from `sms_price_per_credit`, which has no history. Only 1 purchase (a wallet bundle at an unchanged price) is derivable, not worth special logic. **Decision: no backfill and no estimates.** The revenue card is labelled "Recorded revenue" and shows a note "N earlier purchases (X credits) have no recorded amount", driven by `unrecorded_purchases` / `unrecorded_credits` from the overview function. Every purchase from the Phase 1 deploy onward carries `amount_ghs`.
 
 ## 6. Kill switch
 `lib/sms/kill-switch.ts: assertSmsEnabled()` reads `featureEnabled` from the cached settings (60 s per instance; the instance
@@ -118,7 +113,7 @@ Default is on, so deployment changes nothing until an admin flips it.
 - Gates unchanged: `tsc`, full `vitest` (only the 9 known `order-health-service` failures allowed), placeholder-env `next build`, then push.
 
 ## 9. Rollout
-One migration (SQL functions + backfill), then deploy. Sidebar link `/admin/sms` is unchanged. No customer-visible change; the
+One migration (SQL functions), then deploy. Sidebar link `/admin/sms` is unchanged. No customer-visible change; the
 kill switch defaults on. The page reads real Phase 1 data (flags and shadow policy start empty until Phase 1 code has been serving traffic).
 
 ## 10. Out of scope
