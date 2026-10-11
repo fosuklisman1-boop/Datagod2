@@ -55,7 +55,7 @@ describe("getHomeSummary", () => {
     expect(r.senderPool).toEqual(["ALERTS", "PAYCO"])
     expect(r.defaultSender).toBeNull()
     expect(r.recentLedger).toHaveLength(1)
-    expect(r.recentLedger[0]).toMatchObject({ id: 9, delta: -10, label: "SMS campaign #7" })
+    expect(r.recentLedger![0]).toMatchObject({ id: 9, delta: -10, label: "SMS campaign #7" })
     expect(h.rpcCalls[0]).toEqual({ fn: "sms_customer_stats", args: { p_account_id: "acct1", p_days: 30 } })
     expect(opsOf("sms_unit_transactions")).toContainEqual({ m: "limit", args: [5] })
     expect(opsOf("sms_unit_transactions")).toContainEqual({ m: "eq", args: ["sms_account_id", "acct1"] })
@@ -79,16 +79,39 @@ describe("getHomeSummary", () => {
     expect(r.defaultSender).toBe("MYSHOP")
     expect(opsOf("sms_sender_ids")).toContainEqual({ m: "order", args: ["created_at", { ascending: true }] })
   })
-  it("throws on a stats RPC error", async () => {
+  it("degrades stats to null (and logs) when the stats RPC fails", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
     h.tables.sms_accounts = { data: { mode: "platform" }, error: null }
     h.tables.sms_unit_transactions = { data: [], error: null }
     h.rpcError = { message: "stats boom" }
-    await expect(getHomeSummary("acct1")).rejects.toThrow("stats boom")
+    const r = await getHomeSummary("acct1")
+    expect(r.stats).toBeNull()
+    expect(r.recentLedger).toEqual([])
+    expect(r.featureEnabled).toBe(true)
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining("[SMS-HOME]"), expect.anything())
+    spy.mockRestore()
   })
-  it("throws on a ledger error", async () => {
+  it("degrades recentLedger to null (and logs) when the ledger read fails", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
     h.tables.sms_accounts = { data: { mode: "platform" }, error: null }
     h.tables.sms_unit_transactions = { data: null, error: { message: "ledger boom" } }
-    await expect(getHomeSummary("acct1")).rejects.toThrow("ledger boom")
+    h.rpcData = [{ campaigns: 1, recipients: 2, credits_used: 3 }]
+    const r = await getHomeSummary("acct1")
+    expect(r.recentLedger).toBeNull()
+    expect(r.stats).toEqual({ campaigns: 1, recipients: 2, creditsUsed: 3 })
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining("[SMS-HOME]"), expect.anything())
+    spy.mockRestore()
+  })
+  it("still throws when a required read fails (mode, settings, default sender)", async () => {
+    h.tables.sms_unit_transactions = { data: [], error: null }
+    h.tables.sms_accounts = { data: null, error: { message: "mode boom" } }
+    await expect(getHomeSummary("acct1")).rejects.toThrow("mode boom")
+    h.tables.sms_accounts = { data: { mode: "platform" }, error: null }
+    h.settings.mockRejectedValue(new Error("settings boom"))
+    await expect(getHomeSummary("acct1")).rejects.toThrow("settings boom")
+    h.settings.mockResolvedValue(SETTINGS)
+    h.tables.sms_sender_ids = { data: null, error: { message: "sender boom" } }
+    await expect(getHomeSummary("acct1")).rejects.toThrow("sender boom")
   })
 })
 

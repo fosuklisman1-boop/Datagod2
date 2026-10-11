@@ -157,8 +157,8 @@ export default function SmsHomePage() {
               </Link>
             </CardHeader>
             <CardContent>
-              {recentLedger.length === 0 ? (
-                <p className="py-4 text-center text-sm text-muted-foreground">{stats ? "No credit activity yet." : "Couldn’t load credit activity."}</p>
+              {!recentLedger || recentLedger.length === 0 ? (
+                <p className="py-4 text-center text-sm text-muted-foreground">{recentLedger ? "No credit activity yet." : "Couldn’t load credit activity."}</p>
               ) : (
                 <ul className="divide-y divide-border">
                   {recentLedger.slice(0, 5).map((e) => (

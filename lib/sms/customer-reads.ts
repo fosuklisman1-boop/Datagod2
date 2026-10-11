@@ -70,8 +70,12 @@ async function loadMode(accountId: string): Promise<SmsMode> {
 }
 
 export async function getHomeSummary(accountId: string) {
+  // Cosmetic reads degrade to null (logged); everything the UI needs to stay correct is REQUIRED and throws.
+  const optional = <T>(label: string, p: Promise<T>): Promise<T | null> =>
+    p.catch((e) => { console.error(`[SMS-HOME] ${label} failed:`, e); return null })
   const [mode, stats, ledger, settings, defaultSender] = await Promise.all([
-    loadMode(accountId), loadStats(accountId), recentLedger(accountId, HOME_LEDGER_ROWS), loadSmsSettings(),
+    loadMode(accountId), optional("stats", loadStats(accountId)),
+    optional("recent ledger", recentLedger(accountId, HOME_LEDGER_ROWS)), loadSmsSettings(),
     loadDefaultSender(supabaseAdmin, accountId),
   ])
   const caps = settings.caps[mode]

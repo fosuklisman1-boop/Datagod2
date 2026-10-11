@@ -112,7 +112,13 @@ export async function POST(request: NextRequest) {
 
   let effectiveSenderId = senderId as string | undefined
   if (!effectiveSenderId) {
-    effectiveSenderId = (await loadDefaultSender(supabaseAdmin, account.id)) ?? undefined
+    try {
+      effectiveSenderId = (await loadDefaultSender(supabaseAdmin, account.id)) ?? undefined
+    } catch (e) {
+      // Do not silently fall back to the platform sender; nothing has been charged yet.
+      console.error("[SMS-SEND] default sender lookup failed:", e)
+      return NextResponse.json({ success: false, error: "SEND_ERROR" }, { status: 500 })
+    }
   }
 
   // Enqueue — auto-batches into 500s when the list is larger.

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { loadDefaultSender } from "./default-sender"
 
-function fake(result: { data: unknown }) {
+function fake(result: { data: unknown; error?: { message: string } | null }) {
   const calls: [string, unknown[]][] = []
   const c: any = {}
   for (const m of ["select", "eq", "order", "limit"]) c[m] = (...a: unknown[]) => { calls.push([m, a]); return c }
@@ -18,5 +18,8 @@ describe("loadDefaultSender", () => {
   })
   it("returns null when none", async () => {
     expect(await loadDefaultSender(fake({ data: null }).db, "a1")).toBeNull()
+  })
+  it("throws on a DB error instead of silently using the platform sender", async () => {
+    await expect(loadDefaultSender(fake({ data: null, error: { message: "db down" } }).db, "a1")).rejects.toThrow("db down")
   })
 })

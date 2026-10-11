@@ -63,8 +63,10 @@ export interface LedgerEntry {
 export interface SmsHome {
   mode: SmsMode
   limits: SmsLimits
-  stats: SmsStats
-  recentLedger: LedgerEntry[]
+  /** null when the stats read failed server-side. */
+  stats: SmsStats | null
+  /** null when the recent-ledger read failed server-side. */
+  recentLedger: LedgerEntry[] | null
   featureEnabled: boolean
   /** Default sender name used when the account has no active own sender ID. */
   platformSender: string

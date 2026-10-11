@@ -10,7 +10,7 @@ export interface SmsAccountState {
   mode: SmsMode | null
   limits: SmsLimits | null
   stats: SmsStats | null
-  recentLedger: LedgerEntry[]
+  recentLedger: LedgerEntry[] | null
   /** Kill-switch state; defaults to true until /api/sms/home says otherwise. */
   featureEnabled: boolean
   /** Platform default sender name (null until /api/sms/home has loaded once). */
@@ -101,7 +101,7 @@ export function SmsAccountProvider({ children }: { children: ReactNode }) {
     mode: home?.mode ?? null,
     limits: home?.limits ?? null,
     stats: home?.stats ?? null,
-    recentLedger: home?.recentLedger ?? [],
+    recentLedger: home?.recentLedger ?? null,
     featureEnabled: home?.featureEnabled ?? true,
     platformSender: home?.platformSender ?? null,
     defaultSender: home?.defaultSender ?? null,
