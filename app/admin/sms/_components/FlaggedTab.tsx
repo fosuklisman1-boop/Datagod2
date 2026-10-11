@@ -53,7 +53,7 @@ function PolicyPreview({ rows }: { rows: OverviewData["policyPreview"] }) {
 
 type Severity = "" | "fraud" | "info"
 
-function FlagCard({ row, onChanged }: { row: FlagRow; onChanged: () => void }) {
+function FlagCard({ row, onChanged, stale }: { row: FlagRow; onChanged: () => void; stale?: boolean }) {
   const [action, setAction] = useState<null | "dismiss" | "suspend">(null)
   const [busy, setBusy] = useState(false)
   async function run(kind: "dismiss" | "suspend") {
@@ -82,8 +82,8 @@ function FlagCard({ row, onChanged }: { row: FlagRow; onChanged: () => void }) {
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1">User <span className="font-mono">{row.user_id.slice(0, 8)}…</span><CopyButton value={row.user_id} title="Copy user ID" /></span>
           <div className="ml-auto flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" disabled={busy} onClick={() => setAction("dismiss")}>Dismiss</Button>
-            <Button size="sm" variant="destructive" disabled={busy} onClick={() => setAction("suspend")}>Suspend account</Button>
+            <Button size="sm" variant="outline" disabled={busy || stale} onClick={() => setAction("dismiss")}>Dismiss</Button>
+            <Button size="sm" variant="destructive" disabled={busy || stale} onClick={() => setAction("suspend")}>Suspend account</Button>
           </div>
         </div>
       </CardContent>
@@ -128,7 +128,7 @@ export default function FlaggedTab({ overview, onChanged }: { overview: Overview
         : !data || data.rows.length === 0 ? <EmptyState title="Nothing flagged — all clear" />
         : (<>
           {error && <ErrorBox message={error} onRetry={reload} />}
-          <div className="space-y-3">{data.rows.map((r) => <FlagCard key={`${r.source}-${r.id}`} row={r} onChanged={() => { void reload(); onChanged() }} />)}</div>
+          <div className={`space-y-3 transition-opacity ${loading ? "pointer-events-none opacity-60" : ""}`} aria-busy={loading}>{data.rows.map((r) => <FlagCard key={`${r.source}-${r.id}`} row={r} stale={loading} onChanged={() => { void reload(); onChanged() }} />)}</div>
           <Pager page={data.page} pageSize={data.pageSize} total={data.total} onPage={setPage} />
         </>)}
     </div>

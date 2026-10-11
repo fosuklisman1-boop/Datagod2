@@ -51,7 +51,7 @@ export default function MessagesTab() {
         : !data || data.rows.length === 0 ? <EmptyState title="No messages found" hint={q || status ? "Try a different search or filter." : undefined} />
         : (<>
           {error && <ErrorBox message={error} onRetry={reload} />}
-          <div className="space-y-3">
+          <div className={`space-y-3 transition-opacity ${loading ? "pointer-events-none opacity-60" : ""}`} aria-busy={loading}>
             {data.rows.map((m) => {
               const breakdown = messageBreakdown(m)
               return (
