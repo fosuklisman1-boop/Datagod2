@@ -925,6 +925,70 @@ describe("enforcement ON", () => {
       }
     })
 
+    const idx = (fn: string, nth = 0) => {
+      let seen = -1
+      return h.state.calls.findIndex((c) => c.fn === fn && ++seen === nth)
+    }
+    const msgInsertIdx = (nth: number) => {
+      let seen = -1
+      return h.state.calls.findIndex((c) => c.fn === "insert" && c.table === "sms_messages" && ++seen === nth)
+    }
+
+    it("single chunk: released right after its log + messages are inserted, BEFORE provider dispatch", async () => {
+      const r = await enqueueSendBatched("u1", "acc1", "Hello world", recips(2))
+      expect(r.ok).toBe(true)
+      expect(lockCalls().map((c) => c.fn)).toEqual(["sms_try_send_lock", "sms_release_send_lock"]) // exactly once
+      expect(idx("sms_release_send_lock")).toBeGreaterThan(msgInsertIdx(0))
+      expect(idx("sms_release_send_lock")).toBeLessThan(idx("bulk"))
+    })
+
+    it("multi chunk: lease kept through chunk 1's dispatch, released once the LAST chunk is logged, before its dispatch", async () => {
+      const r = await enqueueSendBatched("u1", "acc1", "Hello world", recips(620))
+      expect(r).toMatchObject({ ok: true, batches: 2 })
+      const rel = idx("sms_release_send_lock")
+      expect(lockCalls().filter((c) => c.fn === "sms_release_send_lock")).toHaveLength(1)
+      expect(rel).toBeGreaterThan(idx("bulk", 0))       // chunk 1 dispatched while still leased
+      expect(rel).toBeGreaterThan(msgInsertIdx(1))      // chunk 2 logged + messages inserted
+      expect(rel).toBeLessThan(idx("bulk", 1))          // ...then released before chunk 2 dispatch
+    })
+
+    it("flags are recorded before the early release (first log id), still exactly once", async () => {
+      h.state.policyResult = { decision: "allow", code: "OK", reason: "", flags: [{ severity: "info", reason: "r", matched: "m" }] }
+      await enqueueSendBatched("u1", "acc1", "Hello world", recips(620))
+      const flags = h.state.calls.filter((c) => c.fn === "record_sms_flags")
+      expect(flags).toHaveLength(1)
+      expect(flags[0].args.p_send_log_id).toBe("log-1")
+      expect(idx("record_sms_flags")).toBeLessThan(idx("sms_release_send_lock"))
+    })
+
+    it("last chunk never logged (credits ran out) → released in finally, exactly once; flags still recorded", async () => {
+      h.state.policyResult = { decision: "allow", code: "OK", reason: "", flags: [{ severity: "info", reason: "r", matched: "m" }] }
+      let n = 0
+      const orig = h.fake.rpc
+      h.fake.rpc = (fn: string, args?: any) => {
+        if (fn === "debit_sms_for_send" && ++n === 2) {
+          h.state.calls.push({ fn, args })
+          return Promise.resolve({ data: null, error: { message: "INSUFFICIENT_CREDITS" } })
+        }
+        return orig(fn, args)
+      }
+      try {
+        const r = await enqueueSendBatched("u1", "acc1", "Hello world", recips(620))
+        expect(r).toMatchObject({ ok: true, partial: true, stoppedReason: "INSUFFICIENT_CREDITS" })
+      } finally {
+        h.fake.rpc = orig
+      }
+      expect(lockCalls().map((c) => c.fn)).toEqual(["sms_try_send_lock", "sms_release_send_lock"])
+      expect(h.state.calls.filter((c) => c.fn === "record_sms_flags")).toHaveLength(1)
+    })
+
+    it("hold: released after the held chunk is stored", async () => {
+      h.state.policyResult = { decision: "hold", code: "REVIEW_HOLD", reason: "r", flags: [] }
+      await enqueueSendBatched("u1", "acc1", "Hello world", recips(1))
+      expect(lockCalls().map((c) => c.fn)).toEqual(["sms_try_send_lock", "sms_release_send_lock"])
+      expect(idx("sms_release_send_lock")).toBeGreaterThan(msgInsertIdx(0))
+    })
+
     it("released even when the send throws", async () => {
       h.state.debitError = "connection reset" // unmapped debit error → enqueueSend throws
       await expect(enqueueSendBatched("u1", "acc1", "Hello world", recips(1))).rejects.toBeTruthy()

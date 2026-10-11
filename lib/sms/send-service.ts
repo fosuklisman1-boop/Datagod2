@@ -92,7 +92,10 @@ export async function enqueueSend(
   recipients: string[],
   shopTokens?: ShopTokens,
   senderId?: string,
-  enforced?: ChunkPolicy
+  enforced?: ChunkPolicy,
+  /** Enforced sends only: called once this chunk's log + messages are durably inserted, BEFORE
+   *  any dispatch (lets the batch orchestrator release the per-account lease early). */
+  onLogged?: (sendLogId: string) => Promise<void>
 ): Promise<EnqueueSendResult | EnqueueSendError> {
   // An enforced 'hold': debit + store the campaign, but never dispatch it (admin releases it).
   const held = enforced?.decision === "hold"
@@ -280,6 +283,15 @@ export async function enqueueSend(
       }
     }
     return { ok: false, error: "ENQUEUE_FAILED" }
+  }
+
+  // Logged + messages stored. Never let the callback affect a paid send.
+  if (onLogged) {
+    try {
+      await onLogged(sendLogId)
+    } catch (e) {
+      console.error("[SMS-SEND] onLogged callback failed (ignored):", e)
+    }
   }
 
   // Held for review: credits reserved and messages stored; no dispatch, release or recompute.
@@ -526,18 +538,27 @@ async function enforcedSendBatched(
   }
   if (!prepared || prepared.trim().length === 0) return { ok: false, error: "EMPTY_MESSAGE" }
 
-  // Per-account lease: taken BEFORE the usage/policy read and released only after this send's
-  // last log row exists, so a parallel send can't read the same usage and slip past the caps.
+  // Per-account lease: taken BEFORE the usage/policy read and released as soon as this send's
+  // LAST log row (+ messages) exists — before that chunk's provider dispatch — so a parallel
+  // send can't read the same usage and slip past the caps, yet isn't blocked by dispatch time.
   const lock = await trySendLock(accountId)
   if (lock.status === "error") {
     return { ok: false, error: "POLICY_REJECTED", code: "POLICY_UNAVAILABLE", reason: POLICY_UNAVAILABLE_REASON }
   }
   if (lock.status === "busy") return { ok: false, error: "SEND_IN_PROGRESS", reason: SEND_IN_PROGRESS_MESSAGE }
+  const token = lock.token
+  let released = false
+  // Exactly once (early from the last chunk, else in the finally). Owner-scoped in SQL, so even a
+  // late release after the lease expired and was re-taken by another send is a no-op.
+  const release = async () => {
+    if (released) return
+    released = true
+    await releaseSendLock(accountId, token)
+  }
   try {
-    return await enforcedSendLocked(userId, accountId, message, recipients, prepared, sender, shopTokens, senderId)
+    return await enforcedSendLocked(userId, accountId, message, recipients, prepared, sender, release, shopTokens, senderId)
   } finally {
-    // Owner-scoped: if this send outlived its lease and another send took it, this is a no-op.
-    await releaseSendLock(accountId, lock.token)
+    await release()
   }
 }
 
@@ -548,6 +569,7 @@ async function enforcedSendLocked(
   recipients: string[],
   prepared: string,
   sender: PolicySender,
+  release: () => Promise<void>,
   shopTokens?: ShopTokens,
   senderId?: string
 ): Promise<BatchedSendResult | EnqueueSendError> {
@@ -591,16 +613,37 @@ async function enforcedSendLocked(
   }
 
   const policy: ChunkPolicy = { decision: outcome.kind, mode: outcome.mode, shadow: outcome.shadow }
+
+  // Flags the policy raised on an allowed/held send (business info flags, e.g. flagged keywords)
+  // count toward the review-hold threshold. Attached to the FIRST log; recorded once, best-effort
+  // (recordFlags never throws) so a paid send is never failed by it. No log → nothing recorded.
+  let firstLogId: string | null = null
+  let flagsRecorded = false
+  const recordFlagsOnce = async () => {
+    if (flagsRecorded || !firstLogId || outcome.shadow.flags.length === 0) return
+    flagsRecorded = true
+    await recordFlags({ accountId, sendLogId: firstLogId, flags: outcome.shadow.flags, thresholds: outcome.thresholds })
+  }
+
+  // Intermediate chunks keep the lease (their successors' logs don't exist yet); the LAST chunk
+  // releases it right after its log + messages are inserted, before its dispatch.
+  const totalChunks = Math.ceil(recipients.length / SMS_BATCH_SIZE)
+  let chunkNo = 0
   const result = await runSequentialBatches(
     recipients,
-    (chunk) => enqueueSend(userId, accountId, message, chunk, shopTokens, senderId, policy),
+    (chunk) => {
+      const isLast = ++chunkNo === totalChunks
+      return enqueueSend(userId, accountId, message, chunk, shopTokens, senderId, policy, async (logId) => {
+        if (firstLogId === null) firstLogId = logId
+        if (isLast) {
+          await recordFlagsOnce()
+          await release()
+        }
+      })
+    },
     BATCH_OPTS
   )
-  // Flags the policy raised on an allowed/held send (business info flags, e.g. flagged keywords)
-  // count toward the review-hold threshold. Attached to the first log; best-effort (recordFlags
-  // never throws) so a paid send is never failed by it. No log → nothing was sent → nothing recorded.
-  if (result.ok && result.sendLogId && outcome.shadow.flags.length > 0) {
-    await recordFlags({ accountId, sendLogId: result.sendLogId, flags: outcome.shadow.flags, thresholds: outcome.thresholds })
-  }
+  // The last chunk may never have been logged (e.g. credits ran out mid-run): record now.
+  await recordFlagsOnce()
   return result
 }
