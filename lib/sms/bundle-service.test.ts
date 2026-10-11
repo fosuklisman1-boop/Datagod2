@@ -17,6 +17,10 @@ const h = vi.hoisted(() => {
     updateError: false,
     duplicate: false,
     smsEnabled: true, // master kill switch
+    bundleMissing: false, // sms_bundles lookup returns nothing
+    deletes: [] as { table: string; cols: [string, any][] }[],
+    deleteError: false,
+    inserts: [] as { table: string; row: any }[],
   }
   const bundleRow = { id: "b1", name: "5k", units: 5000, price_ghs: 150, owner_type_scope: "all", active: true, mode: "platform", sort_order: 0 }
   const notifySpy = vi.fn()
@@ -45,6 +49,22 @@ const h = vi.hoisted(() => {
       return Promise.resolve({ data: null, error: null })
     },
     from: (table: string) => ({
+      insert: (row: any) => {
+        state.inserts.push({ table, row })
+        return Promise.resolve({ data: null, error: null })
+      },
+      delete: () => {
+        const cols: [string, any][] = []
+        const chain: any = {
+          eq: (c: string, v: any) => {
+            cols.push([c, v])
+            if (cols.length < 2) return chain
+            state.deletes.push({ table, cols })
+            return Promise.resolve({ data: null, error: state.deleteError ? { message: "del boom" } : null })
+          },
+        }
+        return chain
+      },
       update: (patch: any) => ({
         eq: (_c: string, ref: any) => ({
           is: (col: string, val: any) => {
@@ -56,7 +76,7 @@ const h = vi.hoisted(() => {
       select: () => ({
         eq: () => ({
           maybeSingle: () => {
-            if (table === "sms_bundles") return Promise.resolve({ data: bundleRow, error: null })
+            if (table === "sms_bundles") return Promise.resolve({ data: state.bundleMissing ? null : bundleRow, error: null })
             if (table === "sms_unit_transactions") return Promise.resolve({ data: state.refInTx ? { id: "x" } : null, error: null })
             if (table === "sms_pending_credits") return Promise.resolve({ data: state.refInPending ? { id: "y" } : null, error: null })
             if (table === "tenant_global_settings") return Promise.resolve({ data: { value: { amount: state.pricePerCredit } }, error: null })
@@ -84,7 +104,7 @@ vi.mock("./wholesale", () => ({ getWholesaleCredits: () => Promise.resolve(h.sta
 vi.mock("./kill-switch", () => ({ isSmsEnabled: () => Promise.resolve(h.state.smsEnabled) }))
 vi.mock("./notify", () => ({ notifyAdminSmsShortfall: (...a: any[]) => { h.notifySpy(...a); return Promise.resolve() } }))
 
-import { purchaseBundleViaWallet, purchaseUnitsByQuantity, quoteCredits, getPricePerCredit, creditUnitsForPaystack, allocateUnits } from "./bundle-service"
+import { purchaseBundleViaWallet, purchaseUnitsByQuantity, quoteCredits, getPricePerCredit, creditUnitsForPaystack, allocateUnits, canDeleteBundle, BUNDLE_DELETE_MIN_INACTIVE_MS, deleteBundle } from "./bundle-service"
 
 beforeEach(() => {
   h.state.calls.length = 0
@@ -92,6 +112,12 @@ beforeEach(() => {
   h.state.updateError = false
   h.state.duplicate = false
   h.state.smsEnabled = true
+  h.state.bundleMissing = false
+  h.state.deletes.length = 0
+  h.state.deleteError = false
+  h.state.inserts.length = 0
+  delete (h.bundleRow as any).updated_at
+  h.bundleRow.active = true
   h.bundleRow.owner_type_scope = "all"
   delete (h.fake as any)._accountMode
   h.bundleRow.mode = "platform"
@@ -360,5 +386,66 @@ describe("kill switch (SMS_DISABLED)", () => {
     expect(res.ok).toBe(true)
     expect(res.outcome).toBe("credited")
     expect(fns()).toContain("credit_sms_units_if_solvent")
+  })
+})
+
+describe("canDeleteBundle (pure)", () => {
+  const now = Date.parse("2026-10-11T12:00:00Z")
+  it("refuses an active bundle", () => {
+    expect(canDeleteBundle({ active: true, updated_at: "2026-01-01T00:00:00Z" }, now))
+      .toEqual({ ok: false, error: "Deactivate the bundle first" })
+  })
+  it("refuses a bundle deactivated less than 48 h ago", () => {
+    const r = canDeleteBundle({ active: false, updated_at: new Date(now - 47 * 3600_000).toISOString() }, now)
+    expect(r.ok).toBe(false)
+  })
+  it("refuses an unparseable updated_at", () => {
+    expect(canDeleteBundle({ active: false, updated_at: "garbage" }, now).ok).toBe(false)
+  })
+  it("allows a bundle inactive for 48 h or more", () => {
+    expect(canDeleteBundle({ active: false, updated_at: new Date(now - BUNDLE_DELETE_MIN_INACTIVE_MS).toISOString() }, now)).toEqual({ ok: true })
+  })
+})
+
+describe("deleteBundle", () => {
+  const old = () => new Date(Date.now() - 49 * 3600_000).toISOString()
+  it("refuses an empty admin id", async () => {
+    expect(await deleteBundle("", "b1")).toEqual({ ok: false, error: "Admin user required" })
+    expect(h.state.deletes).toHaveLength(0)
+  })
+  it("not found", async () => {
+    h.state.bundleMissing = true
+    expect(await deleteBundle("admin1", "b1")).toEqual({ ok: false, error: "Bundle not found" })
+    expect(h.state.deletes).toHaveLength(0)
+  })
+  it("active bundle is refused and no delete is issued", async () => {
+    ;(h.bundleRow as any).updated_at = old()
+    const r = await deleteBundle("admin1", "b1")
+    expect(r).toEqual({ ok: false, error: "Deactivate the bundle first" })
+    expect(h.state.deletes).toHaveLength(0)
+    expect(h.state.inserts).toHaveLength(0)
+  })
+  it("recently deactivated bundle is refused", async () => {
+    h.bundleRow.active = false
+    ;(h.bundleRow as any).updated_at = new Date().toISOString()
+    expect((await deleteBundle("admin1", "b1")).ok).toBe(false)
+    expect(h.state.deletes).toHaveLength(0)
+  })
+  it("old inactive bundle: delete issued for that id (guarded on active=false) + audit row", async () => {
+    h.bundleRow.active = false
+    ;(h.bundleRow as any).updated_at = old()
+    expect(await deleteBundle("admin1", "b1")).toEqual({ ok: true })
+    expect(h.state.deletes).toEqual([{ table: "sms_bundles", cols: [["id", "b1"], ["active", false]] }])
+    const audit = h.state.inserts.find((i) => i.table === "admin_audit_log")
+    expect(audit?.row.action).toBe("sms_bundle_delete")
+    expect(audit?.row.admin_id).toBe("admin1")
+    expect(audit?.row.old_value).toEqual({ id: "b1", name: "5k" })
+  })
+  it("delete error → failure, no audit row", async () => {
+    h.bundleRow.active = false
+    ;(h.bundleRow as any).updated_at = old()
+    h.state.deleteError = true
+    expect(await deleteBundle("admin1", "b1")).toEqual({ ok: false, error: "Could not delete the bundle" })
+    expect(h.state.inserts).toHaveLength(0)
   })
 })

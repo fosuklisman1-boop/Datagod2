@@ -3,6 +3,7 @@ import { bundleVisibleTo, canPurchaseBundle, type OwnerType } from "./foundation
 import { getWholesaleCredits } from "./wholesale"
 import { notifyAdminSmsShortfall } from "./notify"
 import { isSmsEnabled } from "./kill-switch"
+import { writeAuditLog } from "./moderation-service"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -242,4 +243,31 @@ export async function creditUnitsForPaystack(
   accountId: string, units: number, paystackRef: string, amountGhs: number | null = null
 ): Promise<PurchaseResult> {
   return issueUnits(accountId, units, "bundle_paystack", paystackRef, amountGhs)
+}
+
+export const BUNDLE_DELETE_MIN_INACTIVE_MS = 48 * 3600_000
+
+export function canDeleteBundle(
+  b: { active: boolean; updated_at: string },
+  now = Date.now()
+): { ok: true } | { ok: false; error: string } {
+  if (b.active) return { ok: false, error: "Deactivate the bundle first" }
+  const inactiveFor = now - Date.parse(b.updated_at)
+  if (!Number.isFinite(inactiveFor) || inactiveFor < BUNDLE_DELETE_MIN_INACTIVE_MS) {
+    return { ok: false, error: "A bundle can be deleted 48 hours after it was deactivated (so in-flight payments can still be credited)" }
+  }
+  return { ok: true }
+}
+
+/** Hard-delete an inactive bundle (admin). Purchases already credited are unaffected (they live in the ledger by ref). */
+export async function deleteBundle(adminId: string, id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!adminId) return { ok: false, error: "Admin user required" }
+  const { data: b } = await supabaseAdmin.from("sms_bundles").select("id, name, active, updated_at, units, price_ghs").eq("id", id).maybeSingle()
+  if (!b) return { ok: false, error: "Bundle not found" }
+  const can = canDeleteBundle(b as { active: boolean; updated_at: string })
+  if (!can.ok) return can
+  const { error } = await supabaseAdmin.from("sms_bundles").delete().eq("id", id).eq("active", false)
+  if (error) return { ok: false, error: "Could not delete the bundle" }
+  await writeAuditLog(adminId, "sms_bundle_delete", null, { id, name: (b as { name: string }).name }, null).catch(() => {})
+  return { ok: true }
 }

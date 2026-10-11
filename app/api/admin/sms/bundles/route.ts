@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
-import { listAllBundles, createBundle, updateBundle } from "@/lib/sms/bundle-service"
+import { listAllBundles, createBundle, updateBundle, deleteBundle } from "@/lib/sms/bundle-service"
+import { adminGuard } from "@/lib/sms/admin-guard"
 
 export async function GET(request: NextRequest) {
   const auth = await verifyAdminAccess(request)
@@ -31,4 +32,15 @@ export async function PATCH(request: NextRequest) {
     if (e instanceof Error && e.message.startsWith("mode must be")) return NextResponse.json({ error: e.message }, { status: 400 })
     throw e
   }
+}
+
+// DELETE ?id=<bundle id> — guarded hard delete (inactive for ≥ 48 h)
+export async function DELETE(request: NextRequest) {
+  const g = await adminGuard(request, { write: true })
+  if (!g.ok) return g.response
+  const id = request.nextUrl.searchParams.get("id")
+  if (!id) return NextResponse.json({ error: "id required" }, { status: 400 })
+  const r = await deleteBundle(g.adminId!, id)
+  if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 })
+  return NextResponse.json({ success: true })
 }
