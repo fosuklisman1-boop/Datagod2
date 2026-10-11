@@ -1,5 +1,5 @@
 "use client"
-import { useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { ChevronDown, ChevronRight, FileText, Globe, MessageCircle } from "lucide-react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
@@ -13,31 +13,53 @@ import { ConfirmDialog, CopyButton, EmptyState, ErrorBox, LoadingRows, StatusBad
 
 const BASE = "/api/admin/sms-platform/business-reviews"
 
-function ReviewCard({ row, onChanged }: { row: ReviewRow; onChanged: () => void }) {
-  const [action, setAction] = useState<null | "approve" | "reject">(null)
+const DOC_LINK_TTL_MS = 280_000 // signed links expire after 5 minutes
+
+function ReviewCard({ row, forceRetry, onPartial, onRetried, onChanged }: {
+  row: ReviewRow; forceRetry: boolean; onPartial: (id: string) => void; onRetried: (id: string) => void; onChanged: () => void
+}) {
+  const [action, setAction] = useState<null | "approve" | "reject" | "retry">(null)
   const [busy, setBusy] = useState(false)
   const [docs, setDocs] = useState<ReviewDetail | null>(null)
   const wa = waLink(row.whatsapp_number)
 
-  async function post(body: Record<string, unknown>, success: string) {
+  // Drop the signed links before they expire; cleared on close/unmount.
+  useEffect(() => {
+    if (!docs) return
+    const t = setTimeout(() => setDocs(null), DOC_LINK_TTL_MS)
+    return () => clearTimeout(t)
+  }, [docs])
+
+  async function post(body: { action: "approve" | "reject" | "retry_mode"; reason?: string }, success: string) {
     setBusy(true)
-    const res = await api(`${BASE}/${row.id}`, { method: "POST", body: JSON.stringify(body) })
-    setBusy(false)
-    if (res.success) toast.success(success)
-    else toast.error(res.error ?? "Something went wrong")
-    setAction(null)
-    onChanged() // reload even on failure: an approval can be recorded while the mode switch failed
+    try {
+      const res = (await api(`${BASE}/${row.id}`, { method: "POST", body: JSON.stringify(body) })) as { success: boolean; error?: string; approved?: boolean }
+      if (res.success) {
+        toast.success(success)
+        if (body.action === "retry_mode") onRetried(row.id)
+      } else if (body.action === "approve" && res.approved === true) {
+        toast.error("Approved — but the account could not be switched to Business mode. Open 'Previously approved' and use 'Switch to Business mode'.")
+        onPartial(row.id)
+      } else toast.error(res.error ?? "Something went wrong")
+    } finally {
+      setBusy(false)
+      setAction(null)
+      onChanged() // reload even on failure: an approval can be recorded while the mode switch failed
+    }
   }
 
   async function viewDocs() {
     setBusy(true)
-    const res = await api<ReviewDetail>(`${BASE}/${row.id}`)
-    setBusy(false)
-    if (res.success && res.data) setDocs(res.data)
-    else toast.error(res.error ?? "Could not open the documents")
+    try {
+      const res = await api<ReviewDetail>(`${BASE}/${row.id}`)
+      if (res.success && res.data) setDocs(res.data)
+      else toast.error(res.error ?? "Could not open the documents")
+    } finally {
+      setBusy(false)
+    }
   }
 
-  const needsModeRetry = row.status === "approved" && !!row.account && row.account.mode !== "business"
+  const needsModeRetry = row.status === "approved" && ((!!row.account && row.account.mode !== "business") || forceRetry)
 
   return (
     <Card className="clay border-0 py-0">
@@ -71,7 +93,7 @@ function ReviewCard({ row, onChanged }: { row: ReviewRow; onChanged: () => void 
               <Button size="sm" variant="destructive" disabled={busy} onClick={() => setAction("reject")}>Reject</Button>
             </>
           )}
-          {needsModeRetry && <Button size="sm" disabled={busy} onClick={() => void post({ action: "retry_mode" }, "Account switched to Business mode")}>Retry mode switch</Button>}
+          {needsModeRetry && <Button size="sm" disabled={busy} onClick={() => setAction("retry")}>Switch to Business mode</Button>}
         </div>
       </CardContent>
 
@@ -79,6 +101,10 @@ function ReviewCard({ row, onChanged }: { row: ReviewRow; onChanged: () => void 
         title={`Approve ${row.business_name ?? "this business"}?`} confirmLabel="Approve"
         description="Switches the account to Business mode (higher limits, up to 200 sender IDs) and re-activates its paused sender IDs."
         onConfirm={() => post({ action: "approve" }, "Approved")} />
+      <ConfirmDialog open={action === "retry"} onOpenChange={(o) => !o && setAction(null)} busy={busy}
+        title={`Switch ${row.business_name ?? "this account"} to Business mode?`} confirmLabel="Switch to Business mode"
+        description="Switches this account to Business mode, re-activates its paused sender IDs and sends the customer a 'Business verified' notification."
+        onConfirm={() => post({ action: "retry_mode" }, "Account switched to Business mode")} />
       <ConfirmDialog open={action === "reject"} onOpenChange={(o) => !o && setAction(null)} busy={busy} destructive minReason={5}
         title="Reject this application?" confirmLabel="Reject" reasonLabel="Reason (shown to the customer)"
         onConfirm={(reason) => post({ action: "reject", reason }, "Rejected")} />
@@ -103,20 +129,29 @@ function ReviewCard({ row, onChanged }: { row: ReviewRow; onChanged: () => void 
   )
 }
 
-function ReviewList({ status, emptyTitle, onChanged }: { status: "submitted" | "approved" | "rejected"; emptyTitle: string; onChanged: () => void }) {
+function ReviewList({ status, emptyTitle, retryIds, onCount, onPartial, onRetried, onChanged }: {
+  status: "submitted" | "approved" | "rejected"; emptyTitle: string; retryIds: Set<string>
+  onCount?: (n: number) => void; onPartial: (id: string) => void; onRetried: (id: string) => void; onChanged: () => void
+}) {
   const { data, error, loading, reload } = useLoad<ReviewRow[]>(() => api<ReviewRow[]>(`${BASE}?status=${status}`), [status])
+  useEffect(() => { if (data) onCount?.(data.length) }, [data, onCount])
   if (loading && !data) return <LoadingRows />
   if (error && !data) return <ErrorBox message={error} onRetry={reload} />
   if (!data || data.length === 0) return <EmptyState title={emptyTitle} />
-  return <div className="space-y-3">{data.map((r) => <ReviewCard key={r.id} row={r} onChanged={() => { void reload(); onChanged() }} />)}</div>
+  return (
+    <div className="space-y-3">
+      {data.map((r) => (
+        <ReviewCard key={r.id} row={r} forceRetry={retryIds.has(r.id)} onPartial={onPartial} onRetried={onRetried} onChanged={() => { void reload(); onChanged() }} />
+      ))}
+    </div>
+  )
 }
 
-function Fold({ title, children }: { title: string; children: React.ReactNode }) {
-  const [open, setOpen] = useState(false)
+function Fold({ title, count, open, onOpenChange, children }: { title: string; count: number | null; open: boolean; onOpenChange: (o: boolean) => void; children: React.ReactNode }) {
   return (
     <div>
-      <button type="button" className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground" onClick={() => setOpen((o) => !o)}>
-        {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}{title}
+      <button type="button" className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground" onClick={() => onOpenChange(!open)}>
+        {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}{title}{count !== null ? ` (${count})` : ""}
       </button>
       {open && <div className="mt-3">{children}</div>}
     </div>
@@ -124,11 +159,33 @@ function Fold({ title, children }: { title: string; children: React.ReactNode })
 }
 
 export default function BusinessReviewsTab({ onChanged }: { onChanged: () => void }) {
+  const [retryIds, setRetryIds] = useState<Set<string>>(() => new Set())
+  const [approvedOpen, setApprovedOpen] = useState(false)
+  const [rejectedOpen, setRejectedOpen] = useState(false)
+  const [approvedKey, setApprovedKey] = useState(0)
+  const [approvedCount, setApprovedCount] = useState<number | null>(null)
+  const [rejectedCount, setRejectedCount] = useState<number | null>(null)
+
+  const onPartial = useCallback((id: string) => {
+    setRetryIds((prev) => new Set(prev).add(id))
+    setApprovedOpen(true)
+    setApprovedKey((k) => k + 1) // remount the list so it reloads even if the fold was already open
+  }, [])
+  const onRetried = useCallback((id: string) => {
+    setRetryIds((prev) => { const n = new Set(prev); n.delete(id); return n })
+  }, [])
+  const toggleApproved = (o: boolean) => { setApprovedOpen(o); if (!o) setApprovedCount(null) }
+  const toggleRejected = (o: boolean) => { setRejectedOpen(o); if (!o) setRejectedCount(null) }
+
   return (
     <div className="space-y-5">
-      <ReviewList status="submitted" emptyTitle="No applications waiting for review" onChanged={onChanged} />
-      <Fold title="Previously approved"><ReviewList status="approved" emptyTitle="Nothing approved yet" onChanged={onChanged} /></Fold>
-      <Fold title="Previously rejected"><ReviewList status="rejected" emptyTitle="Nothing rejected" onChanged={onChanged} /></Fold>
+      <ReviewList status="submitted" emptyTitle="No applications waiting for review" retryIds={retryIds} onPartial={onPartial} onRetried={onRetried} onChanged={onChanged} />
+      <Fold title="Previously approved" count={approvedCount} open={approvedOpen} onOpenChange={toggleApproved}>
+        <ReviewList key={approvedKey} status="approved" emptyTitle="Nothing approved yet" retryIds={retryIds} onCount={setApprovedCount} onPartial={onPartial} onRetried={onRetried} onChanged={onChanged} />
+      </Fold>
+      <Fold title="Previously rejected" count={rejectedCount} open={rejectedOpen} onOpenChange={toggleRejected}>
+        <ReviewList status="rejected" emptyTitle="Nothing rejected" retryIds={retryIds} onCount={setRejectedCount} onPartial={onPartial} onRetried={onRetried} onChanged={onChanged} />
+      </Fold>
     </div>
   )
 }

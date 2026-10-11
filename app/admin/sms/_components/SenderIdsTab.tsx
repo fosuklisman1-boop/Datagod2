@@ -18,12 +18,15 @@ function SenderLine({ row, approvalsReady, onChanged }: { row: SenderRow; approv
 
   async function run(act: "approve" | "reject" | "revoke", reason?: string) {
     setBusy(true)
-    const res = await api(`${ACT}/${row.id}`, { method: "POST", body: JSON.stringify({ action: act, reason }) })
-    setBusy(false)
-    if (res.success) toast.success(act === "approve" ? "Sender ID approved" : act === "reject" ? "Request rejected" : "Sender ID revoked")
-    else toast.error(res.error ?? "Something went wrong")
-    setAction(null)
-    onChanged()
+    try {
+      const res = await api(`${ACT}/${row.id}`, { method: "POST", body: JSON.stringify({ action: act, reason }) })
+      if (res.success) toast.success(act === "approve" ? "Sender ID approved" : act === "reject" ? "Request rejected" : "Sender ID revoked")
+      else toast.error(res.error ?? "Something went wrong")
+    } finally {
+      setBusy(false)
+      setAction(null)
+      onChanged()
+    }
   }
 
   const tenant = !!row.sms_account_id
@@ -90,19 +93,25 @@ function Group({ title, rows, approvalsReady, onChanged, empty }: { title: strin
 }
 
 export default function SenderIdsTab({ provider, onChanged }: { provider: string; onChanged: () => void }) {
-  const { data, error, loading, reload } = useLoad<SenderRow[]>(() => api<SenderRow[]>(`${ACT}?status=all&scope=all`), [])
+  // Pending requests load on their own so the 500-row cap on the "all" list can never hide an old one.
+  const pend = useLoad<SenderRow[]>(() => api<SenderRow[]>(`${ACT}?status=pending&scope=tenant`), [])
+  const rest = useLoad<SenderRow[]>(() => api<SenderRow[]>(`${ACT}?status=all&scope=all`), [])
+  const data = pend.data && rest.data ? rest.data : null
+  const error = pend.error ?? rest.error
+  const loading = pend.loading || rest.loading
+  const reload = async () => { await Promise.all([pend.reload(), rest.reload()]) }
   const [showOld, setShowOld] = useState(false)
-  const changed = () => { void reload(); onChanged() }
+  const changed = () => { void pend.reload(); void rest.reload(); onChanged() }
   const g = useMemo(() => {
     const rows = data ?? []
     return {
-      pending: rows.filter((r) => r.local_status === "pending" && r.sms_account_id),
+      pending: (pend.data ?? []).filter((r) => r.local_status === "pending" && r.sms_account_id),
       active: rows.filter((r) => r.local_status === "active" && r.sms_account_id),
       paused: rows.filter((r) => r.local_status === "paused"),
       old: rows.filter((r) => (r.local_status === "rejected" || r.local_status === "revoked") && r.sms_account_id),
       platform: rows.filter((r) => !r.sms_account_id),
     }
-  }, [data])
+  }, [data, pend.data])
   const approvalsReady = provider === "hubtel"
 
   if (loading && !data) return <LoadingRows />
