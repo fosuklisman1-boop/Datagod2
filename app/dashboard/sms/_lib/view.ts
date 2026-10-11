@@ -143,6 +143,7 @@ export function sendErrorMessage(code: string | undefined, reason?: string, fall
     case "INVALID_SENDER_ID": return "That sender ID isn't available on your account."
     case "TOO_MANY_RECIPIENTS": return `You can send to at most ${MAX_RECIPIENTS.toLocaleString("en-US")} recipients at once.`
     case "SEND_ERROR": return "Sending failed — please try again."
+    case "INVALID_SCHEDULE": return reason?.trim() || fallback || "Pick a valid time to send (2 minutes to 30 days from now)."
     case "SEND_IN_PROGRESS": return "Another send from your account is still being processed. Please try again in a few seconds."
     default: return fallback ?? code ?? "Something went wrong"
   }
@@ -167,10 +168,15 @@ const recipientsText = (n: number) => `${n.toLocaleString("en-US")} recipient${n
 /** Toast after a successful POST /api/shop/sms/send (held and/or partial outcomes included). */
 export function sendOutcomeMessage(r: {
   held?: boolean; partial?: boolean; stoppedReason?: string; total?: number; batches?: number; creditsReserved?: number
+  scheduled?: boolean; scheduledFor?: string | null
 }): { tone: "success" | "warning"; text: string } {
   const total = r.total ?? 0
   const batches = r.batches ?? 1
   const batchTxt = batches > 1 ? ` in ${batches} batches` : ""
+  if (r.scheduled && !r.partial) {
+    const when = r.scheduledFor ? formatScheduled(r.scheduledFor) : ""
+    return { tone: "success", text: `Scheduled${when ? ` for ${when}` : ""} — credits reserved. You can cancel from Records until then.` }
+  }
   if (r.held && r.partial) {
     return {
       tone: "warning",
@@ -250,12 +256,58 @@ export const RECORD_CHIPS: { key: string; label: string; values: string[] }[] = 
   { key: "partial", label: "Partial", values: ["partial"] },
   { key: "failed", label: "Failed", values: ["failed"] },
   { key: "held", label: "Held", values: ["held"] },
+  { key: "scheduled", label: "Scheduled", values: ["scheduled"] },
 ]
 
 /** Value for `?status=` for a chip key ("" = all; unknown keys also mean all). */
 export function chipStatus(key: string): string {
   return RECORD_CHIPS.find((c) => c.key === key)?.values[0] ?? ""
 }
+
+// ─── Scheduled sends (Ghana is GMT / UTC+0, so datetime-local values are read and written as UTC) ───
+const MIN_SCHEDULE_MS = 2 * 60_000
+const MAX_SCHEDULE_MS = 30 * 24 * 3_600_000
+export const SCHEDULED_CANCEL_CONFIRM = "Cancel this scheduled send? Credits for unsent messages will be refunded."
+
+/** Earliest / latest allowed send time (mirrors lib/sms/schedule.ts, which the server enforces). */
+export function scheduleBounds(now: Date): { min: Date; max: Date } {
+  return { min: new Date(now.getTime() + MIN_SCHEDULE_MS), max: new Date(now.getTime() + MAX_SCHEDULE_MS) }
+}
+
+/** Date -> "YYYY-MM-DDTHH:mm" in UTC, for <input type="datetime-local">. */
+export function toLocalInputValue(d: Date): string {
+  return d.toISOString().slice(0, 16)
+}
+
+/** datetime-local value (read as GMT) -> ISO UTC string, or null when empty/invalid. */
+export function fromLocalInputValue(v: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v)) return null
+  const d = new Date(`${v}:00.000Z`)
+  return Number.isFinite(d.getTime()) ? d.toISOString() : null
+}
+
+/** null = acceptable; otherwise the customer-facing reason (same wording as the server). */
+export function scheduleError(iso: string | null, now: Date): string | null {
+  if (!iso) return "Pick a date and time to send"
+  const ms = Date.parse(iso)
+  if (!Number.isFinite(ms)) return "Pick a date and time to send"
+  const ahead = ms - now.getTime()
+  if (ahead < MIN_SCHEDULE_MS) return "Pick a time at least 2 minutes from now"
+  if (ahead > MAX_SCHEDULE_MS) return "You can schedule up to 30 days ahead"
+  return null
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+/** "12 Oct, 15:30 GMT" (empty string for an invalid date). */
+export function formatScheduled(iso: string): string {
+  const d = new Date(iso)
+  if (!Number.isFinite(d.getTime())) return ""
+  const hh = String(d.getUTCHours()).padStart(2, "0"), mm = String(d.getUTCMinutes()).padStart(2, "0")
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}, ${hh}:${mm} GMT`
+}
+
+/** A cancelled scheduled send is stored as failed; the read model derives `cancelled`. */
+export const isCancelledLog = (l: { status: string; cancelled?: boolean | null }) => l.status === "failed" && l.cancelled === true
 
 export function pageCount(total: number, pageSize = RECORDS_PAGE_SIZE): number {
   return Math.max(1, Math.ceil((Number(total) || 0) / pageSize))

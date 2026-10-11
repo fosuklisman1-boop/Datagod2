@@ -153,7 +153,7 @@ import { RECORD_CHIPS, chipStatus, pageCount, formatCount, timeAgo, recipientSta
 
 describe("records helpers", () => {
   it("maps chips to status values", () => {
-    expect(RECORD_CHIPS.map((c) => c.label)).toEqual(["All", "Queued", "Processing", "Completed", "Partial", "Failed", "Held"])
+    expect(RECORD_CHIPS.map((c) => c.label)).toEqual(["All", "Queued", "Processing", "Completed", "Partial", "Failed", "Held", "Scheduled"])
     expect(chipStatus("all")).toBe("")
     expect(chipStatus("processing")).toBe("sending")
     expect(chipStatus("completed")).toBe("sent")
