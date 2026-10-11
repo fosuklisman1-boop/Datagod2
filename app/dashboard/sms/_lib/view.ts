@@ -147,6 +147,47 @@ export const limitsLine = (l: { perSend: number; perHour: number; perDay: number
 
 export const MOMO_PHONE = /^0?\d{9}$/
 
+// ─── Credits ──────────────────────────────────────────────────────────────
+/** Wallet when the main wallet covers the price, otherwise a Paystack redirect. */
+export function purchaseMethod(walletBalance: number, priceGhs: number): "wallet" | "paystack" {
+  return walletBalance >= priceGhs ? "wallet" : "paystack"
+}
+
+/** GH₵ still missing from the wallet for a bundle (0 when affordable). */
+export function walletShortfall(walletBalance: number, priceGhs: number): number {
+  return Math.max(0, Math.round((priceGhs - walletBalance) * 100) / 100)
+}
+
+/** Why Buy is disabled, or null when purchases are allowed. */
+export function buyBlockedReason(a: { featureEnabled: boolean; status: string | null | undefined }): string | null {
+  if (!a.featureEnabled) return "SMS is temporarily unavailable. Please try again later."
+  if (a.status === "suspended") return "Your SMS account is suspended. Contact support."
+  if (a.status !== "active") return "Activate your SMS account before buying credits."
+  return null
+}
+
+/** Toast text for a failed purchase request (same wording as the old monolith). */
+export function buyErrorMessage(error: string, code?: string): string {
+  if (code === "SMS_DISABLED") return "SMS is temporarily unavailable. Please try again later."
+  if (error === "Insufficient wallet balance") return "Insufficient wallet balance. Top up your wallet or pay with Paystack."
+  if (error === "NOT_ACTIVATED") return "Activate your SMS account first."
+  return error
+}
+
+export interface PurchaseOutcome { kind: "redirect" | "pending" | "success"; url?: string }
+/** Interprets a successful purchase response body. */
+export function purchaseOutcome(body: { authorizationUrl?: unknown; pending?: unknown }): PurchaseOutcome {
+  if (typeof body.authorizationUrl === "string" && body.authorizationUrl) return { kind: "redirect", url: body.authorizationUrl }
+  if (body.pending) return { kind: "pending" }
+  return { kind: "success" }
+}
+
+/** Ledger delta as "+120" / "−5" (true minus sign). */
+export function formatDelta(delta: number): string {
+  const n = Math.abs(Number(delta) || 0).toLocaleString("en-US")
+  return delta > 0 ? `+${n}` : delta < 0 ? `−${n}` : n
+}
+
 // ─── Records ──────────────────────────────────────────────────────────────
 export const RECORDS_PAGE_SIZE = 25
 
