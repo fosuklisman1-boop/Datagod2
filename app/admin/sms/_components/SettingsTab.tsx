@@ -36,8 +36,9 @@ export default function SettingsTab({ provider }: { provider: string }) {
   return (
     <div className="space-y-4">
       <div className="clay-inset rounded-2xl px-4 py-3 text-sm">
-        <p><span className="font-medium">Provider:</span> {providerLabel(provider)} is the active SMS provider. Change providers (with the Hubtel readiness checks) in <Link className="text-primary hover:underline" href="/admin/sms-centre">SMS Centre → Providers</Link>.</p>
+        <p><span className="font-medium">Provider:</span> {provider ? `${providerLabel(provider)} is the active SMS provider.` : "The active SMS provider could not be determined."} Change providers (with the Hubtel readiness checks) in <Link className="text-primary hover:underline" href="/admin/sms-centre">SMS Centre → Providers</Link>.</p>
         <p className="mt-1 text-muted-foreground"><span className="font-medium text-foreground">Enforcement:</span> {s.policyEnforced ? "On" : "Record-only"} — caps, keywords, flags and holds are measured but not enforced until Phase 3. The master switch (page header) is enforced now.</p>
+        <p className="mt-1 text-muted-foreground"><span className="font-medium text-foreground">Note:</span> each section saves on its own; unsaved changes are discarded if you switch tabs or leave the page.</p>
       </div>
       <div className="grid gap-4 xl:grid-cols-2">
         <SenderPoolSection key={k("sender_pool")} s={s} onSaved={saved("sender_pool")} />

@@ -36,6 +36,9 @@ export default function SmsPlatformPage() {
   const { data: overview, error, loading, reload } = useLoad<OverviewData>(() => api<OverviewData>("/api/admin/sms-platform/overview"), [])
   const [confirmOff, setConfirmOff] = useState(false)
   const [switching, setSwitching] = useState(false)
+  // Bumped by Refresh to remount (and so refetch) the visible tab; Settings is never remounted (unsaved drafts).
+  const [refreshKey, setRefreshKey] = useState(0)
+  function refresh() { void reload(); setRefreshKey((k) => k + 1) }
 
   function selectTab(next: string) {
     const p = new URLSearchParams(sp.toString())
@@ -46,7 +49,8 @@ export default function SmsPlatformPage() {
   async function setEnabled(featureEnabled: boolean) {
     setSwitching(true)
     try {
-      // success:true with data:null is a success (the route returns no body data).
+      // The route returns the refreshed settings in `data`, which may be null when the re-read failed;
+      // success:true is a success either way, and we re-fetch the overview below regardless.
       const res = await api("/api/admin/sms-platform/settings", { method: "PATCH", body: JSON.stringify({ section: "switch", values: { featureEnabled } }) })
       if (res.success) toast.success(featureEnabled ? "SMS is live" : "SMS paused — takes effect within a minute")
       else toast.error(res.error ?? "Could not change the switch")
@@ -67,13 +71,15 @@ export default function SmsPlatformPage() {
     <div className="space-y-5 p-4 md:p-6 lg:mx-auto lg:max-w-7xl">
       <PageHeaderBanner title="SMS Platform" subtitle="Reviews, sender IDs, messages, accounts, bundles and rules for the SMS product.">
         <div className="flex flex-wrap items-center gap-3">
-          <Badge className={overview?.featureEnabled === false ? "bg-red-500/90 text-white" : "bg-emerald-500/90 text-white"}>{overview?.featureEnabled === false ? "PAUSED" : "LIVE"}</Badge>
+          {!overview
+            ? <Badge className="bg-white/20 text-white">Checking…</Badge>
+            : <Badge className={overview.featureEnabled === false ? "bg-red-500/90 text-white" : "bg-emerald-500/90 text-white"}>{overview.featureEnabled === false ? "PAUSED" : "LIVE"}</Badge>}
           <label className="flex items-center gap-2 text-sm text-white">
             <Switch checked={overview?.featureEnabled ?? true} disabled={!overview || switching}
               onCheckedChange={(on) => (on ? void setEnabled(true) : setConfirmOff(true))} />
             Accepting SMS
           </label>
-          <Button size="sm" variant="secondary" className="ml-auto" disabled={loading} onClick={() => void reload()}>
+          <Button size="sm" variant="secondary" className="ml-auto" disabled={loading} onClick={refresh}>
             {loading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}Refresh
           </Button>
         </div>
@@ -99,7 +105,7 @@ export default function SmsPlatformPage() {
         </TabsList>
       </Tabs>
       {/* Only the active tab is mounted; each loads its own data, so a failed overview never blanks the page. */}
-      <div className="pt-1">
+      <div className="pt-1" key={tab === "settings" ? "settings" : `${tab}-${refreshKey}`}>
         {tab === "business-reviews" && <BusinessReviewsTab onChanged={() => void reload()} />}
         {tab === "sender-ids" && <SenderIdsTab provider={overview?.provider ?? ""} onChanged={() => void reload()} />}
         {tab === "flagged" && overview && <FlaggedTab overview={overview} onChanged={() => void reload()} />}

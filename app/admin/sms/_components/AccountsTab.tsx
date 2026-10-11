@@ -95,6 +95,7 @@ export default function AccountsTab({ onChanged }: { onChanged: () => void }) {
         if (!parsed.ok) return void toast.error(parsed.error)
         const res = await apiRaw<{ success?: boolean; pending?: boolean; unitsCredited?: number; duplicate?: boolean; error?: string }>(
           "/api/admin/sms/allocate", { method: "POST", body: JSON.stringify({ accountId: row.id, units: parsed.value, requestId }) })
+        if (res.status === 0) return void toast.error("Connection lost — the allocation may have gone through. Retry from this same dialog (it won't double-credit).")
         if (!res.ok || !res.body?.success) return void toast.error(res.body?.error ?? "Could not allocate credits")
         if (res.body.duplicate) done("Already allocated")
         else done(res.body.pending ? "Queued as pending — SMS supply is short, it will be credited when supply allows" : `Allocated ${formatCount(res.body.unitsCredited ?? parsed.value)} credits`)
@@ -104,6 +105,7 @@ export default function AccountsTab({ onChanged }: { onChanged: () => void }) {
 
   const row = dialog?.row
   const suspended = row?.status === "suspended"
+  const who = row ? (row.email ?? row.user_id) : ""
   const stale = loading && !!data
   return (
     <div className="min-w-0 space-y-4">
@@ -155,23 +157,23 @@ export default function AccountsTab({ onChanged }: { onChanged: () => void }) {
 
       <ConfirmDialog open={dialog?.kind === "suspend"} onOpenChange={(o) => !o && setDialog(null)} busy={busy} destructive={!suspended}
         title={suspended ? "Unsuspend this account?" : "Suspend this account?"} confirmLabel={suspended ? "Unsuspend" : "Suspend"}
-        description={suspended ? "The customer can send SMS again." : "The customer can't send SMS or buy credits until you unsuspend them."}
+        description={<><b className="break-all">{who}</b>: {suspended ? "the customer can send SMS again." : "the customer can't send SMS or buy credits until you unsuspend them."}</>}
         onConfirm={confirm} />
       <ConfirmDialog open={dialog?.kind === "mode"} onOpenChange={(o) => !o && setDialog(null)} busy={busy}
         title={row?.mode === "business" ? "Switch to Platform mode?" : "Switch to Business mode?"} confirmLabel="Switch mode"
-        description={row?.mode === "business"
-          ? "Keeps the account's one free sender ID active and pauses the rest; lowers sending limits and restricts links to the customer's Datagod store."
-          : "Re-activates paused sender IDs and raises sending limits (up to 200 sender IDs). Normally done by approving the customer's business verification."}
+        description={<><b className="break-all">{who}</b>: {row?.mode === "business"
+          ? "keeps the account's one free sender ID active and pauses the rest; lowers sending limits and restricts links to the customer's Datagod store."
+          : "re-activates paused sender IDs and raises sending limits (up to 200 sender IDs). Normally done by approving the customer's business verification."}</>}
         onConfirm={confirm} />
       <ConfirmDialog open={dialog?.kind === "limit"} onOpenChange={(o) => !o && setDialog(null)} busy={busy}
-        title="API rate limit" confirmLabel="Save" description="Requests per minute for this account on the public SMS API. Leave empty to use the platform default."
+        title="API rate limit" confirmLabel="Save" description={<>For <b className="break-all">{who}</b>: requests per minute on the public SMS API. Leave empty to use the platform default.</>}
         onConfirm={confirm}>
-        <Input inputMode="numeric" placeholder="Platform default" value={input} onChange={(e) => setInput(e.target.value)} />
+        <Input aria-label="API rate limit (requests per minute)" inputMode="numeric" placeholder="Platform default" value={input} onChange={(e) => setInput(e.target.value)} />
       </ConfirmDialog>
       <ConfirmDialog open={dialog?.kind === "allocate"} onOpenChange={(o) => !o && setDialog(null)} busy={busy}
-        title="Allocate credits" confirmLabel="Allocate" description="Adds credits to this account. It is checked against real SMS supply and recorded in the audit log."
+        title="Allocate credits" confirmLabel="Allocate" description={<>Adds credits to <b className="break-all">{who}</b>. It is checked against real SMS supply and recorded in the audit log.</>}
         onConfirm={confirm}>
-        <Input inputMode="numeric" placeholder="Number of credits (1–1,000,000)" value={input} onChange={(e) => setInput(e.target.value)} />
+        <Input aria-label="Number of credits to allocate" inputMode="numeric" placeholder="Number of credits (1–1,000,000)" value={input} onChange={(e) => setInput(e.target.value)} />
       </ConfirmDialog>
     </div>
   )
