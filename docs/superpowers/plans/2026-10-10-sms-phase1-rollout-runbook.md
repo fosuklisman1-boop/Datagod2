@@ -83,3 +83,5 @@ per account), 2 paused; credits unchanged (2,388); `sms_policy_enforced=false`.
 **Watch for an hour:** Messages tab (blocked/held counts), Flagged tab (new fraud flags, held campaigns), customer complaints about "SMS blocked", any account auto-suspended.
 
 **Rollback (instant, safe):** `UPDATE tenant_global_settings SET value = 'false'::jsonb WHERE key = 'sms_policy_enforced';` (≤ 60 s). Already-held campaigns stay held until an admin releases or rejects them; release them from the Flagged tab. Suspended accounts / review holds set during enforcement are NOT auto-reverted — clear them from the Accounts tab if the cause was a rule you are rolling back.
+
+**Addendum (final 3b review fixes):** `20261015_sms_usage_exclude_rejected.sql` (applied) — rejected and zero-credit failed logs no longer count toward caps. The per-account lease is now released as soon as the LAST chunk's log is written (before its dispatch); single-chunk sends (≤ 500 recipients) release before any provider call. An enforced policy block is recorded once (the `sms_flags` row), not twice.
