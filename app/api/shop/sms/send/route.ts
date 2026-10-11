@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
 import { enqueueSendBatched, SMS_MAX_TOTAL } from "@/lib/sms/send-service"
 import { getShopTokens } from "@/lib/sms/shop-context-service"
+import { loadDefaultSender } from "@/lib/sms/default-sender"
 import { SMS_DISABLED_MESSAGE } from "@/lib/sms/kill-switch"
 import { getGroupActiveRecipients } from "@/lib/sms/tenant-address-book-service"
 
@@ -111,15 +112,7 @@ export async function POST(request: NextRequest) {
 
   let effectiveSenderId = senderId as string | undefined
   if (!effectiveSenderId) {
-    const { data: activeSender } = await supabaseAdmin
-      .from("sms_sender_ids")
-      .select("sender_id")
-      .eq("sms_account_id", account.id)
-      .eq("local_status", "active")
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .maybeSingle()
-    effectiveSenderId = (activeSender as { sender_id?: string } | null)?.sender_id ?? undefined
+    effectiveSenderId = (await loadDefaultSender(supabaseAdmin, account.id)) ?? undefined
   }
 
   // Enqueue — auto-batches into 500s when the list is larger.

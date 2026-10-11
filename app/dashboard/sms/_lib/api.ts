@@ -68,6 +68,10 @@ export interface SmsHome {
   featureEnabled: boolean
   /** Default sender name used when the account has no active own sender ID. */
   platformSender: string
+  /** Exactly the sender the send route uses when none is chosen; null = platform default. */
+  defaultSender: string | null
+  /** Shared sender names (business mode only; [] otherwise). */
+  senderPool: string[]
 }
 
 export interface Page<T> { rows: T[]; total: number; page: number; pageSize: number }

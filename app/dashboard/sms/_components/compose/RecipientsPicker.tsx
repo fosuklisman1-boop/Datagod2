@@ -53,6 +53,8 @@ export function RecipientsPicker({ recipients, onAdd, onRemove, customers, group
         <TabsContent value="paste" className="space-y-2 pt-2">
           <div className="flex gap-2">
             <Input
+              id="recipient-number"
+              aria-label="Phone number to add"
               value={single}
               onChange={(e) => setSingle(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addSingle() } }}
@@ -66,7 +68,7 @@ export function RecipientsPicker({ recipients, onAdd, onRemove, customers, group
 
         <TabsContent value="groups" className="space-y-1.5 pt-2">
           <Select value={selectedGroupId || "none"} onValueChange={(v) => onGroupChange(v === "none" ? "" : v)}>
-            <SelectTrigger className="w-full sm:w-72"><SelectValue placeholder="None" /></SelectTrigger>
+            <SelectTrigger id="group-select" aria-label="Send to a saved group" className="w-full sm:w-72"><SelectValue placeholder="None" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="none">None</SelectItem>
               {groups.map((g) => (
@@ -116,7 +118,7 @@ export function RecipientsPicker({ recipients, onAdd, onRemove, customers, group
           <p className="text-xs text-muted-foreground">
             One number per line (first column; a header row is skipped). For a reusable list, save it as a group in Contacts.
           </p>
-          <Textarea value={list} onChange={(e) => setList(e.target.value)} rows={3} placeholder="Or paste a list of numbers…" className="font-mono" />
+          <Textarea id="recipient-list" aria-label="Paste a list of numbers" value={list} onChange={(e) => setList(e.target.value)} rows={3} placeholder="Or paste a list of numbers…" className="font-mono" />
           <Button type="button" variant="outline" size="sm" onClick={addList} disabled={!list.trim()}>Add numbers</Button>
         </TabsContent>
       </Tabs>

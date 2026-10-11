@@ -77,7 +77,7 @@ export function MessageEditor({ message, onChange, resolved, busy, onSaveTemplat
 
       {saving ? (
         <div className="flex flex-wrap items-center gap-2">
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Template name" className="w-48" />
+          <Input id="template-name" aria-label="Template name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Template name" className="w-48" />
           <Button size="sm" onClick={save} disabled={busy}>
             {busy && <Loader2 className="h-4 w-4 animate-spin" />} Save
           </Button>

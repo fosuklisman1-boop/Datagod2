@@ -4,6 +4,7 @@ import { applyRateLimit } from "@/lib/rate-limiter"
 import { resolveAccount } from "@/lib/sms/tenant-auth"
 import { getShopTokens } from "@/lib/sms/shop-context-service"
 import { previewDraft } from "@/lib/sms/compose-preview"
+import { loadDefaultSender } from "@/lib/sms/default-sender"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -52,15 +53,7 @@ export async function POST(request: NextRequest) {
     const tokens = await getShopTokens(account).catch(() => EMPTY_TOKENS)
     let effectiveSenderId = (senderId as string | null | undefined) || undefined
     if (!effectiveSenderId) {
-      const { data: activeSender } = await supabaseAdmin
-        .from("sms_sender_ids")
-        .select("sender_id")
-        .eq("sms_account_id", account.id)
-        .eq("local_status", "active")
-        .order("created_at", { ascending: true })
-        .limit(1)
-        .maybeSingle()
-      effectiveSenderId = (activeSender as { sender_id?: string } | null)?.sender_id ?? undefined
+      effectiveSenderId = (await loadDefaultSender(supabaseAdmin, account.id)) ?? undefined
     }
     const data = await previewDraft({ accountId: account.id, message, senderId: effectiveSenderId, recipientCount, tokens })
     return NextResponse.json({ success: true, data })

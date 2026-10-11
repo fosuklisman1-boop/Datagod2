@@ -15,6 +15,10 @@ export interface SmsAccountState {
   featureEnabled: boolean
   /** Platform default sender name (null until /api/sms/home has loaded once). */
   platformSender: string | null
+  /** The sender a send uses when none is picked (null = platform default or not loaded). */
+  defaultSender: string | null
+  /** Shared pool sender names for business-mode accounts. */
+  senderPool: string[]
   walletBalance: number
   profitBalance: number
   loading: boolean
@@ -100,6 +104,8 @@ export function SmsAccountProvider({ children }: { children: ReactNode }) {
     recentLedger: home?.recentLedger ?? [],
     featureEnabled: home?.featureEnabled ?? true,
     platformSender: home?.platformSender ?? null,
+    defaultSender: home?.defaultSender ?? null,
+    senderPool: home?.senderPool ?? [],
     walletBalance,
     profitBalance,
     loading,

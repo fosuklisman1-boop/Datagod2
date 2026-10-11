@@ -28,6 +28,7 @@ import { RECORDS_PAGE_SIZE, getHomeSummary, listRecords, listLedger, getRecord }
 
 const SETTINGS = {
   featureEnabled: true,
+  senderPool: ["ALERTS", "PAYCO"],
   caps: { platform: { per_send: 300, per_hour: 20, per_day: 500 }, business: { per_send: 1000, per_hour: 2000, per_day: 99 } },
 }
 const opsOf = (table: string) => h.ops.filter((o) => o.table === table).flatMap((o) => o.ops)
@@ -51,6 +52,8 @@ describe("getHomeSummary", () => {
     expect(r.stats).toEqual({ campaigns: 4, recipients: 120, creditsUsed: 130 })
     expect(r.featureEnabled).toBe(true)
     expect(r.platformSender).toBe("TESTSENDER")
+    expect(r.senderPool).toEqual(["ALERTS", "PAYCO"])
+    expect(r.defaultSender).toBeNull()
     expect(r.recentLedger).toHaveLength(1)
     expect(r.recentLedger[0]).toMatchObject({ id: 9, delta: -10, label: "SMS campaign #7" })
     expect(h.rpcCalls[0]).toEqual({ fn: "sms_customer_stats", args: { p_account_id: "acct1", p_days: 30 } })
@@ -66,6 +69,15 @@ describe("getHomeSummary", () => {
     expect(r.limits).toEqual({ perSend: 300, perHour: 20, perDay: 500 })
     expect(r.stats).toEqual({ campaigns: 0, recipients: 0, creditsUsed: 0 })
     expect(r.featureEnabled).toBe(false)
+    expect(r.senderPool).toEqual([]) // pool is business-mode only
+  })
+  it("returns the oldest active own sender as defaultSender", async () => {
+    h.tables.sms_accounts = { data: { mode: "platform" }, error: null }
+    h.tables.sms_unit_transactions = { data: [], error: null }
+    h.tables.sms_sender_ids = { data: { sender_id: "MYSHOP" }, error: null }
+    const r = await getHomeSummary("acct1")
+    expect(r.defaultSender).toBe("MYSHOP")
+    expect(opsOf("sms_sender_ids")).toContainEqual({ m: "order", args: ["created_at", { ascending: true }] })
   })
   it("throws on a stats RPC error", async () => {
     h.tables.sms_accounts = { data: { mode: "platform" }, error: null }

@@ -1,6 +1,7 @@
 /** Customer-facing read model for the SMS pages (Phase 3): home summary, records, credit ledger. Throws on DB errors. */
 import { createClient } from "@supabase/supabase-js"
 import { loadSmsSettings, type SmsMode } from "./platform-settings"
+import { loadDefaultSender } from "./default-sender"
 import { platformSenderName } from "@/lib/sms-service"
 
 const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
@@ -69,8 +70,9 @@ async function loadMode(accountId: string): Promise<SmsMode> {
 }
 
 export async function getHomeSummary(accountId: string) {
-  const [mode, stats, ledger, settings] = await Promise.all([
+  const [mode, stats, ledger, settings, defaultSender] = await Promise.all([
     loadMode(accountId), loadStats(accountId), recentLedger(accountId, HOME_LEDGER_ROWS), loadSmsSettings(),
+    loadDefaultSender(supabaseAdmin, accountId),
   ])
   const caps = settings.caps[mode]
   return {
@@ -80,6 +82,10 @@ export async function getHomeSummary(accountId: string) {
     recentLedger: ledger,
     featureEnabled: settings.featureEnabled,
     platformSender: platformSenderName(),
+    /** Exactly what the send route picks when the client chooses no sender; null = platform default. */
+    defaultSender,
+    /** Shared sender names a business-mode account may send as (resolveCampaignSender accepts them); [] otherwise. */
+    senderPool: mode === "business" ? settings.senderPool ?? [] : [],
   }
 }
 

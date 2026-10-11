@@ -7,31 +7,41 @@ interface Props {
   senders: ComposeSender[]
   value: string
   onChange: (v: string) => void
+  /** What the server uses when none is chosen (null = platform default). */
+  defaultSender: string | null
+  platformSender: string | null
+  /** Shared pool names (business-mode accounts only). */
+  pool: string[]
 }
 
-function senderLabel(s: ComposeSender) {
-  return s.is_pool ? `${s.sender_id} (shared pool)` : `${s.sender_id} (your sender ID)`
-}
-
-export function SenderSelect({ senders, value, onChange }: Props) {
-  const active = senders.filter((s) => s.local_status === "active")
+export function SenderSelect({ senders, value, onChange, defaultSender, platformSender, pool }: Props) {
+  const own = senders.filter((s) => s.local_status === "active" && !s.is_pool)
+  const ownNames = new Set(own.map((s) => s.sender_id.toUpperCase()))
+  const poolRows = senders.filter((s) => s.local_status === "active" && s.is_pool).map((s) => s.sender_id)
+  const poolNames = Array.from(new Set([...pool, ...poolRows].map((p) => p.toUpperCase()))).filter((p) => !ownNames.has(p))
+  const defaultLabel = defaultSender
+    ? `Default (${defaultSender})`
+    : `Platform default${platformSender ? ` (${platformSender})` : ""}`
   return (
     <div className="space-y-1.5">
-      <Label className="text-muted-foreground">From (sender ID)</Label>
+      <Label htmlFor="sender-select" className="text-muted-foreground">From (sender ID)</Label>
       <Select value={value || "default"} onValueChange={(v) => onChange(v === "default" ? "" : v)}>
-        <SelectTrigger className="w-full sm:w-72"><SelectValue /></SelectTrigger>
+        <SelectTrigger id="sender-select" aria-label="From (sender ID)" className="w-full sm:w-72"><SelectValue /></SelectTrigger>
         <SelectContent>
-          <SelectItem value="default">Platform default{active[0] ? ` (${active[0].sender_id})` : ""}</SelectItem>
-          {active.map((s) => (
-            <SelectItem key={s.id} value={s.sender_id}>{senderLabel(s)}</SelectItem>
+          <SelectItem value="default">{defaultLabel}</SelectItem>
+          {own.map((s) => (
+            <SelectItem key={s.id} value={s.sender_id}>{s.sender_id} (your sender ID)</SelectItem>
+          ))}
+          {poolNames.map((p) => (
+            <SelectItem key={`pool-${p}`} value={p}>{p} (shared pool)</SelectItem>
           ))}
         </SelectContent>
       </Select>
-      {active.length === 0 && (
+      {own.length === 0 && (
         <p className="text-xs text-muted-foreground">
-          No approved sender IDs yet — request one in{" "}
+          No approved sender IDs of your own yet — request one in{" "}
           <Link href="/dashboard/sms/business" className="font-medium text-primary hover:underline">Business &amp; Sender ID</Link>.
-          Messages use the platform default meanwhile.
+          Messages use the default meanwhile.
         </p>
       )}
     </div>

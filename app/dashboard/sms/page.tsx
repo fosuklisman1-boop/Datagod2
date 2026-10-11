@@ -1,19 +1,15 @@
 "use client"
 
-import { useEffect, useState } from "react"
 import Link from "next/link"
 import { BarChart3, BellRing, ChevronRight, CreditCard, History, Send, Users, Wallet, Building2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
-import { smsFetch } from "./_lib/api"
 import { useSmsAccount } from "./_lib/useSmsAccount"
 import { limitsLine } from "./_lib/view"
 import { SmsShell } from "./_components/SmsShell"
 import { ActivationCard } from "./_components/ActivationCard"
-
-interface SenderRow { sender_id: string; local_status: string }
 
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime()
@@ -36,24 +32,14 @@ const TILES = [
 ]
 
 export default function SmsHomePage() {
-  const { account, limits, stats, recentLedger, walletBalance, profitBalance, platformSender } = useSmsAccount()
-  const [senders, setSenders] = useState<SenderRow[] | null>(null)
-
-  useEffect(() => {
-    let alive = true
-    void smsFetch<SenderRow[]>("/api/sms/sender-ids").then((r) => {
-      if (alive) setSenders(r.ok && Array.isArray(r.data) ? r.data : [])
-    })
-    return () => { alive = false }
-  }, [])
+  const { account, limits, stats, recentLedger, walletBalance, profitBalance, platformSender, defaultSender } = useSmsAccount()
 
   const isPlatform = account?.ownerType === "platform"
   const isActive = account?.status === "active"
   const isSuspended = account?.status === "suspended"
   const showActivation = !!account && !isPlatform && !isActive && !isSuspended
 
-  const activeSender = senders?.find((s) => s.local_status === "active")?.sender_id
-  const sendingAs = activeSender ?? platformSender ?? "the default sender"
+  const sendingAs = defaultSender ?? platformSender ?? "the default sender"
   const canSend = isActive || isPlatform
 
   return (
@@ -81,9 +67,15 @@ export default function SmsHomePage() {
                 </Badge>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button asChild disabled={!canSend} className="bg-background text-primary hover:bg-background/90">
-                  <Link href="/dashboard/sms/compose"><Send className="h-4 w-4" /> Send SMS</Link>
-                </Button>
+                {canSend ? (
+                  <Button asChild className="bg-background text-primary hover:bg-background/90">
+                    <Link href="/dashboard/sms/compose"><Send className="h-4 w-4" /> Send SMS</Link>
+                  </Button>
+                ) : (
+                  <Button disabled className="bg-background text-primary">
+                    <Send className="h-4 w-4" /> Send SMS
+                  </Button>
+                )}
                 <Button asChild variant="outline" className="border-primary-foreground/40 bg-transparent text-primary-foreground hover:bg-primary-foreground/10">
                   <Link href="/dashboard/sms/credits"><CreditCard className="h-4 w-4" /> Buy Credits</Link>
                 </Button>
@@ -127,18 +119,19 @@ export default function SmsHomePage() {
             </h2>
             <div className="grid grid-cols-3 gap-3">
               {[
-                { label: "Campaigns", value: stats?.campaigns ?? 0 },
-                { label: "Recipients", value: stats?.recipients ?? 0 },
-                { label: "Credits used", value: stats?.creditsUsed ?? 0 },
+                { label: "Campaigns", value: stats?.campaigns },
+                { label: "Recipients", value: stats?.recipients },
+                { label: "Credits used", value: stats?.creditsUsed },
               ].map((s) => (
                 <Card key={s.label} className="clay">
                   <CardContent className="p-4">
-                    <p className="text-xl font-bold text-foreground">{s.value.toLocaleString("en-US")}</p>
+                    <p className="text-xl font-bold text-foreground">{stats ? (s.value ?? 0).toLocaleString("en-US") : "—"}</p>
                     <p className="text-xs text-muted-foreground">{s.label}</p>
                   </CardContent>
                 </Card>
               ))}
             </div>
+            {!stats && <p className="text-xs text-muted-foreground">Couldn’t load activity. Tap Refresh to try again.</p>}
             {limits && <p className="text-xs text-muted-foreground">Limits: {limitsLine(limits)}</p>}
           </div>
 
@@ -165,7 +158,7 @@ export default function SmsHomePage() {
             </CardHeader>
             <CardContent>
               {recentLedger.length === 0 ? (
-                <p className="py-4 text-center text-sm text-muted-foreground">No credit activity yet.</p>
+                <p className="py-4 text-center text-sm text-muted-foreground">{stats ? "No credit activity yet." : "Couldn’t load credit activity."}</p>
               ) : (
                 <ul className="divide-y divide-border">
                   {recentLedger.slice(0, 5).map((e) => (

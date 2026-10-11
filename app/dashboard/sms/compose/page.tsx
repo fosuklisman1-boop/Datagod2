@@ -30,7 +30,7 @@ const CLOSED_CONFIRM: SendConfirm = { open: false, loading: false, sentCount: 0,
 
 export default function SmsComposePage() {
   const router = useRouter()
-  const { account, featureEnabled, reload } = useSmsAccount()
+  const { account, featureEnabled, reload, defaultSender, platformSender, senderPool } = useSmsAccount()
 
   const [message, setMessage] = useState("")
   const [recipients, setRecipients] = useState<string[]>([])
@@ -204,7 +204,14 @@ export default function SmsComposePage() {
             </Alert>
           )}
 
-          <SenderSelect senders={senders} value={selectedSenderId} onChange={setSelectedSenderId} />
+          <SenderSelect
+            senders={senders}
+            value={selectedSenderId}
+            onChange={setSelectedSenderId}
+            defaultSender={defaultSender}
+            platformSender={platformSender}
+            pool={senderPool}
+          />
 
           <RecipientsPicker
             recipients={recipients}
