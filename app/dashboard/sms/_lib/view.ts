@@ -173,9 +173,21 @@ export function sendOutcomeMessage(r: {
   const total = r.total ?? 0
   const batches = r.batches ?? 1
   const batchTxt = batches > 1 ? ` in ${batches} batches` : ""
-  if (r.scheduled && !r.partial) {
+  if (r.scheduled) {
     const when = r.scheduledFor ? formatScheduled(r.scheduledFor) : ""
-    return { tone: "success", text: `Scheduled${when ? ` for ${when}` : ""} — credits reserved. You can cancel from Records until then.` }
+    const forWhen = when ? ` for ${when}` : ""
+    const heldNote = r.held ? " Part of it was sent for a quick review and goes out when approved, not at the scheduled time." : ""
+    if (r.partial) {
+      // Nothing has been sent yet: the accepted part is only scheduled.
+      return {
+        tone: "warning",
+        text: `${recipientsText(total)} scheduled${forWhen}, then ${partialStopReason(r.stoppedReason)}. Schedule the rest separately.${heldNote}`,
+      }
+    }
+    return {
+      tone: "success",
+      text: `Scheduled${forWhen} — credits reserved. You can cancel from Records until then.${heldNote}`,
+    }
   }
   if (r.held && r.partial) {
     return {
@@ -192,6 +204,7 @@ export function sendOutcomeMessage(r: {
 const RECIPIENT_ERRORS: Record<string, string> = {
   held_rejected: "Not approved after review — credits refunded",
   hubtel_unconfirmed: "Delivery could not be confirmed",
+  scheduled_cancelled: "Scheduled send cancelled — credits refunded",
 }
 export function recipientErrorText(lastError: string | null | undefined): string {
   if (!lastError) return ""

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest"
 import {
   scheduleBounds, toLocalInputValue, fromLocalInputValue, scheduleError, formatScheduled,
-  RECORD_CHIPS, chipStatus, sendOutcomeMessage, sendErrorMessage, isCancelledLog, SCHEDULED_CANCEL_CONFIRM,
+  RECORD_CHIPS, chipStatus, sendOutcomeMessage, sendErrorMessage, isCancelledLog, SCHEDULED_CANCEL_CONFIRM, recipientErrorText,
 } from "./view"
 
 const NOW = new Date("2026-10-12T10:00:00Z")
@@ -48,6 +48,24 @@ describe("scheduled chip", () => {
   it("is present and maps to the scheduled status", () => {
     expect(RECORD_CHIPS.find((c) => c.key === "scheduled")).toEqual({ key: "scheduled", label: "Scheduled", values: ["scheduled"] })
     expect(chipStatus("scheduled")).toBe("scheduled")
+  })
+})
+
+describe("scheduled outcome edge cases", () => {
+  it("scheduled + partial says scheduled, never 'Sent'", () => {
+    const m = sendOutcomeMessage({ scheduled: true, scheduledFor: "2026-10-12T15:30:00Z", partial: true, stoppedReason: "INSUFFICIENT_CREDITS", total: 500 })
+    expect(m.tone).toBe("warning")
+    expect(m.text).toBe("500 recipients scheduled for 12 Oct, 15:30 GMT, then ran out of credits — top up and resend the rest. Schedule the rest separately.")
+    expect(m.text).not.toMatch(/Sent/)
+  })
+  it("scheduled + held mentions both the time and the review", () => {
+    const m = sendOutcomeMessage({ scheduled: true, held: true, scheduledFor: "2026-10-12T15:30:00Z" })
+    expect(m.text).toContain("Scheduled for 12 Oct, 15:30 GMT")
+    expect(m.text).toMatch(/review/)
+    expect(m.text).toMatch(/not at the scheduled time/)
+  })
+  it("scheduled_cancelled has customer wording", () => {
+    expect(recipientErrorText("scheduled_cancelled")).toBe("Scheduled send cancelled — credits refunded")
   })
 })
 
