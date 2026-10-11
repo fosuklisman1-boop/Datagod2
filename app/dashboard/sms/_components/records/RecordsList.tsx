@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
-import { AlertCircle, ChevronLeft, ChevronRight, History, Loader2, RefreshCw, Send } from "lucide-react"
+import { AlertCircle, ChevronLeft, ChevronRight, History, Loader2, Send } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { smsFetch } from "../../_lib/api"
+import { useSmsAccount } from "../../_lib/useSmsAccount"
 import { RECORD_CHIPS, chipStatus, formatCount, isInFlight, pageCount, timeAgo } from "../../_lib/view"
 import { StatusBadge } from "./StatusBadge"
 
@@ -61,6 +62,16 @@ export function RecordsList() {
 
   useEffect(() => { void load(chip, page) }, [load, chip, page])
 
+  // The shell header's Refresh calls the provider's reload(), which replaces `account`;
+  // reload the list when that happens (not on first mount, which already loads above).
+  const { account } = useSmsAccount()
+  const lastAccount = useRef(account)
+  useEffect(() => {
+    if (lastAccount.current === account) return
+    lastAccount.current = account
+    void load(chip, page)
+  }, [account, load, chip, page])
+
   const anyInFlight = rows.some((l) => isInFlight(l.status))
   useEffect(() => {
     if (!anyInFlight) return
@@ -84,9 +95,6 @@ export function RecordsList() {
             </Button>
           ))}
         </div>
-        <Button variant="outline" size="sm" onClick={() => { void load(chip, page) }}>
-          <RefreshCw className="h-4 w-4" /> Refresh
-        </Button>
       </div>
 
       {failed && (

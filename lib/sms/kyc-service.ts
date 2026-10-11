@@ -167,7 +167,7 @@ async function notifyAccountOwner(accountId: string, title: string, message: str
   const { data: a } = await supabaseAdmin.from("sms_accounts").select("user_id").eq("id", accountId).maybeSingle()
   if (!a?.user_id) return
   const now = new Date().toISOString()
-  await supabaseAdmin.from("notifications").insert({ user_id: a.user_id, title, message, type: "sms_kyc", read: false, action_url: "/dashboard/sms", created_at: now, updated_at: now })
+  await supabaseAdmin.from("notifications").insert({ user_id: a.user_id, title, message, type: "sms_kyc", read: false, action_url: "/dashboard/sms/business", created_at: now, updated_at: now })
 }
 
 async function decide(adminId: string, id: string, outcome: "approved" | "rejected", reason?: string): Promise<Result<KycProfile>> {

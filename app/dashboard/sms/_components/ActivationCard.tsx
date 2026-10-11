@@ -9,6 +9,8 @@ import { smsFetch } from "../_lib/api"
 import { useSmsAccount } from "../_lib/useSmsAccount"
 import { MomoDialog, useWalletGates } from "./MomoDialog"
 
+const UNAVAILABLE = "SMS is temporarily unavailable. Please try again later."
+
 /**
  * Welcome-bonus claim banner (active, non-platform, bonus unclaimed) OR the
  * activation card (inactive, non-platform, not suspended). Renders nothing
@@ -16,7 +18,8 @@ import { MomoDialog, useWalletGates } from "./MomoDialog"
  * `reload()` after a successful action. No props.
  */
 export function ActivationCard() {
-  const { account, reload } = useSmsAccount()
+  const { account, reload, featureEnabled } = useSmsAccount()
+  const disabled = featureEnabled === false
   const { walletDirect, walletOtp } = useWalletGates()
   const [busy, setBusy] = useState(false)
   const [momoOpen, setMomoOpen] = useState(false)
@@ -30,6 +33,7 @@ export function ActivationCard() {
   const showBonus = isActive && !isPlatform && !account.bonusClaimed
 
   async function activate(paidFrom: "wallet" | "paystack") {
+    if (disabled) return
     setBusy(true)
     const res = await smsFetch("/api/sms/activate", { method: "POST", body: JSON.stringify({ paidFrom }) })
     setBusy(false)
@@ -45,6 +49,7 @@ export function ActivationCard() {
   }
 
   async function claimBonus() {
+    if (disabled) return
     setBusy(true)
     const res = await smsFetch("/api/sms/claim-bonus", { method: "POST" })
     setBusy(false)
@@ -64,7 +69,8 @@ export function ActivationCard() {
               <p className="text-xs text-muted-foreground">Welcome bonus for activating the SMS feature.</p>
             </div>
           </div>
-          <Button size="sm" onClick={claimBonus} disabled={busy} className="shrink-0 bg-amber-500 text-white hover:bg-amber-600">
+          {disabled && <p className="text-xs text-muted-foreground">{UNAVAILABLE}</p>}
+          <Button size="sm" onClick={claimBonus} disabled={busy || disabled} className="shrink-0 bg-amber-500 text-white hover:bg-amber-600">
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Gift className="h-4 w-4" />} Claim
           </Button>
         </div>
@@ -98,21 +104,22 @@ export function ActivationCard() {
                   <p className="-mt-3 text-xs text-muted-foreground">one-time activation fee</p>
                 </>
               )}
+              {disabled && <p className="text-sm text-muted-foreground">{UNAVAILABLE}</p>}
               <div className="flex flex-wrap justify-center gap-2">
-                <Button onClick={() => activate("wallet")} disabled={busy} className="bg-success text-white hover:bg-success/90">
+                <Button onClick={() => activate("wallet")} disabled={busy || disabled}className="bg-success text-white hover:bg-success/90">
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />} {account.activationFee === 0 ? "Activate" : `Activate for GH₵${account.activationFee.toFixed(2)}`}
                 </Button>
                 {account.activationFee > 0 && (
                   walletDirect ? (
-                    <Button variant="outline" onClick={() => setMomoOpen(true)} disabled={busy}><Smartphone className="h-4 w-4" /> Pay with MoMo</Button>
+                    <Button variant="outline" onClick={() => setMomoOpen(true)} disabled={busy || disabled}><Smartphone className="h-4 w-4" /> Pay with MoMo</Button>
                   ) : (
-                    <Button variant="outline" onClick={() => activate("paystack")} disabled={busy}><CreditCard className="h-4 w-4" /> Pay with Paystack</Button>
+                    <Button variant="outline" onClick={() => activate("paystack")} disabled={busy || disabled}><CreditCard className="h-4 w-4" /> Pay with Paystack</Button>
                   )
                 )}
               </div>
             </CardContent>
           </Card>
-          <MomoDialog open={momoOpen} onClose={() => setMomoOpen(false)} cost={account.activationFee} walletOtp={walletOtp} />
+          <MomoDialog open={momoOpen && !disabled} onClose={() => setMomoOpen(false)} cost={account.activationFee} walletOtp={walletOtp} />
         </>
       )}
     </>

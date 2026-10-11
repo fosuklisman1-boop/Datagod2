@@ -549,7 +549,7 @@ export default function ShopProfilePage() {
                 ) : (
                   <p className="flex items-center gap-1.5 text-xs font-semibold text-success"><CheckCircle2 className="h-3.5 w-3.5" /> Activated — {smsAccount.unitBalance} units available</p>
                 )}
-                <Link href="/dashboard/sms" className="block text-xs font-semibold text-[#1b388b] underline">Configure templates & sender ID →</Link>
+                <Link href="/dashboard/sms/business" className="block text-xs font-semibold text-[#1b388b] underline">Set up your sender ID →</Link>
               </div>
             </>
           )}

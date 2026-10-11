@@ -6,7 +6,7 @@ import type { PolicyPreview } from "./usePolicyPreview"
 export function PolicyNote({ preview }: { preview: PolicyPreview | null }) {
   const show = !!preview && preview.decision !== "allow" && preview.decision !== "unavailable" && !preview.unavailable && !!preview.reason
   const lead = preview?.decision === "hold"
-    ? "This send would be held for a quick review before it goes out:"
+    ? "When rules are enforced this send would be held for a quick review before it goes out:"
     : "When rules are enforced this message would be stopped:"
   return (
     <div className="space-y-2">
