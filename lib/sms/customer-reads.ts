@@ -72,6 +72,27 @@ function toLedgerRow(r: Omit<LedgerRow, "label">): LedgerRow {
   return { ...r, label: ledgerLabel(r.reason, r.send_log_id ?? null) }
 }
 
+/**
+ * Labels ledger debits whose send log is a billed order confirmation ("Order confirmation SMS").
+ * One extra lookup (send_log_id -> sms_send_logs.source); a failed lookup (or the column missing
+ * before the migration) is logged and leaves the default labels.
+ */
+async function toLedgerRows(accountId: string, rows: Omit<LedgerRow, "label">[]): Promise<LedgerRow[]> {
+  const out = rows.map(toLedgerRow)
+  const logIds = [...new Set(rows.filter((r) => r.reason === "campaign_send" && r.send_log_id).map((r) => r.send_log_id as number))]
+  if (logIds.length === 0) return out
+  const { data, error } = await supabaseAdmin.from("sms_send_logs")
+    .select("id, source").eq("sms_account_id", accountId).in("id", logIds)
+  if (error) {
+    if (!isMissingColumn(error)) console.error("[SMS-LEDGER] source lookup failed:", error.message)
+    return out
+  }
+  const confirmations = new Set(
+    (Array.isArray(data) ? data : []).filter((l: { source?: string | null }) => l.source === "order_confirmation").map((l: { id: number | string }) => String(l.id))
+  )
+  return out.map((r) => (r.reason === "campaign_send" && r.send_log_id && confirmations.has(String(r.send_log_id)) ? { ...r, label: "Order confirmation SMS" } : r))
+}
+
 async function recentLedger(accountId: string, limit: number): Promise<LedgerRow[]> {
   const { data, error } = await supabaseAdmin.from("sms_unit_transactions")
     .select(LEDGER_COLUMNS)
@@ -80,7 +101,7 @@ async function recentLedger(accountId: string, limit: number): Promise<LedgerRow
     .order("id", { ascending: false })
     .limit(limit)
   if (error) throw new Error(error.message)
-  return ((data ?? []) as Omit<LedgerRow, "label">[]).map(toLedgerRow)
+  return toLedgerRows(accountId, (data ?? []) as Omit<LedgerRow, "label">[])
 }
 
 async function loadStats(accountId: string) {
@@ -163,7 +184,7 @@ export async function listLedger(accountId: string, pageNum: number): Promise<Pa
     return { rows: [], total: head.count ?? 0, page, pageSize: RECORDS_PAGE_SIZE }
   }
   if (error) throw new Error(error.message)
-  return { rows: ((data ?? []) as Omit<LedgerRow, "label">[]).map(toLedgerRow), total: count ?? 0, page, pageSize: RECORDS_PAGE_SIZE }
+  return { rows: await toLedgerRows(accountId, (data ?? []) as Omit<LedgerRow, "label">[]), total: count ?? 0, page, pageSize: RECORDS_PAGE_SIZE }
 }
 
 interface MessageRow { status: string; delivery_status: string | null; refunded: boolean | null }

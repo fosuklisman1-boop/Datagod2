@@ -1,13 +1,16 @@
 "use client"
 
+import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
+import { toast } from "sonner"
 import { BarChart3, BellRing, ChevronRight, CreditCard, History, Send, Users, Wallet, Building2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
+import { smsFetch } from "./_lib/api"
 import { useSmsAccount } from "./_lib/useSmsAccount"
-import { limitsLine } from "./_lib/view"
+import { ORDER_CONFIRMATION_HELP, confirmationToggleState, limitsLine, type ConfirmationState } from "./_lib/view"
 import { SmsShell } from "./_components/SmsShell"
 import { ActivationCard } from "./_components/ActivationCard"
 
@@ -30,6 +33,61 @@ const TILES = [
   { href: "/dashboard/sms/credits", label: "Credits", desc: "Buy and review credits", icon: CreditCard },
   { href: "/dashboard/sms/business", label: "Business & Sender ID", desc: "Sender names and verification", icon: Building2 },
 ]
+
+function OrderConfirmationCard() {
+  const [state, setState] = useState<ConfirmationState | null>(null)
+  const [saving, setSaving] = useState(false)
+  const alive = useRef(true)
+
+  useEffect(() => {
+    alive.current = true
+    void smsFetch<ConfirmationState>("/api/sms/order-confirmations").then((r) => {
+      if (alive.current && r.ok) setState(r.data)
+    })
+    return () => { alive.current = false }
+  }, [])
+
+  const t = confirmationToggleState(state, saving)
+
+  async function onToggle(next: boolean) {
+    if (!state || saving) return
+    const prev = state
+    setState({ ...state, useOwnSender: next }) // optimistic
+    setSaving(true)
+    const r = await smsFetch<ConfirmationState>("/api/sms/order-confirmations", {
+      method: "PATCH",
+      body: JSON.stringify({ useOwnSender: next }),
+    })
+    if (!alive.current) return
+    setSaving(false)
+    if (r.ok) setState(r.data)
+    else {
+      setState(prev) // rollback
+      toast.error(r.error || "Couldn’t update this setting. Try again.")
+    }
+  }
+
+  return (
+    <Card className="clay">
+      <CardContent className="flex items-center justify-between gap-3 pt-6">
+        <div className="flex items-start gap-3">
+          <BellRing className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+          <div>
+            <p className="text-sm font-semibold text-foreground">Order confirmation SMS</p>
+            <p className="text-xs text-muted-foreground">{ORDER_CONFIRMATION_HELP}</p>
+            {t.reason && <p className="mt-1 text-xs text-warning">{t.reason}</p>}
+          </div>
+        </div>
+        <Switch
+          checked={t.checked}
+          disabled={t.disabled}
+          onCheckedChange={(v) => { void onToggle(v) }}
+          aria-label="Send order confirmations from my own sender ID"
+        />
+      </CardContent>
+    </Card>
+  )
+}
 
 export default function SmsHomePage() {
   const { account, limits, stats, recentLedger, walletBalance, profitBalance, platformSender, defaultSender } = useSmsAccount()
@@ -100,18 +158,7 @@ export default function SmsHomePage() {
             </div>
           </div>
 
-          <Card className="clay">
-            <CardContent className="flex items-center justify-between gap-3 pt-6">
-              <div className="flex items-start gap-3">
-                <BellRing className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-                <div>
-                  <p className="text-sm font-semibold text-foreground">Order confirmation SMS</p>
-                  <p className="text-xs text-muted-foreground">Coming soon — automatically text customers when they order.</p>
-                </div>
-              </div>
-              <Switch disabled checked={false} aria-label="Order confirmation SMS (coming soon)" />
-            </CardContent>
-          </Card>
+          <OrderConfirmationCard />
 
           <div className="space-y-2">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">

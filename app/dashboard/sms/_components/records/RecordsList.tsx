@@ -9,7 +9,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { smsFetch } from "../../_lib/api"
 import { useSmsAccount } from "../../_lib/useSmsAccount"
-import { RECORD_CHIPS, chipStatus, formatCount, formatScheduled, isInFlight, pageCount, timeAgo } from "../../_lib/view"
+import { ORDER_CONFIRMATION_TAG, RECORD_CHIPS, chipStatus, formatCount, formatScheduled, isInFlight, isOrderConfirmation, pageCount, timeAgo } from "../../_lib/view"
 import { StatusBadge } from "./StatusBadge"
 import { CancelScheduledButton } from "./CancelScheduledButton"
 
@@ -147,7 +147,9 @@ export function RecordsList() {
                     <span>{formatCount(l.recipients_count)} recipient{l.recipients_count === 1 ? "" : "s"}</span>
                     <span>{formatCount(l.credits_used)}/{formatCount(l.credits_reserved)} credits</span>
                     <span title={new Date(l.created_at).toLocaleString()}>{timeAgo(l.created_at)}</span>
-                    <span>#{l.id}</span>                  </div>
+                    <span>#{l.id}</span>
+                    {isOrderConfirmation(l) && <span className="font-medium text-primary">{ORDER_CONFIRMATION_TAG}</span>}
+                  </div>
                 </Link>
                 {l.status === "scheduled" && (
                   <div className="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-3">

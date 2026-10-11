@@ -230,6 +230,40 @@ describe("listLedger", () => {
     h.tables.sms_unit_transactions = { data: null, error: { message: "boom" } }
     await expect(listLedger("acct1", 1)).rejects.toThrow("boom")
   })
+  describe("order confirmation debits", () => {
+    const ledger = [
+      { id: 3, delta: -1, reason: "campaign_send", balance_after: 9, send_log_id: 11, created_at: "t" },
+      { id: 2, delta: -4, reason: "campaign_send", balance_after: 10, send_log_id: 10, created_at: "t" },
+      { id: 1, delta: 50, reason: "bundle_wallet", balance_after: 14, send_log_id: null, created_at: "t" },
+    ]
+    it("labels debits whose send log source is order_confirmation (one scoped lookup)", async () => {
+      h.tables.sms_unit_transactions = { data: ledger, error: null, count: 3 }
+      h.tables.sms_send_logs = { data: [{ id: 11, source: "order_confirmation" }, { id: 10, source: null }], error: null }
+      const r = await listLedger("acct1", 1)
+      expect(r.rows.map((x) => x.label)).toEqual(["Order confirmation SMS", "SMS campaign #10", "Credits purchased"])
+      const ops = opsOf("sms_send_logs")
+      expect(ops).toContainEqual({ m: "eq", args: ["sms_account_id", "acct1"] })
+      expect(ops).toContainEqual({ m: "in", args: ["id", [11, 10]] })
+    })
+    it("keeps default labels (and does not throw) when the lookup fails or the column is missing", async () => {
+      h.tables.sms_unit_transactions = { data: ledger, error: null, count: 3 }
+      h.tables.sms_send_logs = { data: null, error: { message: "no col", code: "42703" } }
+      const r = await listLedger("acct1", 1)
+      expect(r.rows.map((x) => x.label)).toEqual(["SMS campaign #11", "SMS campaign #10", "Credits purchased"])
+    })
+    it("skips the lookup when there are no campaign debits", async () => {
+      h.tables.sms_unit_transactions = { data: [ledger[2]], error: null, count: 1 }
+      await listLedger("acct1", 1)
+      expect(opsOf("sms_send_logs")).toEqual([])
+    })
+    it("getHomeSummary labels them too", async () => {
+      h.tables.sms_accounts = { data: { mode: "platform" }, error: null }
+      h.tables.sms_unit_transactions = { data: [ledger[0]], error: null }
+      h.tables.sms_send_logs = { data: [{ id: 11, source: "order_confirmation" }], error: null }
+      const r = await getHomeSummary("acct1")
+      expect(r.recentLedger![0].label).toBe("Order confirmation SMS")
+    })
+  })
 })
 
 describe("cancelled flag (derived from policy_shadow, which is never exposed)", () => {

@@ -320,7 +320,26 @@ export function formatScheduled(iso: string): string {
 }
 
 /** A cancelled scheduled send is stored as failed; the read model derives `cancelled`. */
-export const isCancelledLog = (l: { status: string; cancelled?: boolean | null }) => l.status === "failed" && l.cancelled === true
+// ─── billed order confirmations (Home toggle + Records tag) ──────────────
+export const ORDER_CONFIRMATION_HELP =
+  "Customers get your order confirmation from your own sender ID. Costs 1 credit per message segment."
+export const ORDER_CONFIRMATION_TAG = "Order confirmation"
+export const isOrderConfirmation = (l: { source?: string | null }) => l.source === "order_confirmation"
+
+export interface ConfirmationState { useOwnSender: boolean; canEnable: boolean; reason?: string }
+
+/** Switch state for the Home toggle: loading until the GET answers, locked while saving or when it can't be enabled. */
+export function confirmationToggleState(
+  s: ConfirmationState | null | undefined,
+  saving: boolean
+): { checked: boolean; disabled: boolean; reason: string | null } {
+  if (!s) return { checked: false, disabled: true, reason: null }
+  // Turning OFF is always allowed; only turning ON needs eligibility.
+  const blocked = !s.canEnable && !s.useOwnSender
+  return { checked: s.useOwnSender, disabled: saving || blocked, reason: blocked ? (s.reason ?? "Not available yet.") : null }
+}
+
+export const isCancelledLog =(l: { status: string; cancelled?: boolean | null }) => l.status === "failed" && l.cancelled === true
 
 export function pageCount(total: number, pageSize = RECORDS_PAGE_SIZE): number {
   return Math.max(1, Math.ceil((Number(total) || 0) / pageSize))

@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { smsFetch } from "../../_lib/api"
-import { formatCount, formatScheduled, isCancelledLog, isInFlight, recipientErrorText, recipientStatus, toneBadgeClass } from "../../_lib/view"
+import { ORDER_CONFIRMATION_TAG, formatCount, formatScheduled, isCancelledLog, isInFlight, isOrderConfirmation, recipientErrorText, recipientStatus, toneBadgeClass } from "../../_lib/view"
 import { StatusBadge } from "./StatusBadge"
 import { CancelScheduledButton } from "./CancelScheduledButton"
 import type { RecordRow } from "./RecordsList"
@@ -105,6 +105,7 @@ export function RecordDetail({ id }: { id: string }) {
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="text-lg font-semibold text-foreground">Campaign #{log.id}</h2>
           <StatusBadge status={log.status} cancelled={log.cancelled} />
+          {isOrderConfirmation(log) && <Badge variant="outline" className={toneBadgeClass("info")}>{ORDER_CONFIRMATION_TAG}</Badge>}
         </div>
         <p className="text-xs text-muted-foreground">
           {formatCount(log.recipients_count)} recipient{log.recipients_count === 1 ? "" : "s"} · {formatCount(log.credits_used)}/{formatCount(log.credits_reserved)} credits used · from {log.sender_id || "default sender"} · {new Date(log.created_at).toLocaleString()}
