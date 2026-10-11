@@ -175,6 +175,33 @@ export function toNumberOrNaN(text: string): number {
   return Number(t)
 }
 
+const plural = (n: number, one: string, many = `${one}s`) => `${formatCount(n)} ${n === 1 ? one : many}`
+
+/** "500 recipients · 1,000 credits" for a held campaign card. */
+export function heldSummary(r: { recipients_count: unknown; credits_reserved: unknown }): string {
+  return `${plural(num(r.recipients_count), "recipient")} · ${plural(num(r.credits_reserved), "credit")}`
+}
+
+/** Reject needs a reason the customer will see (the server enforces the same minimum). */
+export function isValidRejectReason(reason: string): boolean {
+  return (reason ?? "").trim().length >= 3
+}
+
+/** Toast text after a held-campaign action succeeded. */
+export function heldActionMessage(
+  action: "release" | "reject",
+  d: { already?: boolean; placed?: unknown; refundedCredits?: unknown; status?: string },
+): string {
+  if (action === "release") {
+    if (d.already) return "Already released"
+    const placed = num(d.placed)
+    return placed > 0 ? `Released — ${plural(placed, "message")} sent` : "Released — queued for sending"
+  }
+  if (d.already) return "Already rejected"
+  const credits = num(d.refundedCredits)
+  return credits > 0 ? `Rejected — ${plural(credits, "credit")} refunded` : "Rejected"
+}
+
 /** Comma/newline separated text → trimmed, de-duplicated (case-insensitive), no empties. */
 export function parseList(text: string): string[] {
   const seen = new Set<string>(); const out: string[] = []

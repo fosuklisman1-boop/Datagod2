@@ -61,6 +61,19 @@ export interface FlagRow {
   id: string; source: "flag" | "legacy"; sms_account_id: string; user_id: string; severity: "fraud" | "info"
   reason: string; matched: string | null; status: string; message: string | null; created_at: string
 }
+/** A campaign held for review (lib/sms/admin-lists HeldRow). Actioned via /flags/held/<log_id>. */
+export interface HeldRow {
+  id: string; source: "held"; log_id: number; sms_account_id: string; user_id: string | null; email: string | null
+  severity: "info"; status: "open"; reason: string; code: string | null; message: string; sender_id: string | null
+  recipients_count: number; segments: number; credits_reserved: number; created_at: string
+}
+/** GET /api/admin/sms-platform/flags: the flags page plus (page 1, All/Info, open) the held campaigns. */
+export type FlagsPage = Page<FlagRow> & { held?: HeldRow[]; heldTotal?: number }
+export type HeldActionData =
+  | { already: false; placed: number }
+  | { already: true; status: string }
+  | { already: boolean; refundedCredits: number; refundedMessages: number }
+
 export interface BundleRow {
   id: string; name: string; units: number; price_ghs: number | string; owner_type_scope: string
   active: boolean; mode: "platform" | "business"; sort_order: number; updated_at?: string

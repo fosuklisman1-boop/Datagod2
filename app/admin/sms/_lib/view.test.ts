@@ -3,6 +3,7 @@ import {
   formatCount, formatGhs, formatPerSms, maskIdCard, waLink, statusTone, toneClass, statusLabel, timeAgo, pageInfo,
   messageBreakdown, accountCredits, groupReviews, bannerFor, previewTotals, tabFromParam, TAB_IDS, parseList, providerLabel, supplyHeadline,
   shouldResetPage, formatRate, parseApiLimit, parseAllocateUnits, parseBundleDraft, toNumberOrNaN,
+  heldSummary, heldActionMessage, isValidRejectReason,
 } from "./view"
 
 describe("admin form parsers", () => {
@@ -207,5 +208,28 @@ describe("tabs and lists", () => {
   it("parseList splits on commas/newlines, trims, de-dupes case-insensitively", () => {
     expect(parseList("loan, Win Big\nLOAN ,, promo ")).toEqual(["loan", "Win Big", "promo"])
     expect(parseList("")).toEqual([])
+  })
+})
+
+describe("held campaigns", () => {
+  it("heldSummary", () => {
+    expect(heldSummary({ recipients_count: 500, credits_reserved: 1000 })).toBe("500 recipients · 1,000 credits")
+    expect(heldSummary({ recipients_count: 1, credits_reserved: 1 })).toBe("1 recipient · 1 credit")
+  })
+  it("isValidRejectReason needs 3+ non-space chars", () => {
+    expect(isValidRejectReason("spam")).toBe(true)
+    expect(isValidRejectReason("  ab ")).toBe(false)
+    expect(isValidRejectReason("")).toBe(false)
+  })
+  it("heldActionMessage — release", () => {
+    expect(heldActionMessage("release", { already: false, placed: 12 })).toBe("Released — 12 messages sent")
+    expect(heldActionMessage("release", { already: false, placed: 1 })).toBe("Released — 1 message sent")
+    expect(heldActionMessage("release", { already: false, placed: 0 })).toBe("Released — queued for sending")
+    expect(heldActionMessage("release", { already: true, status: "sent" })).toBe("Already released")
+  })
+  it("heldActionMessage — reject", () => {
+    expect(heldActionMessage("reject", { already: false, refundedCredits: 1000 })).toBe("Rejected — 1,000 credits refunded")
+    expect(heldActionMessage("reject", { already: false, refundedCredits: 0 })).toBe("Rejected")
+    expect(heldActionMessage("reject", { already: true, refundedCredits: 0 })).toBe("Already rejected")
   })
 })

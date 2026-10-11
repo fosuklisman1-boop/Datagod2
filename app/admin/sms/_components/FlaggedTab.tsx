@@ -4,9 +4,9 @@ import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { api, type FlagRow, type OverviewData, type Page } from "../_lib/api"
+import { api, type FlagRow, type FlagsPage, type HeldActionData, type HeldRow, type OverviewData } from "../_lib/api"
 import { useLoad } from "../_lib/useLoad"
-import { formatCount, previewTotals, shouldResetPage, timeAgo, toneClass } from "../_lib/view"
+import { formatCount, heldActionMessage, heldSummary, isValidRejectReason, previewTotals, shouldResetPage, timeAgo, toneClass } from "../_lib/view"
 import { ConfirmDialog, CopyButton, EmptyState, ErrorBox, LoadingRows, Pager, StatusBadge } from "./ui-bits"
 
 const DECISION_TEXT: Record<string, string> = {
@@ -98,11 +98,69 @@ function FlagCard({ row, onChanged, stale }: { row: FlagRow; onChanged: () => vo
   )
 }
 
+function HeldCard({ row, onChanged, stale }: { row: HeldRow; onChanged: () => void; stale?: boolean }) {
+  const [action, setAction] = useState<null | "release" | "reject">(null)
+  const [busy, setBusy] = useState(false)
+  async function run(kind: "release" | "reject", reason?: string) {
+    if (busy) return
+    if (kind === "reject" && !isValidRejectReason(reason ?? "")) { toast.error("Give a reason (at least 3 characters)"); return }
+    setBusy(true)
+    try {
+      const res = await api<HeldActionData>(`/api/admin/sms-platform/flags/held/${row.log_id}`, {
+        method: "POST", body: JSON.stringify(kind === "reject" ? { action: kind, reason } : { action: kind }),
+      })
+      if (res.success && res.data) toast.success(heldActionMessage(kind, res.data))
+      else toast.error(res.error ?? "Something went wrong")
+    } finally {
+      setBusy(false)
+      setAction(null)
+      onChanged()
+    }
+  }
+  return (
+    <Card className="clay border-0 py-0">
+      <CardContent className="space-y-2 p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusBadge status="held" label="Held for review" />
+          <span className="min-w-0 break-words text-sm font-medium">{row.reason}</span>
+          {row.code && <Badge variant="secondary" className="max-w-full break-all font-mono">{row.code}</Badge>}
+          <span className="ml-auto text-xs text-muted-foreground">{timeAgo(row.created_at)}</span>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Campaign #{row.log_id} · {heldSummary(row)}{row.sender_id ? <> · from <span className="font-mono">{row.sender_id}</span></> : null}
+        </p>
+        <p className="clay-inset line-clamp-4 whitespace-pre-wrap break-words rounded-xl px-3 py-2 text-sm">{row.message}</p>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          {row.email && <span className="min-w-0 break-all">{row.email}</span>}
+          {row.user_id && (
+            <span className="inline-flex items-center gap-1">User <span className="font-mono">{row.user_id.slice(0, 8)}…</span><CopyButton value={row.user_id} title="Copy user ID" /></span>
+          )}
+          <div className="ml-auto flex flex-wrap gap-2">
+            <Button size="sm" disabled={busy || stale} onClick={() => setAction("release")}>Release</Button>
+            <Button size="sm" variant="destructive" disabled={busy || stale} onClick={() => setAction("reject")}>Reject</Button>
+          </div>
+        </div>
+      </CardContent>
+      <ConfirmDialog open={action === "release"} onOpenChange={(o) => !o && setAction(null)} busy={busy}
+        title="Release this campaign?" confirmLabel="Release and send"
+        description={<>Sends campaign #{row.log_id} to {heldSummary(row)} now. Credits were already taken when it was held. The customer is notified.</>}
+        onConfirm={() => run("release")} />
+      <ConfirmDialog open={action === "reject"} onOpenChange={(o) => !o && setAction(null)} busy={busy} destructive
+        title="Reject this campaign?" confirmLabel="Reject and refund"
+        reasonLabel="Reason (shown to the customer)" minReason={3}
+        description={<>Campaign #{row.log_id} will not be sent. Every unsent message is refunded to the customer&apos;s SMS balance and they are notified.</>}
+        onConfirm={(reason) => run("reject", reason)} />
+    </Card>
+  )
+}
+
 export default function FlaggedTab({ overview, onChanged }: { overview: OverviewData; onChanged: () => void }) {
   const [severity, setSeverity] = useState<Severity>("")
   const [page, setPage] = useState(1)
-  const { data, error, loading, reload } = useLoad<Page<FlagRow>>(
-    () => api<Page<FlagRow>>(`/api/admin/sms-platform/flags?severity=${severity}&status=open&page=${page}`), [severity, page])
+  const { data, error, loading, reload } = useLoad<FlagsPage>(
+    () => api<FlagsPage>(`/api/admin/sms-platform/flags?severity=${severity}&status=open&page=${page}`), [severity, page])
+  const held = data?.held ?? []
+  const heldTotal = data?.heldTotal ?? held.length
 
   // Resolving the last row on a later page leaves it empty: step back to page 1.
   useEffect(() => {
@@ -125,11 +183,27 @@ export default function FlaggedTab({ overview, onChanged }: { overview: Overview
         ))}
       </div>
       {loading && !data ? <LoadingRows /> : error && !data ? <ErrorBox message={error} onRetry={reload} />
-        : !data || data.rows.length === 0 ? <EmptyState title="Nothing flagged — all clear" />
+        : !data || (data.rows.length === 0 && held.length === 0) ? <EmptyState title="Nothing flagged — all clear" />
         : (<>
           {error && <ErrorBox message={error} onRetry={reload} />}
-          <div className={`space-y-3 transition-opacity ${loading ? "pointer-events-none opacity-60" : ""}`} aria-busy={loading}>{data.rows.map((r) => <FlagCard key={`${r.source}-${r.id}`} row={r} stale={loading} onChanged={() => { void reload(); onChanged() }} />)}</div>
-          <Pager page={data.page} pageSize={data.pageSize} total={data.total} onPage={setPage} />
+          {held.length > 0 && (
+            <section className="space-y-3" aria-label="Campaigns held for review">
+              <div className="flex flex-wrap items-baseline gap-2">
+                <h3 className="text-sm font-semibold">Held for review</h3>
+                <span className="text-xs text-muted-foreground">
+                  {formatCount(heldTotal)} waiting{heldTotal > held.length ? ` · oldest ${formatCount(held.length)} shown` : ""} · credits already taken; release sends, reject refunds
+                </span>
+              </div>
+              <div className={`space-y-3 transition-opacity ${loading ? "pointer-events-none opacity-60" : ""}`} aria-busy={loading}>
+                {held.map((r) => <HeldCard key={r.id} row={r} stale={loading} onChanged={() => { void reload(); onChanged() }} />)}
+              </div>
+            </section>
+          )}
+          {data.rows.length > 0 && (<>
+            {held.length > 0 && <h3 className="text-sm font-semibold">Flags</h3>}
+            <div className={`space-y-3 transition-opacity ${loading ? "pointer-events-none opacity-60" : ""}`} aria-busy={loading}>{data.rows.map((r) => <FlagCard key={`${r.source}-${r.id}`} row={r} stale={loading} onChanged={() => { void reload(); onChanged() }} />)}</div>
+            <Pager page={data.page} pageSize={data.pageSize} total={data.total} onPage={setPage} />
+          </>)}
         </>)}
     </div>
   )
