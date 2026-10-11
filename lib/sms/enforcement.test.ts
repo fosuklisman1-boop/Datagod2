@@ -192,6 +192,16 @@ describe("migration 20261013_sms_policy_enforcement_2.sql (static contract)", ()
     expect(fn).toMatch(/make_interval\(secs => p_seconds\)/)
     expect(fn).toMatch(/GET DIAGNOSTICS v_n = ROW_COUNT/)
   })
+  it("hides policy_shadow + flag_reason from browser roles, keeps every other column for authenticated", () => {
+    expect(sql).toMatch(/REVOKE SELECT ON sms_send_logs FROM anon, authenticated;/)
+    const grant = sql.slice(sql.indexOf("GRANT SELECT ("), sql.indexOf("TO authenticated;", sql.indexOf("GRANT SELECT (")))
+    expect(grant).not.toMatch(/policy_shadow|flag_reason/)
+    for (const c of ["id", "sms_account_id", "message", "sender_id", "recipients_count", "segments", "credits_reserved",
+      "credits_used", "status", "flagged", "provider", "created_at", "completed_at", "mode", "provider_batch_id"]) {
+      expect(grant).toMatch(new RegExp(`\\b${c}\\b`))
+    }
+    expect(sql).not.toMatch(/^REVOKE[^;]*service_role/m) // statements only (comments mention it)
+  })
   it("lease functions are service-role only", () => {
     for (const sig of ["sms_try_send_lock\\(UUID, INT\\)", "sms_release_send_lock\\(UUID\\)"]) {
       expect(sql).toMatch(new RegExp(`REVOKE ALL ON FUNCTION ${sig}\\s+FROM PUBLIC, anon, authenticated`))
