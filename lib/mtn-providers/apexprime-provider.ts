@@ -71,9 +71,11 @@ export function normalizeApexStatus(raw: string, message?: string): "pending" | 
   if (s === "completed" || s === "success" || s === "successful") {
     const m = (message ?? "").toLowerCase()
     if (m.includes("refund") && !m.includes("autosync")) return "failed"
-    // Apex Prime also reports "completed" while the order is still in flight; only its message
-    // tells: "Sent to NITGHT. Order ID: 18047", "Routed from NITGHT (awaiting approval)".
+    // Apex Prime also reports "completed" while the order is still in flight ("Sent to NITGHT. Order
+    // ID: 18047", "Routed from NITGHT (awaiting approval)") or after it failed ("Supplier Error:
+    // Insufficient balance"); only its message tells.
     if (apexMessageInFlight(message)) return "processing"
+    if (apexMessageFailed(message)) return "failed"
     return "completed"
   }
   if (s.includes("fail") || s.includes("reject") || s.includes("cancel") || s.includes("refund")) return "failed"
@@ -84,7 +86,7 @@ export function normalizeApexStatus(raw: string, message?: string): "pending" | 
 /** Latest step of an Apex Prime message chain reads "explicitly delivered". */
 const APEX_DONE = /supplier\s*=\s*(completed|success|successful|delivered)|\bdelivered\b|\bsuccessful(ly)?\b|\bcompleted\b/
 /** Latest step reads "handed on / waiting": the order is not delivered yet. */
-const APEX_IN_FLIGHT = /\bsent to\b|\brouted\b|awaiting|\bqueued\b|\bpending\b|\bprocessing\b|\bin progress\b/
+const APEX_IN_FLIGHT = /\bsent to\b|\binitiated\b|\brouted\b|awaiting|\bqueued\b|\bpending\b|\bprocessing\b|\bin progress\b/
 
 /**
  * true when the LATEST step of Apex Prime's message (their log is a " | "-joined chain, newest
@@ -92,10 +94,29 @@ const APEX_IN_FLIGHT = /\bsent to\b|\brouted\b|awaiting|\bqueued\b|\bpending\b|\
  * ending "AutoSync ...: supplier=completed" is delivered even though it starts "Sent to Supplier 1".
  */
 export function apexMessageInFlight(message?: string): boolean {
-  const steps = (message ?? "").toLowerCase().split("|").map(p => p.trim()).filter(Boolean)
-  const last = steps[steps.length - 1]
+  const last = lastApexStep(message)
   if (!last || APEX_DONE.test(last)) return false
   return APEX_IN_FLIGHT.test(last)
+}
+
+/** Latest step reads as a definite failure (observed live with status "completed"). */
+const APEX_FAILED = /supplier\s*=\s*(failed|error|rejected|cancell?ed)|supplier error|\berror\b|not found|not enabled|\bfailed\b|\brejected\b/
+
+/**
+ * true when the LATEST step of Apex Prime's message is a failure: "Supplier Error: Insufficient
+ * balance", "Requested function was not found", "not enabled on MTN yet ...", "supplier=failed".
+ * Checked after apexMessageInFlight, so "API Offline - Pending dispatch (Insufficient wallet
+ * balance.)" (still queued) stays in flight. An explicit completion in that step wins.
+ */
+export function apexMessageFailed(message?: string): boolean {
+  const last = lastApexStep(message)
+  if (!last || APEX_DONE.test(last)) return false
+  return APEX_FAILED.test(last)
+}
+
+function lastApexStep(message?: string): string | undefined {
+  const steps = (message ?? "").toLowerCase().split("|").map(p => p.trim()).filter(Boolean)
+  return steps[steps.length - 1]
 }
 
 /**
