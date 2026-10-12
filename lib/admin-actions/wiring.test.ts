@@ -123,3 +123,20 @@ describe("results-check wiring", () => {
     expect(read("app/api/admin/results-check-requests/route.ts")).toContain('notifyUserOfOutcome("results_check"')
   })
 })
+
+describe("sender-id wiring", () => {
+  it("request creation alerts admins; approve/reject notify the owner", () => {
+    expect(read("app/api/sms/sender-ids/route.ts")).toContain('alertAdminsOfRequest("sender_id"')
+    expect(read("app/api/admin/sms-sender-ids/approve/route.ts")).toContain('notifySenderIdOutcome(')
+    expect(read("app/api/admin/sms-sender-ids/approve/route.ts")).toContain('"approved"')
+    expect(read("app/api/admin/sms-sender-ids/reject/route.ts")).toContain('notifySenderIdOutcome(')
+    expect(read("app/api/admin/sms-sender-ids/reject/route.ts")).toContain('"rejected"')
+  })
+  it("only tenant branches notify (hook call sits after the tenant ok-check, before the platform path)", () => {
+    for (const f of ["approve", "reject"]) {
+      const src = read(`app/api/admin/sms-sender-ids/${f}/route.ts`)
+      expect(src.match(/notifySenderIdOutcome\(/g)).toHaveLength(1)
+      expect(src.indexOf("notifySenderIdOutcome(")).toBeLessThan(src.indexOf("const result ="))
+    }
+  })
+})
