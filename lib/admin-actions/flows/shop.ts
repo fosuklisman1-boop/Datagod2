@@ -28,6 +28,7 @@ export const shopFlow: FlowDef<ShopCtx> = {
           heading: "Shop approved",
           paragraphs: [
             `Your shop "${c.shopName}" is now live.`,
+            ...(c.ownerPhone ? [`Contact number: ${c.ownerPhone}`] : []),
             "You can now start selling data bundles and managing your shop from your dashboard.",
           ],
           cta: { label: "Manage shop", url: appUrl(OWNER_URL) },
@@ -45,6 +46,7 @@ export const shopFlow: FlowDef<ShopCtx> = {
           heading: "Application status update",
           paragraphs: [
             `Your shop application for "${c.shopName}" was not approved.`,
+            ...(c.ownerPhone ? [`Contact number: ${c.ownerPhone}`] : []),
             ...(c.reason ? [`Reason: ${c.reason}`] : []),
             "If you have questions about this decision, please contact our support team.",
           ],

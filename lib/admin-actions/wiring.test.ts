@@ -57,3 +57,18 @@ describe("withdrawals wiring", () => {
     }
   })
 })
+
+describe("shop approvals wiring", () => {
+  it("create route alerts admins once", () => {
+    expect(read("app/api/shop/create/route.ts").match(/alertAdminsOfRequest\("shop"/g)).toHaveLength(1)
+  })
+  it("approve and reject use the central notifier, not inline sends", () => {
+    const a = read("app/api/admin/shops/approve/route.ts")
+    expect(a).toContain('notifyUserOfOutcome("shop", "approved"')
+    expect(a).not.toContain("type: 'shop_approved'")
+    expect(a).toContain('.eq("is_active", false)')
+    const r = read("app/api/admin/shops/reject/route.ts")
+    expect(r).toContain('notifyUserOfOutcome("shop", "rejected"')
+    expect(r).not.toContain("type: 'shop_rejected'")
+  })
+})

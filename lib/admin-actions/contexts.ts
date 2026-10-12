@@ -27,6 +27,7 @@ export interface ShopCtx {
   shopId: string
   shopName: string
   reason?: string | null
+  ownerPhone?: string | null
 }
 export interface SenderIdCtx {
   senderIdId: string
