@@ -7,7 +7,7 @@ import { createClient } from "@supabase/supabase-js"
 import { writeAuditLog } from "./moderation-service"
 import { invalidateSmsSettingsCache, normalizeDomain, parseSmsSettings, SMS_SETTING_KEYS, type SmsPlatformSettings } from "./platform-settings"
 import { normalizeSenderName, validateSenderName } from "./sender-name"
-import { HUBTEL_MANUAL_BALANCE_KEY, MANUAL_BALANCE_MAX_GHS } from "./hubtel-manual-balance"
+import { HUBTEL_MANUAL_BALANCE_KEY, HUBTEL_PREFER_MANUAL_KEY, MANUAL_BALANCE_MAX_GHS } from "./hubtel-manual-balance"
 
 const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
@@ -59,15 +59,31 @@ function validateCaps(v: unknown): ValidationResult {
 /** Server-side context for sections whose stored value records who/when (never taken from the client). */
 export interface SectionContext { adminId?: string; now?: Date }
 
-/** Manual Hubtel balance: amount 0–1,000,000 GH₵ (≤ 2 decimals) or null to clear; setAt/setBy stamped here. */
+/**
+ * Manual Hubtel balance section. Either or both of:
+ *   amountGhs    — 0–1,000,000 GH₵ (≤ 2 decimals) or null to clear; setAt/setBy stamped here
+ *   preferManual — boolean: use the manual balance even when the relay works (it reads another wallet)
+ * Sending only preferManual does not re-stamp the amount.
+ */
 function validateManualBalance(values: Record<string, unknown>, ctx: SectionContext): ValidationResult {
   if (!ctx.adminId) return fail("Admin user required")
-  const stamp = { setAt: (ctx.now ?? new Date()).toISOString(), setBy: ctx.adminId }
-  const a = values.amountGhs
-  if (a === null) return { ok: true, rows: [{ key: HUBTEL_MANUAL_BALANCE_KEY, value: { amountGhs: null, ...stamp } }] }
-  if (!isNum(a, 0, MANUAL_BALANCE_MAX_GHS)) return fail("Hubtel balance must be a number from 0 to 1,000,000")
-  if (Math.abs(Math.round(a * 100) - a * 100) > 1e-6) return fail("Hubtel balance can have at most 2 decimal places")
-  return { ok: true, rows: [{ key: HUBTEL_MANUAL_BALANCE_KEY, value: { amountGhs: Math.round(a * 100) / 100, ...stamp } }] }
+  const out: Row[] = []
+  if ("amountGhs" in values) {
+    const stamp = { setAt: (ctx.now ?? new Date()).toISOString(), setBy: ctx.adminId }
+    const a = values.amountGhs
+    if (a === null) out.push({ key: HUBTEL_MANUAL_BALANCE_KEY, value: { amountGhs: null, ...stamp } })
+    else {
+      if (!isNum(a, 0, MANUAL_BALANCE_MAX_GHS)) return fail("Hubtel balance must be a number from 0 to 1,000,000")
+      if (Math.abs(Math.round(a * 100) - a * 100) > 1e-6) return fail("Hubtel balance can have at most 2 decimal places")
+      out.push({ key: HUBTEL_MANUAL_BALANCE_KEY, value: { amountGhs: Math.round(a * 100) / 100, ...stamp } })
+    }
+  }
+  if ("preferManual" in values) {
+    if (typeof values.preferManual !== "boolean") return fail("preferManual must be true or false")
+    out.push({ key: HUBTEL_PREFER_MANUAL_KEY, value: values.preferManual })
+  }
+  if (out.length === 0) return fail("Nothing to save: send amountGhs and/or preferManual")
+  return { ok: true, rows: out }
 }
 
 export function validateSection(section: string, values: unknown, ctx: SectionContext = {}): ValidationResult {
