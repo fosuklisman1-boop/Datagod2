@@ -5,6 +5,7 @@
  */
 import { createClient } from "@supabase/supabase-js"
 import { loadDefaultSender } from "./default-sender"
+import { getRoutingConfig } from "./routing"
 import { enqueueSend, type EnqueueSendError, type EnqueueSendResult } from "./send-service"
 
 export type OwnSenderCheck = {
@@ -85,6 +86,19 @@ export async function resolveConfirmationSender(shopId: string, db?: Db): Promis
   }
 }
 
+/**
+ * The admin-selected provider for own-sender order confirmations, or undefined for "global"
+ * (use the normal routing). Never throws — any failure ⇒ undefined.
+ */
+export async function resolveOwnSenderProvider(): Promise<"moolre" | "hubtel" | undefined> {
+  try {
+    const sel = (await getRoutingConfig()).categoryProviders.order_confirmation_own_sender
+    return sel === "moolre" || sel === "hubtel" ? sel : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export type BilledConfirmationStatus = "billed_sent" | "duplicate" | "fallback"
 export type BilledConfirmationResult = { status: BilledConfirmationStatus; reason?: string }
 
@@ -96,6 +110,8 @@ export interface BilledConfirmationInput {
   senderId: string
   phone: string
   message: string
+  /** Provider override for this send (own-sender category). Omit to use the global routing. */
+  provider?: "moolre" | "hubtel"
 }
 
 export const UNBILLED_NOTIFY_TYPE = "sms_order_confirm_unbilled"
@@ -206,7 +222,7 @@ export async function sendBilledConfirmation(
   try {
     result = await enqueue(
       input.userId, input.accountId, input.message, [input.phone],
-      undefined, input.senderId, undefined, undefined, { source: "order_confirmation" }
+      undefined, input.senderId, undefined, undefined, { source: "order_confirmation", ...(input.provider ? { provider: input.provider } : {}) }
     )
   } catch (e) {
     console.error("[SMS-ORDER-CONFIRM] enqueueSend threw:", e)

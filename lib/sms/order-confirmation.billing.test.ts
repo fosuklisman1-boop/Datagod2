@@ -1,5 +1,10 @@
-import { describe, it, expect, vi } from "vitest"
+import { describe, it, expect, vi, beforeEach } from "vitest"
+
+const h = vi.hoisted(() => ({ getRoutingConfig: vi.fn() }))
+vi.mock("./routing", () => ({ getRoutingConfig: h.getRoutingConfig }))
+
 import {
+  resolveOwnSenderProvider,
   resolveConfirmationSender,
   sendBilledConfirmation,
   decideConfirmationSend,
@@ -267,6 +272,39 @@ describe("sendBilledConfirmation", () => {
     const db = fakeDb({ notifInsert: { data: null, error: { message: "x" } } })
     const r = await sendBilledConfirmation(input, { db, enqueue: async () => ({ ok: false, error: "INSUFFICIENT_CREDITS" as const }) })
     expect(r.status).toBe("fallback")
+  })
+})
+
+describe("sendBilledConfirmation provider passthrough", () => {
+  it("provider hubtel => enqueue opts include provider", async () => {
+    const enqueue = vi.fn(async () => okResult)
+    await sendBilledConfirmation({ ...input, provider: "hubtel" }, { db: fakeDb({}), enqueue })
+    expect((enqueue.mock.calls[0] as unknown[])[8]).toEqual({ source: "order_confirmation", provider: "hubtel" })
+  })
+  it("no provider => opts is exactly { source } (no provider key)", async () => {
+    const enqueue = vi.fn(async () => okResult)
+    await sendBilledConfirmation(input, { db: fakeDb({}), enqueue })
+    const opts = (enqueue.mock.calls[0] as unknown[])[8] as object
+    expect(opts).toEqual({ source: "order_confirmation" })
+    expect("provider" in opts).toBe(false)
+  })
+})
+
+describe("resolveOwnSenderProvider", () => {
+  beforeEach(() => { h.getRoutingConfig.mockReset() })
+  it("returns the selected provider", async () => {
+    h.getRoutingConfig.mockResolvedValue({ categoryProviders: { order_confirmation_own_sender: "hubtel" } })
+    expect(await resolveOwnSenderProvider()).toBe("hubtel")
+    h.getRoutingConfig.mockResolvedValue({ categoryProviders: { order_confirmation_own_sender: "moolre" } })
+    expect(await resolveOwnSenderProvider()).toBe("moolre")
+  })
+  it("global => undefined", async () => {
+    h.getRoutingConfig.mockResolvedValue({ categoryProviders: { order_confirmation_own_sender: "global" } })
+    expect(await resolveOwnSenderProvider()).toBeUndefined()
+  })
+  it("failure => undefined", async () => {
+    h.getRoutingConfig.mockImplementation(() => { throw new Error("db down") })
+    expect(await resolveOwnSenderProvider()).toBeUndefined()
   })
 })
 

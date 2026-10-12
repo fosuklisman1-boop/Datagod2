@@ -12,6 +12,7 @@ import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { isPhoneBlacklisted } from "@/lib/blacklist"
 import {
   resolveConfirmationSender,
+  resolveOwnSenderProvider,
   sendBilledConfirmation,
   decideConfirmationSend,
   type ConfirmationSender,
@@ -492,6 +493,7 @@ async function handleMTNAutoFulfillment(
 
       let step = decideConfirmationSend({ skipShopSms, useOwnSender: confirmationSender.useOwnSender })
       if (step === "billed" && confirmationSender.useOwnSender && shopOrder?.shop_id) {
+        const provider = await resolveOwnSenderProvider()
         const billed = await sendBilledConfirmation({
           shopOrderId,
           shopId: shopOrder.shop_id,
@@ -500,6 +502,7 @@ async function handleMTNAutoFulfillment(
           senderId: confirmationSender.senderId,
           phone: phoneNumber,
           message: smsMessage,
+          provider,
         })
         step = decideConfirmationSend({ skipShopSms, useOwnSender: true, billedStatus: billed.status })
       } else if (step === "billed") {
