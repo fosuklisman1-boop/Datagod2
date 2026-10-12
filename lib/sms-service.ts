@@ -1,7 +1,8 @@
 import axios from 'axios'
 import { createClient } from '@supabase/supabase-js'
 import { notifyAdmins as sendAdminEmail } from './email-service'
-import { getRoutingConfig, narrowProvidersForSender } from '@/lib/sms/routing'
+import { getRoutingConfig, narrowProvidersForSender, type RoutingConfig } from '@/lib/sms/routing'
+import { categoryOf } from '@/lib/sms/categories'
 import { hubtelConfigFromEnv, hubtelSendSingle, toHubtelMsisdn, isValidHubtelMsisdn } from '@/lib/sms/providers/hubtel'
 import { notifyHubtelOutOfFunds } from '@/lib/sms/notify'
 import { resolvePlatformSender } from '@/lib/sms/platform-sender'
@@ -24,7 +25,7 @@ let isSmsExhausted = false
 let lastExhaustionCheck = 0
 const EXHAUSTION_CACHE_MS = 60 * 60 * 1000 // 1 hour
 
-interface SMSPayload {
+export interface SMSPayload {
   phone: string
   message: string
   type: string
@@ -32,6 +33,8 @@ interface SMSPayload {
   userId?: string
   skipLogging?: boolean // NEW: Prevent duplicate logs during retries
   senderId?: string // chosen per-account Moolre sender ID; falls back to MOOLRE_SENDER_ID
+  /** Force this provider to lead the chain (ignored for OTP-category messages). */
+  provider?: 'moolre' | 'hubtel'
 }
 
 // OTP/PIN codes must never be persisted in sms_logs — that table is readable by
@@ -857,6 +860,39 @@ async function isOtpBreakerOpen(): Promise<boolean> {
 }
 
 /**
+ * Pure provider-order builder (pre-filter, pre-sender-narrowing). The lead is
+ * payload.provider, else the category selector, else (OTP) SMS_OTP_PROVIDER/primary.
+ * OTP: an open breaker always leads with the fallback provider; payload.provider is ignored.
+ * A `global` selector preserves the legacy order.
+ */
+export function buildProviderOrder(args: {
+  payload: SMSPayload
+  routing: RoutingConfig
+  isOtp: boolean
+  breakerOpen: boolean
+  fallbackProvider: string
+  otpEnvProvider?: string
+}): string[] {
+  const { payload, routing, isOtp, breakerOpen, fallbackProvider, otpEnvProvider } = args
+  const primary = routing.primary
+  const sel = routing.categoryProviders?.[categoryOf(payload.type)] ?? 'global'
+  let forced = payload.provider
+  if (isOtp && forced) {
+    console.warn(`[SMS] ignoring payload.provider '${forced}' for OTP-category message '${payload.type}'`)
+    forced = undefined
+  }
+  let lead: string | undefined
+  if (isOtp) {
+    lead = breakerOpen ? fallbackProvider : sel !== 'global' ? sel : (otpEnvProvider || primary)
+  } else {
+    lead = forced ?? (sel !== 'global' ? sel : undefined)
+  }
+  const base = isOtp ? [fallbackProvider, primary, ...routing.fallbacks] : [primary, ...routing.fallbacks]
+  const order = lead ? [lead, ...base] : base
+  return [...new Set(order)]
+}
+
+/**
  * Send SMS using the configured provider (Brevo, Moolre, or mNotify).
  *
  * Every message fails over on a hard REJECT: it tries the primary provider, then
@@ -873,27 +909,22 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
     return { success: true, skipped: true }
   }
 
-  const isOtp = payload.type === 'phone_otp'
+  // OTP rules (breaker, no forced provider) apply to the whole OTP category.
+  const isOtp = categoryOf(payload.type) === 'otp'
 
   // Fetch DB-configurable routing (5-min TTL cache); falls back to env vars on error.
   const routing = await getRoutingConfig()
   const primaryProvider = routing.primary
   const fallbackProvider = routing.fallbacks[0] ?? process.env.SMS_FALLBACK_PROVIDER ?? 'mnotify'
 
-  // Build the provider order. OTP prefers SMS_OTP_PROVIDER; everything else leads
-  // with the configured primary. Both then fall back through the other gateways
-  // (only on a hard reject), so a primary rejection auto-retries via fallbacks.
-  let order: string[]
-  if (isOtp) {
-    // While the breaker is OPEN (Moolre OTP failing), lead with the fallback
-    // provider; otherwise lead with SMS_OTP_PROVIDER (or the primary).
-    const breakerOpen = await isOtpBreakerOpen()
-    const lead = breakerOpen ? fallbackProvider : (process.env.SMS_OTP_PROVIDER || primaryProvider)
-    if (breakerOpen) console.warn(`[SMS] OTP breaker open — leading with '${lead}' instead of primary`)
-    order = [lead, fallbackProvider, primaryProvider, ...routing.fallbacks]
-  } else {
-    order = [primaryProvider, ...routing.fallbacks]
-  }
+  // Build the provider order (see buildProviderOrder). The OTP breaker is only
+  // consulted for OTP-category messages.
+  const breakerOpen = isOtp ? await isOtpBreakerOpen() : false
+  if (breakerOpen) console.warn('[SMS] OTP breaker open — leading with fallback provider instead of primary')
+  let order = buildProviderOrder({
+    payload, routing, isOtp, breakerOpen, fallbackProvider,
+    otpEnvProvider: process.env.SMS_OTP_PROVIDER || undefined,
+  })
   // De-dupe, keep only known + configured providers.
   order = [...new Set(order)].filter((p) => SMS_SENDERS[p] && isProviderConfigured(p))
   if (order.length === 0) order = [primaryProvider] // last resort — let it surface its own error
