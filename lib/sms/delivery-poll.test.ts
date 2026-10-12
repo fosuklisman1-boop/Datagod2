@@ -88,12 +88,13 @@ describe("pollHubtelDeliveries", () => {
     h.cfg = { clientId: "id", clientSecret: "s" }
     h.batchStatus.mockReset()
     h.messageStatus.mockReset()
+    h.tables = {}
   })
 
   it("returns a zero summary without querying when creds are missing", async () => {
     h.cfg = null
     const s = await pollHubtelDeliveries()
-    expect(s).toEqual({ batches: 0, singles: 0, delivered: 0, failed: 0, refunded: 0, closed: 0, errors: 0 })
+    expect(s).toEqual({ batches: 0, singles: 0, delivered: 0, failed: 0, refunded: 0, closed: 0, errors: 0, logsChecked: 0, logsDelivered: 0, logsFailed: 0 })
     expect(h.rpcCalls).toEqual([])
   })
 
@@ -166,7 +167,7 @@ describe("pollHubtelDeliveries", () => {
     expect(h.batchStatus).not.toHaveBeenCalled()
     expect(h.messageStatus).not.toHaveBeenCalled()
     expect(rpcs("pick_sms_dlr_batches")).toHaveLength(0)
-    expect(s).toEqual({ batches: 0, singles: 0, delivered: 0, failed: 0, refunded: 1, closed: 1, errors: 0 })
+    expect(s).toEqual({ batches: 0, singles: 0, delivered: 0, failed: 0, refunded: 1, closed: 1, errors: 0, logsChecked: 0, logsDelivered: 0, logsFailed: 0 })
     expect(rpcs("recompute_sms_send_result")).toHaveLength(1)
   })
 
@@ -200,5 +201,27 @@ describe("pollHubtelDeliveries", () => {
     h.rpcImpl = (name, a) => name === "close_stale_sms_deliveries" ? { data: null, error: { message: "boom" } } : base(name, a)
     const s = await pollHubtelDeliveries({ now: NOW })
     expect(s).toMatchObject({ errors: 1, closed: 0 })
+  })
+
+  it("platform sms_logs sent via Hubtel: delivered / failed / still pending", async () => {
+    h.tables["id, moolre_message_id"] = [
+      { id: "l1", moolre_message_id: "hm1" },
+      { id: "l2", moolre_message_id: "hm2" },
+      { id: "l3", moolre_message_id: "hm3" },
+    ]
+    h.messageStatus.mockImplementation(async (_cfg: unknown, mid: string) => ({
+      ok: true,
+      messages: [{ messageId: mid, rawStatus: mid === "hm1" ? "Delivered" : mid === "hm2" ? "Undeliverable" : "Sent", state: mid === "hm1" ? "delivered" : mid === "hm2" ? "failed" : "pending" }],
+    }))
+    const s = await pollHubtelDeliveries({ now: NOW })
+    expect(h.messageStatus.mock.calls.map((c) => c[1])).toEqual(["hm1", "hm2", "hm3"])
+    expect(s).toMatchObject({ logsChecked: 3, logsDelivered: 1, logsFailed: 1, errors: 0 })
+  })
+  it("an unreadable sms_logs status reply is counted as an error, nothing updated", async () => {
+    h.tables["id, moolre_message_id"] = [{ id: "l1", moolre_message_id: "hm1" }]
+    h.messageStatus.mockResolvedValue({ ok: false, error: "Hubtel HTTP 404", messages: [] })
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const s = await pollHubtelDeliveries({ now: NOW })
+    expect(s).toMatchObject({ logsChecked: 1, logsDelivered: 0, logsFailed: 0, errors: 1 })
   })
 })
