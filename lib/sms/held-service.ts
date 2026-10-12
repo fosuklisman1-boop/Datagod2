@@ -171,10 +171,19 @@ export async function releaseHeldCampaign(adminId: string, rawLogId: string | nu
   // From here the campaign is an ordinary queued send: the drain may take any row we don't.
   // Claim the still-pending rows for an instant dispatch (conditional, so no row is double-claimed).
   const claimedAtMs = Date.now()
-  const items = await claimPendingForLog(supabaseAdmin, logId)
+  // Look up the per-send provider BEFORE claiming. A real lookup failure => claim nothing and
+  // dispatch nothing: the log is already queued, so the drain retries it (never via a provider the
+  // sender did not choose).
+  let override: "moolre" | "hubtel" | undefined
+  let lookupFailed = false
+  try {
+    override = (await fetchProviderOverrides(supabaseAdmin, [logId])).get(String(logId))
+  } catch {
+    lookupFailed = true
+  }
+  const items = lookupFailed ? [] : await claimPendingForLog(supabaseAdmin, logId)
 
-  const override = (await fetchProviderOverrides(supabaseAdmin, [logId])).get(String(logId))
-  const placed = await dispatchClaimed(supabaseAdmin, logId, items, log.sender_id ?? null, claimedAtMs, override)
+  const placed = lookupFailed ? 0 : await dispatchClaimed(supabaseAdmin, logId, items, log.sender_id ?? null, claimedAtMs, override)
 
   const owner = await ownerOf(log.sms_account_id)
   await notifyOwner(owner, logId, "SMS campaign approved",

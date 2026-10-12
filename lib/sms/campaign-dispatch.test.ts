@@ -192,6 +192,14 @@ describe("dispatchCampaign", () => {
       h.bulk = "moolre"; h.moolre.mockResolvedValue({ ok: true })
       expect((await dispatchCampaign(items(2), null)).provider).toBe("moolre")
     })
+    it("customer_bulk='hubtel' with primary=moolre and no explicit provider: Hubtel leads", async () => {
+      h.primary = "moolre"; h.bulk = "hubtel"; okHubtel()
+      expect((await dispatchCampaign(items(2), null)).provider).toBe("hubtel")
+    })
+    it("explicit provider with customer_bulk='global' is honoured", async () => {
+      h.bulk = "global"; h.moolre.mockResolvedValue({ ok: true })
+      expect((await dispatchCampaign(items(2), null, undefined, undefined, "moolre")).provider).toBe("moolre")
+    })
     it("explicit provider beats the customer_bulk category provider", async () => {
       h.bulk = "moolre"; okHubtel()
       expect((await dispatchCampaign(items(2), null, undefined, undefined, "hubtel")).provider).toBe("hubtel")

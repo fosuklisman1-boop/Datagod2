@@ -30,6 +30,7 @@ const h = vi.hoisted(() => {
     parkLookupError: false,
     overrides: {} as Record<string, string>, // log id -> provider_override
     overrideError: false,
+    overrideMessage: "column sms_send_logs.provider_override does not exist",
     overrideLookups: [] as any[][],
     parkLookups: [] as { table: string; filters: Record<string, any> }[],
   }
@@ -46,7 +47,7 @@ const h = vi.hoisted(() => {
             if (cols.includes("provider_override")) {
               state.overrideLookups.push(ids)
               const rr = state.overrideError
-                ? { data: null, error: { message: "column provider_override does not exist" } }
+                ? { data: null, error: { message: state.overrideMessage } }
                 : { data: ids.filter((id) => state.overrides[String(id)]).map((id) => ({ id, provider_override: state.overrides[String(id)] })), error: null }
               resolve(rr)
               return Promise.resolve(rr)
@@ -143,6 +144,7 @@ beforeEach(() => {
   h.state.parkLookups.length = 0
   h.state.overrides = {}
   h.state.overrideError = false
+  h.state.overrideMessage = "column sms_send_logs.provider_override does not exist"
   h.state.overrideLookups.length = 0
   h.sendSmsMock.mockReset()
 })
@@ -251,6 +253,20 @@ describe("drainSmsMessages", () => {
     const res = await drainSmsMessages()
     expect(res.sent).toBe(1)
     expect(h.sendSmsMock.mock.calls[0][0].provider).toBeUndefined()
+  })
+
+  it("override lookup transient error: nothing sent, rows handed back to pending (attempt restored)", async () => {
+    h.state.claimedRows = [
+      { id: "a", send_log_id: "L1", sms_account_id: "x", phone: "+233241234567", rendered_message: "Hi", segments: 1, attempts: 2, sender_id: null },
+    ]
+    h.state.overrideError = true
+    h.state.overrideMessage = "connection reset"
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    const res = await drainSmsMessages()
+    err.mockRestore()
+    expect(res).toEqual({ claimed: 0, sent: 0, failed: 0, refunded: 0 })
+    expect(h.sendSmsMock).not.toHaveBeenCalled()
+    expect(h.state.updates.find((u) => u.table === "sms_messages" && u.data.status === "pending" && u.data.attempts === 1)).toBeTruthy()
   })
 
   it("override lookups are chunked to <=200 ids", async () => {

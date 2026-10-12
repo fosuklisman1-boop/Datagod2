@@ -221,8 +221,9 @@ export async function runScheduledDispatch(opts: { limit?: number; deadlineMs: n
     try {
       const now = Date.now()
       const claimedAtMs = opts.hardDeadlineMs !== undefined ? Math.min(now, opts.hardDeadlineMs - DISPATCH_WINDOW_MS) : now
-      const items = await claimPendingForLog(supabaseAdmin, logId)
+      // Lookup first: a failure throws before any row is claimed (caught below; the drain sends the queued log).
       const override = (await fetchProviderOverrides(supabaseAdmin, [logId])).get(String(logId))
+      const items = await claimPendingForLog(supabaseAdmin, logId)
       s.placed += await dispatchClaimed(supabaseAdmin, logId, items, p.out_sender_id ?? null, claimedAtMs, override)
       s.dispatched++
     } catch (e) {

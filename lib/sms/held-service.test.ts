@@ -11,6 +11,7 @@ const h = vi.hoisted(() => ({
   smsEnabled: true,
   notifyThrows: false,
   dispatch: vi.fn(),
+  override: vi.fn(),
   audit: vi.fn((..._a: any[]) => Promise.resolve()),
 }))
 
@@ -36,6 +37,7 @@ vi.mock("@supabase/supabase-js", () => ({
   }),
 }))
 vi.mock("./kill-switch", () => ({ isSmsEnabled: () => Promise.resolve(h.smsEnabled) }))
+vi.mock("./provider-override", () => ({ fetchProviderOverrides: h.override }))
 vi.mock("./campaign-dispatch", () => ({ dispatchCampaign: h.dispatch }))
 vi.mock("./moderation-service", () => ({ writeAuditLog: h.audit }))
 
@@ -58,6 +60,7 @@ beforeEach(() => {
   h.smsEnabled = true
   h.notifyThrows = false
   h.dispatch.mockReset()
+  h.override.mockReset().mockResolvedValue(new Map())
   h.audit.mockClear()
 })
 
@@ -189,6 +192,23 @@ describe("releaseHeldCampaign", () => {
     expect(h.rpcCalls.find((c) => c.fn === "recompute_sms_send_result")!.args).toEqual({ p_send_log_id: 42, max_attempts: 3 })
     // first provider batch id recorded on the log
     expect(patchOf(logUpdates[1])).toEqual({ provider_batch_id: "b1", provider: "hubtel" })
+  })
+
+  it("passes the looked-up provider override to dispatchCampaign (last arg)", async () => {
+    heldScenario()
+    h.override.mockResolvedValue(new Map([["42", "hubtel"]]))
+    h.dispatch.mockResolvedValue({ provider: "hubtel", sent: [], fallbackSent: [], outOfFunds: false })
+    await releaseHeldCampaign("admin1", "42")
+    expect(h.dispatch.mock.calls[0][4]).toBe("hubtel")
+  })
+
+  it("override lookup failure: nothing claimed or dispatched (drain retries the queued log)", async () => {
+    heldScenario()
+    h.override.mockRejectedValue(new Error("lookup failed"))
+    const r = await releaseHeldCampaign("admin1", "42")
+    expect(r).toMatchObject({ ok: true, placed: 0 })
+    expect(h.dispatch).not.toHaveBeenCalled()
+    expect(updates("sms_messages")).toHaveLength(0)
   })
 
   it("never resets rows the cron drain claimed (not in this call's items)", async () => {

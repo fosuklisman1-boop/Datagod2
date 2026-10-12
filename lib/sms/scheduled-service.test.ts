@@ -12,6 +12,7 @@ const h = vi.hoisted(() => ({
   smsEnabled: true,
   notifyThrows: false,
   claim: vi.fn(),
+  override: vi.fn(),
   dispatch: vi.fn(),
 }))
 
@@ -44,6 +45,7 @@ vi.mock("./dispatch-claimed", () => ({
   claimPendingForLog: h.claim,
   dispatchClaimed: h.dispatch,
 }))
+vi.mock("./provider-override", () => ({ fetchProviderOverrides: h.override }))
 vi.mock("./moderation-service", () => ({ writeAuditLog: () => Promise.resolve() }))
 
 import { cancelScheduledCampaign, runScheduledDispatch, SMS_OFF_LOG_INTERVAL_MS } from "./scheduled-service"
@@ -62,6 +64,7 @@ beforeEach(() => {
   h.notifyThrows = false
   h.claim.mockReset().mockImplementation(async (_db: any, logId: number) => [{ id: `m${logId}`, phone: "+233241111111", message: "Hi" }])
   h.dispatch.mockReset().mockResolvedValue(1)
+  h.override.mockReset().mockResolvedValue(new Map())
 })
 
 describe("cancelScheduledCampaign", () => {
@@ -188,6 +191,26 @@ describe("runScheduledDispatch", () => {
     expect(h.claim.mock.calls.map((c) => c[1])).toEqual([1, 2])
     expect(h.dispatch.mock.calls[0].slice(1, 4)).toEqual([1, [{ id: "m1", phone: "+233241111111", message: "Hi" }], "SHOP1"])
     expect(h.dispatch.mock.calls[1].slice(1, 4)).toEqual([2, [{ id: "m2", phone: "+233241111111", message: "Hi" }], null])
+  })
+
+  it("passes the looked-up provider override as dispatchClaimed's 6th arg", async () => {
+    h.tables = { sms_send_logs: [ok([{ id: 1, sms_account_id: "a1" }])], sms_accounts: [ok([])] }
+    h.rpcResults.sms_promote_due_scheduled = [ok([{ out_id: 1, out_account_id: "a1", out_sender_id: "SHOP1" }])]
+    h.override.mockResolvedValue(new Map([["1", "moolre"]]))
+    await runScheduledDispatch({ deadlineMs: FAR() })
+    expect(h.dispatch.mock.calls[0][5]).toBe("moolre")
+  })
+
+  it("override lookup failure: nothing claimed/dispatched, counted as an error (drain sends the queued log)", async () => {
+    h.tables = { sms_send_logs: [ok([{ id: 1, sms_account_id: "a1" }])], sms_accounts: [ok([])] }
+    h.rpcResults.sms_promote_due_scheduled = [ok([{ out_id: 1, out_account_id: "a1", out_sender_id: "SHOP1" }])]
+    h.override.mockRejectedValue(new Error("lookup failed"))
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    const r = await runScheduledDispatch({ deadlineMs: FAR() })
+    err.mockRestore()
+    expect((r as { errors?: number }).errors).toBe(1)
+    expect(h.claim).not.toHaveBeenCalled()
+    expect(h.dispatch).not.toHaveBeenCalled()
   })
 
   it("nothing due → no promote call (an unchecked log is never promoted)", async () => {

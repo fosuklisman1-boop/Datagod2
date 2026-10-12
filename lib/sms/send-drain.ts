@@ -141,7 +141,22 @@ export async function drainSmsMessages(opts: { limit?: number } = {}): Promise<D
   let refunded = 0
   const touchedLogIds = new Set<string>()
   // Per-send provider choice (best-effort: a missing column / query error => no overrides).
-  const overrides = await fetchProviderOverrides(supabaseAdmin, [...new Set(rows.map((r) => r.send_log_id))])
+  // A real lookup failure must not let rows go out via a provider the sender did not choose:
+  // hand them back (attempt restored) and retry next run.
+  let overrides: Map<string, SmsProviderChoice>
+  try {
+    overrides = await fetchProviderOverrides(supabaseAdmin, [...new Set(rows.map((r) => r.send_log_id))])
+  } catch {
+    for (const row of rows) {
+      const { error: backErr } = await supabaseAdmin
+        .from("sms_messages")
+        .update({ status: "pending", claimed_at: null, attempts: Math.max(0, row.attempts - 1) })
+        .eq("id", row.id)
+        .eq("status", "claimed")
+      if (backErr) console.error(`[SMS-DRAIN] could not hand back message ${row.id} (stale-claim reaper will):`, backErr.message)
+    }
+    return { claimed: 0, sent: 0, failed: 0, refunded: 0 }
+  }
 
   // (c) Process each row — never abort the batch on a single row error.
   for (const row of rows) {
