@@ -87,7 +87,7 @@ describe("POST /api/admin/ussd-hubtel/config: mode", () => {
   })
 })
 
-describe("(M3) shop mode needs Redis in production", () => {
+describe("(M3) shop mode no longer needs Redis (billing guard is in Postgres)", () => {
   const prod = (redis: boolean) => {
     vi.stubEnv("NODE_ENV", "production")
     vi.stubEnv("UPSTASH_REDIS_REST_URL", redis ? "https://redis.example" : "")
@@ -95,20 +95,10 @@ describe("(M3) shop mode needs Redis in production", () => {
   }
   afterEach(() => { vi.unstubAllEnvs() })
 
-  it("production without Redis: mode 'shop' is refused with 400 and nothing is written", async () => {
+  it("production without Redis: mode 'shop' is accepted", async () => {
     prod(false)
-    const res = await POST(post({ mode: "shop" }))
-    expect(res.status).toBe(400)
-    expect((await res.json()).error).toMatch(/UPSTASH_REDIS_REST_URL/)
-    expect(h.set).not.toHaveBeenCalled()
-  })
-  it("VERCEL set (preview) without Redis: also refused", async () => {
-    vi.stubEnv("VERCEL", "1")
-    vi.stubEnv("UPSTASH_REDIS_REST_URL", "")
-    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "")
-    const res = await POST(post({ mode: "shop" }))
-    expect(res.status).toBe(400)
-    expect(h.set).not.toHaveBeenCalled()
+    h.set.mockResolvedValue(base)
+    expect((await POST(post({ mode: "shop" }))).status).toBe(200)
   })
   it("production with Redis: mode 'shop' accepted", async () => {
     prod(true)

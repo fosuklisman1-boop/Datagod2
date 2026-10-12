@@ -1,118 +1,70 @@
 // lib/ussd-hubtel/billing-guard.test.ts
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import { describe, it, expect, vi, beforeEach } from "vitest"
+import type { SupabaseClient } from "@supabase/supabase-js"
+import { dbShopBillingGuard } from "./billing-guard"
 
-const h = vi.hoisted(() => ({ set: vi.fn(), del: vi.fn() }))
+/** Fake of the two calls the guard makes: insert (PK on session_id+shop_code_id) and delete().eq().eq(). */
+function fakeDb(opts: { insertError?: { code?: string; message: string }; insertThrows?: boolean } = {}) {
+  const rows = new Set<string>()
+  const deletes: Array<Record<string, string>> = []
+  const client = {
+    from: (table: string) => {
+      expect(table).toBe("hubtel_shop_billing_claims")
+      return {
+        insert: async (row: { session_id: string; shop_code_id: string }) => {
+          if (opts.insertThrows) throw new Error("network down")
+          if (opts.insertError) return { error: opts.insertError }
+          const k = `${row.session_id}:${row.shop_code_id}`
+          if (rows.has(k)) return { error: { code: "23505", message: "duplicate key" } }
+          rows.add(k)
+          return { error: null }
+        },
+        delete: () => {
+          const filter: Record<string, string> = {}
+          const chain = {
+            eq: (col: string, val: string) => {
+              filter[col] = val
+              if (Object.keys(filter).length === 2) {
+                deletes.push({ ...filter })
+                rows.delete(`${filter.session_id}:${filter.shop_code_id}`)
+                return Promise.resolve({ error: null })
+              }
+              return chain
+            },
+          }
+          return chain
+        },
+      }
+    },
+  }
+  return { client: client as unknown as SupabaseClient, rows, deletes }
+}
 
-afterEach(() => {
-  vi.unstubAllEnvs()
-  vi.doUnmock("@upstash/redis")
-  vi.restoreAllMocks()
-})
+describe("dbShopBillingGuard", () => {
+  beforeEach(() => { vi.spyOn(console, "error").mockImplementation(() => {}) })
 
-describe("shopBillingGuard (production, no redis): fails closed", () => {
-  beforeEach(() => {
-    vi.resetModules()
-    vi.stubEnv("UPSTASH_REDIS_REST_URL", "")
-    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "")
-    vi.spyOn(console, "warn").mockImplementation(() => {})
+  it("first claim per (session, code) is 'claimed', a repeat is 'already'", async () => {
+    const { client } = fakeDb()
+    const g = dbShopBillingGuard(client)
+    expect(await g.claim("S1", "c1")).toBe("claimed")
+    expect(await g.claim("S1", "c1")).toBe("already")
+    expect(await g.claim("S1", "c2")).toBe("claimed")
+    expect(await g.claim("S2", "c1")).toBe("claimed")
   })
-  it("NODE_ENV=production: every claim is 'error' (never an in-memory claim)", async () => {
-    vi.stubEnv("NODE_ENV", "production")
-    const { shopBillingGuard } = await import("./billing-guard")
-    expect(await shopBillingGuard.claim("p-1", "c")).toBe("error")
-    expect(await shopBillingGuard.claim("p-1", "c")).toBe("error")
-    expect(await shopBillingGuard.claim("p-2", "c")).toBe("error")
+  it("release frees the pair so a later attempt can claim again", async () => {
+    const { client, deletes } = fakeDb()
+    const g = dbShopBillingGuard(client)
+    await g.claim("S1", "c1")
+    await g.release("S1", "c1")
+    expect(deletes).toEqual([{ session_id: "S1", shop_code_id: "c1" }])
+    expect(await g.claim("S1", "c1")).toBe("claimed")
   })
-  it("VERCEL set (even outside NODE_ENV=production): claim is 'error'", async () => {
-    vi.stubEnv("NODE_ENV", "test")
-    vi.stubEnv("VERCEL", "1")
-    const { shopBillingGuard } = await import("./billing-guard")
-    expect(await shopBillingGuard.claim("p-3", "c")).toBe("error")
+  it("any other DB error (e.g. table missing) is 'error': never deduct unguarded", async () => {
+    const { client } = fakeDb({ insertError: { code: "42P01", message: "relation does not exist" } })
+    expect(await dbShopBillingGuard(client).claim("S1", "c1")).toBe("error")
   })
-  it("the in-memory Map is never consulted: after leaving production the key is still unclaimed", async () => {
-    vi.stubEnv("NODE_ENV", "production")
-    const { shopBillingGuard } = await import("./billing-guard")
-    expect(await shopBillingGuard.claim("p-4", "c")).toBe("error")
-    vi.stubEnv("NODE_ENV", "test")
-    expect(await shopBillingGuard.claim("p-4", "c")).toBe("claimed")
-  })
-  it("release is a harmless no-op", async () => {
-    vi.stubEnv("NODE_ENV", "production")
-    const { shopBillingGuard } = await import("./billing-guard")
-    await expect(shopBillingGuard.release("p-5", "c")).resolves.toBeUndefined()
-  })
-  it("warns at init that Redis is not configured, without logging secrets", async () => {
-    vi.stubEnv("NODE_ENV", "production")
-    await import("./billing-guard")
-    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("[HUBTEL-SHOP-BILLING]"))
-  })
-})
-
-// No UPSTASH env in unit tests: the first describe exercises the in-process (dev) path, same SET NX semantics.
-describe("shopBillingGuard (no redis configured, non-production)", () => {
-  beforeEach(() => {
-    vi.resetModules()
-    vi.stubEnv("NODE_ENV", "test")
-    vi.stubEnv("VERCEL", "")
-    vi.stubEnv("UPSTASH_REDIS_REST_URL", "")
-    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "")
-    vi.spyOn(console, "warn").mockImplementation(() => {})
-  })
-  it("claims once per (session, code), then reports already", async () => {
-    const { shopBillingGuard } = await import("./billing-guard")
-    expect(await shopBillingGuard.claim("bg-1", "code-1")).toBe("claimed")
-    expect(await shopBillingGuard.claim("bg-1", "code-1")).toBe("already")
-  })
-  it("a different session or a different code is a separate claim", async () => {
-    const { shopBillingGuard } = await import("./billing-guard")
-    expect(await shopBillingGuard.claim("bg-2", "code-1")).toBe("claimed")
-    expect(await shopBillingGuard.claim("bg-2", "code-2")).toBe("claimed")
-    expect(await shopBillingGuard.claim("bg-3", "code-1")).toBe("claimed")
-  })
-  it("release lets the same session claim again (deduction did not happen)", async () => {
-    const { shopBillingGuard } = await import("./billing-guard")
-    expect(await shopBillingGuard.claim("bg-4", "code-1")).toBe("claimed")
-    await shopBillingGuard.release("bg-4", "code-1")
-    expect(await shopBillingGuard.claim("bg-4", "code-1")).toBe("claimed")
-  })
-  it("two concurrent claims: exactly one wins", async () => {
-    const { shopBillingGuard } = await import("./billing-guard")
-    const r = await Promise.all([shopBillingGuard.claim("bg-5", "c"), shopBillingGuard.claim("bg-5", "c")])
-    expect([...r].sort()).toEqual(["already", "claimed"])
-  })
-})
-
-describe("shopBillingGuard (redis configured)", () => {
-  beforeEach(() => {
-    vi.resetModules()
-    h.set.mockReset()
-    h.del.mockReset()
-    vi.stubEnv("UPSTASH_REDIS_REST_URL", "https://redis.example")
-    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "tok")
-    vi.doMock("@upstash/redis", () => ({
-      Redis: class { set = h.set; del = h.del },
-    }))
-    vi.spyOn(console, "error").mockImplementation(() => {})
-  })
-
-  it("SET NX with a TTL on a per-(session, code) key: OK means claimed, null means already", async () => {
-    const { shopBillingGuard, SHOP_BILLING_TTL_SECONDS } = await import("./billing-guard")
-    h.set.mockResolvedValueOnce("OK").mockResolvedValueOnce(null)
-    expect(await shopBillingGuard.claim("S1", "code-1")).toBe("claimed")
-    expect(await shopBillingGuard.claim("S1", "code-1")).toBe("already")
-    expect(h.set).toHaveBeenCalledWith("ussd-hubtel:shop-billed:S1:code-1", "1", { nx: true, ex: SHOP_BILLING_TTL_SECONDS })
-  })
-  it("a Redis error on claim is 'error' (caller must not deduct)", async () => {
-    const { shopBillingGuard } = await import("./billing-guard")
-    h.set.mockRejectedValue(new Error("redis down"))
-    expect(await shopBillingGuard.claim("S1", "code-1")).toBe("error")
-  })
-  it("release deletes the marker key; a failing delete never throws", async () => {
-    const { shopBillingGuard } = await import("./billing-guard")
-    h.del.mockResolvedValueOnce(1)
-    await shopBillingGuard.release("S1", "code-1")
-    expect(h.del).toHaveBeenCalledWith("ussd-hubtel:shop-billed:S1:code-1")
-    h.del.mockRejectedValue(new Error("redis down"))
-    await expect(shopBillingGuard.release("S1", "code-1")).resolves.toBeUndefined()
+  it("a thrown insert is 'error'", async () => {
+    const { client } = fakeDb({ insertThrows: true })
+    expect(await dbShopBillingGuard(client).claim("S1", "c1")).toBe("error")
   })
 })

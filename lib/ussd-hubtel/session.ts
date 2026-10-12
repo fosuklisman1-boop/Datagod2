@@ -14,8 +14,19 @@ try {
   console.error("[HUBTEL-SESSION] Failed to initialise Redis:", e)
 }
 
+// In-process copy, used only when Redis is absent or a Redis call FAILS (same fallback as the Uzo
+// shop session). Not shared between serverless instances, so it only rescues a session whose
+// requests land on the same warm instance; a Redis-written session never goes here, so a plain
+// Redis miss (TTL, del) is never contradicted by a stale in-process copy.
 const memory = new Map<string, { data: HubtelSession; expires: number }>()
 const key = (id: string) => `ussd-hubtel:session:${id}`
+
+function fromMemory(id: string): HubtelSession | null {
+  const m = memory.get(id)
+  if (m && m.expires > Date.now()) return m.data
+  memory.delete(id)
+  return null
+}
 
 export interface HubtelSessionStore {
   get(id: string): Promise<HubtelSession | null>
@@ -27,31 +38,30 @@ export const sessionStore: HubtelSessionStore = {
   async get(id) {
     if (redis) {
       try {
-        return (await redis.get<HubtelSession>(key(id))) ?? null
+        const data = await redis.get<HubtelSession>(key(id))
+        if (data) return data
       } catch (e) {
         console.error("[HUBTEL-SESSION] get error for", id, ":", e)
-        return null // router restarts the menu; never fall back to per-instance memory
       }
     }
-    const m = memory.get(id)
-    return m && m.expires > Date.now() ? m.data : null
+    return fromMemory(id)
   },
   async set(id, s) {
     if (redis) {
       try {
         await redis.setex(key(id), SESSION_TTL, JSON.stringify(s))
+        memory.delete(id) // Redis holds the current copy; drop any older fallback
+        return
       } catch (e) {
         console.error("[HUBTEL-SESSION] set error for", id, ":", e)
       }
-      return
     }
     memory.set(id, { data: s, expires: Date.now() + SESSION_TTL * 1000 })
   },
   async del(id) {
+    memory.delete(id)
     if (redis) {
       try { await redis.del(key(id)) } catch (e) { console.error("[HUBTEL-SESSION] del error for", id, ":", e) }
-      return
     }
-    memory.delete(id)
   },
 }
