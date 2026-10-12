@@ -199,7 +199,7 @@ export async function getWholesaleSnapshot(): Promise<WholesaleSnapshot> {
         return composeHubtelSnapshot({ balance, rate: settings.hubtelCostPerSms, queued })
       }
       if (observed !== null && typeof observed === "object") {
-        return { provider: "hubtel", backedCredits: 0, balanceGhs: balance.amountGhs, ratePerSms: settings.hubtelCostPerSms, queuedUnsent: queued, balanceSource: balance.source, error: `Rate lookup failed: ${observed.failed}` }
+        return { provider: "hubtel", backedCredits: 0, balanceGhs: balance.amountGhs, ratePerSms: settings.hubtelCostPerSms, queuedUnsent: queued, balanceSource: balance.source, ...(balance.source === "manual" ? { manualSetAt: balance.manualSetAt } : {}), error: `Rate lookup failed: ${observed.failed}` }
       }
       return composeHubtelSnapshot({ balance, rate: observed ?? settings.hubtelCostPerSms, queued })
     }

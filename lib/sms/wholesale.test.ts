@@ -10,6 +10,7 @@ const h = vi.hoisted(() => ({
   queries: 0, lowThreshold: 50,
   manual: null as null | { amountGhs: number; setAt: string; setBy: string },
   spend: 0 as unknown, spendError: null as unknown,
+  failRateQueryNo: null as number | null,
 }))
 vi.mock("./routing", () => ({
   getRoutingConfig: () => (h.routingThrows ? Promise.reject(new Error("db down")) : Promise.resolve({ primary: h.primary, fallbacks: [] })),
@@ -36,9 +37,10 @@ vi.mock("@supabase/supabase-js", () => ({
       const rec = (m: string, q: any) => (...args: unknown[]) => { h.calls.push({ m, args }); return q }
       const q: any = {}
       for (const m of ["select", "eq", "not", "gte", "order", "limit"]) q[m] = rec(m, q)
+      const n = h.queries
       q.maybeSingle = () => Promise.resolve({
         data: h.observed === null ? null : { cost_ghs: h.observed },
-        error: h.observedError,
+        error: h.failRateQueryNo === n ? { message: "timeout" } : h.observedError,
       })
       return q
     },
@@ -54,7 +56,7 @@ beforeEach(() => {
   h.primary = "hubtel"; h.hubtelCfg = {}; h.balance = { ok: true, amountGhs: 35 }; h.observed = null
   h.observedError = null; h.routingThrows = false; h.alerts = []; h.backlog = 0; h.backlogError = null
   h.calls = []; h.queries = 0; h.lowThreshold = 50
-  h.manual = null; h.spend = 0; h.spendError = null
+  h.manual = null; h.spend = 0; h.spendError = null; h.failRateQueryNo = null
   resetObservedRateCache()
   vi.spyOn(console, "error").mockImplementation(() => {})
 })
@@ -336,6 +338,16 @@ describe("getWholesaleSnapshot with a manual balance", () => {
       provider: "hubtel", backedCredits: 900, balanceGhs: 35, ratePerSms: 0.035, queuedUnsent: 100,
       balanceSource: "manual", manualSetAt: setAt,
     })
+  })
+  it("snapshot rate-lookup failure on a manual estimate keeps balanceSource + manualSetAt", async () => {
+    h.balance = { ok: false, error: "403" }
+    const setAt = hoursAgo(2)
+    h.manual = { amountGhs: 40, setAt, setBy: "a" }; h.spend = 5
+    // The snapshot's own rate lookup (query #1) fails; resolveHubtelBalance's (query #2) succeeds.
+    h.failRateQueryNo = 1
+    const s = await getWholesaleSnapshot()
+    expect(s).toMatchObject({ provider: "hubtel", backedCredits: 0, balanceGhs: 35, balanceSource: "manual", manualSetAt: setAt })
+    expect(s.error).toContain("Rate lookup failed")
   })
   it("relay down + spend failure → 0 with an error, no balanceSource", async () => {
     h.balance = { ok: false, error: "403" }
