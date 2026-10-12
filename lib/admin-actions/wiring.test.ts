@@ -101,7 +101,8 @@ describe("afa apexprime cron wiring", () => {
   it("notifies completed once, conditionally, afa_orders only", () => {
     expect(src().match(/notifyUserOfOutcome\(\s*"afa",\s*"completed"/g)).toHaveLength(1)
     expect(src()).not.toContain(".neq(statusCol")
-    expect(src()).toMatch(/completedRow && row\[statusCol\] !== "completed"/)
+    expect(src()).toMatch(/completedRow && freshStatus !== "completed"/)
+    expect(src()).toMatch(/\.eq\("fulfillment_status", "pending"\)\s*\.select\(NOTIFY_COLUMNS\[table\]\)/)
     expect(src().match(/table === "afa_orders" &&/g)!.length).toBe(3)
   })
   it("alerts admins at both async failure branches", () => {
@@ -110,13 +111,18 @@ describe("afa apexprime cron wiring", () => {
 })
 
 describe("results-check wiring", () => {
-  it("admin alert is sent before the WhatsApp early return", () => {
+  it("admin alert runs after the WhatsApp admin send and is reached regardless of phones", () => {
     const src = read("lib/results-checker-service.ts")
     const fn = src.slice(src.indexOf("export async function notifyAdminsNewResultsCheckRequest"))
     const alertAt = fn.indexOf('alertAdminsOfRequest("results_check"')
-    const earlyReturnAt = fn.indexOf("phones.length === 0")
     expect(alertAt).toBeGreaterThan(-1)
-    expect(earlyReturnAt === -1 || alertAt < earlyReturnAt).toBe(true)
+    expect(fn.slice(0, alertAt)).not.toMatch(/phones\.length === 0\) return/)
+    expect(fn.indexOf("sendWhatsAppText")).toBeLessThan(alertAt)
+  })
+  it("USSD wallet results-check admin notify runs in after(), not inside the session", () => {
+    const src = read("lib/ussd/handlers/results-checker.ts")
+    expect(src).toMatch(/after\(\(\) => notifyAdminsNewResultsCheckRequest\(orderId\)/)
+    expect(src).not.toMatch(/await notifyAdminsNewResultsCheckRequest/)
   })
   it("completion and rejection notify the user", () => {
     expect(read("lib/results-checker-service.ts")).toContain('notifyUserOfOutcome("results_check", "completed"')

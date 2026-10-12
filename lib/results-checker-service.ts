@@ -159,18 +159,12 @@ export async function notifyAdminsNewResultsCheckRequest(requestId: string): Pro
     }
   }
 
-  // Email + push to admins first; independent of whether WhatsApp admin phones are configured.
-  await alertAdminsOfRequest("results_check", {
-    requestId,
-    examBoard: req.exam_board,
-    indexNumber: req.index_number,
-    examYear: req.exam_year,
-    channel: req.channel,
-    shopName,
-  })
+  // WhatsApp to the configured admin phones; a no-op when none are configured. The email + push
+  // alert below ALWAYS runs afterwards.
+  const phones = await getResultsCheckAdminPhones().catch(() => [] as string[])
+  if (phones.length > 0) await sendAdminWhatsApp().catch(e => console.warn("[RC-CHECK] Admin WhatsApp notify failed:", e))
 
-  const phones = await getResultsCheckAdminPhones()
-  if (phones.length === 0) return
+  async function sendAdminWhatsApp() {
 
   const modeLabel = req.mode === "combo" ? "Combo (voucher assigned)" : "Own voucher"
   const message =
@@ -189,6 +183,17 @@ export async function notifyAdminsNewResultsCheckRequest(requestId: string): Pro
       console.warn(`[RC-CHECK] Admin notify to ${phone} failed:`, e)
     )
   }
+  }
+
+  // Email + push to admins; independent of whether WhatsApp admin phones are configured.
+  await alertAdminsOfRequest("results_check", {
+    requestId,
+    examBoard: req.exam_board,
+    indexNumber: req.index_number,
+    examYear: req.exam_year,
+    channel: req.channel,
+    shopName,
+  })
 }
 
 // Sends the result text and/or media for a results-check request to one

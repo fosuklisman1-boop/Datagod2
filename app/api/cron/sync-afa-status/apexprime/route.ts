@@ -56,6 +56,13 @@ async function syncTable(table: AfaTable, statusCol: "status" | "order_status"):
       const chk = await provider.checkAfaStatus(row.fulfillment_ref)
 
       if (chk.success && chk.status === "completed") {
+        // Fresh read just before the write: the batch snapshot may be stale (an admin may have
+        // completed the order since, and already notified the user).
+        const { data: freshRow } = await supabase.from(table).select(statusCol).eq("id", row.id).maybeSingle()
+        const freshStatus = (freshRow as any)?.[statusCol]
+        // Conditional on fulfillment_status still being 'pending': only one of two overlapping cron
+        // runs wins this update. An admin-completed row still has fulfillment_status 'pending', so it
+        // IS reconciled (just not notified again).
         const { data: completedRows } = await supabase
           .from(table)
           .update({
@@ -66,12 +73,10 @@ async function syncTable(table: AfaTable, statusCol: "status" | "order_status"):
             updated_at: new Date().toISOString(),
           })
           .eq("id", row.id)
+          .eq("fulfillment_status", "pending")
           .select(NOTIFY_COLUMNS[table])
         const completedRow = (completedRows as any[] | null)?.[0]
-        // Reconciliation above is unconditional; only a real transition (pre-image not already
-        // completed, e.g. by an admin who already notified the user) notifies. Worst case the
-        // notice is delayed by one cron run over a batch of 50, which is acceptable.
-        if (table === "afa_orders" && completedRow && row[statusCol] !== "completed") {
+        if (table === "afa_orders" && completedRow && freshStatus !== "completed") {
           await notifyUserOfOutcome(
             "afa",
             "completed",
