@@ -53,28 +53,36 @@ export const CATEGORY_LABELS: Record<SmsCategory, string> = {
   customer_bulk: "Customer bulk SMS",
 }
 
-const OTP = new Set(["phone_otp", "otp_required", "password_reset_link", "otp", "login_otp"])
-const ORDER_CONFIRMATION = new Set(["order_confirmed", "order_payment_confirmed"])
-const PAYMENTS_WALLET = new Set([
-  "wallet_topup_success",
-  "data_purchase_success",
-  "wallet_credited",
-  "wallet_debited",
+const OTP = new Set(["phone_otp", "otp_required", "password_reset_link"])
+const ORDER_CONFIRMATION = new Set([
+  "order_confirmed", "order_payment_confirmed", "order_confirmation", "order_update", "order_delivered",
+  "order_fulfilled", "order_fulfilled_manual", "order_cleared", "order_blacklisted",
 ])
-const SECURITY = new Set(["security_alert", "password_changed"])
+const PAYMENTS_WALLET = new Set([
+  "wallet_topup_success", "data_purchase_success", "balance_updated", "order_refund", "subscription_success",
+  "results_check_payment", "results_checker_delivery", "results_checker_resend_sms", "voucher_delivered",
+  "admin_credit", "admin_debit", "sms_activation", "sms_bundle", "sms_units_qty", "sms_kyc",
+])
+const SECURITY = new Set([
+  "security_alert", "password_changed", "alert", "fraud_alert", "airtime_admin_alert", "airtime_fraud_alert",
+])
 const ADMIN_BROADCAST = new Set(["broadcast"])
 const CUSTOMER_BULK = new Set(["shop_sms"])
+const ADMIN_OUTCOMES = new Set([
+  "dealer_upgrade", "user_suspension", "user_restoration", "shop_blocked", "shop_unblocked",
+  "afa_registration", "sub_agent_invite", "mtn_registration_hold",
+])
 
 const ADMIN_OUTCOME_PREFIX = /^(withdrawal|shop|afa|results_check|sender_id|complaint)_(approved|rejected|completed|resolved)$/
 
 export function categoryOf(type: string): SmsCategory {
   const t = (type ?? "").trim()
   if (OTP.has(t)) return "otp"
+  if (SECURITY.has(t)) return "security_alerts" // before the airtime_ prefix rule
   if (ORDER_CONFIRMATION.has(t)) return "order_confirmation_platform"
-  if (PAYMENTS_WALLET.has(t) || t.startsWith("airtime_")) return "payments_wallet"
-  if (SECURITY.has(t)) return "security_alerts"
+  if (PAYMENTS_WALLET.has(t) || t.startsWith("airtime_") || t.startsWith("subscription_expiry_")) return "payments_wallet"
   if (ADMIN_BROADCAST.has(t)) return "admin_broadcast"
   if (CUSTOMER_BULK.has(t)) return "customer_bulk" // before the shop_ prefix rule
-  if (ADMIN_OUTCOME_PREFIX.test(t)) return "admin_action_outcomes"
+  if (ADMIN_OUTCOMES.has(t) || ADMIN_OUTCOME_PREFIX.test(t)) return "admin_action_outcomes"
   return "system"
 }
