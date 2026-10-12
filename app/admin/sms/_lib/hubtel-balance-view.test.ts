@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { supplyProviderLabel, parseManualBalanceInput, balanceSourceSummary } from "./hubtel-balance-view"
+import { supplyProviderLabel, parseManualBalanceInput, balanceSourceSummary, MANUAL_BALANCE_NOTES, SET_BALANCE_CONFIRM_NOTE } from "./hubtel-balance-view"
 
 describe("supplyProviderLabel", () => {
   it("labels a manual estimate", () => expect(supplyProviderLabel("hubtel", { balanceSource: "manual" })).toBe("Hubtel (manual estimate)"))
@@ -19,6 +19,21 @@ describe("parseManualBalanceInput", () => {
   })
   it.each(["", "abc", "-1", "1000000.01", "12.345", "1e3", "GH₵5"])("rejects %j", (t) => {
     expect(parseManualBalanceInput(t).ok).toBe(false)
+  })
+})
+
+describe("copy", () => {
+  it("the notes say what is not counted", () => {
+    const all = MANUAL_BALANCE_NOTES.join(" ")
+    expect(all).toMatch(/every top-up/)
+    expect(all).toMatch(/outside this app/)
+    expect(all).toMatch(/admin notify/i)
+    expect(all).toMatch(/notify-self/i)
+    expect(all).toMatch(/AI tasks/i)
+    expect(all).toMatch(/30 days/)
+  })
+  it("the confirm dialog warns about the gap before clicking", () => {
+    expect(SET_BALANCE_CONFIRM_NOTE).toBe("Enter the balance exactly as shown on the Hubtel dashboard right now — messages sent in the gap before you click are not counted.")
   })
 })
 

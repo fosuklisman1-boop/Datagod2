@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { api, type SettingsData } from "../_lib/api"
 import { useLoad } from "../_lib/useLoad"
 import { formatGhs, formatGmt, toneClass } from "../_lib/view"
-import { balanceSourceSummary, parseManualBalanceInput, type HubtelBalanceData } from "../_lib/hubtel-balance-view"
+import { balanceSourceSummary, MANUAL_BALANCE_NOTES, parseManualBalanceInput, SET_BALANCE_CONFIRM_NOTE, type HubtelBalanceData } from "../_lib/hubtel-balance-view"
 import { ConfirmDialog, ErrorBox } from "./ui-bits"
 
 type Saved = (data: SettingsData | null) => void | Promise<void>
@@ -94,9 +94,7 @@ export function HubtelBalanceSection({ onSaved }: { onSaved: Saved }) {
         </label>
 
         <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
-          <li>Update it after <b>every top-up</b> — "Set balance now" restarts the count from this moment.</li>
-          <li>Messages sent outside this app (e.g. test requests sent by hand) are not counted, so the estimate can be slightly high.</li>
-          <li>A manual balance older than 30 days is ignored, and credit sales pause until it is set again.</li>
+          {MANUAL_BALANCE_NOTES.map((n) => <li key={n}>{n}</li>)}
         </ul>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -107,7 +105,7 @@ export function HubtelBalanceSection({ onSaved }: { onSaved: Saved }) {
 
       <ConfirmDialog open={dialog === "set"} onOpenChange={(o) => !o && setDialog(null)} busy={busy}
         title="Set the Hubtel balance" confirmLabel="Set balance now"
-        description={<>Credit sales will be backed by <b>{parsed.ok ? formatGhs(parsed.value) : "—"}</b> minus the Hubtel SMS sent from now on, until the live balance check works again. Make sure this matches the Hubtel dashboard right now.</>}
+        description={<>Credit sales will be backed by <b>{parsed.ok ? formatGhs(parsed.value) : "—"}</b> minus the Hubtel SMS sent from now on, until the live balance check works again.<br /><br />{SET_BALANCE_CONFIRM_NOTE}</>}
         onConfirm={() => { if (parsed.ok) return save(parsed.value) }} />
       <ConfirmDialog open={dialog === "clear"} onOpenChange={(o) => !o && setDialog(null)} busy={busy} destructive
         title="Clear the manual balance" confirmLabel="Clear"
