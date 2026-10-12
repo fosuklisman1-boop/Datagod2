@@ -61,6 +61,24 @@ describe.each(Object.keys(FLOWS) as FlowId[])("flow %s", (flow) => {
   })
 })
 
+describe("withdrawal reference and completed content", () => {
+  const ctx = { withdrawalId: "w-123", amount: 10, method: "MTN", phone: "0241112222", remainingBalance: "7.00" }
+  it("approved and completed emails carry the reference", () => {
+    for (const o of ["approved", "completed"] as Outcome[]) {
+      expect(FLOWS.withdrawal.userMessage(o, ctx)!.emailHtml).toContain("Reference: w-123")
+    }
+  })
+  it("completed carries method, remaining balance, masked transfer wording, push and in-app", () => {
+    const m = FLOWS.withdrawal.userMessage("completed", ctx)!
+    expect(m.emailHtml).toContain("Method: MTN")
+    expect(m.emailHtml).toContain("Remaining balance: GHS 7.00")
+    expect(m.sms).toContain("transferred to 024")
+    expect(m.sms).not.toContain("0241112222")
+    expect(m.push).toBeTruthy()
+    expect(m.inApp?.type).toBe("balance_updated")
+  })
+})
+
 describe("withdrawal specifics", () => {
   it("approved keeps push + in-app (existing channels preserved) and shows the amount", () => {
     const m = FLOWS.withdrawal.userMessage("approved", { withdrawalId: "w1", amount: 120.5 })!

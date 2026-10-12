@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
           amount: Number(withdrawal.amount),
           shopName: shop.shop_name ?? null,
           method: withdrawal.withdrawal_method || details?.network || null,
-          phone: details?.account_number || null,
+          phone: details?.phone || details?.account_number || null,
           reason: reason || "No reason provided",
           remainingBalance: bal?.available_balance != null ? Number(bal.available_balance).toFixed(2) : null,
         })

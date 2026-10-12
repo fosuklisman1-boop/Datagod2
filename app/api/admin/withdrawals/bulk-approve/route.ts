@@ -9,6 +9,7 @@ import {
 } from "@/lib/paystack-transfer"
 import { sendPushToUser } from "@/lib/push-service"
 import { notifyUserOfOutcome } from "@/lib/admin-actions"
+import { notifyWithdrawalCompleted } from "@/lib/admin-actions/withdrawal-hook"
 import { normalizePhoneNumber } from "@/lib/mtn-fulfillment"
 
 // Serial processing of N transfers can take several seconds each
@@ -137,6 +138,8 @@ export async function POST(request: NextRequest) {
 
     // Serial processing loop — Moolre docs recommend serial/small batches to avoid rate limits
     const results: BulkResult[] = []
+    // Notifies are started inside the loop but awaited once after it (off the serial transfer path)
+    const pendingNotifies: Promise<unknown>[] = []
 
     for (const w of found) {
       const shopName = shopNameMap[w.shop_id] || w.shop_id.slice(0, 8)
@@ -175,7 +178,7 @@ export async function POST(request: NextRequest) {
             .update({ status: "approved", updated_at: new Date().toISOString() })
             .eq("id", locked.id)
 
-          await notifyOwner(locked.shop_id, amount, locked.id, true)
+          pendingNotifies.push(notifyOwner(locked.shop_id, amount, locked.id, true))
           results.push({ id: locked.id, shopName, amount, success: true, status: "approved", message: "Manually approved" })
           continue
         }
@@ -258,7 +261,7 @@ export async function POST(request: NextRequest) {
           }
 
           if (paystackResult.status === "success") {
-            const { error: persistErr } = await supabase
+            const { data: paystackFlipped, error: persistErr } = await supabase
               .from("withdrawal_requests")
               .update({
                 status: "completed", payout_provider: "paystack",
@@ -266,13 +269,18 @@ export async function POST(request: NextRequest) {
                 paystack_fee: paystackResult.fee, transfer_completed_at: new Date().toISOString(), moolre_external_ref: null, updated_at: new Date().toISOString(),
               })
               .eq("id", locked.id)
+              .eq("status", "processing")
+              .select("id")
             if (persistErr) {
               console.error(
                 "[BULK-APPROVE] CRITICAL: failed to persist Paystack transfer tracking after a real transfer was initiated:",
                 persistErr, "withdrawalId:", locked.id, "transferCode:", paystackResult.transferCode
               )
             }
-            await notifyOwner(locked.shop_id, amount, locked.id, true)
+            // Money has moved: "paid out" message, unless a webhook/cron already flipped the row
+            if (persistErr || (paystackFlipped && paystackFlipped.length > 0)) {
+              pendingNotifies.push(notifyWithdrawalCompleted(supabase, locked))
+            }
             results.push({ id: locked.id, shopName, amount, success: true, status: "completed", message: `Sent — TX: ${paystackResult.transferCode}` })
             continue
           }
@@ -323,11 +331,15 @@ export async function POST(request: NextRequest) {
         }
 
         if (transferResult.txstatus === 1) {
-          await supabase
+          const { data: moolreFlipped, error: moolreErr } = await supabase
             .from("withdrawal_requests")
             .update({ status: "completed", moolre_transfer_id: transferResult.transactionId, moolre_fee: transferResult.fee, transfer_completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
             .eq("id", locked.id)
-          await notifyOwner(locked.shop_id, amount, locked.id, true)
+            .eq("status", "processing")
+            .select("id")
+          if (moolreErr || (moolreFlipped && moolreFlipped.length > 0)) {
+            pendingNotifies.push(notifyWithdrawalCompleted(supabase, locked))
+          }
           results.push({ id: locked.id, shopName, amount, success: true, status: "completed", message: `Sent — TX: ${transferResult.transactionId}` })
 
         } else if (transferResult.txstatus === 2) {
@@ -359,6 +371,9 @@ export async function POST(request: NextRequest) {
         results.push({ id: w.id, shopName, amount, success: false, status: "error", message: err.message || "Unexpected error" })
       }
     }
+
+    // Deliver all queued notifications once, after the serial transfer loop (never throws)
+    await Promise.allSettled(pendingNotifies)
 
     const succeeded = results.filter(r => r.success).length
     const failed = results.filter(r => !r.success).length

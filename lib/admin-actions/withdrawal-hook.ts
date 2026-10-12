@@ -21,6 +21,7 @@ export async function notifyWithdrawalCompleted(db: Db, row: CompletedWithdrawal
     if (!row?.id || !row.shop_id) return
     const { data: shop } = await db.from("user_shops").select("user_id, shop_name").eq("id", row.shop_id).single()
     if (!shop?.user_id) return
+    const { data: bal } = await db.from("shop_available_balance").select("available_balance").eq("shop_id", row.shop_id).single()
     const details = (row.account_details ?? {}) as { phone?: string; account_number?: string; network?: string }
     await notifyUserOfOutcome("withdrawal", "completed", { userId: shop.user_id, reference: row.id }, {
       withdrawalId: row.id,
@@ -28,6 +29,7 @@ export async function notifyWithdrawalCompleted(db: Db, row: CompletedWithdrawal
       shopName: shop.shop_name ?? null,
       method: row.withdrawal_method || details.network || null,
       phone: details.phone || details.account_number || null,
+      remainingBalance: bal?.available_balance != null ? Number(bal.available_balance).toFixed(2) : null,
     })
   } catch (err) {
     console.warn("[ADMIN-ACTION] withdrawal completed notify failed:", err instanceof Error ? err.message : err)

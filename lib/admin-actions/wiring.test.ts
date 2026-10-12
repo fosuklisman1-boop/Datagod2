@@ -36,6 +36,21 @@ describe("withdrawals wiring", () => {
     }
     expect(read("lib/admin-actions/withdrawal-hook.ts")).toContain('notifyUserOfOutcome("withdrawal", "completed"')
   })
+  it("instant payouts (approve + bulk-approve) send 'completed', manual approvals send 'approved'", () => {
+    const count = (src: string, needle: string) => src.split(needle).length - 1
+    const approve = read("app/api/admin/withdrawals/approve/route.ts")
+    expect(count(approve, "notifyWithdrawalCompleted(supabase, withdrawal)")).toBe(2)
+    expect(count(approve, "await notifyShopOwner(withdrawal, withdrawalId)")).toBe(3)
+    const bulk = read("app/api/admin/withdrawals/bulk-approve/route.ts")
+    expect(count(bulk, "notifyWithdrawalCompleted(supabase, locked)")).toBe(2)
+    expect(count(bulk, '.eq("status", "processing")')).toBeGreaterThanOrEqual(2)
+  })
+  it("bulk-approve collects notifies and awaits them once with allSettled", () => {
+    const bulk = read("app/api/admin/withdrawals/bulk-approve/route.ts")
+    expect(bulk).toContain("Promise.allSettled(pendingNotifies)")
+    expect(bulk).not.toContain("await notifyOwner(")
+    expect(bulk).not.toContain("await notifyWithdrawalCompleted(")
+  })
   it("cron and otp routes no longer send their own inline completion messages", () => {
     for (const f of ["app/api/admin/withdrawals/submit-transfer-otp/route.ts", "app/api/cron/withdrawals-status-check/route.ts"]) {
       expect(read(f)).not.toContain("notificationTemplates.withdrawalApproved")

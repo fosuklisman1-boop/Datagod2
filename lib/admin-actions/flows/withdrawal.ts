@@ -4,6 +4,7 @@ import type { FlowDef, Outcome, UserMessage } from "../types"
 
 const money = (n: number) => `GHS ${(Number.isFinite(Number(n)) ? Number(n) : 0).toFixed(2)}`
 const OWNER_URL = "/dashboard/shop-dashboard"
+const ref = (c: WithdrawalCtx) => (c.withdrawalId ? [`Reference: ${c.withdrawalId}`] : [])
 const details = (c: WithdrawalCtx) =>
   [c.method ? `Method: ${c.method}` : "", c.phone ? `To: ${maskNumber(c.phone)}` : ""].filter(Boolean)
 
@@ -31,6 +32,7 @@ export const withdrawalFlow: FlowDef<WithdrawalCtx> = {
           heading: "Withdrawal approved",
           paragraphs: [
             `Your withdrawal request of ${money(c.amount)} has been approved and is being processed.`,
+            ...ref(c),
             ...details(c),
             ...bal,
             "The funds should arrive in your account within 24 hours.",
@@ -66,7 +68,7 @@ export const withdrawalFlow: FlowDef<WithdrawalCtx> = {
         emailSubject: `Withdrawal paid out: ${money(c.amount)}`,
         emailHtml: emailShell({
           heading: "Withdrawal paid out",
-          paragraphs: [`Your withdrawal of ${money(c.amount)} has been paid out.`, ...details(c)],
+          paragraphs: [`Your withdrawal of ${money(c.amount)} has been paid out.`, ...ref(c), ...details(c), ...bal],
           cta: { label: "Open dashboard", url: appUrl(OWNER_URL) },
         }),
         sms: clipSms(`Your withdrawal of ${money(c.amount)} has been transferred${c.phone ? ` to ${maskNumber(c.phone)}` : " to your account"}.`),
