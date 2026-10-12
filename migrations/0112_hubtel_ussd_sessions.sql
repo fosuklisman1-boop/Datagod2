@@ -3,9 +3,9 @@
 -- store (lib/ussd-hubtel/session.ts dbSessionStore): every serverless instance sees the same row,
 -- so a failing Redis no longer causes intermittent "Session expired".
 --
--- Apply BEFORE the deploy that makes it the only store: without the table every read is a miss and
--- sessions survive only through the signed ClientState snapshot. Rows past expires_at are ignored
--- and purged opportunistically.
+-- Safe to apply before or after the deploy: until the table exists every read/write errors and the
+-- code falls back to the previous Redis / in-process store. Rows past expires_at are ignored and
+-- purged opportunistically on new dials.
 
 CREATE TABLE IF NOT EXISTS hubtel_ussd_sessions (
   session_id  text PRIMARY KEY,
