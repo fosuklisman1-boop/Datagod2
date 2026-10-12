@@ -12,9 +12,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { hubtelConfigFromEnv } from "./providers/hubtel"
 import { fetchDisbursementBalance } from "@/lib/ussd-hubtel/relay"
-import { loadSmsSettings } from "./platform-settings"
-import { isManualBalanceFresh } from "./hubtel-manual-balance"
-
 const VALID_PROVIDERS = ["moolre", "mnotify", "brevo", "hubtel"] as const
 type Provider = (typeof VALID_PROVIDERS)[number]
 
@@ -129,13 +126,18 @@ export async function getRoutingConfig(): Promise<RoutingConfig> {
 // setRoutingConfig — persist routing to admin_settings (JSONB) + bust the cache
 // ---------------------------------------------------------------------------
 
-/** A manual Hubtel balance set within the last 30 days exists. Any read failure ⇒ false (fail closed). */
-async function hasFreshManualHubtelBalance(): Promise<boolean> {
+/**
+ * The balance the solvency gate would use (relay, else a < 30-day manual estimate). Requiring ok means
+ * Hubtel can't become primary when the estimate can't actually be computed (e.g. migration missing).
+ * Imported lazily: wholesale.ts imports this module. Any failure ⇒ not ok (fail closed).
+ */
+async function resolvedHubtelBalance(): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const s = await loadSmsSettings()
-    return isManualBalanceFresh(s.hubtelManualBalance)
-  } catch {
-    return false
+    const { resolveHubtelBalance } = await import("./wholesale")
+    const r = await resolveHubtelBalance()
+    return r.ok ? { ok: true } : { ok: false, error: r.error }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
   }
 }
 
@@ -186,10 +188,15 @@ export async function setRoutingConfig(patch: {
     }
     if (hubtelAsPrimary) {
       const bal = await fetchDisbursementBalance()
-      if (!bal.ok && !(await hasFreshManualHubtelBalance())) {
-        return {
-          ok: false,
-          error: `Hubtel balance check via the relay failed: ${bal.error} — redeploy the relay with /balance and set HUBTEL_DISBURSEMENT_ACCOUNT first, or set a manual Hubtel balance (SMS Platform → Settings → "Hubtel balance (manual fallback)").`,
+      if (!bal.ok) {
+        const est = await resolvedHubtelBalance()
+        if (!est.ok) {
+          // est.error normally starts with the relay error; don't repeat it.
+          const extra = est.error.startsWith(bal.error) ? est.error.slice(bal.error.length) : `; ${est.error}`
+          return {
+            ok: false,
+            error: `Hubtel balance check via the relay failed: ${bal.error}${extra} — redeploy the relay with /balance and set HUBTEL_DISBURSEMENT_ACCOUNT first, or set a manual Hubtel balance (SMS Platform → Settings → "Hubtel balance (manual fallback)").`,
+          }
         }
       }
     }

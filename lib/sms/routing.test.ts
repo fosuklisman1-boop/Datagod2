@@ -49,11 +49,15 @@ const hub = vi.hoisted(() => ({
   creds: true,
   balance: { ok: true, amountGhs: 10 } as { ok: true; amountGhs: number } | { ok: false; error: string },
   balanceCalls: 0,
-  manual: null as null | { amountGhs: number; setAt: string; setBy: string },
-  settingsThrows: false,
+  resolved: { ok: false, error: "relay down" } as any,
+  resolveThrows: false,
+  resolveCalls: 0,
 }))
-vi.mock("./platform-settings", () => ({
-  loadSmsSettings: () => (hub.settingsThrows ? Promise.reject(new Error("db down")) : Promise.resolve({ hubtelManualBalance: hub.manual })),
+vi.mock("./wholesale", () => ({
+  resolveHubtelBalance: () => {
+    hub.resolveCalls++
+    return hub.resolveThrows ? Promise.reject(new Error("boom")) : Promise.resolve(hub.resolved)
+  },
 }))
 vi.mock("./providers/hubtel", () => ({
   hubtelConfigFromEnv: () => (hub.creds ? { clientId: "i", clientSecret: "s" } : null),
@@ -160,38 +164,52 @@ describe("setRoutingConfig hubtel guard", () => {
     hub.creds = true
     hub.balance = { ok: true, amountGhs: 10 }
     hub.balanceCalls = 0
-    hub.manual = null
-    hub.settingsThrows = false
+    hub.resolved = { ok: false, error: "relay down" }
+    hub.resolveThrows = false
+    hub.resolveCalls = 0
   })
 
-  it("relay /balance down but a manual balance set within 30 days → accepted", async () => {
+  it("relay works → accepted without computing a manual estimate", async () => {
+    expect((await setRoutingConfig({ primary: "hubtel" })).ok).toBe(true)
+    expect(hub.resolveCalls).toBe(0)
+  })
+
+  it("relay /balance down but the manual estimate can be computed → accepted", async () => {
     hub.balance = { ok: false, error: "relay/hubtel 403" }
-    hub.manual = { amountGhs: 100, setAt: new Date(Date.now() - 2 * 86_400_000).toISOString(), setBy: "a" }
+    hub.resolved = { ok: true, amountGhs: 80, source: "manual", manualSetAt: new Date().toISOString() }
     const res = await setRoutingConfig({ primary: "hubtel" })
     expect(res.ok).toBe(true)
     expect(mockSettings.updates.find((u) => u.key === "sms_primary_provider")?.patch.value).toBe("hubtel")
   })
 
-  it("relay down + manual balance older than 30 days → refused, mentions the manual option", async () => {
+  it("relay down + estimate cannot be computed (stale manual / migration missing) → refused, names the reason + manual option", async () => {
     hub.balance = { ok: false, error: "relay/hubtel 403" }
-    hub.manual = { amountGhs: 100, setAt: new Date(Date.now() - 31 * 86_400_000).toISOString(), setBy: "a" }
+    hub.resolved = { ok: false, error: "relay/hubtel 403; manual balance estimate unavailable: function sms_hubtel_spend_since does not exist" }
     const res = await setRoutingConfig({ primary: "hubtel" })
     expect(res.ok).toBe(false)
-    expect((res as { error: string }).error).toMatch(/manual Hubtel balance/i)
+    const msg = (res as { error: string }).error
+    expect(msg).toMatch(/sms_hubtel_spend_since does not exist/)
+    expect(msg).toMatch(/manual Hubtel balance/i)
     expect(mockSettings.updates).toHaveLength(0)
   })
 
-  it("relay down + settings unreadable → refused (fail closed)", async () => {
+  it("relay down + a relay result from the resolver (relay recovered) is also fine", async () => {
+    hub.balance = { ok: false, error: "blip" }
+    hub.resolved = { ok: true, amountGhs: 10, source: "relay" }
+    expect((await setRoutingConfig({ primary: "hubtel" })).ok).toBe(true)
+  })
+
+  it("relay down + the resolver throws → refused (fail closed)", async () => {
     hub.balance = { ok: false, error: "relay/hubtel 403" }
-    hub.settingsThrows = true
+    hub.resolveThrows = true
     const res = await setRoutingConfig({ primary: "hubtel" })
     expect(res.ok).toBe(false)
     expect(mockSettings.updates).toHaveLength(0)
   })
 
-  it("manual balance does not bypass the credentials check", async () => {
+  it("a manual estimate does not bypass the credentials check", async () => {
     hub.creds = false
-    hub.manual = { amountGhs: 100, setAt: new Date().toISOString(), setBy: "a" }
+    hub.resolved = { ok: true, amountGhs: 80, source: "manual", manualSetAt: new Date().toISOString() }
     expect((await setRoutingConfig({ primary: "hubtel" })).ok).toBe(false)
   })
 
