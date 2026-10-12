@@ -164,8 +164,8 @@ describe("results_check completed wording by channel", () => {
     }
   })
   it("web points to the dashboard", () => {
-    expect(sms("web").sms).toContain("Check your dashboard for the result.")
-    expect(sms("web").emailHtml).toContain("Check your dashboard for the result.")
+    expect(sms("web").sms).toContain("Check your email or dashboard for the result.")
+    expect(sms("web").emailHtml).toContain("Check your email or dashboard for the result.")
   })
   it("other or missing channel omits the sentence and claims no delivery", () => {
     for (const ch of ["ussd", null, undefined]) {
@@ -188,5 +188,20 @@ describe("complaint admin alert url/customerLabel", () => {
     for (const url of ["https://evil.com", "/dashboard/x", "//admin/x"]) {
       expect(def.adminAlert({ complaintId: "c1", url }).url).toBe("/admin/complaints")
     }
+  })
+})
+
+describe("results_check admin alert channel label", () => {
+  it("shows friendly channel names to admins, never the raw value", () => {
+    const a = FLOWS.results_check.adminAlert({ requestId: "r", examBoard: "WASSCE", indexNumber: "1", channel: "whatsapp_shop" })
+    expect(a.html).toContain("Channel: WhatsApp Shop")
+    expect(a.html).not.toContain("whatsapp_shop")
+    expect(a.pushBody).toContain("WhatsApp Shop")
+  })
+})
+describe("withdrawal rejected without a reason", () => {
+  it("omits the reason sentence", () => {
+    const m = FLOWS.withdrawal.userMessage("rejected", { withdrawalId: "w", amount: 10 } as any)!
+    expect(m.sms).not.toMatch(/Reason|No reason provided/)
   })
 })

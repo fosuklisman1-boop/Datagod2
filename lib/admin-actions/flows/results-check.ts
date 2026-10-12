@@ -2,15 +2,19 @@ import type { ResultsCheckCtx } from "../contexts"
 import { appUrl, clipSms, emailShell } from "../html"
 import type { FlowDef, Outcome, UserMessage } from "../types"
 
+const CHANNEL_LABELS: Record<string, string> = { whatsapp: "WhatsApp", whatsapp_shop: "WhatsApp Shop", web: "Web", ussd: "USSD" }
+/** Friendly channel name for admin-facing text only (the user hint keeps the raw channel). */
+const channelLabel = (ch?: string | null) => (ch ? CHANNEL_LABELS[ch] ?? ch : "")
+
 function hintFor(channel?: string | null): string {
   if (channel === "whatsapp" || channel === "whatsapp_shop") return "Check your WhatsApp for the result."
-  if (channel === "web") return "Check your dashboard for the result."
+  if (channel === "web") return "Check your email or dashboard for the result."
   return ""
 }
 
 export const resultsCheckFlow: FlowDef<ResultsCheckCtx> = {
   adminAlert(c) {
-    const extra = [c.channel, c.shopName].filter(Boolean).join(" · ")
+    const extra = [channelLabel(c.channel), c.shopName].filter(Boolean).join(" · ")
     return {
       subject: `New results check request: ${c.examBoard}`,
       html: emailShell({
@@ -18,7 +22,7 @@ export const resultsCheckFlow: FlowDef<ResultsCheckCtx> = {
         paragraphs: [
           `A ${c.examBoard} results check (index ${c.indexNumber}) is waiting to be processed.`,
           ...(c.examYear ? [`Exam year: ${c.examYear}`] : []),
-          ...(c.channel ? [`Channel: ${c.channel}`] : []),
+          ...(c.channel ? [`Channel: ${channelLabel(c.channel)}`] : []),
           ...(c.shopName ? [`Shop: ${c.shopName}`] : []),
         ],
         cta: { label: "Review requests", url: appUrl("/admin/results-check-requests") },

@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
           shopName: shop.shop_name ?? null,
           method: withdrawal.withdrawal_method || details?.network || null,
           phone: details?.phone || details?.account_number || null,
-          reason: reason || "No reason provided",
+          reason: typeof reason === "string" && reason.trim() ? reason.trim() : undefined,
           remainingBalance: bal?.available_balance != null ? Number(bal.available_balance).toFixed(2) : null,
         })
       }

@@ -53,6 +53,7 @@ export async function PATCH(request: NextRequest) {
   }
 
   if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 })
+  const reason = typeof body.reason === "string" && body.reason.trim() ? body.reason.trim().slice(0, 200) : undefined
 
   const updatePayload: Record<string, unknown> = { updated_at: new Date().toISOString() }
   if (body.status) updatePayload.status = body.status
@@ -81,8 +82,10 @@ export async function PATCH(request: NextRequest) {
 
   // Deliver results if requested
   const deliveryNotes: string[] = []
+  let deliveryRequested = false
 
   if (body.deliver && (req.result_data || req.media_url)) {
+    deliveryRequested = true
     const result = await deliverResultsCheckRequest(req.id)
     deliveryNotes.push(...result.deliveryNotes)
   }
@@ -91,10 +94,12 @@ export async function PATCH(request: NextRequest) {
   if (body.status && previousStatus && body.status !== previousStatus) {
     const target = { userId: req.user_id ?? null, phone: req.phone_number, reference: req.id }
     const base = { requestId: req.id, examBoard: req.exam_board, indexNumber: req.index_number, channel: req.channel }
+    // When delivery was requested and failed, the user did NOT get the result: do not tell them it is done.
+    const deliveryFailed = deliveryRequested && deliveryNotes.some((n) => /FAILED|skipped for/.test(n))
     if (body.status === "completed") {
-      await notifyUserOfOutcome("results_check", "completed", target, base)
+      if (!deliveryFailed) await notifyUserOfOutcome("results_check", "completed", target, base)
     } else if (["failed", "declined", "rejected", "cancelled"].includes(body.status)) {
-      await notifyUserOfOutcome("results_check", "rejected", target, { ...base, reason: body.reason })
+      await notifyUserOfOutcome("results_check", "rejected", target, { ...base, reason })
     }
   }
 
