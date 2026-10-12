@@ -8,7 +8,7 @@ Give admins control over which SMS gateway (Moolre or Hubtel) carries each kind 
 
 ## User decisions
 
-1. **A provider selector for every kind of SMS** (admin Settings → SMS "Provider routing"): each category below gets its own Moolre / Hubtel / "Global" dropdown. "Global" = today's behaviour (routing primary, then fallbacks).
+1. **A provider selector for every kind of SMS** (SMS Centre → Providers → "Provider routing by SMS type"): each category below gets its own Moolre / Hubtel / "Global" dropdown. "Global" = today's behaviour (routing primary, then fallbacks).
 2. **Order confirmations follow sender ownership:** own sender ID (billed in credits) → Hubtel; Datagod platform sender → Moolre. These are two separate categories, each with its own selector (defaults Hubtel / Moolre).
 3. **Per-send picker** (Moolre / Hubtel / "Category default") on the compose screens of admin broadcast, admin SMS Messages, and customer bulk SMS (tenant-facing picker off until an admin enables it). A per-send choice overrides the category.
 4. **Failover:** the chosen provider leads; the other configured provider remains the fallback. The send log records which provider actually carried the message. OTP keeps its breaker (below).
@@ -36,7 +36,7 @@ Every `sendSMS` call has a `type`. `lib/sms/categories.ts` maps type → categor
 
 One `admin_settings` row, `sms_category_providers` (JSON `{ category: "global" | "moolre" | "hubtel" }`), read through `getRoutingConfig()` (`lib/sms/routing.ts`; same 5-min cache + `invalidateRoutingCache`), validated against the category list and the two providers. Missing keys use the defaults above. Plus `sms_tenant_provider_choice_enabled` (default `false`).
 
-UI: a "Provider routing" card on /admin/sms Settings — one row per category with its dropdown, and for "Global" it shows the provider that currently resolves to.
+UI: a "Provider routing by SMS type" card on SMS Centre → Providers (`app/admin/sms-centre/_components/ProvidersTab.tsx`, next to the existing global primary/fallback controls; saved via the existing `/api/admin/sms-settings` PATCH) — one row per category with its dropdown, and for "Global" it shows the provider that currently resolves to.
 
 ## Mechanism
 
