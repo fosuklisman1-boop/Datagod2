@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest, NextResponse, after } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import crypto from "crypto"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
@@ -1579,7 +1579,10 @@ export async function POST(request: NextRequest) {
             console.error("[PAYSTACK-WEBHOOK] Balance sync error:", err)
           }
           // Notify only if this event actually flipped the row (webhook redeliveries / OTP route / cron may have got there first)
-          if (flippedRows && flippedRows.length > 0) await notifyWithdrawalCompleted(supabase, withdrawal!)
+          if (flippedRows && flippedRows.length > 0) {
+            const w = withdrawal!
+            after(() => notifyWithdrawalCompleted(supabase, w))
+          }
           console.log(`[PAYSTACK-WEBHOOK] Transfer completed via webhook: ${withdrawalId}`)
         } else if (
           isCurrentPaystackAttempt &&

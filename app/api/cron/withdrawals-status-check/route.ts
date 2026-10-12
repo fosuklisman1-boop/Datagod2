@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { getTransferStatus } from "@/lib/moolre-transfer"
 import { getTransferStatus as getPaystackTransferStatus } from "@/lib/paystack-transfer"
-import { notifyWithdrawalCompleted } from "@/lib/admin-actions/withdrawal-hook"
+import { notifyWithdrawalCompleted, applyWithdrawalCompletion } from "@/lib/admin-actions/withdrawal-hook"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -117,21 +117,15 @@ export async function GET(request: NextRequest) {
 
       if (statusResult.txstatus === 1) {
         // Transfer confirmed — complete it and sync balance
-        const { data: flipped } = await supabase
-          .from("withdrawal_requests")
-          .update({
-            status: "completed",
-            moolre_transfer_id: statusResult.transactionId || withdrawal.moolre_transfer_id,
-            transfer_completed_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", withdrawal.id)
-          .eq("status", "processing")
-          .select("id")
+        const { shouldNotify: moolreNotify } = await applyWithdrawalCompletion(supabase, withdrawal.id, {
+          moolre_transfer_id: statusResult.transactionId || withdrawal.moolre_transfer_id,
+          transfer_completed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }, ["processing"])
 
         await syncShopBalance(withdrawal.shop_id)
         // Notify only the run that actually flipped the row out of "processing"
-        if (flipped && flipped.length > 0) await notifyWithdrawalCompleted(supabase, withdrawal)
+        if (moolreNotify) await notifyWithdrawalCompleted(supabase, withdrawal)
 
         console.log(`[CRON-STATUS] Completed: ${withdrawal.id} — TX: ${statusResult.transactionId}`)
         completed++
@@ -163,20 +157,14 @@ export async function GET(request: NextRequest) {
         if (!result) continue
 
         if (result.status === "success") {
-          const { data: flipped } = await supabase
-            .from("withdrawal_requests")
-            .update({
-              status: "completed",
-              paystack_fee: result.fee,
-              transfer_completed_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", withdrawal.id)
-            .in("status", ["processing", "awaiting_transfer_otp"])
-            .select("id")
+          const { shouldNotify: paystackNotify } = await applyWithdrawalCompletion(supabase, withdrawal.id, {
+            paystack_fee: result.fee,
+            transfer_completed_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          }, ["processing", "awaiting_transfer_otp"])
           await syncShopBalance(withdrawal.shop_id)
           // Notify only if this run actually flipped the row (webhook/OTP route may have completed it first)
-          if (flipped && flipped.length > 0) await notifyWithdrawalCompleted(supabase, withdrawal)
+          if (paystackNotify) await notifyWithdrawalCompleted(supabase, withdrawal)
           console.log(`[CRON-WITHDRAWALS] Paystack transfer completed: ${withdrawal.id}`)
         } else if (result.status === "failed") {
           await supabase

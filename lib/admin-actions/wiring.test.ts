@@ -43,7 +43,8 @@ describe("withdrawals wiring", () => {
     expect(count(approve, "await notifyShopOwner(withdrawal, withdrawalId)")).toBe(3)
     const bulk = read("app/api/admin/withdrawals/bulk-approve/route.ts")
     expect(count(bulk, "notifyWithdrawalCompleted(supabase, locked)")).toBe(2)
-    expect(count(bulk, '.eq("status", "processing")')).toBeGreaterThanOrEqual(2)
+    expect(count(bulk, "applyWithdrawalCompletion(supabase, locked.id")).toBe(2)
+    expect(count(approve, "applyWithdrawalCompletion(supabase, withdrawalId")).toBe(2)
   })
   it("bulk-approve collects notifies and awaits them once with allSettled", () => {
     const bulk = read("app/api/admin/withdrawals/bulk-approve/route.ts")

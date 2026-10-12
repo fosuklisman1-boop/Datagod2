@@ -7,7 +7,7 @@ import {
   mapNetworkToPaystackBankCode, matchBankByName, fetchGhanaBankList,
 } from "@/lib/paystack-transfer"
 import { notifyUserOfOutcome } from "@/lib/admin-actions"
-import { notifyWithdrawalCompleted } from "@/lib/admin-actions/withdrawal-hook"
+import { notifyWithdrawalCompleted, applyWithdrawalCompletion } from "@/lib/admin-actions/withdrawal-hook"
 import { checkWithdrawalCoolingOff } from "@/lib/withdrawal-policy"
 import { normalizePhoneNumber } from "@/lib/mtn-fulfillment"
 
@@ -323,21 +323,15 @@ export async function POST(request: NextRequest) {
       }
 
       if (paystackResult.status === "success") {
-        const { data: paystackFlipped, error: persistErr } = await supabase
-          .from("withdrawal_requests")
-          .update({
-            status: "completed",
-            payout_provider: "paystack",
-            paystack_recipient_code: recipient.recipientCode,
-            paystack_transfer_code: paystackResult.transferCode,
-            paystack_fee: paystackResult.fee,
-            transfer_completed_at: new Date().toISOString(),
-            moolre_external_ref: null,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", withdrawalId)
-          .eq("status", "processing")
-          .select("id")
+        const { shouldNotify: paystackNotify, error: persistErr } = await applyWithdrawalCompletion(supabase, withdrawalId, {
+          payout_provider: "paystack",
+          paystack_recipient_code: recipient.recipientCode,
+          paystack_transfer_code: paystackResult.transferCode,
+          paystack_fee: paystackResult.fee,
+          transfer_completed_at: new Date().toISOString(),
+          moolre_external_ref: null,
+          updated_at: new Date().toISOString(),
+        }, ["processing"])
         if (persistErr) {
           console.error(
             "[WITHDRAWAL-APPROVE] CRITICAL: failed to persist Paystack transfer tracking after a real transfer was initiated:",
@@ -346,7 +340,7 @@ export async function POST(request: NextRequest) {
         }
         await syncShopBalance(withdrawal.shop_id)
         // Money has moved: tell the owner "paid out" (not "being processed"), unless a webhook/cron already flipped the row
-        if (persistErr || (paystackFlipped && paystackFlipped.length > 0)) {
+        if (paystackNotify) {
           await notifyWithdrawalCompleted(supabase, withdrawal)
         }
         return NextResponse.json({ success: true, message: "Withdrawal approved and transferred successfully" })
@@ -425,22 +419,16 @@ export async function POST(request: NextRequest) {
 
     if (result.txstatus === 1) {
       // Transfer succeeded immediately — mark completed and sync balance
-      const { data: moolreFlipped, error: moolreErr } = await supabase
-        .from("withdrawal_requests")
-        .update({
-          status: "completed",
-          moolre_transfer_id: result.transactionId,
-          moolre_fee: result.fee,
-          transfer_completed_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", withdrawalId)
-        .eq("status", "processing")
-        .select("id")
+      const { shouldNotify: moolreNotify } = await applyWithdrawalCompletion(supabase, withdrawalId, {
+        moolre_transfer_id: result.transactionId,
+        moolre_fee: result.fee,
+        transfer_completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, ["processing"])
 
       await syncShopBalance(withdrawal.shop_id)
       // Money has moved: "paid out" message, unless a webhook/cron already flipped the row
-      if (moolreErr || (moolreFlipped && moolreFlipped.length > 0)) {
+      if (moolreNotify) {
         await notifyWithdrawalCompleted(supabase, withdrawal)
       }
 

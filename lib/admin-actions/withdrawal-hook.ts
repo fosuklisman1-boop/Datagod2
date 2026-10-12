@@ -35,3 +35,42 @@ export async function notifyWithdrawalCompleted(db: Db, row: CompletedWithdrawal
     console.warn("[ADMIN-ACTION] withdrawal completed notify failed:", err instanceof Error ? err.message : err)
   }
 }
+
+/**
+ * Apply a provider-confirmed "completed" write and say whether the owner should be told.
+ *
+ * The write is conditional on the row still being in one of `fromStatuses` (so a webhook/cron/other
+ * run that already completed it wins and we stay silent). When it matches 0 rows with no error we
+ * re-read: if the row is NOT completed (e.g. an admin reset a processing row back to pending while
+ * the transfer actually went out) the provider confirmation is authoritative, so we apply the old
+ * unconditional write, log CRITICAL, and notify. A DB error on the conditional write notifies
+ * (money moved) without a second write. Never throws.
+ */
+export async function applyWithdrawalCompletion(
+  db: Db,
+  withdrawalId: string,
+  fields: Record<string, unknown>,
+  fromStatuses: string[],
+): Promise<{ shouldNotify: boolean; error?: unknown }> {
+  const completed = { ...fields, status: "completed" }
+  try {
+    const { data, error } = await db
+      .from("withdrawal_requests")
+      .update(completed)
+      .eq("id", withdrawalId)
+      .in("status", fromStatuses)
+      .select("id")
+    if (error) return { shouldNotify: true, error }
+    if (data && data.length > 0) return { shouldNotify: true }
+
+    const { data: cur, error: readErr } = await db.from("withdrawal_requests").select("status").eq("id", withdrawalId).maybeSingle()
+    if (readErr || !cur || cur.status === "completed") return { shouldNotify: false }
+
+    console.error(`[WITHDRAWAL] CRITICAL: provider-confirmed completion applied over status=${cur.status} for ${withdrawalId}`)
+    const { error: forceErr } = await db.from("withdrawal_requests").update(completed).eq("id", withdrawalId)
+    return { shouldNotify: true, error: forceErr ?? undefined }
+  } catch (err) {
+    console.warn("[WITHDRAWAL] completion write threw:", err instanceof Error ? err.message : err)
+    return { shouldNotify: false, error: err }
+  }
+}

@@ -9,7 +9,7 @@ import {
 } from "@/lib/paystack-transfer"
 import { sendPushToUser } from "@/lib/push-service"
 import { notifyUserOfOutcome } from "@/lib/admin-actions"
-import { notifyWithdrawalCompleted } from "@/lib/admin-actions/withdrawal-hook"
+import { notifyWithdrawalCompleted, applyWithdrawalCompletion } from "@/lib/admin-actions/withdrawal-hook"
 import { normalizePhoneNumber } from "@/lib/mtn-fulfillment"
 
 // Serial processing of N transfers can take several seconds each
@@ -261,16 +261,11 @@ export async function POST(request: NextRequest) {
           }
 
           if (paystackResult.status === "success") {
-            const { data: paystackFlipped, error: persistErr } = await supabase
-              .from("withdrawal_requests")
-              .update({
-                status: "completed", payout_provider: "paystack",
-                paystack_recipient_code: recipient.recipientCode, paystack_transfer_code: paystackResult.transferCode,
-                paystack_fee: paystackResult.fee, transfer_completed_at: new Date().toISOString(), moolre_external_ref: null, updated_at: new Date().toISOString(),
-              })
-              .eq("id", locked.id)
-              .eq("status", "processing")
-              .select("id")
+            const { shouldNotify: paystackNotify, error: persistErr } = await applyWithdrawalCompletion(supabase, locked.id, {
+              payout_provider: "paystack",
+              paystack_recipient_code: recipient.recipientCode, paystack_transfer_code: paystackResult.transferCode,
+              paystack_fee: paystackResult.fee, transfer_completed_at: new Date().toISOString(), moolre_external_ref: null, updated_at: new Date().toISOString(),
+            }, ["processing"])
             if (persistErr) {
               console.error(
                 "[BULK-APPROVE] CRITICAL: failed to persist Paystack transfer tracking after a real transfer was initiated:",
@@ -278,7 +273,7 @@ export async function POST(request: NextRequest) {
               )
             }
             // Money has moved: "paid out" message, unless a webhook/cron already flipped the row
-            if (persistErr || (paystackFlipped && paystackFlipped.length > 0)) {
+            if (paystackNotify) {
               pendingNotifies.push(notifyWithdrawalCompleted(supabase, locked))
             }
             results.push({ id: locked.id, shopName, amount, success: true, status: "completed", message: `Sent — TX: ${paystackResult.transferCode}` })
@@ -331,13 +326,10 @@ export async function POST(request: NextRequest) {
         }
 
         if (transferResult.txstatus === 1) {
-          const { data: moolreFlipped, error: moolreErr } = await supabase
-            .from("withdrawal_requests")
-            .update({ status: "completed", moolre_transfer_id: transferResult.transactionId, moolre_fee: transferResult.fee, transfer_completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-            .eq("id", locked.id)
-            .eq("status", "processing")
-            .select("id")
-          if (moolreErr || (moolreFlipped && moolreFlipped.length > 0)) {
+          const { shouldNotify: moolreNotify } = await applyWithdrawalCompletion(supabase, locked.id, {
+            moolre_transfer_id: transferResult.transactionId, moolre_fee: transferResult.fee, transfer_completed_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+          }, ["processing"])
+          if (moolreNotify) {
             pendingNotifies.push(notifyWithdrawalCompleted(supabase, locked))
           }
           results.push({ id: locked.id, shopName, amount, success: true, status: "completed", message: `Sent — TX: ${transferResult.transactionId}` })
