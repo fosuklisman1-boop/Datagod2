@@ -123,7 +123,7 @@ export function findMatchingProduct(
  * /status endpoint needs to know which `type` to query, and checkOrderStatus()
  * only ever receives the stored id string — no other context is available.
  */
-export function parseTrackingId(id: string): { kind: "bundle" | "store"; rawId: string } | null {
+export function parseTrackingId(id: string): { kind: "bundle" | "store"; rawId: string; reference?: string } | null {
   const idx = id.indexOf(":")
   if (idx === -1) return null
   const kind = id.slice(0, idx)
@@ -137,11 +137,29 @@ export function parseTrackingId(id: string): { kind: "bundle" | "store"; rawId: 
     // orders never get a database id, so client_code is the intended lookup key),
     // falling back to our own reference when client_code is absent — see
     // createViaStore. /status only wants the bare lookupId, not the uniquifier.
+    //
+    // Since the client_code collision fix, Store ids are "store:<lookupId>:<reference>:<uniquifier>":
+    // <reference> is our own order UUID, used to check that a /status reply is really about THIS
+    // order (client_code is only 3 digits and is reused across orders). Older rows have no reference.
     const lastColon = rawId.lastIndexOf(":")
     if (lastColon !== -1) rawId = rawId.slice(0, lastColon)
+    const refColon = rawId.indexOf(":")
+    if (refColon !== -1) {
+      const reference = rawId.slice(refColon + 1)
+      rawId = rawId.slice(0, refColon)
+      if (rawId.length > 0 && reference.length > 0) return { kind, rawId, reference }
+      return null
+    }
   }
   if ((kind === "bundle" || kind === "store") && rawId.length > 0) return { kind, rawId }
   return null
+}
+
+/** The order reference a /status reply names, wherever Apex Prime puts it; undefined when absent. */
+export function apexReplyReference(json: any): string | undefined {
+  const candidates = [json?.client_reference, json?.reference, json?.order?.client_reference, json?.order?.reference, json?.data?.client_reference, json?.data?.reference]
+  const hit = candidates.find(v => typeof v === "string" && v.length > 0)
+  return hit
 }
 
 export interface AfaRegisterPayload {
@@ -270,7 +288,9 @@ export class ApexPrimeProvider implements MTNProvider {
     // on mtn_fulfillment_tracking's UNIQUE(mtn_order_id) constraint — see
     // parseTrackingId, which strips it back off before calling /status.
     const lookupId = json.client_code ?? reference
-    return { success: true, order_id: `store:${lookupId}:${crypto.randomUUID()}`, message: json.message ?? "Store order placed" }
+    // Our reference rides along so checkOrderStatus can reject a reply about another order that
+    // shares this 3-digit client_code (see parseTrackingId).
+    return { success: true, order_id: `store:${lookupId}:${reference}:${crypto.randomUUID()}`, message: json.message ?? "Store order placed" }
   }
 
   async checkOrderStatus(orderId: string | number): Promise<MTNOrderStatusResponse> {
@@ -302,6 +322,22 @@ export class ApexPrimeProvider implements MTNProvider {
 
     if (!res.ok || json.success !== true) {
       return { success: false, message: json?.message ?? `API error ${res.status}` }
+    }
+
+    // Store orders are looked up by a 3-digit client_code that Apex Prime reuses across orders, and
+    // /status then answers with ANOTHER order (observed: every order sharing a code got the same
+    // reply, so later orders were completed / reversed from an older order's status). Trust a Store
+    // reply only when it names our own reference; otherwise leave the order in flight (the webhook,
+    // matched on our reference, still settles it).
+    if (parsed.kind === "store") {
+      const replyRef = apexReplyReference(json)
+      if (!parsed.reference || !replyRef || replyRef.toLowerCase() !== parsed.reference.toLowerCase()) {
+        const why = !parsed.reference ? "no reference stored for this order" : !replyRef ? "reply names no order reference" : "reply is for a different order"
+        console.warn("[APEXPRIME] Ignoring unverifiable Store /status reply", {
+          clientCode: parsed.rawId, why, replyStatus: json.status, replyKeys: Object.keys(json ?? {}),
+        })
+        return { success: true, status: "processing", message: `Apex Prime status not verified for this order (${why}); waiting for the webhook` }
+      }
     }
 
     return { success: true, status: normalizeApexStatus(json.status, json.message), message: json.message ?? "Status retrieved", order: json }
