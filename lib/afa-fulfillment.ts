@@ -113,7 +113,6 @@ async function fulfillAfaViaApexPrime(
   }
 
   console.error("[AFA-FULFILL] Apex Prime submission failed:", orderId, result.message)
-  await alertAdminsForManualAfa(order.order_code, order.full_name)
   return { success: false, message: result.message || "Apex Prime submission failed" }
 }
 
@@ -173,7 +172,6 @@ export async function fulfillAfaOrder(orderId: string): Promise<FulfillResult> {
       updated_at: new Date().toISOString(),
     }).eq("id", orderId)
     console.error("[AFA-FULFILL] Invalid Ghana Card number, not submitting:", orderId, order.gh_card_number)
-    await alertAdminsForManualAfa(order.order_code, order.full_name)
     return { success: false, message: failMsg }
   }
   if (normalizedGhCard !== order.gh_card_number) {
@@ -225,16 +223,21 @@ export async function fulfillAfaOrder(orderId: string): Promise<FulfillResult> {
 
   // 6. Update DB based on result
   if (result.success) {
-    const { data: completedRows } = await supabase
+    // Reconciliation is unconditional (fulfillment fields must always be recorded)...
+    await supabase
       .from("afa_orders")
       .update({
         fulfillment_status: "fulfilled",
         fulfillment_ref: result.reference || null,
         fulfillment_error: null,
         fulfilled_at: new Date().toISOString(),
-        status: "completed",
         updated_at: new Date().toISOString(),
       })
+      .eq("id", orderId)
+    // ...but only a real status transition notifies the customer.
+    const { data: completedRows } = await supabase
+      .from("afa_orders")
+      .update({ status: "completed", updated_at: new Date().toISOString() })
       .eq("id", orderId)
       .neq("status", "completed")
       .select("id")
@@ -265,7 +268,6 @@ export async function fulfillAfaOrder(orderId: string): Promise<FulfillResult> {
       .eq("id", orderId)
 
     console.error("[AFA-FULFILL] Fulfillment failed:", orderId, result.message)
-    await alertAdminsForManualAfa(order.order_code, order.full_name)
     return { success: false, message: result.message || "Fulfillment failed" }
   }
 }
@@ -412,9 +414,13 @@ export async function submitAfaOrder(params: SubmitAfaOrderParams): Promise<Subm
     if (!autoFulfill) {
       await alertAdminsForManualAfa(orderCode, fullName)
     } else {
-      fulfillAfaOrder(afaOrder.id).catch((err) => {
-        console.error("[AFA-FULFILL] Auto-fulfillment error for order", afaOrder.id, err)
-      })
+      // The failure alert fires ONLY from this automatic path (not from admin-triggered retries,
+      // which would flood admins on bulk re-runs).
+      fulfillAfaOrder(afaOrder.id)
+        .then((r) => (r.success ? undefined : alertAdminsForManualAfa(orderCode, fullName)))
+        .catch((err) => {
+          console.error("[AFA-FULFILL] Auto-fulfillment error for order", afaOrder.id, err)
+        })
     }
   } catch (autoFulfillCheckError) {
     console.error("[AFA-FULFILL] Error checking auto-fulfillment setting:", autoFulfillCheckError)

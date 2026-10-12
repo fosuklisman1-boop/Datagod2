@@ -82,7 +82,11 @@ describe("afa wiring", () => {
   })
   it("failed provider attempts that leave the order for an admin alert via the shared helper", () => {
     const src = read("lib/afa-fulfillment.ts")
-    expect(src.match(/await alertAdminsForManualAfa\(/g)!.length).toBe(4)
+    // 1 definition + manual-creation alert + auto-path failure alert; none inside fulfillAfaOrder
+    expect(src.match(/alertAdminsForManualAfa\(/g)!.length).toBe(3)
+    expect(src).toMatch(/r\.success \? undefined : alertAdminsForManualAfa/)
+    const fulfill = src.slice(src.indexOf("export async function fulfillAfaOrder"), src.indexOf("export async function submitAfaOrder"))
+    expect(fulfill).not.toContain("alertAdminsForManualAfa")
   })
   it("admin status route uses the central notifier", () => {
     const src = read("app/api/admin/afa-update-status/route.ts")
