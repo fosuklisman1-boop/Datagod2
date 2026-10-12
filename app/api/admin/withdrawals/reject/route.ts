@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import { notificationTemplates } from "@/lib/notification-service"
-import { sendSMS } from "@/lib/sms-service"
 import { verifyAdminAccess } from "@/lib/admin-auth"
-import { sendPushToUser } from "@/lib/push-service"
+import { notifyUserOfOutcome } from "@/lib/admin-actions"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -41,7 +39,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Update withdrawal status to rejected with reason
-    const { error: updateError } = await supabase
+    const { data: rejectedRows, error: updateError } = await supabase
       .from("withdrawal_requests")
       .update({
         status: "rejected",
@@ -49,124 +47,38 @@ export async function POST(request: NextRequest) {
         updated_at: new Date().toISOString(),
       })
       .eq("id", withdrawalId)
+      .in("status", rejectableStatuses)
+      .select("id")
 
     if (updateError) {
       throw new Error(`Failed to update withdrawal: ${updateError.message}`)
     }
 
+    // Another admin action changed the row between our status check and this update.
+    if (!rejectedRows || rejectedRows.length === 0) {
+      return NextResponse.json({ error: "Withdrawal was already handled" }, { status: 409 })
+    }
+
     console.log(`[WITHDRAWAL-REJECT] Withdrawal ${withdrawalId} rejected - Amount: GHS ${withdrawal.amount}`)
 
-    // Send notification to shop owner via admin API endpoint
+    // Notify the shop owner (email, SMS, push, in-app via the central notifier)
     try {
-      // Get shop owner user_id
-      const { data: shop, error: shopError } = await supabase
-        .from("user_shops")
-        .select("user_id")
-        .eq("id", withdrawal.shop_id)
-        .single()
-
-      if (!shopError && shop) {
-        try {
-          const notificationData = notificationTemplates.withdrawalRejected(withdrawalId, reason || "No reason provided")
-          const { error: notifError } = await supabase
-            .from("notifications")
-            .insert([
-              {
-                user_id: shop.user_id,
-                title: notificationData.title,
-                message: notificationData.message,
-                type: notificationData.type,
-                reference_id: notificationData.reference_id,
-                action_url: `/dashboard/shop-dashboard`,
-                read: false,
-              },
-            ])
-          if (notifError) {
-            console.warn("[NOTIFICATION] Failed to send notification:", notifError)
-          } else {
-            console.log(`[NOTIFICATION] Withdrawal rejection notification sent to user ${shop.user_id}`)
-            sendPushToUser(shop.user_id, {
-              title: notificationData.title,
-              body: notificationData.message,
-              data: { url: `/dashboard/shop-dashboard` },
-            }).catch(() => {})
-          }
-        } catch (notifError) {
-          console.warn("[NOTIFICATION] Failed to send notification:", notifError)
-        }
-
-        // Send SMS to shop owner
-        try {
-          const { data: userData, error: userError } = await supabase
-            .from("users")
-            .select("phone_number, email, first_name")
-            .eq("id", shop.user_id)
-            .single()
-
-          if (!userError && userData) {
-            // Send Email
-            if (userData.email) {
-              import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
-                // Extract payment method and phone from account_details
-                const accountDetails = withdrawal.account_details as any;
-                // Use withdrawal_method field if available, otherwise extract from account_details
-                const paymentMethod = withdrawal.withdrawal_method || accountDetails?.network || "Mobile Money";
-                const recipientPhone = accountDetails?.account_number || userData.phone_number;
-
-                // Get current balance (rejection doesn't change it)
-                supabase
-                  .from("shop_available_balance")
-                  .select("available_balance")
-                  .eq("shop_id", withdrawal.shop_id)
-                  .single()
-                  .then(({ data: balanceData }) => {
-                    const remainingBalance = balanceData?.available_balance?.toFixed(2);
-
-                    const payload = EmailTemplates.withdrawalRejected(
-                      withdrawal.amount.toFixed(2),
-                      remainingBalance,
-                      paymentMethod,
-                      recipientPhone,
-                      reason || "No reason provided"
-                    );
-
-                    sendEmail({
-                      to: [{ email: userData.email, name: userData.first_name || "Merchant" }],
-                      subject: payload.subject,
-                      htmlContent: payload.html,
-                      referenceId: withdrawalId,
-                      userId: shop.user_id,
-                      type: 'withdrawal_rejected'
-                    }).catch(err => {
-                      console.error("[EMAIL] ❌ Withdrawal Rejection Email FAILED:", err)
-                      console.error("[EMAIL] Error message:", err?.message)
-                      console.error("[EMAIL] Error stack:", err?.stack)
-                      console.error("[EMAIL] Full error:", JSON.stringify(err, null, 2))
-                    });
-                  });
-              });
-            }
-
-            if (userData.phone_number) {
-              const reasonText = reason ? ` Reason: ${reason}` : ""
-              const smsMessage = `Your withdrawal request of GHS ${withdrawal.amount.toFixed(2)} has been rejected.${reasonText} Contact support for assistance.`
-
-              await sendSMS({
-                phone: userData.phone_number,
-                message: smsMessage,
-                type: 'withdrawal_rejected',
-                reference: withdrawalId,
-              }).catch(err => console.error("[SMS] SMS error:", err))
-            }
-          }
-        } catch (smsError) {
-          console.warn("[SMS] Failed to send withdrawal rejection SMS:", smsError)
-          // Don't fail the rejection if SMS fails
-        }
+      const { data: shop } = await supabase.from("user_shops").select("user_id, shop_name").eq("id", withdrawal.shop_id).single()
+      if (shop) {
+        const { data: bal } = await supabase.from("shop_available_balance").select("available_balance").eq("shop_id", withdrawal.shop_id).single()
+        const details = (withdrawal.account_details ?? {}) as any
+        await notifyUserOfOutcome("withdrawal", "rejected", { userId: shop.user_id, reference: withdrawalId }, {
+          withdrawalId,
+          amount: Number(withdrawal.amount),
+          shopName: shop.shop_name ?? null,
+          method: withdrawal.withdrawal_method || details?.network || null,
+          phone: details?.account_number || null,
+          reason: reason || "No reason provided",
+          remainingBalance: bal?.available_balance != null ? Number(bal.available_balance).toFixed(2) : null,
+        })
       }
     } catch (notifError) {
-      console.warn("[NOTIFICATION] Failed to send notification:", notifError)
-      // Don't fail the rejection if notification fails
+      console.warn("[ADMIN-ACTION] withdrawal rejection notify failed:", notifError instanceof Error ? notifError.message : notifError)
     }
 
     // Sync available balance after rejection (paginated, upsert to avoid race conditions)

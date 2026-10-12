@@ -8,7 +8,7 @@ import {
   getPaystackTransferBalance,
 } from "@/lib/paystack-transfer"
 import { sendPushToUser } from "@/lib/push-service"
-import { notificationTemplates } from "@/lib/notification-service"
+import { notifyUserOfOutcome } from "@/lib/admin-actions"
 import { normalizePhoneNumber } from "@/lib/mtn-fulfillment"
 
 // Serial processing of N transfers can take several seconds each
@@ -38,9 +38,14 @@ async function notifyOwner(shopId: string, amount: number, withdrawalId: string,
       .single()
     if (!shop) return
 
-    const notif = succeeded
-      ? notificationTemplates.withdrawalApproved(amount, withdrawalId)
-      : { title: "Transfer Failed", message: `Your GHS ${amount.toFixed(2)} withdrawal could not be processed. It remains pending.`, type: "order_update" as const, reference_id: withdrawalId }
+    if (succeeded) {
+      // Approved: email + SMS + push + in-app via the central notifier (never throws)
+      await notifyUserOfOutcome("withdrawal", "approved", { userId: shop.user_id, reference: withdrawalId }, { withdrawalId, amount, shopName: shop.shop_name ?? null })
+      return
+    }
+
+    // Failed transfer reset to pending: neither approved nor rejected, keep the existing in-app + push.
+    const notif = { title: "Transfer Failed", message: `Your GHS ${amount.toFixed(2)} withdrawal could not be processed. It remains pending.`, type: "order_update" as const, reference_id: withdrawalId }
 
     await supabase.from("notifications").insert([{
       user_id: shop.user_id,
@@ -170,7 +175,7 @@ export async function POST(request: NextRequest) {
             .update({ status: "approved", updated_at: new Date().toISOString() })
             .eq("id", locked.id)
 
-          notifyOwner(locked.shop_id, amount, locked.id, true).catch(() => {})
+          await notifyOwner(locked.shop_id, amount, locked.id, true)
           results.push({ id: locked.id, shopName, amount, success: true, status: "approved", message: "Manually approved" })
           continue
         }
@@ -267,7 +272,7 @@ export async function POST(request: NextRequest) {
                 persistErr, "withdrawalId:", locked.id, "transferCode:", paystackResult.transferCode
               )
             }
-            notifyOwner(locked.shop_id, amount, locked.id, true).catch(() => {})
+            await notifyOwner(locked.shop_id, amount, locked.id, true)
             results.push({ id: locked.id, shopName, amount, success: true, status: "completed", message: `Sent — TX: ${paystackResult.transferCode}` })
             continue
           }
@@ -322,7 +327,7 @@ export async function POST(request: NextRequest) {
             .from("withdrawal_requests")
             .update({ status: "completed", moolre_transfer_id: transferResult.transactionId, moolre_fee: transferResult.fee, transfer_completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
             .eq("id", locked.id)
-          notifyOwner(locked.shop_id, amount, locked.id, true).catch(() => {})
+          await notifyOwner(locked.shop_id, amount, locked.id, true)
           results.push({ id: locked.id, shopName, amount, success: true, status: "completed", message: `Sent — TX: ${transferResult.transactionId}` })
 
         } else if (transferResult.txstatus === 2) {

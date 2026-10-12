@@ -1,0 +1,44 @@
+import { readFileSync } from "node:fs"
+import path from "node:path"
+
+const read = (rel: string) => readFileSync(path.resolve(__dirname, "../..", rel), "utf8").replace(/\r\n/g, "\n")
+
+describe("withdrawals wiring", () => {
+  it("create route alerts admins once", () => {
+    const src = read("app/api/user/withdrawals/create/route.ts")
+    expect(src.match(/alertAdminsOfRequest\("withdrawal"/g)).toHaveLength(1)
+  })
+  it("approve route notifies via the central notifier and no longer sends inline email/sms for approval", () => {
+    const src = read("app/api/admin/withdrawals/approve/route.ts")
+    expect(src).toContain('notifyUserOfOutcome("withdrawal", "approved"')
+    expect(src).not.toContain("type: 'withdrawal_approved'")
+    expect(src).not.toContain("notificationTemplates.withdrawalApproved")
+  })
+  it("bulk-approve success path uses the central notifier", () => {
+    const src = read("app/api/admin/withdrawals/bulk-approve/route.ts")
+    expect(src).toContain('notifyUserOfOutcome("withdrawal", "approved"')
+  })
+  it("reject route uses the central notifier and a conditional update", () => {
+    const src = read("app/api/admin/withdrawals/reject/route.ts")
+    expect(src).toContain('notifyUserOfOutcome("withdrawal", "rejected"')
+    expect(src).not.toContain("type: 'withdrawal_rejected'")
+    expect(src).not.toContain("notificationTemplates.withdrawalRejected")
+    expect(src).toMatch(/\.in\("status", rejectableStatuses\)/)
+  })
+  it("complete route, transfer-otp route, status cron and paystack webhook notify 'completed' via the shared hook", () => {
+    for (const f of [
+      "app/api/admin/withdrawals/complete/route.ts",
+      "app/api/admin/withdrawals/submit-transfer-otp/route.ts",
+      "app/api/cron/withdrawals-status-check/route.ts",
+      "app/api/webhooks/paystack/route.ts",
+    ]) {
+      expect(read(f)).toContain("notifyWithdrawalCompleted(")
+    }
+    expect(read("lib/admin-actions/withdrawal-hook.ts")).toContain('notifyUserOfOutcome("withdrawal", "completed"')
+  })
+  it("cron and otp routes no longer send their own inline completion messages", () => {
+    for (const f of ["app/api/admin/withdrawals/submit-transfer-otp/route.ts", "app/api/cron/withdrawals-status-check/route.ts"]) {
+      expect(read(f)).not.toContain("notificationTemplates.withdrawalApproved")
+    }
+  })
+})

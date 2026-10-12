@@ -2,9 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { getTransferStatus } from "@/lib/moolre-transfer"
 import { getTransferStatus as getPaystackTransferStatus } from "@/lib/paystack-transfer"
-import { notificationTemplates } from "@/lib/notification-service"
-import { sendSMS } from "@/lib/sms-service"
-import { sendPushToUser } from "@/lib/push-service"
+import { notifyWithdrawalCompleted } from "@/lib/admin-actions/withdrawal-hook"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -34,54 +32,6 @@ async function syncShopBalance(shopId: string) {
   }
 }
 
-async function notifyCompletion(withdrawal: any) {
-  try {
-    const { data: shop } = await supabase
-      .from("user_shops")
-      .select("user_id")
-      .eq("id", withdrawal.shop_id)
-      .single()
-
-    if (!shop) return
-
-    const notificationData = notificationTemplates.withdrawalApproved(withdrawal.amount, withdrawal.id)
-    const { error: notifError } = await supabase.from("notifications").insert([{
-      user_id: shop.user_id,
-      title: notificationData.title,
-      message: notificationData.message,
-      type: notificationData.type,
-      reference_id: notificationData.reference_id,
-      action_url: `/dashboard/shop-dashboard`,
-      read: false,
-    }])
-    if (notifError) console.warn("[CRON-NOTIFY] Notification error:", notifError)
-    else sendPushToUser(shop.user_id, {
-      title: notificationData.title,
-      body: notificationData.message,
-      data: { url: `/dashboard/shop-dashboard` },
-    }).catch(() => {})
-
-    const { data: userData } = await supabase
-      .from("users")
-      .select("phone_number")
-      .eq("id", shop.user_id)
-      .single()
-
-    if (userData?.phone_number) {
-      const accountDetails = withdrawal.account_details as any
-      const smsMessage = `✓ Your withdrawal of GHS ${withdrawal.amount.toFixed(2)} has been transferred to ${accountDetails?.phone || "your account"}.`
-      await sendSMS({
-        phone: userData.phone_number,
-        message: smsMessage,
-        type: "withdrawal_approved",
-        reference: withdrawal.id,
-      }).catch(err => console.error("[CRON-SMS] Error:", err))
-    }
-  } catch (err) {
-    console.warn("[CRON-NOTIFY] Non-fatal error:", err)
-  }
-}
-
 export async function GET(request: NextRequest) {
   // Secure cron endpoint — Vercel sends Authorization: Bearer <CRON_SECRET>
   // Fail-closed: if CRON_SECRET is unset in production, deny all requests
@@ -99,7 +49,7 @@ export async function GET(request: NextRequest) {
     // Fetch all withdrawals in "processing" state that have a Moolre reference
     const { data: processingWithdrawals, error } = await supabase
       .from("withdrawal_requests")
-      .select("id, shop_id, amount, account_details, moolre_external_ref, moolre_transfer_id")
+      .select("id, shop_id, amount, account_details, withdrawal_method, moolre_external_ref, moolre_transfer_id")
       .eq("status", "processing")
       .not("moolre_external_ref", "is", null)
 
@@ -120,7 +70,7 @@ export async function GET(request: NextRequest) {
     // payout_provider were somehow wrong.
     const { data: paystackProcessing } = await supabase
       .from("withdrawal_requests")
-      .select("id, shop_id, amount")
+      .select("id, shop_id, amount, account_details, withdrawal_method")
       .in("status", ["processing", "awaiting_transfer_otp"])
       .eq("payout_provider", "paystack")
       .not("paystack_transfer_code", "is", null)
@@ -167,7 +117,7 @@ export async function GET(request: NextRequest) {
 
       if (statusResult.txstatus === 1) {
         // Transfer confirmed — complete it and sync balance
-        await supabase
+        const { data: flipped } = await supabase
           .from("withdrawal_requests")
           .update({
             status: "completed",
@@ -176,9 +126,12 @@ export async function GET(request: NextRequest) {
             updated_at: new Date().toISOString(),
           })
           .eq("id", withdrawal.id)
+          .eq("status", "processing")
+          .select("id")
 
         await syncShopBalance(withdrawal.shop_id)
-        await notifyCompletion(withdrawal)
+        // Notify only the run that actually flipped the row out of "processing"
+        if (flipped && flipped.length > 0) await notifyWithdrawalCompleted(supabase, withdrawal)
 
         console.log(`[CRON-STATUS] Completed: ${withdrawal.id} — TX: ${statusResult.transactionId}`)
         completed++
@@ -210,7 +163,7 @@ export async function GET(request: NextRequest) {
         if (!result) continue
 
         if (result.status === "success") {
-          await supabase
+          const { data: flipped } = await supabase
             .from("withdrawal_requests")
             .update({
               status: "completed",
@@ -219,8 +172,11 @@ export async function GET(request: NextRequest) {
               updated_at: new Date().toISOString(),
             })
             .eq("id", withdrawal.id)
+            .in("status", ["processing", "awaiting_transfer_otp"])
+            .select("id")
           await syncShopBalance(withdrawal.shop_id)
-          await notifyCompletion(withdrawal)
+          // Notify only if this run actually flipped the row (webhook/OTP route may have completed it first)
+          if (flipped && flipped.length > 0) await notifyWithdrawalCompleted(supabase, withdrawal)
           console.log(`[CRON-WITHDRAWALS] Paystack transfer completed: ${withdrawal.id}`)
         } else if (result.status === "failed") {
           await supabase

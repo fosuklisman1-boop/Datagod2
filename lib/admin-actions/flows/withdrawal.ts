@@ -70,6 +70,7 @@ export const withdrawalFlow: FlowDef<WithdrawalCtx> = {
           cta: { label: "Open dashboard", url: appUrl(OWNER_URL) },
         }),
         sms: clipSms(`Your withdrawal of ${money(c.amount)} has been transferred${c.phone ? ` to ${maskNumber(c.phone)}` : " to your account"}.`),
+        push: { title: "Withdrawal paid out", body: `Your withdrawal of ${money(c.amount)} has been paid out.`, url: OWNER_URL },
         inApp: { title: "Withdrawal paid out", message: `Your withdrawal of ${money(c.amount)} has been paid out.`, type: "balance_updated", actionUrl: OWNER_URL },
       }
     }
