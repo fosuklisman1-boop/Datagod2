@@ -1,6 +1,7 @@
 /**
  * Manual Hubtel balance (design 2026-10-12 §B): a stop-gap while the relay /balance is blocked.
- * The admin types the Disbursement balance shown in the Hubtel dashboard; the app then estimates
+ * The admin types the Hubtel SMS wallet balance (NOT the Disbursement wallet the relay reads) shown in
+ * the Hubtel dashboard; the app then estimates
  * the live balance as amount − (Hubtel SMS spend recorded since). Pure helpers only — no I/O here,
  * so routing.ts and platform-settings.ts can import it without cycles.
  *
