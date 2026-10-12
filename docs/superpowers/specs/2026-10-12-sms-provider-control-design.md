@@ -4,66 +4,82 @@ Date: 2026-10-12 · Status: draft for review
 
 ## Goal
 
-Give admins control over which SMS gateway (Moolre or Hubtel) carries which kind of message, instead of the single global primary (today: Hubtel primary, Moolre fallback) deciding everything.
+Give admins control over which SMS gateway (Moolre or Hubtel) carries each kind of SMS, instead of the single global primary (today: Hubtel primary, Moolre fallback) deciding everything.
 
 ## User decisions
 
-1. **System notifications (non-OTP) lead with Moolre**, regardless of the global primary. Covers order confirmations sent from the platform sender, the admin-action messages (withdrawal/shop/AFA/results-check/sender-ID/complaint outcomes), payout/complaint texts, etc. **OTP is untouched** (`SMS_OTP_PROVIDER` + breaker logic).
-2. **Order confirmations follow sender ownership, behind a toggle:** if the shop has its own sender ID for confirmations (billed in credits, `sendBilledConfirmation` path) → **Hubtel**; if the confirmation comes from Datagod's platform sender (free path) → **Moolre**.
-3. **Per-send provider picker** (Moolre / Hubtel only) on the compose screens of: admin broadcast (`/admin/broadcast`), admin SMS platform (`/admin/sms` Messages), and customer-facing bulk SMS (dashboard `/dashboard/sms` + shop send + `/api/v1/sms/send`).
-4. **If the chosen provider fails, fall back** to the other configured provider (existing behaviour); the result records which provider actually carried each message.
+1. **A provider selector for every kind of SMS** (admin Settings → SMS "Provider routing"): each category below gets its own Moolre / Hubtel / "Global" dropdown. "Global" = today's behaviour (routing primary, then fallbacks).
+2. **Order confirmations follow sender ownership:** own sender ID (billed in credits) → Hubtel; Datagod platform sender → Moolre. These are two separate categories, each with its own selector (defaults Hubtel / Moolre).
+3. **Per-send picker** (Moolre / Hubtel / "Category default") on the compose screens of admin broadcast, admin SMS Messages, and customer bulk SMS (tenant-facing picker off until an admin enables it). A per-send choice overrides the category.
+4. **Failover:** the chosen provider leads; the other configured provider remains the fallback. The send log records which provider actually carried the message. OTP keeps its breaker (below).
+5. Earlier answer kept as the default: all system notifications except OTP lead with Moolre.
 
-## Settings (admin_settings, admin-editable on /admin/sms Settings)
+## Categories (one selector each)
 
-| Key | Default | Meaning |
+Every `sendSMS` call has a `type`. `lib/sms/categories.ts` maps type → category; an unmapped type falls into `system`, so a new type is never unrouted.
+
+| Category | Types it covers | Default |
 |---|---|---|
-| `sms_system_provider` | `"moolre"` | Lead provider for non-OTP system notifications. `"global"` = old behaviour (use routing primary). |
-| `sms_confirmation_by_sender_enabled` | `true` | Toggle. ON: own-sender billed confirmations → Hubtel, platform-sender confirmations → Moolre. OFF: confirmations follow `sms_system_provider` / global routing as before. |
-| `sms_default_send_provider` | `"global"` | Pre-selected value of the compose picker (`global` = routing primary). |
+| `otp` | `phone_otp`, `otp_required`, `password_reset_link` | Global (existing `SMS_OTP_PROVIDER` env still the fallback value; OTP breaker still wins) |
+| `order_confirmation_platform` | `order_confirmed`, `order_confirmation`, `order_payment_confirmed`, `order_update`, `order_delivered`, `order_fulfilled`, `order_cleared` sent from the Datagod sender | Moolre |
+| `order_confirmation_own_sender` | a shop's own-sender billed confirmations (`sendBilledConfirmation`) | Hubtel |
+| `payments_wallet` | `wallet_topup_success`, `data_purchase_success`, `balance_updated`, `airtime_*`, `order_refund`, withdrawal payout texts | Moolre |
+| `admin_action_outcomes` | `withdrawal_*`, `shop_*`, `afa_*`, `results_check_*`, `sender_id_*`, `complaint_*`, `dealer_upgrade`, `user_suspension`, `user_restoration` | Moolre |
+| `security_alerts` | `security_alert`, `password_changed`, admin alert texts | Global |
+| `system` | every other system type (catch-all) | Moolre |
+| `admin_broadcast` | admin broadcast SMS channel | Global |
+| `customer_bulk` | tenant / shop / API bulk sends (campaigns, scheduled) | Global |
 
-`getRoutingConfig()` (`lib/sms/routing.ts`) is extended to read/cache these (same 5-min TTL + `invalidateRoutingCache`), validated against `moolre|hubtel`.
+(Exact type lists are finalised from a code scan in the plan; the table above is the starting map.)
+
+## Settings
+
+One `admin_settings` row, `sms_category_providers` (JSON `{ category: "global" | "moolre" | "hubtel" }`), read through `getRoutingConfig()` (`lib/sms/routing.ts`; same 5-min cache + `invalidateRoutingCache`), validated against the category list and the two providers. Missing keys use the defaults above. Plus `sms_tenant_provider_choice_enabled` (default `false`).
+
+UI: a "Provider routing" card on /admin/sms Settings — one row per category with its dropdown, and for "Global" it shows the provider that currently resolves to.
 
 ## Mechanism
 
-**Single-message path (`sendSMS`, `lib/sms-service.ts`).** `SMSPayload` gains optional `provider?: "moolre" | "hubtel"`. Order building becomes:
-- OTP (`type === "phone_otp"`): unchanged.
-- `payload.provider` set: `[payload.provider, ...rest]`.
-- Else if no custom `senderId` and type is a system type: `[routing.systemProvider, ...rest]` (unless `"global"`).
-- Else: unchanged (`[primary, ...fallbacks]`).
-`rest` = remaining configured providers (fallback preserved). Sender-ID narrowing (`narrowProvidersForSender`) still runs after, so an unapproved custom sender can never be forced onto a gateway that rejects it. Unconfigured providers are filtered as today.
+**Single-message path (`sendSMS`, `lib/sms-service.ts`).** `SMSPayload` gains optional `provider?: "moolre" | "hubtel"`. Order building:
+- `payload.provider` set (per-send or caller-forced): `[payload.provider, ...rest]`.
+- Else lead = `routing.categoryProviders[categoryOf(type)]`; `"global"` = old behaviour (`[primary, ...fallbacks]`).
+- OTP category: lead = the selector if not Global, else `SMS_OTP_PROVIDER || primary`. When the OTP breaker is open the lead is still forced to the fallback provider, so the selector can never defeat the breaker.
 
-**Order confirmations.** In `app/api/fulfillment/process-order/route.ts`: the billed path passes `provider: "hubtel"` through `sendBilledConfirmation` → `enqueueSend` (when the toggle is ON); the free path passes `provider: "moolre"` to `sendSMS`. Toggle OFF → neither passes a provider.
+`rest` = the remaining configured providers (fallback preserved). Custom sender-ID narrowing (`narrowProvidersForSender`) still runs afterwards, so an unapproved custom sender is never forced onto a gateway that rejects it. Unconfigured providers are filtered as today.
 
-**Bulk path (`dispatchCampaign`, `lib/sms/campaign-dispatch.ts`).** Gains a `provider?` argument replacing `routing.primary` for that call (Hubtel unconfigured → Moolre, as today). Since unplaced rows are retried by the cron drain, the choice is **persisted** on `sms_send_logs.provider_override` (new nullable column, migration) and read by `dispatch-claimed.ts` and the `send-service` instant dispatch so a retry uses the same provider the admin picked.
+**Order confirmations.** In `app/api/fulfillment/process-order/route.ts`: the billed path resolves the `order_confirmation_own_sender` category and passes it through `sendBilledConfirmation` → `enqueueSend`; the free path calls `sendSMS` with its normal type, which maps to `order_confirmation_platform`. Setting either to Global restores today's routing.
 
-**Broadcast (`app/api/admin/broadcast`).** `init` accepts `smsProvider?: "moolre"|"hubtel"|"global"`, validated; stored on `broadcast_logs.sms_provider` (new nullable column); `lib/broadcast-drain.ts` passes it to `sendSMS({ provider })`. Retry route reuses the stored value.
+**Bulk path (`dispatchCampaign`, `lib/sms/campaign-dispatch.ts`).** Gains a `provider?` argument replacing `routing.primary` for that call (Hubtel unconfigured → Moolre, as today). Unplaced rows are retried by the cron drain, so the choice is **persisted** on `sms_send_logs.provider_override` (new nullable column, migration) and read by `dispatch-claimed.ts` and the `send-service` instant dispatch; a retry uses the same provider as the first attempt. Value = per-send pick, else the `customer_bulk` category.
 
-**Customer bulk SMS.** `enqueueSendBatched` options gain `provider`; the API/dashboard/shop routes accept and validate it. Tenants choosing Hubtel remain subject to the existing Hubtel solvency/wholesale gates (`resolveHubtelBalance`); if Hubtel is out of funds the existing out-of-funds path applies (rows stay pending / fall back per current logic) — the picker does not bypass any gate. Admin can disable the tenant-facing picker (`sms_tenant_provider_choice_enabled`, default `false` so tenants see no new control until an admin turns it on).
+**Broadcast (`app/api/admin/broadcast`).** `init` accepts `smsProvider?: "moolre" | "hubtel" | "global"` ("global" = use the `admin_broadcast` category); validated; stored on `broadcast_logs.sms_provider` (new nullable column); `lib/broadcast-drain.ts` passes it to `sendSMS({ provider })`. The retry route reuses the stored value.
 
-**UI.** A small `ProviderSelect` component (Moolre / Hubtel / "System default") used on the admin broadcast SMS channel, the admin SMS Messages compose, and the dashboard SMS compose (hidden unless the tenant-choice setting is on). Settings screen gets the three toggles above.
+**Customer bulk SMS.** `enqueueSendBatched` options gain `provider`; the dashboard / shop / `/api/v1/sms/send` routes accept and validate it, but only honour it when `sms_tenant_provider_choice_enabled` is true (otherwise the `customer_bulk` category applies). Existing Hubtel solvency / wholesale gates (`resolveHubtelBalance`) and the out-of-funds path are not bypassed.
+
+**UI.** A shared `ProviderSelect` (Moolre / Hubtel / default) on admin broadcast (SMS channel), admin SMS Messages compose, and dashboard SMS compose (hidden unless tenant choice is on).
 
 ## Error handling
 
-- Invalid provider value → 400 (routes) / ignored with a warning (internal callers).
-- Chosen provider unconfigured → silently skipped in the chain, fallback proceeds; send log records the real provider.
+- Invalid provider/category value → 400 (routes) / ignored with a warning (internal callers).
+- Chosen provider unconfigured → skipped in the chain, fallback proceeds; send log records the real provider.
 - Settings read failure → fail open to current behaviour (global routing).
-- No change to OTP, the breaker, or Hubtel "unknown outcome" no-double-send rule.
+- Hubtel "unknown outcome" no-double-send rule unchanged.
 
 ## Testing
 
-- `sendSMS` order unit tests: OTP unchanged; `payload.provider` leads; system type leads with `systemProvider`; `"global"` preserves old order; sender-ID narrowing still wins; unconfigured filtered.
-- `dispatchCampaign` with explicit `provider`; persisted `provider_override` honoured by `dispatch-claimed` retry.
-- Confirmation routing: toggle ON → billed=hubtel, free=moolre; toggle OFF → no provider passed.
-- Broadcast init validation + drain passes provider; retry reuses it.
-- Tenant routes reject `provider` when tenant choice is disabled.
-- Wiring grep tests that OTP call sites never pass `provider`.
+- Category mapping: every known type maps to its category; unknown → `system`.
+- `sendSMS` order: each category's selector changes the lead; Global preserves the old order; `payload.provider` beats the category; sender-ID narrowing still wins; unconfigured filtered.
+- OTP: selector leads, but an open breaker still forces the fallback.
+- Confirmation routing: own-sender → its category's provider; platform → its category's provider.
+- `dispatchCampaign` with explicit `provider`; persisted `provider_override` honoured by `dispatch-claimed` retries.
+- Broadcast init validation, drain passes the provider, retry reuses it.
+- Tenant routes ignore/reject `provider` when tenant choice is disabled.
 
 ## Rollout / risks
 
 - Migration: two nullable columns (`sms_send_logs.provider_override`, `broadcast_logs.sms_provider`) — additive, safe.
-- **Behaviour change on deploy:** system notifications flip from Hubtel-first to Moolre-first immediately (default `sms_system_provider = moolre`). Moolre credit balance must cover that volume; monitor Moolre balance after deploy.
-- Hubtel DLR/billing for own-sender confirmations is unchanged (they stay on Hubtel).
+- **Behaviour change on deploy:** the system categories flip from Hubtel-first to Moolre-first immediately (defaults above). The Moolre credit balance must cover that volume; monitor it after deploy.
+- Own-sender confirmations stay on Hubtel, so their DLR/billing is unchanged.
 
 ## Out of scope
 
-OTP routing, mNotify/Brevo in the picker, per-message-type routing UI beyond the three settings, changing the global primary/fallback settings.
+mNotify/Brevo in the selectors; per-individual-type routing (categories only); changing the global primary/fallback settings.
