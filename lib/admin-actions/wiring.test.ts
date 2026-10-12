@@ -140,3 +140,13 @@ describe("sender-id wiring", () => {
     }
   })
 })
+
+describe("sender-id wiring fixes", () => {
+  it("POST alerts only for new/re-opened pending requests", () => {
+    expect(read("app/api/sms/sender-ids/route.ts")).toMatch(/result\.isNew === true && result\.data\.local_status === "pending"/)
+  })
+  it("reject passes the admin's own reason, not the service default", () => {
+    const src = read("app/api/admin/sms-sender-ids/reject/route.ts")
+    expect(src).toContain('"rejected", body.reason?.trim() || undefined)')
+  })
+})

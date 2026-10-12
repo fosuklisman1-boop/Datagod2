@@ -158,6 +158,17 @@ describe("requestSenderId", () => {
     expect(r.ok && r.data.id).toBe("a")
     expect(T("sms_sender_ids")).toHaveLength(1)
   })
+  it("flags isNew: true for a fresh insert and a re-opened rejected request, false for an open duplicate", async () => {
+    const fresh = await requestSenderId("B", "FRESH")
+    expect(fresh.ok && fresh.isNew).toBe(true)
+    T("sms_sender_ids").push(sid("rj", "OLDREJ", "B", "rejected"))
+    const reopened = await requestSenderId("B", "OLDREJ")
+    expect(reopened.ok && reopened.isNew).toBe(true)
+    expect(reopened.ok && reopened.data.local_status).toBe("pending")
+    T("sms_sender_ids").push(sid("pd", "OPENONE", "B", "pending"))
+    const dup = await requestSenderId("B", "OPENONE")
+    expect(dup.ok && dup.isNew).toBe(false)
+  })
   it("platform mode: second open sender is refused (pending/active/paused count)", async () => {
     T("sms_sender_ids").push(sid("a", "FIRST", "P", "paused"))
     const r = await requestSenderId("P", "SECOND")

@@ -55,9 +55,9 @@ export async function POST(request: NextRequest) {
 
   const result = await requestSenderId(account!.id, body.sender_id)
   if (!result.ok) return NextResponse.json({ success: false, error: result.error }, { status: 400 })
-  // Only a request awaiting review needs an admin's attention (an already-open request of an
-  // active/paused name comes back ok too and must not alert).
-  if (result.data.local_status === "pending") {
+  // Alert only for a new or re-opened request (isNew), never a re-submit of an already-open one
+  // (which comes back ok with the existing row and would otherwise spam admins).
+  if (result.isNew === true && result.data.local_status === "pending") {
     await alertAdminsOfRequest("sender_id", { senderIdId: result.data.id, senderId: result.data.sender_id })
   }
   return NextResponse.json({ success: true, data: result.data }, { status: 201 })

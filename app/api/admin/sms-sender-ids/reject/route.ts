@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
     if (!auth.userId) return NextResponse.json({ success: false, error: "Admin user required" }, { status: 403 })
     const r = await rejectSenderIdRequest(auth.userId,body.id, body.reason?.trim() || "Rejected by admin")
     if (!r.ok) return NextResponse.json({ success: false, error: r.error }, { status: 400 })
-    await notifySenderIdOutcome(supabaseAdmin, r.data, "rejected", body.reason?.trim() || "Rejected by admin")
+    await notifySenderIdOutcome(supabaseAdmin, r.data, "rejected", body.reason?.trim() || undefined)
     return NextResponse.json({ success: true, data: r.data })
   }
 
