@@ -20,7 +20,14 @@ const mockSettings = vi.hoisted(() => ({
 
 vi.mock("@supabase/supabase-js", () => ({
   createClient: vi.fn(() => ({
-    from: (_: string) => ({
+    from: (table: string) => table === "tenant_global_settings" ? {
+      // The REAL strict loadHubtelBalanceSettings reads through here.
+      select: () => ({
+        in: () => Promise.resolve(hub.settingsError
+          ? { data: null, error: hub.settingsError }
+          : { data: [{ key: "sms_hubtel_prefer_manual_balance", value: hub.prefer }], error: null }),
+      }),
+    } : ({
       select: () => ({
         in: (_col: string, keys: string[]) => ({
           data: keys
@@ -52,11 +59,8 @@ const hub = vi.hoisted(() => ({
   resolved: { ok: false, error: "relay down" } as any,
   resolveThrows: false,
   resolveCalls: 0,
-  prefer: false,
-  settingsThrows: false,
-}))
-vi.mock("./platform-settings", () => ({
-  loadSmsSettings: () => (hub.settingsThrows ? Promise.reject(new Error("db down")) : Promise.resolve({ hubtelPreferManualBalance: hub.prefer })),
+  prefer: false as unknown,
+  settingsError: null as unknown,
 }))
 vi.mock("./wholesale", () => ({
   resolveHubtelBalance: () => {
@@ -173,7 +177,7 @@ describe("setRoutingConfig hubtel guard", () => {
     hub.resolveThrows = false
     hub.resolveCalls = 0
     hub.prefer = false
-    hub.settingsThrows = false
+    hub.settingsError = null
   })
 
   describe("prefer-manual on (relay reads a different wallet)", () => {
@@ -201,11 +205,24 @@ describe("setRoutingConfig hubtel guard", () => {
     })
   })
 
-  it("settings unreadable → refused (can't tell which balance applies; fail closed)", async () => {
-    hub.settingsThrows = true
+  it("settings select returns an error (fresh instance) → refused even though the relay works", async () => {
+    hub.settingsError = { message: "connection reset" }
     const res = await setRoutingConfig({ primary: "hubtel" })
     expect(res.ok).toBe(false)
+    expect((res as { error: string }).error).toMatch(/connection reset/)
     expect(mockSettings.updates).toHaveLength(0)
+    expect(hub.balanceCalls).toBe(0)
+  })
+
+  it("an unreadable prefer flag → refused (never treated as off)", async () => {
+    hub.prefer = "yes"
+    expect((await setRoutingConfig({ primary: "hubtel" })).ok).toBe(false)
+    expect(mockSettings.updates).toHaveLength(0)
+  })
+
+  it("fallback-only Hubtel never reads the strict settings", async () => {
+    hub.settingsError = { message: "down" }
+    expect((await setRoutingConfig({ primary: "moolre", fallbacks: ["hubtel"] })).ok).toBe(true)
   })
 
   it("relay works → accepted without computing a manual estimate", async () => {

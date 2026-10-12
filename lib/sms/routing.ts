@@ -12,7 +12,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { hubtelConfigFromEnv } from "./providers/hubtel"
 import { fetchDisbursementBalance } from "@/lib/ussd-hubtel/relay"
-import { loadSmsSettings } from "./platform-settings"
+import { loadHubtelBalanceSettings } from "./platform-settings"
 const VALID_PROVIDERS = ["moolre", "mnotify", "brevo", "hubtel"] as const
 type Provider = (typeof VALID_PROVIDERS)[number]
 
@@ -151,7 +151,8 @@ async function resolvedHubtelBalance(): Promise<{ ok: true } | { ok: false; erro
 async function hubtelPrimaryBalanceBlocker(): Promise<string | null> {
   let preferManual: boolean
   try {
-    preferManual = (await loadSmsSettings()).hubtelPreferManualBalance === true
+    // Strict + uncached: a read failure must block, never default to "prefer off".
+    preferManual = (await loadHubtelBalanceSettings()).preferManual
   } catch (e) {
     return `Could not read the SMS settings to check the Hubtel balance: ${e instanceof Error ? e.message : String(e)}`
   }
