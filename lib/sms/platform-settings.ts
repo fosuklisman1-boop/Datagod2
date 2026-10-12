@@ -193,6 +193,36 @@ export async function loadSmsSettings(): Promise<SmsPlatformSettings> {
   return value
 }
 
+export interface HubtelBalanceSettings {
+  preferManual: boolean
+  manual: HubtelManualBalance | null
+  hubtelCostPerSms: number
+}
+
+const HUBTEL_BALANCE_KEYS = ["sms_hubtel_prefer_manual_balance", "sms_hubtel_manual_balance", "sms_hubtel_cost_per_sms"] as const
+
+/**
+ * STRICT, UNCACHED read of the settings that decide which Hubtel balance backs credit sales (money
+ * path, Hubtel-primary only). Unlike loadSmsSettings — which falls back to cached values or defaults —
+ * this THROWS on any DB error, a missing payload, or a prefer flag it can't read, so callers fail
+ * closed instead of silently using the relay (Disbursement wallet) figure. No cache, so a toggle on
+ * one instance is seen by every instance on the next check.
+ */
+export async function loadHubtelBalanceSettings(): Promise<HubtelBalanceSettings> {
+  const { data, error } = await supabaseAdmin
+    .from("tenant_global_settings").select("key, value").in("key", [...HUBTEL_BALANCE_KEYS])
+  if (error) throw new Error(`Hubtel balance settings read failed: ${error.message}`)
+  if (!Array.isArray(data)) throw new Error("Hubtel balance settings read returned no data")
+  const rows = data as { key: string; value: unknown }[]
+  const preferRow = rows.find((r) => r.key === "sms_hubtel_prefer_manual_balance")
+  if (preferRow) {
+    const u = unwrap(preferRow.value, ["enabled", "value"])
+    if (typeof u !== "boolean") throw new Error(`unreadable sms_hubtel_prefer_manual_balance value: ${JSON.stringify(preferRow.value)}`)
+  }
+  const s = parseSmsSettings(rows)
+  return { preferManual: s.hubtelPreferManualBalance, manual: s.hubtelManualBalance, hubtelCostPerSms: s.hubtelCostPerSms }
+}
+
 export function invalidateSmsSettingsCache(): void {
   cache = null
 }
