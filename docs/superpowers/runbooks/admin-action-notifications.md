@@ -28,7 +28,7 @@ Message text is in `lib/admin-actions/flows/<flow>.ts` (`adminAlert`, `userMessa
 
 ## Reading results
 
-Every call logs `[ADMIN-ACTION]` lines with per-channel `sent | skipped | failed` and the reason. Note `sent` is optimistic where a provider swallows errors (e.g. `notifyAdmins`, `sendSMS` no-ops).
+Each notify call logs ONE summary line: `[ADMIN-ACTION] <flow> <outcome|alert> <reference> sent=<n> skipped=<channels> failed=<channels>` (channel names only, never phones, emails or message text). Per-channel failures also log `[ADMIN-ACTION] <channel> failed: <detail>`. `sent` is optimistic where a provider swallows errors.
 
 ## Common causes of silence
 
@@ -51,14 +51,29 @@ Every call logs `[ADMIN-ACTION]` lines with per-channel `sent | skipped | failed
 
 Every outcome now sends an SMS (plus email); every request sends admin email + push. Watch SMS spend after rollout.
 
-## Known limitations (deferred minors)
+## Known limitations
 
-- Channel status in logs is optimistic when providers swallow errors; SMS log not tied to userId; worst case ~13s per notify call (8s channel cap), matters for large cron batches.
-- Admin alert per failed AFA attempt (admin retries can flood); AFA/complaint update routes key on id only, so concurrent admins could double-notify.
-- Results-check admin email shows raw channel (`whatsapp_shop`); PATCH `reason` lacks a type/length guard; completion is read-then-write.
-- Bulk-approve completed message "remaining balance" may be stale; no log on a lost completed write.
-- Shop routes do an extra unbounded phone lookup outside the notifier timeout; approve 409 also returned for nonexistent shopId.
+- Channel status is optimistic where a provider swallows errors (`notifyAdmins`, `sendSMS` no-ops); worst case ~13s per notify call (8s channel cap).
+- White-label leak: shop customers and API resellers receive DATAGOD-branded SMS/email for AFA and results-check completion.
+- `ussd_afa_orders` (USSD + storefront AFA) are excluded from alerts and outcomes.
+- Web bulk complaint resolve texts each selected complaint (only the "Resolve all" button is silent).
+- Email provider quota/volume: every outcome and admin alert is an email; watch the provider quota after rollout.
+- Bulk-approve "completed" remaining balance may be stale (the bulk path never syncs the shop balance before the message reads it).
+- Read-then-write double-notify windows remain in `afa-update-status`, `complaints/update` and results-check deliver (two admins acting in the same moment can double-notify).
+- Shop routes do an extra unbounded phone lookup outside the notifier timeout; shop approve 409 is also returned for a nonexistent shopId.
 - Wiring tests are source greps, not behavioural.
+
+## Post-deploy checklist
+
+1. Withdrawal create: one admin alert; approve (manual), reject and complete each send exactly one message (check `sms_logs` by `message_type` + `reference_id`).
+2. Instant Moolre/Paystack payout: exactly one `withdrawal_completed` per withdrawal (no `withdrawal_approved` on that path).
+3. Shop create / approve / reject: one admin alert, one user message each.
+4. AFA: manual order alerts admins once; auto-fulfil failure alerts once (not on admin `fulfill-pending` retries); completed message once, including the Apex Prime cron (run the duplicate query below).
+5. USSD wallet results-check: session responds quickly after the debit (admin notify now runs after the response).
+6. Sender ID: new request alerts admins; re-submitting a pending ID does not.
+7. Complaints: a single admin push per WhatsApp/web complaint; single resolve notifies the user once.
+8. Global duplicate check, expecting 0 rows after a day:
+   `select message_type, reference_id, count(*) from sms_logs where created_at > now() - interval '1 day' and reference_id is not null group by 1,2 having count(*) > 1;`
 
 ## Duplicate-send audit (2026-10-12)
 
