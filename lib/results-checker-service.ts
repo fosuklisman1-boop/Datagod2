@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import type { WaTemplateComponent } from "@/lib/whatsapp-bot/send"
+import { alertAdminsOfRequest, notifyUserOfOutcome } from "@/lib/admin-actions"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -133,9 +134,6 @@ export async function getResultsCheckAdminPhones(): Promise<string[]> {
 // taking it as a param) so it always reflects any combo-voucher assignment
 // the caller just performed.
 export async function notifyAdminsNewResultsCheckRequest(requestId: string): Promise<void> {
-  const phones = await getResultsCheckAdminPhones()
-  if (phones.length === 0) return
-
   const { data: req } = await supabase
     .from("results_check_requests")
     .select("*")
@@ -148,14 +146,31 @@ export async function notifyAdminsNewResultsCheckRequest(requestId: string): Pro
     : req.channel === "web" ? "Web" : "USSD"
 
   let shopSuffix = ""
+  let shopName: string | undefined
   if (req.shop_id) {
     const { data: shop } = await supabase
       .from("user_shops")
       .select("shop_name")
       .eq("id", req.shop_id)
       .maybeSingle()
-    if (shop?.shop_name) shopSuffix = ` via ${shop.shop_name}`
+    if (shop?.shop_name) {
+      shopSuffix = ` via ${shop.shop_name}`
+      shopName = shop.shop_name
+    }
   }
+
+  // Email + push to admins first; independent of whether WhatsApp admin phones are configured.
+  await alertAdminsOfRequest("results_check", {
+    requestId,
+    examBoard: req.exam_board,
+    indexNumber: req.index_number,
+    examYear: req.exam_year,
+    channel: req.channel,
+    shopName,
+  })
+
+  const phones = await getResultsCheckAdminPhones()
+  if (phones.length === 0) return
 
   const modeLabel = req.mode === "combo" ? "Combo (voucher assigned)" : "Own voucher"
   const message =
@@ -433,10 +448,19 @@ export async function deliverResultsCheckRequest(
 
   deliveryNotes.forEach(n => console.log("[RC-DELIVER]", n))
 
-  await supabase
+  const { error: completeErr } = await supabase
     .from("results_check_requests")
     .update({ status: "completed", claimed_by: null, claimed_at: null, updated_at: new Date().toISOString() })
     .eq("id", req.id)
+
+  // Extra SMS/email confirmation, only on a real transition into completed
+  // (req.status is the pre-image read at the top of this function).
+  if (!completeErr && req.status !== "completed") {
+    await notifyUserOfOutcome("results_check", "completed",
+      { userId: req.user_id ?? null, phone: req.phone_number, reference: req.id },
+      { requestId: req.id, examBoard: req.exam_board, indexNumber: req.index_number, channel: req.channel },
+    )
+  }
 
   return { success: true, deliveryNotes }
 }

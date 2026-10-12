@@ -108,3 +108,18 @@ describe("afa apexprime cron wiring", () => {
     expect(src().match(/alertAdminsOfRequest\("afa"/g)).toHaveLength(2)
   })
 })
+
+describe("results-check wiring", () => {
+  it("admin alert is sent before the WhatsApp early return", () => {
+    const src = read("lib/results-checker-service.ts")
+    const fn = src.slice(src.indexOf("export async function notifyAdminsNewResultsCheckRequest"))
+    const alertAt = fn.indexOf('alertAdminsOfRequest("results_check"')
+    const earlyReturnAt = fn.indexOf("phones.length === 0")
+    expect(alertAt).toBeGreaterThan(-1)
+    expect(earlyReturnAt === -1 || alertAt < earlyReturnAt).toBe(true)
+  })
+  it("completion and rejection notify the user", () => {
+    expect(read("lib/results-checker-service.ts")).toContain('notifyUserOfOutcome("results_check", "completed"')
+    expect(read("app/api/admin/results-check-requests/route.ts")).toContain('notifyUserOfOutcome("results_check"')
+  })
+})
