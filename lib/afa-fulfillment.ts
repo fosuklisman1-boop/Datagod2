@@ -11,12 +11,18 @@ import { registerAfaViaSykes } from "@/lib/sykes-afa-provider"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { secureString } from "@/lib/secure-random"
 import { parseGhanaCardNumber } from "@/lib/ghana-card"
+import { alertAdminsOfRequest, notifyUserOfOutcome } from "@/lib/admin-actions"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
 function getSupabase() {
   return createClient(supabaseUrl, serviceRoleKey)
+}
+
+/** Tell admins an AFA registration needs manual handling. Never throws. */
+async function alertAdminsForManualAfa(orderCode: string | null | undefined, fullName: string | null | undefined): Promise<void> {
+  await alertAdminsOfRequest("afa", { orderCode: orderCode || "", fullName: fullName || "" })
 }
 
 export interface FulfillResult {
@@ -58,7 +64,7 @@ export async function getAfaProviderSelection(): Promise<"sykes" | "apexprime"> 
  */
 async function fulfillAfaViaApexPrime(
   orderId: string,
-  order: { full_name: string; gh_card_number: string; phone_number: string; location: string }
+  order: { full_name: string; gh_card_number: string; phone_number: string; location: string; order_code?: string | null }
 ): Promise<FulfillResult> {
   const supabase = getSupabase()
 
@@ -107,6 +113,7 @@ async function fulfillAfaViaApexPrime(
   }
 
   console.error("[AFA-FULFILL] Apex Prime submission failed:", orderId, result.message)
+  await alertAdminsForManualAfa(order.order_code, order.full_name)
   return { success: false, message: result.message || "Apex Prime submission failed" }
 }
 
@@ -128,7 +135,7 @@ export async function fulfillAfaOrder(orderId: string): Promise<FulfillResult> {
   // 1. Fetch the order
   const { data: order, error: fetchError } = await supabase
     .from("afa_orders")
-    .select("id, full_name, gh_card_number, occupation, phone_number, location, fulfillment_status, fulfillment_attempts, status")
+    .select("id, user_id, order_code, full_name, gh_card_number, occupation, phone_number, location, fulfillment_status, fulfillment_attempts, status")
     .eq("id", orderId)
     .single()
 
@@ -166,6 +173,7 @@ export async function fulfillAfaOrder(orderId: string): Promise<FulfillResult> {
       updated_at: new Date().toISOString(),
     }).eq("id", orderId)
     console.error("[AFA-FULFILL] Invalid Ghana Card number, not submitting:", orderId, order.gh_card_number)
+    await alertAdminsForManualAfa(order.order_code, order.full_name)
     return { success: false, message: failMsg }
   }
   if (normalizedGhCard !== order.gh_card_number) {
@@ -217,7 +225,7 @@ export async function fulfillAfaOrder(orderId: string): Promise<FulfillResult> {
 
   // 6. Update DB based on result
   if (result.success) {
-    await supabase
+    const { data: completedRows } = await supabase
       .from("afa_orders")
       .update({
         fulfillment_status: "fulfilled",
@@ -228,6 +236,17 @@ export async function fulfillAfaOrder(orderId: string): Promise<FulfillResult> {
         updated_at: new Date().toISOString(),
       })
       .eq("id", orderId)
+      .neq("status", "completed")
+      .select("id")
+
+    if (completedRows && completedRows.length > 0) {
+      await notifyUserOfOutcome(
+        "afa",
+        "completed",
+        { userId: order.user_id, phone: order.phone_number, reference: orderId },
+        { orderCode: order.order_code || "", fullName: order.full_name || "" },
+      )
+    }
 
     console.log("[AFA-FULFILL] Order fulfilled successfully:", orderId)
     return {
@@ -246,6 +265,7 @@ export async function fulfillAfaOrder(orderId: string): Promise<FulfillResult> {
       .eq("id", orderId)
 
     console.error("[AFA-FULFILL] Fulfillment failed:", orderId, result.message)
+    await alertAdminsForManualAfa(order.order_code, order.full_name)
     return { success: false, message: result.message || "Fulfillment failed" }
   }
 }
@@ -389,6 +409,9 @@ export async function submitAfaOrder(params: SubmitAfaOrderParams): Promise<Subm
 
   try {
     const autoFulfill = await isAfaAutoFulfillmentEnabled()
+    if (!autoFulfill) {
+      await alertAdminsForManualAfa(orderCode, fullName)
+    }
     if (autoFulfill) {
       fulfillAfaOrder(afaOrder.id).catch((err) => {
         console.error("[AFA-FULFILL] Auto-fulfillment error for order", afaOrder.id, err)

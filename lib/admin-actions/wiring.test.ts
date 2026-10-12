@@ -72,3 +72,26 @@ describe("shop approvals wiring", () => {
     expect(r).not.toContain("type: 'shop_rejected'")
   })
 })
+
+describe("afa wiring", () => {
+  it("creation alerts admins once, only when not auto-fulfilling", () => {
+    const src = read("lib/afa-fulfillment.ts")
+    expect(src.match(/alertAdminsOfRequest\("afa"/g)).toHaveLength(1)
+    expect(src).toMatch(/if \(!autoFulfill\) \{\s*await alertAdminsForManualAfa\(/)
+  })
+  it("failed provider attempts that leave the order for an admin alert via the shared helper", () => {
+    const src = read("lib/afa-fulfillment.ts")
+    expect(src.match(/await alertAdminsForManualAfa\(/g)!.length).toBe(4)
+  })
+  it("admin status route uses the central notifier", () => {
+    const src = read("app/api/admin/afa-update-status/route.ts")
+    expect(src).toMatch(/notifyUserOfOutcome\(\s*"afa"/)
+    expect(src).not.toContain("SMSTemplates.afaCompleted")
+    expect(src).not.toContain("sendSMS")
+  })
+  it("fulfilment success notifies completed, conditionally", () => {
+    const src = read("lib/afa-fulfillment.ts")
+    expect(src).toMatch(/notifyUserOfOutcome\(\s*"afa",\s*"completed"/)
+    expect(src).toContain('.neq("status", "completed")')
+  })
+})
