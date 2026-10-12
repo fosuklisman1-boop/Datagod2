@@ -169,3 +169,17 @@ describe("complaint wiring", () => {
     expect(fn.slice(0, fn.indexOf("export async function resolveAllOpenComplaints"))).toContain("notifyWaComplaintsResolved(")
   })
 })
+
+describe("complaint wiring fixes", () => {
+  it("WhatsApp creation sends a single admin push (old notifyAdminsPush removed), email/push after the WhatsApp loop", () => {
+    const src = read("lib/whatsapp-bot/complaints.ts")
+    expect(src).not.toContain("notifyAdminsPush")
+    expect(src.indexOf('alertAdminsOfRequest("complaint"')).toBeGreaterThan(src.indexOf("sendWhatsAppText(waPhone"))
+    expect(src).toContain('url: "/admin/whatsapp"')
+  })
+  it("admin-router resolve is gated and notifies via the shared helper", () => {
+    const src = read("lib/whatsapp-bot/admin-router.ts")
+    expect(src).toContain("notifyWaComplaintsResolved(resolvedRows")
+    expect(src).toMatch(/\.in\("status", \["claimed", "open"\]\)\s*\.select\("id, phone_number"\)/)
+  })
+})

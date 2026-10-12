@@ -124,14 +124,14 @@ export async function resolveOpenComplaintsForPhone(
 
 // Email/SMS the complainant that their (guest, phone-only) complaint was resolved.
 // Never throws. NOTE: the bot-side adminComplaintRouter already WhatsApps the reply.
-async function notifyWaComplaintsResolved(rows: { id: string; phone_number: string }[], resolution: string): Promise<void> {
+export async function notifyWaComplaintsResolved(rows: { id: string; phone_number: string }[], resolution: string): Promise<void> {
   try {
-    for (const r of rows) {
-      await notifyUserOfOutcome("complaint", "resolved", { phone: r.phone_number, reference: r.id }, {
-        complaintId: r.id,
-        resolutionNotes: resolution.slice(0, 200),
+    await Promise.allSettled(rows.map((r) =>
+      notifyUserOfOutcome("complaint", "resolved", { phone: r.phone_number, reference: r.id }, {
+      complaintId: r.id,
+      resolutionNotes: resolution.slice(0, 200),
       })
-    }
+    ))
   } catch (e) {
     console.warn("[WA-COMPLAINT] resolution notify failed:", e instanceof Error ? e.message : e)
   }
@@ -187,12 +187,6 @@ export async function appendComplaintEvidence(complaintId: string, url: string):
 }
 
 export async function notifyAdminsNewComplaint(complaint: WaComplaint): Promise<void> {
-  // Email + push to dashboard admins (never throws); the WhatsApp alert below is kept.
-  await alertAdminsOfRequest("complaint", {
-    complaintId: complaint.id,
-    summary: complaint.description.slice(0, 200),
-  })
-
   const who = complaint.customer_name || complaint.phone_number
   const message =
     `🛎️ New complaint (${complaint.category})\n\n` +
@@ -215,15 +209,12 @@ export async function notifyAdminsNewComplaint(complaint: WaComplaint): Promise<
     console.warn("[WA-COMPLAINT] admin WhatsApp notify failed:", e)
   }
 
-  // Also web-push the dashboard admins.
-  try {
-    const { notifyAdminsPush } = await import("@/lib/push-service")
-    await notifyAdminsPush({
-      title: `New complaint: ${who}`,
-      body: complaint.description.slice(0, 140),
-      data: { url: "/admin/whatsapp" },
-    })
-  } catch (e) {
-    console.warn("[WA-COMPLAINT] admin push failed:", e)
-  }
+  // Email + push to dashboard admins (the single admin push; never throws).
+  // Sent after the WhatsApp loop so its latency can't delay the WhatsApp alerts.
+  await alertAdminsOfRequest("complaint", {
+    complaintId: complaint.id,
+    summary: complaint.description.slice(0, 200),
+    url: "/admin/whatsapp",
+    customerLabel: who,
+  })
 }

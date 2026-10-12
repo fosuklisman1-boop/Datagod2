@@ -10,6 +10,7 @@ import { createClient } from "@supabase/supabase-js"
 import { setWaSession, deleteWaSession } from "./session"
 import { USSDSession } from "@/lib/ussd/types"
 import { normalizeGhanaPhone } from "@/lib/phone-format"
+import { notifyWaComplaintsResolved } from "./complaints"
 import {
   getResultsCheckAdminPhones,
   voucherInfoBlock,
@@ -354,7 +355,7 @@ export async function adminComplaintRouter(
       return "⚠️ Couldn't deliver your reply — the customer may be outside WhatsApp's 24h window. The complaint was kept open for follow-up."
     }
 
-    await supabase
+    const { data: resolvedRows } = await supabase
       .from("whatsapp_complaints")
       .update({
         status: "resolved",
@@ -364,6 +365,10 @@ export async function adminComplaintRouter(
         updated_at: new Date().toISOString(),
       })
       .eq("id", complaintId)
+      .in("status", ["claimed", "open"])
+      .select("id, phone_number")
+    // Email/SMS the complainant only if this call really flipped it to resolved.
+    await notifyWaComplaintsResolved(resolvedRows ?? [], text)
 
     // Clear the inbox "wants human" flag for that customer.
     await supabase

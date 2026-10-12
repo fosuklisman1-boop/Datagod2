@@ -6,7 +6,9 @@ const clip = (s: string, n: number) => (s.length <= n ? s : s.slice(0, n - 3).tr
 
 export const complaintFlow: FlowDef<ComplaintCtx> = {
   adminAlert(c) {
-    const title = c.priority ? `New ${c.priority} complaint` : "New complaint"
+    const base = c.priority ? `New ${c.priority} complaint` : "New complaint"
+    const title = c.customerLabel ? `${base}: ${clip(c.customerLabel, 40)}` : base
+    const url = c.url && c.url.startsWith("/admin/") ? c.url : "/admin/complaints"
     const summary = c.summary ? clip(c.summary, 80) : ""
     return {
       subject: title,
@@ -16,11 +18,11 @@ export const complaintFlow: FlowDef<ComplaintCtx> = {
           summary || "A new complaint is waiting for review.",
           ...(c.orderId ? [`Order: ${c.orderId}`] : []),
         ],
-        cta: { label: "Review complaints", url: appUrl("/admin/complaints") },
+        cta: { label: "Review complaints", url: appUrl(url) },
       }),
       pushTitle: title,
       pushBody: summary || "A new complaint needs review",
-      url: "/admin/complaints",
+      url,
     }
   },
   userMessage(outcome: Outcome, c): UserMessage | null {

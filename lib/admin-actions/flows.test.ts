@@ -174,3 +174,19 @@ describe("results_check completed wording by channel", () => {
     }
   })
 })
+
+describe("complaint admin alert url/customerLabel", () => {
+  const def = FLOWS.complaint
+  it("uses a valid /admin/ url and escapes the customer label", () => {
+    const a = def.adminAlert({ complaintId: "c1", url: "/admin/whatsapp", customerLabel: EVIL })
+    expect(a.url).toBe("/admin/whatsapp")
+    expect(a.html).toContain("/admin/whatsapp")
+    expect(a.html).not.toContain("<script>")
+    expect(a.subject).toContain("New complaint:")
+  })
+  it("ignores a url that is not under /admin/", () => {
+    for (const url of ["https://evil.com", "/dashboard/x", "//admin/x"]) {
+      expect(def.adminAlert({ complaintId: "c1", url }).url).toBe("/admin/complaints")
+    }
+  })
+})

@@ -40,6 +40,10 @@ export interface ComplaintCtx {
   priority?: string | null
   summary?: string | null
   resolutionNotes?: string | null
+  /** Optional admin deep link (must start with /admin/; otherwise ignored). */
+  url?: string
+  /** Optional complainant label (e.g. WhatsApp name/number) shown in the alert. */
+  customerLabel?: string | null
 }
 
 export interface FlowCtx {
