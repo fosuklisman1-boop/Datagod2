@@ -53,7 +53,7 @@ export interface NotifierDeps {
     referenceId?: string
     type?: string
   }): Promise<unknown>
-  sendSMS(p: { phone: string; message: string; type: string; reference?: string }): Promise<unknown>
+  sendSMS(p: { phone: string; message: string; type: string; reference?: string; userId?: string }): Promise<unknown>
   sendPushToUser(userId: string, p: { title: string; body: string; data?: Record<string, unknown> }): Promise<unknown>
   notifyAdminsEmail(subject: string, html: string): Promise<void>
   notifyAdminsPush(p: { title: string; body: string; data?: Record<string, unknown> }): Promise<unknown>

@@ -23,6 +23,12 @@ async function run(channel: ChannelName, fn: () => Promise<unknown>): Promise<Ch
   }
 }
 
+/** One summary line per call: channel names only, never contact data or message text. */
+function logSummary(flow: string, what: string, reference: string | undefined, results: ChannelResult[]) {
+  const names = (st: ChannelResult["status"]) => results.filter((r) => r.status === st).map((r) => r.channel).join(",") || "-"
+  console.log("[ADMIN-ACTION]", flow, what, reference ?? "-", `sent=${results.filter((r) => r.status === "sent").length} skipped=${names("skipped")} failed=${names("failed")}`)
+}
+
 const skipped = (channel: ChannelName, detail: string): Promise<ChannelResult> =>
   Promise.resolve({ channel, status: "skipped", detail })
 
@@ -35,10 +41,12 @@ export function createNotifier(registry: Record<string, FlowDef<any>>, deps: Not
         return []
       }
       const alert = def.adminAlert(ctx)
-      return await Promise.all([
+      const results = await Promise.all([
         run("admin_email", () => deps.notifyAdminsEmail(alert.subject, alert.html)),
         run("admin_push", () => deps.notifyAdminsPush({ title: alert.pushTitle, body: alert.pushBody, data: { url: alert.url } })),
       ])
+      logSummary(flow, "alert", undefined, results)
+      return results
     } catch (err) {
       console.error(`[ADMIN-ACTION] alert for "${flow}" failed:`, err instanceof Error ? err.message : err)
       return []
@@ -72,7 +80,7 @@ export function createNotifier(registry: Record<string, FlowDef<any>>, deps: Not
             )
           : skipped("user_email", "no email"),
         phone
-          ? run("user_sms", () => deps.sendSMS({ phone, message: clipSms(msg.sms), type, reference }))
+          ? run("user_sms", () => deps.sendSMS({ phone, message: clipSms(msg.sms), type, reference, userId }))
           : skipped("user_sms", "no phone"),
       ]
       if (msg.push) {
@@ -102,7 +110,9 @@ export function createNotifier(registry: Record<string, FlowDef<any>>, deps: Not
             : skipped("user_inapp", "no account"),
         )
       }
-      return await Promise.all(jobs)
+      const results = await Promise.all(jobs)
+      logSummary(flow, outcome, reference, results)
+      return results
     } catch (err) {
       console.error(`[ADMIN-ACTION] outcome "${flow}/${outcome}" failed:`, err instanceof Error ? err.message : err)
       return []
