@@ -1272,3 +1272,24 @@ describe("scheduled sends", () => {
     spy.mockRestore()
   })
 })
+
+describe("per-send provider override reaches every chunk", () => {
+  const manyRecips = Array.from({ length: 620 }, (_, i) => `024${String(i).padStart(7, "0")}`)
+  const logs = () => inserts("sms_send_logs").map((x: any) => (Array.isArray(x.args) ? x.args[0] : x.args))
+
+  for (const enforced of [false, true]) {
+    it(`${enforced ? "enforced" : "record-only"}: opts.provider is persisted on every chunk's send log`, async () => {
+      h.state.policyEnforced = enforced
+      const r = await enqueueSendBatched("u1", "acc1", "Hello world", manyRecips, undefined, undefined, { provider: "hubtel" })
+      expect(r).toMatchObject({ ok: true, batches: 2 })
+      expect(logs()).toHaveLength(2)
+      for (const l of logs()) expect(l.provider_override).toBe("hubtel")
+    })
+  }
+
+  it("no provider → no provider_override written (unchanged behaviour)", async () => {
+    const r = await enqueueSendBatched("u1", "acc1", "Hello world", manyRecips)
+    expect(r).toMatchObject({ ok: true, batches: 2 })
+    for (const l of logs()) expect(l).not.toHaveProperty("provider_override")
+  })
+})

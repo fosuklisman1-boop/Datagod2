@@ -8,6 +8,7 @@ import { loadDefaultSender } from "@/lib/sms/default-sender"
 import { SMS_DISABLED_MESSAGE } from "@/lib/sms/kill-switch"
 import { getGroupActiveRecipients } from "@/lib/sms/tenant-address-book-service"
 import { checkSchedule } from "@/lib/sms/schedule"
+import { resolveTenantSendProvider } from "@/lib/sms/tenant-provider"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -43,7 +44,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Invalid JSON" }, { status: 400 })
   }
 
-  const { message, recipients, groupId, senderId, scheduledAt } = (body ?? {}) as {
+  const { message, recipients, groupId, senderId, scheduledAt, provider: requestedProvider } = (body ?? {}) as {
+    provider?: unknown
     message?: unknown
     recipients?: unknown
     groupId?: unknown
@@ -137,8 +139,11 @@ export async function POST(request: NextRequest) {
   // Enqueue — auto-batches into 500s when the list is larger.
   let result: Awaited<ReturnType<typeof enqueueSendBatched>>
   try {
-    result = scheduledFor
-      ? await enqueueSendBatched(user.id, account.id, message, finalRecipients, tokens, effectiveSenderId, { scheduledFor })
+    // Silently ignored (undefined) unless the admin enabled tenant provider choice.
+    const provider = await resolveTenantSendProvider(requestedProvider)
+    const sendOpts = scheduledFor || provider ? { ...(scheduledFor ? { scheduledFor } : {}), ...(provider ? { provider } : {}) } : undefined
+    result = sendOpts
+      ? await enqueueSendBatched(user.id, account.id, message, finalRecipients, tokens, effectiveSenderId, sendOpts)
       : await enqueueSendBatched(user.id, account.id, message, finalRecipients, tokens, effectiveSenderId)
   } catch (e) {
     // A throw here only escapes when the FIRST batch threw (enqueueSendBatched

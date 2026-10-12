@@ -87,3 +87,16 @@ describe("POST /api/shop/sms/send scheduledAt", () => {
     expect(j.data).toMatchObject({ scheduled: true, scheduledFor: at, held: false })
   })
 })
+
+describe("POST /api/shop/sms/send provider", () => {
+  it("no provider in body → unchanged call and no routing-config read", async () => {
+    await call({ message: "Hello world", recipients: ["0241234567"] })
+    expect(h.batched.mock.calls[0]).toHaveLength(6)
+    expect(h.dbCalls).toEqual([])
+  })
+  it("provider ignored (not forwarded) when tenant choice is off/unavailable", async () => {
+    // routing config read hits the mocked client, which throws → fails closed
+    await call({ message: "Hello world", recipients: ["0241234567"], provider: "hubtel" })
+    expect(h.batched.mock.calls[0]).toHaveLength(6)
+  })
+})

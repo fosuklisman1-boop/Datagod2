@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
 import { getShopContext } from "@/lib/sms/shop-context-service"
+import { isTenantProviderChoiceEnabled } from "@/lib/sms/tenant-provider"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -21,5 +22,6 @@ export async function GET(request: NextRequest) {
   if (!account) return NextResponse.json({ success: false, error: "No SMS account for this user" }, { status: 403 })
 
   const context = await getShopContext(account)
-  return NextResponse.json({ success: true, data: context })
+  // providerChoice: whether the compose page should offer a per-send provider picker.
+  return NextResponse.json({ success: true, data: { ...context, providerChoice: await isTenantProviderChoiceEnabled() } })
 }

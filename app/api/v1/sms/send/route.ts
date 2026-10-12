@@ -10,6 +10,7 @@ import { SMS_DISABLED_MESSAGE } from "@/lib/sms/kill-switch"
 import { customerBlockedReason, policyRejectedStatus, SEND_IN_PROGRESS_MESSAGE } from "@/lib/sms/enforcement"
 import { getShopTokens } from "@/lib/sms/shop-context-service"
 import { checkSchedule } from "@/lib/sms/schedule"
+import { resolveTenantSendProvider } from "@/lib/sms/tenant-provider"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -18,7 +19,7 @@ const supabaseAdmin = createClient(
 
 /**
  * POST /api/v1/sms/send
- * Body: { message: string, recipients: string[], sender_id?: string, scheduled_at?: string (ISO 8601 with offset) }
+ * Body: { message: string, recipients: string[], sender_id?: string, scheduled_at?: string (ISO 8601 with offset), provider?: "moolre"|"hubtel" (ignored unless the platform allows it) }
  */
 // Instant campaign dispatch can run for minutes (up to 5 Hubtel/Moolre batches per send).
 export const maxDuration = 300
@@ -157,8 +158,11 @@ export async function POST(request: NextRequest) {
 
   let result: Awaited<ReturnType<typeof enqueueSendBatched>>
   try {
-    result = scheduledFor
-      ? await enqueueSendBatched(user.id, account!.id, message, uniqueRecipients, tokens, effectiveSenderId, { scheduledFor })
+    // Silently ignored (undefined) unless the admin enabled tenant provider choice.
+    const provider = await resolveTenantSendProvider(body.provider)
+    const sendOpts = scheduledFor || provider ? { ...(scheduledFor ? { scheduledFor } : {}), ...(provider ? { provider } : {}) } : undefined
+    result = sendOpts
+      ? await enqueueSendBatched(user.id, account!.id, message, uniqueRecipients, tokens, effectiveSenderId, sendOpts)
       : await enqueueSendBatched(user.id, account!.id, message, uniqueRecipients, tokens, effectiveSenderId)
   } catch (e) {
     console.error("[V1-SMS-SEND] batched send threw:", e)

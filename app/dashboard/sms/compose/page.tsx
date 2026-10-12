@@ -20,6 +20,7 @@ import { SmsShell } from "../_components/SmsShell"
 import { RecipientsPicker } from "../_components/compose/RecipientsPicker"
 import { MessageEditor } from "../_components/compose/MessageEditor"
 import { SenderSelect } from "../_components/compose/SenderSelect"
+import { ProviderSelect, type SmsProviderValue } from "@/components/sms/ProviderSelect"
 import { CostSummary } from "../_components/compose/CostSummary"
 import { TemplatesDrawer } from "../_components/compose/TemplatesDrawer"
 import { PolicyNote } from "../_components/compose/PolicyNote"
@@ -37,6 +38,8 @@ export default function SmsComposePage() {
   const [recipients, setRecipients] = useState<string[]>([])
   const [selectedSenderId, setSelectedSenderId] = useState("") // "" = default
   const [selectedGroupId, setSelectedGroupId] = useState("")
+  const [providerChoice, setProviderChoice] = useState(false) // admin enabled per-send provider choice
+  const [provider, setProvider] = useState<SmsProviderValue>("")
   const [sending, setSending] = useState(false)
   const [busy, setBusy] = useState(false)
   const [sendConfirm, setSendConfirm] = useState<SendConfirm>(CLOSED_CONFIRM)
@@ -59,11 +62,11 @@ export default function SmsComposePage() {
 
   const loadComposeContext = useCallback(async () => {
     const [ctx, tpl] = await Promise.all([
-      smsFetch<{ tokens: ShopTokens; customers?: ComposeCustomer[] }>("/api/sms/context"),
+      smsFetch<{ tokens: ShopTokens; customers?: ComposeCustomer[]; providerChoice?: boolean }>("/api/sms/context"),
       smsFetch<TenantTemplate[]>("/api/sms/templates"),
     ])
     // Non-fatal: compose still works without tokens/customers.
-    if (ctx.ok) { setTokens(ctx.data.tokens ?? null); setCustomers(ctx.data.customers ?? []) }
+    if (ctx.ok) { setTokens(ctx.data.tokens ?? null); setCustomers(ctx.data.customers ?? []); setProviderChoice(ctx.data.providerChoice === true) }
     if (tpl.ok) setTemplates(Array.isArray(tpl.data) ? tpl.data : [])
   }, [])
 
@@ -170,7 +173,7 @@ export default function SmsComposePage() {
     setSending(true)
     const r = await smsFetch<{ total?: number; creditsReserved?: number; batches?: number; partial?: boolean; stoppedReason?: string; held?: boolean; scheduled?: boolean; scheduledFor?: string | null; sendLogId?: string | number | null }>(
       "/api/shop/sms/send",
-      { method: "POST", body: JSON.stringify({ message, recipients, groupId: selectedGroupId || undefined, senderId: selectedSenderId || undefined, ...(at ? { scheduledAt: at } : {}) }) },
+      { method: "POST", body: JSON.stringify({ message, recipients, groupId: selectedGroupId || undefined, senderId: selectedSenderId || undefined, ...(providerChoice && provider ? { provider } : {}), ...(at ? { scheduledAt: at } : {}) }) },
     )
     setSending(false)
     if (!r.ok) {
@@ -215,6 +218,10 @@ export default function SmsComposePage() {
             platformSender={platformSender}
             pool={senderPool}
           />
+
+          {providerChoice && (
+            <ProviderSelect id="sms-provider" label="Delivery provider" value={provider} onChange={setProvider} />
+          )}
 
           <RecipientsPicker
             recipients={recipients}
