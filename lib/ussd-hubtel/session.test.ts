@@ -29,13 +29,29 @@ describe("hubtel session store (redis configured but failing)", () => {
     vi.spyOn(console, "error").mockImplementation(() => {})
     return (await import("./session")).sessionStore
   }
-  it("Redis erroring on every call: falls back to the in-process copy (like the Uzo shop)", async () => {
+  it("Redis erroring: a miss, never a per-instance copy (a stale step would misroute input)", async () => {
     const fail = async () => { throw new Error("ERR max requests limit exceeded") }
     const store = await loadWith({ get: fail, setex: fail, del: fail })
     await store.set("b1", s)
-    expect(await store.get("b1")).toEqual(s)
-    await store.del("b1")
     expect(await store.get("b1")).toBeNull()
+    await expect(store.del("b1")).resolves.toBeUndefined()
+  })
+  it("a write that failed on this instance is never served after a later successful write elsewhere", async () => {
+    const data = new Map<string, string>()
+    let failSet = true
+    let failGet = false
+    const store = await loadWith({
+      get: async (k: string) => { if (failGet) throw new Error("down"); return data.has(k) ? JSON.parse(data.get(k)!) : null },
+      setex: async (k: string, _t: number, v: string) => { if (failSet) throw new Error("down"); data.set(k, v) },
+      del: async (k: string) => { data.delete(k) },
+    })
+    await store.set("b3", { ...s, step: "SHOP_ENTER_CODE" }) // fails on this instance
+    failSet = false
+    data.set("ussd-hubtel:session:b3", JSON.stringify({ ...s, step: "SHOP_DATA_RECIPIENT" })) // another instance moved on
+    failGet = true
+    expect(await store.get("b3")).toBeNull()
+    failGet = false
+    expect((await store.get("b3"))?.step).toBe("SHOP_DATA_RECIPIENT")
   })
   it("Redis healthy: a plain miss is a miss (no stale in-process copy is served)", async () => {
     const data = new Map<string, string>()
