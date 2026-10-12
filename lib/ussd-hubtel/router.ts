@@ -85,7 +85,7 @@ const UNAVAILABLE = "Service unavailable. Please try again later."
 export async function hubtelRouter(req: HubtelRequest, deps: RouterDeps): Promise<HubtelReply> {
   const tracked = trackSession(deps.sessions)
   const reply = await route(req, { ...deps, sessions: tracked.store })
-  // Every screen carries a signed snapshot of the session behind it (client-state.ts), so the next
+  // Every screen carries an encrypted snapshot of the session behind it (client-state.ts), so the next
   // request can be served even if the stored row is gone.
   if (reply.Type === "response" && tracked.current) {
     reply.ClientState = encodeClientState(req.SessionId, tracked.current)

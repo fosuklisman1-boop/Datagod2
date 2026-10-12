@@ -2,7 +2,7 @@
 // Hubtel USSD session state lives in ONE place: the hubtel_ussd_sessions table (migration 0112),
 // shared by every serverless instance. No Redis and no per-instance copy: a second store can serve
 // an older step than the one the caller is on (a recipient number read as a shop code). A failed
-// read is a miss; the router then restores the session from the signed ClientState snapshot
+// read is a miss; the router then restores the session from the encrypted ClientState snapshot
 // (client-state.ts) or restarts with "Session expired".
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { safeDbError } from "./log-safe"
