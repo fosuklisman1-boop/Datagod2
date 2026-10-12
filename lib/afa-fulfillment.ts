@@ -411,8 +411,7 @@ export async function submitAfaOrder(params: SubmitAfaOrderParams): Promise<Subm
     const autoFulfill = await isAfaAutoFulfillmentEnabled()
     if (!autoFulfill) {
       await alertAdminsForManualAfa(orderCode, fullName)
-    }
-    if (autoFulfill) {
+    } else {
       fulfillAfaOrder(afaOrder.id).catch((err) => {
         console.error("[AFA-FULFILL] Auto-fulfillment error for order", afaOrder.id, err)
       })
