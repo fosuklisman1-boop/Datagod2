@@ -57,6 +57,8 @@ export interface EnqueueSendOptions {
   scheduledFor?: Date
   /** Log label; written only when non-default (the DB default is 'campaign'). */
   source?: "campaign" | "order_confirmation"
+  /** Explicit provider for this send; persisted (provider_override) only when set so retries honour it. */
+  provider?: "moolre" | "hubtel"
 }
 
 export interface EnqueueSendError {
@@ -128,6 +130,7 @@ export async function enqueueSend(
   const extraLogCols: Record<string, string> = {}
   if (scheduledIso !== null) extraLogCols.scheduled_for = scheduledIso
   if (opts?.source && opts.source !== "campaign") extraLogCols.source = opts.source
+  if (opts?.provider) extraLogCols.provider_override = opts.provider
 
   // 0. Master switch (Phase 2): refuse new customer sends while the platform switch is off.
   if (!(await isSmsEnabled())) return { ok: false, error: "SMS_DISABLED" }
@@ -424,7 +427,8 @@ export async function enqueueSend(
       mark,
       // Stop starting chunks 1 min before send-drain's STALE_CLAIM_MS (5 min) reaper could
       // hand still-claimed rows back to the drain mid-dispatch.
-      claimedAtMs + 4 * 60_000
+      claimedAtMs + 4 * 60_000,
+      opts?.provider ?? undefined
     )
     const firstBatch = result.sent.find((r) => r.bid)?.bid
     if (firstBatch) {

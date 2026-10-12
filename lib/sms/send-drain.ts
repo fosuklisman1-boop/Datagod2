@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { sendSMS } from "@/lib/sms-service"
+import { fetchProviderOverrides, type SmsProviderChoice } from "./provider-override"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -55,11 +56,11 @@ async function refundMessage(row: SmsMessageRow): Promise<boolean> {
 }
 
 /** Send one message with a hard timeout, clearing the timer so it never leaks / rejects late. */
-async function sendWithTimeout(row: SmsMessageRow) {
+async function sendWithTimeout(row: SmsMessageRow, provider?: SmsProviderChoice) {
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     return await Promise.race([
-      sendSMS({ phone: row.phone, message: row.rendered_message, type: "shop_sms", reference: row.id, senderId: row.sender_id ?? undefined }),
+      sendSMS({ phone: row.phone, message: row.rendered_message, type: "shop_sms", reference: row.id, senderId: row.sender_id ?? undefined, ...(provider ? { provider } : {}) }),
       new Promise<{ success: false; error: string }>((_, reject) => {
         timer = setTimeout(() => reject(new Error(`send timeout after ${SEND_TIMEOUT_MS}ms`)), SEND_TIMEOUT_MS)
       }),
@@ -139,13 +140,15 @@ export async function drainSmsMessages(opts: { limit?: number } = {}): Promise<D
   let failed = 0
   let refunded = 0
   const touchedLogIds = new Set<string>()
+  // Per-send provider choice (best-effort: a missing column / query error => no overrides).
+  const overrides = await fetchProviderOverrides(supabaseAdmin, [...new Set(rows.map((r) => r.send_log_id))])
 
   // (c) Process each row — never abort the batch on a single row error.
   for (const row of rows) {
     touchedLogIds.add(row.send_log_id)
     const isTerminal = row.attempts >= MAX_ATTEMPTS
     try {
-      const r = await sendWithTimeout(row)
+      const r = await sendWithTimeout(row, overrides.get(String(row.send_log_id)))
 
       if (r.success) {
         const { error: sentErr } = await supabaseAdmin

@@ -73,6 +73,15 @@ describe("dispatchClaimed", () => {
     { id: "m2", phone: "+233242222222", message: "Hello" },
   ]
 
+  it("passes the provider through as dispatchCampaign's last argument", async () => {
+    h.dispatch.mockResolvedValue({ provider: "hubtel", sent: [], fallbackSent: [], outOfFunds: false })
+    await dispatchClaimed(db, 42, items, "MYSHOP", Date.now(), "hubtel")
+    expect(h.dispatch.mock.calls[0][4]).toBe("hubtel")
+    h.dispatch.mockClear()
+    await dispatchClaimed(db, 42, items, "MYSHOP", Date.now())
+    expect(h.dispatch.mock.calls[0][4]).toBeUndefined()
+  })
+
   it("marks sent, records first batch id, hands back unplaced rows scoped to this call, recomputes", async () => {
     h.dispatch.mockImplementation(async (its: any[], _s: any, mark: any) => {
       await mark("hubtel", [{ id: its[0].id, mid: "mid1", bid: "b1" }], { unconfirmed: false })

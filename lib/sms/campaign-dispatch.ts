@@ -60,6 +60,9 @@ export async function dispatchCampaign(
   onChunkSent?: OnChunkSent,
   /** Epoch ms: no new chunk is started at/after this. Unstarted rows are left for the caller to release. */
   deadline?: number,
+  /** Explicit per-send provider choice (persisted as sms_send_logs.provider_override). Beats the
+   *  customer_bulk category provider and routing.primary. Hubtel unconfigured => Moolre. */
+  provider?: "moolre" | "hubtel",
 ): Promise<DispatchResult> {
   const pastDeadline = () => deadline !== undefined && Date.now() >= deadline
   const placed = async (provider: string, rows: SentRow[], unconfirmed = false) => {
@@ -80,7 +83,9 @@ export async function dispatchCampaign(
   }
   const hubtel = hubtelConfigFromEnv()
 
-  if (routing.primary !== "hubtel" || !hubtel) {
+  const bulkProvider = routing.categoryProviders?.customer_bulk
+  const effectivePrimary = bulkProvider && bulkProvider !== "global" ? bulkProvider : routing.primary
+  if ((provider ?? effectivePrimary) !== "hubtel" || !hubtel) {
     const out: DispatchResult = { provider: "moolre", sent: [], fallbackSent: [], outOfFunds: false }
     for (let i = 0; i < items.length; i += MOOLRE_CHUNK) {
       if (pastDeadline()) { console.warn("[SMS-DISPATCH] deadline reached; remaining rows released"); break }

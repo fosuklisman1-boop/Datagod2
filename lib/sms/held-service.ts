@@ -18,6 +18,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { isSmsEnabled } from "./kill-switch"
 import { claimPendingForLog, dispatchClaimed } from "./dispatch-claimed"
+import { fetchProviderOverrides } from "./provider-override"
 import { writeAuditLog } from "./moderation-service"
 
 const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
@@ -172,7 +173,8 @@ export async function releaseHeldCampaign(adminId: string, rawLogId: string | nu
   const claimedAtMs = Date.now()
   const items = await claimPendingForLog(supabaseAdmin, logId)
 
-  const placed = await dispatchClaimed(supabaseAdmin, logId, items, log.sender_id ?? null, claimedAtMs)
+  const override = (await fetchProviderOverrides(supabaseAdmin, [logId])).get(String(logId))
+  const placed = await dispatchClaimed(supabaseAdmin, logId, items, log.sender_id ?? null, claimedAtMs, override)
 
   const owner = await ownerOf(log.sms_account_id)
   await notifyOwner(owner, logId, "SMS campaign approved",
