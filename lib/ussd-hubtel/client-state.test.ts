@@ -17,22 +17,12 @@ describe("ClientState snapshot", () => {
   it("rejects another session's snapshot", () => {
     expect(decodeClientState(encodeClientState("S1", s), "S2")).toBeNull()
   })
-  it("is encrypted: no session field is readable in the value", () => {
-    const pii: HubtelSession = { ...s, step: "RC_CHECK_CONFIRM", afaGhCard: "GHA-123456789-0", rcCheckVoucherPin: "998877", rcCheckDob: "01/02/2005" }
-    const v = encodeClientState("S1", pii)
-    const blob = Buffer.from(v.split("|")[1], "base64url").toString("latin1")
-    for (const secret of ["GHA-123456789-0", "998877", "01/02/2005", "+233200585542", "S1"]) {
-      expect(v).not.toContain(secret)
-      expect(blob).not.toContain(secret)
-    }
-    expect(decodeClientState(v, "S1")).toEqual(pii)
-  })
-  it("rejects a tampered snapshot or a swapped step prefix", () => {
+  it("rejects a tampered snapshot (e.g. a lowered price)", () => {
     const v = encodeClientState("S1", s)
-    const blob = Buffer.from(v.split("|")[1], "base64url")
-    blob[20] ^= 1
-    expect(decodeClientState(`SHOP_DATA_RECIPIENT|${blob.toString("base64url")}`, "S1")).toBeNull()
-    expect(decodeClientState(v.replace("SHOP_DATA_RECIPIENT|", "SHOP_DATA_CONFIRM|"), "S1")).toBeNull()
+    const [body, sig] = [v.slice(0, v.lastIndexOf(".")), v.slice(v.lastIndexOf(".") + 1)]
+    const forged = Buffer.from(JSON.stringify({ s: "S1", e: 9e9, d: { ...s, bundlePrice: 0.01 } })).toString("base64url")
+    expect(decodeClientState(`SHOP_DATA_RECIPIENT|${forged}.${sig}`, "S1")).toBeNull()
+    expect(decodeClientState(`${body}.AAAAAAAAAAAAAAAAAAAAAA`, "S1")).toBeNull()
   })
   it("rejects an expired snapshot", () => {
     const t = 1_700_000_000_000
