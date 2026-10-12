@@ -166,4 +166,23 @@ describe("status checks", () => {
     const r = await hubtelGetMessageStatus(cfg(fakeFetch(200, { rate: 0.03, messageId: "m9", status: "Delivered" })), "m9")
     expect(r).toMatchObject({ ok: true, messages: [{ messageId: "m9", state: "delivered", rate: 0.03 }] })
   })
+  it("PascalCase batch reply (Hubtel docs / SDKs) is read", async () => {
+    const r = await hubtelGetBatchStatus(cfg(fakeFetch(200, { BatchId: "b1", Data: [
+      { Rate: 0.03, MessageId: "m1", Status: "Delivered", UpdateTime: "2026-10-10T10:00:00" },
+      { MessageId: "m2", Status: "Undeliverable" },
+    ] })), "b1")
+    expect(r.ok).toBe(true)
+    expect(r.messages.map((m) => [m.messageId, m.state, m.updateTime])).toEqual([["m1", "delivered", "2026-10-10T10:00:00"], ["m2", "failed", undefined]])
+  })
+  it("single reply wrapped in data, PascalCase, without an id: attributed to the id asked for", async () => {
+    const r = await hubtelGetMessageStatus(cfg(fakeFetch(200, { message: "Success", responseCode: "0000", data: { Status: "Delivered", Rate: "0.03" } })), "m9")
+    expect(r).toMatchObject({ ok: true, messages: [{ messageId: "m9", state: "delivered", rate: 0.03 }] })
+  })
+  it("a 2xx reply with no readable status is an error (logged by the poller), never a silent no-op", async () => {
+    const one = await hubtelGetMessageStatus(cfg(fakeFetch(200, { message: "ok" })), "m9")
+    expect(one.ok).toBe(false)
+    expect(one.error).toContain("keys: message")
+    const batch = await hubtelGetBatchStatus(cfg(fakeFetch(200, { batchId: "b1", data: [] })), "b1")
+    expect(batch.ok).toBe(false)
+  })
 })
