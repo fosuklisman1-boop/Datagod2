@@ -1,4 +1,4 @@
-import { mapNetworkToApex, normalizeApexStatus, findMatchingProduct, parseTrackingId } from "@/lib/mtn-providers/apexprime-provider"
+import { apexMessageInFlight, mapNetworkToApex, normalizeApexStatus, findMatchingProduct, parseTrackingId } from "@/lib/mtn-providers/apexprime-provider"
 
 describe("mapNetworkToApex", () => {
   it("maps MTN to MTN", () => expect(mapNetworkToApex("MTN")).toBe("MTN"))
@@ -7,6 +7,18 @@ describe("mapNetworkToApex", () => {
 })
 
 describe("normalizeApexStatus", () => {
+  it("a 'completed' status whose message is still in flight stays processing", () => {
+    expect(normalizeApexStatus("completed", "Sent to NITGHT. Order ID: 18047")).toBe("processing")
+    expect(normalizeApexStatus("completed", "Routed from NITGHT (awaiting approval)")).toBe("processing")
+    expect(normalizeApexStatus("Success", "Order queued")).toBe("processing")
+    expect(normalizeApexStatus("completed", "Order queued | Sent to NITGHT. Order ID: 18047")).toBe("processing")
+  })
+  it("a 'completed' status with a delivered / plain message is completed", () => {
+    expect(normalizeApexStatus("completed")).toBe("completed")
+    expect(normalizeApexStatus("completed", "Order completed")).toBe("completed")
+    expect(normalizeApexStatus("completed", "Sent to NITGHT. Order ID: 18047 | Delivered")).toBe("completed")
+    expect(normalizeApexStatus("completed", "Bundle delivered successfully")).toBe("completed")
+  })
   it("maps completed variants to completed", () => {
     expect(normalizeApexStatus("completed")).toBe("completed")
     expect(normalizeApexStatus("Success")).toBe("completed")
@@ -91,5 +103,16 @@ describe("parseTrackingId", () => {
   })
   it("does not strip a trailing segment from a bundle-prefixed id", () => {
     expect(parseTrackingId("bundle:10839:extra")).toEqual({ kind: "bundle", rawId: "10839:extra" })
+  })
+})
+
+describe("apexMessageInFlight", () => {
+  it("judges only the latest step of the chain", () => {
+    expect(apexMessageInFlight("Sent to NITGHT. Order ID: 18047")).toBe(true)
+    expect(apexMessageInFlight("Routed from NITGHT (awaiting approval)")).toBe(true)
+    expect(apexMessageInFlight("Sent to Supplier 1. Order ID: APEX_1 | AutoSync 2026-09-14 20:07:37: supplier=completed")).toBe(false)
+    expect(apexMessageInFlight("Completed | ")).toBe(false)
+    expect(apexMessageInFlight("")).toBe(false)
+    expect(apexMessageInFlight(undefined)).toBe(false)
   })
 })

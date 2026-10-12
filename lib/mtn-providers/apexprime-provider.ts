@@ -62,17 +62,40 @@ export function mapNetworkToApex(network: "MTN" | "Telecel" | "AirtelTigo"): "MT
  * happens to contain the literal phrase "refunded message from Alexa" mid-
  * chain for orders that go on to genuinely complete, so the override is
  * scoped to non-AutoSync messages to avoid misreading that as a real refund.
+ *
+ * Apex Prime also reports a completion while the order is still with its supplier (message
+ * "Sent to NITGHT ..." or "Routed from NITGHT (awaiting approval)"): see apexMessageInFlight.
  */
 export function normalizeApexStatus(raw: string, message?: string): "pending" | "processing" | "completed" | "failed" {
   const s = (raw ?? "").toLowerCase().trim()
   if (s === "completed" || s === "success" || s === "successful") {
     const m = (message ?? "").toLowerCase()
     if (m.includes("refund") && !m.includes("autosync")) return "failed"
+    // Apex Prime also reports "completed" while the order is still in flight; only its message
+    // tells: "Sent to NITGHT. Order ID: 18047", "Routed from NITGHT (awaiting approval)".
+    if (apexMessageInFlight(message)) return "processing"
     return "completed"
   }
   if (s.includes("fail") || s.includes("reject") || s.includes("cancel") || s.includes("refund")) return "failed"
   if (s === "pending" || s === "waiting") return "pending"
   return "processing"
+}
+
+/** Latest step of an Apex Prime message chain reads "explicitly delivered". */
+const APEX_DONE = /supplier\s*=\s*(completed|success|successful|delivered)|\bdelivered\b|\bsuccessful(ly)?\b|\bcompleted\b/
+/** Latest step reads "handed on / waiting": the order is not delivered yet. */
+const APEX_IN_FLIGHT = /\bsent to\b|\brouted\b|awaiting|\bqueued\b|\bpending\b|\bprocessing\b|\bin progress\b/
+
+/**
+ * true when the LATEST step of Apex Prime's message (their log is a " | "-joined chain, newest
+ * last) says the order is still moving. An explicit completion in that step wins, so a chain
+ * ending "AutoSync ...: supplier=completed" is delivered even though it starts "Sent to Supplier 1".
+ */
+export function apexMessageInFlight(message?: string): boolean {
+  const steps = (message ?? "").toLowerCase().split("|").map(p => p.trim()).filter(Boolean)
+  const last = steps[steps.length - 1]
+  if (!last || APEX_DONE.test(last)) return false
+  return APEX_IN_FLIGHT.test(last)
 }
 
 /**
