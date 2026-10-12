@@ -17,7 +17,7 @@ export function emailShell(o: { heading: string; paragraphs: string[]; cta?: { l
   const paras = o.paragraphs
     .map((p) => `<p style="margin:0 0 12px;font-size:15px;line-height:1.5;color:#1f2937">${escapeHtml(p)}</p>`)
     .join("")
-  const button = o.cta
+  const button = o.cta && /^https?:\/\//i.test(o.cta.url)
     ? `<p style="margin:20px 0 0"><a href="${escapeHtml(o.cta.url)}" style="background:#059669;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:6px;font-size:15px;display:inline-block">${escapeHtml(o.cta.label)}</a></p>`
     : ""
   return (

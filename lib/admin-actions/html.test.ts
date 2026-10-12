@@ -13,7 +13,10 @@ describe("escapeHtml", () => {
 
 describe("appUrl", () => {
   const prev = process.env.NEXT_PUBLIC_APP_URL
-  afterEach(() => { process.env.NEXT_PUBLIC_APP_URL = prev })
+  afterEach(() => {
+    if (prev === undefined) delete process.env.NEXT_PUBLIC_APP_URL
+    else process.env.NEXT_PUBLIC_APP_URL = prev
+  })
   it("joins base and path with exactly one slash", () => {
     process.env.NEXT_PUBLIC_APP_URL = "https://example.com/"
     expect(appUrl("/admin/withdrawals")).toBe("https://example.com/admin/withdrawals")
@@ -37,6 +40,15 @@ describe("emailShell", () => {
     expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;")
     expect(html).toContain("Go &lt;now&gt;")
     expect(html).toContain("https://x.test/?a=&quot;b&quot;")
+  })
+  it.each(["javascript:alert(1)", "data:text/html,<b>x</b>", "JAVASCRIPT:alert(1)"])("omits the button for unsafe url %s", (url) => {
+    const html = emailShell({ heading: "H", paragraphs: ["p"], cta: { label: "Go", url } })
+    expect(html).not.toContain("<a ")
+    expect(html).not.toContain("javascript:")
+  })
+  it("renders the button for https and http urls", () => {
+    expect(emailShell({ heading: "H", paragraphs: ["p"], cta: { label: "Go", url: "https://x.test/a" } })).toContain('<a href="https://x.test/a"')
+    expect(emailShell({ heading: "H", paragraphs: ["p"], cta: { label: "Go", url: "http://x.test/a" } })).toContain("<a ")
   })
   it("omits the button when there is no cta", () => {
     expect(emailShell({ heading: "H", paragraphs: ["p"] })).not.toContain("<a ")

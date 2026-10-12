@@ -103,6 +103,13 @@ describe("notifyUserOfOutcome", () => {
     expect(statusOf(r, "user_email")).toBe("skipped")
     expect(statusOf(r, "user_sms")).toBe("skipped")
   })
+  it("clips an over-long SMS to 160 chars centrally", async () => {
+    const long: FlowDef<C> = { ...flow, userMessage: () => ({ emailSubject: "Subject", emailHtml: "<p>x</p>", sms: "y".repeat(400) }) }
+    const { deps, calls } = fakeDeps()
+    await createNotifier({ f: long }, deps).notifyUserOfOutcome("f", "approved", { userId: "u1" }, { id: "W1" })
+    expect(calls.sms[0].message).toHaveLength(160)
+    expect(calls.sms[0].message.endsWith("...")).toBe(true)
+  })
   it("an outcome the flow does not message returns [] and sends nothing", async () => {
     const { deps, calls } = fakeDeps()
     expect(await createNotifier(registry, deps).notifyUserOfOutcome("f", "resolved", { userId: "u1" }, { id: "W1" })).toEqual([])

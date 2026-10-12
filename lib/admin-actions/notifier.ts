@@ -1,3 +1,4 @@
+import { clipSms } from "./html"
 import type { ChannelName, ChannelResult, FlowDef, NotifierDeps, Outcome, Recipient, Target } from "./types"
 
 const CHANNEL_TIMEOUT_MS = 8000
@@ -71,7 +72,7 @@ export function createNotifier(registry: Record<string, FlowDef<any>>, deps: Not
             )
           : skipped("user_email", "no email"),
         phone
-          ? run("user_sms", () => deps.sendSMS({ phone, message: msg.sms, type, reference }))
+          ? run("user_sms", () => deps.sendSMS({ phone, message: clipSms(msg.sms), type, reference }))
           : skipped("user_sms", "no phone"),
       ]
       if (msg.push) {
