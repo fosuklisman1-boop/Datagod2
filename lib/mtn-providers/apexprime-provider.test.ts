@@ -7,6 +7,24 @@ describe("mapNetworkToApex", () => {
 })
 
 describe("normalizeApexStatus", () => {
+  it("a 'Sent to <supplier>' message marks the order completed", () => {
+    expect(normalizeApexStatus("processing", "Sent to NITGHT. Order ID: 18047")).toBe("completed")
+    expect(normalizeApexStatus("pending", "sent to Supplier 1. Order ID: APEX_1")).toBe("completed")
+    expect(normalizeApexStatus("", "Sent to NITGHT. Order ID: 18047")).toBe("completed")
+  })
+  it("'Sent to' never overrides a failed / refunded status or a refund message", () => {
+    expect(normalizeApexStatus("failed", "Sent to NITGHT. Order ID: 18047")).toBe("failed")
+    expect(normalizeApexStatus("refunded", "Sent to NITGHT. Order ID: 18047")).toBe("failed")
+    expect(normalizeApexStatus("processing", "Sent to NITGHT. Order ID: 18047 | Refunded by Admin")).toBe("failed")
+  })
+  it("AFA opts out: 'Sent to' alone does not complete a registration", () => {
+    expect(normalizeApexStatus("processing", "Sent to NITGHT. Order ID: 18047", { sentToSupplierCompletes: false })).toBe("processing")
+  })
+  it("other messages do not complete the order", () => {
+    expect(normalizeApexStatus("processing", "Order queued")).toBe("processing")
+    expect(normalizeApexStatus("pending", "Order queued")).toBe("pending")
+    expect(normalizeApexStatus("processing", "Message sent")).toBe("processing")
+  })
   it("maps completed variants to completed", () => {
     expect(normalizeApexStatus("completed")).toBe("completed")
     expect(normalizeApexStatus("Success")).toBe("completed")
