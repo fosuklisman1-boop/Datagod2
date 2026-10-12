@@ -523,3 +523,63 @@ describe("hubtelRouter: configurable brand name", () => {
     expect(r.Message.split("\n")[0]).toBe("Akwaaba!")
   })
 })
+describe("hubtelRouter: signed ClientState restores a lost session", () => {
+  const SHOP = async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode: "shop" as const, visibility: { data: true, afa: true, airtime: true, resultsChecker: true } })
+  const MAIN = async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode: "main" as const, visibility: { data: true, afa: true, airtime: true, resultsChecker: true } })
+
+  it("shop code typed after the stored row vanished: the code is processed (screenshot case)", async () => {
+    vi.stubEnv("HUBTEL_WEBHOOK_SECRET", "test-secret")
+    try {
+      const deductToken = vi.fn(async () => true)
+      const { deps, store } = makeDeps({ getConfig: SHOP, shop: fakeShop({ deductToken }) })
+      const prompt = await hubtelRouter(req({ Type: "Initiation" }), deps)
+      expect(prompt.ClientState?.startsWith("SHOP_ENTER_CODE|")).toBe(true)
+      store.clear()
+      const r = await hubtelRouter(req({ Message: "1234", ClientState: prompt.ClientState }), deps)
+      expect(r.Message).toContain("What would you like to buy?")
+      expect(deductToken).toHaveBeenCalledTimes(1)
+      expect(store.get("S1")).toMatchObject({ mode: "shop", step: "SHOP_PRODUCT" })
+    } finally { vi.unstubAllEnvs() }
+  })
+  it("main menu choice after the stored row vanished continues the flow, not 'Session expired'", async () => {
+    vi.stubEnv("HUBTEL_WEBHOOK_SECRET", "test-secret")
+    try {
+      const { deps, store } = makeDeps({ getConfig: MAIN })
+      const menu = await hubtelRouter(req({ Type: "Initiation" }), deps)
+      store.clear()
+      const r = await hubtelRouter(req({ Message: "0", ClientState: menu.ClientState }), deps)
+      expect(r.Message).not.toContain("Session expired")
+      expect(r.Type).toBe("release") // "0" on the main menu exits: proves the MAIN step was restored
+    } finally { vi.unstubAllEnvs() }
+  })
+  it("the stored row wins over the snapshot when both exist", async () => {
+    vi.stubEnv("HUBTEL_WEBHOOK_SECRET", "test-secret")
+    try {
+      const { deps, store } = makeDeps({ getConfig: SHOP })
+      const prompt = await hubtelRouter(req({ Type: "Initiation" }), deps)
+      store.set("S1", { ...store.get("S1")!, shopCodeAttempts: 2 })
+      const r = await hubtelRouter(req({ Message: "9999", ClientState: prompt.ClientState }), deps)
+      expect(r.Type).toBe("release") // third wrong code: the stored attempts counted, not the snapshot's
+    } finally { vi.unstubAllEnvs() }
+  })
+  it("a snapshot from another session is ignored", async () => {
+    vi.stubEnv("HUBTEL_WEBHOOK_SECRET", "test-secret")
+    try {
+      const { deps, store } = makeDeps({ getConfig: MAIN })
+      const other = await hubtelRouter(req({ Type: "Initiation", SessionId: "OTHER" }), deps)
+      store.clear()
+      const r = await hubtelRouter(req({ Message: "0", ClientState: other.ClientState }), deps)
+      expect(r.Message).toContain("Session expired")
+    } finally { vi.unstubAllEnvs() }
+  })
+  it("release replies carry no session snapshot", async () => {
+    vi.stubEnv("HUBTEL_WEBHOOK_SECRET", "test-secret")
+    try {
+      const { deps } = makeDeps({ getConfig: MAIN })
+      const menu = await hubtelRouter(req({ Type: "Initiation" }), deps)
+      const r = await hubtelRouter(req({ Message: "0", ClientState: menu.ClientState }), deps)
+      expect(r.Type).toBe("release")
+      expect(r.ClientState).toBeUndefined()
+    } finally { vi.unstubAllEnvs() }
+  })
+})

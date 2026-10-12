@@ -10,7 +10,7 @@ const adminClient = () =>
     auth: { autoRefreshToken: false, persistSession: false },
   })
 
-/** Redis configured (the USSD session store; shop billing is guarded in Postgres, migration 0111). */
+/** Redis configured. Reported only: Hubtel sessions (0112) and shop billing (0111) live in Postgres. */
 const redisConfigured = () => !!process.env.UPSTASH_REDIS_REST_URL && !!process.env.UPSTASH_REDIS_REST_TOKEN
 
 const FORBIDDEN = () => NextResponse.json({ error: "Admin access required" }, { status: 403 })

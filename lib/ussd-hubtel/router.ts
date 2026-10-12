@@ -4,7 +4,8 @@ import { keyForDigit } from "@/lib/ussd/menu-items"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import { getHubtelUssdConfig, type HubtelUssdConfig } from "./config"
 import { defaultAfaServices, defaultAirtimeServices, defaultRcServices, resolveDialer } from "./services"
-import { dbSessionStore } from "./session"
+import { dbSessionStore, type HubtelSessionStore } from "./session"
+import { clientStateStep, decodeClientState, encodeClientState } from "./client-state"
 import { defaultShopServices } from "./shop-services"
 import { dbShopBillingGuard } from "./billing-guard"
 import { fetchBundles, PAGE_SIZE, resolveCaller, isDataBlocked } from "./catalog"
@@ -23,7 +24,7 @@ import { SHOP_AIRTIME_STEPS, startShopAirtime } from "./flows/shop-airtime"
 import { SHOP_DATA_STEPS, startShopData } from "./flows/shop-data"
 import { SHOP_RC_STEPS, startShopRc } from "./flows/shop-rc"
 import { SHOP_ENTRY_STEPS, recoverShopCodeEntry, shopMenuFor, shopMenuReply, startShopSession } from "./flows/shop"
-import type { HubtelReply, HubtelRequest } from "./types"
+import type { HubtelReply, HubtelRequest, HubtelSession } from "./types"
 
 export type { RouterDeps } from "./flow-kit"
 
@@ -82,6 +83,30 @@ const SHOP_STEPS: StepTable = {
 const UNAVAILABLE = "Service unavailable. Please try again later."
 
 export async function hubtelRouter(req: HubtelRequest, deps: RouterDeps): Promise<HubtelReply> {
+  const tracked = trackSession(deps.sessions)
+  const reply = await route(req, { ...deps, sessions: tracked.store })
+  // Every screen carries a signed snapshot of the session behind it (client-state.ts), so the next
+  // request can be served even if the stored row is gone.
+  if (reply.Type === "response" && tracked.current) {
+    reply.ClientState = encodeClientState(req.SessionId, tracked.current)
+  }
+  return reply
+}
+
+/** Wraps the store for ONE request and remembers the latest session read or written (null after a delete). */
+function trackSession(inner: HubtelSessionStore): { store: HubtelSessionStore; readonly current: HubtelSession | null } {
+  let current: HubtelSession | null = null
+  return {
+    get current() { return current },
+    store: {
+      async get(id) { const s = await inner.get(id); current = s; return s },
+      async set(id, s) { current = s; await inner.set(id, s) },
+      async del(id) { current = null; await inner.del(id) },
+    },
+  }
+}
+
+async function route(req: HubtelRequest, deps: RouterDeps): Promise<HubtelReply> {
   const sid = req.SessionId
   const platform = req.Platform
 
@@ -97,16 +122,24 @@ export async function hubtelRouter(req: HubtelRequest, deps: RouterDeps): Promis
   // Spec 4.2: the mode is read on Initiation and pinned into the session.
   if (req.Type === "Initiation") return startForMode(req, deps, config, "")
 
-  const session = await deps.sessions.get(sid)
+  let session = await deps.sessions.get(sid)
   if (!session) {
     // A retry after our first reply was lost: the session is already gone but the order exists.
-    // Tried before any restart so a paid-for cart replays even across a mode flip.
+    // Tried before any restart (and before the ClientState snapshot) so a paid-for cart replays.
     const replay = await replaySubmittedOrder(deps, sid, platform)
     if (replay) return replay
-    console.warn("[HUBTEL] No session for", sid, { seq: req.Sequence, clientState: req.ClientState, mode: config.mode })
-    const recovered = await recoverShopCodeEntry(req, deps, config)
-    if (recovered) return recovered
-    return startForMode(req, deps, config, "Session expired.\n")
+    const snapshot = decodeClientState(req.ClientState, sid)
+    console.warn("[HUBTEL] No stored session for", sid, {
+      seq: req.Sequence, clientStateStep: clientStateStep(req.ClientState), restoredFromClientState: !!snapshot, mode: config.mode,
+    })
+    if (snapshot) {
+      await deps.sessions.set(sid, snapshot)
+      session = snapshot
+    } else {
+      const recovered = await recoverShopCodeEntry(req, deps, config)
+      if (recovered) return recovered
+      return startForMode(req, deps, config, "Session expired.\n")
+    }
   }
 
   // Dispatch by the PINNED mode, never the current config (a session without one is main).

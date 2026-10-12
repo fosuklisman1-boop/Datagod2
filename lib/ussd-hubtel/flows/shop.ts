@@ -8,6 +8,7 @@ import {
   resolveShopMenu, shopCodePromptText, shopCodeRetryText, shopMenuText, sortShopNetworks, type MainMenuKey,
 } from "../menus"
 import { release, respond, toE164 } from "../protocol"
+import { clientStateStep } from "../client-state"
 import { LOW_TOKEN_ALERT_AT } from "../shop-services"
 import type { BillingClaim } from "../billing-guard"
 import { safeDbError } from "../log-safe"
@@ -75,7 +76,7 @@ export async function startShopSession(
 export async function recoverShopCodeEntry(
   req: HubtelRequest, deps: RouterDeps, config: HubtelUssdConfig
 ): Promise<HubtelReply | null> {
-  if (config.mode !== "shop" || req.ClientState !== "SHOP_ENTER_CODE") return null
+  if (config.mode !== "shop" || clientStateStep(req.ClientState) !== "SHOP_ENTER_CODE") return null
   const dataBlocked = await deps.isDataBlocked(req.Mobile)
   if (shopMenuFor(config, dataBlocked).length === 0) return null
   const session: HubtelSession = {

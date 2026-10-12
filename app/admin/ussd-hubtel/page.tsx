@@ -610,11 +610,6 @@ export default function AdminUssdHubtelPage() {
             {env && ([["HUBTEL_WEBHOOK_SECRET", env.webhookSecret], ["HUBTEL_RELAY_URL", env.relayUrl], ["HUBTEL_RELAY_SECRET", env.relaySecret]] as const).map(([k, ok]) => (
               <Badge key={k} variant={ok ? "default" : "destructive"}>{k}: {ok ? "set" : "missing"}</Badge>
             ))}
-            {env && env.redis !== undefined && (
-              <Badge variant={env.redis ? "default" : "destructive"} title="USSD session store (falls back to per-instance memory without it)">
-                UPSTASH_REDIS (sessions): {env.redis ? "set" : "missing"}
-              </Badge>
-            )}
           </CardContent>
         </Card>
 
