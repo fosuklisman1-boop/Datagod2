@@ -46,6 +46,21 @@ export const PREFER_MANUAL_HELP =
 export const PREFER_MANUAL_CONFIRM =
   "From now on the relay balance is not used at all for SMS credit sales — only your manual balance minus the SMS sent since. If the manual balance is missing or older than 30 days, credit sales pause until you set it again."
 
+export const MANUAL_AMOUNT_LABEL = "Current Hubtel SMS balance (GH₵) — the SMS wallet, not Disbursement"
+
+/** "Set balance now" dialog: how long the manual figure is used depends on the prefer switch. */
+export function setBalanceUsageText(preferManual: boolean): string {
+  return preferManual
+    ? "This manual balance is used for credit-sales checks until you turn the switch off."
+    : "Credit sales will be backed by this amount minus the Hubtel SMS sent from now on, until the live balance check works again."
+}
+
+/** Turn-off confirmation: say what the gate falls back to. */
+export function preferOffConfirmText(r: RelayReading): string {
+  const now = r.ok ? `currently ${formatGhs(r.amountGhs)} — Disbursement wallet` : `currently unavailable — ${r.error}`
+  return `Credit-sales checks will go back to the relay reading (${now}), and credit sales may pause immediately if that is 0.`
+}
+
 /** The relay figure, always labelled as the Disbursement wallet so it is never mistaken for the SMS balance. */
 export function relayInfoText(r: RelayReading): string {
   return r.ok ? `Relay reads ${formatGhs(r.amountGhs)} — Disbursement wallet` : `Relay unavailable — ${r.error}`

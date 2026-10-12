@@ -11,8 +11,8 @@ import { useLoad } from "../_lib/useLoad"
 import { formatGhs, formatGmt, toneClass } from "../_lib/view"
 import { Switch } from "@/components/ui/switch"
 import {
-  balanceSourceSummary, MANUAL_BALANCE_NOTES, parseManualBalanceInput, PREFER_MANUAL_CONFIRM, PREFER_MANUAL_HELP, PREFER_MANUAL_LABEL,
-  relayInfoText, SET_BALANCE_CONFIRM_NOTE, type HubtelBalanceData,
+  balanceSourceSummary, MANUAL_AMOUNT_LABEL, MANUAL_BALANCE_NOTES, parseManualBalanceInput, PREFER_MANUAL_CONFIRM, PREFER_MANUAL_HELP, PREFER_MANUAL_LABEL,
+  preferOffConfirmText, relayInfoText, SET_BALANCE_CONFIRM_NOTE, setBalanceUsageText, type HubtelBalanceData,
 } from "../_lib/hubtel-balance-view"
 import { ConfirmDialog, ErrorBox } from "./ui-bits"
 
@@ -28,7 +28,7 @@ export function HubtelBalanceSection({ onSaved }: { onSaved: Saved }) {
   const { data, error, loading, reload } = useLoad<HubtelBalanceData>(
     () => api<HubtelBalanceData>("/api/admin/sms-platform/hubtel-balance"), [])
   const [input, setInput] = useState("")
-  const [dialog, setDialog] = useState<null | "set" | "clear" | "prefer-on">(null)
+  const [dialog, setDialog] = useState<null | "set" | "clear" | "prefer-on" | "prefer-off">(null)
   const [busy, setBusy] = useState(false)
   const parsed = parseManualBalanceInput(input)
 
@@ -106,7 +106,7 @@ export function HubtelBalanceSection({ onSaved }: { onSaved: Saved }) {
 
         <div className="flex items-start gap-3">
           <Switch id="hubtel-prefer-manual" checked={prefer} disabled={busy || !data}
-            onCheckedChange={(on) => { if (on) setDialog("prefer-on"); else void setPrefer(false) }} className="mt-0.5" />
+            onCheckedChange={(on) => setDialog(on ? "prefer-on" : "prefer-off")} className="mt-0.5" />
           <label htmlFor="hubtel-prefer-manual" className="min-w-0 space-y-1">
             <span className="block text-sm font-medium">{PREFER_MANUAL_LABEL}</span>
             <span className="block text-xs text-muted-foreground">{PREFER_MANUAL_HELP}</span>
@@ -114,7 +114,7 @@ export function HubtelBalanceSection({ onSaved }: { onSaved: Saved }) {
         </div>
 
         <label className="block min-w-0 space-y-1">
-          <span className="text-sm font-medium">Current Hubtel Disbursement balance (GH₵)</span>
+          <span className="text-sm font-medium">{MANUAL_AMOUNT_LABEL}</span>
           <Input inputMode="decimal" placeholder="e.g. 250.00" value={input} onChange={(e) => setInput(e.target.value)} />
           {input.trim() !== "" && !parsed.ok && <span className="block text-xs text-red-600">{parsed.error}</span>}
         </label>
@@ -130,8 +130,8 @@ export function HubtelBalanceSection({ onSaved }: { onSaved: Saved }) {
       </CardContent>
 
       <ConfirmDialog open={dialog === "set"} onOpenChange={(o) => !o && setDialog(null)} busy={busy}
-        title="Set the Hubtel balance" confirmLabel="Set balance now"
-        description={<>Credit sales will be backed by <b>{parsed.ok ? formatGhs(parsed.value) : "—"}</b> minus the Hubtel SMS sent from now on, until the live balance check works again.<br /><br />{SET_BALANCE_CONFIRM_NOTE}</>}
+        title="Set the Hubtel SMS balance" confirmLabel="Set balance now"
+        description={<>New manual balance: <b>{parsed.ok ? formatGhs(parsed.value) : "—"}</b>. {setBalanceUsageText(prefer)}<br /><br />{SET_BALANCE_CONFIRM_NOTE}</>}
         onConfirm={() => { if (parsed.ok) return save(parsed.value) }} />
       <ConfirmDialog open={dialog === "prefer-on"} onOpenChange={(o) => !o && setDialog(null)} busy={busy}
         title="Use the manual balance instead of the relay?" confirmLabel="Use manual balance"
@@ -139,6 +139,10 @@ export function HubtelBalanceSection({ onSaved }: { onSaved: Saved }) {
           ? <> Your manual balance: <b>{formatGhs(manual.amountGhs)}</b>, set {formatGmt(manual.setAt)}{!manual.fresh && " — older than 30 days, so sales would pause until you set it again"}.</>
           : <> No manual balance is set yet, so sales would pause until you set one.</>}</>}
         onConfirm={() => setPrefer(true)} />
+      <ConfirmDialog open={dialog === "prefer-off"} onOpenChange={(o) => !o && setDialog(null)} busy={busy} destructive
+        title="Turn off manual balance?" confirmLabel="Turn off"
+        description={data?.relay ? preferOffConfirmText(data.relay) : preferOffConfirmText({ ok: false, error: "not loaded" })}
+        onConfirm={() => setPrefer(false)} />
       <ConfirmDialog open={dialog === "clear"} onOpenChange={(o) => !o && setDialog(null)} busy={busy} destructive
         title="Clear the manual balance" confirmLabel="Clear"
         description="Without a manual balance, SMS credit sales pause whenever the live Hubtel balance check fails."

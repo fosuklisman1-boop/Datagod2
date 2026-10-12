@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { supplyProviderLabel, parseManualBalanceInput, balanceSourceSummary, MANUAL_BALANCE_NOTES, SET_BALANCE_CONFIRM_NOTE,
-  relayInfoText, PREFER_MANUAL_LABEL, PREFER_MANUAL_HELP, PREFER_MANUAL_CONFIRM } from "./hubtel-balance-view"
+  relayInfoText, PREFER_MANUAL_LABEL, PREFER_MANUAL_HELP, PREFER_MANUAL_CONFIRM,
+  MANUAL_AMOUNT_LABEL, setBalanceUsageText, preferOffConfirmText } from "./hubtel-balance-view"
 
 describe("supplyProviderLabel", () => {
   it("labels a manual estimate", () => expect(supplyProviderLabel("hubtel", { balanceSource: "manual" })).toBe("Hubtel (manual estimate)"))
@@ -50,6 +51,22 @@ describe("prefer-manual helpers", () => {
     expect(PREFER_MANUAL_HELP).toMatch(/SMS/)
     expect(PREFER_MANUAL_CONFIRM).toMatch(/relay.*not used/i)
     expect(PREFER_MANUAL_CONFIRM).toMatch(/30 days/)
+  })
+})
+
+describe("SMS-wallet wording + prefer-aware dialogs", () => {
+  it("the amount label names the SMS wallet", () => {
+    expect(MANUAL_AMOUNT_LABEL).toBe("Current Hubtel SMS balance (GH₵) — the SMS wallet, not Disbursement")
+  })
+  it("set-balance dialog text depends on the switch", () => {
+    expect(setBalanceUsageText(true)).toBe("This manual balance is used for credit-sales checks until you turn the switch off.")
+    expect(setBalanceUsageText(false)).toMatch(/until the live balance check works again/)
+  })
+  it("turn-off dialog shows the relay reading it would fall back to", () => {
+    expect(preferOffConfirmText({ ok: true, amountGhs: 0 })).toBe(
+      "Credit-sales checks will go back to the relay reading (currently GH₵0.00 — Disbursement wallet), and credit sales may pause immediately if that is 0.")
+    expect(preferOffConfirmText({ ok: false, error: "relay not configured" })).toBe(
+      "Credit-sales checks will go back to the relay reading (currently unavailable — relay not configured), and credit sales may pause immediately if that is 0.")
   })
 })
 
