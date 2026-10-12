@@ -53,6 +53,18 @@ export const CATEGORY_LABELS: Record<SmsCategory, string> = {
   customer_bulk: "Customer bulk SMS",
 }
 
+export const CATEGORY_HINTS: Record<SmsCategory, string> = {
+  otp: "Phone codes, login codes, password reset links",
+  order_confirmation_platform: "Order status messages sent from the Datagod sender",
+  order_confirmation_own_sender: "Order status messages sent from a shop's own sender ID",
+  payments_wallet: "Top-ups, purchases, refunds, vouchers, airtime, subscriptions, SMS bundles",
+  admin_action_outcomes: "Approvals and rejections for withdrawals, shops, AFA, sender IDs, complaints",
+  security_alerts: "Security and fraud alerts, password changes",
+  system: "Anything not listed elsewhere",
+  admin_broadcast: "Admin broadcast messages",
+  customer_bulk: "Bulk SMS sent by customers and shops",
+}
+
 const OTP = new Set(["phone_otp", "otp_required", "password_reset_link"])
 const ORDER_CONFIRMATION = new Set([
   "order_confirmed", "order_payment_confirmed", "order_confirmation", "order_update", "order_delivered",
