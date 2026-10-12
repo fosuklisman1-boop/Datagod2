@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import { notificationTemplates } from "@/lib/notification-service"
-import { sendSMS } from "@/lib/sms-service"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { initiateTransfer } from "@/lib/moolre-transfer"
 import {
   createRecipient, initiateTransfer as initiatePaystackTransfer,
   mapNetworkToPaystackBankCode, matchBankByName, fetchGhanaBankList,
 } from "@/lib/paystack-transfer"
-import { sendPushToUser } from "@/lib/push-service"
+import { notifyUserOfOutcome } from "@/lib/admin-actions"
+import { notifyWithdrawalCompleted, applyWithdrawalCompletion } from "@/lib/admin-actions/withdrawal-hook"
 import { checkWithdrawalCoolingOff } from "@/lib/withdrawal-policy"
 import { normalizePhoneNumber } from "@/lib/mtn-fulfillment"
 
@@ -46,86 +45,23 @@ async function syncShopBalance(shopId: string) {
 }
 
 
-/** Send in-app notification + SMS to the shop owner. */
+/** Tell the shop owner their withdrawal was approved (email, SMS, push, in-app via the central notifier). */
 async function notifyShopOwner(withdrawal: any, withdrawalId: string) {
   try {
-    const { data: shop } = await supabase
-      .from("user_shops")
-      .select("user_id")
-      .eq("id", withdrawal.shop_id)
-      .single()
-
+    const { data: shop } = await supabase.from("user_shops").select("user_id, shop_name").eq("id", withdrawal.shop_id).single()
     if (!shop) return
-
-    const notificationData = notificationTemplates.withdrawalApproved(withdrawal.amount, withdrawalId)
-    const { error: notifError } = await supabase.from("notifications").insert([{
-      user_id: shop.user_id,
-      title: notificationData.title,
-      message: notificationData.message,
-      type: notificationData.type,
-      reference_id: notificationData.reference_id,
-      action_url: `/dashboard/shop-dashboard`,
-      read: false,
-    }])
-    if (notifError) console.warn("[NOTIFICATION] Failed:", notifError)
-    else sendPushToUser(shop.user_id, {
-      title: notificationData.title,
-      body: notificationData.message,
-      data: { url: `/dashboard/shop-dashboard` },
-    }).catch(() => {})
-
-    const { data: userData } = await supabase
-      .from("users")
-      .select("phone_number, email, first_name")
-      .eq("id", shop.user_id)
-      .single()
-
-    if (!userData) return
-
-    if (userData.email) {
-      import("@/lib/email-service").then(async ({ sendEmail, EmailTemplates }) => {
-        const accountDetails = withdrawal.account_details as any
-        const paymentMethod = withdrawal.withdrawal_method || accountDetails?.network || "Mobile Money"
-        const recipientPhone = accountDetails?.phone || accountDetails?.account_number || userData.phone_number
-
-        const { data: balanceData } = await supabase
-          .from("shop_balances")
-          .select("available_balance")
-          .eq("shop_id", withdrawal.shop_id)
-          .single()
-
-        const remainingBalance = balanceData?.available_balance?.toFixed(2)
-        const payload = EmailTemplates.withdrawalApproved(
-          withdrawal.amount.toFixed(2),
-          withdrawalId,
-          remainingBalance,
-          paymentMethod,
-          recipientPhone
-        )
-
-        sendEmail({
-          to: [{ email: userData.email, name: userData.first_name || "Merchant" }],
-          subject: payload.subject,
-          htmlContent: payload.html,
-          referenceId: withdrawalId,
-          userId: shop.user_id,
-          type: "withdrawal_approved",
-        }).catch(err => console.error("[EMAIL] Withdrawal approval email failed:", err))
-      })
-    }
-
-    if (userData.phone_number) {
-      const accountDetails = withdrawal.account_details as any
-      const smsMessage = `✓ Your withdrawal of GHS ${withdrawal.amount.toFixed(2)} has been transferred to ${accountDetails?.phone || accountDetails?.account_number || "your account"}.`
-      await sendSMS({
-        phone: userData.phone_number,
-        message: smsMessage,
-        type: "withdrawal_approved",
-        reference: withdrawalId,
-      }).catch(err => console.error("[SMS] SMS error:", err))
-    }
+    const { data: bal } = await supabase.from("shop_available_balance").select("available_balance").eq("shop_id", withdrawal.shop_id).single()
+    const details = (withdrawal.account_details ?? {}) as any
+    await notifyUserOfOutcome("withdrawal", "approved", { userId: shop.user_id, reference: withdrawalId }, {
+      withdrawalId,
+      amount: Number(withdrawal.amount),
+      shopName: shop.shop_name ?? null,
+      method: withdrawal.withdrawal_method || details?.network || null,
+      phone: details?.phone || details?.account_number || null,
+      remainingBalance: bal?.available_balance != null ? Number(bal.available_balance).toFixed(2) : null,
+    })
   } catch (err) {
-    console.warn("[WITHDRAWAL-APPROVE] Notification error (non-fatal):", err)
+    console.warn("[ADMIN-ACTION] withdrawal approval notify failed:", err instanceof Error ? err.message : err)
   }
 }
 
@@ -387,19 +323,15 @@ export async function POST(request: NextRequest) {
       }
 
       if (paystackResult.status === "success") {
-        const { error: persistErr } = await supabase
-          .from("withdrawal_requests")
-          .update({
-            status: "completed",
-            payout_provider: "paystack",
-            paystack_recipient_code: recipient.recipientCode,
-            paystack_transfer_code: paystackResult.transferCode,
-            paystack_fee: paystackResult.fee,
-            transfer_completed_at: new Date().toISOString(),
-            moolre_external_ref: null,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", withdrawalId)
+        const { shouldNotify: paystackNotify, error: persistErr } = await applyWithdrawalCompletion(supabase, withdrawalId, {
+          payout_provider: "paystack",
+          paystack_recipient_code: recipient.recipientCode,
+          paystack_transfer_code: paystackResult.transferCode,
+          paystack_fee: paystackResult.fee,
+          transfer_completed_at: new Date().toISOString(),
+          moolre_external_ref: null,
+          updated_at: new Date().toISOString(),
+        }, ["processing"])
         if (persistErr) {
           console.error(
             "[WITHDRAWAL-APPROVE] CRITICAL: failed to persist Paystack transfer tracking after a real transfer was initiated:",
@@ -407,7 +339,10 @@ export async function POST(request: NextRequest) {
           )
         }
         await syncShopBalance(withdrawal.shop_id)
-        await notifyShopOwner(withdrawal, withdrawalId)
+        // Money has moved: tell the owner "paid out" (not "being processed"), unless a webhook/cron already flipped the row
+        if (paystackNotify) {
+          await notifyWithdrawalCompleted(supabase, withdrawal)
+        }
         return NextResponse.json({ success: true, message: "Withdrawal approved and transferred successfully" })
       }
 
@@ -484,19 +419,18 @@ export async function POST(request: NextRequest) {
 
     if (result.txstatus === 1) {
       // Transfer succeeded immediately — mark completed and sync balance
-      await supabase
-        .from("withdrawal_requests")
-        .update({
-          status: "completed",
-          moolre_transfer_id: result.transactionId,
-          moolre_fee: result.fee,
-          transfer_completed_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", withdrawalId)
+      const { shouldNotify: moolreNotify } = await applyWithdrawalCompletion(supabase, withdrawalId, {
+        moolre_transfer_id: result.transactionId,
+        moolre_fee: result.fee,
+        transfer_completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, ["processing"])
 
       await syncShopBalance(withdrawal.shop_id)
-      await notifyShopOwner(withdrawal, withdrawalId)
+      // Money has moved: "paid out" message, unless a webhook/cron already flipped the row
+      if (moolreNotify) {
+        await notifyWithdrawalCompleted(supabase, withdrawal)
+      }
 
       console.log(`[WITHDRAWAL-APPROVE] Completed: ${withdrawalId} — Moolre TX: ${result.transactionId}`)
       return NextResponse.json({ success: true, message: "Withdrawal approved and transferred successfully" })

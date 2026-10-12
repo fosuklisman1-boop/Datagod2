@@ -10,7 +10,7 @@ function fakeDb(rows: Rows, calls: unknown[][] = [], errors: Record<string, stri
     let key = table
     const q: any = {
       // errors may be keyed "table" or "table:<select string>" to fail one specific query
-      select: (...a: unknown[]) => { calls.push([table, "select", ...a]); if (errors[`${table}:${a[0]}`]) key = `${table}:${a[0]}`; return q }, eq: rec("eq"), in: rec("in"), is: rec("is"), neq: rec("neq"),
+      select: (...a: unknown[]) => { calls.push([table, "select", ...a]); if (errors[`${table}:${a[0]}`]) key = `${table}:${a[0]}`; return q }, eq: rec("eq"), in: rec("in"), is: rec("is"), neq: rec("neq"), gte: rec("gte"), lte: rec("lte"),
       order: rec("order"), range: rec("range"), limit: rec("limit"), ilike: rec("ilike"), or: rec("or"),
       maybeSingle: async () => ({ data: (rows[table] ?? [])[0] ?? null, error: errors[key] ? { message: errors[key] } : null }),
       then: (res: (v: unknown) => unknown) => Promise.resolve({ data: rows[table] ?? [], error: errors[key] ? { message: errors[key] } : null }).then(res),
@@ -439,6 +439,70 @@ describe("orders / api_orders (wallet-paid)", () => {
     const db = fakeDb({ ...EMPTY, orders: [ordersRow()], transactions: [] })
     const [o] = await loadRefundableOrders(db, [{ table: "orders", id: "b1" }])
     expect(o.payment).toEqual({ gateway: null, reference: null, payerPhone: null, walletUserId: null })
+  })
+
+  describe("bulk-upload batch reconstruction", () => {
+    const T = "2026-10-05T10:00:00"
+    const batch = [
+      ordersRow({ id: "b1", price: 5, created_at: T }),
+      ordersRow({ id: "b2", price: 6, created_at: T }),
+      ordersRow({ id: "b3", price: 9, created_at: T }),
+    ]
+    const bulk = (o: Record<string, unknown> = {}) => ({ reference_id: "BULK-1", user_id: "uB", type: "debit", amount: 20, source: "bulk_order", created_at: "2026-10-05T10:00:02+00:00", ...o })
+    const refs = ["b1", "b2", "b3"].map((id) => ({ table: "orders" as const, id }))
+
+    it("a provable batch of 3 gets a wallet gateway for each order", async () => {
+      const calls: unknown[][] = []
+      const out = await loadRefundableOrders(fakeDb({ ...EMPTY, orders: batch, transactions: [bulk()] }, calls), refs)
+      expect(out).toHaveLength(3)
+      for (const o of out) expect(o.payment).toEqual({ gateway: "wallet", reference: null, payerPhone: null, walletUserId: "uB" })
+      // one batched sibling lookup + one debit lookup, not N+1
+      expect(calls.filter((c) => c[0] === "orders" && c[1] === "select" && String(c[2]).startsWith("id, user_id, price"))).toHaveLength(1)
+      expect(calls.filter((c) => c[0] === "transactions" && c[1] === "eq" && c[2] === "source" && c[3] === "bulk_order")).toHaveLength(1)
+    })
+    it("two matching batch debits are ambiguous => no gateway", async () => {
+      const out = await loadRefundableOrders(fakeDb({ ...EMPTY, orders: batch, transactions: [bulk(), bulk({ reference_id: "BULK-2" })] }), refs)
+      for (const o of out) expect(o.payment.gateway).toBeNull()
+    })
+    it("a sibling at a different created_at is not counted (sum mismatch => no gateway)", async () => {
+      const rows = [batch[0], batch[1], { ...batch[2], created_at: "2026-10-05T10:00:01" }]
+      const out = await loadRefundableOrders(fakeDb({ ...EMPTY, orders: rows, transactions: [bulk()] }), refs)
+      for (const o of out) expect(o.payment.gateway).toBeNull()
+    })
+    it("a debit outside the 2 minute window => no gateway", async () => {
+      const out = await loadRefundableOrders(fakeDb({ ...EMPTY, orders: batch, transactions: [bulk({ created_at: "2026-10-05T10:02:01+00:00" })] }), refs)
+      for (const o of out) expect(o.payment.gateway).toBeNull()
+    })
+    it("a lookup error degrades to unproven: no throw, logged with [REFUND]", async () => {
+      const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+      const db = fakeDb({ ...EMPTY, orders: batch, transactions: [bulk()] }, [], { "orders:id, user_id, price, created_at": "boom" })
+      const out = await loadRefundableOrders(db, refs)
+      expect(out).toHaveLength(3)
+      for (const o of out) expect(o.payment.gateway).toBeNull()
+      expect(spy.mock.calls.some((c) => String(c[0]).startsWith("[REFUND]"))).toBe(true)
+      spy.mockRestore()
+    })
+    it("a debit-lookup error also degrades to unproven", async () => {
+      const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+      const db = fakeDb({ ...EMPTY, orders: batch, transactions: [bulk()] }, [], { "transactions:user_id, amount, created_at, type, source": "boom" })
+      const out = await loadRefundableOrders(db, refs)
+      for (const o of out) expect(o.payment.gateway).toBeNull()
+      spy.mockRestore()
+    })
+    it("a per-order debit still wins (and triggers no batch lookup when every order has one)", async () => {
+      const calls: unknown[][] = []
+      const one = [ordersRow({ id: "b1", price: 20, created_at: T })]
+      const out = await loadRefundableOrders(fakeDb({ ...EMPTY, orders: one, transactions: [debit()] }, calls), [{ table: "orders", id: "b1" }])
+      expect(out[0].payment.gateway).toBe("wallet")
+      expect(calls.some((c) => c[0] === "transactions" && c[1] === "eq" && c[3] === "bulk_order")).toBe(false)
+    })
+    it("api_orders never use batch reconstruction", async () => {
+      const calls: unknown[][] = []
+      const api = { id: "a1", user_id: "uB", network: "MTN", volume_gb: 2, price: 20, status: "pending", recipient_phone: "0243334444", created_at: T }
+      const [o] = await loadRefundableOrders(fakeDb({ ...EMPTY, api_orders: [api], transactions: [bulk()] }, calls), [{ table: "api_orders", id: "a1" }])
+      expect(o.payment.gateway).toBeNull()
+      expect(calls.some((c) => c[0] === "transactions" && c[1] === "eq" && c[3] === "bulk_order")).toBe(false)
+    })
   })
 
   it("two qualifying debits, a mismatching amount, or a debit on another user => no proof", async () => {

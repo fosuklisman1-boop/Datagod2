@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { refundableStatuses } from "./eligibility"
 import { loadPayerPhones } from "./payer-phone"
+import { BULK_PROOF_WINDOW_MS, proveBulkBatchPayment } from "./bulk-batch-proof"
 import { isWalletOnlyTable, type DispatchOutcome, type OrderTable, type OwnerCut, type PaymentSource, type RefundableOrder } from "./types"
 
 const CHUNK = 100
@@ -12,7 +13,7 @@ const PROFIT_FK: Record<OrderTable, string | null> = {
   orders: null,
   api_orders: null,
 }
-// Debit sources that prove a wallet payment of ONE specific order (a 'bulk_order' batch debit does not reference order ids).
+// Debit sources that prove a wallet payment of ONE specific order (a 'bulk_order' batch debit does not reference order ids; it is matched separately by batch reconstruction).
 const WALLET_DEBIT_SOURCES = ["data_purchase", "api_order"]
 const TRACKING_COL: Record<OrderTable, string> = {
   shop_orders: "shop_order_id",
@@ -112,6 +113,44 @@ export async function loadRefundableOrders(
   return out
 }
 
+/**
+ * Ids of `orders` rows proven wallet-paid by batch reconstruction. ONE batched lookup per page (siblings + candidate
+ * bulk debits). This proof is optional: any lookup failure degrades to "unproven" (no gateway) and is logged, never thrown.
+ */
+async function loadBulkBatchProven(db: SupabaseClient, candidates: any[]): Promise<Set<string>> {
+  const proven = new Set<string>()
+  if (candidates.length === 0) return proven
+  try {
+    const userIds = [...new Set(candidates.map((r) => r.user_id as string).filter(Boolean))]
+    const stamps = [...new Set(candidates.map((r) => String(r.created_at ?? "")).filter(Boolean))]
+    if (userIds.length === 0 || stamps.length === 0) return proven
+
+    const siblings: any[] = []
+    for (const us of chunk(userIds)) {
+      for (const ts of chunk(stamps)) {
+        siblings.push(...(await inRows<any>(db, "orders", "id, user_id, price, created_at", "user_id", us, (q) => q.in("created_at", ts))))
+      }
+    }
+    const ms = candidates.map((r) => Date.parse(toUtcIso(r.created_at, true))).filter(Number.isFinite)
+    if (ms.length === 0) return proven
+    const lo = new Date(Math.min(...ms) - BULK_PROOF_WINDOW_MS).toISOString()
+    const hi = new Date(Math.max(...ms) + BULK_PROOF_WINDOW_MS).toISOString()
+    const debits: any[] = []
+    for (const us of chunk(userIds)) {
+      debits.push(...(await inRows<any>(db, "transactions", "user_id, amount, created_at, type, source", "user_id", us,
+        (q) => q.eq("type", "debit").eq("source", "bulk_order").gte("created_at", lo).lte("created_at", hi))))
+    }
+    const bulkDebits = debits.filter((t) => t.type === "debit" && t.source === "bulk_order")
+    for (const r of candidates) {
+      if (proveBulkBatchPayment({ user_id: r.user_id, created_at: String(r.created_at), price: r.price }, siblings, bulkDebits)) proven.add(r.id as string)
+    }
+  } catch (e) {
+    console.error("[REFUND] bulk batch proof lookup failed; treating batch orders as unproven:", e instanceof Error ? e.message : e)
+    return new Set<string>()
+  }
+  return proven
+}
+
 async function enrich(db: SupabaseClient, table: OrderTable, rows: any[]): Promise<RefundableOrder[]> {
   if (rows.length === 0) return []
   const ids = rows.map((r) => r.id as string)
@@ -156,6 +195,15 @@ async function enrich(db: SupabaseClient, table: OrderTable, rows: any[]): Promi
   const walletByUser = new Map(wallets.map((w) => [w.user_id as string, Number(w.balance)]))
   const feeByRef = new Map(attempts.map((a) => [a.reference as string, Number(a.fee ?? 0)]))
 
+  // Batch reconstruction (orders only): rows with no qualifying per-order debit may still be proven via the bulk batch debit.
+  const bulkProven = table === "orders"
+    ? await loadBulkBatchProven(db, rows.filter((r) => {
+        const paid = Math.round(Number(r.price) * 100) / 100
+        const m = walletDebits.filter((t) => t.reference_id === r.id && Math.abs(Number(t.amount) - paid) < 0.01)
+        return !(m.length === 1 && m[0].user_id === r.user_id)
+      }))
+    : new Set<string>()
+
   const result: RefundableOrder[] = []
   for (const r of rows) {
     const id = r.id as string
@@ -191,11 +239,11 @@ async function enrich(db: SupabaseClient, table: OrderTable, rows: any[]): Promi
     let fee = 0
     if (walletOnly) {
       // Paid from the buyer's wallet at purchase. Proof of WHO paid = exactly one per-order debit (source
-      // data_purchase / api_order, reference_id = this order, amount = price) on the order's own user. A bulk-batch
-      // debit does not reference order ids, so such orders get no gateway at all.
+      // data_purchase / api_order, reference_id = this order, amount = price) on the order's own user. A bulk-upload
+      // order (orders only) is instead proven by batch reconstruction (see bulk-batch-proof.ts); unprovable => no gateway.
       paid = Math.round(Number(r.price) * 100) / 100
       const debit = qualifyingDebit(paid)
-      payment = debit && debit.user_id === r.user_id
+      payment = (debit && debit.user_id === r.user_id) || bulkProven.has(id)
         ? { gateway: "wallet", reference: null, payerPhone: null, walletUserId: r.user_id as string }
         : { gateway: null, reference: null, payerPhone: null, walletUserId: null }
     } else if (table === "shop_orders") {

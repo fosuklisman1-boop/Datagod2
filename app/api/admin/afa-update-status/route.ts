@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import { sendSMS, SMSTemplates } from "@/lib/sms-service"
+import { notifyUserOfOutcome } from "@/lib/admin-actions"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
     // Fetch existing order to check current status and get details for SMS
     const { data: currentOrder, error: fetchError } = await supabase
       .from("afa_orders")
-      .select("status, full_name, phone_number, order_code")
+      .select("status, user_id, full_name, phone_number, order_code")
       .eq("id", submissionId)
       .single()
 
@@ -63,18 +63,14 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // If status changed to completed, send the completion SMS
-    if (status === "completed" && currentOrder.status !== "completed") {
-      try {
-        await sendSMS({
-          phone: currentOrder.phone_number,
-          message: SMSTemplates.afaCompleted(currentOrder.full_name, currentOrder.order_code),
-          type: "afa_completed",
-        })
-        console.log(`[AFA-UPDATE-STATUS] Completion SMS sent for order ${currentOrder.order_code}`)
-      } catch (smsError) {
-        console.error("[AFA-UPDATE-STATUS] Failed to send completion SMS:", smsError)
-      }
+    // Notify the user (email + SMS to the registrant phone) on a real transition
+    if (status !== currentOrder.status && (status === "completed" || status === "cancelled")) {
+      await notifyUserOfOutcome(
+        "afa",
+        status === "completed" ? "completed" : "rejected",
+        { userId: currentOrder.user_id, phone: currentOrder.phone_number, reference: submissionId },
+        { orderCode: currentOrder.order_code, fullName: currentOrder.full_name },
+      )
     }
 
     return NextResponse.json(

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyCronAuth } from "@/lib/cron-auth"
+import { alertAdminsOfRequest, notifyUserOfOutcome } from "@/lib/admin-actions"
 
 export const maxDuration = 300
 
@@ -22,13 +23,19 @@ const TABLES: { table: AfaTable; statusCol: "status" | "order_status" }[] = [
   { table: "ussd_afa_orders", statusCol: "order_status" },
 ]
 
+// Columns read back from the flipped row; ussd_afa_orders has no user_id/order_code so only id.
+const NOTIFY_COLUMNS: Record<AfaTable, string> = {
+  afa_orders: "id, user_id, phone_number, order_code, full_name",
+  ussd_afa_orders: "id",
+}
+
 async function syncTable(table: AfaTable, statusCol: "status" | "order_status"): Promise<{ synced: number; failed: number }> {
   const { ApexPrimeProvider } = await import("@/lib/mtn-providers/apexprime-provider")
   const provider = new ApexPrimeProvider()
 
   const { data: rows, error } = await supabase
     .from(table)
-    .select("id, fulfillment_ref")
+    .select(`id, fulfillment_ref, ${statusCol}`)
     .eq("fulfillment_provider", "apexprime")
     .eq("fulfillment_status", "pending")
     .not("fulfillment_ref", "is", null)
@@ -49,7 +56,14 @@ async function syncTable(table: AfaTable, statusCol: "status" | "order_status"):
       const chk = await provider.checkAfaStatus(row.fulfillment_ref)
 
       if (chk.success && chk.status === "completed") {
-        await supabase
+        // Fresh read just before the write: the batch snapshot may be stale (an admin may have
+        // completed the order since, and already notified the user).
+        const { data: freshRow } = await supabase.from(table).select(statusCol).eq("id", row.id).maybeSingle()
+        const freshStatus = (freshRow as any)?.[statusCol]
+        // Conditional on fulfillment_status still being 'pending': only one of two overlapping cron
+        // runs wins this update. An admin-completed row still has fulfillment_status 'pending', so it
+        // IS reconciled (just not notified again).
+        const { data: completedRows } = await supabase
           .from(table)
           .update({
             fulfillment_status: "fulfilled",
@@ -59,10 +73,21 @@ async function syncTable(table: AfaTable, statusCol: "status" | "order_status"):
             updated_at: new Date().toISOString(),
           })
           .eq("id", row.id)
+          .eq("fulfillment_status", "pending")
+          .select(NOTIFY_COLUMNS[table])
+        const completedRow = (completedRows as any[] | null)?.[0]
+        if (table === "afa_orders" && completedRow && freshStatus !== "completed") {
+          await notifyUserOfOutcome(
+            "afa",
+            "completed",
+            { userId: completedRow.user_id, phone: completedRow.phone_number, reference: row.id },
+            { orderCode: completedRow.order_code || "", fullName: completedRow.full_name || "" },
+          )
+        }
         console.log(`[CRON-AFA-APEXPRIME] ✅ ${table} ${row.id}: fulfilled`)
         synced++
       } else if (chk.success && chk.status === "failed") {
-        await supabase
+        const { data: failedRows } = await supabase
           .from(table)
           .update({
             fulfillment_status: "failed",
@@ -70,6 +95,12 @@ async function syncTable(table: AfaTable, statusCol: "status" | "order_status"):
             updated_at: new Date().toISOString(),
           })
           .eq("id", row.id)
+          .eq("fulfillment_status", "pending")
+          .select(NOTIFY_COLUMNS[table])
+        const failedRow = (failedRows as any[] | null)?.[0]
+        if (table === "afa_orders" && failedRow) {
+          await alertAdminsOfRequest("afa", { orderCode: failedRow.order_code || "", fullName: failedRow.full_name || "" })
+        }
         console.log(`[CRON-AFA-APEXPRIME] ❌ ${table} ${row.id}: failed (${chk.message})`)
         synced++
       } else if (!chk.success) {
@@ -111,7 +142,7 @@ async function syncTable(table: AfaTable, statusCol: "status" | "order_status"):
     .limit(BATCH_SIZE)
 
   for (const row of staleRows ?? []) {
-    await supabase
+    const { data: releasedRows } = await supabase
       .from(table)
       .update({
         fulfillment_status: "failed",
@@ -119,6 +150,12 @@ async function syncTable(table: AfaTable, statusCol: "status" | "order_status"):
         updated_at: new Date().toISOString(),
       })
       .eq("id", row.id)
+      .eq("fulfillment_status", "pending")
+      .select(NOTIFY_COLUMNS[table])
+    const releasedRow = (releasedRows as any[] | null)?.[0]
+    if (table === "afa_orders" && releasedRow) {
+      await alertAdminsOfRequest("afa", { orderCode: releasedRow.order_code || "", fullName: releasedRow.full_name || "" })
+    }
     console.log(`[CRON-AFA-APEXPRIME] Released stale pending row for manual review (no ref, >10min old — outcome unconfirmed): ${table} ${row.id}`)
     synced++
   }

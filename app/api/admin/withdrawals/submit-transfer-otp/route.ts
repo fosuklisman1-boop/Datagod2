@@ -2,9 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { finalizeTransfer } from "@/lib/paystack-transfer"
-import { notificationTemplates } from "@/lib/notification-service"
-import { sendSMS } from "@/lib/sms-service"
-import { sendPushToUser } from "@/lib/push-service"
+import { notifyWithdrawalCompleted, applyWithdrawalCompletion } from "@/lib/admin-actions/withdrawal-hook"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -31,40 +29,6 @@ async function syncShopBalance(shopId: string) {
   }
 }
 
-async function notifyShopOwner(shopId: string, amount: number, withdrawalId: string) {
-  try {
-    const { data: shop } = await supabase.from("user_shops").select("user_id").eq("id", shopId).single()
-    if (!shop) return
-    const notificationData = notificationTemplates.withdrawalApproved(amount, withdrawalId)
-    await supabase.from("notifications").insert([{
-      user_id: shop.user_id,
-      title: notificationData.title,
-      message: notificationData.message,
-      type: notificationData.type,
-      reference_id: notificationData.reference_id,
-      action_url: "/dashboard/shop-dashboard",
-      read: false,
-    }])
-    sendPushToUser(shop.user_id, {
-      title: notificationData.title,
-      body: notificationData.message,
-      data: { url: "/dashboard/shop-dashboard" },
-    }).catch(() => {})
-
-    const { data: userData } = await supabase.from("users").select("phone_number").eq("id", shop.user_id).single()
-    if (userData?.phone_number) {
-      await sendSMS({
-        phone: userData.phone_number,
-        message: `✓ Your withdrawal of GHS ${amount.toFixed(2)} has been transferred.`,
-        type: "withdrawal_approved",
-        reference: withdrawalId,
-      }).catch(() => {})
-    }
-  } catch (err) {
-    console.warn("[SUBMIT-TRANSFER-OTP] Notification error (non-fatal):", err)
-  }
-}
-
 export async function POST(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse
@@ -77,7 +41,7 @@ export async function POST(request: NextRequest) {
 
     const { data: withdrawal, error: fetchError } = await supabase
       .from("withdrawal_requests")
-      .select("id, shop_id, amount, paystack_transfer_code, status")
+      .select("id, shop_id, amount, paystack_transfer_code, status, withdrawal_method, account_details")
       .eq("id", withdrawalId)
       .maybeSingle()
 
@@ -106,19 +70,28 @@ export async function POST(request: NextRequest) {
     // "success" or "pending" — Paystack accepted the OTP; the transfer.success
     // webhook (Task 7) is the authoritative completion signal for "pending",
     // but mark completed immediately on "success" for the same UX as Moolre.
-    await supabase
-      .from("withdrawal_requests")
-      .update({
-        status: result.status === "success" ? "completed" : "processing",
-        paystack_fee: result.fee,
-        transfer_completed_at: result.status === "success" ? new Date().toISOString() : null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", withdrawalId)
-
     if (result.status === "success") {
+      const { shouldNotify } = await applyWithdrawalCompletion(supabase, withdrawalId, {
+        paystack_fee: result.fee,
+        transfer_completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, ["awaiting_transfer_otp"])
       await syncShopBalance(withdrawal.shop_id)
-      await notifyShopOwner(withdrawal.shop_id, Number(withdrawal.amount), withdrawalId)
+      // Notify only if this call actually moved the row into "completed" (the webhook may have got there first)
+      if (shouldNotify) {
+        await notifyWithdrawalCompleted(supabase, withdrawal)
+      }
+    } else {
+      await supabase
+        .from("withdrawal_requests")
+        .update({
+          status: "processing",
+          paystack_fee: result.fee,
+          transfer_completed_at: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", withdrawalId)
+        .eq("status", "awaiting_transfer_otp")
     }
 
     return NextResponse.json({ success: true, status: result.status === "success" ? "completed" : "processing" })

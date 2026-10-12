@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { withdrawalService } from "@/lib/shop-service"
+import { alertAdminsOfRequest } from "@/lib/admin-actions"
 
 // Server-side withdrawal creation. The fee is read from `app_settings`, which is
 // locked to service_role — so this MUST run here, not in the browser. Doing it
@@ -40,7 +41,7 @@ export async function POST(request: NextRequest) {
   // 3) Authorize: the caller must own the shop they're withdrawing from
   const { data: shop, error: shopError } = await supabaseAdmin
     .from("user_shops")
-    .select("id, user_id")
+    .select("id, user_id, shop_name")
     .eq("id", shopId)
     .maybeSingle()
   if (shopError) {
@@ -61,6 +62,12 @@ export async function POST(request: NextRequest) {
       { amount, withdrawal_method, account_details },
       supabaseAdmin
     )
+    await alertAdminsOfRequest("withdrawal", {
+      withdrawalId: String((created as { id?: string } | null)?.id ?? ""),
+      amount,
+      shopName: shop.shop_name ?? null,
+      method: withdrawal_method,
+    })
     return NextResponse.json({ success: true, withdrawal: created })
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to create withdrawal request"

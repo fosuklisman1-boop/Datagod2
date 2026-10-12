@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { alertAdminsOfRequest } from "@/lib/admin-actions"
 
 // Server-side shop creation. Migration 0077 revoked INSERT on every public table
 // from `authenticated`/`anon`, so the old browser-client insert in
@@ -75,6 +76,11 @@ export async function POST(request: NextRequest) {
     }
     console.error("[SHOP-CREATE-API] Insert failed:", error.message)
     return NextResponse.json({ error: "Failed to create shop" }, { status: 500 })
+  }
+
+  // Newly created shops await admin approval; alert admins (never throws, never fails the request).
+  if (data && data.is_active === false) {
+    await alertAdminsOfRequest("shop", { shopId: data.id, shopName: data.shop_name || shop_name })
   }
 
   return NextResponse.json({ success: true, shop: data })

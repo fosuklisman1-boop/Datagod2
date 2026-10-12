@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
+import { alertAdminsOfRequest } from "@/lib/admin-actions"
 import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
 import { listSenderIds } from "@/lib/sms/sender-id-service"
 import { requestSenderId } from "@/lib/sms/sender-rules-service"
@@ -54,5 +55,10 @@ export async function POST(request: NextRequest) {
 
   const result = await requestSenderId(account!.id, body.sender_id)
   if (!result.ok) return NextResponse.json({ success: false, error: result.error }, { status: 400 })
+  // Alert only for a new or re-opened request (isNew), never a re-submit of an already-open one
+  // (which comes back ok with the existing row and would otherwise spam admins).
+  if (result.isNew === true && result.data.local_status === "pending") {
+    await alertAdminsOfRequest("sender_id", { senderIdId: result.data.id, senderId: result.data.sender_id })
+  }
   return NextResponse.json({ success: true, data: result.data }, { status: 201 })
 }

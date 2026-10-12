@@ -7,6 +7,7 @@
 // claim/resolve flow lives in lib/whatsapp-bot/admin-router.ts (adminComplaintRouter).
 import { createClient } from "@supabase/supabase-js"
 import { getResultsCheckAdminPhones } from "@/lib/results-checker-service"
+import { alertAdminsOfRequest, notifyUserOfOutcome } from "@/lib/admin-actions"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -114,8 +115,26 @@ export async function resolveOpenComplaintsForPhone(
     })
     .eq("phone_number", phone)
     .eq("status", "open")
-    .select("id")
+    .select("id, phone_number")
+  // Only rows this call actually flipped open -> resolved are returned (gated on
+  // the previous status via .eq("status", "open")).
+  await notifyWaComplaintsResolved(data ?? [], resolution)
   return data?.length ?? 0
+}
+
+// Email/SMS the complainant that their (guest, phone-only) complaint was resolved.
+// Never throws. NOTE: the bot-side adminComplaintRouter already WhatsApps the reply.
+export async function notifyWaComplaintsResolved(rows: { id: string; phone_number: string }[], resolution: string): Promise<void> {
+  try {
+    await Promise.allSettled(rows.map((r) =>
+      notifyUserOfOutcome("complaint", "resolved", { phone: r.phone_number, reference: r.id }, {
+      complaintId: r.id,
+      resolutionNotes: resolution.slice(0, 200),
+      })
+    ))
+  } catch (e) {
+    console.warn("[WA-COMPLAINT] resolution notify failed:", e instanceof Error ? e.message : e)
+  }
 }
 
 // Bulk-resolve ALL open (unclaimed) complaints across every customer — the
@@ -190,15 +209,12 @@ export async function notifyAdminsNewComplaint(complaint: WaComplaint): Promise<
     console.warn("[WA-COMPLAINT] admin WhatsApp notify failed:", e)
   }
 
-  // Also web-push the dashboard admins.
-  try {
-    const { notifyAdminsPush } = await import("@/lib/push-service")
-    await notifyAdminsPush({
-      title: `New complaint: ${who}`,
-      body: complaint.description.slice(0, 140),
-      data: { url: "/admin/whatsapp" },
-    })
-  } catch (e) {
-    console.warn("[WA-COMPLAINT] admin push failed:", e)
-  }
+  // Email + push to dashboard admins (the single admin push; never throws).
+  // Sent after the WhatsApp loop so its latency can't delay the WhatsApp alerts.
+  await alertAdminsOfRequest("complaint", {
+    complaintId: complaint.id,
+    summary: complaint.description.slice(0, 200),
+    url: "/admin/whatsapp",
+    customerLabel: who,
+  })
 }

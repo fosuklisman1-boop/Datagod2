@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
+import { notifyUserOfOutcome } from "@/lib/admin-actions"
 import { deliverResultsCheckRequest } from "@/lib/results-checker-service"
 
 export const dynamic = "force-dynamic"
@@ -48,15 +49,25 @@ export async function PATCH(request: NextRequest) {
     media_url?: string
     media_type?: "image" | "document" | "video"
     deliver?: boolean
+    reason?: string
   }
 
   if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 })
+  const reason = typeof body.reason === "string" && body.reason.trim() ? body.reason.trim().slice(0, 200) : undefined
 
   const updatePayload: Record<string, unknown> = { updated_at: new Date().toISOString() }
   if (body.status) updatePayload.status = body.status
   if (body.result_data !== undefined) updatePayload.result_data = body.result_data
   if (body.media_url !== undefined) updatePayload.media_url = body.media_url
   if (body.media_type !== undefined) updatePayload.media_type = body.media_type
+
+  // Pre-image status, so notifications fire only on a real transition.
+  const { data: before } = await supabase
+    .from("results_check_requests")
+    .select("status")
+    .eq("id", body.id)
+    .maybeSingle()
+  const previousStatus: string | null = before?.status ?? null
 
   const { data: req, error: updateErr } = await supabase
     .from("results_check_requests")
@@ -71,10 +82,25 @@ export async function PATCH(request: NextRequest) {
 
   // Deliver results if requested
   const deliveryNotes: string[] = []
+  let deliveryRequested = false
 
   if (body.deliver && (req.result_data || req.media_url)) {
+    deliveryRequested = true
     const result = await deliverResultsCheckRequest(req.id)
     deliveryNotes.push(...result.deliveryNotes)
+  }
+
+  // Status moved by this PATCH (deliver-driven completion is notified inside deliverResultsCheckRequest).
+  if (body.status && previousStatus && body.status !== previousStatus) {
+    const target = { userId: req.user_id ?? null, phone: req.phone_number, reference: req.id }
+    const base = { requestId: req.id, examBoard: req.exam_board, indexNumber: req.index_number, channel: req.channel }
+    // When delivery was requested and failed, the user did NOT get the result: do not tell them it is done.
+    const deliveryFailed = deliveryRequested && deliveryNotes.some((n) => /FAILED|skipped for/.test(n))
+    if (body.status === "completed") {
+      if (!deliveryFailed) await notifyUserOfOutcome("results_check", "completed", target, base)
+    } else if (["failed", "declined", "rejected", "cancelled"].includes(body.status)) {
+      await notifyUserOfOutcome("results_check", "rejected", target, { ...base, reason })
+    }
   }
 
   return NextResponse.json({ success: true, request: req, deliveryNotes })

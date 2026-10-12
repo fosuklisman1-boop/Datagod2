@@ -67,7 +67,7 @@ async function audit(adminId: string | null, action: string, accountId: string |
 }
 
 /** Customer request. Idempotent for an open request of the same name; re-opens a rejected/revoked one. */
-export async function requestSenderId(accountId: string, raw: string): Promise<Result<SenderRow>> {
+export async function requestSenderId(accountId: string, raw: string): Promise<Result<SenderRow> & { isNew?: boolean }> {
   const settings = await loadSmsSettings()
   const check = validateSenderName(raw, settings.protectedSenderNames)
   if (!check.ok) return { ok: false, error: check.reason }
@@ -79,7 +79,7 @@ export async function requestSenderId(accountId: string, raw: string): Promise<R
   const { data: rowsData } = await supabaseAdmin.from("sms_sender_ids").select(COLS).eq("sms_account_id", accountId)
   const rows = (rowsData ?? []) as SenderRow[]
   const existing = rows.find((r) => r.sender_id.toUpperCase() === name)
-  if (existing && OPEN_STATUSES.includes(existing.local_status)) return { ok: true, data: existing }
+  if (existing && OPEN_STATUSES.includes(existing.local_status)) return { ok: true, data: existing, isNew: false }
 
   const open = rows.filter((r) => OPEN_STATUSES.includes(r.local_status)).length
   if (open >= senderLimitFor(acct.mode)) {
@@ -105,14 +105,14 @@ export async function requestSenderId(accountId: string, raw: string): Promise<R
       .eq("id", existing.id).select(COLS).single()
     if (isUniqueViolation(error)) return { ok: false, error: IN_USE }
     if (error) return { ok: false, error: error.message }
-    return { ok: true, data: data as SenderRow }
+    return { ok: true, data: data as SenderRow, isNew: true }
   }
   const { data, error } = await supabaseAdmin.from("sms_sender_ids")
     .insert({ sender_id: name, sms_account_id: accountId, local_status: "pending", kyc_free: acct.mode === "platform" })
     .select(COLS).single()
   if (isUniqueViolation(error)) return { ok: false, error: IN_USE }
   if (error) return { ok: false, error: error.message }
-  return { ok: true, data: data as SenderRow }
+  return { ok: true, data: data as SenderRow, isNew: true }
 }
 
 async function getRow(id: string): Promise<SenderRow | null> {

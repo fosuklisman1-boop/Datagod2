@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest, NextResponse, after } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import crypto from "crypto"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
@@ -6,6 +6,7 @@ import { getJoinCommunityLink } from "@/lib/app-settings"
 import { sendPushToUser } from "@/lib/push-service"
 import { getInternalBaseUrl } from "@/lib/internal-url"
 import { notifyAdminsNewResultsCheckRequest } from "@/lib/results-checker-service"
+import { notifyWithdrawalCompleted } from "@/lib/admin-actions/withdrawal-hook"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -1527,7 +1528,7 @@ export async function POST(request: NextRequest) {
       } else {
         const { data: withdrawal } = await supabase
           .from("withdrawal_requests")
-          .select("id, shop_id, amount, status, payout_provider, paystack_transfer_code")
+          .select("id, shop_id, amount, status, payout_provider, paystack_transfer_code, withdrawal_method, account_details")
           .eq("id", withdrawalId)
           .maybeSingle()
 
@@ -1546,7 +1547,7 @@ export async function POST(request: NextRequest) {
           event.event === "transfer.success" &&
           ["awaiting_transfer_otp", "processing"].includes(withdrawal!.status)
         ) {
-          await supabase
+          const { data: flippedRows } = await supabase
             .from("withdrawal_requests")
             .update({
               status: "completed",
@@ -1556,6 +1557,8 @@ export async function POST(request: NextRequest) {
               updated_at: new Date().toISOString(),
             })
             .eq("id", withdrawalId)
+            .in("status", ["awaiting_transfer_otp", "processing"])
+            .select("id")
 
           try {
             const { data: breakdown } = await supabase.rpc("get_shop_balance_breakdown", { p_shop_id: withdrawal!.shop_id })
@@ -1574,6 +1577,11 @@ export async function POST(request: NextRequest) {
             }
           } catch (err) {
             console.error("[PAYSTACK-WEBHOOK] Balance sync error:", err)
+          }
+          // Notify only if this event actually flipped the row (webhook redeliveries / OTP route / cron may have got there first)
+          if (flippedRows && flippedRows.length > 0) {
+            const w = withdrawal!
+            after(() => notifyWithdrawalCompleted(supabase, w))
           }
           console.log(`[PAYSTACK-WEBHOOK] Transfer completed via webhook: ${withdrawalId}`)
         } else if (
