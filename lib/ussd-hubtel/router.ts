@@ -22,7 +22,7 @@ import { RC_CHECK_STEPS } from "./flows/rc-check"
 import { SHOP_AIRTIME_STEPS, startShopAirtime } from "./flows/shop-airtime"
 import { SHOP_DATA_STEPS, startShopData } from "./flows/shop-data"
 import { SHOP_RC_STEPS, startShopRc } from "./flows/shop-rc"
-import { SHOP_ENTRY_STEPS, shopMenuFor, shopMenuReply, startShopSession } from "./flows/shop"
+import { SHOP_ENTRY_STEPS, recoverShopCodeEntry, shopMenuFor, shopMenuReply, startShopSession } from "./flows/shop"
 import type { HubtelReply, HubtelRequest } from "./types"
 
 export type { RouterDeps } from "./flow-kit"
@@ -103,6 +103,9 @@ export async function hubtelRouter(req: HubtelRequest, deps: RouterDeps): Promis
     // Tried before any restart so a paid-for cart replays even across a mode flip.
     const replay = await replaySubmittedOrder(deps, sid, platform)
     if (replay) return replay
+    console.warn("[HUBTEL] No session for", sid, { seq: req.Sequence, clientState: req.ClientState, mode: config.mode })
+    const recovered = await recoverShopCodeEntry(req, deps, config)
+    if (recovered) return recovered
     return startForMode(req, deps, config, "Session expired.\n")
   }
 

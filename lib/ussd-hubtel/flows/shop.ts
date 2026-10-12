@@ -65,6 +65,26 @@ export async function startShopSession(
   })
 }
 
+/**
+ * A shop code typed after the session record was lost (Redis miss / TTL / a Timeout that raced the
+ * code). Hubtel echoes the ClientState of our previous reply, so "SHOP_ENTER_CODE" proves the caller
+ * was on the code prompt: rebuild the base shop session (nothing else is needed at that step) and
+ * process the code instead of restarting with "Session expired". Billing stays guarded per
+ * (SessionId, code). null when the caller has no shop service (the restart then releases).
+ */
+export async function recoverShopCodeEntry(
+  req: HubtelRequest, deps: RouterDeps, config: HubtelUssdConfig
+): Promise<HubtelReply | null> {
+  if (config.mode !== "shop" || req.ClientState !== "SHOP_ENTER_CODE") return null
+  const dataBlocked = await deps.isDataBlocked(req.Mobile)
+  if (shopMenuFor(config, dataBlocked).length === 0) return null
+  const session: HubtelSession = {
+    mode: "shop", step: "SHOP_ENTER_CODE", dialingPhone: toE164(req.Mobile), platform: req.Platform, dataBlocked,
+  }
+  await deps.sessions.set(req.SessionId, session)
+  return enterCode({ input: req.Message.trim(), req, deps, config, session })
+}
+
 async function enterCode(ctx: FlowCtx): Promise<HubtelReply> {
   const { input, deps, req } = ctx
   if (input === "0") return finish(ctx, "Goodbye.")
