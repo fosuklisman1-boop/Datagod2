@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest"
-import { sessionStore } from "./session"
+import { DB_SESSION_TTL_SECONDS, dbSessionStore, sessionStore } from "./session"
 import type { HubtelSession } from "./types"
 
 const s: HubtelSession = { step: "MAIN", dialingPhone: "+233200585542", platform: "USSD" }
@@ -48,5 +48,71 @@ describe("hubtel session store (redis configured but failing)", () => {
     expect(await store.get("b2")).toEqual(s)
     data.clear() // TTL expiry
     expect(await store.get("b2")).toBeNull()
+  })
+})
+
+describe("dbSessionStore", () => {
+  /** Minimal fake of the calls dbSessionStore makes on hubtel_ussd_sessions. */
+  function fakeDb(fail = false) {
+    const rows = new Map<string, { data: HubtelSession; expires_at: string }>()
+    const err = fail ? { code: "42P01", message: "relation does not exist" } : null
+    const client = {
+      from: () => ({
+        select: () => ({ eq: (_c: string, id: string) => ({ maybeSingle: async () => (err ? { data: null, error: err } : { data: rows.get(id) ?? null, error: null }) }) }),
+        upsert: async (r: { session_id: string; data: HubtelSession; expires_at: string }) => {
+          if (err) return { error: err }
+          rows.set(r.session_id, { data: r.data, expires_at: r.expires_at })
+          return { error: null }
+        },
+        delete: () => ({
+          eq: async (_c: string, id: string) => { if (!err) rows.delete(id); return { error: err } },
+          lt: async (_c: string, iso: string) => { for (const [k, v] of rows) if (v.expires_at < iso) rows.delete(k); return { error: err } },
+        }),
+      }),
+    }
+    return { client: client as never, rows }
+  }
+  const memFallback = () => {
+    const m = new Map<string, HubtelSession>()
+    return { m, store: { get: async (id: string) => m.get(id) ?? null, set: async (id: string, v: HubtelSession) => { m.set(id, v) }, del: async (id: string) => { m.delete(id) } } }
+  }
+  afterEach(() => { vi.restoreAllMocks() })
+
+  it("round-trips through the table and deletes", async () => {
+    const { client, rows } = fakeDb()
+    const { store: fb, m } = memFallback()
+    const store = dbSessionStore(client, fb)
+    await store.set("d1", s)
+    expect(rows.has("d1")).toBe(true)
+    expect(m.has("d1")).toBe(false)
+    expect(await store.get("d1")).toEqual(s)
+    await store.del("d1")
+    expect(await store.get("d1")).toBeNull()
+  })
+  it("an expired row is a miss", async () => {
+    let t = 1_000_000
+    const { client } = fakeDb()
+    const { store: fb } = memFallback()
+    const store = dbSessionStore(client, fb, () => t)
+    await store.set("d2", s)
+    t += (DB_SESSION_TTL_SECONDS + 1) * 1000
+    expect(await store.get("d2")).toBeNull()
+  })
+  it("table missing / DB failing: falls back to the previous store", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const { client } = fakeDb(true)
+    const { store: fb, m } = memFallback()
+    const store = dbSessionStore(client, fb)
+    await store.set("d3", s)
+    expect(m.get("d3")).toEqual(s)
+    expect(await store.get("d3")).toEqual(s)
+    await store.del("d3")
+    expect(m.has("d3")).toBe(false)
+  })
+  it("a healthy DB miss does not consult the fallback", async () => {
+    const { client } = fakeDb()
+    const { store: fb, m } = memFallback()
+    m.set("d4", s)
+    expect(await dbSessionStore(client, fb).get("d4")).toBeNull()
   })
 })

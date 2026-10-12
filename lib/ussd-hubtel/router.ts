@@ -4,7 +4,7 @@ import { keyForDigit } from "@/lib/ussd/menu-items"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import { getHubtelUssdConfig, type HubtelUssdConfig } from "./config"
 import { defaultAfaServices, defaultAirtimeServices, defaultRcServices, resolveDialer } from "./services"
-import { sessionStore } from "./session"
+import { dbSessionStore } from "./session"
 import { defaultShopServices } from "./shop-services"
 import { dbShopBillingGuard } from "./billing-guard"
 import { fetchBundles, PAGE_SIZE, resolveCaller, isDataBlocked } from "./catalog"
@@ -31,7 +31,7 @@ export function defaultRouterDeps(supabase: SupabaseClient): RouterDeps {
   return {
     supabase,
     getConfig: () => getHubtelUssdConfig(supabase),
-    sessions: sessionStore,
+    sessions: dbSessionStore(supabase),
     fetchBundles,
     resolveCaller: phone => resolveCaller(supabase, phone),
     isDataBlocked: msisdn => isDataBlocked(supabase, msisdn),
