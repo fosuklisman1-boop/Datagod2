@@ -35,7 +35,7 @@ async function syncTable(table: AfaTable, statusCol: "status" | "order_status"):
 
   const { data: rows, error } = await supabase
     .from(table)
-    .select("id, fulfillment_ref")
+    .select(`id, fulfillment_ref, ${statusCol}`)
     .eq("fulfillment_provider", "apexprime")
     .eq("fulfillment_status", "pending")
     .not("fulfillment_ref", "is", null)
@@ -66,10 +66,12 @@ async function syncTable(table: AfaTable, statusCol: "status" | "order_status"):
             updated_at: new Date().toISOString(),
           })
           .eq("id", row.id)
-          .neq(statusCol, "completed")
           .select(NOTIFY_COLUMNS[table])
         const completedRow = (completedRows as any[] | null)?.[0]
-        if (table === "afa_orders" && completedRow) {
+        // Reconciliation above is unconditional; only a real transition (pre-image not already
+        // completed, e.g. by an admin who already notified the user) notifies. Worst case the
+        // notice is delayed by one cron run over a batch of 50, which is acceptable.
+        if (table === "afa_orders" && completedRow && row[statusCol] !== "completed") {
           await notifyUserOfOutcome(
             "afa",
             "completed",

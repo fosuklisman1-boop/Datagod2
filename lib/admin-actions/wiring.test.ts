@@ -100,7 +100,8 @@ describe("afa apexprime cron wiring", () => {
   const src = () => read("app/api/cron/sync-afa-status/apexprime/route.ts")
   it("notifies completed once, conditionally, afa_orders only", () => {
     expect(src().match(/notifyUserOfOutcome\(\s*"afa",\s*"completed"/g)).toHaveLength(1)
-    expect(src()).toContain('.neq(statusCol, "completed")')
+    expect(src()).not.toContain(".neq(statusCol")
+    expect(src()).toMatch(/completedRow && row\[statusCol\] !== "completed"/)
     expect(src().match(/table === "afa_orders" &&/g)!.length).toBe(3)
   })
   it("alerts admins at both async failure branches", () => {
