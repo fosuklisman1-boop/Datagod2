@@ -4,6 +4,7 @@ import { verifyAdminAccess } from "@/lib/admin-auth"
 import { enqueueRecipients, drainBroadcasts } from "@/lib/broadcast-drain"
 import { resolveRecipients } from "@/lib/sms/recipients"
 import { personalize } from "@/lib/sms/personalize"
+import { parseSmsProvider } from "@/lib/sms/provider-pick"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -47,6 +48,10 @@ export async function POST(req: NextRequest) {
             }
             if (!Array.isArray(channels) || channels.length === 0) {
                 return NextResponse.json({ error: "at least one channel is required" }, { status: 400 })
+            }
+            const smsProvider = parseSmsProvider(body.smsProvider)
+            if (smsProvider === "invalid") {
+                return NextResponse.json({ error: "smsProvider must be 'moolre', 'hubtel' or 'global'" }, { status: 400 })
             }
             if (!recipients || typeof recipients !== "object") {
                 return NextResponse.json({ error: "recipients is required" }, { status: 400 })
@@ -151,6 +156,11 @@ export async function POST(req: NextRequest) {
                     subject: (typeof subject === "string" ? subject : ""),
                     message: message,
                     status: "processing",
+                    // Only written for an explicit pick on an SMS broadcast, so ordinary
+                    // broadcasts never touch the column (works before the migration).
+                    ...((smsProvider === "moolre" || smsProvider === "hubtel") && channels.includes("sms")
+                        ? { sms_provider: smsProvider }
+                        : {}),
                     results: {
                         total: 0,
                         sms: { sent: 0, failed: 0, pending: 0 },

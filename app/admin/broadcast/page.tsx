@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
+import { ProviderSelect } from "@/components/sms/ProviderSelect"
 import {
     Send,
     Users,
@@ -51,6 +52,7 @@ export default function BroadcastPage() {
     const [channels, setChannels] = useState<string[]>(["email"])
     const [subject, setSubject] = useState("")
     const [message, setMessage] = useState("")
+    const [smsProvider, setSmsProvider] = useState<"" | "moolre" | "hubtel">("")
 
     // Progress
     const [results, setResults] = useState<any | null>(null)
@@ -243,7 +245,10 @@ export default function BroadcastPage() {
             const initRes = await fetch("/api/admin/broadcast", {
                 method: "POST",
                 headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-                body: JSON.stringify({ action: "init", channels, recipients: recipientsPayload, subject, message })
+                body: JSON.stringify({
+                    action: "init", channels, recipients: recipientsPayload, subject, message,
+                    ...(channels.includes("sms") && smsProvider ? { smsProvider } : {}),
+                })
             })
 
             const initData = await initRes.json()
@@ -424,6 +429,15 @@ export default function BroadcastPage() {
                                         <MessageSquare className="ml-auto w-5 h-5 text-success" />
                                     </label>
                                 </div>
+                                {channels.includes("sms") && (
+                                    <ProviderSelect
+                                        id="broadcast-sms-provider"
+                                        label="SMS provider"
+                                        value={smsProvider}
+                                        onChange={setSmsProvider}
+                                        disabled={sending}
+                                    />
+                                )}
                                 <label className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all ${channels.includes("push") ? "bg-primary/10 border-primary" : "hover:bg-accent"}`}>
                                     <Checkbox checked={channels.includes("push")} onCheckedChange={(val) => setChannels(prev => val ? [...prev, "push"] : prev.filter(c => c !== "push"))} />
                                     <div className="flex flex-col">
