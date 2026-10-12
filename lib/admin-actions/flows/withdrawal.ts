@@ -1,11 +1,11 @@
 import type { WithdrawalCtx } from "../contexts"
-import { appUrl, clipSms, emailShell } from "../html"
+import { appUrl, clipSms, emailShell, maskNumber } from "../html"
 import type { FlowDef, Outcome, UserMessage } from "../types"
 
-const money = (n: number) => `GHS ${Number(n).toFixed(2)}`
+const money = (n: number) => `GHS ${(Number.isFinite(Number(n)) ? Number(n) : 0).toFixed(2)}`
 const OWNER_URL = "/dashboard/shop-dashboard"
 const details = (c: WithdrawalCtx) =>
-  [c.method ? `Method: ${c.method}` : "", c.phone ? `To: ${c.phone}` : ""].filter(Boolean)
+  [c.method ? `Method: ${c.method}` : "", c.phone ? `To: ${maskNumber(c.phone)}` : ""].filter(Boolean)
 
 export const withdrawalFlow: FlowDef<WithdrawalCtx> = {
   adminAlert(c) {
@@ -69,7 +69,7 @@ export const withdrawalFlow: FlowDef<WithdrawalCtx> = {
           paragraphs: [`Your withdrawal of ${money(c.amount)} has been paid out.`, ...details(c)],
           cta: { label: "Open dashboard", url: appUrl(OWNER_URL) },
         }),
-        sms: clipSms(`Your withdrawal of ${money(c.amount)} has been transferred${c.phone ? ` to ${c.phone}` : " to your account"}.`),
+        sms: clipSms(`Your withdrawal of ${money(c.amount)} has been transferred${c.phone ? ` to ${maskNumber(c.phone)}` : " to your account"}.`),
         inApp: { title: "Withdrawal paid out", message: `Your withdrawal of ${money(c.amount)} has been paid out.`, type: "balance_updated", actionUrl: OWNER_URL },
       }
     }

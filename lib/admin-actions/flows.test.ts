@@ -80,3 +80,79 @@ describe("shop specifics", () => {
     expect(m.sms).toContain("approved")
   })
 })
+
+describe.each(Object.keys(FLOWS) as FlowId[])("escaping %s", (flow) => {
+  it("renders hostile values as escaped text in the emails", () => {
+    const def = FLOWS[flow]
+    const ctx = ctxFor[flow]
+    const htmls = [def.adminAlert(ctx).html, ...SUPPORTED[flow].map((o) => def.userMessage(o, ctx)!.emailHtml)]
+    expect(htmls.some((h) => h.includes("&lt;script&gt;"))).toBe(true)
+    for (const h of htmls) expect(h).not.toContain("<script>")
+  })
+})
+
+describe("withdrawal never prints unmasked payout numbers", () => {
+  const PHONE = "0241112222"
+  const ACCT = "123456789012"
+  for (const number of [PHONE, ACCT]) {
+    it(`masks ${number} everywhere`, () => {
+      const ctx = { withdrawalId: "w1", amount: 50, shopName: "Kofi", method: "Mobile Money", phone: number, reason: "No", remainingBalance: "5.00" }
+      const texts: string[] = [JSON.stringify(FLOWS.withdrawal.adminAlert(ctx))]
+      for (const o of ["approved", "rejected", "completed"] as Outcome[]) texts.push(JSON.stringify(FLOWS.withdrawal.userMessage(o, ctx)))
+      for (const t of texts) expect(t).not.toContain(number)
+      expect(texts.join("")).toContain(number.slice(0, 3) + "*")
+    })
+  }
+})
+
+describe("partial contexts never leak undefined/null/NaN", () => {
+  const bad = /undefined|null|NaN/
+  const check = (flow: FlowId, ctx: any) => {
+    const def = FLOWS[flow]
+    const a = def.adminAlert(ctx)
+    expect(a.html + a.subject + a.pushBody).not.toMatch(bad)
+    for (const o of SUPPORTED[flow]) {
+      const m = def.userMessage(o, ctx)!
+      expect(m.sms + m.emailHtml + m.emailSubject + JSON.stringify(m.push ?? {}) + JSON.stringify(m.inApp ?? {})).not.toMatch(bad)
+    }
+  }
+  const base = { withdrawalId: "w1", amount: 5 }
+  it.each([
+    ["phone only", { phone: "0241112222" }],
+    ["method only", { method: "Mobile Money" }],
+    ["reason only", { reason: "Because" }],
+    ["remainingBalance only", { remainingBalance: "1.00" }],
+  ])("withdrawal %s", (_n, extra) => check("withdrawal", { ...base, ...extra }))
+  it("results_check whatsapp without shopName", () =>
+    check("results_check", { requestId: "r", examBoard: "WASSCE", indexNumber: "123", channel: "whatsapp" }))
+  it("shop without reason", () => check("shop", { shopId: "s", shopName: "Kofi Data" }))
+})
+
+describe("withdrawal money guard", () => {
+  it.each([NaN, Infinity, undefined as any])("non-finite amount %s prints GHS 0.00", (amount) => {
+    const m = FLOWS.withdrawal.userMessage("approved", { withdrawalId: "w", amount })!
+    expect(m.sms).toContain("GHS 0.00")
+    expect(m.sms).not.toMatch(/NaN|Infinity|undefined/)
+  })
+})
+
+describe("results_check completed wording by channel", () => {
+  const base = { requestId: "r", examBoard: "WASSCE", indexNumber: "123" }
+  const sms = (channel?: string | null) => FLOWS.results_check.userMessage("completed", { ...base, channel })!
+  it("whatsapp and whatsapp_shop point to WhatsApp", () => {
+    for (const ch of ["whatsapp", "whatsapp_shop"]) {
+      expect(sms(ch).sms).toBe("Your WASSCE results check (index 123) has been completed. Check your WhatsApp for the result.")
+      expect(sms(ch).emailHtml).toContain("Check your WhatsApp for the result.")
+    }
+  })
+  it("web points to the dashboard", () => {
+    expect(sms("web").sms).toContain("Check your dashboard for the result.")
+    expect(sms("web").emailHtml).toContain("Check your dashboard for the result.")
+  })
+  it("other or missing channel omits the sentence and claims no delivery", () => {
+    for (const ch of ["ussd", null, undefined]) {
+      expect(sms(ch).sms).toBe("Your WASSCE results check (index 123) has been completed.")
+      expect(sms(ch).emailHtml).not.toMatch(/Check your|sent the result/)
+    }
+  })
+})

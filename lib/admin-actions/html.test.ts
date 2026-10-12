@@ -1,4 +1,4 @@
-import { appUrl, clipSms, emailShell, escapeHtml } from "./html"
+import { appUrl, clipSms, emailShell, escapeHtml, maskNumber } from "./html"
 
 describe("escapeHtml", () => {
   it("escapes the five dangerous characters", () => {
@@ -63,4 +63,15 @@ describe("clipSms", () => {
     expect(out.endsWith("...")).toBe(true)
   })
   it("honours a custom max", () => expect(clipSms("abcdefghij", 8)).toBe("abcde..."))
+})
+
+describe("maskNumber", () => {
+  it("keeps first 3 and last 3 of a phone", () => expect(maskNumber("0241112222")).toBe("024****222"))
+  it("keeps first 3 and last 3 of a long account", () => expect(maskNumber("123456789012")).toBe("123******012"))
+  it("shows only the last 2 for short strings", () => expect(maskNumber("12345")).toBe("****45"))
+  it("returns empty for empty/null/undefined", () => {
+    expect(maskNumber("")).toBe("")
+    expect(maskNumber(null)).toBe("")
+    expect(maskNumber(undefined)).toBe("")
+  })
 })

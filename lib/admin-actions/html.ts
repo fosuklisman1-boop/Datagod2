@@ -33,3 +33,11 @@ export function emailShell(o: { heading: string; paragraphs: string[]; cta?: { l
 export function clipSms(s: string, max = 160): string {
   return s.length <= max ? s : s.slice(0, max - 3).trimEnd() + "..."
 }
+
+/** Masks a phone/account number for messages: first 3 + last 3 when length >= 8, else asterisks + last 2. */
+export function maskNumber(s: string | null | undefined): string {
+  const v = String(s ?? "").trim()
+  if (!v) return ""
+  if (v.length >= 8) return v.slice(0, 3) + "*".repeat(v.length - 6) + v.slice(-3)
+  return "****" + v.slice(-2)
+}
