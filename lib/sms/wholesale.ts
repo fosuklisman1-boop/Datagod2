@@ -13,7 +13,7 @@ import { getRoutingConfig } from "./routing"
 import { hubtelConfigFromEnv } from "./providers/hubtel"
 import { fetchDisbursementBalance } from "@/lib/ussd-hubtel/relay"
 import { queryMoolreSmsBalance } from "@/lib/sms-service"
-import { loadSmsSettings, type SmsPlatformSettings } from "./platform-settings"
+import { loadHubtelBalanceSettings, loadSmsSettings, type HubtelBalanceSettings } from "./platform-settings"
 import { notifyAdminsThrottled } from "./notify"
 import { isManualBalanceFresh, manualEstimate, type HubtelManualBalance } from "./hubtel-manual-balance"
 
@@ -78,7 +78,7 @@ export type HubtelBalanceResult =
   | { ok: false; error: string }
 
 /** amount − Hubtel spend since setAt (floored at 0). Throws on any lookup failure. */
-async function computeManualEstimate(settings: SmsPlatformSettings, mb: HubtelManualBalance): Promise<number> {
+async function computeManualEstimate(settings: HubtelBalanceSettings, mb: HubtelManualBalance): Promise<number> {
   const rate = (await cachedMaxObservedRate()) ?? settings.hubtelCostPerSms
   const spent = await hubtelSpendSince(mb.setAt, rate)
   return manualEstimate(mb.amountGhs, spent)
@@ -99,15 +99,16 @@ const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
  * Never throws.
  */
 export async function resolveHubtelBalance(): Promise<HubtelBalanceResult> {
-  let settings: SmsPlatformSettings
+  // STRICT + uncached: a failed read must never fall back to defaults (prefer=false ⇒ relay figure).
+  let settings: HubtelBalanceSettings
   try {
-    settings = await loadSmsSettings()
+    settings = await loadHubtelBalanceSettings()
   } catch (e) {
-    return { ok: false, error: `SMS settings unavailable: ${msg(e)}` }
+    return { ok: false, error: `Hubtel balance settings unavailable: ${msg(e)}` }
   }
 
-  if (settings.hubtelPreferManualBalance) {
-    const mb = settings.hubtelManualBalance
+  if (settings.preferManual) {
+    const mb = settings.manual
     if (!mb || !isManualBalanceFresh(mb)) {
       return { ok: false, error: "manual balance preferred but missing or older than 30 days — set the current Hubtel SMS balance (the relay reads a different wallet and is not used)" }
     }
@@ -120,7 +121,7 @@ export async function resolveHubtelBalance(): Promise<HubtelBalanceResult> {
 
   const relay = await fetchDisbursementBalance()
   if (relay.ok) return { ok: true, amountGhs: relay.amountGhs, source: "relay" }
-  const mb = settings.hubtelManualBalance
+  const mb = settings.manual
   if (!mb || !isManualBalanceFresh(mb)) {
     return { ok: false, error: mb ? `${relay.error}; the manual Hubtel balance set ${mb.setAt} is older than 30 days and is ignored` : relay.error }
   }
@@ -153,10 +154,10 @@ export async function getWholesaleCredits(): Promise<number> {
     const settings = await loadSmsSettings()
     if (bal.amountGhs < settings.hubtelLowBalanceGhs || bal.amountGhs <= 0) {
       const what = bal.source === "manual"
-        ? `Estimated Hubtel Disbursement balance (manual estimate, set ${bal.manualSetAt}) is GH₵${bal.amountGhs.toFixed(2)}`
-        : `Hubtel Disbursement balance is GH₵${bal.amountGhs.toFixed(2)}`
+        ? `Estimated Hubtel SMS balance (manual estimate, set ${bal.manualSetAt}) is GH₵${bal.amountGhs.toFixed(2)}`
+        : `Hubtel balance read by the relay is GH₵${bal.amountGhs.toFixed(2)}`
       notifyAdminsThrottled("sms_hubtel_low_balance", "Hubtel SMS balance low",
-        `${what} (alert below GH₵${settings.hubtelLowBalanceGhs}). Top it up to keep selling SMS credits${bal.source === "manual" ? ", then set the new manual balance" : ""}.`).catch(() => {})
+        `${what} (alert below GH₵${settings.hubtelLowBalanceGhs}). Top up the Hubtel SMS wallet to keep selling SMS credits${bal.source === "manual" ? ", then set the new manual balance" : ""}.`).catch(() => {})
     }
     const rate = observed ?? settings.hubtelCostPerSms
     return Math.max(0, backedCredits(bal.amountGhs, rate) - queuedUnsent)
