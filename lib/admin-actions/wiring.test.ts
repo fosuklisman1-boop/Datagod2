@@ -150,3 +150,22 @@ describe("sender-id wiring fixes", () => {
     expect(src).toContain('"rejected", body.reason?.trim() || undefined)')
   })
 })
+
+describe("complaint wiring", () => {
+  it("both creation paths alert admins", () => {
+    expect(read("app/api/complaints/create/route.ts")).toContain('alertAdminsOfRequest("complaint"')
+    expect(read("lib/whatsapp-bot/complaints.ts")).toContain('alertAdminsOfRequest("complaint"')
+  })
+  it("admin update route notifies the user only on a status change to a terminal status", () => {
+    const src = read("app/api/admin/complaints/update/route.ts")
+    expect(src).toContain('notifyUserOfOutcome("complaint"')
+    expect(src).toMatch(/previousStatus !== newStatus/)
+    expect(src).not.toMatch(/in_progress/)
+  })
+  it("WhatsApp inbox resolution notifies the complainant via the shared helper (covers resolve-complaint route)", () => {
+    const src = read("lib/whatsapp-bot/complaints.ts")
+    expect(src).toContain('notifyUserOfOutcome("complaint", "resolved"')
+    const fn = src.slice(src.indexOf("export async function resolveOpenComplaintsForPhone"))
+    expect(fn.slice(0, fn.indexOf("export async function resolveAllOpenComplaints"))).toContain("notifyWaComplaintsResolved(")
+  })
+})

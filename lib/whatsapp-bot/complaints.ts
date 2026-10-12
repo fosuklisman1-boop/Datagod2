@@ -7,6 +7,7 @@
 // claim/resolve flow lives in lib/whatsapp-bot/admin-router.ts (adminComplaintRouter).
 import { createClient } from "@supabase/supabase-js"
 import { getResultsCheckAdminPhones } from "@/lib/results-checker-service"
+import { alertAdminsOfRequest, notifyUserOfOutcome } from "@/lib/admin-actions"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -114,8 +115,26 @@ export async function resolveOpenComplaintsForPhone(
     })
     .eq("phone_number", phone)
     .eq("status", "open")
-    .select("id")
+    .select("id, phone_number")
+  // Only rows this call actually flipped open -> resolved are returned (gated on
+  // the previous status via .eq("status", "open")).
+  await notifyWaComplaintsResolved(data ?? [], resolution)
   return data?.length ?? 0
+}
+
+// Email/SMS the complainant that their (guest, phone-only) complaint was resolved.
+// Never throws. NOTE: the bot-side adminComplaintRouter already WhatsApps the reply.
+async function notifyWaComplaintsResolved(rows: { id: string; phone_number: string }[], resolution: string): Promise<void> {
+  try {
+    for (const r of rows) {
+      await notifyUserOfOutcome("complaint", "resolved", { phone: r.phone_number, reference: r.id }, {
+        complaintId: r.id,
+        resolutionNotes: resolution.slice(0, 200),
+      })
+    }
+  } catch (e) {
+    console.warn("[WA-COMPLAINT] resolution notify failed:", e instanceof Error ? e.message : e)
+  }
 }
 
 // Bulk-resolve ALL open (unclaimed) complaints across every customer — the
@@ -168,6 +187,12 @@ export async function appendComplaintEvidence(complaintId: string, url: string):
 }
 
 export async function notifyAdminsNewComplaint(complaint: WaComplaint): Promise<void> {
+  // Email + push to dashboard admins (never throws); the WhatsApp alert below is kept.
+  await alertAdminsOfRequest("complaint", {
+    complaintId: complaint.id,
+    summary: complaint.description.slice(0, 200),
+  })
+
   const who = complaint.customer_name || complaint.phone_number
   const message =
     `🛎️ New complaint (${complaint.category})\n\n` +
