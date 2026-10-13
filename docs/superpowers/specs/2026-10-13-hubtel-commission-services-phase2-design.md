@@ -20,7 +20,7 @@ the Phase 1 review queue and nothing ever auto-resent or auto-refunded.
 | Topic | Decision |
 |---|---|
 | Airtime provider | Per-network switch: Digiwapy / Hubtel / manual. No automatic cross-provider fallback. |
-| Data catalog | Separate Hubtel catalog, **live lookup at checkout** (no stored catalog). |
+| Data catalog | Separate Hubtel catalog, live from Hubtel (no stored catalog). After the 2026-10-13 live check showed identical lists across numbers: **browse first, buyer's number re-checked at purchase.** |
 | Data price | Hubtel's price, **no markup**. |
 | Shop profit on Hubtel data | **None.** |
 | Surfaces for data | Customer dashboard, shop storefronts, public API v1. USSD/WhatsApp stay in Phase 4. |
@@ -86,32 +86,45 @@ Out of scope: bills/broadband (Phase 3), USSD/WhatsApp (Phase 4), commission wal
   bundle_category, amount numeric(12,2), payment_status, status ('pending'|'processing'|'completed'|'failed'),
   hubtel_client_reference, transaction_id (payment), notes, created_at, updated_at`.
   Unique `(hubtel_client_reference)`; index `(user_id, created_at)`.
-- **Lookup endpoint** `GET /api/standard-bundles/lookup?network=&phone=` → calls Phase 1 `client.query(data_<net>, phone)`,
-  returns `{ bundles: [{ id, display, value, amount, category }] }` where `id` = a server-signed token of
-  `(network, phone, value, amount, issuedAt)` (HMAC with an existing server secret; 10-minute validity). The buy step
-  accepts only that token, so the client can never submit an arbitrary value/amount pair. Rate-limited per user/IP.
-- **Categories** (no category field exists in Hubtel's response — mapping lives in `lib/hubtel-cs/bundle-categories.ts`):
-  - MTN by `Value` prefix: `data_bundle_` → "Data", `kokrokoo_` → "Kokrokoo", `flexi_data_bundle` → "Flexi",
-    `video_bundle_` → "Video", `social_media_bundle_` → "Social Media".
-  - Telecel by `Display` keyword: "Daily", "Weekly", "Monthly"; anything else (e.g. "Dual Recharge") → "Other".
-  - AT: single category "Data".
-  - Unknown prefixes/names → "Other" (always shown last). Admin can hide categories per network (§7).
-- **Identity:** a bundle is `(value, amount)` — MTN `flexi_data_bundle` repeats at many prices.
-- **Open item (blocks only the browse-before-number option, not this design):** whether bundle lists differ between numbers
-  on one network. This design is number-first, which is correct either way.
+- **Live verification (2026-10-13, account 2027144, keys work):** read-only queries for two different numbers per network
+  returned **identical lists** (MTN 37, Telecel 27, AT 30 bundles). Raw responses saved as
+  `lib/hubtel-cs/testing/fixtures/live-bundle-query-2026-10-13.json` and used as test fixtures. **The live `Value`s differ
+  completely from the docs' samples** (e.g. MTN `RACT_Data_Flexi_Bundle`, Telecel `DATANVDBDL1`, AT `db_BigTime_Data_…`) —
+  design below follows the live data, not the docs.
+- **Browse first, verify at purchase.** Because lists matched across numbers, the page shows a network's bundles before any
+  number is entered:
+  - **Catalog endpoint** `GET /api/standard-bundles/catalog?network=` → queries Hubtel with a per-network **reference number**
+    (admin setting; defaults to Hubtel's documented sample numbers), cached server-side 10 minutes. Returns
+    `{ bundles: [{ id, display, value, amount, category }] }`, `id` = HMAC-signed token of `(network, value, amount, issuedAt)`
+    (10-minute validity), so the buy step can never receive an arbitrary value/amount pair. Rate-limited per user/IP.
+  - **At purchase the buyer's own number is always re-queried** (§7 step 2). If that number's list doesn't contain the
+    `(value, amount)`, nothing is charged and the customer is told the bundle isn't available for that number. This keeps the
+    flow safe even if some numbers do get different lists.
+- **Categories** (no category field exists — mapping in `lib/hubtel-cs/bundle-categories.ts`, tested against the live fixture):
+  - **MTN** by `Value`: contains `_Midnight_` → "Midnight"; `_Kokrokoo_` → "Kokrokoo"; `_Social_` → "Social Media";
+    `_Video_` → "Video"; `_Data_` → "Data" (covers both `RACT_Data_GHC_*` and `RACT_Data_Flexi_Bundle`).
+  - **Telecel** by the duration text before " - " in `Display`: "1 Hour" → "Hourly"; "1 day" → "Daily"; 2–7 days → "Weekly";
+    8–31 days → "Monthly"; "No Expiry(12am - 5am)" → "Night"; "No Expiry" → "No Expiry".
+  - **AT** by `Value` prefix: `db_BigTime_Data_` → "BigTime"; `db_Fuse_` → "Fuse (Mins + Data)"; `db_Sika_Kokoo_` → "Kokoo";
+    `db_XXL_Family_Pack_` → "XXL Family".
+  - Anything unmatched → "Other" (shown last). Tab order per network follows the order above. Admin can hide categories per
+    network (§7). A test asserts every bundle in the live fixture maps to a non-"Other" category.
+- **Identity:** a bundle is `(value, amount)` — MTN `RACT_*_Flexi_Bundle` values repeat at many prices (live data confirms).
+- **Display:** show Hubtel's `Display` text trimmed; price from `Amount` formatted "GHS x.xx". Sort within a tab by amount.
 
 ## 7. Standard Bundles — dashboard page and purchase flow (2b)
 
 - **Sidebar:** new "Standard Bundles" link with the NEW tag (`lib/nav-new.ts`, 2nd-click clear), shown only when at least one
   network is enabled.
-- **Page `/dashboard/standard-bundles`:** network selector (MTN / Telecel / AT, enabled ones only) → phone input (validated
-  against the network prefix map, like the Data page) → "Show bundles" → category pill-tabs → bundle cards (display, price
-  "GHS x.xx") → confirm dialog (number, bundle, price, wallet balance) → pay. Navy accent, light cards, `lg:` multi-column
-  grid of bundle cards, usable at 500 px (memory rules: navy brand, desktop layout, NEW tag).
-- **Buy** `POST /api/standard-bundles/purchase { token }` (auth required):
-  1. Verify token (signature, age ≤ 10 min, network enabled, category not hidden).
-  2. **Re-query** Hubtel for that number and confirm `(value, amount)` is still offered; if not → 409 "bundle changed, refresh"
-     (nothing charged).
+- **Page `/dashboard/standard-bundles`:** network selector (MTN / Telecel / AT, enabled ones only) → category pill-tabs →
+  bundle cards (display, price "GHS x.xx") loaded from the catalog endpoint → tap a bundle → dialog asks for the recipient
+  number (validated against the network prefix map, like the Data page) and shows bundle, price, wallet balance → pay.
+  Navy accent, light cards, `lg:` multi-column grid of bundle cards, usable at 500 px (memory rules: navy brand, desktop
+  layout, NEW tag).
+- **Buy** `POST /api/standard-bundles/purchase { token, phone }` (auth required):
+  1. Verify token (signature, age ≤ 10 min, network enabled, category not hidden); validate phone for the network.
+  2. **Re-query** Hubtel for the buyer's number and confirm `(value, amount)` is offered; if not → 409 "this bundle isn't
+     available for that number / has changed — refresh" (nothing charged).
   3. Insert `hubtel_data_orders` row, debit wallet with existing `deduct_wallet` RPC (insufficient funds → order failed, no Hubtel call).
   4. `hubtelCs.purchase({ serviceKey: data_<net>, destination, amount, bundle: value, orderTable: "hubtel_data_orders", orderId })`.
   5. Return the order; UI shows "processing" and polls status.
@@ -120,7 +133,8 @@ Out of scope: bills/broadband (Phase 3), USSD/WhatsApp (Phase 4), commission wal
 - **Adapter `hubtel_data_orders`:** fulfilled → `completed`; failed → `failed` + note; `refundToWallet` idempotent per order
   (keyed by order id, uses the Phase 1 refund claim). Customer order history: rows appear in `/dashboard/my-orders` via a
   new "Standard Bundles" filter.
-- **Admin:** `/admin/hubtel-commission` Settings gains a Standard Bundles card: per-network enable, per-category hide.
+- **Admin:** `/admin/hubtel-commission` Settings gains a Standard Bundles card: per-network enable, per-category hide,
+  per-network catalog reference number.
   Transactions tab already lists the ledger rows.
 
 ## 8. Storefronts and API v1 (2c)
@@ -130,8 +144,8 @@ Out of scope: bills/broadband (Phase 3), USSD/WhatsApp (Phase 4), commission wal
   `channel: storefront`, `shop_id`. Paystack webhook branch on the order reference → mark paid → step 4 of §7. Re-query
   happens before initializing payment and again before the Hubtel POST; a mismatch after payment ⇒ order to review queue
   (customer has paid; refund manual), never a silent different bundle.
-- **API v1:** `GET /api/v1/standard-bundles?network=&phone=` (returns bundles + tokens) and `POST /api/v1/standard-bundles
-  { token }` (wallet), authenticated with `authenticateApiKey`, logged with `logApiRequest`, errors via `classifyServiceError`;
+- **API v1:** `GET /api/v1/standard-bundles?network=` (catalog: bundles + categories + tokens) and `POST /api/v1/standard-bundles
+  { token, phone }` (wallet; buyer's number re-checked as in §7), authenticated with `authenticateApiKey`, logged with `logApiRequest`, errors via `classifyServiceError`;
   sandbox mode returns canned bundles. Documented in the developer page.
 
 ## 9. Error handling summary

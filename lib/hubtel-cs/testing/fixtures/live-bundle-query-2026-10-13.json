@@ -1,0 +1,493 @@
+{
+  "MTN": {
+    "ResponseCode": "0000",
+    "Message": "Successful",
+    "Label": "Successful",
+    "Data": [
+      {
+        "Display": "Kokrokoo 460.11MB, 5am to 8am",
+        "Value": "RACT_Kokrokoo_GHC_1.09_Others",
+        "Amount": 1.22
+      },
+      {
+        "Display": "406.89MB",
+        "Value": "RACT_Data_GHC_3_Others",
+        "Amount": 3
+      },
+      {
+        "Display": "837.55MB",
+        "Value": "RACT_Data_GHC_10_Others",
+        "Amount": 10
+      },
+      {
+        "Display": "1.39GB",
+        "Value": "RACT_Data_Flexi_Bundle",
+        "Amount": 20
+      },
+      {
+        "Display": "2.78GB",
+        "Value": "RACT_Data_Flexi_Bundle",
+        "Amount": 40
+      },
+      {
+        "Display": "4.17GB",
+        "Value": "RACT_Data_Flexi_Bundle",
+        "Amount": 60
+      },
+      {
+        "Display": "5.56GB",
+        "Value": "RACT_Data_Flexi_Bundle",
+        "Amount": 80
+      },
+      {
+        "Display": "9.17GB",
+        "Value": "RACT_Data_Flexi_Bundle",
+        "Amount": 100
+      },
+      {
+        "Display": "11.00GB",
+        "Value": "RACT_Data_Flexi_Bundle",
+        "Amount": 120
+      },
+      {
+        "Display": "13.75GB",
+        "Value": "RACT_Data_Flexi_Bundle",
+        "Amount": 150
+      },
+      {
+        "Display": "30.87GB",
+        "Value": "RACT_Data_Flexi_Bundle",
+        "Amount": 200
+      },
+      {
+        "Display": "38.59GB",
+        "Value": "RACT_Data_Flexi_Bundle",
+        "Amount": 250
+      },
+      {
+        "Display": "92.75GB",
+        "Value": "RACT_Data_Flexi_Bundle",
+        "Amount": 300
+      },
+      {
+        "Display": "108.21GB",
+        "Value": "RACT_Data_Flexi_Bundle",
+        "Amount": 350
+      },
+      {
+        "Display": "217.34GB",
+        "Value": "RACT_Data_Flexi_Bundle",
+        "Amount": 399
+      },
+      {
+        "Display": "Midnight 2.01GB",
+        "Value": "RACT_Midnight_Flexi_Bundle",
+        "Amount": 1
+      },
+      {
+        "Display": "Midnight 4.02GB",
+        "Value": "RACT_Midnight_Flexi_Bundle",
+        "Amount": 2
+      },
+      {
+        "Display": "Midnight 5.03GB",
+        "Value": "RACT_Midnight_Flexi_Bundle",
+        "Amount": 2.5
+      },
+      {
+        "Display": "Midnight 8.48GB",
+        "Value": "NACT_Midnight_GHC3_Others",
+        "Amount": 3
+      },
+      {
+        "Display": "Video 158.05MB",
+        "Value": "RACT_Video_GHC_1_Others",
+        "Amount": 1
+      },
+      {
+        "Display": "Video 790.25MB",
+        "Value": "RACT_Video_GHC_5_Others",
+        "Amount": 5
+      },
+      {
+        "Display": "Video 1.54GB",
+        "Value": "RACT_Video_GHC_10_Others",
+        "Amount": 10
+      },
+      {
+        "Display": "Video 6.17GB",
+        "Value": "RACT_Video_Flexi_Bundle",
+        "Amount": 40
+      },
+      {
+        "Display": "Video 9.26GB",
+        "Value": "RACT_Video_Flexi_Bundle",
+        "Amount": 60
+      },
+      {
+        "Display": "Video 30.87GB",
+        "Value": "RACT_Video_Flexi_Bundle",
+        "Amount": 200
+      },
+      {
+        "Display": "Video 38.59GB",
+        "Value": "RACT_Video_Flexi_Bundle",
+        "Amount": 250
+      },
+      {
+        "Display": "Video 46.30GB",
+        "Value": "RACT_Video_Flexi_Bundle",
+        "Amount": 300
+      },
+      {
+        "Display": "Video 54.02GB",
+        "Value": "RACT_Video_Flexi_Bundle",
+        "Amount": 350
+      },
+      {
+        "Display": "Video 77.17GB",
+        "Value": "RACT_Video_Flexi_Bundle",
+        "Amount": 500
+      },
+      {
+        "Display": "Social Media 82.57MB",
+        "Value": "RACT_Social_GHC_1_Others",
+        "Amount": 1
+      },
+      {
+        "Display": "Social Media 412.85MB",
+        "Value": "RACT_Social_GHC_5_Others",
+        "Amount": 5
+      },
+      {
+        "Display": "Social Media 825.7MB",
+        "Value": "RACT_Social_GHC_10_Others",
+        "Amount": 10
+      },
+      {
+        "Display": "Social Media 1.61GB",
+        "Value": "RACT_Social_Flexi_Bundle",
+        "Amount": 20
+      },
+      {
+        "Display": "Social Media 4.84GB",
+        "Value": "RACT_Social_Flexi_Bundle",
+        "Amount": 60
+      },
+      {
+        "Display": "Social Media 8.06GB",
+        "Value": "RACT_Social_Flexi_Bundle",
+        "Amount": 100
+      },
+      {
+        "Display": "Social Media 24.19GB",
+        "Value": "RACT_Social_Flexi_Bundle",
+        "Amount": 300
+      },
+      {
+        "Display": "Social Media 32.17GB",
+        "Value": "RACT_Social_Flexi_Bundle",
+        "Amount": 399
+      }
+    ]
+  },
+  "TELECEL": {
+    "ResponseCode": "0000",
+    "Message": "Successful",
+    "Label": "Successful",
+    "Data": [
+      {
+        "Display": "No Expiry - 22.29MB (GHs 0.5)",
+        "Value": "DATANVSTRDLY",
+        "Amount": 0.5
+      },
+      {
+        "Display": "No Expiry - 50.14MB (GHs 1)",
+        "Value": "DATANVDR1DLY",
+        "Amount": 1
+      },
+      {
+        "Display": "No Expiry - 111.43MB (GHs 2)",
+        "Value": "DATANVCHTDLY",
+        "Amount": 2
+      },
+      {
+        "Display": "No Expiry - 557.15MB (GHs 5)",
+        "Value": "DATANVDR5WLY",
+        "Amount": 5
+      },
+      {
+        "Display": "No Expiry - 891.44MB (GHs 10)",
+        "Value": "DATANVDBDL1",
+        "Amount": 10
+      },
+      {
+        "Display": "No Expiry - 1.71GB (GHs 20)",
+        "Value": "DATANVDBDL2",
+        "Amount": 20
+      },
+      {
+        "Display": "No Expiry - 4.56GB (GHs 50)",
+        "Value": "DATANVDBDL3",
+        "Amount": 50
+      },
+      {
+        "Display": "No Expiry - 10.27GB (GHs 100)",
+        "Value": "DATANVDBDL4",
+        "Amount": 100
+      },
+      {
+        "Display": "No Expiry - 34.2GB (GHs 200)",
+        "Value": "DATANVDBDL5",
+        "Amount": 200
+      },
+      {
+        "Display": "No Expiry - 102.7GB (GHs 300)",
+        "Value": "DATANVDBDL6",
+        "Amount": 300
+      },
+      {
+        "Display": "No Expiry - 259.3GB (GHs 400)",
+        "Value": "DATANVDBDL7",
+        "Amount": 400
+      },
+      {
+        "Display": "No Expiry(12am - 5am) - 3.85GB (GHs 2)",
+        "Value": "BDLDATABNIGHT2",
+        "Amount": 2
+      },
+      {
+        "Display": "No Expiry(12am - 5am) - 9.9GB (GHs 3)",
+        "Value": "BDLDATABNIGHT3",
+        "Amount": 3
+      },
+      {
+        "Display": "1 Hour - 440MB (GHs 1)",
+        "Value": "BDLHRBOOST2",
+        "Amount": 1
+      },
+      {
+        "Display": "1 Hour - 1.1GB (GHs 2)",
+        "Value": "BDLHRBOOST3",
+        "Amount": 2
+      },
+      {
+        "Display": "1 day - 445.72MB (GHs 3)",
+        "Value": "DATABUNDBMXDLNR",
+        "Amount": 3
+      },
+      {
+        "Display": "3 days - 780MB (GHs 5)",
+        "Value": "DATABUNDGAP1_NR",
+        "Amount": 5
+      },
+      {
+        "Display": "5 days - 1.14GB (GHs 10)",
+        "Value": "BDLBTBOSSUD1_NR",
+        "Amount": 10
+      },
+      {
+        "Display": "15 days - 1GB (GHs 10)",
+        "Value": "DATABUND2MO_NR1",
+        "Amount": 10
+      },
+      {
+        "Display": "30 days - 2.51GB (GHs 20)",
+        "Value": "DATABUND2MO_NR2",
+        "Amount": 20
+      },
+      {
+        "Display": "5 days - 2.62GB (GHs 20)",
+        "Value": "DATABUNDGAP4_NR",
+        "Amount": 20
+      },
+      {
+        "Display": "15 days - 5.13GB (GHs 43.5)",
+        "Value": "BDLBTBOSSUD2_NR",
+        "Amount": 43.5
+      },
+      {
+        "Display": "30 days - 6.27GB (GHs 50)",
+        "Value": "DATABUND2MO_NR3",
+        "Amount": 50
+      },
+      {
+        "Display": "30 days - 13.12GB (GHs 100)",
+        "Value": "DATABUND100NR",
+        "Amount": 100
+      },
+      {
+        "Display": "30 days - 39.93GB (GHs 200)",
+        "Value": "DATABUNDJSTRENR",
+        "Amount": 200
+      },
+      {
+        "Display": "30 days - 114.1GB (GHs 300)",
+        "Value": "DATABUNDJMAX_NR",
+        "Amount": 300
+      },
+      {
+        "Display": "30 days - 269.7GB (GHs 400)",
+        "Value": "DATABUNDJBOptNR",
+        "Amount": 400
+      }
+    ]
+  },
+  "AT": {
+    "ResponseCode": "0000",
+    "Message": "Successful",
+    "Label": "Select bundle",
+    "Data": [
+      {
+        "Display": "51MB(GHS 1)",
+        "Value": "db_BigTime_Data_51MB_1GHC",
+        "Amount": 1
+      },
+      {
+        "Display": "111MB(GHS 2)",
+        "Value": "db_BigTime_Data_111MB_2GHC",
+        "Amount": 2
+      },
+      {
+        "Display": "390MB(GHS 3)",
+        "Value": "db_BigTime_Data_390MB_3GHC",
+        "Amount": 3
+      },
+      {
+        "Display": "557MB(GHS 5)",
+        "Value": "db_BigTime_Data_557MB_5GHC",
+        "Amount": 5
+      },
+      {
+        "Display": "891MB(GHS 10)",
+        "Value": "db_BigTime_Data_891MB_10GHC",
+        "Amount": 10
+      },
+      {
+        "Display": "1.7GB(GHS 20)",
+        "Value": "db_BigTime_Data_1.7GB_20GHC",
+        "Amount": 20
+      },
+      {
+        "Display": "4.5GB(GHS 50)",
+        "Value": "db_BigTime_Data_4.5GB_50GHC",
+        "Amount": 50
+      },
+      {
+        "Display": "10GB(GHS 100)",
+        "Value": "db_BigTime_Data_10GB_100GHC",
+        "Amount": 100
+      },
+      {
+        "Display": "33.4GB(GHS 200)",
+        "Value": "db_BigTime_Data_33.4GB_200GHC",
+        "Amount": 200
+      },
+      {
+        "Display": "100.3GB(GHS 300)",
+        "Value": "db_BigTime_Data_100.3GB_300GHC",
+        "Amount": 300
+      },
+      {
+        "Display": "117GB(GHS 350)",
+        "Value": "db_BigTime_Data_117GB_350GHC",
+        "Amount": 350
+      },
+      {
+        "Display": "253.3GB(GHS 400)",
+        "Value": "db_BigTime_Data_253.3GB_400GHC",
+        "Amount": 400
+      },
+      {
+        "Display": "26mins 40MB(GHS 2)",
+        "Value": "db_Fuse_Bundle2",
+        "Amount": 2
+      },
+      {
+        "Display": "66mins 120MB(GHS 5)",
+        "Value": "db_Fuse_Bundle5",
+        "Amount": 5
+      },
+      {
+        "Display": "138mins 260MB(GHS 10)",
+        "Value": "db_Fuse_Bundle10",
+        "Amount": 10
+      },
+      {
+        "Display": "210mins 400MB(GHS 15)",
+        "Value": "db_Fuse_Bundle15",
+        "Amount": 15
+      },
+      {
+        "Display": "280mins 500MB(GHS 20)",
+        "Value": "db_Fuse_Bundle20",
+        "Amount": 20
+      },
+      {
+        "Display": "450mins 1GB(GHS 30)",
+        "Value": "db_Fuse_Bundle30",
+        "Amount": 30
+      },
+      {
+        "Display": "600mins 2.4GB(GHS 50)",
+        "Value": "db_Fuse_Bundle50",
+        "Amount": 50
+      },
+      {
+        "Display": "Kokoo 446MB(GHS3-1Day(s))",
+        "Value": "db_Sika_Kokoo_3",
+        "Amount": 3
+      },
+      {
+        "Display": "Kokoo 780MB(GHS5-3Day(s))",
+        "Value": "db_Sika_Kokoo_5",
+        "Amount": 5
+      },
+      {
+        "Display": "Kokoo 1GB(GHS6-2Day(s))",
+        "Value": "db_Sika_Kokoo_6",
+        "Amount": 6
+      },
+      {
+        "Display": "Kokoo 1.1GB(GHS10-5Day(s))",
+        "Value": "db_Sika_Kokoo_10",
+        "Amount": 10
+      },
+      {
+        "Display": "Kokoo 1.2GB(GHS11-2Day(s))",
+        "Value": "db_Sika_Kokoo_11",
+        "Amount": 11
+      },
+      {
+        "Display": "Kokoo 2GB(GHS15-4Day(s))",
+        "Value": "db_Sika_Kokoo_15",
+        "Amount": 15
+      },
+      {
+        "Display": "Kokoo 2.5GB(GHS20-5Day(s))",
+        "Value": "db_Sika_Kokoo_20",
+        "Amount": 20
+      },
+      {
+        "Display": "Kokoo 6.1GB(GHS50-15Day(s))",
+        "Value": "db_Sika_Kokoo_50",
+        "Amount": 50
+      },
+      {
+        "Display": "XXL 12.8GB(GHS99)",
+        "Value": "db_XXL_Family_Pack_12.8GB",
+        "Amount": 99
+      },
+      {
+        "Display": "XXL 39GB(GHS200)",
+        "Value": "db_XXL_Family_Pack_39GB",
+        "Amount": 200
+      },
+      {
+        "Display": "XXL Pack_130.4GB(GHS350)",
+        "Value": "db_XXL_Family_Pack_130.4GB",
+        "Amount": 350
+      }
+    ]
+  }
+}
