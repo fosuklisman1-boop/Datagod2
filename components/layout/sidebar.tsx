@@ -1104,11 +1104,11 @@ export function Sidebar() {
                   {isOpen && "Hubtel USSD"}
                 </Button>
               </Link>
-              <Link href="/admin/hubtel-commission" onClick={() => handleNavigation("/admin/hubtel-commission")}>
+              <Link href="/admin/hubtel-commission" onClick={() => { markClicked("/admin/hubtel-commission"); handleNavigation("/admin/hubtel-commission") }}>
                 <Button
                   variant="ghost"
                   className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
+                    "relative w-full justify-start gap-3 transition-all duration-200",
                     pathname === "/admin/hubtel-commission" ? c.navLinkActive : c.navLinkInactive,
                     !isOpen && "justify-center",
                     loadingPath === "/admin/hubtel-commission" && "opacity-70"
@@ -1121,7 +1121,13 @@ export function Sidebar() {
                   ) : (
                     <Zap className="w-5 h-5 flex-shrink-0" />
                   )}
-                  {isOpen && "Hubtel Commission"}
+                  {isOpen && (
+                    <span className="flex items-center justify-between flex-1 min-w-0 gap-2">
+                      <span className="truncate">Hubtel Commission</span>
+                      {isNew("/admin/hubtel-commission") && <NewTag />}
+                    </span>
+                  )}
+                  {!isOpen && isNew("/admin/hubtel-commission") && <NewTag compact />}
                 </Button>
               </Link>
             </div>
