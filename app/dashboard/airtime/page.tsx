@@ -7,6 +7,9 @@ import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { supabase } from "@/lib/supabase"
 import { Phone, CheckCircle2, Circle, RefreshCw, ArrowRight, Clock, History as HistoryIcon } from "lucide-react"
 import { PurchaseSheet, type PurchaseSheetModal } from "@/components/dashboard/PurchaseSheet"
+import { useCashbackRates } from "@/components/cashback/use-cashback-rates"
+import { PriceSummary } from "@/components/cashback/PriceSummary"
+import { airtimeReceiveLabel, airtimeServiceKey, parsePriceChange, quoteForDisplay } from "@/lib/cashback/display"
 
 const NETWORKS = ["MTN", "Telecel", "AT"]
 // AT/AirtelTigo gets a literal orange here (its own real brand color, and
@@ -96,6 +99,17 @@ export default function AirtimePage() {
 
   const amountOutOfRange = numAmount > 0 && (numAmount < minAmount || numAmount > maxAmount)
 
+  // ----- Instant cashback (display only; the server re-quotes and checks expectedPay) -----
+  const { rates, ensureFresh } = useCashbackRates()
+  const priceKey = `${network}|${numAmount}|${paySeparately}`
+  const [serverPrice, setServerPrice] = useState<{ key: string; pay: number; cashback: number } | null>(null)
+  const [priceNotice, setPriceNotice] = useState("")
+  const quote = quoteForDisplay(numAmount, rates.services[airtimeServiceKey(network)])
+  const forced = serverPrice && serverPrice.key === priceKey ? serverPrice : null
+  const cashbackOn = forced ? forced.cashback > 0 : quote.applied
+  const payShown = forced ? forced.pay : quote.applied ? quote.pay : totalPaid
+  const networkLabel = NETWORK_META[network]?.label ?? network
+
   const [availableNetworks, setAvailableNetworks] = useState<string[]>(["MTN", "Telecel", "AT"])
 
   // ----- Load wallet balance & fee/limit settings -----
@@ -182,6 +196,16 @@ export default function AirtimePage() {
     if (phoneError || amountOutOfRange) return
     setSubmitting(true)
     purchaseDismissedRef.current = false
+    setPriceNotice("")
+    // Re-fetch old rates before charging; if the price moved, show it and require another tap.
+    const fresh = await ensureFresh()
+    const freshQuote = quoteForDisplay(numAmount, fresh.services[airtimeServiceKey(network)])
+    const freshPay = forced ? forced.pay : freshQuote.applied ? freshQuote.pay : totalPaid
+    if (Math.round(freshPay * 100) !== Math.round(payShown * 100)) {
+      setPriceNotice("The price has changed. Please review the new price and tap again.")
+      setSubmitting(false)
+      return
+    }
     setPurchaseModal({ state: "processing" })
     try {
       const { data: { session } } = await supabase.auth.getSession()
@@ -193,10 +217,16 @@ export default function AirtimePage() {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ network, beneficiaryPhone: phone, airtimeAmount: numAmount, paySeparately }),
+        body: JSON.stringify({ network, beneficiaryPhone: phone, airtimeAmount: numAmount, paySeparately, expectedPay: payShown }),
       })
       const data = await res.json()
-      if (!res.ok) {
+      const change = parsePriceChange(res.status, data)
+      if (change) {
+        // Definite non-charge. Show the server's price and wait for a second tap.
+        setServerPrice({ key: priceKey, pay: change.payAmount, cashback: change.customerCashback })
+        setPriceNotice(change.message)
+        if (!purchaseDismissedRef.current) setPurchaseModal(null)
+      } else if (!res.ok) {
         if (!purchaseDismissedRef.current) setPurchaseModal({ state: "failed", message: data.error || "Purchase failed" })
       } else {
         // Customer already dismissed the sheet before this resolved -- the
@@ -204,7 +234,7 @@ export default function AirtimePage() {
         if (purchaseDismissedRef.current) return
         setPurchaseModal({
           state: "success",
-          summary: { reference: data.order.reference_code, network, phone, amount: totalPaid },
+          summary: { reference: data.order.reference_code, network, phone, amount: payShown },
         })
         setPhone("")
         setAmount("")
@@ -354,6 +384,7 @@ export default function AirtimePage() {
             </div>
 
             {/* Pay fee separately -- real toggle, real different fee math */}
+            {!cashbackOn && (
             <button
               type="button"
               onClick={() => setPaySeparately(!paySeparately)}
@@ -377,31 +408,42 @@ export default function AirtimePage() {
                 </span>
               </span>
             </button>
+            )}
+
+            {priceNotice && (
+              <p role="alert" className="rounded-xl bg-warning/10 px-3 py-2 text-xs font-medium text-warning">{priceNotice}</p>
+            )}
 
             {/* Fee breakdown */}
             {numAmount > 0 && (
               <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 space-y-2 text-sm clay">
-                <div className="flex justify-between text-muted-foreground">
-                  <span>Recipient gets</span>
-                  <span className="font-semibold text-foreground">GHS {airtimeToRecipient.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between text-muted-foreground">
-                  <span>Service fee ({feeRate}%{(userRole === 'dealer' || userRole === 'sub_agent') ? ", dealer rate" : ""})</span>
-                  <span>GHS {feeAmount.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between border-t border-border pt-2 font-bold text-foreground">
-                  <span>You pay</span>
-                  <span>GHS {totalPaid.toFixed(2)}</span>
-                </div>
-                {walletBalance !== null && totalPaid > walletBalance && (
-                  <p className="text-xs font-medium text-destructive">⚠ Insufficient wallet balance</p>
+                {cashbackOn ? (
+                  <PriceSummary pay={payShown} receive={airtimeReceiveLabel(networkLabel, numAmount)} balance={walletBalance} />
+                ) : (
+                  <>
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>Recipient gets</span>
+                      <span className="font-semibold text-foreground">GHS {airtimeToRecipient.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>Service fee ({feeRate}%{(userRole === 'dealer' || userRole === 'sub_agent') ? ", dealer rate" : ""})</span>
+                      <span>GHS {feeAmount.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between border-t border-border pt-2 font-bold text-foreground">
+                      <span>You pay</span>
+                      <span>GHS {payShown.toFixed(2)}</span>
+                    </div>
+                    {walletBalance !== null && payShown > walletBalance && (
+                      <p className="text-xs font-medium text-destructive">⚠ Insufficient wallet balance</p>
+                    )}
+                  </>
                 )}
               </div>
             )}
 
             <button
               type="submit"
-              disabled={submitting || !!phoneError || !phone || !amount || amountOutOfRange || (walletBalance !== null && totalPaid > walletBalance)}
+              disabled={submitting || !!phoneError || !phone || !amount || amountOutOfRange || (walletBalance !== null && payShown > walletBalance)}
               className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#16A34A] py-4 text-base font-bold text-white transition hover:bg-[#15803d] disabled:opacity-50"
             >
               {submitting ? "Processing…" : (

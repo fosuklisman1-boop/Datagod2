@@ -8,6 +8,9 @@ import { supabase } from "@/lib/supabase"
 import {
   bundleStatusLabel, findSameBundle, formatGhs, isCatalogStale, parsePrefixRules, type PrefixRules,
 } from "@/lib/standard-bundles/ui-helpers"
+import { NETWORK_SERVICE } from "@/lib/standard-bundles/categories"
+import { priceLabel, quoteForDisplay } from "@/lib/cashback/display"
+import { useCashbackRates } from "@/components/cashback/use-cashback-rates"
 import { BundleBuySheet, type PickedBundle } from "./BundleBuySheet"
 import { useBundlesAvailability } from "./use-bundles-availability"
 
@@ -44,6 +47,7 @@ const pillOff = "border border-white/60 dark:border-white/5 bg-card text-foregro
 export function StandardBundlesPage() {
   const router = useRouter()
   const availability = useBundlesAvailability()
+  const { rates, ensureFresh } = useCashbackRates()
 
   const [network, setNetwork] = useState<Network | null>(null)
   const [catalog, setCatalog] = useState<Catalog | null>(null)
@@ -174,6 +178,7 @@ export function StandardBundlesPage() {
       net = catalogRef.current?.network ?? net
       if (!chosen) { setNotice(BUNDLE_GONE_MESSAGE); return }
     }
+    await ensureFresh() // re-fetch rates older than 5 minutes before the buy sheet opens
     const label = networks.find(n => n.network === net)?.label ?? net
     setPicked({ token: chosen.token, display: chosen.display, amount: chosen.amount, network: net, networkLabel: label })
   }
@@ -274,7 +279,9 @@ export function StandardBundlesPage() {
                       className="flex flex-col items-start gap-2 rounded-3xl border border-white/60 dark:border-white/5 bg-card p-4 text-left transition hover:-translate-y-0.5 clay disabled:opacity-50 disabled:hover:translate-y-0"
                     >
                       <span className="text-sm font-bold text-foreground">{b.display}</span>
-                      <span className="text-base font-extrabold text-primary">{formatGhs(b.amount)}</span>
+                      <span className="text-base font-extrabold text-primary">
+                        {activeNetwork ? priceLabel(b.amount, quoteForDisplay(b.amount, rates.services[NETWORK_SERVICE[activeNetwork]])) : formatGhs(b.amount)}
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -326,6 +333,7 @@ export function StandardBundlesPage() {
         <BundleBuySheet
           key={picked.token}
           bundle={picked}
+          rates={rates}
           balance={balance}
           defaultPhone={phone}
           prefixRules={prefixRules}

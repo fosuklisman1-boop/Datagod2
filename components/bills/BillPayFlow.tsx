@@ -2,7 +2,10 @@
 
 import { useRef, useState } from "react"
 import { ArrowRight, CheckCircle2, Clock, Loader2, Phone, XCircle } from "lucide-react"
-import { isValidAmountInput } from "@/lib/bills/billers"
+import { BILLERS, isValidAmountInput, type BillerKey } from "@/lib/bills/billers"
+import { useCashbackRates } from "@/components/cashback/use-cashback-rates"
+import { PriceSummary } from "@/components/cashback/PriceSummary"
+import { billReceiveLabel, parsePriceChange, quoteForDisplay, type RatesResponse } from "@/lib/cashback/display"
 import { classifyPayResponse } from "@/lib/bills/ui-helpers"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import { supabase } from "@/lib/supabase"
@@ -57,6 +60,7 @@ export function BillPayFlow({
   onPaid: () => void
 }) {
   const [active, setActive] = useState<AvailabilityBiller | null>(null)
+  const { rates, ensureFresh } = useCashbackRates()
 
   return (
     <>
@@ -80,6 +84,8 @@ export function BillPayFlow({
         <PaySheet
           key={active.key}
           biller={active}
+          rates={rates}
+          ensureFresh={ensureFresh}
           balance={balance}
           defaultPhone={defaultPhone}
           onClose={() => setActive(null)}
@@ -91,8 +97,10 @@ export function BillPayFlow({
 }
 
 function PaySheet({
-  biller, balance, defaultPhone, onClose, onPaid,
+  biller, balance, defaultPhone, onClose, onPaid, rates, ensureFresh,
 }: {
+  rates: RatesResponse
+  ensureFresh: () => Promise<RatesResponse>
   biller: AvailabilityBiller
   balance: number | null
   defaultPhone?: string
@@ -119,6 +127,7 @@ function PaySheet({
   const [error, setError] = useState("")
   const [reference, setReference] = useState("")
   const [doneStatus, setDoneStatus] = useState("processing")
+  const [serverPrice, setServerPrice] = useState<{ amount: number; pay: number; cashback: number } | null>(null)
   const payingRef = useRef(false)
   const verifyingRef = useRef(false)
 
@@ -131,7 +140,9 @@ function PaySheet({
     setError(msg)
   }
 
-  const goToConfirm = (p: Picked, suggested: number) => {
+  const goToConfirm = async (p: Picked, suggested: number) => {
+    await ensureFresh() // re-fetch rates older than 5 minutes before the confirm step opens
+    setServerPrice(null)
     setPicked(p)
     setAmount(suggested > 0 ? suggested.toFixed(2) : "")
     setError("")
@@ -182,15 +193,27 @@ function PaySheet({
 
   const numAmount = Number(amount)
   const amountValid = isValidAmountInput(amount) && Number.isFinite(numAmount) && numAmount >= biller.min && numAmount <= biller.max
-  const insufficient = balance !== null && amountValid && numAmount > balance
+  const quote = quoteForDisplay(numAmount, rates.services[BILLERS[biller.key as BillerKey]?.serviceKey ?? ""])
+  const forced = serverPrice && serverPrice.amount === numAmount ? serverPrice : null
+  const cashbackOn = forced ? forced.cashback > 0 : quote.applied
+  const payShown = forced ? forced.pay : quote.applied ? quote.pay : numAmount
+  const insufficient = balance !== null && amountValid && payShown > balance
 
   const pay = async () => {
     if (payingRef.current || !picked || !amountValid) return
     payingRef.current = true
     setBusy(true)
     setError("")
-    const { status, json } = await authedPost("/api/bills/pay", { token: picked.token, amount: numAmount })
+    const { status, json } = await authedPost("/api/bills/pay", { token: picked.token, amount: numAmount, expectedPay: payShown })
     setBusy(false)
+    const change = parsePriceChange(status, json)
+    if (change) {
+      // Definite non-charge and the verify token is unspent: show the new price and wait for another tap.
+      setServerPrice({ amount: numAmount, pay: change.payAmount, cashback: change.customerCashback })
+      setError(change.message)
+      payingRef.current = false
+      return
+    }
     const outcome = classifyPayResponse(status, json)
     if (outcome.kind === "done") {
       setReference(outcome.reference)
@@ -329,11 +352,16 @@ function PaySheet({
                 </div>
                 <input className={`${inputCls} text-lg font-semibold`} type="number" inputMode="decimal" min={biller.min} max={biller.max} step="0.01" placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)} />
                 {amount !== "" && !amountValid && <p className="mt-1 text-xs text-destructive">Amount must be between GHS {biller.min} and GHS {biller.max}.</p>}
-                {insufficient && <p className="mt-1 text-xs font-medium text-destructive">Insufficient wallet balance.</p>}
+                {insufficient && !cashbackOn && <p className="mt-1 text-xs font-medium text-destructive">Insufficient wallet balance.</p>}
               </div>
+              {amountValid && cashbackOn && (
+                <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-background p-4 clay-sm">
+                  <PriceSummary pay={payShown} receive={billReceiveLabel(biller.label, numAmount, picked.account)} balance={balance} />
+                </div>
+              )}
               <ErrorLine msg={error} />
               <button type="button" onClick={pay} disabled={busy || !amountValid || insufficient} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-4 text-sm font-bold text-primary-foreground transition disabled:opacity-50">
-                {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Processing…</> : <>Pay {amountValid ? money(numAmount) : "GHS 0.00"}</>}
+                {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Processing…</> : <>Pay {amountValid ? money(payShown) : "GHS 0.00"}</>}
               </button>
               <button type="button" onClick={() => { setStep(isEcg ? "meters" : "input"); setError("") }} disabled={busy} className="w-full text-xs font-medium text-muted-foreground">Back</button>
             </div>

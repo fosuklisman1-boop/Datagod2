@@ -10,6 +10,9 @@ import {
   type PrefixRules,
 } from "@/lib/standard-bundles/ui-helpers"
 import { newUuid } from "@/lib/standard-bundles/uuid"
+import { NETWORK_SERVICE } from "@/lib/standard-bundles/categories"
+import { parsePriceChange, priceLabel, quoteForDisplay, type RatesResponse } from "@/lib/cashback/display"
+import { PriceSummary } from "@/components/cashback/PriceSummary"
 
 export interface PickedBundle {
   token: string
@@ -43,9 +46,10 @@ async function authedPost(path: string, body: unknown): Promise<{ status: number
 }
 
 export function BundleBuySheet({
-  bundle, balance, defaultPhone, prefixRules, onClose, onChanged, onStale,
+  bundle, rates, balance, defaultPhone, prefixRules, onClose, onChanged, onStale,
 }: {
   bundle: PickedBundle
+  rates: RatesResponse
   balance: number | null
   defaultPhone?: string
   /** Live admin prefix map + toggle; null while loading or when the fetch failed (then only the server checks). */
@@ -63,6 +67,7 @@ export function BundleBuySheet({
   const [error, setError] = useState("")
   const [insufficient, setInsufficient] = useState(false)
   const [stale, setStale] = useState(false)
+  const [serverPrice, setServerPrice] = useState<{ pay: number; cashback: number } | null>(null)
   const [reference, setReference] = useState("")
   const [doneStatus, setDoneStatus] = useState("processing")
   // Generated once when the sheet opens (this component mounts per open); regenerated after a definite non-delivery.
@@ -73,7 +78,10 @@ export function BundleBuySheet({
   const buyingRef = useRef(false)
 
   const phoneError = validateBundleRecipient(bundle.network, phone, prefixRules)
-  const lowBalance = balance !== null && bundle.amount > balance
+  const quote = quoteForDisplay(bundle.amount, rates.services[NETWORK_SERVICE[bundle.network]])
+  const cashbackOn = serverPrice ? serverPrice.cashback > 0 : quote.applied
+  const payShown = serverPrice ? serverPrice.pay : quote.applied ? quote.pay : bundle.amount
+  const lowBalance = balance !== null && payShown > balance
 
   const buy = async () => {
     if (buyingRef.current || phoneError || lowBalance) return
@@ -86,12 +94,20 @@ export function BundleBuySheet({
       token: bundle.token,
       phone: sentPhone,
       idempotencyKey: keyRef.current,
+      expectedPay: payShown,
     })
     // The request has settled. Rotate only after a definite non-delivery; uncertain outcomes keep the key so a retry dedupes.
     if (shouldRotateIdempotencyKey(status, json)) keyRef.current = newUuid()
     lastAttemptRef.current = { recipient: recipientIdentity(sentPhone), key: keyRef.current }
     setBusy(false)
     buyingRef.current = false
+    const change = parsePriceChange(status, json)
+    if (change) {
+      // Definite non-charge (key rotated above): show the new price and wait for another tap.
+      setServerPrice({ pay: change.payAmount, cashback: change.customerCashback })
+      setError(change.message)
+      return
+    }
     const outcome = classifyBuyResponse(status, json)
     switch (outcome.kind) {
       case "done":
@@ -128,7 +144,7 @@ export function BundleBuySheet({
       >
         <SheetHeader className="space-y-1 p-0 pr-10 text-left">
           <SheetTitle className="text-base font-bold">{bundle.networkLabel} {bundle.display}</SheetTitle>
-          <SheetDescription className="text-xs">Pay with your wallet · {money(bundle.amount)}</SheetDescription>
+          <SheetDescription className="text-xs">Pay with your wallet · {cashbackOn ? priceLabel(bundle.amount, { pay: payShown, cashback: bundle.amount - payShown, applied: true }) : money(payShown)}</SheetDescription>
         </SheetHeader>
 
         <div className="mt-5 space-y-4">
@@ -162,9 +178,15 @@ export function BundleBuySheet({
               </div>
 
               <div className="space-y-2 rounded-2xl border border-white/60 dark:border-white/5 bg-background p-4 text-sm clay-sm">
-                <Row k="Bundle" v={`${bundle.networkLabel} ${bundle.display}`} />
-                <Row k="Price" v={money(bundle.amount)} />
-                {balance !== null && <Row k="Wallet balance" v={money(balance)} />}
+                {cashbackOn ? (
+                  <PriceSummary pay={payShown} receive={`${bundle.networkLabel} ${bundle.display}`} balance={balance} />
+                ) : (
+                  <>
+                    <Row k="Bundle" v={`${bundle.networkLabel} ${bundle.display}`} />
+                    <Row k="Price" v={money(payShown)} />
+                    {balance !== null && <Row k="Wallet balance" v={money(balance)} />}
+                  </>
+                )}
               </div>
 
               {lowBalance && (
@@ -184,7 +206,7 @@ export function BundleBuySheet({
                 disabled={busy || stale || !!phoneError || lowBalance}
                 className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-4 text-sm font-bold text-primary-foreground transition disabled:opacity-50"
               >
-                {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Processing…</> : <>Buy {money(bundle.amount)}</>}
+                {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Processing…</> : <>Buy {money(payShown)}</>}
               </button>
             </form>
           )}

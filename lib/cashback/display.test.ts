@@ -41,3 +41,37 @@ describe("display helpers", () => {
     expect(shortfall(9.9, 10)).toBe(0.1)
   })
 })
+
+import {
+  airtimeReceiveLabel, airtimeServiceKey, balanceLine, billReceiveLabel, parsePriceChange, parseRates, ratesStale,
+} from "./display"
+
+describe("checkout helpers", () => {
+  it("ratesStale at 5 minutes", () => {
+    expect(ratesStale(null, 0)).toBe(true)
+    expect(ratesStale(1000, 1000 + 299_999)).toBe(false)
+    expect(ratesStale(1000, 1000 + 300_000)).toBe(true)
+  })
+  it("parseRates is defensive", () => {
+    expect(parseRates(null).applied).toBe(false)
+    expect(parseRates({ services: { a: { provider: "hubtel", rate: 3, share: 25, maxFace: 100 }, b: { provider: 1 } } }).services)
+      .toEqual({ a: { provider: "hubtel", rate: 3, share: 25, maxFace: 100 } })
+  })
+  it("airtimeServiceKey", () => {
+    expect(airtimeServiceKey("Telecel")).toBe("airtime_telecel")
+    expect(airtimeServiceKey("AT")).toBe("airtime_at")
+  })
+  it("parsePriceChange needs a 409 with a quote", () => {
+    expect(parsePriceChange(409, { error: "x" })).toBeNull()
+    expect(parsePriceChange(402, { quote: { payAmount: 1 } })).toBeNull()
+    expect(parsePriceChange(409, { error: "Price updated", quote: { faceAmount: 10, payAmount: 9.91, customerCashback: 0.09 } }))
+      .toEqual({ message: "Price updated", faceAmount: 10, payAmount: 9.91, customerCashback: 0.09 })
+    expect(parsePriceChange(409, { quote: { faceAmount: 10, payAmount: 10 } })?.customerCashback).toBe(0)
+  })
+  it("labels", () => {
+    expect(airtimeReceiveLabel("MTN", 10)).toBe("GHS 10.00 MTN airtime")
+    expect(billReceiveLabel("ECG", 50, "0123")).toBe("ECG GHS 50.00 to 0123")
+    expect(balanceLine(0.9, 2.9)).toEqual({ text: "Balance GHS 0.90", short: "GHS 2.00 short" })
+    expect(balanceLine(5, 2.9).short).toBeNull()
+  })
+})

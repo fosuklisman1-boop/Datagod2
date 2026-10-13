@@ -50,3 +50,62 @@ export function shortfall(balance: number, pay: number): number | null {
   const gap = Math.round((pay - balance) * 100) / 100
   return gap > 0 ? gap : null
 }
+
+/** Rates older than this are re-fetched before a pay/confirm step opens. */
+export const RATES_MAX_AGE_MS = 5 * 60_000
+
+export function ratesStale(fetchedAt: number | null, now: number): boolean {
+  return fetchedAt === null || now < fetchedAt || now - fetchedAt >= RATES_MAX_AGE_MS
+}
+
+export const NO_RATES: RatesResponse = { applied: false, services: {} }
+
+/** Defensive parse of /api/cashback/rates: anything unexpected means "no cashback" (the server decides at pay time). */
+export function parseRates(json: unknown): RatesResponse {
+  const services = (json as { services?: unknown } | null)?.services
+  if (!services || typeof services !== "object") return NO_RATES
+  const out: Record<string, RateEntry> = {}
+  for (const [key, v] of Object.entries(services as Record<string, unknown>)) {
+    const e = v as Partial<RateEntry> | null
+    if (!e || typeof e.provider !== "string" || !Number.isFinite(e.rate) || !Number.isFinite(e.share)) continue
+    const entry: RateEntry = { provider: e.provider, rate: Number(e.rate), share: Number(e.share) }
+    if (typeof e.maxFace === "number" && Number.isFinite(e.maxFace)) entry.maxFace = e.maxFace
+    out[key] = entry
+  }
+  return { applied: Object.keys(out).length > 0, services: out }
+}
+
+/** Rates key for dashboard airtime ("MTN" | "Telecel" | "AT"). */
+export function airtimeServiceKey(network: string): string {
+  return `airtime_${network.toLowerCase()}`
+}
+
+export interface PriceChange { message: string; faceAmount: number; payAmount: number; customerCashback: number }
+
+/** A 409 that carries a `quote` is "the price changed": definitely not charged, show the new price and ask again. */
+export function parsePriceChange(status: number, json: unknown): PriceChange | null {
+  if (status !== 409) return null
+  const j = json as { error?: unknown; quote?: { faceAmount?: unknown; payAmount?: unknown; customerCashback?: unknown } } | null
+  const q = j?.quote
+  if (!q || typeof q.payAmount !== "number" || !Number.isFinite(q.payAmount)) return null
+  const face = typeof q.faceAmount === "number" && Number.isFinite(q.faceAmount) ? q.faceAmount : q.payAmount
+  const message = typeof j?.error === "string" && j.error ? j.error : "The price has changed. Please review the new price."
+  const cashback = typeof q.customerCashback === "number" && Number.isFinite(q.customerCashback) ? q.customerCashback : 0
+  return { message, faceAmount: face, payAmount: q.payAmount, customerCashback: cashback }
+}
+
+/** "GHS 10.00 MTN airtime" */
+export function airtimeReceiveLabel(networkLabel: string, face: number): string {
+  return `${ghs(face)} ${networkLabel} airtime`
+}
+
+/** "ECG GHS 50.00 to 12345" */
+export function billReceiveLabel(billerLabel: string, face: number, account: string): string {
+  return `${billerLabel} ${ghs(face)} to ${account}`
+}
+
+/** "Balance GHS 0.90" plus the red " — GHS 2.00 short" part (null when covered). */
+export function balanceLine(balance: number, pay: number): { text: string; short: string | null } {
+  const gap = shortfall(balance, pay)
+  return { text: `Balance ${ghs(balance)}`, short: gap === null ? null : `${ghs(gap)} short` }
+}
