@@ -13,18 +13,28 @@ export interface AvailabilityBiller {
 }
 export interface BillsAvailability { enabled: boolean; billers: AvailabilityBiller[] }
 
+const NONE: BillsAvailability = { enabled: false, billers: [] }
+let cached: Promise<BillsAvailability> | null = null
+
+function load(): Promise<BillsAvailability> {
+  return fetch("/api/bills/availability")
+    .then(r => (r.ok ? r.json() : null))
+    .then(j => (j && j.enabled === true && Array.isArray(j.billers) ? (j as BillsAvailability) : NONE))
+    .catch(() => NONE)
+}
+
+/** Shared in-flight/settled promise so Sidebar and pages don't refetch on every mount. */
+export function getBillsAvailability(refresh = false): Promise<BillsAvailability> {
+  if (!cached || refresh) cached = load()
+  return cached
+}
+
 /** Public, unauthenticated. Any failure reads as "not available". null = still loading. */
 export function useBillsAvailability(): BillsAvailability | null {
   const [a, setA] = useState<BillsAvailability | null>(null)
   useEffect(() => {
     let alive = true
-    fetch("/api/bills/availability")
-      .then(r => (r.ok ? r.json() : null))
-      .then(j => {
-        if (!alive) return
-        setA(j && j.enabled === true && Array.isArray(j.billers) ? j : { enabled: false, billers: [] })
-      })
-      .catch(() => { if (alive) setA({ enabled: false, billers: [] }) })
+    getBillsAvailability().then(v => { if (alive) setA(v) })
     return () => { alive = false }
   }, [])
   return a

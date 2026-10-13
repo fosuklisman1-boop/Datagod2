@@ -7,6 +7,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { supabase } from "@/lib/supabase"
 import { BillPayFlow, BillLogo } from "./BillPayFlow"
 import { useBillsAvailability } from "./use-bills-availability"
+import { BILLERS, isBillerKey } from "@/lib/bills/billers"
 
 interface BillOrder {
   id: string
@@ -77,7 +78,8 @@ export function BillsPage({ page }: { page: "bills" | "broadband" }) {
     const { data: { session } } = await supabase.auth.getSession()
     if (!session) { setLoadingOrders(false); return }
     const qs = new URLSearchParams()
-    if (fBiller) qs.set("biller", fBiller)
+    if (page === "broadband") qs.set("biller", "telecel_broadband")
+    else if (fBiller) qs.set("biller", fBiller)
     if (fStatus) qs.set("status", fStatus)
     const from = rangeFrom(fRange)
     if (from) qs.set("from", from)
@@ -86,8 +88,8 @@ export function BillsPage({ page }: { page: "bills" | "broadband" }) {
       const json = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(String(json?.error || "Could not load payments"))
       const all: BillOrder[] = Array.isArray(json.orders) ? json.orders : []
-      // Broadband page only lists broadband payments; the bills page everything else.
-      setOrders(all.filter(o => (o.biller === "telecel_broadband") === (page === "broadband")))
+      // Bills page lists everything except broadband (broadband is filtered server-side on its own page).
+      setOrders(page === "broadband" ? all : all.filter(o => o.biller !== "telecel_broadband"))
     } catch (e) {
       setOrdersError(e instanceof Error ? e.message : "Could not load payments")
     } finally {
@@ -152,10 +154,6 @@ export function BillsPage({ page }: { page: "bills" | "broadband" }) {
                   <option value="">All statuses</option>
                   {["pending", "processing", "completed", "failed", "refunded"].map(s => <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>)}
                 </select>
-                <select aria-label="Source" className={selectCls} defaultValue="">
-                  <option value="">All sources</option>
-                  <option value="dashboard">Dashboard</option>
-                </select>
                 <select aria-label="Date range" className={selectCls} value={fRange} onChange={e => setFRange(e.target.value)}>
                   <option value="today">Today</option>
                   <option value="7d">Last 7 days</option>
@@ -181,7 +179,7 @@ export function BillsPage({ page }: { page: "bills" | "broadband" }) {
                       <div key={o.id} className="flex items-center gap-3 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
                         <BillLogo biller={b ?? { logo: `/billers/${o.biller}.png`, label: o.biller }} size={40} />
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold text-foreground">{b?.label ?? o.biller}</p>
+                          <p className="truncate text-sm font-semibold text-foreground">{b?.label ?? (isBillerKey(o.biller) ? BILLERS[o.biller].label : o.biller)}</p>
                           <p className="truncate text-xs text-muted-foreground">{o.customer_name || o.account_number}</p>
                           <p className="text-xs text-muted-foreground">{new Date(o.created_at).toLocaleString()}</p>
                         </div>

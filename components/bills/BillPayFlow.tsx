@@ -116,6 +116,7 @@ function PaySheet({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const [reference, setReference] = useState("")
+  const [doneStatus, setDoneStatus] = useState("processing")
   const payingRef = useRef(false)
   const verifyingRef = useRef(false)
 
@@ -123,6 +124,7 @@ function PaySheet({
   const backToInput = (msg: string) => {
     setPicked(null)
     setAmount("")
+    setConsent(false)
     setStep(isEcg && meters.length > 0 ? "meters" : "input")
     setError(msg)
   }
@@ -177,7 +179,7 @@ function PaySheet({
   }
 
   const numAmount = Number(amount)
-  const amountValid = amount !== "" && Number.isFinite(numAmount) && numAmount >= biller.min && numAmount <= biller.max
+  const amountValid = /^d+(.d{1,2})?$/.test(amount) && Number.isFinite(numAmount) && numAmount >= biller.min && numAmount <= biller.max
   const insufficient = balance !== null && amountValid && numAmount > balance
 
   const pay = async () => {
@@ -189,19 +191,20 @@ function PaySheet({
     setBusy(false)
     if (status === 200 && json?.success) {
       setReference(String(json.order?.reference_code ?? ""))
+      setDoneStatus(String(json.order?.status ?? "processing"))
       setStep("done")
       onPaid()
       return // payingRef stays true: this verification is spent
     }
     payingRef.current = false
     const apiMsg = String(json?.error ?? "")
-    if (status === 409 || (status === 400 && /verify/i.test(apiMsg))) {
-      backToInput(apiMsg || "Please verify the account again")
-      return
-    }
-    if (status === 402) { setError("Insufficient wallet balance. Top up your wallet and try again."); return }
-    if (status === 503) { setError(apiMsg || "Temporarily unavailable. Please try again shortly."); return }
-    setError(apiMsg || "Payment failed. Please try again.")
+    // 503/429 fail before an order is inserted, so the token is still good. Everything else
+    // (incl. network errors, status 0) may have reached the server: never re-send the token.
+    if (status === 503 || status === 429) { setError(apiMsg || "Temporarily unavailable. Please try again shortly."); return }
+    if (status === 500) { backToInput("We could not confirm your payment. Please check your wallet and recent payments before trying again."); return }
+    if (status === 0) { backToInput("We could not confirm your payment. Please check your wallet and recent payments before trying again."); return }
+    if (status === 402) { backToInput(apiMsg || "Insufficient wallet balance. Top up your wallet and try again."); return }
+    backToInput(apiMsg || "Payment failed. Please verify the account and try again.")
   }
 
   const inputReady = isEcg
@@ -237,7 +240,7 @@ function PaySheet({
                 <>
                   <div>
                     <label className={labelCls}>Landline number</label>
-                    <input className={inputCls} inputMode="numeric" placeholder="0302450262" value={account} onChange={e => setAccount(e.target.value)} />
+                    <input className={inputCls} inputMode="numeric" placeholder="0302450262" value={account} onChange={e => { setAccount(e.target.value); setConsent(false) }} />
                   </div>
                   <div>
                     <label className={labelCls}>Broadband account number</label>
@@ -248,7 +251,7 @@ function PaySheet({
                 <>
                   <div>
                     <label className={labelCls}>{biller.inputHint}</label>
-                    <input className={inputCls} placeholder={biller.inputHint} value={account} onChange={e => setAccount(e.target.value)} />
+                    <input className={inputCls} placeholder={biller.inputHint} value={account} onChange={e => { setAccount(e.target.value); setConsent(false) }} />
                   </div>
                   {isWater && (
                     <>
@@ -297,7 +300,7 @@ function PaySheet({
               ) : (
                 <form onSubmit={e => { e.preventDefault(); if (account.trim().length >= 4 && consent && !busy) verify({ addMeter: true }) }} className="space-y-3 rounded-2xl border border-border p-4">
                   <label className={labelCls}>Meter number</label>
-                  <input className={inputCls} placeholder="Meter number" value={account} onChange={e => setAccount(e.target.value)} />
+                  <input className={inputCls} placeholder="Meter number" value={account} onChange={e => { setAccount(e.target.value); setConsent(false) }} />
                   <label className="flex items-start gap-2 text-xs text-muted-foreground">
                     <input type="checkbox" className="mt-0.5" checked={consent} onChange={e => setConsent(e.target.checked)} />
                     <span>This links meter {account.trim() || "—"} to phone {phone} with ECG</span>
@@ -341,8 +344,8 @@ function PaySheet({
             <div className="space-y-4 py-2 text-center">
               <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-success/15"><CheckCircle2 className="h-9 w-9 text-success" /></div>
               <div>
-                <h3 className="text-lg font-bold text-foreground">Processing</h3>
-                <p className="mt-1 text-sm text-muted-foreground">Your payment was received. We&apos;ll notify you when it completes.</p>
+                <h3 className="text-lg font-bold text-foreground">{doneStatus === "completed" ? "Completed" : doneStatus === "failed" ? "Payment failed" : "Processing"}</h3>
+                <p className="mt-1 text-sm text-muted-foreground">{doneStatus === "completed" ? "Your bill has been paid." : doneStatus === "failed" ? "Payment failed — under review; a refund follows if nothing was delivered." : "Processing — we'll notify you when it completes."}</p>
                 {reference && <p className="mt-2 font-mono text-xs text-muted-foreground">Ref: {reference}</p>}
               </div>
               <button type="button" onClick={onClose} className="w-full rounded-2xl bg-primary py-3.5 text-sm font-bold text-primary-foreground">Done</button>

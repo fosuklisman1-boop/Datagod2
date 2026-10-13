@@ -331,7 +331,7 @@ export function Sidebar() {
             menuItems.filter(item => {
             if (!userRole || !item.roles.includes(userRole)) return false
             if (item.feature && !featureAvailable(billsAvailability, item.feature)) return false
-            if (item.href === '/dashboard'&& isPageHidden('dashboard_home', domainBranding.hiddenPages)) return false
+            if (item.href === '/dashboard' && isPageHidden('dashboard_home', domainBranding.hiddenPages)) return false
             // Hide upgrade page for dealers with no subscription end-date (permanent dealers)
             if (item.href === '/dashboard/upgrade' && userRole === 'dealer' && !dealerHasSubscription) return false
             // On a custom domain scoped to one service, hide nav entries for the other services.
