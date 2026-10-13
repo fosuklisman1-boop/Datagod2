@@ -1,0 +1,223 @@
+import type { HubtelCsTx } from "@/lib/hubtel-cs/types"
+import type { PurchaseInput } from "@/lib/hubtel-cs/client"
+import { HubtelDuplicateOrderError, HubtelOutcomeUnknownError } from "@/lib/hubtel-cs/errors"
+import { ghanaSignificant, isValidGhanaMobile, validateNetworkPrefix, type NetworkPrefixMap } from "@/lib/phone-format"
+import type { CatalogDeps } from "./catalog"
+import { NETWORK_SERVICE, type BundleNetwork } from "./categories"
+import type { BundlesConfig } from "./config"
+import { verifyBundleToken } from "./token"
+
+export interface DataOrderRow {
+  id: string; reference_code: string; user_id: string; channel: "dashboard"; network: BundleNetwork; service_key: string
+  beneficiary_phone: string; bundle_value: string; bundle_display: string; bundle_category: string; amount: number
+  status: "pending" | "processing" | "completed" | "failed" | "refunded"
+  payment_status: "unpaid" | "paid" | "refunded"; idempotency_key: string; hubtel_client_reference: string | null
+  commission: number | null; failure_reason: string | null; notes: string | null; created_at: string; updated_at: string
+}
+
+export type NewDataOrder = Omit<DataOrderRow, "id" | "created_at" | "updated_at" | "hubtel_client_reference" | "commission" | "failure_reason" | "notes">
+
+export interface BundlesDeps extends CatalogDeps {
+  purchase(input: PurchaseInput): Promise<HubtelCsTx>
+  /** Admin-editable network prefix map + its on/off toggle (lib/network-prefix-config.ts). */
+  getPrefixConfig(): Promise<{ enabled: boolean; map: NetworkPrefixMap }>
+  findOrderByIdempotencyKey(userId: string, idempotencyKey: string): Promise<DataOrderRow | null>
+  /** Throws with `code: "23505"` on a unique violation. */
+  insertOrder(row: NewDataOrder): Promise<DataOrderRow>
+  getOrder(id: string): Promise<DataOrderRow | null>
+  /** Returns the number of rows updated; with `onlyFromStatuses` the write is guarded on the current status. */
+  updateOrder(id: string, patch: Partial<DataOrderRow>, onlyFromStatuses?: DataOrderRow["status"][]): Promise<number>
+  /** Atomic `data_order_debit` RPC: lock order, deduct wallet, mark paid, write history. Throws on RPC error (outcome unknown). */
+  debitOrder(orderId: string): Promise<"ok" | "insufficient" | "not_found">
+  /** `urgent` alerts keep the email fallback when SMS cannot be sent. */
+  alert(message: string, urgent?: boolean): Promise<void>
+  newReference(): string
+}
+
+export type BuyInput = { token: string; phone: string; idempotencyKey: string }
+export type BuyResult = { ok: true; order: DataOrderRow } | { ok: false; status: number; error: string; order?: DataOrderRow }
+
+const IDEMPOTENCY_KEY = /^[A-Za-z0-9-]{8,64}$/
+export function isValidIdempotencyKey(key: unknown): key is string {
+  return typeof key === "string" && IDEMPOTENCY_KEY.test(key)
+}
+
+/** Hubtel amounts are compared at 2 decimal places. */
+export const sameAmount = (a: number, b: number): boolean =>
+  Number.isFinite(a) && Number.isFinite(b) && Math.round(a * 100) === Math.round(b * 100)
+
+export const NOT_AVAILABLE_FOR_NUMBER = "This bundle isn't available for that number right now — refresh"
+const UNAVAILABLE = "Bundles unavailable right now"
+
+const fail = (status: number, error: string): { ok: false; status: number; error: string } => ({ ok: false, status, error })
+const safeAlert = async (d: BundlesDeps, m: string, urgent = false) => { try { await d.alert(m, urgent) } catch { /* alerting must never break the flow */ } }
+const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
+
+export async function buyBundle(d: BundlesDeps, userId: string, input: BuyInput): Promise<BuyResult> {
+  if (!isValidIdempotencyKey(input?.idempotencyKey)) return fail(400, "Invalid request, please try again")
+  // Repeat submit (double-click / network retry): return the original order, never debit twice.
+  try {
+    const existing = await d.findOrderByIdempotencyKey(userId, input.idempotencyKey)
+    if (existing) return { ok: true, order: existing }
+  } catch {
+    return fail(503, "Temporarily unavailable")
+  }
+
+  if (!d.secret) return fail(503, UNAVAILABLE)
+  const v = verifyBundleToken(input.token, d.secret, d.now())
+  if (!v) return fail(400, "This bundle list has expired — refresh and try again")
+
+  const phone = typeof input.phone === "string" ? input.phone : ""
+  if (!isValidGhanaMobile(phone)) return fail(400, "Enter a valid Ghana mobile number")
+  let prefix: { enabled: boolean; map: NetworkPrefixMap } | null = null
+  try { prefix = await d.getPrefixConfig() } catch { prefix = null }
+  // A failed read validates with the defaults (the safe direction), matching getPrefixValidationConfig.
+  if (!prefix || prefix.enabled !== false) {
+    const check = validateNetworkPrefix(v.network, phone, prefix?.map)
+    if (!check.ok) return fail(400, check.message)
+  }
+  const phone233 = "233" + ghanaSignificant(phone)!
+
+  // Every pre-debit check happens before the first write.
+  let cfg: BundlesConfig
+  try { cfg = await d.getBundlesConfig() } catch { return fail(503, UNAVAILABLE) }
+  const net = cfg.networks?.[v.network]
+  if (!cfg.enabled || !net?.enabled) return fail(403, "Standard Bundles are not available")
+  if ((net.hiddenCategories ?? []).includes(v.category)) return fail(403, "This bundle is not available")
+  const serviceKey = NETWORK_SERVICE[v.network]
+  try {
+    const h = await d.getHubtelConfig()
+    if (!h.enabled || h.services?.[serviceKey] !== true || h.paused) return fail(503, UNAVAILABLE)
+  } catch {
+    return fail(503, UNAVAILABLE)
+  }
+
+  // Re-query for the buyer's own number: the exact (Value, Amount) must still be offered.
+  let res: Awaited<ReturnType<BundlesDeps["query"]>>
+  try { res = await d.query(serviceKey, phone233) } catch (e) {
+    console.error("[bundles] re-query threw:", msg(e))
+    return fail(503, UNAVAILABLE)
+  }
+  if (!res.ok) return fail(503, UNAVAILABLE)
+  const offered = (res.data ?? []).some(it => it?.Value === v.value && sameAmount(Number(it?.Amount), v.amount))
+  if (!offered) return fail(409, NOT_AVAILABLE_FOR_NUMBER)
+
+  const amount = Math.round(v.amount * 100) / 100
+  let order: DataOrderRow
+  try {
+    order = await d.insertOrder({
+      reference_code: d.newReference(), user_id: userId, channel: "dashboard", network: v.network, service_key: serviceKey,
+      beneficiary_phone: phone233, bundle_value: v.value, bundle_display: v.display, bundle_category: v.category,
+      amount, status: "pending", payment_status: "unpaid", idempotency_key: input.idempotencyKey,
+    })
+  } catch (e: any) {
+    if (e?.code === "23505") {
+      // A concurrent request with the same key won the insert: hand back its order.
+      let existing: DataOrderRow | null = null
+      try { existing = await d.findOrderByIdempotencyKey(userId, input.idempotencyKey) } catch { existing = null }
+      if (existing) return { ok: true, order: existing }
+    }
+    return fail(500, "Could not create the order")
+  }
+
+  let debit: "ok" | "insufficient" | "not_found" | null = null
+  try {
+    debit = await d.debitOrder(order.id)
+  } catch {
+    // Outcome unknown: believe only the database.
+    let fresh: DataOrderRow | null = null
+    try { fresh = await d.getOrder(order.id) } catch { fresh = null }
+    if (fresh && fresh.payment_status === "paid") {
+      debit = "ok"
+    } else {
+      await safeAlert(d, `Standard bundle debit outcome uncertain: order ${order.reference_code}, user ${userId}, GHS ${amount} — check wallet`, true)
+      return { ok: false, status: 500, error: "We could not confirm your payment. Please check your wallet before retrying.", order }
+    }
+  }
+  if (debit === "not_found") return { ok: false, status: 409, error: "This order can no longer be paid", order }
+  if (debit === "insufficient") {
+    const patch = { status: "failed" as const, failure_reason: "Insufficient wallet balance" }
+    await d.updateOrder(order.id, patch, ["pending"]).catch(() => 0)
+    return { ok: false, status: 402, error: "Insufficient wallet balance", order: { ...order, ...patch } }
+  }
+  order = { ...order, payment_status: "paid" }
+  const r = await dispatchInternal(d, order)
+  return { ok: true, order: { ...order, ...r.patch, status: r.status } }
+}
+
+const DISPATCHING = "Dispatching…"
+
+async function dispatchInternal(d: BundlesDeps, order: DataOrderRow): Promise<{ status: DataOrderRow["status"]; patch: Partial<DataOrderRow> }> {
+  if (order.status !== "pending" || order.payment_status !== "paid") return { status: order.status, patch: {} }
+  const ref = order.reference_code
+  try {
+    const fresh = await d.getOrder(order.id)
+    if (!fresh || fresh.status !== "pending" || fresh.payment_status !== "paid") return { status: fresh?.status ?? order.status, patch: {} }
+    order = fresh
+  } catch (e) {
+    await safeAlert(d, `Standard bundle order ${ref}: could not re-read the order before dispatch (${msg(e)}). It was paid and not sent; check it in Standard Bundles.`)
+    return { status: order.status, patch: {} }
+  }
+  const guarded = async (patch: Partial<DataOrderRow>, from: DataOrderRow["status"][]) => {
+    try { return await d.updateOrder(order.id, patch, from) } catch { return 0 }
+  }
+  let claimed = false
+  try {
+    const input: PurchaseInput = {
+      serviceKey: NETWORK_SERVICE[order.network], destination: order.beneficiary_phone, amount: order.amount,
+      bundle: order.bundle_value /* exact, never trimmed */, orderTable: "hubtel_data_orders", orderId: order.id,
+    }
+    // Atomic claim BEFORE purchase: whoever flips pending -> processing owns the send. A concurrent dispatch or an
+    // admin refund (which needs status pending) loses here instead of racing the Hubtel call.
+    const claimPatch: Partial<DataOrderRow> = { status: "processing", notes: DISPATCHING }
+    if ((await guarded(claimPatch, ["pending"])) === 0) return { status: order.status, patch: {} }
+    claimed = true
+
+    let tx: HubtelCsTx
+    try {
+      tx = await d.purchase(input)
+    } catch (e) {
+      if (e instanceof HubtelDuplicateOrderError) {
+        const patch: Partial<DataOrderRow> = { notes: "A live Hubtel transaction already exists for this order; do not resend." }
+        await guarded(patch, ["processing"])
+        await safeAlert(d, `Standard bundle order ${ref}: a live Hubtel transaction exists but the order has no reference — check the Hubtel review queue; do not resend.`)
+        return { status: "processing", patch }
+      }
+      if (e instanceof HubtelOutcomeUnknownError) {
+        const patch: Partial<DataOrderRow> = {
+          hubtel_client_reference: e.clientReference,
+          notes: `Outcome unknown, do not resend. Hubtel ref ${e.clientReference}`,
+        }
+        const n = await guarded(patch, ["processing"])
+        await safeAlert(d, `Standard bundle order ${ref}: Hubtel outcome unknown (ref ${e.clientReference}), do not resend.${n === 0 ? " The order record could not be updated." : ""}`)
+        return { status: "processing", patch: n === 0 ? {} : patch }
+      }
+      // Raised before the POST: nothing was sent. Release the claim back to pending for an admin.
+      const patch: Partial<DataOrderRow> = { status: "pending", notes: `Not sent: ${msg(e)}` }
+      const n = await guarded(patch, ["processing"])
+      if (n === 0) return { status: order.status, patch: {} }
+      await safeAlert(d, `Standard bundle order ${ref} was paid but NOT sent to Hubtel: ${msg(e)}`)
+      return { status: "pending", patch }
+    }
+    if (tx.state === "fulfilled") return { status: "completed", patch: {} }
+    if (tx.state === "failed") return { status: "failed", patch: {} }
+    const patch: Partial<DataOrderRow> = { hubtel_client_reference: tx.client_reference, notes: null }
+    if (tx.state === "needs_review") {
+      patch.notes = `Outcome unknown, do not resend. Hubtel ref ${tx.client_reference}`
+      await safeAlert(d, `Standard bundle order ${ref}: Hubtel outcome unknown (ref ${tx.client_reference}), do not resend.`)
+    }
+    const n = await guarded(patch, ["processing"])
+    if (n === 0) {
+      // A fast callback may already have settled the order: believe the database, not the failed write.
+      let cur: DataOrderRow | null = null
+      try { cur = await d.getOrder(order.id) } catch { cur = null }
+      if (cur && !(cur.status === "processing" && !cur.hubtel_client_reference)) return { status: cur.status, patch: {} }
+      await safeAlert(d, `Standard bundle order ${ref}: Hubtel has the transaction (ref ${tx.client_reference}) but the order could not be updated. Reconcile manually; do not resend.`)
+      return { status: cur?.status ?? order.status, patch: {} }
+    }
+    return { status: "processing", patch }
+  } catch (e) {
+    await safeAlert(d, `Standard bundle order ${ref}: dispatch error ${msg(e)}${claimed ? " (order left processing; reconcile manually)" : ""}`)
+    return { status: claimed ? "processing" : order.status, patch: {} }
+  }
+}
