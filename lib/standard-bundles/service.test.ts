@@ -55,9 +55,10 @@ function make(over: Partial<BundlesDeps> = {}) {
       orders.push(o)
       return { ...o }
     },
-    updateOrder: async (id, patch, only) => {
+    updateOrder: async (id, patch, only, pay) => {
       const o = orders.find(x => x.id === id)!
       if (only && !only.includes(o.status)) return 0
+      if (pay && o.payment_status !== pay) return 0
       Object.assign(o, patch)
       return 1
     },
@@ -466,6 +467,15 @@ describe("debit outcomes", () => {
     expect(m.calls.alerts.join()).toMatch(/debit outcome uncertain/)
     expect(m.calls.urgent).toContain(true)
     expect(m.calls.purchase).toBe(0)
+  })
+  it("R1: insufficient never marks an order failed once a concurrent resume has paid it", async () => {
+    const m = make(); m.setWallet("insufficient")
+    const d: BundlesDeps = {
+      ...m.d,
+      debitOrder: async (id) => { m.orders.find(x => x.id === id)!.payment_status = "paid"; return "insufficient" },
+    }
+    await buy(m, "MTN", {}, d)
+    expect(m.orders[0]).toMatchObject({ status: "pending", payment_status: "paid" })
   })
   it("M6c: marking the order failed after insufficient rejects => swallowed, still 402, no purchase", async () => {
     const m = make(); m.setWallet("insufficient")

@@ -43,9 +43,10 @@ export function buildBundlesDeps(
       if (error) throw error
       return (data as DataOrderRow | null) ?? null
     },
-    async updateOrder(id, patch, onlyFromStatuses) {
+    async updateOrder(id, patch, onlyFromStatuses, onlyIfPaymentStatus) {
       let q = db.from(TABLE).update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id)
       if (onlyFromStatuses) q = q.in("status", onlyFromStatuses)
+      if (onlyIfPaymentStatus) q = q.eq("payment_status", onlyIfPaymentStatus)
       const { data, error } = await q.select("id")
       if (error) throw error
       return data?.length ?? 0

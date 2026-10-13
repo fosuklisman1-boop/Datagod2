@@ -26,7 +26,7 @@ export interface BundlesDeps extends CatalogDeps {
   insertOrder(row: NewDataOrder): Promise<DataOrderRow>
   getOrder(id: string): Promise<DataOrderRow | null>
   /** Returns the number of rows updated; with `onlyFromStatuses` the write is guarded on the current status. */
-  updateOrder(id: string, patch: Partial<DataOrderRow>, onlyFromStatuses?: DataOrderRow["status"][]): Promise<number>
+  updateOrder(id: string, patch: Partial<DataOrderRow>, onlyFromStatuses?: DataOrderRow["status"][], onlyIfPaymentStatus?: DataOrderRow["payment_status"]): Promise<number>
   /** Atomic `data_order_debit` RPC: lock order, deduct wallet, mark paid, write history. Throws on RPC error (outcome unknown). */
   debitOrder(orderId: string): Promise<"ok" | "insufficient" | "not_found">
   /** `urgent` alerts keep the email fallback when SMS cannot be sent. */
@@ -182,7 +182,8 @@ async function debitAndDispatch(d: BundlesDeps, userId: string, order: DataOrder
   }
   if (debit === "insufficient") {
     const patch = { status: "failed" as const, failure_reason: INSUFFICIENT }
-    await d.updateOrder(order.id, patch, ["pending"]).catch(() => 0)
+    // Only an order that is still unpaid: a concurrent resume may have paid it after a top-up.
+    await d.updateOrder(order.id, patch, ["pending"], "unpaid").catch(() => 0)
     return { ok: false, status: 402, error: INSUFFICIENT, order: { ...order, ...patch } }
   }
   order = { ...order, payment_status: "paid" }
