@@ -1,0 +1,62 @@
+import { randomUUID } from "crypto"
+import type { HubtelCsStats, HubtelCsStore, ListOpts } from "../store"
+import type { HubtelCsEvent, HubtelCsPatch, HubtelCsState, HubtelCsTx, NewHubtelCsTx } from "../types"
+import { makeTx } from "./fixtures"
+
+export function createMemoryStore(): HubtelCsStore & { rows: HubtelCsTx[]; events: HubtelCsEvent[]; seed(tx: HubtelCsTx): HubtelCsTx } {
+  const rows: HubtelCsTx[] = []
+  const events: HubtelCsEvent[] = []
+  const nowIso = () => new Date().toISOString()
+  return {
+    rows, events,
+    seed(tx) { rows.push({ ...tx }); return tx },
+    async insert(row: NewHubtelCsTx) {
+      if (rows.some(r => r.client_reference === row.client_reference)) throw new Error("duplicate key value violates unique constraint (client_reference)")
+      const tx = makeTx({ ...row, id: randomUUID(), state: "created", bundle: row.bundle ?? null, extra: row.extra ?? null, order_table: row.order_table ?? null, order_id: row.order_id ?? null, created_at: nowIso(), updated_at: nowIso() })
+      rows.push(tx)
+      return { ...tx }
+    },
+    async getByRef(ref) { const r = rows.find(x => x.client_reference === ref); return r ? { ...r } : null },
+    async updateGuarded(id, expectedState: HubtelCsState, patch: HubtelCsPatch) {
+      const r = rows.find(x => x.id === id && x.state === expectedState)
+      if (!r) return null
+      Object.assign(r, patch, { updated_at: patch.updated_at ?? nowIso() })
+      return { ...r }
+    },
+    async listByStates(states, o) {
+      const out = rows
+        .filter(r => states.includes(r.state) && (!o.olderThan || r.created_at <= o.olderThan))
+        .sort((a, b) => {
+          const k = o.orderBy ?? "created_at"
+          const av = (a as any)[k] as string | null, bv = (b as any)[k] as string | null
+          if (av === bv) return 0
+          if (av === null) return -1
+          if (bv === null) return 1
+          return av < bv ? -1 : 1
+        })
+        .slice(0, o.limit)
+      return out.map(r => ({ ...r }))
+    },
+    async listForAdmin(o: ListOpts) {
+      const term = (o.q ?? "").toLowerCase()
+      const filtered = rows
+        .filter(r => (o.state === "attention" ? r.state === "needs_review" || r.state === "failed" : o.state ? r.state === o.state : true))
+        .filter(r => !term || [r.client_reference, r.destination, r.hubtel_transaction_id ?? ""].some(v => v.toLowerCase().includes(term)))
+        .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+      return { rows: filtered.slice(o.offset, o.offset + o.limit).map(r => ({ ...r })), total: filtered.length }
+    },
+    async stats(): Promise<HubtelCsStats> {
+      const count = (f: (r: HubtelCsTx) => boolean) => rows.filter(f).length
+      return {
+        total: rows.length,
+        in_flight: count(r => r.state === "created" || r.state === "pending"),
+        needs_review: count(r => r.state === "needs_review"),
+        failed: count(r => r.state === "failed"),
+        fulfilled: count(r => r.state === "fulfilled"),
+        commission_earned: rows.filter(r => r.state === "fulfilled").reduce((s, r) => s + (r.commission ?? 0), 0),
+      }
+    },
+    async logEvent(ev) { events.push(ev) },
+    async purgeEventsOlderThan() { /* memory store keeps no timestamps */ },
+  }
+}
