@@ -45,13 +45,13 @@ export interface ReportRow {
 
 /** Actual rate % from Hubtel's recorded commission, 3 dp; null when there is no Hubtel data. */
 export function actualRate(r: ReportRow): number | null {
-  if (r.provider !== "hubtel" || !(r.face_total > 0) || !(r.actual_commission > 0)) return null
+  // Fulfilled Hubtel volume with zero commission is a real 0% (shows ⚠ against any set rate), not "no data".
+  if (r.provider !== "hubtel" || !(r.face_total > 0)) return null
   return Math.round((r.actual_commission / r.face_total) * 100 * 1000) / 1000
 }
 
 export function rateStatus(set: number, actual: number | null): "ok" | "warn" | "none" {
   if (actual === null) return "none"
-  if (set === 0) return "warn"
   return Math.abs(set - actual) <= MATCH_TOLERANCE ? "ok" : "warn"
 }
 
