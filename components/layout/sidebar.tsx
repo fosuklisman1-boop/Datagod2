@@ -1077,6 +1077,26 @@ export function Sidebar() {
                   {isOpen && "Hubtel USSD"}
                 </Button>
               </Link>
+              <Link href="/admin/hubtel-commission" onClick={() => handleNavigation("/admin/hubtel-commission")}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-3 transition-all duration-200",
+                    pathname === "/admin/hubtel-commission" ? c.navLinkActive : c.navLinkInactive,
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/hubtel-commission" && "opacity-70"
+                  )}
+                  title={!isOpen ? "Hubtel Commission" : undefined}
+                  disabled={loadingPath === "/admin/hubtel-commission"}
+                >
+                  {loadingPath === "/admin/hubtel-commission" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <Zap className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && "Hubtel Commission"}
+                </Button>
+              </Link>
             </div>
           )}
 
