@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { adminRefund } from "@/lib/hubtel-cs/admin-actions"
-import { auditLog, errorJson, requireAdmin } from "@/lib/hubtel-cs/admin-route"
+import { auditLog, errorJson, requireAdmin, isValidRef } from "@/lib/hubtel-cs/admin-route"
 import { getHubtelCsRuntime } from "@/lib/hubtel-cs/runtime"
 
 export const dynamic = "force-dynamic"
@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
   if (!auth.userId) return NextResponse.json({ error: "A signed-in admin is required to refund" }, { status: 403 })
   let body: any
   try { body = await request.json() } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }) }
-  if (typeof body?.ref !== "string" || !body.ref) return NextResponse.json({ error: "ref is required" }, { status: 400 })
+  if (!isValidRef(body?.ref)) return NextResponse.json({ error: "A valid ref is required" }, { status: 400 })
   if (body.force !== undefined && typeof body.force !== "boolean") return NextResponse.json({ error: "force must be a boolean" }, { status: 400 })
   const force = body.force === true
   try {

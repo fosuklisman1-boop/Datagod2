@@ -30,6 +30,35 @@ export function searchAlternate(q: string | null | undefined): string | undefine
   return "233" + ghanaSignificant(term)!
 }
 
+export const REF_PATTERN = /^[A-Za-z0-9_-]{1,100}$/
+export const MAX_SEARCH_LEN = 100
+export const MAX_NOTE_LEN = 500
+
+export const isValidRef = (v: unknown): v is string => typeof v === "string" && REF_PATTERN.test(v)
+export const clampSearch = (q: string | null | undefined): string | undefined => (q ? q.slice(0, MAX_SEARCH_LEN) : undefined)
+
+/** Resolve note: non-empty string after trim, at most 500 chars. */
+export function validateNote(v: unknown): { ok: true; note: string } | { ok: false; error: string } {
+  if (typeof v !== "string" || !v.trim()) return { ok: false, error: "A note is required" }
+  const note = v.trim()
+  if (note.length > MAX_NOTE_LEN) return { ok: false, error: `Note must be at most ${MAX_NOTE_LEN} characters` }
+  return { ok: true, note }
+}
+
+/** Test-purchase amount: a finite number or a non-empty numeric string; no booleans/arrays/objects. */
+export function parseTestAmount(v: unknown): { ok: true; amount: number } | { ok: false; error: string } {
+  const bad = { ok: false as const, error: `Test amount must be between 0.01 and ${TEST_PURCHASE_MAX_GHS}` }
+  let n: number
+  if (typeof v === "number") n = v
+  else if (typeof v === "string" && v.trim() !== "") n = Number(v)
+  else return bad
+  if (!Number.isFinite(n) || n <= 0 || n > TEST_PURCHASE_MAX_GHS) return bad
+  return { ok: true, amount: n }
+}
+
+/** The env-readiness gate applies whenever the resulting config is enabled (incl. mode changes while enabled). */
+export const needsEnvGate = (patchEnabled: boolean | undefined, beforeEnabled: boolean): boolean => (patchEnabled ?? beforeEnabled) === true
+
 export function describeError(e: unknown): { status: number; error: string } {
   if (e instanceof HubtelValidationError) return { status: 400, error: e.message }
   if (e instanceof HubtelOutcomeUnknownError) {
@@ -49,6 +78,10 @@ export function errorJson(e: unknown): NextResponse {
 
 /** Fire-and-forget audit entry; never blocks or fails the request. */
 export function auditLog(db: any, entry: { adminId?: string; action: string; oldValue?: unknown; newValue?: unknown }): void {
+  if (!entry.adminId) {
+    console.error(`[ADMIN-AUDIT] hubtel cs audit SKIPPED for ${entry.action}: no admin id on this identity`)
+    return
+  }
   Promise.resolve(db.from("admin_audit_log").insert([{
     admin_id: entry.adminId, action: entry.action, target_user_id: null,
     old_value: entry.oldValue ?? null, new_value: entry.newValue ?? null, created_at: new Date().toISOString(),

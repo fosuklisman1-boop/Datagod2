@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getOrderAdapter } from "@/lib/hubtel-cs/adapters"
-import { clampPage, errorJson, requireAdmin, searchAlternate } from "@/lib/hubtel-cs/admin-route"
+import { clampPage, clampSearch, errorJson, requireAdmin, searchAlternate } from "@/lib/hubtel-cs/admin-route"
 import { getHubtelCsRuntime } from "@/lib/hubtel-cs/runtime"
 import type { HubtelCsState } from "@/lib/hubtel-cs/types"
 
@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   const sp = new URL(request.url).searchParams
   const stateParam = sp.get("state")
   const state = stateParam === "attention" ? "attention" : stateParam && STATES.has(stateParam) ? (stateParam as HubtelCsState) : undefined
-  const q = sp.get("q") ?? undefined
+  const q = clampSearch(sp.get("q"))
   try {
     const { store } = getHubtelCsRuntime()
     const [{ rows, total }, stats] = await Promise.all([

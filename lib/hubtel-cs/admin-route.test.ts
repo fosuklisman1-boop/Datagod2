@@ -50,3 +50,50 @@ describe("searchAlternate", () => {
 it("test purchases are capped at GHS 5", () => {
   expect(TEST_PURCHASE_MAX_GHS).toBe(5)
 })
+
+import { vi } from "vitest"
+import { MAX_NOTE_LEN, MAX_SEARCH_LEN, auditLog, clampSearch, isValidRef, needsEnvGate, parseTestAmount, validateNote } from "./admin-route"
+
+describe("validation helpers", () => {
+  it("isValidRef", () => {
+    expect(isValidRef("HCS-airtime_mtn-abc123")).toBe(true)
+    for (const bad of ["", "a b", "x".repeat(101), "a%b", "a,b", 5, null, undefined, {}]) expect(isValidRef(bad)).toBe(false)
+  })
+  it("clampSearch caps length", () => {
+    expect(clampSearch("x".repeat(500))!.length).toBe(MAX_SEARCH_LEN)
+    expect(clampSearch("")).toBeUndefined()
+  })
+  it("validateNote", () => {
+    expect(validateNote("  ok  ")).toEqual({ ok: true, note: "ok" })
+    for (const bad of ["", "   ", 5, null, undefined, ["a"], "x".repeat(MAX_NOTE_LEN + 1)]) expect(validateNote(bad).ok).toBe(false)
+    expect(validateNote("x".repeat(MAX_NOTE_LEN)).ok).toBe(true)
+  })
+  it("parseTestAmount accepts numbers and numeric strings only, within the cap", () => {
+    expect(parseTestAmount(1.5)).toEqual({ ok: true, amount: 1.5 })
+    expect(parseTestAmount("2")).toEqual({ ok: true, amount: 2 })
+    for (const bad of [true, [1], { a: 1 }, "", "  ", "abc", 0, -1, 5.01, NaN, Infinity, null, undefined, [] , "[1]"]) expect(parseTestAmount(bad).ok).toBe(false)
+  })
+  it("needsEnvGate applies when the resulting state is enabled", () => {
+    expect(needsEnvGate(true, false)).toBe(true)
+    expect(needsEnvGate(undefined, true)).toBe(true) // e.g. mode change while enabled
+    expect(needsEnvGate(false, true)).toBe(false)
+    expect(needsEnvGate(undefined, false)).toBe(false)
+  })
+})
+
+describe("auditLog", () => {
+  it("skips loudly when there is no admin id", () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    const insert = vi.fn()
+    auditLog({ from: () => ({ insert }) }, { action: "x" })
+    expect(insert).not.toHaveBeenCalled()
+    expect(err).toHaveBeenCalled()
+    err.mockRestore()
+  })
+  it("inserts when an admin id is present", () => {
+    const insert = vi.fn().mockResolvedValue({ error: null })
+    auditLog({ from: () => ({ insert }) }, { adminId: "a1", action: "x" })
+    expect(insert).toHaveBeenCalledTimes(1)
+    expect(insert.mock.calls[0][0][0].admin_id).toBe("a1")
+  })
+})

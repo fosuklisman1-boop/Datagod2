@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { auditLog, errorJson, requireAdmin } from "@/lib/hubtel-cs/admin-route"
+import { auditLog, errorJson, needsEnvGate, requireAdmin } from "@/lib/hubtel-cs/admin-route"
 import { getHubtelCsConfig, hubtelCsEnvReady, setHubtelCsConfig, validateConfigPatch } from "@/lib/hubtel-cs/config"
 import { getHubtelCsRuntime } from "@/lib/hubtel-cs/runtime"
 import { HUBTEL_CS_SERVICES, HUBTEL_CS_SERVICE_KEYS } from "@/lib/hubtel-cs/services"
@@ -26,6 +26,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const auth = await requireAdmin(request)
   if (!auth.ok) return auth.response
+  if (!auth.userId) return NextResponse.json({ error: "A signed-in admin is required to change configuration" }, { status: 403 })
   let body: unknown
   try { body = await request.json() } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }) }
   const v = validateConfigPatch(body)
@@ -34,7 +35,7 @@ export async function POST(request: NextRequest) {
     const { db } = getHubtelCsRuntime()
     const before = await getHubtelCsConfig(db)
     const nextMode = v.patch.mode ?? before.mode
-    if (v.patch.enabled === true) {
+    if (needsEnvGate(v.patch.enabled, before.enabled)) {
       const env = hubtelCsEnvReady(nextMode)
       if (!env.ready) return NextResponse.json({ error: `Cannot enable: missing ${env.missing.join(", ")}` }, { status: 400 })
     }

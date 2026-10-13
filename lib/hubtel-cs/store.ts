@@ -23,7 +23,7 @@ const T = "hubtel_cs_transactions"
 const E = "hubtel_cs_events"
 
 /** Strip characters that would break a PostgREST `.or()` filter or act as ilike wildcards. */
-const safeSearch = (q: string) => q.replace(/[,()%*\\]/g, "").trim()
+const safeSearch = (q: string) => q.replace(/[,()%*\\":]/g, "").trim()
 
 export function createSupabaseHubtelCsStore(db: SupabaseClient): HubtelCsStore {
   let warned = false
