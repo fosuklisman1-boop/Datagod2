@@ -29,7 +29,7 @@ export interface AirtimeHubtelDeps {
   settle(tx: HubtelCsTx): Promise<void>
 }
 
-const quiet = async (p: Promise<void>, what: string) => {
+const quiet = async (p: Promise<unknown>, what: string) => {
   try { await p } catch (e: any) { console.error(`[AIRTIME-HUBTEL] ${what} failed:`, e?.message ?? e) }
 }
 
