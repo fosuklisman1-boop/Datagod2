@@ -2,13 +2,21 @@ import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
 import { enqueueSendBatched, SMS_MAX_TOTAL } from "@/lib/sms/send-service"
+import { customerBlockedReason, policyRejectedStatus, SEND_IN_PROGRESS_MESSAGE } from "@/lib/sms/enforcement"
 import { getShopTokens } from "@/lib/sms/shop-context-service"
+import { loadDefaultSender } from "@/lib/sms/default-sender"
+import { SMS_DISABLED_MESSAGE } from "@/lib/sms/kill-switch"
 import { getGroupActiveRecipients } from "@/lib/sms/tenant-address-book-service"
+import { checkSchedule } from "@/lib/sms/schedule"
+import { resolveTenantSendProvider } from "@/lib/sms/tenant-provider"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
+
+// Instant campaign dispatch can run for minutes (up to 5 Hubtel/Moolre batches per send).
+export const maxDuration = 300
 
 export async function POST(request: NextRequest) {
   // Auth
@@ -36,11 +44,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Invalid JSON" }, { status: 400 })
   }
 
-  const { message, recipients, groupId, senderId } = (body ?? {}) as {
+  const { message, recipients, groupId, senderId, scheduledAt, provider: requestedProvider } = (body ?? {}) as {
+    provider?: unknown
     message?: unknown
     recipients?: unknown
     groupId?: unknown
     senderId?: unknown
+    scheduledAt?: unknown
   }
 
   if (senderId !== undefined && typeof senderId !== "string") {
@@ -59,6 +69,16 @@ export async function POST(request: NextRequest) {
       { success: false, error: "message must be a string between 3 and 1000 characters" },
       { status: 400 }
     )
+  }
+
+  // Optional scheduling (Phase 4a): validated before any lookup or write. null/omitted = send now.
+  let scheduledFor: Date | undefined
+  if (scheduledAt !== undefined && scheduledAt !== null) {
+    const sched = checkSchedule(scheduledAt)
+    if (!sched.ok) {
+      return NextResponse.json({ success: false, error: "INVALID_SCHEDULE", message: sched.message }, { status: 400 })
+    }
+    scheduledFor = sched.at
   }
 
   // Build the recipient list from explicit chips and/or a saved group. The group
@@ -107,21 +127,24 @@ export async function POST(request: NextRequest) {
 
   let effectiveSenderId = senderId as string | undefined
   if (!effectiveSenderId) {
-    const { data: activeSender } = await supabaseAdmin
-      .from("sms_sender_ids")
-      .select("sender_id")
-      .eq("sms_account_id", account.id)
-      .eq("local_status", "active")
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .maybeSingle()
-    effectiveSenderId = (activeSender as { sender_id?: string } | null)?.sender_id ?? undefined
+    try {
+      effectiveSenderId = (await loadDefaultSender(supabaseAdmin, account.id)) ?? undefined
+    } catch (e) {
+      // Do not silently fall back to the platform sender; nothing has been charged yet.
+      console.error("[SMS-SEND] default sender lookup failed:", e)
+      return NextResponse.json({ success: false, error: "SEND_ERROR" }, { status: 500 })
+    }
   }
 
   // Enqueue — auto-batches into 500s when the list is larger.
   let result: Awaited<ReturnType<typeof enqueueSendBatched>>
   try {
-    result = await enqueueSendBatched(user.id, account.id, message, finalRecipients, tokens, effectiveSenderId)
+    // Silently ignored (undefined) unless the admin enabled tenant provider choice.
+    const provider = await resolveTenantSendProvider(requestedProvider)
+    const sendOpts = scheduledFor || provider ? { ...(scheduledFor ? { scheduledFor } : {}), ...(provider ? { provider } : {}) } : undefined
+    result = sendOpts
+      ? await enqueueSendBatched(user.id, account.id, message, finalRecipients, tokens, effectiveSenderId, sendOpts)
+      : await enqueueSendBatched(user.id, account.id, message, finalRecipients, tokens, effectiveSenderId)
   } catch (e) {
     // A throw here only escapes when the FIRST batch threw (enqueueSendBatched
     // converts later-batch throws into a partial success), so nothing was charged.
@@ -132,9 +155,23 @@ export async function POST(request: NextRequest) {
   if (!result.ok) {
     switch (result.error) {
       case "BLOCKED":
+        // Never echo the built-in filter's rule text; detail stays in flag_reason (server-side).
         return NextResponse.json(
-          { success: false, error: result.error, reason: result.reason },
+          { success: false, error: result.error, reason: customerBlockedReason(result) },
           { status: 400 }
+        )
+      case "SEND_IN_PROGRESS":
+        // Another enforced send from this account holds the per-account lease (released when that
+        // send finishes; expires after SEND_LOCK_SECONDS = 330 s if its instance died). Retry.
+        return NextResponse.json(
+          { success: false, error: result.error, reason: SEND_IN_PROGRESS_MESSAGE },
+          { status: 429 }
+        )
+      case "POLICY_REJECTED":
+        // Send policy (enforced) said no. `reason` is customer-safe text; nothing was charged.
+        return NextResponse.json(
+          { success: false, error: result.error, code: result.code, reason: result.reason },
+          { status: policyRejectedStatus(result.code) }
         )
       case "EMPTY_MESSAGE":
       case "TOO_MANY_RECIPIENTS":
@@ -149,6 +186,11 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
           { success: false, error: result.error },
           { status: 403 }
+        )
+      case "SMS_DISABLED":
+        return NextResponse.json(
+          { success: false, error: result.error, message: SMS_DISABLED_MESSAGE },
+          { status: 503 }
         )
       case "INSUFFICIENT_CREDITS":
         return NextResponse.json(
@@ -172,6 +214,12 @@ export async function POST(request: NextRequest) {
       creditsReserved: result.creditsReserved,
       partial: result.partial,
       stoppedReason: result.stoppedReason,
+      // true = held for a quick admin review: credits reserved, nothing sent yet.
+      held: result.held,
+      // true = scheduled: credits reserved now, sent automatically at scheduledFor (ISO, UTC).
+      scheduled: result.scheduled,
+      scheduledFor: result.scheduledFor,
+      sendLogId: result.sendLogId,
     },
   })
 }

@@ -49,7 +49,7 @@ export default function DeveloperPage() {
 
             {/* What you can call -- a compact index over the endpoints
                 documented in full under "Full Documentation". */}
-            <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+            <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 sm:p-5 clay">
               <p className="text-sm font-bold text-foreground">What you can call</p>
               <p className="mb-3 text-xs text-muted-foreground">
                 All requests go to <code className="bg-muted/50 px-1.5 py-0.5 rounded font-mono">{BASE_URL}/api/v1/...</code> with your key in the <code className="bg-muted/50 px-1.5 py-0.5 rounded font-mono">X-API-Key</code> header.
@@ -94,14 +94,14 @@ export default function DeveloperPage() {
               </div>
               {apiDocsRegistry.map((section) => (
                 <TabsContent key={section.id} value={section.id} className="mt-4">
-                  <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+                  <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 sm:p-5 clay">
                     <EndpointDoc section={section} />
                   </div>
                 </TabsContent>
               ))}
             </Tabs>
 
-            <div className="mt-4 rounded-2xl border border-border bg-card p-4 sm:p-5">
+            <div className="mt-4 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 sm:p-5 clay">
               <p className="text-sm font-bold text-foreground">POST /api/v1/sandbox/reset-balance</p>
               <p className="mt-1 text-sm text-muted-foreground">
                 Test key only. Refills your sandbox test balance back to its starting GHS 100 credit — for when a test suite has drained it. Has no effect on a live key.

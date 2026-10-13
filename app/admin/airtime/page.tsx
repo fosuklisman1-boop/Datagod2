@@ -462,7 +462,7 @@ export default function AdminAirtimePage() {
         {stats && (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             {statCards.map((s) => (
-              <div key={s.label} className="bg-card rounded-xl p-4 shadow-sm border border-border text-center">
+              <div key={s.label} className="bg-card rounded-xl p-4  border border-white/60 dark:border-white/5 text-center clay">
                 <p className="text-xs text-muted-foreground uppercase tracking-wide">{s.label}</p>
                 <p className={`text-lg font-bold mt-1 ${s.color}`}>{s.value}</p>
               </div>
@@ -539,7 +539,7 @@ export default function AdminAirtimePage() {
           <TabsContent value="pending" className="space-y-6 pt-4">
             {/* Filters */}
             <div className="flex flex-col gap-3">
-              <form onSubmit={handleSearch} className="bg-card rounded-xl border border-border shadow-sm p-4 flex flex-wrap gap-3 items-end">
+              <form onSubmit={handleSearch} className="bg-card rounded-xl border border-white/60 dark:border-white/5  p-4 flex flex-wrap gap-3 items-end clay">
                 <div>
                   <label className="block text-xs font-medium text-muted-foreground mb-1">Date</label>
                   <input type="date" value={date} onChange={e => setDate(e.target.value)}
@@ -614,13 +614,13 @@ export default function AdminAirtimePage() {
             {loading ? (
               <div className="text-center py-12 text-muted-foreground">Loading orders...</div>
             ) : orders.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground bg-card rounded-xl border border-border">No pending orders found.</div>
+              <div className="text-center py-12 text-muted-foreground bg-card rounded-xl border border-white/60 dark:border-white/5 clay">No pending orders found.</div>
             ) : (
               <>
                 {/* Mobile cards */}
                 <div className="flex flex-col gap-3 sm:hidden">
                   {orders.map((o) => (
-                    <div key={o.id} className="bg-card rounded-xl border border-border shadow-sm p-4 space-y-3">
+                    <div key={o.id} className="bg-card rounded-xl border border-white/60 dark:border-white/5  p-4 space-y-3 clay">
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-mono text-xs font-semibold text-foreground">{o.reference_code}</span>
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${STATUS_CLASSES[o.status || 'pending'] || "bg-muted text-muted-foreground"}`}>
@@ -666,7 +666,7 @@ export default function AdminAirtimePage() {
                 </div>
 
                 {/* Desktop table */}
-                <div className="hidden sm:block bg-card rounded-xl border border-border shadow-sm overflow-hidden">
+                <div className="hidden sm:block bg-card rounded-xl border border-white/60 dark:border-white/5  overflow-hidden clay">
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead className="bg-muted/40 border-b border-border">
@@ -744,7 +744,7 @@ export default function AdminAirtimePage() {
 
           <TabsContent value="history" className="space-y-6 pt-4">
             {/* Shared Filters */}
-            <form onSubmit={handleSearch} className="bg-card rounded-xl border border-border shadow-sm p-4 flex flex-wrap gap-3 items-end">
+            <form onSubmit={handleSearch} className="bg-card rounded-xl border border-white/60 dark:border-white/5  p-4 flex flex-wrap gap-3 items-end clay">
               <div>
                 <label className="block text-xs font-medium text-muted-foreground mb-1">Date</label>
                 <input type="date" value={date} onChange={e => setDate(e.target.value)}
@@ -784,13 +784,13 @@ export default function AdminAirtimePage() {
             {loading ? (
               <div className="text-center py-12 text-muted-foreground">Loading orders...</div>
             ) : orders.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground bg-card rounded-xl border border-border">No orders found.</div>
+              <div className="text-center py-12 text-muted-foreground bg-card rounded-xl border border-white/60 dark:border-white/5 clay">No orders found.</div>
             ) : (
               <>
                 {/* Mobile cards */}
                 <div className="flex flex-col gap-3 sm:hidden">
                   {orders.map((o) => (
-                    <div key={o.id} className="bg-card rounded-xl border border-border shadow-sm p-4 space-y-3">
+                    <div key={o.id} className="bg-card rounded-xl border border-white/60 dark:border-white/5  p-4 space-y-3 clay">
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-mono text-xs font-semibold text-foreground">{o.reference_code}</span>
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${STATUS_CLASSES[o.status || 'pending'] || "bg-muted text-muted-foreground"}`}>
@@ -830,7 +830,7 @@ export default function AdminAirtimePage() {
                 </div>
 
                 {/* Desktop table */}
-                <div className="hidden sm:block bg-card rounded-xl border border-border shadow-sm overflow-hidden">
+                <div className="hidden sm:block bg-card rounded-xl border border-white/60 dark:border-white/5  overflow-hidden clay">
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead className="bg-muted/40 border-b border-border">

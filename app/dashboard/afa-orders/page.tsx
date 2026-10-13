@@ -283,7 +283,7 @@ export default function AFAOrdersPage() {
                 <button
                   type="button"
                   onClick={() => setPhoneNumber(myPhone.replace(/\D/g, "").slice(0, 10))}
-                  className="flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-accent"
+                  className="flex items-center gap-1.5 rounded-full border border-white/60 dark:border-white/5 bg-card px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-accent clay-sm"
                 >
                   <User className="h-3.5 w-3.5" /> My Number ({myPhone})
                 </button>
@@ -298,7 +298,7 @@ export default function AFAOrdersPage() {
               <button
                 type="button"
                 onClick={() => setPhoneNumber("")}
-                className="flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-accent"
+                className="flex items-center gap-1.5 rounded-full border border-white/60 dark:border-white/5 bg-card px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-accent clay-sm"
               >
                 <X className="h-3.5 w-3.5" /> Clear
               </button>
@@ -360,7 +360,7 @@ export default function AFAOrdersPage() {
         {tab === "stats" && (
           <div className="grid grid-cols-2 gap-3">
             {STATUS_TILES.map(({ key, label, bg, fg }) => (
-              <div key={key} className="rounded-2xl border border-border bg-card p-4">
+              <div key={key} className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
                 <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${bg} ${fg}`}>
                   <ShieldCheck className="h-4 w-4" />
                 </span>
@@ -368,7 +368,7 @@ export default function AFAOrdersPage() {
                 <p className="text-xs text-muted-foreground">{label}</p>
               </div>
             ))}
-            <div className="rounded-2xl border border-border bg-card p-4">
+            <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
               <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#c2660a]/10 text-[#c2660a]">
                 <ShieldCheck className="h-4 w-4" />
               </span>
@@ -381,12 +381,12 @@ export default function AFAOrdersPage() {
         {tab === "history" && (
           <div className="space-y-2 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
             {orders.length === 0 ? (
-              <div className="rounded-2xl border border-border bg-card py-12 text-center text-sm text-muted-foreground">
+              <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card py-12 text-center text-sm text-muted-foreground clay">
                 No AFA registrations yet
               </div>
             ) : (
               orders.map((order) => (
-                <div key={order.id} className="rounded-2xl border border-border bg-card p-4">
+                <div key={order.id} className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="font-bold text-foreground">{order.full_name || order.order_code}</p>

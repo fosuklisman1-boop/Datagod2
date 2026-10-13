@@ -415,7 +415,7 @@ function DataPackagesPageInner() {
               <button
                 key={net}
                 onClick={() => setSelectedNetwork(net)}
-                className={`relative flex flex-col items-center gap-1.5 rounded-2xl border-2 bg-card p-2.5 sm:p-4 transition ${
+                className={`relative flex flex-col items-center gap-1.5 rounded-2xl border-2 bg-card clay p-2.5 sm:p-4 transition ${
                   isSelected ? `${m.border} shadow-sm` : "border-border hover:border-[#1b388b]/30"
                 }`}
               >
@@ -454,7 +454,7 @@ function DataPackagesPageInner() {
         {selectedNetwork === "MTN" && (
           <button
             onClick={() => { setRegCheckOpen(true); setRegResults(null); setRegCheckInput("") }}
-            className="flex w-full items-center gap-3 rounded-2xl border border-border bg-card p-4 text-left transition hover:border-[#1b388b]/30"
+            className="flex w-full items-center gap-3 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 text-left transition hover:border-[#1b388b]/30 clay"
           >
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-warning/15 text-warning">
               <ShieldCheck className="h-5 w-5" />
@@ -490,7 +490,7 @@ function DataPackagesPageInner() {
             {/* Order SMS confirmation — real existing behavior (the purchase
                 route already always sent this text); this just makes it
                 optional instead of unconditional. */}
-            <div className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-card p-4">
+            <div className="flex items-center justify-between gap-4 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
               <div>
                 <p className="text-sm font-bold text-foreground">Order SMS confirmation</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">The beneficiary gets a text confirming their order.</p>
@@ -611,7 +611,7 @@ function DataPackagesPageInner() {
           onClick={handleRefresh}
           disabled={refreshing}
           aria-label="Refresh packages"
-          className="fixed bottom-24 right-4 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-card text-foreground shadow-lg border border-border md:bottom-8 md:right-8"
+          className="fixed bottom-24 right-4 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-card text-foreground  border border-white/60 dark:border-white/5 md:bottom-8 md:right-8 clay-sm"
         >
           <RefreshCw className={`h-5 w-5 ${refreshing ? "animate-spin" : ""}`} />
         </button>

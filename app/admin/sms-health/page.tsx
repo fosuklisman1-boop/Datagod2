@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { Button } from "@/components/ui/button"
+import { SenderHealthCard } from "./SenderHealthCard"
 import { Loader2, RefreshCw, MessageSquare, CheckCircle2, XCircle, Clock, AlertCircle } from "lucide-react"
 
 interface TypeRow { type: string; total: number; delivered: number; failed: number; sent: number }
@@ -137,6 +138,9 @@ export default function SmsHealthPage() {
                   headers={["Provider", "Total", "Delivered", "Failed", "Rate"]} />
               </CardContent>
             </Card>
+
+            {/* Sender ID health (Hubtel DLR per sender name) */}
+            <SenderHealthCard rows={data?.sender_health} error={data?.sender_health_error} />
 
             {/* Recent failures */}
             <Card>

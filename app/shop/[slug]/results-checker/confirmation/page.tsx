@@ -205,7 +205,7 @@ export default function ResultsCheckerConfirmationPage() {
                   </div>
                   <button
                     onClick={() => handleCopy(v, i)}
-                    className="flex-shrink-0 p-2.5 rounded-lg bg-card hover:bg-muted transition-colors mt-4 border border-border"
+                    className="flex-shrink-0 p-2.5 rounded-lg bg-card hover:bg-muted transition-colors mt-4 border border-white/60 dark:border-white/5 clay"
                     title="Copy serial & PIN"
                   >
                     {copied === i

@@ -62,17 +62,61 @@ export function mapNetworkToApex(network: "MTN" | "Telecel" | "AirtelTigo"): "MT
  * happens to contain the literal phrase "refunded message from Alexa" mid-
  * chain for orders that go on to genuinely complete, so the override is
  * scoped to non-AutoSync messages to avoid misreading that as a real refund.
+ *
+ * Apex Prime also reports a completion while the order is still with its supplier (message
+ * "Sent to NITGHT ..." or "Routed from NITGHT (awaiting approval)"): see apexMessageInFlight.
  */
 export function normalizeApexStatus(raw: string, message?: string): "pending" | "processing" | "completed" | "failed" {
   const s = (raw ?? "").toLowerCase().trim()
   if (s === "completed" || s === "success" || s === "successful") {
     const m = (message ?? "").toLowerCase()
     if (m.includes("refund") && !m.includes("autosync")) return "failed"
+    // Apex Prime also reports "completed" while the order is still in flight ("Sent to NITGHT. Order
+    // ID: 18047", "Routed from NITGHT (awaiting approval)") or after it failed ("Supplier Error:
+    // Insufficient balance"); only its message tells.
+    if (apexMessageInFlight(message)) return "processing"
+    if (apexMessageFailed(message)) return "failed"
     return "completed"
   }
   if (s.includes("fail") || s.includes("reject") || s.includes("cancel") || s.includes("refund")) return "failed"
   if (s === "pending" || s === "waiting") return "pending"
   return "processing"
+}
+
+/** Latest step of an Apex Prime message chain reads "explicitly delivered". */
+const APEX_DONE = /supplier\s*=\s*(completed|success|successful|delivered)|\bdelivered\b|\bsuccessful(ly)?\b|\bcompleted\b/
+/** Latest step reads "handed on / waiting": the order is not delivered yet. */
+const APEX_IN_FLIGHT = /\bsent to\b|\binitiated\b|\brouted\b|awaiting|\bqueued\b|\bpending\b|\bprocessing\b|\bin progress\b/
+
+/**
+ * true when the LATEST step of Apex Prime's message (their log is a " | "-joined chain, newest
+ * last) says the order is still moving. An explicit completion in that step wins, so a chain
+ * ending "AutoSync ...: supplier=completed" is delivered even though it starts "Sent to Supplier 1".
+ */
+export function apexMessageInFlight(message?: string): boolean {
+  const last = lastApexStep(message)
+  if (!last || APEX_DONE.test(last)) return false
+  return APEX_IN_FLIGHT.test(last)
+}
+
+/** Latest step reads as a definite failure (observed live with status "completed"). */
+const APEX_FAILED = /supplier\s*=\s*(failed|error|rejected|cancell?ed)|supplier error|\berror\b|not found|not enabled|\bfailed\b|\brejected\b/
+
+/**
+ * true when the LATEST step of Apex Prime's message is a failure: "Supplier Error: Insufficient
+ * balance", "Requested function was not found", "not enabled on MTN yet ...", "supplier=failed".
+ * Checked after apexMessageInFlight, so "API Offline - Pending dispatch (Insufficient wallet
+ * balance.)" (still queued) stays in flight. An explicit completion in that step wins.
+ */
+export function apexMessageFailed(message?: string): boolean {
+  const last = lastApexStep(message)
+  if (!last || APEX_DONE.test(last)) return false
+  return APEX_FAILED.test(last)
+}
+
+function lastApexStep(message?: string): string | undefined {
+  const steps = (message ?? "").toLowerCase().split("|").map(p => p.trim()).filter(Boolean)
+  return steps[steps.length - 1]
 }
 
 /**
@@ -100,7 +144,7 @@ export function findMatchingProduct(
  * /status endpoint needs to know which `type` to query, and checkOrderStatus()
  * only ever receives the stored id string — no other context is available.
  */
-export function parseTrackingId(id: string): { kind: "bundle" | "store"; rawId: string } | null {
+export function parseTrackingId(id: string): { kind: "bundle" | "store"; rawId: string; reference?: string } | null {
   const idx = id.indexOf(":")
   if (idx === -1) return null
   const kind = id.slice(0, idx)
@@ -114,11 +158,29 @@ export function parseTrackingId(id: string): { kind: "bundle" | "store"; rawId: 
     // orders never get a database id, so client_code is the intended lookup key),
     // falling back to our own reference when client_code is absent — see
     // createViaStore. /status only wants the bare lookupId, not the uniquifier.
+    //
+    // Since the client_code collision fix, Store ids are "store:<lookupId>:<reference>:<uniquifier>":
+    // <reference> is our own order UUID, used to check that a /status reply is really about THIS
+    // order (client_code is only 3 digits and is reused across orders). Older rows have no reference.
     const lastColon = rawId.lastIndexOf(":")
     if (lastColon !== -1) rawId = rawId.slice(0, lastColon)
+    const refColon = rawId.indexOf(":")
+    if (refColon !== -1) {
+      const reference = rawId.slice(refColon + 1)
+      rawId = rawId.slice(0, refColon)
+      if (rawId.length > 0 && reference.length > 0) return { kind, rawId, reference }
+      return null
+    }
   }
   if ((kind === "bundle" || kind === "store") && rawId.length > 0) return { kind, rawId }
   return null
+}
+
+/** The order reference a /status reply names, wherever Apex Prime puts it; undefined when absent. */
+export function apexReplyReference(json: any): string | undefined {
+  const candidates = [json?.client_reference, json?.reference, json?.order?.client_reference, json?.order?.reference, json?.data?.client_reference, json?.data?.reference]
+  const hit = candidates.find(v => typeof v === "string" && v.length > 0)
+  return hit
 }
 
 export interface AfaRegisterPayload {
@@ -247,7 +309,9 @@ export class ApexPrimeProvider implements MTNProvider {
     // on mtn_fulfillment_tracking's UNIQUE(mtn_order_id) constraint — see
     // parseTrackingId, which strips it back off before calling /status.
     const lookupId = json.client_code ?? reference
-    return { success: true, order_id: `store:${lookupId}:${crypto.randomUUID()}`, message: json.message ?? "Store order placed" }
+    // Our reference rides along so checkOrderStatus can reject a reply about another order that
+    // shares this 3-digit client_code (see parseTrackingId).
+    return { success: true, order_id: `store:${lookupId}:${reference}:${crypto.randomUUID()}`, message: json.message ?? "Store order placed" }
   }
 
   async checkOrderStatus(orderId: string | number): Promise<MTNOrderStatusResponse> {
@@ -279,6 +343,22 @@ export class ApexPrimeProvider implements MTNProvider {
 
     if (!res.ok || json.success !== true) {
       return { success: false, message: json?.message ?? `API error ${res.status}` }
+    }
+
+    // Store orders are looked up by a 3-digit client_code that Apex Prime reuses across orders, and
+    // /status then answers with ANOTHER order (observed: every order sharing a code got the same
+    // reply, so later orders were completed / reversed from an older order's status). Trust a Store
+    // reply only when it names our own reference; otherwise leave the order in flight (the webhook,
+    // matched on our reference, still settles it).
+    if (parsed.kind === "store") {
+      const replyRef = apexReplyReference(json)
+      if (!parsed.reference || !replyRef || replyRef.toLowerCase() !== parsed.reference.toLowerCase()) {
+        const why = !parsed.reference ? "no reference stored for this order" : !replyRef ? "reply names no order reference" : "reply is for a different order"
+        console.warn("[APEXPRIME] Ignoring unverifiable Store /status reply", {
+          clientCode: parsed.rawId, why, replyStatus: json.status, replyKeys: Object.keys(json ?? {}),
+        })
+        return { success: true, status: "processing", message: `Apex Prime status not verified for this order (${why}); waiting for the webhook` }
+      }
     }
 
     return { success: true, status: normalizeApexStatus(json.status, json.message), message: json.message ?? "Status retrieved", order: json }

@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import { notificationTemplates } from "@/lib/notification-service"
-import { sendSMS } from "@/lib/sms-service"
 import { verifyAdminAccess } from "@/lib/admin-auth"
-import { sendPushToUser } from "@/lib/push-service"
+import { notifyUserOfOutcome } from "@/lib/admin-actions"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -23,7 +21,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Update shop to inactive (rejected)
+    // Update shop to inactive (rejected). NOTE: user_shops has no separate
+    // pending/rejected state (both are is_active=false), so there is no reliable
+    // pre-state to condition on; this stays unconditional as before.
     const { data, error } = await supabase
       .from("user_shops")
       .update({
@@ -43,90 +43,19 @@ export async function POST(request: NextRequest) {
 
     console.log(`Shop ${shopId} rejected by admin`)
 
-    // Send notification to shop owner
-    if (data && data[0]) {
-      try {
-        const shop = data[0]
-        const notificationData = notificationTemplates.shopRejected(shop.shop_name || "Your shop", shopId, reason)
-        const { error: notifError } = await supabase
-          .from("notifications")
-          .insert([
-            {
-              user_id: shop.user_id,
-              title: notificationData.title,
-              message: notificationData.message,
-              type: notificationData.type,
-              reference_id: notificationData.reference_id,
-              action_url: `/dashboard/my-shop`,
-              read: false,
-            },
-          ])
-        if (notifError) {
-          console.warn("[NOTIFICATION] Failed to send notification:", notifError)
-        } else {
-          console.log(`[NOTIFICATION] Shop rejection notification sent to user ${shop.user_id}`)
-          sendPushToUser(shop.user_id, {
-            title: notificationData.title,
-            body: notificationData.message,
-            data: { url: `/dashboard/my-shop` },
-          }).catch(() => {})
-        }
-      } catch (notifError) {
-        console.warn("[NOTIFICATION] Failed to send notification:", notifError)
-        // Don't fail the rejection if notification fails
-      }
-
-      // Send SMS to shop owner
-      try {
-        const shop = data[0]
-        const { data: userData, error: userError } = await supabase
+    // Notify shop owner (in-app, push, email, SMS) via the central notifier
+    try {
+      const shop = data?.[0]
+      if (shop?.user_id) {
+        const { data: owner } = await supabase
           .from("users")
-          .select("phone_number, email, first_name")
+          .select("phone_number")
           .eq("id", shop.user_id)
-          .single()
-
-        if (!userError && userData) {
-          // Send Email
-          if (userData.email) {
-            import("@/lib/email-service").then(({ sendEmail, EmailTemplates }) => {
-              const payload = EmailTemplates.shopRejected(
-                shop.shop_name || "Your Shop",
-                shopId,
-                userData.phone_number || undefined,
-                reason
-              );
-              sendEmail({
-                to: [{ email: userData.email, name: userData.first_name || "Merchant" }],
-                subject: payload.subject,
-                htmlContent: payload.html,
-                referenceId: shopId,
-                userId: shop.user_id,
-                type: 'shop_rejected'
-              }).catch(err => {
-                console.error("[EMAIL] ❌ Shop Rejection Email FAILED:", err)
-                console.error("[EMAIL] Error message:", err?.message)
-                console.error("[EMAIL] Error stack:", err?.stack)
-                console.error("[EMAIL] Full error:", JSON.stringify(err, null, 2))
-              });
-            });
-          }
-
-          if (userData.phone_number) {
-            const reasonText = reason ? ` Reason: ${reason}` : ""
-            const smsMessage = `Your shop "${shop.shop_name}" has been rejected.${reasonText} Contact support for more details.`
-
-            await sendSMS({
-              phone: userData.phone_number,
-              message: smsMessage,
-              type: 'shop_rejected',
-              reference: shopId,
-            }).catch(err => console.error("[SMS] SMS error:", err))
-          }
-        }
-      } catch (smsError) {
-        console.warn("[SMS] Failed to send shop rejection SMS:", smsError)
-        // Don't fail the rejection if SMS fails
+          .maybeSingle()
+        await notifyUserOfOutcome("shop", "rejected", { userId: shop.user_id, reference: shopId }, { shopId, shopName: shop.shop_name || "Your shop", reason, ownerPhone: owner?.phone_number ?? null })
       }
+    } catch (e) {
+      console.warn("[ADMIN-ACTION] shop rejection notify failed:", e instanceof Error ? e.message : e)
     }
 
     return NextResponse.json({

@@ -291,7 +291,7 @@ export default function AdminPackagesPage() {
                     aria-label="Select network"
                     value={formData.network}
                     onChange={(e) => setFormData({ ...formData, network: e.target.value })}
-                    className="w-full mt-1 px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring bg-card"
+                    className="w-full mt-1 px-3 py-2 border border-white/60 dark:border-white/5 rounded-lg focus:outline-none focus:ring-2 focus:ring-ring bg-background clay-inset"
                   >
                     <option value="">Choose a network...</option>
                     {AVAILABLE_NETWORKS.map((network) => (

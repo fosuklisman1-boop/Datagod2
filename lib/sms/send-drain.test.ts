@@ -17,27 +17,66 @@ const h = vi.hoisted(() => {
     claimedRows: [] as Row[],
     updates: [] as { table: string; data: any; id?: string }[],
     rpcs: [] as { fn: string; args?: any }[],
-    refundError: false,           // force adjust_sms_units to error
+    refundError: false,           // force refund_sms_message to error
+    updateError: false,           // force the per-row update to return an error
+    refundResult: true,          // refund_sms_message data (false = already refunded)
     refundFailuresInsertError: false,  // force sms_refund_failures insert to fail
     recomputeError: false,
     sendSuccess: true,            // sendSMS returns success or failure
     sendRef: "moolre-abc",
     sendProvider: "moolre",
     sendError: "provider failed",
+    parkedLogIds: [] as (string | number)[], // sms_send_logs ids whose status is held/scheduled
+    parkLookupError: false,
+    overrides: {} as Record<string, string>, // log id -> provider_override
+    overrideError: false,
+    overrideMessage: "column sms_send_logs.provider_override does not exist",
+    overrideLookups: [] as any[][],
+    parkLookups: [] as { table: string; filters: Record<string, any> }[],
   }
 
   const fake = {
     from: (table: string) => ({
-      update: (data: any) => ({
-        eq: (col: string, val: any) => ({
-          lt: (col2: string, val2: any) => Promise.resolve({ data: null, error: null }),
+      // .select("id").in("id", ids).in("status", [...]) — the held/scheduled guard lookup
+      select: (cols: string) => {
+        const filters: Record<string, any> = {}
+        const chain: any = {
+          in: (col: string, vals: any[]) => { filters[col] = vals; return chain },
           then: (resolve: any) => {
-            state.updates.push({ table, data, id: val })
-            const r = { data: null, error: null }
+            const ids = (filters.id ?? []) as any[]
+            if (cols.includes("provider_override")) {
+              state.overrideLookups.push(ids)
+              const rr = state.overrideError
+                ? { data: null, error: { message: state.overrideMessage } }
+                : { data: ids.filter((id) => state.overrides[String(id)]).map((id) => ({ id, provider_override: state.overrides[String(id)] })), error: null }
+              resolve(rr)
+              return Promise.resolve(rr)
+            }
+            state.parkLookups.push({ table, filters })
+            const r = state.parkLookupError
+              ? { data: null, error: { message: "logs down" } }
+              : { data: ids.filter((id) => state.parkedLogIds.map(String).includes(String(id))).map((id) => ({ id })), error: null }
             resolve(r)
             return Promise.resolve(r)
           },
-        }),
+        }
+        return chain
+      },
+      update: (data: any) => ({
+        eq: (col: string, val: any) => {
+          const filters: Record<string, any> = { [col]: val }
+          const chain: any = {
+            eq: (c2: string, v2: any) => { filters[c2] = v2; return chain },
+            lt: (col2: string, val2: any) => Promise.resolve({ data: null, error: null }),
+            then: (resolve: any) => {
+              state.updates.push({ table, data, id: val, filters } as any)
+              const r = { data: null, error: state.updateError ? { message: "update boom" } : null }
+              resolve(r)
+              return Promise.resolve(r)
+            },
+          }
+          return chain
+        },
         then: (resolve: any) => {
           state.updates.push({ table, data })
           const r = { data: null, error: null }
@@ -62,11 +101,11 @@ const h = vi.hoisted(() => {
       if (fn === "claim_sms_messages") {
         return Promise.resolve({ data: state.claimedRows, error: null })
       }
-      if (fn === "adjust_sms_units") {
+      if (fn === "refund_sms_message") {
         if (state.refundError) {
           return Promise.resolve({ data: null, error: { message: "refund failed" } })
         }
-        return Promise.resolve({ data: null, error: null })
+        return Promise.resolve({ data: state.refundResult, error: null })
       }
       if (fn === "recompute_sms_send_result") {
         if (state.recomputeError) {
@@ -95,10 +134,59 @@ beforeEach(() => {
   h.state.updates.length = 0
   h.state.rpcs.length = 0
   h.state.refundError = false
+  h.state.refundResult = true
+  h.state.updateError = false
   h.state.refundFailuresInsertError = false
   h.state.recomputeError = false
   h.state.sendSuccess = true
+  h.state.parkedLogIds = []
+  h.state.parkLookupError = false
+  h.state.parkLookups.length = 0
+  h.state.overrides = {}
+  h.state.overrideError = false
+  h.state.overrideMessage = "column sms_send_logs.provider_override does not exist"
+  h.state.overrideLookups.length = 0
   h.sendSmsMock.mockReset()
+})
+
+describe("drainSmsMessages — held/scheduled campaigns are never sent (defence in depth)", () => {
+  const row = (id: string, log: string | number, attempts = 1) =>
+    ({ id, send_log_id: log as any, sms_account_id: "acc-1", phone: "+233241234567", rendered_message: "Hi", segments: 1, attempts })
+
+  it("looks up the claimed rows' logs for held/scheduled status", async () => {
+    h.state.claimedRows = [row("m1", 11), row("m2", 12), row("m3", 11)]
+    h.sendSmsMock.mockResolvedValue({ success: true, provider: "moolre" })
+    await drainSmsMessages()
+    expect(h.state.parkLookups).toEqual([{ table: "sms_send_logs", filters: { id: [11, 12], status: ["held", "scheduled"] } }])
+  })
+
+  it("a held campaign's claimed rows are handed back untouched (pending, unclaimed, attempts restored), never sent", async () => {
+    h.state.claimedRows = [row("held-1", 7, 1), row("ok-1", 8, 1)]
+    h.state.parkedLogIds = [7]
+    h.sendSmsMock.mockResolvedValue({ success: true, provider: "moolre" })
+    const result = await drainSmsMessages()
+    expect(h.sendSmsMock).toHaveBeenCalledTimes(1)
+    expect(h.sendSmsMock.mock.calls[0][0].reference).toBe("ok-1")
+    const back = h.state.updates.find((u) => u.id === "held-1") as any
+    expect(back.data).toEqual({ status: "pending", claimed_at: null, attempts: 0 })
+    expect(back.filters).toEqual({ id: "held-1", status: "claimed" })
+    expect(result).toEqual({ claimed: 1, sent: 1, failed: 0, refunded: 0 })
+    const recomputed = h.state.rpcs.filter((r) => r.fn === "recompute_sms_send_result").map((r) => r.args.p_send_log_id)
+    expect(recomputed).toEqual([8])
+    expect(h.state.rpcs.map((r) => r.fn)).not.toContain("refund_sms_message")
+  })
+
+  it("log lookup failure → fail CLOSED: every claimed row handed back, nothing sent", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    h.state.claimedRows = [row("a", 1, 2), row("b", 2, 1)]
+    h.state.parkLookupError = true
+    const result = await drainSmsMessages()
+    expect(h.sendSmsMock).not.toHaveBeenCalled()
+    expect(result).toEqual({ claimed: 0, sent: 0, failed: 0, refunded: 0 })
+    expect((h.state.updates.find((u) => u.id === "a") as any).data).toEqual({ status: "pending", claimed_at: null, attempts: 1 })
+    expect((h.state.updates.find((u) => u.id === "b") as any).data).toEqual({ status: "pending", claimed_at: null, attempts: 0 })
+    spy.mockRestore()
+  })
 })
 
 const rpcNames = () => h.state.rpcs.map((r) => r.fn)
@@ -124,8 +212,8 @@ describe("drainSmsMessages", () => {
     expect(result.failed).toBe(0)
     expect(result.refunded).toBe(0)
 
-    // adjust_sms_units NOT called (no refund on success)
-    expect(rpcNames()).not.toContain("adjust_sms_units")
+    // refund NOT called (no refund on success)
+    expect(rpcNames()).not.toContain("refund_sms_message")
 
     // recompute called for log-1
     const recompute = h.state.rpcs.find((r) => r.fn === "recompute_sms_send_result")
@@ -142,6 +230,52 @@ describe("drainSmsMessages", () => {
     expect(h.sendSmsMock).toHaveBeenCalledWith(expect.objectContaining({ phone: "+233241234567", senderId: "MYSHOP" }))
   })
 
+  it("a log with provider_override=hubtel → sendSMS gets provider:'hubtel'; others get none", async () => {
+    h.state.claimedRows = [
+      { id: "a", send_log_id: "L1", sms_account_id: "x", phone: "+233241234567", rendered_message: "Hi", segments: 1, attempts: 0, sender_id: null },
+      { id: "b", send_log_id: "L2", sms_account_id: "x", phone: "+233241234568", rendered_message: "Hi", segments: 1, attempts: 0, sender_id: null },
+    ]
+    h.state.overrides = { L1: "hubtel" }
+    h.sendSmsMock.mockResolvedValue({ success: true, ref: "r", provider: "hubtel" })
+    await drainSmsMessages()
+    const byRef = (id: string) => h.sendSmsMock.mock.calls.map((c: any[]) => c[0]).find((a: any) => a.reference === id)
+    expect(byRef("a")).toMatchObject({ provider: "hubtel", type: "shop_sms" })
+    expect(byRef("b").provider).toBeUndefined()
+    expect(h.state.overrideLookups).toHaveLength(1)
+  })
+
+  it("override lookup failure (column missing) does not break the drain: sends with no provider", async () => {
+    h.state.claimedRows = [
+      { id: "a", send_log_id: "L1", sms_account_id: "x", phone: "+233241234567", rendered_message: "Hi", segments: 1, attempts: 0, sender_id: null },
+    ]
+    h.state.overrideError = true
+    h.sendSmsMock.mockResolvedValue({ success: true, ref: "r", provider: "moolre" })
+    const res = await drainSmsMessages()
+    expect(res.sent).toBe(1)
+    expect(h.sendSmsMock.mock.calls[0][0].provider).toBeUndefined()
+  })
+
+  it("override lookup transient error: nothing sent, rows handed back to pending (attempt restored)", async () => {
+    h.state.claimedRows = [
+      { id: "a", send_log_id: "L1", sms_account_id: "x", phone: "+233241234567", rendered_message: "Hi", segments: 1, attempts: 2, sender_id: null },
+    ]
+    h.state.overrideError = true
+    h.state.overrideMessage = "connection reset"
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    const res = await drainSmsMessages()
+    err.mockRestore()
+    expect(res).toEqual({ claimed: 0, sent: 0, failed: 0, refunded: 0 })
+    expect(h.sendSmsMock).not.toHaveBeenCalled()
+    expect(h.state.updates.find((u) => u.table === "sms_messages" && u.data.status === "pending" && u.data.attempts === 1)).toBeTruthy()
+  })
+
+  it("override lookups are chunked to <=200 ids", async () => {
+    h.state.claimedRows = Array.from({ length: 250 }, (_, i) => ({ id: "m" + i, send_log_id: "L" + i, sms_account_id: "x", phone: "+233241234567", rendered_message: "Hi", segments: 1, attempts: 0, sender_id: null }))
+    h.sendSmsMock.mockResolvedValue({ success: true, ref: "r", provider: "moolre" })
+    await drainSmsMessages({ limit: 250 })
+    expect(h.state.overrideLookups.map((l) => l.length)).toEqual([200, 50])
+  })
+
   it("null sender_id → sendSMS called with senderId undefined (platform default)", async () => {
     h.state.claimedRows = [
       { id: "msg-10", send_log_id: "log-10", sms_account_id: "acc-10", phone: "+233241234567", rendered_message: "Hi", segments: 1, attempts: 0, sender_id: null },
@@ -151,7 +285,48 @@ describe("drainSmsMessages", () => {
     expect(h.sendSmsMock).toHaveBeenCalledWith(expect.objectContaining({ senderId: undefined }))
   })
 
-  it("row that fails at attempts>=MAX_ATTEMPTS → marked failed + adjust_sms_units called", async () => {
+  it("Hubtel send success stores provider_message_id; other providers store null", async () => {
+    h.state.claimedRows = [
+      { id: "msg-h", send_log_id: "log-h", sms_account_id: "acc-1", phone: "+233241234567", rendered_message: "Hi", segments: 1, attempts: 0 },
+      { id: "msg-m", send_log_id: "log-m", sms_account_id: "acc-1", phone: "+233241234568", rendered_message: "Hi", segments: 1, attempts: 0 },
+    ]
+    h.sendSmsMock
+      .mockResolvedValueOnce({ success: true, messageId: "hub-1", provider: "hubtel" })
+      .mockResolvedValueOnce({ success: true, messageId: "moo-1", provider: "moolre" })
+    await drainSmsMessages()
+    const hub = h.state.updates.find((u) => u.id === "msg-h")!
+    const moo = h.state.updates.find((u) => u.id === "msg-m")!
+    expect(hub.data.provider_message_id).toBe("hub-1")
+    expect(moo.data.provider_message_id).toBeNull()
+  })
+
+  it("success update is guarded by status='claimed' and logs update errors", async () => {
+    h.state.claimedRows = [
+      { id: "msg-g", send_log_id: "log-g", sms_account_id: "acc-1", phone: "+233241234567", rendered_message: "Hi", segments: 1, attempts: 0 },
+    ]
+    h.sendSmsMock.mockResolvedValue({ success: true, messageId: "m", provider: "moolre" })
+    h.state.updateError = true
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    await drainSmsMessages()
+    const upd = h.state.updates.find((u) => u.data.status === "sent") as any
+    expect(upd.filters).toEqual({ id: "msg-g", status: "claimed" })
+    expect(spy.mock.calls.some((c) => String(c[0]).includes("mark-sent update failed"))).toBe(true)
+    spy.mockRestore()
+  })
+
+  it("already-refunded message (RPC returns false) is not counted as refunded", async () => {
+    h.state.claimedRows = [
+      { id: "msg-d", send_log_id: "log-d", sms_account_id: "acc-1", phone: "+233241234567", rendered_message: "Hi", segments: 1, attempts: MAX_ATTEMPTS },
+    ]
+    h.sendSmsMock.mockResolvedValue({ success: false, error: "x" })
+    h.state.refundResult = false
+    const result = await drainSmsMessages()
+    expect(result.failed).toBe(1)
+    expect(result.refunded).toBe(0)
+    expect(h.state.rpcs.find((r) => r.fn === "sms_refund_failures.insert")).toBeUndefined()
+  })
+
+  it("row that fails at attempts>=MAX_ATTEMPTS → marked failed + refund_sms_message called", async () => {
     h.state.claimedRows = [
       { id: "msg-2", send_log_id: "log-2", sms_account_id: "acc-2", phone: "+233551234567", rendered_message: "Hi", segments: 2, attempts: MAX_ATTEMPTS },
     ]
@@ -161,11 +336,9 @@ describe("drainSmsMessages", () => {
     expect(result.failed).toBe(1)
     expect(result.refunded).toBe(1)
 
-    const refundCall = h.state.rpcs.find((r) => r.fn === "adjust_sms_units")
+    const refundCall = h.state.rpcs.find((r) => r.fn === "refund_sms_message")
     expect(refundCall).toBeTruthy()
-    expect(refundCall!.args.p_account_id).toBe("acc-2")
-    expect(refundCall!.args.p_delta).toBe(2) // segments
-    expect(refundCall!.args.p_reason).toBe("campaign_refund")
+    expect(refundCall!.args).toEqual({ p_message_id: "msg-2" })
   })
 
   it("row fails but attempts < MAX_ATTEMPTS → marked failed, NO refund", async () => {
@@ -177,7 +350,7 @@ describe("drainSmsMessages", () => {
     const result = await drainSmsMessages()
     expect(result.failed).toBe(1)
     expect(result.refunded).toBe(0)
-    expect(rpcNames()).not.toContain("adjust_sms_units")
+    expect(rpcNames()).not.toContain("refund_sms_message")
   })
 
   it("refund RPC errors → sms_refund_failures inserted, refunded count stays 0", async () => {

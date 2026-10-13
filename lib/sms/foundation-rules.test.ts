@@ -1,5 +1,33 @@
 import { describe, it, expect } from "vitest"
-import { deriveOwnerType, canPurchaseBundle } from "./foundation-rules"
+import { deriveOwnerType, canPurchaseBundle, bundleVisibleTo } from "./foundation-rules"
+
+describe("individual accounts via Allowed Roles", () => {
+  it("dealer without a shop gets an individual account when dealers are allowed", () => {
+    expect(deriveOwnerType({ role: "dealer", ownsShop: false, isSubAgent: false, allowedRoles: ["dealer"] }))
+      .toEqual({ ownerType: "individual", ownerId: null })
+  })
+  it("not allowed → no account (today's behaviour)", () => {
+    expect(deriveOwnerType({ role: "user", ownsShop: false, isSubAgent: false, allowedRoles: ["shop_owner"] })).toBeNull()
+  })
+  it("default allowed roles still give plain users/dealers nothing", () => {
+    expect(deriveOwnerType({ role: "dealer", ownsShop: false, isSubAgent: false, allowedRoles: ["shop_owner", "sub_agent"] })).toBeNull()
+  })
+  it("shop owners keep shop accounts regardless", () => {
+    expect(deriveOwnerType({ role: "user", ownsShop: true, isSubAgent: false, shopId: "s1", allowedRoles: [] })?.ownerType).toBe("shop")
+  })
+})
+
+describe("bundleVisibleTo", () => {
+  const b = { id: "1", active: true, owner_type_scope: "all" as const, mode: "platform" as const }
+  it("matches mode", () => {
+    expect(bundleVisibleTo(b, "shop", "platform")).toBe(true)
+    expect(bundleVisibleTo(b, "shop", "business")).toBe(false)
+  })
+  it("respects active + scope", () => {
+    expect(bundleVisibleTo({ ...b, active: false }, "shop", "platform")).toBe(false)
+    expect(bundleVisibleTo({ ...b, owner_type_scope: "sub_agent" }, "shop", "platform")).toBe(false)
+  })
+})
 
 describe("deriveOwnerType", () => {
   it("admin → platform", () => {

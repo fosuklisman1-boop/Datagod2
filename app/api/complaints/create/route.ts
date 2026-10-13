@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js"
 import { notificationTemplates } from "@/lib/notification-service"
 import { sendPushToUser } from "@/lib/push-service"
 import { applyRateLimit } from "@/lib/rate-limiter"
+import { alertAdminsOfRequest } from "@/lib/admin-actions"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -250,6 +251,14 @@ export async function POST(request: NextRequest) {
       console.warn("[NOTIFICATION] Failed to send complaint submitted notification:", notifError)
       // Don't fail the complaint creation if notification fails
     }
+
+    // Alert admins (email + push). Never throws.
+    await alertAdminsOfRequest("complaint", {
+      complaintId: complaint[0].id,
+      orderId: orderType === "regular" ? orderId : undefined,
+      priority,
+      summary: description.slice(0, 200),
+    })
 
     return NextResponse.json({
       message: "Complaint submitted successfully",

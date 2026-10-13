@@ -10,13 +10,44 @@
  */
 
 import { createClient } from "@supabase/supabase-js"
-
-const VALID_PROVIDERS = ["moolre", "mnotify", "brevo"] as const
+import { hubtelConfigFromEnv } from "./providers/hubtel"
+import { fetchDisbursementBalance } from "@/lib/ussd-hubtel/relay"
+import { CATEGORY_DEFAULTS, SMS_CATEGORIES, type CategoryProvider, type SmsCategory } from "./categories"
+import { loadHubtelBalanceSettings } from "./platform-settings"
+const VALID_PROVIDERS = ["moolre", "mnotify", "brevo", "hubtel"] as const
 type Provider = (typeof VALID_PROVIDERS)[number]
 
 export interface RoutingConfig {
   primary: Provider | string
   fallbacks: (Provider | string)[]
+  /** Per-category provider choice ("global" = follow primary/fallbacks). */
+  categoryProviders: Record<SmsCategory, CategoryProvider>
+  /** Whether tenants may choose their own provider. */
+  tenantProviderChoice: boolean
+}
+
+const CATEGORY_PROVIDER_VALUES: readonly string[] = ["global", "moolre", "hubtel"]
+
+function isCategory(c: unknown): c is SmsCategory {
+  return typeof c === "string" && (SMS_CATEGORIES as readonly string[]).includes(c)
+}
+
+function toObject(raw: unknown): Record<string, unknown> {
+  let v = raw
+  if (typeof v === "string") {
+    try { v = JSON.parse(v) } catch { return {} }
+  }
+  return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {}
+}
+
+function parseCategoryProviders(raw: unknown): Record<SmsCategory, CategoryProvider> {
+  const out = { ...CATEGORY_DEFAULTS }
+  for (const [k, v] of Object.entries(toObject(raw))) {
+    if (isCategory(k) && typeof v === "string" && CATEGORY_PROVIDER_VALUES.includes(v)) {
+      out[k] = v as CategoryProvider
+    }
+  }
+  return out
 }
 
 // ---------------------------------------------------------------------------
@@ -57,7 +88,37 @@ export function parseRoutingConfig(rows: SettingRow[]): RoutingConfig {
     fallbacks = []
   }
 
-  return { primary, fallbacks }
+  const rawChoice = map["sms_tenant_provider_choice_enabled"]
+  const tenantProviderChoice = rawChoice === true || rawChoice === "true"
+
+  return {
+    primary,
+    fallbacks,
+    categoryProviders: parseCategoryProviders(map["sms_category_providers"]),
+    tenantProviderChoice,
+  }
+}
+
+/**
+ * Narrow a provider chain for a CUSTOM sender ID. Sender approval is ours (local_status);
+ * Hubtel passes any sender through, the fallback gateways only accept IDs registered with
+ * them. Once Hubtel leads, custom senders go via Hubtel only (spec §5.4).
+ */
+export function narrowProvidersForSender(
+  order: string[],
+  senderRow: { local_status: string | null; mnotify_local_status: string | null } | null,
+  hasCustomSender: boolean
+): string[] {
+  if (!hasCustomSender) return order
+  if (order[0] === "hubtel") return ["hubtel"]
+  if (!senderRow) return order
+  const approved = new Set<string>()
+  if (senderRow.local_status === "active") { approved.add("moolre"); approved.add("hubtel") }
+  // Note: unreachable from sendSMS today (its lookup requires local_status = active);
+  // kept so this pure function's contract stays complete.
+  if (senderRow.mnotify_local_status === "active") approved.add("mnotify")
+  const narrowed = order.filter((p) => approved.size === 0 || approved.has(p))
+  return narrowed.length > 0 ? narrowed : order
 }
 
 // ---------------------------------------------------------------------------
@@ -86,7 +147,12 @@ export async function getRoutingConfig(): Promise<RoutingConfig> {
     const { data, error } = await supabase
       .from("admin_settings")
       .select("key, value")
-      .in("key", ["sms_primary_provider", "sms_fallback_providers"])
+      .in("key", [
+        "sms_primary_provider",
+        "sms_fallback_providers",
+        "sms_category_providers",
+        "sms_tenant_provider_choice_enabled",
+      ])
 
     if (error) throw error
 
@@ -102,6 +168,48 @@ export async function getRoutingConfig(): Promise<RoutingConfig> {
 // ---------------------------------------------------------------------------
 // setRoutingConfig — persist routing to admin_settings (JSONB) + bust the cache
 // ---------------------------------------------------------------------------
+
+/**
+ * The balance the solvency gate would use (relay, else a < 30-day manual estimate). Requiring ok means
+ * Hubtel can't become primary when the estimate can't actually be computed (e.g. migration missing).
+ * Imported lazily: wholesale.ts imports this module. Any failure ⇒ not ok (fail closed).
+ */
+async function resolvedHubtelBalance(): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const { resolveHubtelBalance } = await import("./wholesale")
+    const r = await resolveHubtelBalance()
+    return r.ok ? { ok: true } : { ok: false, error: r.error }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+/**
+ * Why Hubtel can't be made primary right now (null = OK):
+ *   prefer-manual ON  → the manual estimate must be computable (the relay reads another wallet; not consulted);
+ *   prefer-manual OFF → the relay /balance works, else the manual estimate must be computable.
+ * Unreadable settings ⇒ blocked (fail closed).
+ */
+async function hubtelPrimaryBalanceBlocker(): Promise<string | null> {
+  let preferManual: boolean
+  try {
+    // Strict + uncached: a read failure must block, never default to "prefer off".
+    preferManual = (await loadHubtelBalanceSettings()).preferManual
+  } catch (e) {
+    return `Could not read the SMS settings to check the Hubtel balance: ${e instanceof Error ? e.message : String(e)}`
+  }
+  if (preferManual) {
+    const est = await resolvedHubtelBalance()
+    return est.ok ? null : `Hubtel balance unavailable: ${est.error}. Set the manual Hubtel balance (SMS Platform → Settings → "Hubtel balance (manual fallback)") first.`
+  }
+  const bal = await fetchDisbursementBalance()
+  if (bal.ok) return null
+  const est = await resolvedHubtelBalance()
+  if (est.ok) return null
+  // est.error normally starts with the relay error; don't repeat it.
+  const extra = est.error.startsWith(bal.error) ? est.error.slice(bal.error.length) : `; ${est.error}`
+  return `Hubtel balance check via the relay failed: ${bal.error}${extra} — redeploy the relay with /balance and set HUBTEL_DISBURSEMENT_ACCOUNT first, or set a manual Hubtel balance (SMS Platform → Settings → "Hubtel balance (manual fallback)").`
+}
 
 /** True if `p` is one of the providers we know how to route to. */
 export function isValidProvider(p: unknown): p is Provider {
@@ -121,8 +229,10 @@ export function isValidProvider(p: unknown): p is Provider {
 export async function setRoutingConfig(patch: {
   primary?: string
   fallbacks?: string[]
+  categoryProviders?: Partial<Record<SmsCategory, string>>
+  tenantProviderChoice?: boolean
 }): Promise<{ ok: true } | { ok: false; error: string }> {
-  const writes: { key: string; value: string | string[] }[] = []
+  const writes: { key: string; value: string | string[] | boolean | Record<string, string> }[] = []
 
   if (patch.primary !== undefined) {
     if (!isValidProvider(patch.primary))
@@ -138,7 +248,62 @@ export async function setRoutingConfig(patch: {
     writes.push({ key: "sms_fallback_providers", value: patch.fallbacks })
   }
 
+  let newCategoryValues: string[] = []
+  if (patch.categoryProviders !== undefined) {
+    const cp = patch.categoryProviders
+    if (!cp || typeof cp !== "object" || Array.isArray(cp))
+      return { ok: false, error: "categoryProviders must be an object" }
+    for (const [k, v] of Object.entries(cp)) {
+      if (!isCategory(k)) return { ok: false, error: `Unknown SMS category: ${k}` }
+      if (typeof v !== "string" || !CATEGORY_PROVIDER_VALUES.includes(v))
+        return { ok: false, error: `Invalid provider for category ${k}: ${String(v)}` }
+    }
+    newCategoryValues = Object.values(cp) as string[]
+  }
+
+  if (patch.tenantProviderChoice !== undefined && typeof patch.tenantProviderChoice !== "boolean")
+    return { ok: false, error: "tenantProviderChoice must be a boolean" }
+
+  if (newCategoryValues.includes("hubtel") && !hubtelConfigFromEnv()) {
+    return { ok: false, error: "Hubtel credentials are not set in Vercel (HUBTEL_SMS_CLIENT_ID / HUBTEL_SMS_CLIENT_SECRET)." }
+  }
+
+  if (patch.categoryProviders !== undefined) {
+    // Merge over the currently stored map so a partial patch keeps other categories.
+    const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
+    const { data: cur, error: curErr } = await sb
+      .from("admin_settings")
+      .select("key, value")
+      .in("key", ["sms_category_providers"])
+    if (curErr) return { ok: false, error: curErr.message }
+    const stored = toObject((cur ?? [])[0]?.value)
+    const merged: Record<string, string> = {}
+    for (const [k, v] of Object.entries(stored)) {
+      if (isCategory(k) && typeof v === "string" && CATEGORY_PROVIDER_VALUES.includes(v)) merged[k] = v
+    }
+    Object.assign(merged, patch.categoryProviders)
+    writes.push({ key: "sms_category_providers", value: merged })
+  }
+
+  if (patch.tenantProviderChoice !== undefined) {
+    writes.push({ key: "sms_tenant_provider_choice_enabled", value: patch.tenantProviderChoice })
+  }
+
   if (writes.length === 0) return { ok: false, error: "No routing fields to update" }
+
+  // Hubtel guard: credentials are needed for any role; as PRIMARY a usable balance must exist
+  // (see hubtelPrimaryBalanceBlocker — relay, or a computable manual estimate; design 2026-10-12 §B).
+  const hubtelAsPrimary = patch.primary === "hubtel"
+  const hubtelAsFallback = (patch.fallbacks ?? []).includes("hubtel")
+  if (hubtelAsPrimary || hubtelAsFallback) {
+    if (!hubtelConfigFromEnv()) {
+      return { ok: false, error: "Hubtel credentials are not set in Vercel (HUBTEL_SMS_CLIENT_ID / HUBTEL_SMS_CLIENT_SECRET)." }
+    }
+    if (hubtelAsPrimary) {
+      const blocked = await hubtelPrimaryBalanceBlocker()
+      if (blocked) return { ok: false, error: blocked }
+    }
+  }
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

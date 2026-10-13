@@ -52,7 +52,7 @@ export default function AiPage() {
           </div>
         </div>
 
-        <div className="mt-16 rounded-xl border border-border bg-card p-4 max-w-xl mx-auto">
+        <div className="mt-16 rounded-xl border border-white/60 dark:border-white/5 bg-card p-4 max-w-xl mx-auto clay">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 font-display text-sm font-semibold text-foreground">
               <Cpu className="w-[18px] h-[18px] text-primary" /> DATAGOD AI

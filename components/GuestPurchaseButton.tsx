@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { Skeleton } from '@/components/ui/skeleton'
+import { cn } from '@/lib/utils'
 
 interface GuestPurchaseButtonProps {
     variant?: 'primary' | 'secondary' | 'outline'
@@ -55,7 +56,7 @@ export default function GuestPurchaseButton({ variant = 'outline', className = '
             href={config.url}
             target="_blank"
             rel="noopener noreferrer"
-            className={`inline-flex items-center justify-center px-6 py-3 rounded-lg font-semibold transition-colors ${buttonStyles[variant]} ${className}`}
+            className={cn("inline-flex items-center justify-center px-6 py-3 rounded-lg font-semibold transition-colors", buttonStyles[variant], className)}
         >
             {config.text}
         </a>

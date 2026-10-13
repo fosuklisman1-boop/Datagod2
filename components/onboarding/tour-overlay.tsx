@@ -109,7 +109,7 @@ export function TourOverlay({ spotlight, message, direction = "bottom", onElemen
 
       {/* Tooltip */}
       <div
-        className="absolute bg-card rounded-lg shadow-2xl border border-primary p-4 max-w-xs z-[1002] pointer-events-auto transform -translate-x-1/2"
+        className="absolute bg-card rounded-lg  border border-primary p-4 max-w-xs z-[1002] pointer-events-auto transform -translate-x-1/2 clay"
         style={{
           top: `${tooltipTop}px`,
           left: `${tooltipLeft}px`,

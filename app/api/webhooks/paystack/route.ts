@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest, NextResponse, after } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import crypto from "crypto"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
@@ -6,6 +6,7 @@ import { getJoinCommunityLink } from "@/lib/app-settings"
 import { sendPushToUser } from "@/lib/push-service"
 import { getInternalBaseUrl } from "@/lib/internal-url"
 import { notifyAdminsNewResultsCheckRequest } from "@/lib/results-checker-service"
+import { notifyWithdrawalCompleted } from "@/lib/admin-actions/withdrawal-hook"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -86,7 +87,7 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ received: true, type: "sms_bundle", error: "underpayment" })
         }
         const { creditUnitsForPaystack } = await import("@/lib/sms/bundle-service")
-        const result = await creditUnitsForPaystack(metadata.sms_account_id, Number(smsBundle.units), reference)
+        const result = await creditUnitsForPaystack(metadata.sms_account_id, Number(smsBundle.units), reference, paidGhs)
         if (!result.ok) console.error("[WEBHOOK] SMS bundle credit failed:", result.error)
         return NextResponse.json({ received: true, type: "sms_bundle" })
       }
@@ -107,7 +108,7 @@ export async function POST(request: NextRequest) {
           console.error(`[WEBHOOK] sms_units_qty underpayment: paid ${paidGhs} < ${expected}`)
           return NextResponse.json({ received: true, type: "sms_units_qty", error: "underpayment" })
         }
-        const result = await creditUnitsForPaystack(metadata.sms_account_id, credits, reference)
+        const result = await creditUnitsForPaystack(metadata.sms_account_id, credits, reference, paidGhs)
         if (!result.ok) console.error("[WEBHOOK] sms_units_qty credit failed:", result.error)
         return NextResponse.json({ received: true, type: "sms_units_qty" })
       }
@@ -151,7 +152,7 @@ export async function POST(request: NextRequest) {
             const paidGhs = amount / 100
             if (paidGhs >= Number(smsBundle.price_ghs) - 0.01) {
               const { creditUnitsForPaystack } = await import("@/lib/sms/bundle-service")
-              const result = await creditUnitsForPaystack(accountId, Number(smsBundle.units), reference)
+              const result = await creditUnitsForPaystack(accountId, Number(smsBundle.units), reference, paidGhs)
               if (!result.ok) console.error("[WEBHOOK] sms_bundle (ref fallback) credit failed:", result.error)
             } else {
               console.error(`[WEBHOOK] sms_bundle ref-fallback underpayment: paid ${paidGhs} < ${smsBundle.price_ghs}`)
@@ -172,7 +173,7 @@ export async function POST(request: NextRequest) {
             const { getPricePerCredit, creditUnitsForPaystack } = await import("@/lib/sms/bundle-service")
             const expected = Math.round(credits * (await getPricePerCredit()) * 100) / 100
             if (paidGhs >= expected - 0.01) {
-              const result = await creditUnitsForPaystack(accountId, credits, reference)
+              const result = await creditUnitsForPaystack(accountId, credits, reference, paidGhs)
               if (!result.ok) console.error("[WEBHOOK] sms_units_qty (ref fallback) credit failed:", result.error)
             } else {
               console.error(`[WEBHOOK] smsqty ref-fallback underpayment: paid ${paidGhs} < ${expected}`)
@@ -1527,7 +1528,7 @@ export async function POST(request: NextRequest) {
       } else {
         const { data: withdrawal } = await supabase
           .from("withdrawal_requests")
-          .select("id, shop_id, amount, status, payout_provider, paystack_transfer_code")
+          .select("id, shop_id, amount, status, payout_provider, paystack_transfer_code, withdrawal_method, account_details")
           .eq("id", withdrawalId)
           .maybeSingle()
 
@@ -1546,7 +1547,7 @@ export async function POST(request: NextRequest) {
           event.event === "transfer.success" &&
           ["awaiting_transfer_otp", "processing"].includes(withdrawal!.status)
         ) {
-          await supabase
+          const { data: flippedRows } = await supabase
             .from("withdrawal_requests")
             .update({
               status: "completed",
@@ -1556,6 +1557,8 @@ export async function POST(request: NextRequest) {
               updated_at: new Date().toISOString(),
             })
             .eq("id", withdrawalId)
+            .in("status", ["awaiting_transfer_otp", "processing"])
+            .select("id")
 
           try {
             const { data: breakdown } = await supabase.rpc("get_shop_balance_breakdown", { p_shop_id: withdrawal!.shop_id })
@@ -1574,6 +1577,11 @@ export async function POST(request: NextRequest) {
             }
           } catch (err) {
             console.error("[PAYSTACK-WEBHOOK] Balance sync error:", err)
+          }
+          // Notify only if this event actually flipped the row (webhook redeliveries / OTP route / cron may have got there first)
+          if (flippedRows && flippedRows.length > 0) {
+            const w = withdrawal!
+            after(() => notifyWithdrawalCompleted(supabase, w))
           }
           console.log(`[PAYSTACK-WEBHOOK] Transfer completed via webhook: ${withdrawalId}`)
         } else if (

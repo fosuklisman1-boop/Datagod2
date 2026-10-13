@@ -114,6 +114,14 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/sms-scheduled",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/sms-hubtel-dlr",
+      "schedule": "*/2 * * * *"
+    },
+    {
       "path": "/api/cron/sms-senderid-poll",
       "schedule": "*/10 * * * *"
     },
@@ -144,6 +152,10 @@
     {
       "path": "/api/cron/reconcile-paystack-refunds",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/sms-kyc-purge",
+      "schedule": "30 3 * * *"
     }
   ]
 }

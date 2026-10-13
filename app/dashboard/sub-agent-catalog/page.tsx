@@ -265,15 +265,15 @@ export default function SubAgentCatalogPage() {
 
         {/* Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Package className="h-3.5 w-3.5" /> Catalog Packages</p>
             <p className="mt-1 text-xl font-black text-foreground">{catalog.length}</p>
           </div>
-          <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Users className="h-3.5 w-3.5" /> Has Sub-Agents</p>
             <p className="mt-1 text-xl font-black text-foreground">{hasSubAgents ? "Yes" : "No"}</p>
           </div>
-          <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><DollarSign className="h-3.5 w-3.5" /> Avg Margin</p>
             <p className="mt-1 text-xl font-black text-success">GHS {avgMargin.toFixed(2)}</p>
           </div>
@@ -310,7 +310,7 @@ export default function SubAgentCatalogPage() {
                 <button
                   key={net}
                   onClick={() => setSelectedNetwork(net)}
-                  className={`flex items-center justify-between gap-2 rounded-2xl border-2 px-3 py-2.5 text-sm font-bold transition ${selectedNetwork === net ? "border-[#1b388b] bg-[#1b388b]/5 text-[#1b388b]" : "border-border bg-card text-foreground"}`}
+                  className={`flex items-center justify-between gap-2 rounded-2xl border-2 px-3 py-2.5 text-sm font-bold transition ${selectedNetwork === net ? "border-[#1b388b] bg-[#1b388b]/5 text-[#1b388b]" : "border-border bg-card text-foreground"} clay`}
                 >
                   {net}
                   <span className="rounded-full bg-muted px-2 py-0.5 text-xs">{networkCounts[net] || 0}</span>
@@ -325,7 +325,7 @@ export default function SubAgentCatalogPage() {
                 const margin = parseFloat(value) - base
                 const existing = catalogFor(pkg.id)
                 return (
-                  <div key={pkg.id} className="rounded-2xl border border-border bg-card p-4">
+                  <div key={pkg.id} className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
                     <div className="flex items-center justify-between gap-2">
                       <p className="flex items-center gap-1.5 font-bold text-foreground">
                         {pkg.size}GB
@@ -392,17 +392,17 @@ export default function SubAgentCatalogPage() {
                 : "Increases each package's current wholesale price by this percentage. Your margin is recalculated automatically."}
             </p>
             <div className="flex gap-2">
-              <select value={bulkNetwork} onChange={(e) => setBulkNetwork(e.target.value)} className="rounded-xl border border-border bg-card px-3 py-2.5 text-sm font-bold">
+              <select value={bulkNetwork} onChange={(e) => setBulkNetwork(e.target.value)} className="rounded-xl border border-white/60 dark:border-white/5 bg-background px-3 py-2.5 text-sm font-bold clay-inset">
                 {NETWORKS.map((n) => <option key={n} value={n}>{n}</option>)}
               </select>
-              <div className="flex flex-1 items-center gap-1 rounded-xl border border-border bg-card px-3 py-2.5">
+              <div className="flex flex-1 items-center gap-1 rounded-xl border border-white/60 dark:border-white/5 bg-card px-3 py-2.5 clay">
                 <span className="text-xs font-semibold text-muted-foreground">{bulkMode === "per_gb" ? "GHS/GB" : "%"}</span>
                 <input type="number" step="0.01" value={bulkRate} onChange={(e) => setBulkRate(e.target.value)} placeholder="0" className="w-full bg-transparent text-sm font-bold focus:outline-none" />
               </div>
             </div>
 
             {bulkPreview.length > 0 && (
-              <div className="overflow-x-auto rounded-xl border border-border bg-card">
+              <div className="overflow-x-auto rounded-xl border border-white/60 dark:border-white/5 bg-card clay">
                 <table className="w-full text-xs">
                   <thead className="border-b border-border">
                     <tr className="text-left text-muted-foreground">

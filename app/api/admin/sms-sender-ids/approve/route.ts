@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
+import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
-import { approveSenderId } from "@/lib/sms/sender-id-service"
+import { notifySenderIdOutcome } from "@/lib/admin-actions/sender-id-hook"
+import { approveSenderId, getById } from "@/lib/sms/sender-id-service"
+import { approveSenderIdRequest } from "@/lib/sms/sender-rules-service"
+
+const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
 // POST /api/admin/sms-sender-ids/approve — { id, provider: "moolre" | "mnotify" | "both" }
 export async function POST(request: NextRequest) {
@@ -18,6 +23,16 @@ export async function POST(request: NextRequest) {
       { success: false, error: "id and provider ('moolre' | 'mnotify' | 'both') are required" },
       { status: 400 }
     )
+  }
+
+  // Tenant-owned rows are approved by our own rules, never by a provider override.
+  const owned = await getById(body.id)
+  if (owned?.sms_account_id) {
+    if (!auth.userId) return NextResponse.json({ success: false, error: "Admin user required" }, { status: 403 })
+    const r = await approveSenderIdRequest(auth.userId, body.id)
+    if (!r.ok) return NextResponse.json({ success: false, error: r.error }, { status: 400 })
+    await notifySenderIdOutcome(supabaseAdmin, r.data, "approved")
+    return NextResponse.json({ success: true, data: r.data })
   }
 
   const result = await approveSenderId(body.id, body.provider as "moolre" | "mnotify" | "both")

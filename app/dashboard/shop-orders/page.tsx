@@ -233,7 +233,7 @@ export default function ShopOrdersPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search phone number..."
-            className="w-full rounded-2xl border border-border bg-card py-2.5 pl-10 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-[#1b388b]/30"
+            className="w-full rounded-2xl border border-white/60 dark:border-white/5 bg-background py-2.5 pl-10 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-[#1b388b]/30 clay-inset"
           />
         </div>
 
@@ -252,15 +252,15 @@ export default function ShopOrdersPage() {
 
         {/* Filters */}
         <div className="grid grid-cols-3 gap-2">
-          <select value={networkFilter} onChange={(e) => setNetworkFilter(e.target.value)} className="rounded-2xl border border-border bg-card px-2 py-2.5 text-xs font-semibold text-foreground">
+          <select value={networkFilter} onChange={(e) => setNetworkFilter(e.target.value)} className="rounded-2xl border border-white/60 dark:border-white/5 bg-background px-2 py-2.5 text-xs font-semibold text-foreground clay-inset">
             <option value="all">All Networks</option>
             {networks.map((n) => <option key={n} value={n}>{n}</option>)}
           </select>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-2xl border border-border bg-card px-2 py-2.5 text-xs font-semibold text-foreground">
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-2xl border border-white/60 dark:border-white/5 bg-background px-2 py-2.5 text-xs font-semibold text-foreground clay-inset">
             <option value="all">All Status</option>
             {Object.entries(STATUS_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
-          <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} className="rounded-2xl border border-border bg-card px-2 py-2.5 text-xs font-semibold text-foreground">
+          <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} className="rounded-2xl border border-white/60 dark:border-white/5 bg-background px-2 py-2.5 text-xs font-semibold text-foreground clay-inset">
             <option value="all">All Sources</option>
             <option value="web">Web</option>
             <option value="ussd_shop">USSD</option>
@@ -270,42 +270,42 @@ export default function ShopOrdersPage() {
 
         {/* Stats */}
         <div className="grid grid-cols-3 gap-2 sm:gap-3">
-          <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><ShoppingCart className="h-3.5 w-3.5" /> Orders</p>
             <p className="mt-1 text-xl font-black text-foreground">{stats.total}</p>
           </div>
-          <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Clock className="h-3.5 w-3.5" /> Pending</p>
             <p className="mt-1 text-xl font-black text-foreground">{stats.pending}</p>
           </div>
-          <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><ProcessingIcon className="h-3.5 w-3.5" /> Processing</p>
             <p className="mt-1 text-xl font-black text-foreground">{stats.processing}</p>
           </div>
-          <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><CheckCircle2 className="h-3.5 w-3.5" /> Completed</p>
             <p className="mt-1 text-xl font-black text-foreground">{stats.completed}</p>
           </div>
-          <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><XCircle className="h-3.5 w-3.5" /> Failed</p>
             <p className="mt-1 text-xl font-black text-foreground">{stats.failed}</p>
           </div>
-          <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><RotateCcw className="h-3.5 w-3.5" /> Reversed</p>
             <p className="mt-1 text-xl font-black text-foreground">{stats.reversed}</p>
           </div>
-          <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Banknote className="h-3.5 w-3.5" /> Revenue</p>
             <p className="mt-1 text-xl font-black text-foreground">GH₵{stats.revenue.toFixed(2)}</p>
           </div>
-          <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><TrendingUp className="h-3.5 w-3.5" /> Profit</p>
             <p className="mt-1 text-xl font-black text-foreground">GH₵{stats.profit.toFixed(2)}</p>
           </div>
         </div>
 
         {/* Order History */}
-        <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+        <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 sm:p-5 clay">
           <p className="text-sm font-bold text-foreground">Order History</p>
           {pageOrders.length === 0 ? (
             <p className="mt-4 py-8 text-center text-sm text-muted-foreground">No orders found matching your filters.</p>

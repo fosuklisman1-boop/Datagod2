@@ -497,7 +497,7 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
                 onClick={() => selectBoard(board)}
                 className={`relative flex flex-col items-center gap-1.5 sm:gap-2 rounded-2xl border-2 bg-card p-2.5 sm:p-4 transition disabled:cursor-not-allowed disabled:opacity-40 ${
                   isSelected ? "border-[var(--shop-accent)] shadow-sm" : "border-border hover:border-[var(--shop-accent)]/30"
-                }`}
+                } clay`}
               >
                 {isSelected && (
                   <span className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-success text-white">
@@ -703,7 +703,7 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
               </div>
 
               {/* Price summary */}
-              <div className="space-y-2 rounded-2xl border border-border bg-card p-4 text-sm">
+              <div className="space-y-2 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 text-sm clay">
                 <div className="flex justify-between text-muted-foreground">
                   <span>{selectedBoard} results check{mode === "combo" ? " + voucher" : ""}</span>
                   <span>GHS {totalPrice.toFixed(2)}</span>
@@ -720,7 +720,7 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
                   on — both need the on-page MoMo number. OTP controls render only when
                   OTP is required; with direct charge alone the number is charged as typed. */}
               {(otpRequired || directCharge) && (
-                <div className="space-y-3 rounded-2xl border border-border bg-card p-4">
+                <div className="space-y-3 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
                   <div>
                     <p className="text-sm font-bold text-foreground">Mobile Money number to pay from</p>
                     <Input

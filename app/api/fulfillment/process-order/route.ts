@@ -10,6 +10,13 @@ import {
 } from "@/lib/mtn-fulfillment"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { isPhoneBlacklisted } from "@/lib/blacklist"
+import {
+  resolveConfirmationSender,
+  resolveOwnSenderProvider,
+  sendBilledConfirmation,
+  decideConfirmationSend,
+  type ConfirmationSender,
+} from "@/lib/sms/order-confirmation"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -431,7 +438,7 @@ async function handleMTNAutoFulfillment(
 
       let smsMessage: string
       let skipShopSms = false
-      let shopSenderId: string | undefined
+      let confirmationSender: ConfirmationSender = { useOwnSender: false }
 
       if (shopOrder?.shop_id) {
         // Storefront order — fetch shop name and owner phone
@@ -461,26 +468,11 @@ async function handleMTNAutoFulfillment(
           .maybeSingle()
         skipShopSms = shopSettings?.order_confirmation_sms_enabled === false
 
-        // Send under the shop's own approved sender ID when they have one —
-        // never blocks sending, just a graceful fallback to the platform
-        // default sender (same pattern as app/api/v1/sms/send/route.ts).
-        if (!skipShopSms && shopInfo?.user_id) {
-          const { data: account } = await supabase
-            .from("sms_accounts")
-            .select("id")
-            .eq("user_id", shopInfo.user_id)
-            .maybeSingle()
-          if (account?.id) {
-            const { data: activeSender } = await supabase
-              .from("sms_sender_ids")
-              .select("sender_id")
-              .eq("sms_account_id", account.id)
-              .eq("local_status", "active")
-              .order("created_at", { ascending: true })
-              .limit(1)
-              .maybeSingle()
-            shopSenderId = activeSender?.sender_id ?? undefined
-          }
+        // Own sender ID only when the shop turned on "use my sender ID for order
+        // confirmations" (billed in credits); otherwise the free platform sender.
+        // Never throws — any gap resolves to the platform sender.
+        if (!skipShopSms) {
+          confirmationSender = await resolveConfirmationSender(shopOrder.shop_id)
         }
 
         smsMessage = SMSTemplates.shopOrderConfirmed(
@@ -499,12 +491,30 @@ async function handleMTNAutoFulfillment(
         )
       }
 
-      if (!skipShopSms) {
+      let step = decideConfirmationSend({ skipShopSms, useOwnSender: confirmationSender.useOwnSender })
+      if (step === "billed" && confirmationSender.useOwnSender && shopOrder?.shop_id) {
+        const provider = await resolveOwnSenderProvider()
+        const billed = await sendBilledConfirmation({
+          shopOrderId,
+          shopId: shopOrder.shop_id,
+          accountId: confirmationSender.accountId,
+          userId: confirmationSender.userId,
+          senderId: confirmationSender.senderId,
+          phone: phoneNumber,
+          message: smsMessage,
+          provider,
+        })
+        step = decideConfirmationSend({ skipShopSms, useOwnSender: true, billedStatus: billed.status })
+      } else if (step === "billed") {
+        step = "free"
+      }
+
+      if (step === "free") {
+        // Free platform sender (no senderId).
         await sendSMS({
           phone: phoneNumber,
           message: smsMessage,
           type: "order_confirmed",
-          ...(shopSenderId ? { senderId: shopSenderId } : {}),
         })
       }
     } catch (smsError) {

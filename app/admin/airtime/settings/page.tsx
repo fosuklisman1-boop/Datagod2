@@ -105,7 +105,7 @@ export default function AirtimeSettingsPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Global Limits */}
-          <div className="bg-card p-6 rounded-2xl shadow-sm border border-border space-y-4">
+          <div className="bg-card p-6 rounded-2xl  border border-white/60 dark:border-white/5 space-y-4 clay">
             <h2 className="text-lg font-bold text-foreground border-b pb-3">Global Limits</h2>
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -130,7 +130,7 @@ export default function AirtimeSettingsPage() {
           </div>
 
           {/* Network Enable/Disable */}
-          <div className="bg-card p-6 rounded-2xl shadow-sm border border-border space-y-4">
+          <div className="bg-card p-6 rounded-2xl  border border-white/60 dark:border-white/5 space-y-4 clay">
             <h2 className="text-lg font-bold text-foreground border-b pb-3">Service Availability</h2>
             <div className="space-y-3 pt-1">
               {NETWORKS.map(net => {
@@ -152,7 +152,7 @@ export default function AirtimeSettingsPage() {
           </div>
 
           {/* Auto Fulfillment (Digiwapy) */}
-          <div className="bg-card p-6 rounded-2xl shadow-sm border border-border space-y-4 md:col-span-2">
+          <div className="bg-card p-6 rounded-2xl  border border-white/60 dark:border-white/5 space-y-4 md:col-span-2 clay">
             <div className="flex items-center justify-between border-b pb-3">
               <div>
                 <h2 className="text-lg font-bold text-foreground">Auto Fulfillment (Digiwapy)</h2>
@@ -210,7 +210,7 @@ export default function AirtimeSettingsPage() {
         </div>
 
         {/* Network Fees */}
-        <div className="bg-card rounded-2xl shadow-sm border border-border overflow-hidden">
+        <div className="bg-card rounded-2xl  border border-white/60 dark:border-white/5 overflow-hidden clay">
           <div className="p-6 border-b border-border">
             <h2 className="text-lg font-bold text-foreground">Network Fee Configuration</h2>
             <p className="text-sm text-muted-foreground">Set percentage fees for both regular customers and dealers.</p>

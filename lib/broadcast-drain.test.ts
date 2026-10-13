@@ -72,3 +72,85 @@ describe("enqueueRecipients — per-recipient rendered_message", () => {
     expect(h.state.inserted).toHaveLength(1)
   })
 })
+
+// ── SMS provider override ────────────────────────────────────────────────────
+import { drainBroadcasts } from "./broadcast-drain"
+import { sendSMS } from "@/lib/sms-service"
+import { parseSmsProvider, providerColumnMissingMessage } from "./sms/provider-pick"
+
+function drainFake(providerResult: { data?: unknown; error?: { code?: string; message: string } | null }) {
+  const bc = { id: "b1", channels: ["sms"], subject: null, message: "hello" }
+  const rec = { id: "r1", broadcast_id: "b1", user_id: null, email: null, phone: "0241111111", name: null, rendered_message: null, attempts: 0, channel_status: {} }
+  return {
+    from: (_t: string) => ({
+      update: () => ({
+        eq: () => ({ lt: () => Promise.resolve({}), then: (f: (v: unknown) => unknown) => f({}) }),
+      }),
+      select: (cols: string) => {
+        if (cols === "id, sms_provider") {
+          return { in: () => Promise.resolve({ data: providerResult.data ?? null, error: providerResult.error ?? null }) }
+        }
+        return { eq: () => Promise.resolve({ data: [bc], error: null }) }
+      },
+    }),
+    rpc: (name: string) =>
+      Promise.resolve(name === "claim_broadcast_recipients" ? { data: [rec], error: null } : { data: null, error: null }),
+  }
+}
+
+describe("drainBroadcasts — sms_provider", () => {
+  beforeEach(() => {
+    vi.mocked(sendSMS).mockReset()
+    vi.mocked(sendSMS).mockResolvedValue({ success: true } as never)
+  })
+
+  it("passes provider when broadcast.sms_provider is hubtel", async () => {
+    await drainBroadcasts(drainFake({ data: [{ id: "b1", sms_provider: "hubtel" }] }) as never, { broadcastId: "b1" })
+    expect(sendSMS).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(sendSMS).mock.calls[0][0]).toMatchObject({ provider: "hubtel", type: "broadcast" })
+  })
+
+  it.each([["global"], [null]])("passes no provider key for %s", async (v) => {
+    await drainBroadcasts(drainFake({ data: [{ id: "b1", sms_provider: v }] }) as never, { broadcastId: "b1" })
+    expect(sendSMS).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(sendSMS).mock.calls[0][0]).not.toHaveProperty("provider")
+  })
+
+  it("missing column => no override and drain proceeds", async () => {
+    const f = drainFake({ error: { code: "42703", message: "column broadcast_logs.sms_provider does not exist" } })
+    await drainBroadcasts(f as never, { broadcastId: "b1" })
+    expect(sendSMS).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(sendSMS).mock.calls[0][0]).not.toHaveProperty("provider")
+  })
+
+  it("other error => drain fails and nothing is sent", async () => {
+    await expect(
+      drainBroadcasts(drainFake({ error: { message: "connection reset" } }) as never, { broadcastId: "b1" }),
+    ).rejects.toBeTruthy()
+    expect(sendSMS).not.toHaveBeenCalled()
+  })
+})
+
+describe("parseSmsProvider", () => {
+  it("accepts valid, treats empty as undefined, rejects others", () => {
+    expect(parseSmsProvider("moolre")).toBe("moolre")
+    expect(parseSmsProvider("hubtel")).toBe("hubtel")
+    expect(parseSmsProvider("global")).toBe("global")
+    expect(parseSmsProvider(undefined)).toBeUndefined()
+    expect(parseSmsProvider("")).toBeUndefined()
+    expect(parseSmsProvider("mnotify")).toBe("invalid")
+    expect(parseSmsProvider(5)).toBe("invalid")
+  })
+})
+
+describe("providerColumnMissingMessage", () => {
+  const miss = { code: "PGRST204", message: "Could not find the 'sms_provider' column of 'broadcast_logs'" }
+  it("readable message only for an explicit pick + missing-column error", () => {
+    expect(providerColumnMissingMessage(miss, "hubtel")).toMatch(/Apply migration 20261020/)
+    expect(providerColumnMissingMessage({ code: "42703", message: "x" }, "moolre")).toMatch(/Apply migration 20261020/)
+    expect(providerColumnMissingMessage(miss, "global")).toBeNull()
+    expect(providerColumnMissingMessage(miss, undefined)).toBeNull()
+    expect(providerColumnMissingMessage({ code: "23505", message: "dup" }, "hubtel")).toBeNull()
+    expect(providerColumnMissingMessage(null, "hubtel")).toBeNull()
+  })
+})

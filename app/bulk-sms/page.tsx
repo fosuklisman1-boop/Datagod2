@@ -79,7 +79,7 @@ export default async function BulkSmsPage() {
 
         <div className="mt-16 grid grid-cols-1 sm:grid-cols-2 gap-4">
           {features.map(({ icon: Icon, title, desc }) => (
-            <div key={title} className="rounded-xl border border-border bg-card p-5">
+            <div key={title} className="rounded-xl border border-white/60 dark:border-white/5 bg-card p-5 clay">
               <div className="mb-3 grid h-10 w-10 place-items-center rounded-lg border border-primary/25 bg-primary/10">
                 <Icon className="h-[18px] w-[18px] text-primary" />
               </div>
@@ -89,7 +89,7 @@ export default async function BulkSmsPage() {
           ))}
         </div>
 
-        <div className="mt-6 rounded-xl border border-border bg-card p-6">
+        <div className="mt-6 rounded-xl border border-white/60 dark:border-white/5 bg-card p-6 clay">
           <h2 className="font-display font-semibold text-foreground mb-4">Pricing</h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>

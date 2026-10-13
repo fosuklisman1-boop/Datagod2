@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { sendSMS } from "@/lib/sms-service"
+import { fetchProviderOverrides, type SmsProviderChoice } from "./provider-override"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -34,28 +35,19 @@ export interface DrainResult {
   refunded: number
 }
 
-/** Refund a terminally-failed message's reserved credits. Idempotent: a duplicate-ref
- *  (23505 on the unique sms_unit_transactions.ref index) means this message was ALREADY
- *  refunded — e.g. a reaped worker double-fired — so treat it as done, NOT as a refund still
- *  owed (recording that would double-credit when the refund-failure ledger is replayed). */
+/** Refund a terminally-failed message's reserved credits via the shared exactly-once RPC
+ *  (ref = message id, also used by the DLR poller). Returns true only when THIS call refunded;
+ *  an already-refunded message returns false so it is not counted twice. */
 async function refundMessage(row: SmsMessageRow): Promise<boolean> {
-  const { error } = await supabaseAdmin.rpc("adjust_sms_units", {
-    p_account_id: row.sms_account_id,
-    p_delta: row.segments,
-    p_reason: "campaign_refund",
-    p_ref: row.id,
-  })
-  if (!error) return true
-  if (error.code === "23505" || /duplicate key|unique/i.test(error.message ?? "")) {
-    return true // already refunded for this message id — no double-credit, no replay row
-  }
+  const { data, error } = await supabaseAdmin.rpc("refund_sms_message", { p_message_id: row.id })
+  if (!error) return data === true
   console.error(`[SMS-DRAIN] Refund failed for message ${row.id}:`, error.message)
   await supabaseAdmin
     .from("sms_refund_failures")
     .insert({
       sms_account_id: row.sms_account_id,
       credits: row.segments,
-      reason: `adjust_sms_units failed: ${error.message}`,
+      reason: `refund_sms_message failed: ${error.message}`,
     })
     .then(({ error: e }) => {
       if (e) console.error("[SMS-DRAIN] sms_refund_failures insert failed:", e.message)
@@ -64,11 +56,11 @@ async function refundMessage(row: SmsMessageRow): Promise<boolean> {
 }
 
 /** Send one message with a hard timeout, clearing the timer so it never leaks / rejects late. */
-async function sendWithTimeout(row: SmsMessageRow) {
+async function sendWithTimeout(row: SmsMessageRow, provider?: SmsProviderChoice) {
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     return await Promise.race([
-      sendSMS({ phone: row.phone, message: row.rendered_message, type: "shop_sms", reference: row.id, senderId: row.sender_id ?? undefined }),
+      sendSMS({ phone: row.phone, message: row.rendered_message, type: "shop_sms", reference: row.id, senderId: row.sender_id ?? undefined, ...(provider ? { provider } : {}) }),
       new Promise<{ success: false; error: string }>((_, reject) => {
         timer = setTimeout(() => reject(new Error(`send timeout after ${SEND_TIMEOUT_MS}ms`)), SEND_TIMEOUT_MS)
       }),
@@ -112,31 +104,81 @@ export async function drainSmsMessages(opts: { limit?: number } = {}): Promise<D
     max_attempts: MAX_ATTEMPTS,
   })
   if (claimError) throw claimError
-  const rows = (claimed ?? []) as SmsMessageRow[]
+  const claimedRows = (claimed ?? []) as SmsMessageRow[]
+  if (claimedRows.length === 0) return { claimed: 0, sent: 0, failed: 0, refunded: 0 }
+
+  // (b2) Never send messages of a campaign held for review (or scheduled). claim_sms_messages
+  //      already skips them (migration 20261013); this is defence in depth in case it does not
+  //      (e.g. migration not applied). Such rows are handed back exactly as they were (pending,
+  //      unclaimed, attempt restored). If the lookup fails, fail CLOSED for this run.
+  const logIds = [...new Set(claimedRows.map((r) => r.send_log_id))]
+  let parkedLogIds: Set<string>
+  const { data: parked, error: parkErr } = await supabaseAdmin
+    .from("sms_send_logs")
+    .select("id")
+    .in("id", logIds)
+    .in("status", ["held", "scheduled"])
+  if (parkErr) {
+    console.error("[SMS-DRAIN] held-campaign check failed; returning this batch to the queue:", parkErr.message)
+    parkedLogIds = new Set(logIds.map(String))
+  } else {
+    parkedLogIds = new Set(((parked ?? []) as { id: string | number }[]).map((p) => String(p.id)))
+  }
+  const rows: SmsMessageRow[] = []
+  for (const row of claimedRows) {
+    if (!parkedLogIds.has(String(row.send_log_id))) { rows.push(row); continue }
+    const { error: backErr } = await supabaseAdmin
+      .from("sms_messages")
+      .update({ status: "pending", claimed_at: null, attempts: Math.max(0, row.attempts - 1) })
+      .eq("id", row.id)
+      .eq("status", "claimed")
+    if (backErr) console.error(`[SMS-DRAIN] could not hand back held message ${row.id} (stale-claim reaper will):`, backErr.message)
+  }
   if (rows.length === 0) return { claimed: 0, sent: 0, failed: 0, refunded: 0 }
 
   let sent = 0
   let failed = 0
   let refunded = 0
   const touchedLogIds = new Set<string>()
+  // Per-send provider choice. ONLY a missing column (migration not applied) means "no overrides"
+  // (fetchProviderOverrides returns an empty map). Any other lookup failure throws: it must not
+  // let rows go out via a provider the sender did not choose, so hand them back (attempt
+  // restored) and retry next run.
+  let overrides: Map<string, SmsProviderChoice>
+  try {
+    overrides = await fetchProviderOverrides(supabaseAdmin, [...new Set(rows.map((r) => r.send_log_id))])
+  } catch {
+    for (const row of rows) {
+      const { error: backErr } = await supabaseAdmin
+        .from("sms_messages")
+        .update({ status: "pending", claimed_at: null, attempts: Math.max(0, row.attempts - 1) })
+        .eq("id", row.id)
+        .eq("status", "claimed")
+      if (backErr) console.error(`[SMS-DRAIN] could not hand back message ${row.id} (stale-claim reaper will):`, backErr.message)
+    }
+    return { claimed: 0, sent: 0, failed: 0, refunded: 0 }
+  }
 
   // (c) Process each row — never abort the batch on a single row error.
   for (const row of rows) {
     touchedLogIds.add(row.send_log_id)
     const isTerminal = row.attempts >= MAX_ATTEMPTS
     try {
-      const r = await sendWithTimeout(row)
+      const r = await sendWithTimeout(row, overrides.get(String(row.send_log_id)))
 
       if (r.success) {
-        await supabaseAdmin
+        const { error: sentErr } = await supabaseAdmin
           .from("sms_messages")
           .update({
             status: "sent",
             processed_at: new Date().toISOString(),
             ref: r.ref ?? r.messageId ?? null,
             provider: r.provider ?? null,
+            provider_message_id: r.provider === "hubtel" ? r.messageId ?? null : null,
           })
           .eq("id", row.id)
+          .eq("status", "claimed") // never overwrite a row someone else already moved on
+        if (sentErr) console.error(`[SMS-DRAIN] mark-sent update failed for ${row.id}:`, sentErr.message)
         sent++
       } else {
         await markFailed(row, r.error ?? "send failed")

@@ -1,7 +1,9 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
+import { bundleVisibleTo, type OwnerType } from "@/lib/sms/foundation-rules"
 import { initializePayment } from "@/lib/paystack"
+import { isSmsEnabled, SMS_DISABLED_MESSAGE } from "@/lib/sms/kill-switch"
 
 const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
@@ -10,6 +12,7 @@ export async function POST(request: NextRequest) {
   if (!authHeader?.startsWith("Bearer ")) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const { data: { user }, error } = await supabaseAdmin.auth.getUser(authHeader.slice(7))
   if (error || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (!(await isSmsEnabled())) return NextResponse.json({ error: SMS_DISABLED_MESSAGE, code: "SMS_DISABLED" }, { status: 503 })
   if (!user.email) return NextResponse.json({ error: "Account email required" }, { status: 400 })
   const { bundleId } = await request.json()
   const account = await getOrCreateAccountForUser(user.id)
@@ -18,7 +21,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "NOT_ACTIVATED" }, { status: 403 })
   }
   const { data: bundle } = await supabaseAdmin.from("sms_bundles").select("*").eq("id", bundleId).maybeSingle()
-  if (!bundle || !bundle.active) return NextResponse.json({ error: "Bundle not available" }, { status: 400 })
+  if (!bundle || !bundle.active || !bundleVisibleTo(bundle, account.owner_type as OwnerType, account.mode ?? "platform")) {
+    return NextResponse.json({ error: "Bundle not available" }, { status: 400 })
+  }
   const reference = `smsbundle-${account.id}-${bundleId}-${Date.now()}`
   const init = await initializePayment({
     email: user.email,

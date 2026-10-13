@@ -148,19 +148,19 @@ export default function CustomersPage() {
 
         {/* Stats */}
         <div className="grid grid-cols-2 gap-2 sm:gap-3">
-          <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Users className="h-3.5 w-3.5" /> Customers</p>
             <p className="mt-1 text-xl font-black text-foreground">{analytics.total_customers}</p>
           </div>
-          <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Crown className="h-3.5 w-3.5" /> Returning</p>
             <p className="mt-1 text-xl font-black text-foreground">{analytics.repeat_customers}</p>
           </div>
-          <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><ShoppingCart className="h-3.5 w-3.5" /> Total Orders</p>
             <p className="mt-1 text-xl font-black text-foreground">{totalOrders}</p>
           </div>
-          <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><TrendingUp className="h-3.5 w-3.5" /> Total Revenue</p>
             <p className="mt-1 text-xl font-black text-foreground">GH₵{analytics.total_revenue.toFixed(2)}</p>
           </div>
@@ -200,7 +200,7 @@ export default function CustomersPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search phone, name or email..."
-              className="w-full rounded-2xl border border-border bg-card py-2.5 pl-10 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-[#1b388b]/30"
+              className="w-full rounded-2xl border border-white/60 dark:border-white/5 bg-background py-2.5 pl-10 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-[#1b388b]/30 clay-inset"
             />
           </div>
           <div className="inline-flex w-full gap-1 rounded-2xl bg-muted p-1">
@@ -218,12 +218,12 @@ export default function CustomersPage() {
 
         {/* Customer list */}
         {filtered.length === 0 ? (
-          <div className="rounded-2xl border border-border bg-card p-8 text-center">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-8 text-center clay">
             <Users className="mx-auto mb-2 h-10 w-10 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">{customers.length === 0 ? "No customers yet." : "No customers match your search."}</p>
           </div>
         ) : (
-          <div className="rounded-2xl border border-border bg-card overflow-hidden">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card overflow-hidden clay">
             {filtered.map((c, i) => (
               <div key={c.id} className={`flex items-center justify-between gap-3 p-4 ${i !== 0 ? "border-t border-border" : ""}`}>
                 <div className="flex items-center gap-3 min-w-0">

@@ -6,6 +6,10 @@ const supabaseAdmin = createClient(
 )
 
 const SHORTFALL_TYPE = "sms_credit_shortfall"
+
+export function shortfallMessage(unitsPending: number): string {
+  return `${unitsPending} units are pending — top up the SMS wholesale balance (the Hubtel SMS wallet, or Moolre while it is primary) to release them. If you use a manual Hubtel balance, update it after topping up.`
+}
 const THROTTLE_MS = 30 * 60 * 1000 // 30 minutes
 
 /**
@@ -51,7 +55,7 @@ export async function notifyAdminSmsShortfall(unitsPending: number): Promise<voi
     const rows = admins.map((admin: { id: string }) => ({
       user_id: admin.id,
       title: "SMS wholesale top-up needed",
-      message: `${unitsPending} units are pending — top up the Moolre SMS wholesale balance to release them.`,
+      message: shortfallMessage(unitsPending),
       type: SHORTFALL_TYPE,
       read: false,
       action_url: "/admin/sms",
@@ -72,4 +76,33 @@ export async function notifyAdminSmsShortfall(unitsPending: number): Promise<voi
   } catch (error) {
     console.error("[SMS-NOTIFY] Unexpected error in notifyAdminSmsShortfall:", error)
   }
+}
+
+/** Throttled in-app alert to every admin. `type` doubles as the throttle key. Never throws. */
+export async function notifyAdminsThrottled(type: string, title: string, message: string, actionUrl = "/admin/sms", throttleMs = THROTTLE_MS): Promise<void> {
+  try {
+    const since = new Date(Date.now() - throttleMs).toISOString()
+    const { data: recent, error: throttleError } = await supabaseAdmin.from("notifications").select("id").eq("type", type).gte("created_at", since).limit(1)
+    if (throttleError) {
+      console.error(`[SMS-NOTIFY] ${type} throttle check failed:`, throttleError.message)
+      return
+    }
+    if (recent && recent.length > 0) return
+    const { data: admins } = await supabaseAdmin.from("users").select("id").eq("role", "admin")
+    if (!admins?.length) return
+    const now = new Date().toISOString()
+    const { error } = await supabaseAdmin.from("notifications").insert(
+      admins.map((a: { id: string }) => ({ user_id: a.id, title, message, type, read: false, action_url: actionUrl, created_at: now, updated_at: now }))
+    )
+    if (error) console.error(`[SMS-NOTIFY] ${type} insert failed:`, error.message)
+  } catch (e) {
+    console.error(`[SMS-NOTIFY] ${type} failed:`, e)
+  }
+}
+
+export const HUBTEL_OUT_OF_FUNDS_MESSAGE =
+  "Hubtel refused an SMS for lack of funds. Top up the Hubtel SMS wallet, then update the manual Hubtel balance if you use one — queued messages retry automatically."
+
+export function notifyHubtelOutOfFunds(): Promise<void> {
+  return notifyAdminsThrottled("sms_hubtel_out_of_funds", "Hubtel SMS out of funds", HUBTEL_OUT_OF_FUNDS_MESSAGE)
 }

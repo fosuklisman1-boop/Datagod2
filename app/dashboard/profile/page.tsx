@@ -563,7 +563,7 @@ export default function ProfilePage() {
 
         {/* Personal / Account Information -- side by side at lg */}
         <div className="lg:grid lg:grid-cols-2 lg:gap-4 lg:items-start space-y-5 lg:space-y-0">
-        <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+        <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 sm:p-5 clay">
           <p className="text-sm font-bold text-foreground">Personal Information</p>
           <p className="mb-4 text-xs text-muted-foreground">Your personal details</p>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -620,7 +620,7 @@ export default function ProfilePage() {
         </div>
 
         {/* Account Information */}
-        <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+        <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 sm:p-5 clay">
           <p className="text-sm font-bold text-foreground">Account Information</p>
           <p className="mb-4 text-xs text-muted-foreground">Your account details and status</p>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -651,19 +651,19 @@ export default function ProfilePage() {
         <div>
           <p className="mb-2 text-sm font-bold text-foreground">Account Statistics</p>
           <div className="grid grid-cols-2 gap-2 sm:gap-3">
-            <div className="rounded-2xl border border-border bg-card p-4">
+            <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
               <p className="text-lg font-black text-foreground">{stats.totalOrders.toLocaleString()}</p>
               <p className="text-xs text-muted-foreground">Total Orders</p>
             </div>
-            <div className="rounded-2xl border border-border bg-card p-4">
+            <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
               <p className="text-lg font-black text-success">{stats.completedOrders.toLocaleString()}</p>
               <p className="text-xs text-muted-foreground">Completed Orders</p>
             </div>
-            <div className="rounded-2xl border border-border bg-card p-4">
+            <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
               <p className="text-lg font-black text-[#1b388b]">{stats.successRate.toFixed(1)}%</p>
               <p className="text-xs text-muted-foreground">Success Rate</p>
             </div>
-            <div className="rounded-2xl border border-border bg-card p-4">
+            <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
               <p className="text-lg font-black text-warning">GHS {stats.totalSpent.toFixed(2)}</p>
               <p className="text-xs text-muted-foreground">Lifetime Spent</p>
             </div>
@@ -674,7 +674,7 @@ export default function ProfilePage() {
         <div>
           <p className="mb-2 text-sm font-bold text-foreground">Security</p>
           <div className="space-y-3">
-            <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4">
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-foreground">Password</p>
                 <p className="text-xs text-muted-foreground">
@@ -692,7 +692,7 @@ export default function ProfilePage() {
                 {isOAuthUser ? "Set Password" : "Change Password"}
               </Button>
             </div>
-            <div className="rounded-2xl border border-border bg-card p-4 space-y-4">
+            <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 space-y-4 clay">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-sm font-semibold text-foreground">Active Sessions</p>

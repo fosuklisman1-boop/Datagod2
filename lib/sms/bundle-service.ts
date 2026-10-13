@@ -1,7 +1,9 @@
 import { createClient } from "@supabase/supabase-js"
-import { canPurchaseBundle, type OwnerType } from "./foundation-rules"
-import { queryMoolreSmsBalance } from "@/lib/sms-service"
+import { bundleVisibleTo, canPurchaseBundle, type OwnerType } from "./foundation-rules"
+import { getWholesaleCredits } from "./wholesale"
 import { notifyAdminSmsShortfall } from "./notify"
+import { isSmsEnabled } from "./kill-switch"
+import { writeAuditLog } from "./moderation-service"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -15,6 +17,8 @@ export interface Bundle {
   price_ghs: number
   owner_type_scope: "all" | OwnerType
   active: boolean
+  mode: "platform" | "business"
+  sort_order: number
 }
 
 export interface PurchaseResult {
@@ -26,47 +30,107 @@ export interface PurchaseResult {
 }
 
 /** Active bundles this owner type is allowed to buy. */
-export async function listActiveBundles(ownerType: OwnerType): Promise<Bundle[]> {
+export async function listActiveBundles(ownerType: OwnerType, mode: "platform" | "business" = "platform"): Promise<Bundle[]> {
   const { data } = await supabaseAdmin
-    .from("sms_bundles").select("*").eq("active", true)
-    .order("price_ghs", { ascending: true })
-  return ((data as Bundle[]) ?? []).filter((b) => canPurchaseBundle(b, ownerType).ok)
+    .from("sms_bundles").select("*").eq("active", true).eq("mode", mode)
+    .order("sort_order", { ascending: true }).order("price_ghs", { ascending: true })
+  return ((data as Bundle[]) ?? []).filter((b) => bundleVisibleTo(b, ownerType, mode))
 }
 
 export async function listAllBundles(): Promise<Bundle[]> {
   const { data } = await supabaseAdmin
-    .from("sms_bundles").select("*").order("price_ghs", { ascending: true })
+    .from("sms_bundles").select("*")
+    .order("mode", { ascending: true }).order("sort_order", { ascending: true }).order("price_ghs", { ascending: true })
   return (data as Bundle[]) ?? []
 }
 
-export async function createBundle(input: { name: string; units: number; price_ghs: number; owner_type_scope?: string }) {
+export const BUNDLE_MAX_UNITS = 10_000_000
+export const BUNDLE_MAX_PRICE_GHS = 100_000
+
+/** Pure admin-input check for create (all fields required) and patch (only present fields). Returns an error message or null. */
+export function validateBundleInput(input: { units?: unknown; price_ghs?: unknown }): string | null {
+  if (input.units !== undefined) {
+    const u = input.units
+    if (typeof u !== "number" || !Number.isInteger(u) || u < 1 || u > BUNDLE_MAX_UNITS) {
+      return `units must be a whole number from 1 to ${BUNDLE_MAX_UNITS.toLocaleString("en-US")}`
+    }
+  }
+  if (input.price_ghs !== undefined) {
+    const p = input.price_ghs
+    if (typeof p !== "number" || !Number.isFinite(p) || p <= 0 || p > BUNDLE_MAX_PRICE_GHS) {
+      return `price_ghs must be a number above 0 and at most ${BUNDLE_MAX_PRICE_GHS.toLocaleString("en-US")}`
+    }
+  }
+  return null
+}
+
+function assertBundleMode(mode: unknown) {
+  if (mode !== "platform" && mode !== "business") throw new Error("mode must be platform or business")
+}
+
+export async function createBundle(input: {
+  name: string; units: number; price_ghs: number; owner_type_scope?: string
+  mode?: "platform" | "business"; sort_order?: number
+}, adminId?: string) {
+  if (input.mode !== undefined) assertBundleMode(input.mode)
   const { data, error } = await supabaseAdmin.from("sms_bundles").insert({
     name: input.name, units: input.units, price_ghs: input.price_ghs,
     owner_type_scope: input.owner_type_scope ?? "all",
+    mode: input.mode ?? "platform", sort_order: input.sort_order ?? 0,
   }).select("*").single()
   if (error) throw error
+  if (adminId) await writeAuditLog(adminId, "sms_bundle_create", null, null, data).catch(() => {})
   return data as Bundle
 }
 
 export async function updateBundle(
   id: string,
-  patch: Partial<{ name: string; units: number; price_ghs: number; active: boolean; owner_type_scope: string }>
+  patch: Partial<{
+    name: string; units: number; price_ghs: number; active: boolean; owner_type_scope: string
+    mode: "platform" | "business"; sort_order: number
+  }>,
+  adminId?: string
 ) {
+  if (patch.mode !== undefined) assertBundleMode(patch.mode)
+  const { data: before } = adminId ? await supabaseAdmin.from("sms_bundles").select("*").eq("id", id).maybeSingle() : { data: null }
   const { data, error } = await supabaseAdmin.from("sms_bundles")
     .update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id).select("*").single()
   if (error) throw error
+  if (adminId) await writeAuditLog(adminId, "sms_bundle_update", null, before, data).catch(() => {})
   return data as Bundle
+}
+
+/** Revenue for the admin "Total Revenue" card (spec §5.8): the GH₵ actually paid, written to the
+ *  ledger row and/or the pending row for this ref. Guarded with amount_ghs IS NULL so a redelivery
+ *  fills a missing amount but never overwrites one. A pending credit carries the amount on its
+ *  pending row; the ledger trigger copies it when the credit settles. Never throws. */
+async function recordRevenue(ref: string | null, amountGhs: number | null): Promise<void> {
+  if (!ref || amountGhs === null || !(amountGhs > 0)) return
+  try {
+    const results = await Promise.all([
+      supabaseAdmin.from("sms_unit_transactions").update({ amount_ghs: amountGhs }).eq("ref", ref).is("amount_ghs", null),
+      supabaseAdmin.from("sms_pending_credits").update({ amount_ghs: amountGhs }).eq("ref", ref).is("amount_ghs", null),
+    ])
+    for (const r of results) {
+      if (r?.error) console.error("[SMS-REVENUE] amount write failed for ref", ref, r.error.message)
+    }
+  } catch (e) {
+    console.error("[SMS-REVENUE] amount write threw for ref", ref, e instanceof Error ? e.message : e)
+  }
 }
 
 /** Issue units through the solvency gate: fetch the live Moolre wholesale balance, then
  *  credit-or-pend atomically. Notifies admin on a shortfall. Shared by all credit paths. */
-async function issueUnits(accountId: string, units: number, reason: string, ref: string | null): Promise<PurchaseResult> {
-  const wholesale = await queryMoolreSmsBalance()
+async function issueUnits(
+  accountId: string, units: number, reason: string, ref: string | null, amountGhs: number | null = null
+): Promise<PurchaseResult> {
+  const wholesale = await getWholesaleCredits()
   const { data, error } = await supabaseAdmin.rpc("credit_sms_units_if_solvent", {
     p_account_id: accountId, p_units: units, p_reason: reason, p_wholesale: wholesale, p_ref: ref,
   })
   if (error) return { ok: false, error: "Failed to issue units" }
   const outcome = (data as Array<{ outcome: PurchaseResult["outcome"] }>)?.[0]?.outcome
+  await recordRevenue(ref, amountGhs)
   if (outcome === "pending") {
     notifyAdminSmsShortfall(units).catch(() => {})
     return { ok: true, outcome, unitsCredited: 0, pending: true }
@@ -96,23 +160,30 @@ export async function isAccountActive(accountId: string): Promise<boolean> {
 /** Cash-wallet bundle purchase: race-safe wallet debit, then solvency-gated issuance.
  *  Refunds the cash only if issuance ERRORS (a 'pending' outcome is success, not a failure). */
 export async function purchaseBundleViaWallet(userId: string, accountId: string, bundleId: string): Promise<PurchaseResult> {
+  if (!(await isSmsEnabled())) return { ok: false, error: "SMS_DISABLED" }
   const { data: bundle } = await supabaseAdmin.from("sms_bundles").select("*").eq("id", bundleId).maybeSingle()
   if (!bundle) return { ok: false, error: "Bundle not found" }
   const b = bundle as Bundle
 
   // Activation gate: metered accounts must be active. Platform is exempt.
   const { data: acct } = await supabaseAdmin
-    .from("sms_accounts").select("status, owner_type").eq("id", accountId).maybeSingle()
+    .from("sms_accounts").select("status, owner_type, mode").eq("id", accountId).maybeSingle()
   if (acct && acct.owner_type !== "platform" && acct.status !== "active") {
     return { ok: false, error: "NOT_ACTIVATED" }
   }
+  // Refuse a bundle from the other mode BEFORE any wallet debit.
+  if (b.mode !== ((acct as { mode?: string } | null)?.mode ?? "platform")) {
+    return { ok: false, error: "This bundle isn't available for your account mode" }
+  }
+  const visible = canPurchaseBundle(b, ((acct as { owner_type?: string } | null)?.owner_type ?? "shop") as OwnerType)
+  if (!visible.ok) return { ok: false, error: visible.reason }
 
   const { data: debit, error: debitErr } = await supabaseAdmin.rpc("deduct_wallet", { p_user_id: userId, p_amount: b.price_ghs })
   if (debitErr) return { ok: false, error: "Wallet debit failed" }
   if (!debit || (debit as unknown[]).length === 0) return { ok: false, error: "Insufficient wallet balance" }
 
   const ref = `wallet-${userId}-${bundleId}-${Date.now()}`
-  const res = await issueUnits(accountId, b.units, "bundle_wallet", ref)
+  const res = await issueUnits(accountId, b.units, "bundle_wallet", ref, Number(b.price_ghs))
   if (!res.ok) {
     // The issuance RPC errored. If the credit actually landed (committed but the response
     // was lost), refunding would hand back cash for units the user kept — so only refund
@@ -122,6 +193,7 @@ export async function purchaseBundleViaWallet(userId: string, accountId: string,
       await supabaseAdmin.rpc("deduct_wallet", { p_user_id: userId, p_amount: -b.price_ghs }) // refund
       return { ok: false, error: "Failed to credit units (refunded)" }
     }
+    await recordRevenue(ref, Number(b.price_ghs))
     return { ok: true, outcome: landed, unitsCredited: landed === "credited" ? b.units : 0, pending: landed === "pending" }
   }
   return res
@@ -154,6 +226,7 @@ export async function purchaseUnitsByQuantity(
   accountId: string,
   credits: number
 ): Promise<PurchaseResult & { cost?: number }> {
+  if (!(await isSmsEnabled())) return { ok: false, error: "SMS_DISABLED" }
   if (!Number.isInteger(credits) || credits <= 0) return { ok: false, error: "credits must be a positive integer" }
   if (credits > MAX_CREDITS_PER_PURCHASE) return { ok: false, error: `Max ${MAX_CREDITS_PER_PURCHASE.toLocaleString()} credits per purchase` }
 
@@ -169,26 +242,59 @@ export async function purchaseUnitsByQuantity(
   if (!debit || (debit as unknown[]).length === 0) return { ok: false, error: "Insufficient wallet balance" }
 
   const ref = `wallet-qty-${userId}-${accountId}-${Date.now()}`
-  const res = await issueUnits(accountId, credits, "bundle_wallet", ref)
+  const res = await issueUnits(accountId, credits, "bundle_wallet", ref, cost)
   if (!res.ok) {
     const landed = await refLanded(ref)
     if (!landed) {
       await supabaseAdmin.rpc("deduct_wallet", { p_user_id: userId, p_amount: -cost }) // refund
       return { ok: false, error: "Failed to credit units (refunded)" }
     }
+    await recordRevenue(ref, cost)
     return { ok: true, outcome: landed, unitsCredited: landed === "credited" ? credits : 0, pending: landed === "pending", cost }
   }
   return { ...res, cost }
 }
 
-/** Admin manual allocation — also solvency-gated (can land pending). ref=null so repeated
- *  deliberate allocations are never deduped. */
-export async function allocateUnits(accountId: string, units: number): Promise<PurchaseResult> {
+/** Admin manual allocation — also solvency-gated (can land pending). ref defaults to null so repeated
+ *  deliberate allocations are never deduped; pass a ref (admin_alloc:<requestId>) to make a retry idempotent. */
+export async function allocateUnits(accountId: string, units: number, ref: string | null = null): Promise<PurchaseResult> {
   if (!Number.isInteger(units) || units <= 0) return { ok: false, error: "units must be a positive integer" }
-  return issueUnits(accountId, units, "admin_alloc", null)
+  return issueUnits(accountId, units, "admin_alloc", ref)
 }
 
 /** Credit units after a confirmed Paystack SMS-bundle payment. Idempotent on the paystack ref. */
-export async function creditUnitsForPaystack(accountId: string, units: number, paystackRef: string): Promise<PurchaseResult> {
-  return issueUnits(accountId, units, "bundle_paystack", paystackRef)
+export async function creditUnitsForPaystack(
+  accountId: string, units: number, paystackRef: string, amountGhs: number | null = null
+): Promise<PurchaseResult> {
+  return issueUnits(accountId, units, "bundle_paystack", paystackRef, amountGhs)
+}
+
+export const BUNDLE_DELETE_MIN_INACTIVE_MS = 48 * 3600_000
+
+export function canDeleteBundle(
+  b: { active: boolean; updated_at: string },
+  now = Date.now()
+): { ok: true } | { ok: false; error: string } {
+  if (b.active) return { ok: false, error: "Deactivate the bundle first" }
+  const inactiveFor = now - Date.parse(b.updated_at)
+  if (!Number.isFinite(inactiveFor) || inactiveFor < BUNDLE_DELETE_MIN_INACTIVE_MS) {
+    return { ok: false, error: "A bundle can be deleted 48 hours after it was deactivated (so in-flight payments can still be credited)" }
+  }
+  return { ok: true }
+}
+
+/** Hard-delete an inactive bundle (admin). Purchases already credited are unaffected (they live in the ledger by ref). */
+export async function deleteBundle(adminId: string, id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!adminId) return { ok: false, error: "Admin user required" }
+  const { data: b } = await supabaseAdmin.from("sms_bundles").select("id, name, active, updated_at, units, price_ghs").eq("id", id).maybeSingle()
+  if (!b) return { ok: false, error: "Bundle not found" }
+  const can = canDeleteBundle(b as { active: boolean; updated_at: string })
+  if (!can.ok) return can
+  const cutoff = new Date(Date.now() - BUNDLE_DELETE_MIN_INACTIVE_MS).toISOString()
+  const { data: gone, error } = await supabaseAdmin.from("sms_bundles").delete()
+    .eq("id", id).eq("active", false).lte("updated_at", cutoff).select("id")
+  if (error) return { ok: false, error: "Could not delete the bundle" }
+  if (!gone?.length) return { ok: false, error: "Bundle changed — reload and try again" }
+  await writeAuditLog(adminId, "sms_bundle_delete", null, { id, name: (b as { name: string }).name }, null).catch(() => {})
+  return { ok: true }
 }

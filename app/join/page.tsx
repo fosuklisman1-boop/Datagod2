@@ -74,7 +74,7 @@ export default async function JoinPage() {
 
         <div className="mt-16 grid grid-cols-1 sm:grid-cols-2 gap-4">
           {benefits.map(({ icon: Icon, title, desc }) => (
-            <div key={title} className="rounded-xl border border-border bg-card p-5">
+            <div key={title} className="rounded-xl border border-white/60 dark:border-white/5 bg-card p-5 clay">
               <div className="mb-3 grid h-10 w-10 place-items-center rounded-lg border border-primary/25 bg-primary/10">
                 <Icon className="h-[18px] w-[18px] text-primary" />
               </div>
@@ -84,7 +84,7 @@ export default async function JoinPage() {
           ))}
         </div>
 
-        <div className="mt-6 rounded-xl border border-border bg-card p-6">
+        <div className="mt-6 rounded-xl border border-white/60 dark:border-white/5 bg-card p-6 clay">
           <div className="flex items-start gap-3">
             <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-primary/25 bg-primary/10">
               <MessageCircle className="h-[18px] w-[18px] text-primary" />

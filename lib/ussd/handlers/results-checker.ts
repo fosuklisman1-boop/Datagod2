@@ -895,7 +895,7 @@ export async function handleRcCheckPaymentMethod(
   await supabase.from("results_check_requests").update(updateData).eq("id", orderId)
 
   const { notifyAdminsNewResultsCheckRequest } = await import("@/lib/results-checker-service")
-  await notifyAdminsNewResultsCheckRequest(orderId).catch(e => console.warn("[RC-CHECK] Admin notify failed:", e))
+  after(() => notifyAdminsNewResultsCheckRequest(orderId).catch(e => console.warn("[RC-CHECK] Admin notify failed:", e)))
 
   void supabase.from("wallet_transactions").insert({
     user_id: userId,

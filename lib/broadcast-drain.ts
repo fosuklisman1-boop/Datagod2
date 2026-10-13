@@ -79,6 +79,39 @@ interface BroadcastRow {
   channels: string[]
   subject: string | null
   message: string
+  // Admin-picked SMS provider for this broadcast (null/undefined = system default routing).
+  sms_provider?: "moolre" | "hubtel" | null
+}
+
+/** PostgREST/Postgres "column doesn't exist" — the migration adding sms_provider isn't applied yet. */
+function isMissingColumnError(err: { code?: string; message?: string } | null | undefined): boolean {
+  if (!err) return false
+  if (err.code === "42703" || err.code === "PGRST204") return true
+  return /column.*does not exist|could not find.*column/i.test(err.message || "")
+}
+
+/**
+ * Best-effort load of broadcast_logs.sms_provider (separate select so a missing
+ * column can't break the main query). ONLY a missing-column error means "no
+ * override"; any other error throws so the drain run fails rather than silently
+ * routing through a provider the admin didn't pick.
+ */
+async function attachSmsProviders(supabase: SupabaseClient, broadcasts: BroadcastRow[]): Promise<void> {
+  const smsIds = broadcasts.filter((b) => (b.channels || []).includes("sms")).map((b) => b.id)
+  if (smsIds.length === 0) return
+  const { data, error } = await supabase.from("broadcast_logs").select("id, sms_provider").in("id", smsIds)
+  if (error) {
+    if (isMissingColumnError(error)) return // pre-migration: no overrides exist
+    console.error("[BROADCAST-DRAIN] sms_provider lookup failed; aborting run:", error.message)
+    throw error
+  }
+  const byId = new Map<string, string | null>(
+    (data ?? []).map((r: { id: string; sms_provider: string | null }) => [r.id, r.sms_provider]),
+  )
+  for (const b of broadcasts) {
+    const v = byId.get(b.id)
+    b.sms_provider = v === "moolre" || v === "hubtel" ? v : null
+  }
 }
 
 /**
@@ -232,6 +265,9 @@ async function processRecipient(
           userId: r.user_id || undefined,
           reference: broadcast.id,
           skipLogging: isRetry("sms"),
+          ...(broadcast.sms_provider === "moolre" || broadcast.sms_provider === "hubtel"
+            ? { provider: broadcast.sms_provider }
+            : {}),
         })
         status.sms = res.success ? "sent" : "failed"
       } catch {
@@ -440,6 +476,8 @@ export async function drainBroadcasts(
     broadcasts = (data ?? []) as BroadcastRow[]
   }
   if (broadcasts.length === 0) return { processed: 0, broadcasts: 0 }
+
+  await attachSmsProviders(supabase, broadcasts)
 
   let budget = opts.maxRecipients ?? MAX_RECIPIENTS_PER_RUN
   let processed = 0

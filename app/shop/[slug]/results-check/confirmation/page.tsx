@@ -157,7 +157,7 @@ export default function ResultsCheckConfirmationPage() {
                 </div>
                 <button
                   onClick={handleCopy}
-                  className="flex-shrink-0 p-2.5 rounded-lg bg-card hover:bg-muted transition-colors border border-border"
+                  className="flex-shrink-0 p-2.5 rounded-lg bg-card hover:bg-muted transition-colors border border-white/60 dark:border-white/5 clay"
                   title="Copy serial & PIN"
                 >
                   {copied

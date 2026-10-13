@@ -12,17 +12,17 @@
   --radius: 0.5rem;
 
   /* surfaces */
-  --background: 150 25% 98%;        /* #F7FAF8 */
+  --background: 222 62% 96%;        /* #EEF2FB clay surface */
   --foreground: 150 23% 10%;        /* #14201A */
-  --card: 0 0% 100%;
+  --card: 223 100% 99%;             /* #F8FAFF clay fill */
   --card-foreground: 150 23% 10%;
-  --popover: 0 0% 100%;
+  --popover: 223 100% 99%;
   --popover-foreground: 150 23% 10%;
 
-  /* brand accent (emerald — deeper for contrast on light) */
-  --primary: 160 84% 30%;           /* #059669 */
+  /* brand accent (navy — matches the customer rebuild's #1B388B) */
+  --primary: 224 68% 33%;           /* #1B388B */
   --primary-foreground: 0 0% 100%;
-  --accent-soft: 160 84% 30%;
+  --accent-soft: 224 68% 33%;
   --brand-accent: 222 83% 53%;      /* #2563EB — sparing secondary accent */
 
   /* neutral support */
@@ -52,13 +52,13 @@
   /* lines & focus */
   --border: 150 12% 90%;            /* #E3E8E5 */
   --input: 150 12% 90%;
-  --ring: 160 84% 30%;
+  --ring: 224 68% 33%;
 
   /* deep surface (footer) */
   --footer: 150 24% 8%;
 
   /* charts (chart-1 follows primary) */
-  --chart-1: 160 84% 30%;
+  --chart-1: 224 68% 33%;
   --chart-2: 173 58% 39%;
   --chart-3: 197 37% 24%;
   --chart-4: 43 74% 66%;
@@ -67,12 +67,12 @@
   /* sidebar */
   --sidebar: 0 0% 100%;
   --sidebar-foreground: 150 23% 10%;
-  --sidebar-primary: 160 84% 30%;
+  --sidebar-primary: 224 68% 33%;
   --sidebar-primary-foreground: 0 0% 100%;
   --sidebar-accent: 150 16% 95%;
   --sidebar-accent-foreground: 150 23% 10%;
   --sidebar-border: 150 12% 90%;
-  --sidebar-ring: 160 84% 30%;
+  --sidebar-ring: 224 68% 33%;
 }
 
 /* ===========================================================================
@@ -94,16 +94,16 @@
 }
 
 .dark {
-  --background: 0 0% 1%;            /* #030303 */
+  --background: 224 41% 7%;         /* #0B0F1A clay surface */
   --foreground: 0 0% 98%;          /* #FAFAFA */
-  --card: 240 5% 10%;              /* #18181B */
+  --card: 224 34% 13%;             /* #151B2B clay fill */
   --card-foreground: 0 0% 98%;
-  --popover: 240 5% 10%;
+  --popover: 224 34% 13%;
   --popover-foreground: 0 0% 98%;
 
-  --primary: 158 64% 52%;           /* #34D399 */
-  --primary-foreground: 153 45% 8%;
-  --accent-soft: 158 64% 52%;
+  --primary: 224 90% 70%;           /* #7096F8 */
+  --primary-foreground: 224 60% 10%;
+  --accent-soft: 224 90% 70%;
   --brand-accent: 213 94% 68%;      /* #60A5FA */
 
   --secondary: 240 4% 16%;          /* #27272A */
@@ -129,11 +129,11 @@
 
   --border: 240 4% 16%;            /* #27272A */
   --input: 240 4% 16%;
-  --ring: 158 64% 52%;
+  --ring: 224 90% 70%;
 
   --footer: 240 6% 3%;             /* #050506 */
 
-  --chart-1: 158 64% 52%;
+  --chart-1: 224 90% 70%;
   --chart-2: 173 58% 45%;
   --chart-3: 197 37% 40%;
   --chart-4: 43 74% 66%;
@@ -141,12 +141,12 @@
 
   --sidebar: 240 6% 6%;
   --sidebar-foreground: 0 0% 90%;
-  --sidebar-primary: 158 64% 52%;
-  --sidebar-primary-foreground: 153 45% 8%;
+  --sidebar-primary: 224 90% 70%;
+  --sidebar-primary-foreground: 224 60% 10%;
   --sidebar-accent: 240 4% 14%;
   --sidebar-accent-foreground: 0 0% 98%;
   --sidebar-border: 240 4% 14%;
-  --sidebar-ring: 158 64% 52%;
+  --sidebar-ring: 224 90% 70%;
 }
 
 @layer base {
@@ -259,5 +259,116 @@ html, body {
 @media (min-width: 1024px) {
   .pt-safe-header {
     padding-top: calc(env(safe-area-inset-top, 0px) + 7rem);
+  }
+}
+
+/* ===========================================================================
+   CLAYMORPHISM — app-wide. Soft, puffy surfaces: a tinted page surface
+   (--background), near-white fills (--card), and on raised elements an inner
+   top-left highlight + inner bottom-right shade + a soft navy-tinted drop.
+   Tune everything here.
+
+   Layering (Tailwind 3 emits utilities after components):
+   - Shadows live in @layer utilities so they beat stock shadow-sm/md/lg that
+     pages and shared components still pass.
+   - Fill + radius defaults live in @layer components so any per-element
+     bg-* / rounded-* utility still wins (selected states, gradients, pills).
+   =========================================================================== */
+:root {
+  --clay-surface: hsl(var(--background));
+  --clay-fill: hsl(var(--card));
+  --clay-drop: rgba(27, 56, 139, 0.14);
+  --clay-highlight: rgba(255, 255, 255, 0.95);
+  --clay-shade: rgba(27, 56, 139, 0.09);
+}
+.dark {
+  --clay-drop: rgba(0, 0, 0, 0.55);
+  --clay-highlight: rgba(255, 255, 255, 0.06);
+  --clay-shade: rgba(0, 0, 0, 0.45);
+}
+
+@layer components {
+  .clay-surface { background-color: var(--clay-surface); }
+  .clay { background-color: var(--clay-fill); border-radius: 2rem; }
+  .clay-sm { background-color: var(--clay-fill); border-radius: 9999px; }
+  .clay-icon { border-radius: 1.25rem; }
+  .clay-inset { background-color: var(--clay-surface); }
+}
+
+@layer utilities {
+  .clay {
+    box-shadow:
+      10px 12px 26px var(--clay-drop),
+      inset -5px -7px 14px var(--clay-shade),
+      inset 5px 7px 14px var(--clay-highlight);
+  }
+  .clay-sm {
+    box-shadow:
+      5px 7px 14px var(--clay-drop),
+      inset -3px -4px 8px var(--clay-shade),
+      inset 3px 4px 8px var(--clay-highlight);
+  }
+  /* Pastel icon blob — keeps its own bg/text color utility, adds the puff. */
+  .clay-icon {
+    box-shadow:
+      5px 7px 12px var(--clay-drop),
+      inset -3px -4px 8px rgba(0, 0, 0, 0.08),
+      inset 3px 4px 8px rgba(255, 255, 255, 0.7);
+  }
+  /* Filled buttons: keep their own fill color; press sinks them in. */
+  .clay-btn {
+    box-shadow:
+      6px 8px 16px var(--clay-drop),
+      inset -4px -5px 10px rgba(0, 0, 0, 0.18),
+      inset 4px 5px 10px rgba(255, 255, 255, 0.28);
+    transition-property: color, background-color, border-color, box-shadow, transform;
+    transition-duration: 150ms;
+  }
+  .clay-btn:active {
+    transform: translateY(2px) scale(0.99);
+    box-shadow:
+      2px 3px 8px var(--clay-drop),
+      inset 4px 5px 10px rgba(0, 0, 0, 0.18),
+      inset -4px -5px 10px rgba(255, 255, 255, 0.2);
+  }
+  /* Pressed-in well (inputs, tab bars, counters, inactive dots). */
+  .clay-inset {
+    box-shadow:
+      inset 3px 4px 8px var(--clay-shade),
+      inset -3px -4px 8px var(--clay-highlight);
+  }
+
+  /* Navigation chrome. Light panels use the clay vars; the admin skin is a
+     fixed dark navy, so it gets *-dark variants with a faint highlight
+     (a near-white highlight reads as a smudge on dark surfaces). */
+  .clay-rail {
+    box-shadow:
+      10px 0 28px var(--clay-drop),
+      inset -4px 0 10px var(--clay-shade),
+      inset 3px 4px 10px var(--clay-highlight);
+  }
+  .clay-bar {
+    box-shadow:
+      0 10px 26px var(--clay-drop),
+      inset 0 -4px 10px var(--clay-shade),
+      inset 0 3px 8px var(--clay-highlight);
+  }
+  .clay-dark {
+    box-shadow:
+      10px 12px 28px rgba(0, 0, 0, 0.35),
+      inset -4px -6px 12px rgba(0, 0, 0, 0.35),
+      inset 4px 5px 12px rgba(255, 255, 255, 0.08);
+  }
+  .clay-rail-dark {
+    box-shadow:
+      10px 0 28px rgba(0, 0, 0, 0.3),
+      inset -4px 0 10px rgba(0, 0, 0, 0.35),
+      inset 3px 4px 10px rgba(255, 255, 255, 0.06);
+  }
+  .clay-pill-dark {
+    box-shadow:
+      3px 4px 10px rgba(0, 0, 0, 0.35),
+      inset -2px -3px 6px rgba(0, 0, 0, 0.3),
+      inset 2px 3px 6px rgba(255, 255, 255, 0.12);
   }
 }

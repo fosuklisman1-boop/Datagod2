@@ -36,3 +36,12 @@ transaction status check. No business logic, no queue. Retries live in Vercel cr
 7. Vercel env: `HUBTEL_RELAY_URL=https://relay.<your-domain>`, `HUBTEL_RELAY_SECRET=<same secret>`.
 8. Smoke test (expect 401 without the secret, 400 with a bad reference):
    `curl -i https://relay.<domain>/status?clientReference=x` and with `-H "Authorization: Bearer $SECRET"`.
+
+## Balance route (SMS solvency gate)
+`GET /balance` (Bearer RELAY_SECRET) → Hubtel Disbursement balance. Env on the droplet:
+- `HUBTEL_DISBURSEMENT_ACCOUNT` — the Disbursement (prepaid) account number (required for /balance; without it the route answers 501)
+- `HUBTEL_BALANCE_BASIC_AUTH` — optional base64 `user:pass`; defaults to `HUBTEL_STATUS_BASIC_AUTH`
+
+Confirm with the Hubtel Retail Systems Engineer that this droplet's IP is whitelisted for trnf.hubtel.com.
+Redeploy: copy `scripts/hubtel-relay/server.ts` and `lib/ussd-hubtel/relay-handler.ts` (same paths), set env, `systemctl restart hubtel-relay`.
+Check: `curl -s -H "Authorization: Bearer $RELAY_SECRET" https://<relay-host>/balance`

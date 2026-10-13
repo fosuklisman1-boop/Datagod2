@@ -12,7 +12,7 @@ import type { ShopServices } from "./shop-services"
 import type { ShopBillingGuard } from "./billing-guard"
 import type { CallerContext } from "./catalog"
 import { resolveMainMenu, mainMenuText, type MainMenuKey } from "./menus"
-import { ORDER_TABLES, isHubtelOrderTable, type HubtelOrderTable } from "./order-tables"
+import { ORDER_TABLES, cartItemNameFor, isHubtelOrderTable, type HubtelOrderTable } from "./order-tables"
 import { addToCart, release, respond } from "./protocol"
 import { safeDbError } from "./log-safe"
 import type { HubtelFieldType, HubtelPlatform, HubtelReply, HubtelRequest, HubtelSession, HubtelStep } from "./types"
@@ -119,12 +119,12 @@ export async function replaySubmittedOrder(
     console.error("[HUBTEL-REPLAY] Unknown order table on tx row:", tx.order_table, "session:", sid)
     return alreadySubmitted()
   }
-  const spec = ORDER_TABLES[tx.order_table]
-  const { data: order } = await deps.supabase.from(tx.order_table).select(spec.cartColumns).eq("id", tx.order_id).single()
+  // The order must still exist; its id alone names the cart (cartItemNameFor).
+  const { data: order } = await deps.supabase.from(tx.order_table).select("id").eq("id", tx.order_id).single()
   if (!order) return alreadySubmitted()
   await deps.sessions.del(sid)
   return addToCart(sid, {
-    itemName: spec.cartItemName(order as unknown as Record<string, unknown>),
+    itemName: cartItemNameFor(tx.order_id),
     price: Number(tx.expected_amount),
     message: CART_MESSAGE,
     platform,
@@ -179,5 +179,5 @@ export async function submitOrder(
   }
 
   await deps.sessions.del(sid)
-  return addToCart(sid, { itemName: spec.cartItemName(args.row), price: args.price, message: CART_MESSAGE, platform })
+  return addToCart(sid, { itemName: cartItemNameFor(order.id), price: args.price, message: CART_MESSAGE, platform })
 }

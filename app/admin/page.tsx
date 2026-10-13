@@ -250,7 +250,7 @@ export default function AdminDashboardPage() {
           <>
             {/* Quick-alert cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <button onClick={() => handleNavigate("/admin/complaints")} disabled={navigating !== null} className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4 text-left transition hover:border-[#1b388b]/30 disabled:opacity-60">
+              <button onClick={() => handleNavigate("/admin/complaints")} disabled={navigating !== null} className="flex items-center justify-between gap-3 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 text-left transition hover:border-[#1b388b]/30 disabled:opacity-60 clay">
                 <div className="flex items-center gap-3">
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-pink-500/10 text-pink-600"><MessageCircle className="h-5 w-5" /></span>
                   <div>
@@ -260,7 +260,7 @@ export default function AdminDashboardPage() {
                 </div>
                 {navigating === "/admin/complaints" ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" /> : <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
               </button>
-              <button onClick={() => handleNavigate("/admin/afa-management")} disabled={navigating !== null} className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4 text-left transition hover:border-[#1b388b]/30 disabled:opacity-60">
+              <button onClick={() => handleNavigate("/admin/afa-management")} disabled={navigating !== null} className="flex items-center justify-between gap-3 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 text-left transition hover:border-[#1b388b]/30 disabled:opacity-60 clay">
                 <div className="flex items-center gap-3">
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600"><CheckCircle2 className="h-5 w-5" /></span>
                   <div>
@@ -270,7 +270,7 @@ export default function AdminDashboardPage() {
                 </div>
                 {navigating === "/admin/afa-management" ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" /> : <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
               </button>
-              <button onClick={() => handleNavigate("/admin/subscribers")} disabled={navigating !== null} className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4 text-left transition hover:border-[#1b388b]/30 disabled:opacity-60 sm:col-span-1">
+              <button onClick={() => handleNavigate("/admin/subscribers")} disabled={navigating !== null} className="flex items-center justify-between gap-3 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 text-left transition hover:border-[#1b388b]/30 disabled:opacity-60 sm:col-span-1 clay">
                 <div className="flex items-center gap-3">
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-500/10 text-violet-600"><AgentsIcon className="h-5 w-5" /></span>
                   <div>
@@ -284,7 +284,7 @@ export default function AdminDashboardPage() {
 
             {/* KPI cards */}
             <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-              <div className="rounded-2xl border border-border bg-card p-4">
+              <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
                 <div className="flex items-center justify-between">
                   <span className="text-success"><Banknote className="h-5 w-5" /></span>
                   {revenueChange !== null && (
@@ -306,7 +306,7 @@ export default function AdminDashboardPage() {
                 )}
               </div>
 
-              <div className="rounded-2xl border border-border bg-card p-4">
+              <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
                 <span className="text-amber-600"><Wallet className="h-5 w-5" /></span>
                 <p className="mt-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Profit</p>
                 <p className="text-xl font-black text-foreground">GH₵{(stats.rangeProfit ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
@@ -321,25 +321,25 @@ export default function AdminDashboardPage() {
                 )}
               </div>
 
-              <div className="rounded-2xl border border-border bg-card p-4">
+              <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
                 <span className="text-[#1b388b]"><ShoppingCart className="h-5 w-5" /></span>
                 <p className="mt-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Orders</p>
                 <p className="text-xl font-black text-foreground">{formatCount(stats.rangeOrders ?? 0)}</p>
               </div>
 
-              <div className="rounded-2xl border border-border bg-card p-4">
+              <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
                 <span className="text-violet-600"><CheckCircle2 className="h-5 w-5" /></span>
                 <p className="mt-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Success Rate</p>
                 <p className="text-xl font-black text-foreground">{stats.rangeSuccessRate ?? 0}%</p>
               </div>
 
-              <div className="rounded-2xl border border-border bg-card p-4">
+              <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
                 <span className="text-success"><Wallet className="h-5 w-5" /></span>
                 <p className="mt-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Float Balance</p>
                 <p className="text-xl font-black text-foreground">GH₵{(stats.floatBalance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
               </div>
 
-              <div className="rounded-2xl border border-border bg-card p-4">
+              <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
                 <span className="text-destructive"><Clock className="h-5 w-5" /></span>
                 <p className="mt-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Today&apos;s Orders</p>
                 <p className="text-xl font-black text-foreground">{formatCount(stats.todayOrders ?? 0)}</p>
@@ -348,7 +348,7 @@ export default function AdminDashboardPage() {
 
             {/* Revenue & Profit chart */}
             {chart.length > 1 && (
-              <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+              <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 sm:p-5 clay">
                 <p className="flex items-center gap-1.5 text-sm font-bold text-foreground">
                   <TrendingUp className="h-4 w-4 text-success" /> Revenue &amp; Profit
                 </p>
@@ -382,7 +382,7 @@ export default function AdminDashboardPage() {
             )}
 
             {/* Float & Liability */}
-            <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+            <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 sm:p-5 clay">
               <div className="flex items-center justify-between">
                 <p className="flex items-center gap-1.5 text-sm font-bold text-foreground">
                   <Scale className="h-4 w-4 text-[#1b388b]" /> Float &amp; Liability
@@ -418,7 +418,7 @@ export default function AdminDashboardPage() {
             ) : (
               <>
                 {/* Revenue by Network */}
-                <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+                <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 sm:p-5 clay">
                   <p className="flex items-center gap-1.5 text-sm font-bold text-foreground">
                     <BarChart3 className="h-4 w-4 text-[#1b388b]" /> Revenue by Network
                   </p>
@@ -443,7 +443,7 @@ export default function AdminDashboardPage() {
                 </div>
 
                 {/* Growth & Roles */}
-                <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+                <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 sm:p-5 clay">
                   <p className="flex items-center gap-1.5 text-sm font-bold text-foreground">
                     <Users className="h-4 w-4 text-[#1b388b]" /> Growth &amp; Roles
                   </p>
@@ -479,7 +479,7 @@ export default function AdminDashboardPage() {
 
                 {/* By Product / By Source */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                  <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+                  <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 sm:p-5 clay">
                     <p className="flex items-center gap-1.5 text-sm font-bold text-foreground">
                       <Layers className="h-4 w-4 text-violet-600" /> By Product
                     </p>
@@ -501,7 +501,7 @@ export default function AdminDashboardPage() {
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+                  <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 sm:p-5 clay">
                     <p className="flex items-center gap-1.5 text-sm font-bold text-foreground">
                       <Radio className="h-4 w-4 text-success" /> By Source
                     </p>
@@ -526,7 +526,7 @@ export default function AdminDashboardPage() {
 
                 {/* Top Packages / Top Agents */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                  <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+                  <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 sm:p-5 clay">
                     <p className="flex items-center gap-1.5 text-sm font-bold text-foreground">
                       <Package className="h-4 w-4 text-amber-600" /> Top Packages
                     </p>
@@ -543,7 +543,7 @@ export default function AdminDashboardPage() {
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+                  <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 sm:p-5 clay">
                     <p className="flex items-center gap-1.5 text-sm font-bold text-foreground">
                       <Crown className="h-4 w-4 text-amber-500" /> Top Agents
                     </p>
@@ -587,32 +587,32 @@ export default function AdminDashboardPage() {
 
             {/* All-time platform totals */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
-              <div className="rounded-2xl border border-border bg-card p-4">
+              <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
                 <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#1b388b]/10 text-[#1b388b]"><Users className="h-4 w-4" /></span>
                 <p className="mt-2 text-lg font-black text-foreground">{formatCount(stats.totalUsers)}</p>
                 <p className="text-xs text-muted-foreground">Total users</p>
               </div>
-              <div className="rounded-2xl border border-border bg-card p-4">
+              <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
                 <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-success/10 text-success"><Store className="h-4 w-4" /></span>
                 <p className="mt-2 text-lg font-black text-foreground">{formatCount(stats.totalShops)}</p>
                 <p className="text-xs text-muted-foreground">Active shops</p>
               </div>
-              <div className="rounded-2xl border border-border bg-card p-4">
+              <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
                 <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#1b388b]/10 text-[#1b388b]"><Users className="h-4 w-4" /></span>
                 <p className="mt-2 text-lg font-black text-foreground">{formatCount(stats.totalSubAgents)}</p>
                 <p className="text-xs text-muted-foreground">Active sub-agents</p>
               </div>
-              <div className="rounded-2xl border border-border bg-card p-4">
+              <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
                 <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-success/10 text-success"><TrendingUp className="h-4 w-4" /></span>
                 <p className="mt-2 text-lg font-black text-foreground">GH₵{stats.totalRevenue.toFixed(2)}</p>
                 <p className="text-xs text-muted-foreground">All-time revenue</p>
               </div>
-              <div className="rounded-2xl border border-border bg-card p-4">
+              <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
                 <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#1b388b]/10 text-[#1b388b]"><TrendingUp className="h-4 w-4" /></span>
                 <p className="mt-2 text-lg font-black text-foreground">GH₵{stats.totalProfitBalance.toFixed(2)}</p>
                 <p className="text-xs text-muted-foreground">Users&apos; unwithdrawn profit</p>
               </div>
-              <div className="rounded-2xl border border-border bg-card p-4">
+              <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
                 <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-success/10 text-success"><Wallet className="h-4 w-4" /></span>
                 <p className="mt-2 text-lg font-black text-foreground">GH₵{stats.totalWalletBalance.toFixed(2)}</p>
                 <p className="text-xs text-muted-foreground">Users&apos; wallet balance</p>
@@ -626,7 +626,7 @@ export default function AdminDashboardPage() {
                   key={href}
                   onClick={() => handleNavigate(href)}
                   disabled={navigating !== null}
-                  className="rounded-2xl border border-border bg-card p-4 text-left transition hover:border-[#1b388b]/30 disabled:opacity-60"
+                  className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 text-left transition hover:border-[#1b388b]/30 disabled:opacity-60 clay"
                 >
                   <div className="flex items-center justify-between">
                     <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#1b388b]/10 text-[#1b388b]"><Icon className="h-5 w-5" /></span>

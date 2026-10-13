@@ -26,7 +26,7 @@ export const walletGateway: RefundGateway = {
   label: "Customer wallet",
   supports(order) {
     if (order.payment.walletUserId) return { ok: true }
-    if (isWalletOnlyTable(order.table)) return { ok: false, reason: "No single per-order wallet debit proves who paid (e.g. paid via a bulk batch debit) — cannot refund automatically" }
+    if (isWalletOnlyTable(order.table)) return { ok: false, reason: "Paid via bulk upload and the batch debit could not be matched to this order — cannot refund automatically" }
     return { ok: false, reason: "Payer has no Datagod account/wallet" }
   },
   refund: credit,

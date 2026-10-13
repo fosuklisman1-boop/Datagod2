@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
+import { notifyWithdrawalCompleted } from "@/lib/admin-actions/withdrawal-hook"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -24,7 +25,7 @@ export async function POST(request: NextRequest) {
 
   const { data: withdrawal, error: fetchError } = await supabase
     .from("withdrawal_requests")
-    .select("id, shop_id, amount, status")
+    .select("id, shop_id, amount, status, withdrawal_method, account_details")
     .eq("id", withdrawalId)
     .single()
 
@@ -40,16 +41,23 @@ export async function POST(request: NextRequest) {
   }
 
   // Mark withdrawal as completed
-  const { error: updateError } = await supabase
+  const { data: completedRows, error: updateError } = await supabase
     .from("withdrawal_requests")
     .update({ status: "completed", completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
     .eq("id", withdrawalId)
+    .eq("status", "approved")
+    .select("id")
 
   if (updateError) {
     return NextResponse.json({ error: `Failed to update withdrawal: ${updateError.message}` }, { status: 500 })
   }
 
   console.log(`[WITHDRAWAL-COMPLETE] Admin ${adminId} marked withdrawal ${withdrawalId} as completed — Amount: GHS ${withdrawal.amount}`)
+
+  // Only tell the owner when this call actually moved the row into "completed"
+  if (completedRows && completedRows.length > 0) {
+    await notifyWithdrawalCompleted(supabase, withdrawal)
+  }
 
   // Available balance is automatically synced via the database trigger sync_shop_balance
   // which fires when withdrawal_requests changes status.

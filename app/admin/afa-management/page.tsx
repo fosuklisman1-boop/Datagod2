@@ -426,7 +426,7 @@ Occupation: ${submission.occupation || "N/A"}`
               </div>
             ) : (
               <>
-                <div className="flex items-center justify-between p-4 bg-card rounded-lg border border-border">
+                <div className="flex items-center justify-between p-4 bg-card rounded-lg border border-white/60 dark:border-white/5 clay">
                   <div className="space-y-1">
                     <p className="font-semibold text-foreground">
                       {autoFulfillEnabled ? "🟢 ENABLED" : "⚪ DISABLED"}
@@ -722,42 +722,42 @@ Occupation: ${submission.occupation || "N/A"}`
 
                     {/* Details Grid */}
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                      <div className="bg-card border border-border rounded p-3">
+                      <div className="bg-card border border-white/60 dark:border-white/5 rounded p-3 clay">
                         <p className="text-xs text-muted-foreground font-medium">Full Name</p>
                         <p className="mt-1 text-foreground text-sm font-mono">{submission.full_name || "N/A"}</p>
                       </div>
 
-                      <div className="bg-card border border-border rounded p-3">
+                      <div className="bg-card border border-white/60 dark:border-white/5 rounded p-3 clay">
                         <p className="text-xs text-muted-foreground font-medium">Phone</p>
                         <p className="mt-1 text-foreground text-sm font-mono">{submission.phone_number || "N/A"}</p>
                       </div>
 
-                      <div className="bg-card border border-border rounded p-3">
+                      <div className="bg-card border border-white/60 dark:border-white/5 rounded p-3 clay">
                         <p className="text-xs text-muted-foreground font-medium">GH Card</p>
                         <p className="mt-1 text-foreground text-sm font-mono">{submission.gh_card_number || "N/A"}</p>
                       </div>
 
-                      <div className="bg-card border border-border rounded p-3">
+                      <div className="bg-card border border-white/60 dark:border-white/5 rounded p-3 clay">
                         <p className="text-xs text-muted-foreground font-medium">Location</p>
                         <p className="mt-1 text-foreground text-sm font-mono">{submission.location || "N/A"}</p>
                       </div>
 
-                      <div className="bg-card border border-border rounded p-3">
+                      <div className="bg-card border border-white/60 dark:border-white/5 rounded p-3 clay">
                         <p className="text-xs text-muted-foreground font-medium">Region</p>
                         <p className="mt-1 text-foreground text-sm font-mono">{submission.region || "N/A"}</p>
                       </div>
 
-                      <div className="bg-card border border-border rounded p-3">
+                      <div className="bg-card border border-white/60 dark:border-white/5 rounded p-3 clay">
                         <p className="text-xs text-muted-foreground font-medium">Occupation</p>
                         <p className="mt-1 text-foreground text-sm font-mono">{submission.occupation || "N/A"}</p>
                       </div>
 
-                      <div className="bg-card border border-border rounded p-3">
+                      <div className="bg-card border border-white/60 dark:border-white/5 rounded p-3 clay">
                         <p className="text-xs text-muted-foreground font-medium">Order Code</p>
                         <p className="mt-1 text-foreground text-sm font-mono">{submission.order_code}</p>
                       </div>
 
-                      <div className="bg-card border border-border rounded p-3">
+                      <div className="bg-card border border-white/60 dark:border-white/5 rounded p-3 clay">
                         <p className="text-xs text-muted-foreground font-medium">Amount</p>
                         <p className="mt-1 text-foreground text-sm font-mono font-semibold">
                           GHS {(submission.amount || 0).toFixed(2)}
@@ -771,7 +771,7 @@ Occupation: ${submission.occupation || "N/A"}`
                           : submission.fulfillment_status === "failed"
                           ? "border-destructive/30 bg-destructive/10"
                           : "border-border"
-                      }`}>
+                      } clay`}>
                         <p className="text-xs text-muted-foreground font-medium">Fulfillment</p>
                         <div className="mt-1 space-y-1">
                           {getFulfillmentBadge(submission)}
@@ -793,7 +793,7 @@ Occupation: ${submission.occupation || "N/A"}`
                         </div>
                       </div>
 
-                      <div className="bg-card border border-border rounded p-3">
+                      <div className="bg-card border border-white/60 dark:border-white/5 rounded p-3 clay">
                         <p className="text-xs text-muted-foreground font-medium">Submitted</p>
                         <p className="mt-1 text-foreground text-sm font-mono">
                           {new Date(submission.created_at).toLocaleDateString()}

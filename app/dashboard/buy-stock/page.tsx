@@ -411,7 +411,7 @@ export default function BuyStockPage() {
               <button
                 key={net}
                 onClick={() => setSelectedNetwork(net)}
-                className={`relative flex flex-col items-center gap-1.5 rounded-2xl border-2 bg-card p-2.5 sm:p-4 transition ${
+                className={`relative flex flex-col items-center gap-1.5 rounded-2xl border-2 bg-card clay p-2.5 sm:p-4 transition ${
                   isSelected ? `${m.border} shadow-sm` : "border-border hover:border-[#1b388b]/30"
                 }`}
               >

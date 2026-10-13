@@ -83,7 +83,7 @@ describe("check results: combo (voucher + check)", () => {
     expect(confirm.Message).toContain("GHS 22.00 from 0200585542")
     const r = await hubtelRouter(req({ Message: "1" }), deps)
     expect(r.Type).toBe("AddToCart")
-    expect(r.Item).toEqual({ ItemName: "WASSCE Voucher + Results Check", Qty: 1, Price: 22 })
+    expect(r.Item).toEqual({ ItemName: expect.stringMatching(/^CH order [a-z0-9]+$/), Qty: 1, Price: 22 })
     const row = sup.inserts["results_check_requests"][0]
     expect(row).toMatchObject({
       phone_number: "0200585542", exam_board: "WASSCE", candidate_type: "school", index_number: "0070202043",
@@ -209,7 +209,7 @@ describe("check results: own voucher", () => {
     expect(confirm.Message).toContain("PIN 012345678912")
     expect(confirm.Message).toContain("GHS 2.00 from 0200585542")
     const r = await hubtelRouter(req({ Message: "1" }), deps)
-    expect(r.Item).toEqual({ ItemName: "WASSCE Results Check", Qty: 1, Price: 2 })
+    expect(r.Item).toEqual({ ItemName: expect.stringMatching(/^CH order [a-z0-9]+$/), Qty: 1, Price: 2 })
     expect(sup.inserts["results_check_requests"][0]).toMatchObject({
       candidate_type: "private", mode: "own_voucher", fee: 2, voucher_pin: "012345678912", voucher_serial: "WGR1900112581",
     })
@@ -226,7 +226,7 @@ describe("check results: own voucher", () => {
     await toCheck(deps)
     await send(deps, OWN_NO_STOCK)
     const r = await hubtelRouter(req({ Message: "1" }), deps)
-    expect(r.Item).toEqual({ ItemName: "WASSCE Results Check", Qty: 1, Price: 2 })
+    expect(r.Item).toEqual({ ItemName: expect.stringMatching(/^CH order [a-z0-9]+$/), Qty: 1, Price: 2 })
     expect(sup.inserts["results_check_requests"][0]).toMatchObject({ fee: 2 })
     expect(sup.inserts["hubtel_transactions"][0]).toMatchObject({ expected_amount: 2 })
   })
@@ -240,7 +240,7 @@ describe("check results: own voucher", () => {
     const second = await hubtelRouter(req({ Message: "1" }), deps)
     expect(second.Type).toBe("AddToCart")
     expect(second.Item).toEqual(first.Item)
-    expect(second.Item?.ItemName).toBe("WASSCE Results Check")
+    expect(second.Item?.ItemName).toMatch(/^CH order [a-z0-9]+$/)
     expect(sup.inserts["results_check_requests"]).toHaveLength(1)
     expect(sup.inserts["hubtel_transactions"]).toHaveLength(1)
   })
@@ -252,7 +252,7 @@ describe("check results: own voucher", () => {
     await send(deps, ["1", "1", "2", "012345678912/WGR1900112581", "0070202043", "2024", "15/06/2008", "0244123456"])
     stock = 0
     const r = await hubtelRouter(req({ Message: "1" }), deps)
-    expect(r.Item).toEqual({ ItemName: "WASSCE Results Check", Qty: 1, Price: 2 })
+    expect(r.Item).toEqual({ ItemName: expect.stringMatching(/^CH order [a-z0-9]+$/), Qty: 1, Price: 2 })
   })
 })
 
@@ -324,7 +324,7 @@ describe("check results: idempotent CONFIRM (review focus #1)", () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => {})
     const r = await hubtelRouter(req({ Message: "1" }), deps)
     err.mockRestore()
-    expect(r.Item).toEqual({ ItemName: "WASSCE Voucher + Results Check", Qty: 1, Price: 22 })
+    expect(r.Item).toEqual({ ItemName: expect.stringMatching(/^CH order [a-z0-9]+$/), Qty: 1, Price: 22 })
     expect(sup.updates.some(u => u.table === "results_check_requests" && u.patch.status === "failed" && u.patch.payment_status === "failed")).toBe(true)
   })
 })

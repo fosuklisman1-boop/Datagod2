@@ -285,7 +285,7 @@ export default function SubAgentProfitsPage() {
                                             {shop.sub_agents.map((subAgent) => (
                                                 <div
                                                     key={subAgent.id}
-                                                    className="flex items-center justify-between p-3 bg-card rounded-lg border"
+                                                    className="flex items-center justify-between p-3 bg-card rounded-lg border border-white/60 dark:border-white/5 clay"
                                                 >
                                                     <div className="flex items-center gap-3">
                                                         <div className="p-1.5 bg-primary/5 rounded">

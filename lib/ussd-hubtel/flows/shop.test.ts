@@ -383,3 +383,36 @@ describe("shop mode: product menu", () => {
     expect(deductToken).toHaveBeenCalledTimes(1)
   })
 })
+
+describe("shop mode: code typed after the session record was lost", () => {
+  it("ClientState SHOP_ENTER_CODE: the code is processed (product menu), not 'Session expired'", async () => {
+    const deductToken = vi.fn(async () => true)
+    const { deps, store } = makeDeps({ getConfig: SHOP_CONFIG, shop: fakeShop({ deductToken }) })
+    await hubtelRouter(req({ Type: "Initiation" }), deps)
+    store.delete("S1") // Redis miss / TTL between the prompt and the code
+    const r = await hubtelRouter(req({ Message: "1234", ClientState: "SHOP_ENTER_CODE" }), deps)
+    expect(r.Message).toBe(PRODUCT_MENU)
+    expect(deductToken).toHaveBeenCalledTimes(1)
+    expect(store.get("S1")).toMatchObject({ mode: "shop", step: "SHOP_PRODUCT", shopId: "shop-1", dialingPhone: "+233200585542" })
+  })
+  it("a wrong code after the loss is a normal retry on the code prompt", async () => {
+    const { deps, store } = makeDeps({ getConfig: SHOP_CONFIG })
+    const r = await hubtelRouter(req({ Message: "9999", ClientState: "SHOP_ENTER_CODE" }), deps)
+    expect(r.Message).toBe("Invalid code. Try again.\nEnter shop code:\n0. Exit")
+    expect(store.get("S1")).toMatchObject({ mode: "shop", step: "SHOP_ENTER_CODE", shopCodeAttempts: 1 })
+  })
+  it("a redelivered code after the loss never pays twice in the same Hubtel session", async () => {
+    const deductToken = vi.fn(async () => true)
+    const { deps, store } = makeDeps({ getConfig: SHOP_CONFIG, shop: fakeShop({ deductToken }) })
+    await hubtelRouter(req({ Message: "1234", ClientState: "SHOP_ENTER_CODE" }), deps)
+    store.delete("S1")
+    const again = await hubtelRouter(req({ Message: "1234", ClientState: "SHOP_ENTER_CODE" }), deps)
+    expect(again.Message).toBe(PRODUCT_MENU)
+    expect(deductToken).toHaveBeenCalledTimes(1)
+  })
+  it("without the echoed ClientState it still restarts with 'Session expired'", async () => {
+    const { deps } = makeDeps({ getConfig: SHOP_CONFIG })
+    const r = await hubtelRouter(req({ Message: "1234" }), deps)
+    expect(r.Message).toBe("Session expired.\nWelcome to Clingshub\nEnter shop code:\n0. Exit")
+  })
+})

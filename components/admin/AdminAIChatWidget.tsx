@@ -237,7 +237,7 @@ export function AdminAIChatWidget() {
 
   function buttonClass(style?: string) {
     if (style === "danger") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors"
-    if (style === "secondary") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-border bg-card text-muted-foreground hover:bg-accent transition-colors"
+    if (style === "secondary") return "px-3 py-1.5 rounded-xl text-xs font-medium border border-white/60 dark:border-white/5 bg-card text-muted-foreground hover:bg-accent transition-colors clay"
     return "px-3 py-1.5 rounded-xl text-xs font-medium border border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 transition-colors"
   }
 

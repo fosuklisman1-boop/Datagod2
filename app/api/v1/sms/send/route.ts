@@ -5,7 +5,12 @@ import { authenticateApiKey, logApiRequest } from "@/lib/api-auth"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
 import { enqueueSendBatched, SMS_MAX_TOTAL } from "@/lib/sms/send-service"
+import { apiRateLimitFor, loadSmsSettings } from "@/lib/sms/platform-settings"
+import { SMS_DISABLED_MESSAGE } from "@/lib/sms/kill-switch"
+import { customerBlockedReason, policyRejectedStatus, SEND_IN_PROGRESS_MESSAGE } from "@/lib/sms/enforcement"
 import { getShopTokens } from "@/lib/sms/shop-context-service"
+import { checkSchedule } from "@/lib/sms/schedule"
+import { resolveTenantSendProvider } from "@/lib/sms/tenant-provider"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -14,8 +19,11 @@ const supabaseAdmin = createClient(
 
 /**
  * POST /api/v1/sms/send
- * Body: { message: string, recipients: string[], sender_id?: string }
+ * Body: { message: string, recipients: string[], sender_id?: string, scheduled_at?: string (ISO 8601 with offset), provider?: "moolre"|"hubtel" (ignored unless the platform allows it) }
  */
+// Instant campaign dispatch can run for minutes (up to 5 Hubtel/Moolre batches per send).
+export const maxDuration = 300
+
 export async function POST(request: NextRequest) {
   const start = Date.now()
 
@@ -24,20 +32,29 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Invalid or missing API key" }, { status: 401 })
   }
 
-  const rateLimitCount = user.rate_limit_per_min || 60
-  const postLimit = Math.max(5, Math.floor(rateLimitCount / 3))
+  // SMS credits are a separate ledger from the wallet/test-balance system
+  // entirely (per-tenant sms_accounts, not simulated here) -- test mode
+  // skips the real account/credits requirement and never actually queues
+  // anything, rather than trying to fake a second parallel credits system.
+  // The rate limit is applied BEFORE account get-or-create (which writes), so a throttled caller
+  // can't churn account creation. Limit = the account's override (cheap read; none yet → null),
+  // else the admin-set platform default. Test keys have no account and use the default.
+  const { apiRateLimitDefault } = await loadSmsSettings()
+  let override: number | null = null
+  if (user.environment !== "test") {
+    const { data: row } = await supabaseAdmin
+      .from("sms_accounts").select("api_rate_limit_override").eq("user_id", user.id).maybeSingle()
+    override = (row as { api_rate_limit_override?: number | null } | null)?.api_rate_limit_override ?? null
+  }
+  const postLimit = apiRateLimitFor(override, apiRateLimitDefault)
   const rateLimit = await applyRateLimit(request, "v1_sms_send_post", postLimit, 60 * 1000, user.id)
   if (!rateLimit.allowed) {
     return NextResponse.json({ success: false, error: `Rate limit exceeded. Your current limit is ${postLimit} requests/minute.` }, { status: 429 })
   }
 
-  // SMS credits are a separate ledger from the wallet/test-balance system
-  // entirely (per-tenant sms_accounts, not simulated here) -- test mode
-  // skips the real account/credits requirement and never actually queues
-  // anything, rather than trying to fake a second parallel credits system.
   const account = user.environment === "test" ? null : await getOrCreateAccountForUser(user.id)
   if (user.environment !== "test" && !account) {
-    return NextResponse.json({ success: false, error: "No SMS account for this API key's owner (requires a shop, sub-agent, or admin account)" }, { status: 403 })
+    return NextResponse.json({ success: false, error: "No SMS account for this API key's owner (SMS isn't enabled for this account type)" }, { status: 403 })
   }
 
   let body: any
@@ -52,7 +69,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Invalid JSON body" }, { status: 400 })
   }
 
-  const { message, recipients, sender_id } = body
+  const { message, recipients, sender_id, scheduled_at } = body
   if (typeof message !== "string" || message.length < 3 || message.length > 1000) {
     return NextResponse.json({ success: false, error: "message must be a string between 3 and 1000 characters" }, { status: 400 })
   }
@@ -68,6 +85,15 @@ export async function POST(request: NextRequest) {
   if (sender_id !== undefined && (typeof sender_id !== "string" || sender_id.trim().length === 0)) {
     return NextResponse.json({ success: false, error: "sender_id must be a non-empty string" }, { status: 400 })
   }
+  // Optional scheduling: 2 minutes to 30 days ahead. null/omitted = send now. Validated before any write.
+  let scheduledFor: Date | undefined
+  if (scheduled_at !== undefined && scheduled_at !== null) {
+    const sched = checkSchedule(scheduled_at)
+    if (!sched.ok) {
+      return NextResponse.json({ success: false, error: "INVALID_SCHEDULE", message: sched.message }, { status: 400 })
+    }
+    scheduledFor = sched.at
+  }
 
   const uniqueRecipients = Array.from(new Set(recipients as string[]))
 
@@ -80,6 +106,13 @@ export async function POST(request: NextRequest) {
     }).catch(() => {})
     return NextResponse.json({
       success: true,
+      // Same shape as a live send; nothing is logged in the sandbox, so there is no log id.
+      // A valid scheduled_at is echoed (nothing is stored) so test integrators see the real shape.
+      status: scheduledFor ? "scheduled" : "queued",
+      held: false,
+      scheduled: !!scheduledFor,
+      scheduled_for: scheduledFor ? scheduledFor.toISOString() : null,
+      send_log_id: null,
       total: uniqueRecipients.length,
       batches: 1,
       segments: 1,
@@ -100,6 +133,17 @@ export async function POST(request: NextRequest) {
   // sender_id "defaults to your first active one" (the tenant's own), so this
   // route needs to resolve that itself before calling enqueueSendBatched.
   let effectiveSenderId = sender_id as string | undefined
+  // Prefer the account's chosen default sender ID; only an active (never paused) one counts.
+  if (!effectiveSenderId && account!.default_sender_id) {
+    const { data: def } = await supabaseAdmin
+      .from("sms_sender_ids")
+      .select("sender_id")
+      .eq("id", account!.default_sender_id)
+      .eq("sms_account_id", account!.id)
+      .eq("local_status", "active")
+      .maybeSingle()
+    effectiveSenderId = (def as { sender_id?: string } | null)?.sender_id ?? undefined
+  }
   if (!effectiveSenderId) {
     const { data: activeSender } = await supabaseAdmin
       .from("sms_sender_ids")
@@ -114,7 +158,12 @@ export async function POST(request: NextRequest) {
 
   let result: Awaited<ReturnType<typeof enqueueSendBatched>>
   try {
-    result = await enqueueSendBatched(user.id, account!.id, message, uniqueRecipients, tokens, effectiveSenderId)
+    // Silently ignored (undefined) unless the admin enabled tenant provider choice.
+    const provider = await resolveTenantSendProvider(body.provider)
+    const sendOpts = scheduledFor || provider ? { ...(scheduledFor ? { scheduledFor } : {}), ...(provider ? { provider } : {}) } : undefined
+    result = sendOpts
+      ? await enqueueSendBatched(user.id, account!.id, message, uniqueRecipients, tokens, effectiveSenderId, sendOpts)
+      : await enqueueSendBatched(user.id, account!.id, message, uniqueRecipients, tokens, effectiveSenderId)
   } catch (e) {
     console.error("[V1-SMS-SEND] batched send threw:", e)
     logApiRequest({
@@ -133,6 +182,9 @@ export async function POST(request: NextRequest) {
     // enqueueSend) — it's on us, not the caller, so it maps to 500 rather than
     // the 400 default so a well-behaved integrator will actually retry it.
     const status =
+      result.error === "SMS_DISABLED" ? 503 :
+      result.error === "POLICY_REJECTED" ? policyRejectedStatus(result.code) :
+      result.error === "SEND_IN_PROGRESS" ? 429 :
       result.error === "INSUFFICIENT_CREDITS" ? 402 :
       result.error === "NOT_ACTIVATED" || result.error === "SUSPENDED" ? 403 :
       result.error === "ENQUEUE_FAILED" ? 500 :
@@ -142,21 +194,41 @@ export async function POST(request: NextRequest) {
       userId: user.id, apiKeyId: user.api_key_id, method: "POST", endpoint: "/api/v1/sms/send",
       statusCode: status, request, durationMs,
       requestPayload: { recipients_count: uniqueRecipients.length },
-      responsePayload: { error: result.error },
+      responsePayload: { error: result.error, ...(result.code ? { code: result.code } : {}) },
     }).catch(() => {})
 
-    return NextResponse.json({ success: false, error: result.error }, { status })
+    // BLOCKED / POLICY_REJECTED carry the customer-safe `reason` (what to change); never flag details.
+    return NextResponse.json(
+      result.error === "SMS_DISABLED"
+        ? { success: false, error: result.error, message: SMS_DISABLED_MESSAGE }
+        : result.error === "POLICY_REJECTED"
+          ? { success: false, error: result.error, code: result.code, reason: result.reason }
+          : result.error === "SEND_IN_PROGRESS"
+            ? { success: false, error: result.error, reason: SEND_IN_PROGRESS_MESSAGE }
+          : result.error === "BLOCKED"
+            ? { success: false, error: result.error, reason: customerBlockedReason(result) }
+            : { success: false, error: result.error },
+      { status }
+    )
   }
 
+  // A send held for review (enforced policy) is accepted but not yet sent. Still HTTP 200 (so
+  // integrators checking for 200 keep working); `held: true` / `status: "held"` tell them apart.
   logApiRequest({
     userId: user.id, apiKeyId: user.api_key_id, method: "POST", endpoint: "/api/v1/sms/send",
     statusCode: 200, request, durationMs,
     requestPayload: { recipients_count: uniqueRecipients.length },
-    responsePayload: { total: result.totalQueued, batches: result.batches },
+    responsePayload: { total: result.totalQueued, batches: result.batches, held: result.held, scheduled: result.scheduled },
   }).catch(() => {})
 
   return NextResponse.json({
     success: true,
+    status: result.held ? "held" : result.scheduled ? "scheduled" : "queued",
+    held: result.held,
+    // Scheduled: credits reserved now; sent automatically at scheduled_for (ISO 8601, UTC).
+    scheduled: result.scheduled,
+    scheduled_for: result.scheduledFor,
+    send_log_id: result.sendLogId,
     total: result.totalQueued,
     batches: result.batches,
     segments: result.segments,

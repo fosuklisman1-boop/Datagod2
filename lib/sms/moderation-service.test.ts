@@ -8,7 +8,10 @@ const h = vi.hoisted(() => {
     logRow: null as Row | null,
     rpcError: false,
     updateError: false,
+    updateRows: [{ id: "x" }] as unknown[],
+    updateEqs: [] as [string, unknown][],
     auditRows: [] as unknown[],
+    auditError: false,
     rpcCallArgs: null as unknown,
     upsertRows: null as any,
   }
@@ -32,11 +35,21 @@ const h = vi.hoisted(() => {
       }),
       insert: (row: unknown) => {
         if (table === "admin_audit_log") state.auditRows.push(row)
-        return Promise.resolve({ data: null, error: null })
+        return Promise.resolve({ data: null, error: table === "admin_audit_log" && state.auditError ? { message: "audit down" } : null })
       },
-      update: (_patch: unknown) => ({
-        eq: (_c: string, _v: string) => Promise.resolve({ data: null, error: state.updateError ? { message: "update failed" } : null }),
-      }),
+      update: (_patch: unknown) => {
+        const eqs: [string, unknown][] = []
+        const c: any = {
+          eq: (col: string, v: unknown) => { eqs.push([col, v]); state.updateEqs = eqs; return c },
+          select: (_cols?: string) => c,
+          then: (res: any, rej: any) =>
+            Promise.resolve({
+              data: state.updateError ? null : state.updateRows,
+              error: state.updateError ? { message: "update failed" } : null,
+            }).then(res, rej),
+        }
+        return c
+      },
       order: (_col: string, _opts?: unknown) => Promise.resolve({ data: [], error: null }),
       upsert: (rows: any, _opts?: unknown) => { state.upsertRows = rows; return Promise.resolve({ data: null, error: null }) },
     }),
@@ -62,16 +75,29 @@ vi.mock("./revenue-aggregation", () => ({
   aggregateRevenue: (_raw: unknown) => ({ activations: 0, activationTotal: 0, bundleTotal: 0, creditsSold: 0 }),
 }))
 
-import { suspendSmsAccount, dismissFlag, updateSmsSettings } from "./moderation-service"
+import { suspendSmsAccount, dismissFlag, updateSmsSettings, writeAuditLog } from "./moderation-service"
 
 beforeEach(() => {
   h.state.account = null
   h.state.logRow = null
   h.state.rpcError = false
   h.state.updateError = false
+  h.state.updateRows = [{ id: "x" }]
+  h.state.updateEqs = []
   h.state.auditRows.length = 0
+  h.state.auditError = false
   h.state.rpcCallArgs = null
   h.state.upsertRows = null
+})
+
+describe("writeAuditLog", () => {
+  it("logs (does not swallow) a failed insert with action and target", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    h.state.auditError = true
+    await expect(writeAuditLog("a1", "some_action", "u9", null, { x: 1 })).resolves.toBeUndefined()
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining("action=some_action, target=u9"), "audit down")
+    spy.mockRestore()
+  })
 })
 
 describe("suspendSmsAccount", () => {
@@ -137,6 +163,15 @@ describe("dismissFlag", () => {
     expect(auditRow.action).toBe("sms_flag_dismiss")
     expect(auditRow.old_value.flagged).toBe(true)
     expect(auditRow.old_value.flag_reason).toBe("keyword:loan")
+  })
+
+  it("update is guarded on flagged=true; 0 rows updated (race) → 404, no audit", async () => {
+    h.state.logRow = { id: "l1", status: "sent", user_id: "u1", flagged: true, flag_reason: "test" }
+    h.state.updateRows = []
+    const res = await dismissFlag("admin1", "l1")
+    expect(h.state.updateEqs).toContainEqual(["flagged", true])
+    expect(res).toEqual({ ok: false, error: "Log entry is not flagged", status: 404 })
+    expect(h.state.auditRows).toHaveLength(0)
   })
 
   it("update error → 400 returned, no audit log written", async () => {

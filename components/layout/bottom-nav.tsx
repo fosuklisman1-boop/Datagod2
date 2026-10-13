@@ -93,7 +93,8 @@ export function BottomNav() {
   return (
     <nav
       className={cn(
-        "fixed left-3 right-3 z-50 md:hidden rounded-[28px] shadow-[0_10px_30px_-6px_hsl(var(--foreground)/0.25)]",
+        "fixed left-3 right-3 z-50 md:hidden rounded-[28px]",
+        skin === "admin" ? "clay-dark" : "clay",
         c.bar
       )}
       style={{ bottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))" }}
@@ -111,7 +112,7 @@ export function BottomNav() {
                 className="flex flex-col items-center justify-end flex-1 pb-2"
               >
                 <div className={cn(
-                  "-mt-8 w-16 h-16 rounded-full flex flex-col items-center justify-center gap-0.5 shadow-lg transition-transform active:scale-95",
+                  "-mt-8 w-16 h-16 rounded-full flex flex-col items-center justify-center gap-0.5 clay-btn transition-transform active:scale-95",
                   c.fabCircle
                 )}>
                   <Icon className={cn("w-5 h-5", c.fabIconText)} />

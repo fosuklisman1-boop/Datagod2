@@ -68,20 +68,21 @@ async function fetchSmsSettings(): Promise<Record<string, unknown>> {
 }
 
 /** Write one admin_audit_log row. Fire-and-forget — never throws to the caller. */
-async function writeAuditLog(
+export async function writeAuditLog(
   adminId: string,
   action: string,
   targetUserId: string | null,
   oldValue: unknown,
   newValue: unknown
 ): Promise<void> {
-  await supabaseAdmin.from("admin_audit_log").insert({
+  const { error } = await supabaseAdmin.from("admin_audit_log").insert({
     admin_id: adminId,
     action,
     target_user_id: targetUserId ?? null,
     old_value: oldValue ? JSON.parse(JSON.stringify(oldValue)) : null,
     new_value: newValue ? JSON.parse(JSON.stringify(newValue)) : null,
   })
+  if (error) console.error(`[SMS-AUDIT] admin_audit_log insert failed (action=${action}, target=${targetUserId ?? "none"}):`, error.message)
 }
 
 // ---------- Public API ----------
@@ -178,11 +179,14 @@ export async function dismissFlag(
   if (!(row as { flagged: boolean }).flagged)
     return { ok: false, error: "Log entry is not flagged", status: 404 }
 
-  const { error: updateErr } = await supabaseAdmin
+  const { data: updated, error: updateErr } = await supabaseAdmin
     .from("sms_send_logs")
     .update({ flagged: false, flag_reason: null })
     .eq("id", logId)
+    .eq("flagged", true)
+    .select("id")
   if (updateErr) return { ok: false, error: updateErr.message, status: 400 }
+  if (!updated || updated.length === 0) return { ok: false, error: "Log entry is not flagged", status: 404 }
 
   await writeAuditLog(
     adminId,

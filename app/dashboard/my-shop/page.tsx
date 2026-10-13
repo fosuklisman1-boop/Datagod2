@@ -249,7 +249,7 @@ export default function ShopOverviewPage() {
       <DashboardLayout>
         <div className="mx-auto max-w-2xl lg:max-w-4xl space-y-5">
           <DashboardHeroBanner title="My Shop" subtitle="Create your storefront to start selling." icon={Store} />
-          <div className="rounded-2xl border border-border bg-card p-4 sm:p-5 space-y-4">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 sm:p-5 space-y-4 clay">
             <div>
               <Label htmlFor="shop-name">Shop Name *</Label>
               <Input
@@ -329,7 +329,7 @@ export default function ShopOverviewPage() {
     <DashboardLayout>
       <div className="mx-auto max-w-2xl lg:max-w-4xl space-y-5">
         {/* Shop header */}
-        <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+        <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 sm:p-5 clay">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
               <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#1b388b]/10 text-[#1b388b]">
@@ -407,14 +407,14 @@ export default function ShopOverviewPage() {
         {/* Quick actions */}
         <div className="grid grid-cols-4 gap-2 sm:gap-3">
           {QUICK_ACTIONS.map(({ href, label, icon: Icon }) => (
-            <Link key={href} href={href} className="flex flex-col items-center gap-1.5 rounded-2xl border border-border bg-card p-3 text-center hover:border-[#1b388b]/30">
+            <Link key={href} href={href} className="flex flex-col items-center gap-1.5 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-3 text-center hover:border-[#1b388b]/30 clay">
               <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#1b388b]/10 text-[#1b388b]">
                 <Icon className="h-4 w-4" />
               </span>
               <span className="text-xs font-semibold text-foreground">{label}</span>
             </Link>
           ))}
-          <a href={storefrontHref} target="_blank" rel="noopener noreferrer" className="flex flex-col items-center gap-1.5 rounded-2xl border border-border bg-card p-3 text-center hover:border-[#1b388b]/30">
+          <a href={storefrontHref} target="_blank" rel="noopener noreferrer" className="flex flex-col items-center gap-1.5 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-3 text-center hover:border-[#1b388b]/30 clay">
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#1b388b]/10 text-[#1b388b]">
               <ExternalLink className="h-4 w-4" />
             </span>
@@ -440,19 +440,19 @@ export default function ShopOverviewPage() {
           </div>
 
           <div className="mt-3 grid grid-cols-2 gap-2 sm:gap-3">
-            <div className="rounded-2xl border border-border bg-card p-4">
+            <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Banknote className="h-3.5 w-3.5" /> Sales</p>
               <p className="mt-1 text-xl font-black text-foreground">GH₵{stats.sales.toFixed(2)}</p>
             </div>
-            <div className="rounded-2xl border border-border bg-card p-4">
+            <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><TrendingUp className="h-3.5 w-3.5" /> Profit</p>
               <p className="mt-1 text-xl font-black text-foreground">GH₵{stats.profit.toFixed(2)}</p>
             </div>
-            <div className="rounded-2xl border border-border bg-card p-4">
+            <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><CheckCircle2 className="h-3.5 w-3.5" /> Completed</p>
               <p className="mt-1 text-xl font-black text-foreground">{stats.completed}</p>
             </div>
-            <div className="rounded-2xl border border-border bg-card p-4">
+            <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Clock className="h-3.5 w-3.5" /> In Progress</p>
               <p className="mt-1 text-xl font-black text-foreground">{stats.inProgress}</p>
             </div>
@@ -474,7 +474,7 @@ export default function ShopOverviewPage() {
         </div>
 
         {/* Storefront Notice */}
-        <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+        <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 sm:p-5 clay">
           <p className="flex items-center gap-1.5 text-sm font-bold text-foreground"><Megaphone className="h-4 w-4 text-[#1b388b]" /> Storefront Notice</p>
           <Textarea
             value={announcementMessage}
@@ -495,7 +495,7 @@ export default function ShopOverviewPage() {
         </div>
 
         {/* Customer order SMS toggle */}
-        <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4">
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
           <div className="flex items-start gap-3 min-w-0">
             <MessageSquare className="h-4 w-4 mt-0.5 shrink-0 text-[#1b388b]" />
             <div>
@@ -507,7 +507,7 @@ export default function ShopOverviewPage() {
         </div>
 
         {/* Recent Activity */}
-        <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+        <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 sm:p-5 clay">
           <div className="flex items-center justify-between">
             <p className="text-sm font-bold text-foreground">Recent Activity</p>
             <Link href="/dashboard/shop-orders" className="flex items-center gap-1 text-xs font-semibold text-[#1b388b] hover:underline">

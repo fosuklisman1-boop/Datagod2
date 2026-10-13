@@ -1,0 +1,196 @@
+import { readFileSync } from "node:fs"
+import path from "node:path"
+
+const read = (rel: string) => readFileSync(path.resolve(__dirname, "../..", rel), "utf8").replace(/\r\n/g, "\n")
+
+describe("withdrawals wiring", () => {
+  it("create route alerts admins once", () => {
+    const src = read("app/api/user/withdrawals/create/route.ts")
+    expect(src.match(/alertAdminsOfRequest\("withdrawal"/g)).toHaveLength(1)
+  })
+  it("approve route notifies via the central notifier and no longer sends inline email/sms for approval", () => {
+    const src = read("app/api/admin/withdrawals/approve/route.ts")
+    expect(src).toContain('notifyUserOfOutcome("withdrawal", "approved"')
+    expect(src).not.toContain("type: 'withdrawal_approved'")
+    expect(src).not.toContain("notificationTemplates.withdrawalApproved")
+  })
+  it("bulk-approve success path uses the central notifier", () => {
+    const src = read("app/api/admin/withdrawals/bulk-approve/route.ts")
+    expect(src).toContain('notifyUserOfOutcome("withdrawal", "approved"')
+  })
+  it("reject route uses the central notifier and a conditional update", () => {
+    const src = read("app/api/admin/withdrawals/reject/route.ts")
+    expect(src).toContain('notifyUserOfOutcome("withdrawal", "rejected"')
+    expect(src).not.toContain("type: 'withdrawal_rejected'")
+    expect(src).not.toContain("notificationTemplates.withdrawalRejected")
+    expect(src).toMatch(/\.in\("status", rejectableStatuses\)/)
+  })
+  it("complete route, transfer-otp route, status cron and paystack webhook notify 'completed' via the shared hook", () => {
+    for (const f of [
+      "app/api/admin/withdrawals/complete/route.ts",
+      "app/api/admin/withdrawals/submit-transfer-otp/route.ts",
+      "app/api/cron/withdrawals-status-check/route.ts",
+      "app/api/webhooks/paystack/route.ts",
+    ]) {
+      expect(read(f)).toContain("notifyWithdrawalCompleted(")
+    }
+    expect(read("lib/admin-actions/withdrawal-hook.ts")).toContain('notifyUserOfOutcome("withdrawal", "completed"')
+  })
+  it("instant payouts (approve + bulk-approve) send 'completed', manual approvals send 'approved'", () => {
+    const count = (src: string, needle: string) => src.split(needle).length - 1
+    const approve = read("app/api/admin/withdrawals/approve/route.ts")
+    expect(count(approve, "notifyWithdrawalCompleted(supabase, withdrawal)")).toBe(2)
+    expect(count(approve, "await notifyShopOwner(withdrawal, withdrawalId)")).toBe(3)
+    const bulk = read("app/api/admin/withdrawals/bulk-approve/route.ts")
+    expect(count(bulk, "notifyWithdrawalCompleted(supabase, locked)")).toBe(2)
+    expect(count(bulk, "applyWithdrawalCompletion(supabase, locked.id")).toBe(2)
+    expect(count(approve, "applyWithdrawalCompletion(supabase, withdrawalId")).toBe(2)
+  })
+  it("bulk-approve collects notifies and awaits them once with allSettled", () => {
+    const bulk = read("app/api/admin/withdrawals/bulk-approve/route.ts")
+    expect(bulk).toContain("Promise.allSettled(pendingNotifies)")
+    expect(bulk).not.toContain("await notifyOwner(")
+    expect(bulk).not.toContain("await notifyWithdrawalCompleted(")
+  })
+  it("cron and otp routes no longer send their own inline completion messages", () => {
+    for (const f of ["app/api/admin/withdrawals/submit-transfer-otp/route.ts", "app/api/cron/withdrawals-status-check/route.ts"]) {
+      expect(read(f)).not.toContain("notificationTemplates.withdrawalApproved")
+    }
+  })
+})
+
+describe("shop approvals wiring", () => {
+  it("create route alerts admins once", () => {
+    expect(read("app/api/shop/create/route.ts").match(/alertAdminsOfRequest\("shop"/g)).toHaveLength(1)
+  })
+  it("approve and reject use the central notifier, not inline sends", () => {
+    const a = read("app/api/admin/shops/approve/route.ts")
+    expect(a).toContain('notifyUserOfOutcome("shop", "approved"')
+    expect(a).not.toContain("type: 'shop_approved'")
+    expect(a).toContain('.eq("is_active", false)')
+    const r = read("app/api/admin/shops/reject/route.ts")
+    expect(r).toContain('notifyUserOfOutcome("shop", "rejected"')
+    expect(r).not.toContain("type: 'shop_rejected'")
+  })
+})
+
+describe("afa wiring", () => {
+  it("creation alerts admins once, only when not auto-fulfilling", () => {
+    const src = read("lib/afa-fulfillment.ts")
+    expect(src.match(/alertAdminsOfRequest\("afa"/g)).toHaveLength(1)
+    expect(src).toMatch(/if \(!autoFulfill\) \{\s*await alertAdminsForManualAfa\(/)
+  })
+  it("failed provider attempts that leave the order for an admin alert via the shared helper", () => {
+    const src = read("lib/afa-fulfillment.ts")
+    // 1 definition + manual-creation alert + auto-path failure alert; none inside fulfillAfaOrder
+    expect(src.match(/alertAdminsForManualAfa\(/g)!.length).toBe(3)
+    expect(src).toMatch(/r\.success \? undefined : alertAdminsForManualAfa/)
+    const fulfill = src.slice(src.indexOf("export async function fulfillAfaOrder"), src.indexOf("export async function submitAfaOrder"))
+    expect(fulfill).not.toContain("alertAdminsForManualAfa")
+  })
+  it("admin status route uses the central notifier", () => {
+    const src = read("app/api/admin/afa-update-status/route.ts")
+    expect(src).toMatch(/notifyUserOfOutcome\(\s*"afa"/)
+    expect(src).not.toContain("SMSTemplates.afaCompleted")
+    expect(src).not.toContain("sendSMS")
+  })
+  it("fulfilment success notifies completed, conditionally", () => {
+    const src = read("lib/afa-fulfillment.ts")
+    expect(src).toMatch(/notifyUserOfOutcome\(\s*"afa",\s*"completed"/)
+    expect(src).toContain('.neq("status", "completed")')
+  })
+})
+
+describe("afa apexprime cron wiring", () => {
+  const src = () => read("app/api/cron/sync-afa-status/apexprime/route.ts")
+  it("notifies completed once, conditionally, afa_orders only", () => {
+    expect(src().match(/notifyUserOfOutcome\(\s*"afa",\s*"completed"/g)).toHaveLength(1)
+    expect(src()).not.toContain(".neq(statusCol")
+    expect(src()).toMatch(/completedRow && freshStatus !== "completed"/)
+    expect(src()).toMatch(/\.eq\("fulfillment_status", "pending"\)\s*\.select\(NOTIFY_COLUMNS\[table\]\)/)
+    expect(src().match(/table === "afa_orders" &&/g)!.length).toBe(3)
+  })
+  it("alerts admins at both async failure branches", () => {
+    expect(src().match(/alertAdminsOfRequest\("afa"/g)).toHaveLength(2)
+  })
+})
+
+describe("results-check wiring", () => {
+  it("admin alert runs after the WhatsApp admin send and is reached regardless of phones", () => {
+    const src = read("lib/results-checker-service.ts")
+    const fn = src.slice(src.indexOf("export async function notifyAdminsNewResultsCheckRequest"))
+    const alertAt = fn.indexOf('alertAdminsOfRequest("results_check"')
+    expect(alertAt).toBeGreaterThan(-1)
+    expect(fn.slice(0, alertAt)).not.toMatch(/phones\.length === 0\) return/)
+    expect(fn.indexOf("sendWhatsAppText")).toBeLessThan(alertAt)
+  })
+  it("USSD wallet results-check admin notify runs in after(), not inside the session", () => {
+    const src = read("lib/ussd/handlers/results-checker.ts")
+    expect(src).toMatch(/after\(\(\) => notifyAdminsNewResultsCheckRequest\(orderId\)/)
+    expect(src).not.toMatch(/await notifyAdminsNewResultsCheckRequest/)
+  })
+  it("completion and rejection notify the user", () => {
+    expect(read("lib/results-checker-service.ts")).toContain('notifyUserOfOutcome("results_check", "completed"')
+    expect(read("app/api/admin/results-check-requests/route.ts")).toContain('notifyUserOfOutcome("results_check"')
+  })
+})
+
+describe("sender-id wiring", () => {
+  it("request creation alerts admins; approve/reject notify the owner", () => {
+    expect(read("app/api/sms/sender-ids/route.ts")).toContain('alertAdminsOfRequest("sender_id"')
+    expect(read("app/api/admin/sms-sender-ids/approve/route.ts")).toContain('notifySenderIdOutcome(')
+    expect(read("app/api/admin/sms-sender-ids/approve/route.ts")).toContain('"approved"')
+    expect(read("app/api/admin/sms-sender-ids/reject/route.ts")).toContain('notifySenderIdOutcome(')
+    expect(read("app/api/admin/sms-sender-ids/reject/route.ts")).toContain('"rejected"')
+  })
+  it("only tenant branches notify (hook call sits after the tenant ok-check, before the platform path)", () => {
+    for (const f of ["approve", "reject"]) {
+      const src = read(`app/api/admin/sms-sender-ids/${f}/route.ts`)
+      expect(src.match(/notifySenderIdOutcome\(/g)).toHaveLength(1)
+      expect(src.indexOf("notifySenderIdOutcome(")).toBeLessThan(src.indexOf("const result ="))
+    }
+  })
+})
+
+describe("sender-id wiring fixes", () => {
+  it("POST alerts only for new/re-opened pending requests", () => {
+    expect(read("app/api/sms/sender-ids/route.ts")).toMatch(/result\.isNew === true && result\.data\.local_status === "pending"/)
+  })
+  it("reject passes the admin's own reason, not the service default", () => {
+    const src = read("app/api/admin/sms-sender-ids/reject/route.ts")
+    expect(src).toContain('"rejected", body.reason?.trim() || undefined)')
+  })
+})
+
+describe("complaint wiring", () => {
+  it("both creation paths alert admins", () => {
+    expect(read("app/api/complaints/create/route.ts")).toContain('alertAdminsOfRequest("complaint"')
+    expect(read("lib/whatsapp-bot/complaints.ts")).toContain('alertAdminsOfRequest("complaint"')
+  })
+  it("admin update route notifies the user only on a status change to a terminal status", () => {
+    const src = read("app/api/admin/complaints/update/route.ts")
+    expect(src).toContain('notifyUserOfOutcome("complaint"')
+    expect(src).toMatch(/previousStatus !== newStatus/)
+    expect(src).not.toMatch(/in_progress/)
+  })
+  it("WhatsApp inbox resolution notifies the complainant via the shared helper (covers resolve-complaint route)", () => {
+    const src = read("lib/whatsapp-bot/complaints.ts")
+    expect(src).toContain('notifyUserOfOutcome("complaint", "resolved"')
+    const fn = src.slice(src.indexOf("export async function resolveOpenComplaintsForPhone"))
+    expect(fn.slice(0, fn.indexOf("export async function resolveAllOpenComplaints"))).toContain("notifyWaComplaintsResolved(")
+  })
+})
+
+describe("complaint wiring fixes", () => {
+  it("WhatsApp creation sends a single admin push (old notifyAdminsPush removed), email/push after the WhatsApp loop", () => {
+    const src = read("lib/whatsapp-bot/complaints.ts")
+    expect(src).not.toContain("notifyAdminsPush")
+    expect(src.indexOf('alertAdminsOfRequest("complaint"')).toBeGreaterThan(src.indexOf("sendWhatsAppText(waPhone"))
+    expect(src).toContain('url: "/admin/whatsapp"')
+  })
+  it("admin-router resolve is gated and notifies via the shared helper", () => {
+    const src = read("lib/whatsapp-bot/admin-router.ts")
+    expect(src).toContain("notifyWaComplaintsResolved(resolvedRows")
+    expect(src).toMatch(/\.in\("status", \["claimed", "open"\]\)\s*\.select\("id, phone_number"\)/)
+  })
+})

@@ -11,12 +11,18 @@ import { registerAfaViaSykes } from "@/lib/sykes-afa-provider"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { secureString } from "@/lib/secure-random"
 import { parseGhanaCardNumber } from "@/lib/ghana-card"
+import { alertAdminsOfRequest, notifyUserOfOutcome } from "@/lib/admin-actions"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
 function getSupabase() {
   return createClient(supabaseUrl, serviceRoleKey)
+}
+
+/** Tell admins an AFA registration needs manual handling. Never throws. */
+async function alertAdminsForManualAfa(orderCode: string | null | undefined, fullName: string | null | undefined): Promise<void> {
+  await alertAdminsOfRequest("afa", { orderCode: orderCode || "", fullName: fullName || "" })
 }
 
 export interface FulfillResult {
@@ -58,7 +64,7 @@ export async function getAfaProviderSelection(): Promise<"sykes" | "apexprime"> 
  */
 async function fulfillAfaViaApexPrime(
   orderId: string,
-  order: { full_name: string; gh_card_number: string; phone_number: string; location: string }
+  order: { full_name: string; gh_card_number: string; phone_number: string; location: string; order_code?: string | null }
 ): Promise<FulfillResult> {
   const supabase = getSupabase()
 
@@ -128,7 +134,7 @@ export async function fulfillAfaOrder(orderId: string): Promise<FulfillResult> {
   // 1. Fetch the order
   const { data: order, error: fetchError } = await supabase
     .from("afa_orders")
-    .select("id, full_name, gh_card_number, occupation, phone_number, location, fulfillment_status, fulfillment_attempts, status")
+    .select("id, user_id, order_code, full_name, gh_card_number, occupation, phone_number, location, fulfillment_status, fulfillment_attempts, status")
     .eq("id", orderId)
     .single()
 
@@ -217,6 +223,7 @@ export async function fulfillAfaOrder(orderId: string): Promise<FulfillResult> {
 
   // 6. Update DB based on result
   if (result.success) {
+    // Reconciliation is unconditional (fulfillment fields must always be recorded)...
     await supabase
       .from("afa_orders")
       .update({
@@ -224,10 +231,25 @@ export async function fulfillAfaOrder(orderId: string): Promise<FulfillResult> {
         fulfillment_ref: result.reference || null,
         fulfillment_error: null,
         fulfilled_at: new Date().toISOString(),
-        status: "completed",
         updated_at: new Date().toISOString(),
       })
       .eq("id", orderId)
+    // ...but only a real status transition notifies the customer.
+    const { data: completedRows } = await supabase
+      .from("afa_orders")
+      .update({ status: "completed", updated_at: new Date().toISOString() })
+      .eq("id", orderId)
+      .neq("status", "completed")
+      .select("id")
+
+    if (completedRows && completedRows.length > 0) {
+      await notifyUserOfOutcome(
+        "afa",
+        "completed",
+        { userId: order.user_id, phone: order.phone_number, reference: orderId },
+        { orderCode: order.order_code || "", fullName: order.full_name || "" },
+      )
+    }
 
     console.log("[AFA-FULFILL] Order fulfilled successfully:", orderId)
     return {
@@ -389,10 +411,16 @@ export async function submitAfaOrder(params: SubmitAfaOrderParams): Promise<Subm
 
   try {
     const autoFulfill = await isAfaAutoFulfillmentEnabled()
-    if (autoFulfill) {
-      fulfillAfaOrder(afaOrder.id).catch((err) => {
-        console.error("[AFA-FULFILL] Auto-fulfillment error for order", afaOrder.id, err)
-      })
+    if (!autoFulfill) {
+      await alertAdminsForManualAfa(orderCode, fullName)
+    } else {
+      // The failure alert fires ONLY from this automatic path (not from admin-triggered retries,
+      // which would flood admins on bulk re-runs).
+      fulfillAfaOrder(afaOrder.id)
+        .then((r) => (r.success ? undefined : alertAdminsForManualAfa(orderCode, fullName)))
+        .catch((err) => {
+          console.error("[AFA-FULFILL] Auto-fulfillment error for order", afaOrder.id, err)
+        })
     }
   } catch (autoFulfillCheckError) {
     console.error("[AFA-FULFILL] Error checking auto-fulfillment setting:", autoFulfillCheckError)

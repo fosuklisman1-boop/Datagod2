@@ -86,6 +86,38 @@ describe("relay handler", () => {
     }
   })
 
+  it("balance: forwards to the prepaid endpoint with Basic auth", async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ responseCode: "0000", data: { amount: 11.5 } }), { status: 200 }))
+    const handler = createRelayHandler({ secret: "s3cret", collectionAccount: "11684", statusBasicAuth: "BASICXYZ", disbursementAccount: "11691", fetchImpl: fetchImpl as any })
+    const res = await handler({ method: "GET", path: "/balance", query: new URLSearchParams(), authorization: auth, body: "" })
+    expect(res).toMatchObject({ status: 200, body: { ok: true, upstreamStatus: 200, body: { responseCode: "0000", data: { amount: 11.5 } } } })
+    const [url, init] = fetchImpl.mock.calls[0] as any
+    expect(url).toBe("https://trnf.hubtel.com/api/inter-transfers/prepaid/11691")
+    expect(init.headers.Authorization).toBe("Basic BASICXYZ")
+    expect(init.signal).toBeInstanceOf(AbortSignal)
+  })
+
+  it("balance: prefers a dedicated balance credential", async () => {
+    const fetchImpl = vi.fn(async () => new Response("{}", { status: 200 }))
+    const handler = createRelayHandler({ secret: "s3cret", collectionAccount: "1", statusBasicAuth: "STATUS", balanceBasicAuth: "BAL", disbursementAccount: "2", fetchImpl: fetchImpl as any })
+    await handler({ method: "GET", path: "/balance", query: new URLSearchParams(), authorization: auth, body: "" })
+    expect((fetchImpl.mock.calls[0] as any)[1].headers.Authorization).toBe("Basic BAL")
+  })
+
+  it("balance: 501 when no disbursement account is configured", async () => {
+    const { handler } = setup()
+    expect((await handler({ method: "GET", path: "/balance", query: new URLSearchParams(), authorization: auth, body: "" })).status).toBe(501)
+  })
+
+  it("balance: requires the bearer and reports upstream timeouts as ok:false", async () => {
+    const fetchImpl = vi.fn(async () => { throw new DOMException("timeout", "TimeoutError") })
+    const handler = createRelayHandler({ secret: "s3cret", collectionAccount: "1", statusBasicAuth: "S", disbursementAccount: "2", fetchImpl: fetchImpl as any })
+    expect((await handler({ method: "GET", path: "/balance", query: new URLSearchParams(), authorization: null, body: "" })).status).toBe(401)
+    expect(fetchImpl).not.toHaveBeenCalled()
+    const res = await handler({ method: "GET", path: "/balance", query: new URLSearchParams(), authorization: auth, body: "" })
+    expect(res.body).toMatchObject({ ok: false, upstreamStatus: 0 })
+  })
+
   it("404s unknown paths", async () => {
     const { handler } = setup()
     expect((await handler({ method: "GET", path: "/nope", query: new URLSearchParams(), authorization: auth, body: "" })).status).toBe(404)

@@ -54,7 +54,7 @@ export default function AfaConfirmationPage() {
 
   return (
     <div className="min-h-screen bg-muted/40 flex items-center justify-center p-4">
-      <div className="max-w-md w-full rounded-2xl border border-border bg-card p-6 text-center">
+      <div className="max-w-md w-full rounded-2xl border border-white/60 dark:border-white/5 bg-card p-6 text-center clay">
         {paid ? (
           <>
             <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-success/10 text-success mb-3"><CheckCircle2 className="h-7 w-7" /></span>

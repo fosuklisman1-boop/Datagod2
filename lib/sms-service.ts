@@ -1,7 +1,12 @@
 import axios from 'axios'
 import { createClient } from '@supabase/supabase-js'
 import { notifyAdmins as sendAdminEmail } from './email-service'
-import { getRoutingConfig } from '@/lib/sms/routing'
+import { getRoutingConfig, narrowProvidersForSender, type RoutingConfig } from '@/lib/sms/routing'
+import { categoryOf } from '@/lib/sms/categories'
+import { hubtelConfigFromEnv, hubtelSendSingle, toHubtelMsisdn, isValidHubtelMsisdn } from '@/lib/sms/providers/hubtel'
+import { notifyHubtelOutOfFunds } from '@/lib/sms/notify'
+import { resolvePlatformSender } from '@/lib/sms/platform-sender'
+import { isMissingSenderIdColumn } from '@/lib/sms/sms-log-sender'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -21,7 +26,7 @@ let isSmsExhausted = false
 let lastExhaustionCheck = 0
 const EXHAUSTION_CACHE_MS = 60 * 60 * 1000 // 1 hour
 
-interface SMSPayload {
+export interface SMSPayload {
   phone: string
   message: string
   type: string
@@ -29,6 +34,8 @@ interface SMSPayload {
   userId?: string
   skipLogging?: boolean // NEW: Prevent duplicate logs during retries
   senderId?: string // chosen per-account Moolre sender ID; falls back to MOOLRE_SENDER_ID
+  /** Force this provider to lead the chain (ignored for OTP-category messages). */
+  provider?: 'moolre' | 'hubtel'
 }
 
 // OTP/PIN codes must never be persisted in sms_logs — that table is readable by
@@ -753,16 +760,98 @@ async function sendSMSViaMNotify(payload: SMSPayload): Promise<SendSMSResponse> 
   }
 }
 
+/** Default "From" on Hubtel when no custom sender is chosen. Same brand as the Moolre default. */
+export function platformSenderName(): string {
+  return process.env.HUBTEL_SENDER_ID || process.env.MOOLRE_SENDER_ID || 'CLINGDTGOD'
+}
+
+/** Insert a Hubtel sms_logs row with sender_id. If the column does not exist yet (the app deployed
+ *  before migrations/20261024_sms_logs_sender_id.sql), retry ONCE without it so logging is never
+ *  lost. Other errors are left exactly as before (ignored; callers wrap this in try/catch). */
+async function insertHubtelSmsLog(senderId: string, row: Record<string, unknown>): Promise<void> {
+  const first = await supabase.from('sms_logs').insert({ ...row, sender_id: senderId })
+  if (isMissingSenderIdColumn(first?.error)) {
+    console.warn('[SMS] sms_logs.sender_id column missing (apply migrations/20261024_sms_logs_sender_id.sql); logging without it')
+    await supabase.from('sms_logs').insert(row)
+  }
+}
+
+/** Single SMS via Hubtel (spec §5.4). Logs to sms_logs like the other providers
+ *  (moolre_message_id column is reused for the provider message id, as Brevo does).
+ *  Outcome "unknown" (Hubtel may have accepted) is treated as SENT: never fail over,
+ *  or an OTP/receipt could arrive twice. */
+async function sendSMSViaHubtel(payload: SMSPayload): Promise<SendSMSResponse> {
+  const cfg = hubtelConfigFromEnv()
+  if (!cfg) return { success: false, error: 'Hubtel not configured', provider: 'hubtel' }
+  const from = payload.senderId?.trim() ? payload.senderId.trim().toUpperCase() : await resolvePlatformSender()
+  // Recorded in sms_logs.sender_id for the admin "Sender ID health" panel.
+  const loggedSender = from.toUpperCase()
+
+  const failHubtel = async (error: string): Promise<SendSMSResponse> => {
+    if (!payload.skipLogging) {
+      try {
+        await insertHubtelSmsLog(loggedSender, {
+          user_id: payload.userId || null,
+          phone_number: payload.phone,
+          message: logSafeSmsBody(payload),
+          message_type: payload.type,
+          reference_id: payload.reference || null,
+          provider: 'hubtel',
+          status: 'failed',
+          error_message: error,
+        })
+      } catch (logError) {
+        console.warn('[SMS] Failed to log failed SMS:', logError)
+      }
+    }
+    return { success: false, error, provider: 'hubtel' }
+  }
+
+  if (!isValidHubtelMsisdn(toHubtelMsisdn(payload.phone))) return failHubtel('Invalid recipient for Hubtel')
+  if (from.length > 11) return failHubtel('Sender ID longer than 11 characters')
+
+  const res = await hubtelSendSingle(cfg, { from, to: payload.phone, content: payload.message })
+  if (res.outcome === 'out_of_funds') {
+    Promise.resolve(notifyHubtelOutOfFunds()).catch(() => {})
+  }
+  if (res.outcome !== 'accepted' && res.outcome !== 'unknown') {
+    console.warn('[SMS] Hubtel send failed:', res.error)
+    return failHubtel(res.error ?? 'Hubtel send failed')
+  }
+  if (res.outcome === 'unknown') {
+    console.warn('[SMS] Hubtel outcome unknown — may have been sent, not failing over:', res.error)
+  }
+  if (!payload.skipLogging) {
+    try {
+      await insertHubtelSmsLog(loggedSender, {
+        user_id: payload.userId || null,
+        phone_number: payload.phone,
+        message: logSafeSmsBody(payload),
+        message_type: payload.type,
+        reference_id: payload.reference || null,
+        moolre_message_id: res.outcome === 'accepted' ? (res.messageId ?? null) : null,
+        provider: 'hubtel',
+        status: 'sent',
+      })
+    } catch (logError) {
+      console.warn('[SMS] Failed to log SMS:', logError)
+    }
+  }
+  return { success: true, messageId: res.outcome === 'accepted' ? res.messageId : undefined, provider: 'hubtel' }
+}
+
 const SMS_SENDERS: Record<string, (p: SMSPayload) => Promise<SendSMSResponse>> = {
   moolre: sendSMSViaMoolre,
   brevo: sendSMSViaBrevo,
   mnotify: sendSMSViaMNotify,
+  hubtel: sendSMSViaHubtel,
 }
 
 function isProviderConfigured(name: string): boolean {
   if (name === 'moolre') return !!MOOLRE_API_KEY
   if (name === 'brevo') return !!BREVO_API_KEY
   if (name === 'mnotify') return !!MNOTIFY_API_KEY
+  if (name === 'hubtel') return !!hubtelConfigFromEnv()
   return false
 }
 
@@ -785,11 +874,53 @@ async function isOtpBreakerOpen(): Promise<boolean> {
 }
 
 /**
+ * Pure provider-order builder (pre-filter, pre-sender-narrowing). The lead is
+ * payload.provider, else the category selector, else (OTP) SMS_OTP_PROVIDER/primary.
+ * OTP: an open breaker always leads with the fallback provider; payload.provider is ignored.
+ * A `global` selector preserves the legacy order.
+ */
+export function buildProviderOrder(args: {
+  payload: SMSPayload
+  routing: RoutingConfig
+  isOtp: boolean
+  breakerOpen: boolean
+  fallbackProvider: string
+  otpEnvProvider?: string
+  /** Hubtel credentials present (needed to redirect a custom-sender send away from Moolre). */
+  hubtelConfigured?: boolean
+}): string[] {
+  const { payload, routing, isOtp, breakerOpen, fallbackProvider, otpEnvProvider, hubtelConfigured } = args
+  const primary = routing.primary
+  const sel = routing.categoryProviders?.[categoryOf(payload.type)] ?? 'global'
+  let forced = payload.provider
+  if (isOtp && forced) {
+    console.warn(`[SMS] ignoring payload.provider '${forced}' for OTP-category message '${payload.type}'`)
+    forced = undefined
+  }
+  let lead: string | undefined
+  if (isOtp) {
+    lead = breakerOpen ? fallbackProvider : sel !== 'global' ? sel : (otpEnvProvider || primary)
+  } else {
+    lead = forced ?? (sel !== 'global' ? sel : undefined)
+  }
+  // Custom (tenant) sender IDs are approved locally and may not be registered with Moolre, which
+  // historically only ever carried them via Hubtel: a forced/category Moolre lead becomes Hubtel.
+  // Platform-sender sends (no senderId) are unaffected.
+  if (lead === 'moolre' && hubtelConfigured && payload.senderId && payload.senderId.trim()) {
+    lead = 'hubtel'
+  }
+  const base = isOtp ? [fallbackProvider, primary, ...routing.fallbacks] : [primary, ...routing.fallbacks]
+  const order = lead ? [lead, ...base] : base
+  return [...new Set(order)]
+}
+
+/**
  * Send SMS using the configured provider (Brevo, Moolre, or mNotify).
  *
- * Every message fails over on a hard REJECT: it tries the primary provider, then
- * the fallback(s), until one accepts. OTP additionally prefers SMS_OTP_PROVIDER
- * first. The chain only advances when a provider returns failure, so a normally
+ * Every message fails over on a hard REJECT: it tries the lead provider, then
+ * the primary and fallback(s), until one accepts. The lead is payload.provider, else the
+ * admin's per-category selector (see buildProviderOrder); OTP-category messages use the OTP
+ * breaker and, for a Global selector, SMS_OTP_PROVIDER else the primary. The chain only advances when a provider returns failure, so a normally
  * accepted send is a single call — there is NO double-send here (delivered-but-
  * not-DLR'd is the cron's concern, not this path).
  */
@@ -801,48 +932,37 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
     return { success: true, skipped: true }
   }
 
-  const isOtp = payload.type === 'phone_otp'
+  // OTP rules (breaker, no forced provider) apply to the whole OTP category.
+  const isOtp = categoryOf(payload.type) === 'otp'
 
   // Fetch DB-configurable routing (5-min TTL cache); falls back to env vars on error.
   const routing = await getRoutingConfig()
   const primaryProvider = routing.primary
   const fallbackProvider = routing.fallbacks[0] ?? process.env.SMS_FALLBACK_PROVIDER ?? 'mnotify'
 
-  // Build the provider order. OTP prefers SMS_OTP_PROVIDER; everything else leads
-  // with the configured primary. Both then fall back through the other gateways
-  // (only on a hard reject), so a primary rejection auto-retries via fallbacks.
-  let order: string[]
-  if (isOtp) {
-    // While the breaker is OPEN (Moolre OTP failing), lead with the fallback
-    // provider; otherwise lead with SMS_OTP_PROVIDER (or the primary).
-    const breakerOpen = await isOtpBreakerOpen()
-    const lead = breakerOpen ? fallbackProvider : (process.env.SMS_OTP_PROVIDER || primaryProvider)
-    if (breakerOpen) console.warn(`[SMS] OTP breaker open — leading with '${lead}' instead of primary`)
-    order = [lead, fallbackProvider, primaryProvider, ...routing.fallbacks]
-  } else {
-    order = [primaryProvider, ...routing.fallbacks]
-  }
+  // Build the provider order (see buildProviderOrder). The OTP breaker is only
+  // consulted for OTP-category messages.
+  const breakerOpen = isOtp ? await isOtpBreakerOpen() : false
+  if (breakerOpen) console.warn('[SMS] OTP breaker open — leading with fallback provider instead of primary')
+  let order = buildProviderOrder({
+    payload, routing, isOtp, breakerOpen, fallbackProvider,
+    otpEnvProvider: process.env.SMS_OTP_PROVIDER || undefined,
+    hubtelConfigured: isProviderConfigured('hubtel'),
+  })
   // De-dupe, keep only known + configured providers.
   order = [...new Set(order)].filter((p) => SMS_SENDERS[p] && isProviderConfigured(p))
   if (order.length === 0) order = [primaryProvider] // last resort — let it surface its own error
 
-  // A custom (non-default) sender ID may be approved on only one provider.
-  // Drop any provider from the chain that hasn't approved THIS sender ID,
-  // rather than attempting it and getting a provider-side rejection.
+  // Custom sender IDs: approval is ours; narrow the chain to gateways that accept it.
   if (payload.senderId && payload.senderId.trim()) {
     const sid = payload.senderId.trim().toUpperCase()
     const { data: senderRow } = await supabase
       .from('sms_sender_ids')
       .select('local_status, mnotify_local_status')
       .eq('sender_id', sid)
+      .eq('local_status', 'active')
       .maybeSingle()
-    if (senderRow) {
-      const approvedProviders = new Set<string>()
-      if (senderRow.local_status === 'active') approvedProviders.add('moolre')
-      if (senderRow.mnotify_local_status === 'active') approvedProviders.add('mnotify')
-      const narrowed = order.filter((p) => approvedProviders.size === 0 || approvedProviders.has(p))
-      if (narrowed.length > 0) order = narrowed
-    }
+    order = narrowProvidersForSender(order, senderRow ?? null, true)
   }
 
   let last: SendSMSResponse = { success: false, error: 'No SMS provider available' }

@@ -24,6 +24,8 @@ export default function AdminSettingsPage() {
   const { isAdmin, loading: adminLoading } = useAdminProtected()
   const { user } = useAuth()
   const [joinCommunityLink, setJoinCommunityLink] = useState("")
+  const [joinGroupLink, setJoinGroupLink] = useState("")
+  const [whatsappBotNumber, setWhatsappBotNumber] = useState("")
   const [whatsappNumber, setWhatsappNumber] = useState("")
   const [supportEmail, setSupportEmail] = useState("")
   const [supportPhone, setSupportPhone] = useState("")
@@ -145,6 +147,12 @@ export default function AdminSettingsPage() {
 
         if (data.join_community_link) {
           setJoinCommunityLink(data.join_community_link)
+        }
+        if (data.join_group_link) {
+          setJoinGroupLink(data.join_group_link)
+        }
+        if (data.whatsapp_bot_number) {
+          setWhatsappBotNumber(data.whatsapp_bot_number)
         }
 
         // Load support settings
@@ -880,6 +888,10 @@ export default function AdminSettingsPage() {
       toast.error("Please enter a valid community link URL")
       return
     }
+    if (joinGroupLink && !isUrl(joinGroupLink)) {
+      toast.error("Please enter a valid community group link URL")
+      return
+    }
 
     setSaving(true)
     try {
@@ -900,6 +912,8 @@ export default function AdminSettingsPage() {
         },
         body: JSON.stringify({
           join_community_link: joinCommunityLink,
+          join_group_link: joinGroupLink,
+          whatsapp_bot_number: whatsappBotNumber,
           ordering_enabled: orderingEnabled,
           announcement_enabled: announcementEnabled,
           announcement_title: announcementTitle,
@@ -1084,7 +1098,7 @@ export default function AdminSettingsPage() {
                   Enable the floating "Ask" AI assistant per product area. A shop or custom domain's own widget only shows if it offers at least one of the services enabled below; the customer dashboard's widget shows if any are enabled. Overrides each user's own show/hide preference.
                 </p>
               </div>
-              <div className="space-y-2 rounded-xl border border-border bg-card p-3">
+              <div className="space-y-2 rounded-xl border border-white/60 dark:border-white/5 bg-card p-3 clay">
                 {[
                   { value: "data_bundles", label: "Data Bundles" },
                   { value: "airtime", label: "Airtime" },
@@ -1133,7 +1147,7 @@ export default function AdminSettingsPage() {
             <p className="text-sm text-primary font-medium bg-card/60 p-3 rounded-lg border border-border">
               ⚠️ Toggling this ON will force an override announcement to appear on ALL storefronts across the entire platform. This takes priority over individual shop announcements.
             </p>
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 bg-card border border-border rounded-lg shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 bg-card border border-white/60 dark:border-white/5 rounded-lg clay">
               <div className="flex-1">
                 <p className="font-bold text-foreground">Enable Global Storefront Override</p>
                 <p className="text-sm text-muted-foreground">Force this notice to ALL shop customers</p>
@@ -1227,7 +1241,7 @@ export default function AdminSettingsPage() {
                     ussdPriceTier === "regular"
                       ? "border-success bg-success text-primary-foreground"
                       : "border-border bg-card text-foreground hover:border-success/60"
-                  }`}
+                  } clay`}
                 >
                   Regular Price
                 </button>
@@ -1238,7 +1252,7 @@ export default function AdminSettingsPage() {
                     ussdPriceTier === "dealer"
                       ? "border-success bg-success text-primary-foreground"
                       : "border-border bg-card text-foreground hover:border-success/60"
-                  }`}
+                  } clay`}
                 >
                   Dealer Price
                 </button>
@@ -1304,7 +1318,7 @@ export default function AdminSettingsPage() {
                 </Button>
 
                 <label className="cursor-pointer">
-                  <span className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-md border border-border bg-card hover:bg-muted transition-colors font-medium">
+                  <span className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-md border border-white/60 dark:border-white/5 bg-card hover:bg-muted transition-colors font-medium clay">
                     <FileText className="w-3 h-3" />
                     Upload CSV / TXT
                   </span>
@@ -1341,16 +1355,16 @@ export default function AdminSettingsPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <ExternalLink className="w-5 h-5" />
-              Join Community Link
+              Community Links
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
               <Label htmlFor="joinLink" className="text-sm font-medium">
-                Community Join Link
+                Channel Link
               </Label>
               <p className="text-xs text-muted-foreground mt-1 mb-2">
-                This link will be displayed to users who want to join your community
+                Your WhatsApp channel (or other broadcast channel). Shown as &quot;Follow Channel&quot; on the homepage and &quot;Join Community&quot; elsewhere.
               </p>
               <Input
                 id="joinLink"
@@ -1358,6 +1372,40 @@ export default function AdminSettingsPage() {
                 placeholder="https://discord.gg/..."
                 value={joinCommunityLink}
                 onChange={(e) => setJoinCommunityLink(e.target.value)}
+                className="w-full"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="joinGroupLink" className="text-sm font-medium">
+                Community Group Link
+              </Label>
+              <p className="text-xs text-muted-foreground mt-1 mb-2">
+                Your WhatsApp group invite link. Shown as &quot;Join Community Group&quot; on the homepage — hidden while empty.
+              </p>
+              <Input
+                id="joinGroupLink"
+                type="url"
+                placeholder="https://chat.whatsapp.com/..."
+                value={joinGroupLink}
+                onChange={(e) => setJoinGroupLink(e.target.value)}
+                className="w-full"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="whatsappBotNumber" className="text-sm font-medium">
+                Main WhatsApp Bot Number
+              </Label>
+              <p className="text-xs text-muted-foreground mt-1 mb-2">
+                The number customers message to order from DATAGOD directly. Shown as &quot;Order on WhatsApp&quot; on the homepage and on the /whatsapp page — hidden while empty.
+              </p>
+              <Input
+                id="whatsappBotNumber"
+                type="tel"
+                placeholder="0559919037"
+                value={whatsappBotNumber}
+                onChange={(e) => setWhatsappBotNumber(e.target.value)}
                 className="w-full"
               />
             </div>
@@ -2089,7 +2137,7 @@ export default function AdminSettingsPage() {
                     )}
                   </Button>
                 </div>
-                <div className="p-2 bg-card rounded border border-border">
+                <div className="p-2 bg-card rounded border border-white/60 dark:border-white/5 clay">
                   <p className="text-xs text-foreground font-mono break-all">{`${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/webhooks/paystack`}</p>
                 </div>
               </div>
@@ -2429,7 +2477,7 @@ export default function AdminSettingsPage() {
               </div>
             </div>
 
-            <div className="p-4 bg-card border-2 border-success/60 rounded-lg">
+            <div className="p-4 bg-card border-2 border-success/60 rounded-lg clay">
               <p className="text-sm font-medium text-success">
                 <span className="font-bold">🎁 Theme Features:</span> Red and green color scheme, snowfall animation, Christmas decorations (🎄 🎅 ⛄ 🎁 ❄️), festive button effects, and more!
               </p>

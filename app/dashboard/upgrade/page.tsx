@@ -383,7 +383,7 @@ export default function UpgradePage() {
                 )}
 
                 {isActiveDealer && (
-                    <div className="rounded-2xl border border-border bg-card p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 clay">
                         <div className="flex items-center gap-3">
                             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-amber-500 text-white">
                                 <Crown className="h-5 w-5" />
@@ -416,7 +416,7 @@ export default function UpgradePage() {
                 <div className="space-y-3 lg:grid lg:grid-cols-3 lg:gap-4 lg:space-y-0 lg:items-start">
                     {loading ? (
                         Array(3).fill(0).map((_, i) => (
-                            <div key={i} className="animate-pulse rounded-2xl border border-border bg-card p-5 h-40" />
+                            <div key={i} className="animate-pulse rounded-2xl border border-white/60 dark:border-white/5 bg-card p-5 h-40 clay" />
                         ))
                     ) : plans.length === 0 ? (
                         <div className="rounded-2xl border-2 border-dashed border-border bg-muted/40 p-10 text-center lg:col-span-3">
@@ -428,7 +428,7 @@ export default function UpgradePage() {
                             <div
                                 key={plan.id}
                                 className={cn(
-                                    "relative rounded-2xl border-2 bg-card p-5",
+                                    "relative rounded-2xl border-2 bg-card p-5 border-white/60 dark:border-white/5 clay",
                                     index === 1 ? "border-amber-400 shadow-sm lg:mt-3" : "border-border"
                                 )}
                             >
@@ -654,7 +654,7 @@ export default function UpgradePage() {
                             <div className="space-y-3">
                                 {successBenefits.map((benefit, i) => (
                                     <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-muted/40 border border-border hover:bg-accent transition-colors">
-                                        <div className="flex-shrink-0 w-9 h-9 rounded-full bg-card shadow-sm flex items-center justify-center border border-border">
+                                        <div className="flex-shrink-0 w-9 h-9 rounded-full bg-card  flex items-center justify-center border border-white/60 dark:border-white/5 clay-sm">
                                             {benefit.icon}
                                         </div>
                                         <span className="text-sm font-medium text-foreground">{benefit.text}</span>
@@ -708,7 +708,7 @@ export default function UpgradePage() {
                                         value={paymentPhone}
                                         onChange={(e) => { setPaymentPhone(e.target.value); if (otpSent || otpVerified) { setOtpSent(false); setOtpVerified(false); setOtpCode(""); otpCooldown.reset() } }}
                                         disabled={walletOtp && otpVerified}
-                                        className="mt-1 w-full rounded-md border border-border bg-card px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-[#1b388b]"
+                                        className="mt-1 w-full rounded-md border border-white/60 dark:border-white/5 bg-background px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-[#1b388b] clay-inset"
                                     />
                                 </div>
                                 {walletOtp && (!otpVerified ? (
@@ -720,7 +720,7 @@ export default function UpgradePage() {
                                         <div className="space-y-2">
                                             <input inputMode="numeric" maxLength={6} placeholder="Enter 6-digit code" value={otpCode}
                                                 onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                                                className="w-full rounded-md border bg-card px-3 py-2 text-center text-lg tracking-[0.4em] font-mono focus:outline-none focus:ring-2 focus:ring-[#1b388b]" />
+                                                className="w-full rounded-md border bg-background px-3 py-2 text-center text-lg tracking-[0.4em] font-mono focus:outline-none focus:ring-2 focus:ring-[#1b388b] border-white/60 dark:border-white/5 clay-inset" />
                                             <div className="flex gap-2">
                                                 <Button type="button" onClick={handleVerifyOtp} disabled={verifyingOtp || otpCode.length < 4} className="flex-1 bg-[#1b388b] hover:bg-[#1b388b]/90 text-white">
                                                     {verifyingOtp ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying…</>) : "Verify"}

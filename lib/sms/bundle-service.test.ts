@@ -13,10 +13,19 @@ const h = vi.hoisted(() => {
     refInPending: false, // ref already landed in sms_pending_credits
     pricePerCredit: 0.05, // sms_price_per_credit setting
     calls: [] as { fn: string; args: any }[],
+    updates: [] as { table: string; patch: any; ref: any; col?: string; val?: any }[],
+    updateError: false,
+    duplicate: false,
+    smsEnabled: true, // master kill switch
+    bundleMissing: false, // sms_bundles lookup returns nothing
+    deletes: [] as { table: string; cols: [string, any][] }[],
+    deleteError: false,
+    deleteZeroRows: false,
+    inserts: [] as { table: string; row: any }[],
   }
-  const bundleRow = { id: "b1", name: "5k", units: 5000, price_ghs: 150, owner_type_scope: "all", active: true }
+  const bundleRow = { id: "b1", name: "5k", units: 5000, price_ghs: 150, owner_type_scope: "all", active: true, mode: "platform", sort_order: 0 }
   const notifySpy = vi.fn()
-  const fake = {
+  const fake: any = {
     rpc: (fn: string, args: any) => {
       state.calls.push({ fn, args })
       if (fn === "deduct_wallet") {
@@ -32,6 +41,7 @@ const h = vi.hoisted(() => {
       }
       if (fn === "credit_sms_units_if_solvent") {
         if (state.creditError) return Promise.resolve({ data: null, error: { message: "boom" } })
+        if (state.duplicate) return Promise.resolve({ data: [{ outcome: "duplicate", balance_after: null }], error: null })
         if (args.p_units <= state.wholesale) {
           return Promise.resolve({ data: [{ outcome: "credited", balance_after: args.p_units }], error: null })
         }
@@ -40,10 +50,35 @@ const h = vi.hoisted(() => {
       return Promise.resolve({ data: null, error: null })
     },
     from: (table: string) => ({
+      insert: (row: any) => {
+        state.inserts.push({ table, row })
+        return Promise.resolve({ data: null, error: null })
+      },
+      delete: () => {
+        const cols: [string, any][] = []
+        const chain: any = {
+          eq: (c: string, v: any) => { cols.push([c, v]); return chain },
+          lte: (c: string, v: any) => { cols.push([c + "<=", v]); return chain },
+          select: () => {
+            state.deletes.push({ table, cols })
+            if (state.deleteError) return Promise.resolve({ data: null, error: { message: "del boom" } })
+            return Promise.resolve({ data: state.deleteZeroRows ? [] : [{ id: "b1" }], error: null })
+          },
+        }
+        return chain
+      },
+      update: (patch: any) => ({
+        eq: (_c: string, ref: any) => ({
+          is: (col: string, val: any) => {
+            state.updates.push({ table, patch, ref, col, val })
+            return Promise.resolve({ data: null, error: state.updateError ? { message: "upd boom" } : null })
+          },
+        }),
+      }),
       select: () => ({
         eq: () => ({
           maybeSingle: () => {
-            if (table === "sms_bundles") return Promise.resolve({ data: bundleRow, error: null })
+            if (table === "sms_bundles") return Promise.resolve({ data: state.bundleMissing ? null : bundleRow, error: null })
             if (table === "sms_unit_transactions") return Promise.resolve({ data: state.refInTx ? { id: "x" } : null, error: null })
             if (table === "sms_pending_credits") return Promise.resolve({ data: state.refInPending ? { id: "y" } : null, error: null })
             if (table === "tenant_global_settings") return Promise.resolve({ data: { value: { amount: state.pricePerCredit } }, error: null })
@@ -52,6 +87,7 @@ const h = vi.hoisted(() => {
                 data: {
                   status: (fake as any)._accountStatus ?? "active",
                   owner_type: (fake as any)._ownerType ?? "shop",
+                  mode: (fake as any)._accountMode ?? "platform",
                 },
                 error: null,
               })
@@ -62,17 +98,32 @@ const h = vi.hoisted(() => {
       }),
     }),
   }
-  return { state, fake, notifySpy }
+  return { state, fake, notifySpy, bundleRow }
 })
 
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => h.fake }))
-vi.mock("@/lib/sms-service", () => ({ queryMoolreSmsBalance: () => Promise.resolve(h.state.wholesale) }))
+vi.mock("./wholesale", () => ({ getWholesaleCredits: () => Promise.resolve(h.state.wholesale) }))
+vi.mock("./kill-switch", () => ({ isSmsEnabled: () => Promise.resolve(h.state.smsEnabled) }))
 vi.mock("./notify", () => ({ notifyAdminSmsShortfall: (...a: any[]) => { h.notifySpy(...a); return Promise.resolve() } }))
 
-import { purchaseBundleViaWallet, purchaseUnitsByQuantity, quoteCredits, getPricePerCredit } from "./bundle-service"
+import { purchaseBundleViaWallet, purchaseUnitsByQuantity, quoteCredits, getPricePerCredit, creditUnitsForPaystack, allocateUnits, canDeleteBundle, BUNDLE_DELETE_MIN_INACTIVE_MS, deleteBundle, validateBundleInput } from "./bundle-service"
 
 beforeEach(() => {
   h.state.calls.length = 0
+  h.state.updates.length = 0
+  h.state.updateError = false
+  h.state.duplicate = false
+  h.state.smsEnabled = true
+  h.state.bundleMissing = false
+  h.state.deletes.length = 0
+  h.state.deleteError = false
+  h.state.deleteZeroRows = false
+  h.state.inserts.length = 0
+  delete (h.bundleRow as any).updated_at
+  h.bundleRow.active = true
+  h.bundleRow.owner_type_scope = "all"
+  delete (h.fake as any)._accountMode
+  h.bundleRow.mode = "platform"
   h.state.creditError = false
   h.state.refInTx = false
   h.state.refInPending = false
@@ -166,6 +217,101 @@ describe("purchaseBundleViaWallet — activation gate", () => {
   })
 })
 
+describe("per-mode bundles + revenue", () => {
+  it("business bundle from a platform account → mode error, no wallet debit", async () => {
+    h.state.walletBalance = 200; h.state.wholesale = 1_000_000
+    h.bundleRow.mode = "business"
+    const res = await purchaseBundleViaWallet("u1", "acc1", "b1")
+    expect(res.ok).toBe(false)
+    expect(res.error).toMatch(/account mode/)
+    expect(h.state.calls.filter((c) => c.fn === "deduct_wallet")).toHaveLength(0)
+  })
+
+  it("matching business mode purchases fine", async () => {
+    h.state.walletBalance = 200; h.state.wholesale = 1_000_000
+    h.bundleRow.mode = "business"
+    ;(h.fake as any)._accountMode = "business"
+    expect((await purchaseBundleViaWallet("u1", "acc1", "b1")).ok).toBe(true)
+  })
+
+  it("wallet purchase records the price paid on ledger and pending rows", async () => {
+    h.state.walletBalance = 200; h.state.wholesale = 1_000_000
+    await purchaseBundleViaWallet("u1", "acc1", "b1")
+    expect(h.state.updates.map((u) => u.table).sort()).toEqual(["sms_pending_credits", "sms_unit_transactions"])
+    expect(h.state.updates.every((u) => u.patch.amount_ghs === 150)).toBe(true)
+  })
+
+  it("quantity purchase records its cost; paystack credit records the paid amount", async () => {
+    h.state.walletBalance = 200; h.state.wholesale = 1_000_000; h.state.pricePerCredit = 0.05
+    await purchaseUnitsByQuantity("u1", "acc1", 100)
+    expect(h.state.updates.length).toBe(2)
+    expect(h.state.updates.every((u) => u.patch.amount_ghs === 5)).toBe(true)
+    h.state.updates.length = 0
+    await creditUnitsForPaystack("acc1", 100, "ps-ref", 12.5)
+    expect(h.state.updates).toHaveLength(2)
+    expect(h.state.updates.every((u) => u.patch.amount_ghs === 12.5 && u.ref === "ps-ref")).toBe(true)
+  })
+
+  it("revenue writes are guarded with amount_ghs IS NULL (never overwrite)", async () => {
+    h.state.walletBalance = 200; h.state.wholesale = 1_000_000
+    await purchaseBundleViaWallet("u1", "acc1", "b1")
+    expect(h.state.updates.length).toBe(2)
+    expect(h.state.updates.every((u) => u.col === "amount_ghs" && u.val === null)).toBe(true)
+  })
+
+  it("duplicate Paystack redelivery still attempts the guarded fill", async () => {
+    h.state.duplicate = true
+    const res = await creditUnitsForPaystack("acc1", 100, "ps-dup", 20)
+    expect(res.outcome).toBe("duplicate")
+    expect(h.state.updates).toHaveLength(2)
+    expect(h.state.updates.every((u) => u.patch.amount_ghs === 20 && u.col === "amount_ghs" && u.val === null)).toBe(true)
+  })
+
+  it("an update error is logged, not thrown, and the purchase still succeeds", async () => {
+    h.state.walletBalance = 200; h.state.wholesale = 1_000_000; h.state.updateError = true
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const res = await purchaseBundleViaWallet("u1", "acc1", "b1")
+    expect(res.ok).toBe(true)
+    expect(spy).toHaveBeenCalled()
+    spy.mockRestore()
+  })
+
+  it("landed branch (RPC errored but credit landed) still records the amount", async () => {
+    h.state.walletBalance = 200; h.state.wholesale = 1_000_000; h.state.creditError = true; h.state.refInTx = true
+    await purchaseBundleViaWallet("u1", "acc1", "b1")
+    expect(h.state.updates).toHaveLength(2)
+    expect(h.state.updates.every((u) => u.patch.amount_ghs === 150)).toBe(true)
+    h.state.updates.length = 0
+    h.state.pricePerCredit = 0.05
+    await purchaseUnitsByQuantity("u1", "acc1", 100)
+    expect(h.state.updates.every((u) => u.patch.amount_ghs === 5)).toBe(true)
+    expect(h.state.updates.length).toBe(2)
+  })
+
+  it("inactive or out-of-scope bundle is refused before any debit", async () => {
+    h.state.walletBalance = 200; h.state.wholesale = 1_000_000
+    h.bundleRow.owner_type_scope = "sub_agent"
+    const res = await purchaseBundleViaWallet("u1", "acc1", "b1")
+    h.bundleRow.owner_type_scope = "all"
+    expect(res.ok).toBe(false)
+    expect(h.state.calls.filter((c) => c.fn === "deduct_wallet")).toHaveLength(0)
+  })
+
+  it("allocateUnits passes an idempotency ref through (null by default)", async () => {
+    h.state.wholesale = 1_000_000
+    await allocateUnits("acc1", 10)
+    await allocateUnits("acc1", 10, "admin_alloc:r1")
+    const refs = h.state.calls.filter((c) => c.fn === "credit_sms_units_if_solvent").map((c) => c.args.p_ref)
+    expect(refs).toEqual([null, "admin_alloc:r1"])
+  })
+
+  it("admin allocation never records revenue", async () => {
+    h.state.wholesale = 1_000_000
+    await allocateUnits("acc1", 100)
+    expect(h.state.updates).toHaveLength(0)
+  })
+})
+
 describe("per-credit pricing (free-quantity top-up)", () => {
   it("quoteCredits computes cost = credits × admin fee", async () => {
     h.state.pricePerCredit = 0.035
@@ -211,5 +357,132 @@ describe("per-credit pricing (free-quantity top-up)", () => {
     expect(res.ok).toBe(true)
     expect(res.pending).toBe(true)
     expect(h.notifySpy).toHaveBeenCalledWith(100)
+  })
+})
+
+describe("kill switch (SMS_DISABLED)", () => {
+  it("wallet bundle purchase is blocked: no wallet debit, no credit RPC", async () => {
+    h.state.smsEnabled = false; h.state.walletBalance = 200; h.state.wholesale = 1_000_000
+    const res = await purchaseBundleViaWallet("u1", "acc1", "b1")
+    expect(res).toEqual({ ok: false, error: "SMS_DISABLED" })
+    expect(h.state.calls).toHaveLength(0)
+    expect(h.state.walletBalance).toBe(200)
+  })
+
+  it("quantity purchase is blocked: no wallet debit, no credit RPC", async () => {
+    h.state.smsEnabled = false; h.state.walletBalance = 200; h.state.wholesale = 1_000_000
+    const res = await purchaseUnitsByQuantity("u1", "acc1", 100)
+    expect(res).toEqual({ ok: false, error: "SMS_DISABLED" })
+    expect(h.state.calls).toHaveLength(0)
+    expect(h.state.walletBalance).toBe(200)
+  })
+
+  it("switch on: both purchases still work", async () => {
+    h.state.walletBalance = 200; h.state.wholesale = 1_000_000
+    expect((await purchaseBundleViaWallet("u1", "acc1", "b1")).outcome).toBe("credited")
+    expect((await purchaseUnitsByQuantity("u1", "acc1", 100)).outcome).toBe("credited")
+  })
+
+  it("NEVER blocked: creditUnitsForPaystack (webhook for an already-made payment) still credits", async () => {
+    h.state.smsEnabled = false; h.state.wholesale = 1_000_000
+    const res = await creditUnitsForPaystack("acc1", 500, "ps-ref-off", 20)
+    expect(res.ok).toBe(true)
+    expect(res.outcome).toBe("credited")
+    expect(fns()).toContain("credit_sms_units_if_solvent")
+  })
+
+  it("NEVER blocked: admin allocateUnits still credits", async () => {
+    h.state.smsEnabled = false; h.state.wholesale = 1_000_000
+    const res = await allocateUnits("acc1", 250)
+    expect(res.ok).toBe(true)
+    expect(res.outcome).toBe("credited")
+    expect(fns()).toContain("credit_sms_units_if_solvent")
+  })
+})
+
+describe("validateBundleInput (pure)", () => {
+  it("accepts valid and absent fields", () => {
+    expect(validateBundleInput({ units: 1000, price_ghs: 35.5 })).toBeNull()
+    expect(validateBundleInput({})).toBeNull()
+    expect(validateBundleInput({ units: 10_000_000, price_ghs: 100_000 })).toBeNull()
+  })
+  it("rejects bad units", () => {
+    for (const units of [0, -1, 1.5, 10_000_001, "5", NaN, null]) expect(validateBundleInput({ units })).toMatch(/units/)
+  })
+  it("rejects bad prices", () => {
+    for (const price_ghs of [0, -1, 100_001, NaN, Infinity, "5", null]) expect(validateBundleInput({ price_ghs })).toMatch(/price_ghs/)
+  })
+})
+
+describe("canDeleteBundle (pure)", () => {
+  const now = Date.parse("2026-10-11T12:00:00Z")
+  it("refuses an active bundle", () => {
+    expect(canDeleteBundle({ active: true, updated_at: "2026-01-01T00:00:00Z" }, now))
+      .toEqual({ ok: false, error: "Deactivate the bundle first" })
+  })
+  it("refuses a bundle deactivated less than 48 h ago", () => {
+    const r = canDeleteBundle({ active: false, updated_at: new Date(now - 47 * 3600_000).toISOString() }, now)
+    expect(r.ok).toBe(false)
+  })
+  it("refuses an unparseable updated_at", () => {
+    expect(canDeleteBundle({ active: false, updated_at: "garbage" }, now).ok).toBe(false)
+  })
+  it("allows a bundle inactive for 48 h or more", () => {
+    expect(canDeleteBundle({ active: false, updated_at: new Date(now - BUNDLE_DELETE_MIN_INACTIVE_MS).toISOString() }, now)).toEqual({ ok: true })
+  })
+})
+
+describe("deleteBundle", () => {
+  const old = () => new Date(Date.now() - 49 * 3600_000).toISOString()
+  it("refuses an empty admin id", async () => {
+    expect(await deleteBundle("", "b1")).toEqual({ ok: false, error: "Admin user required" })
+    expect(h.state.deletes).toHaveLength(0)
+  })
+  it("not found", async () => {
+    h.state.bundleMissing = true
+    expect(await deleteBundle("admin1", "b1")).toEqual({ ok: false, error: "Bundle not found" })
+    expect(h.state.deletes).toHaveLength(0)
+  })
+  it("active bundle is refused and no delete is issued", async () => {
+    ;(h.bundleRow as any).updated_at = old()
+    const r = await deleteBundle("admin1", "b1")
+    expect(r).toEqual({ ok: false, error: "Deactivate the bundle first" })
+    expect(h.state.deletes).toHaveLength(0)
+    expect(h.state.inserts).toHaveLength(0)
+  })
+  it("recently deactivated bundle is refused", async () => {
+    h.bundleRow.active = false
+    ;(h.bundleRow as any).updated_at = new Date().toISOString()
+    expect((await deleteBundle("admin1", "b1")).ok).toBe(false)
+    expect(h.state.deletes).toHaveLength(0)
+  })
+  it("old inactive bundle: delete issued for that id (guarded on active=false) + audit row", async () => {
+    h.bundleRow.active = false
+    ;(h.bundleRow as any).updated_at = old()
+    expect(await deleteBundle("admin1", "b1")).toEqual({ ok: true })
+    expect(h.state.deletes).toHaveLength(1)
+    const d = h.state.deletes[0]
+    expect(d.cols.slice(0, 2)).toEqual([["id", "b1"], ["active", false]])
+    expect(d.cols[2][0]).toBe("updated_at<=")
+    const cutoffMs = Date.parse(d.cols[2][1])
+    expect(Math.abs(cutoffMs - (Date.now() - BUNDLE_DELETE_MIN_INACTIVE_MS))).toBeLessThan(5000)
+    const audit = h.state.inserts.find((i) => i.table === "admin_audit_log")
+    expect(audit?.row.action).toBe("sms_bundle_delete")
+    expect(audit?.row.admin_id).toBe("admin1")
+    expect(audit?.row.old_value).toEqual({ id: "b1", name: "5k" })
+  })
+  it("0 rows deleted (bundle changed under us) → refusal, no audit row", async () => {
+    h.bundleRow.active = false
+    ;(h.bundleRow as any).updated_at = old()
+    h.state.deleteZeroRows = true
+    expect(await deleteBundle("admin1", "b1")).toEqual({ ok: false, error: "Bundle changed — reload and try again" })
+    expect(h.state.inserts).toHaveLength(0)
+  })
+  it("delete error → failure, no audit row", async () => {
+    h.bundleRow.active = false
+    ;(h.bundleRow as any).updated_at = old()
+    h.state.deleteError = true
+    expect(await deleteBundle("admin1", "b1")).toEqual({ ok: false, error: "Could not delete the bundle" })
+    expect(h.state.inserts).toHaveLength(0)
   })
 })

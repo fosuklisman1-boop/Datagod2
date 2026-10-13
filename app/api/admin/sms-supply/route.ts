@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
-import { queryMoolreSmsBalance } from "@/lib/sms-service"
+import { getWholesaleCredits } from "@/lib/sms/wholesale"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -9,7 +9,7 @@ const supabaseAdmin = createClient(
 )
 
 // GET /api/admin/sms-supply — the SMS supply / solvency snapshot.
-//   wholesaleBalance : live Moolre wholesale SMS credit (the shared pool)
+//   wholesaleBalance : backed credits from the active provider (Hubtel Disbursement ÷ rate, or Moolre)
 //   totalUsable      : SUM of all accounts' spendable unit_balance
 //   totalPending     : SUM of pending (paid-but-unbacked) credits
 //   headroom         : wholesaleBalance - totalUsable (how much more can be credited now)
@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
   if (!auth.isAdmin) return auth.errorResponse!
 
   const [wholesaleBalance, usableRes, pendingRes] = await Promise.all([
-    queryMoolreSmsBalance(),
+    getWholesaleCredits(),
     supabaseAdmin.from("sms_accounts").select("unit_balance"),
     supabaseAdmin.from("sms_pending_credits").select("units").eq("status", "pending"),
   ])

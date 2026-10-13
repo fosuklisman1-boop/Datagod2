@@ -113,7 +113,7 @@ describe("airtime: confirm -> AddToCart", () => {
     await toConfirm(deps)
     const r = await hubtelRouter(req({ Message: "1" }), deps)
     expect(r.Type).toBe("AddToCart")
-    expect(r.Item).toEqual({ ItemName: "MTN Airtime to 0244123456", Qty: 1, Price: 10 })
+    expect(r.Item).toEqual({ ItemName: expect.stringMatching(/^CH order [a-z0-9]+$/), Qty: 1, Price: 10 })
     const row = sup.inserts["airtime_orders"][0]
     expect(row).toMatchObject({
       network: "MTN", beneficiary_phone: "0244123456", airtime_amount: 9.52, fee_amount: 0.48, total_paid: 10,
@@ -216,7 +216,7 @@ describe("airtime: idempotent CONFIRM (review focus #1)", () => {
     deps.supabase = withTx.client
     const r = await hubtelRouter(req({ Message: "1" }), deps)
     expect(r.Type).toBe("AddToCart")
-    expect(r.Item).toEqual({ ItemName: "MTN Airtime to 0244123456", Qty: 1, Price: 10 })
+    expect(r.Item).toEqual({ ItemName: expect.stringMatching(/^CH order [a-z0-9]+$/), Qty: 1, Price: 10 })
     expect(withTx.inserts["airtime_orders"]).toBeUndefined()
   })
   it("tx insert hits a unique violation: orphan airtime order failed, winner's cart replayed", async () => {
@@ -227,7 +227,7 @@ describe("airtime: idempotent CONFIRM (review focus #1)", () => {
     const r = await hubtelRouter(req({ Message: "1" }), deps)
     err.mockRestore()
     expect(r.Type).toBe("AddToCart")
-    expect(r.Item).toEqual({ ItemName: "MTN Airtime to 0244123456", Qty: 1, Price: 10 })
+    expect(r.Item).toEqual({ ItemName: expect.stringMatching(/^CH order [a-z0-9]+$/), Qty: 1, Price: 10 })
     expect(sup.updates.some(u => u.table === "airtime_orders" && u.patch.status === "failed" && u.patch.payment_status === "failed")).toBe(true)
   })
   it("session expired after AddToCart: the next '1' replays the AIRTIME cart, not the menu (review focus #6)", async () => {
@@ -235,6 +235,6 @@ describe("airtime: idempotent CONFIRM (review focus #1)", () => {
     const { deps } = makeDeps({}, sup)
     const r = await hubtelRouter(req({ Message: "1" }), deps)
     expect(r.Type).toBe("AddToCart")
-    expect(r.Item).toEqual({ ItemName: "Telecel Airtime to 0201234567", Qty: 1, Price: 10 })
+    expect(r.Item).toEqual({ ItemName: expect.stringMatching(/^CH order [a-z0-9]+$/), Qty: 1, Price: 10 })
   })
 })

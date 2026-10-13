@@ -338,6 +338,6 @@ describe("wallet-only tables (orders / api_orders)", () => {
   it("no proving debit => wallet gateway unsupported with a clear reason", () => {
     const s = walletGateway.supports(walletOrder("orders", null))
     expect(s.ok).toBe(false)
-    expect(!s.ok && s.reason).toMatch(/per-order wallet debit/)
+    expect(!s.ok && s.reason).toMatch(/batch debit could not be matched/)
   })
 })

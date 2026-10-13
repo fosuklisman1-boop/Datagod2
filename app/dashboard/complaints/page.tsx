@@ -103,28 +103,28 @@ export default function ComplaintsPage() {
 
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
-          <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#1b388b]/10 text-[#1b388b]">
               <AlertCircle className="h-4 w-4" />
             </span>
             <p className="mt-2 text-lg font-black text-foreground">{stats.total}</p>
             <p className="text-xs text-muted-foreground">Total</p>
           </div>
-          <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-warning/10 text-warning">
               <Clock className="h-4 w-4" />
             </span>
             <p className="mt-2 text-lg font-black text-foreground">{stats.pending}</p>
             <p className="text-xs text-muted-foreground">Pending</p>
           </div>
-          <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-success/10 text-success">
               <CheckCircle2 className="h-4 w-4" />
             </span>
             <p className="mt-2 text-lg font-black text-foreground">{stats.resolved}</p>
             <p className="text-xs text-muted-foreground">Resolved</p>
           </div>
-          <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
               <XCircle className="h-4 w-4" />
             </span>
@@ -141,7 +141,7 @@ export default function ComplaintsPage() {
             placeholder="Search by title, description, or ticket ID..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full rounded-2xl border border-border bg-card py-2.5 pl-10 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-[#1b388b]/30"
+            className="w-full rounded-2xl border border-white/60 dark:border-white/5 bg-background py-2.5 pl-10 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-[#1b388b]/30 clay-inset"
           />
         </div>
 
@@ -151,7 +151,7 @@ export default function ComplaintsPage() {
             <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
           </div>
         ) : filteredComplaints.length === 0 ? (
-          <div className="rounded-2xl border border-border bg-card p-8 text-center">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-8 text-center clay">
             <AlertCircle className="mx-auto mb-2 h-10 w-10 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">
               {complaints.length === 0 ? "No complaints filed yet." : "No complaints match your search."}
@@ -167,7 +167,7 @@ export default function ComplaintsPage() {
                 <button
                   key={complaint.id}
                   onClick={() => setExpandedId(expanded ? null : complaint.id)}
-                  className="w-full rounded-2xl border border-border bg-card p-4 text-left transition hover:border-[#1b388b]/30"
+                  className="w-full rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 text-left transition hover:border-[#1b388b]/30 clay"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">

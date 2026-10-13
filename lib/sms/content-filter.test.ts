@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { filterSmsContent } from "./content-filter"
+import { filterSmsContent, matchBlockedContent, suspiciousHostReason, extractLinkHosts } from "./content-filter"
 
 describe("filterSmsContent — clean messages pass", () => {
   it("plain promotional message passes", () => {
@@ -121,4 +121,95 @@ describe("filterSmsContent — custom blocked keywords", () => {
     const r = filterSmsContent("This is sp‌am.", { blockedKeywords: ["spam"] })
     expect(r.blocked).toBe(true)
   })
+})
+
+describe("matchBlockedContent", () => {
+  it("returns the keyword reason for a custom keyword, case/obfuscation-insensitive", () => {
+    expect(matchBlockedContent("Win a free L.O.A.N today", ["loan"])).toBe('blocked keyword: "loan"')
+  })
+  it("returns a built-in phishing reason", () => {
+    expect(matchBlockedContent("Send your PIN to confirm", [])).toBe("credential-harvest: pin")
+  })
+  it("ignores empty keywords", () => {
+    expect(matchBlockedContent("Hello there", ["", "  "])).toBeNull()
+  })
+  it("returns null for clean text", () => {
+    expect(matchBlockedContent("Your order is ready", ["loan"])).toBeNull()
+  })
+})
+
+describe("suspiciousHostReason", () => {
+  it("flags shorteners", () => expect(suspiciousHostReason("bit.ly")).toBe("suspicious link: known shortener"))
+  it("flags digit-letter lookalikes", () => expect(suspiciousHostReason("paypa1.com")).toBe("suspicious link: homoglyph domain"))
+  it("passes normal hosts", () => expect(suspiciousHostReason("datagod.store")).toBeNull())
+})
+
+describe("extractLinkHosts", () => {
+  it("finds http(s) hosts, lowercased, www stripped", () => {
+    expect(extractLinkHosts("Visit https://WWW.Shop.DataGod.store/x now")).toEqual(["shop.datagod.store"])
+  })
+  it("finds bare and www domains on common TLDs", () => {
+    expect(extractLinkHosts("go to www.example.com or kings.shop/abc.")).toEqual(["example.com", "kings.shop"])
+  })
+  it("finds shorteners without a scheme", () => expect(extractLinkHosts("tap bit.ly/abc")).toEqual(["bit.ly"]))
+  it("ignores emails, prices and names", () => {
+    expect(extractLinkHosts("mail a@b.com · 5GB for GHS 10.50 · Mr.Smith")).toEqual([])
+  })
+  it("dedupes and keeps uncommon TLDs when a scheme is present", () => {
+    expect(extractLinkHosts("https://evil.ru/x and https://evil.ru/y")).toEqual(["evil.ru"])
+  })
+})
+describe("extractLinkHosts — bypass hardening", () => {
+  const cases: Array<[string, string, string[]]> = [
+    ["backslash after scheme host", "https://evil.com\\.datagod.store", ["evil.com", "datagod.store"]],
+    ["trailing bang", "Shop now at https://kings.datagod.store!", ["kings.datagod.store"]],
+    ["trailing dot", "Visit https://datagod.store.", ["datagod.store"]],
+    ["port", "https://datagod.store:8443/x", ["datagod.store"]],
+    ["userinfo", "https://datagod.store@evil.com", ["evil.com"]],
+    ["long bare run keeps whole host", "datagod.store.evil.ru/x", ["datagod.store.evil.ru"]],
+    ["semicolon", "Visit evil.com; thanks", ["evil.com"]],
+    ["ru tld", "Go to evil.ru now", ["evil.ru"]],
+    ["uppercase non-word tld", "BUY AT EVIL.COM", ["evil.com"]],
+    ["sentence boundary Top", "Hurry now.Top up today", []],
+    ["sentence boundary Shop", "Great offer.Shop now", []],
+    ["lowercase word tld", "visit kings.shop now", ["kings.shop"]],
+    ["lowercase word tld run is a link (pinned trade-off)", "now.top up", ["now.top"]],
+  ]
+  for (const [name, input, expected] of cases) {
+    it(name, () => expect(extractLinkHosts(input)).toEqual(expected))
+  }
+})
+
+describe("filterSmsContent — scheme host parsing", () => {
+  it("does not flag an allowed domain followed by punctuation", () => {
+    const r = filterSmsContent("https://datagod.app!", { allowedDomains: ["datagod.app"] })
+    expect(r.blocked).toBe(false)
+    expect(r.flagged).toBe(false)
+  })
+})
+describe("extractLinkHosts — round-2 hardening", () => {
+  const cases: Array<[string, string, string[]]> = [
+    ["backslash before @ is not userinfo", "https://evil.com\\@datagod.store", ["evil.com"]],
+    ["all-caps word TLD is a link", "BUY AT EVIL.SHOP", ["evil.shop"]],
+    ["all-caps hyphenated word TLD is a link", "VERIFY-MOMO.TOP now", ["verify-momo.top"]],
+    ["Title-case word TLD, two labels, is prose", "now.Top up", []],
+    ["Title-case Shop is prose", "Great offer.Shop now", []],
+    ["lowercase word TLD stays a link", "now.top up", ["now.top"]],
+    ["Kings.Shop is a link (capitalised first label)", "Kings.Shop", ["kings.shop"]],
+    ["Evil.Shop is a link", "Evil.Shop", ["evil.shop"]],
+    ["Momo-Verify.Top is a link", "Momo-Verify.Top", ["momo-verify.top"]],
+    ["dot run before host", "out...evil.com", ["evil.com"]],
+    ["space-hyphen before host", "now -evil.com", ["evil.com"]],
+    ["subdomain of email host", "user@mail.evil.com", []],
+    ["email local part with dot", "first.last@gmail.com", []],
+    ["email local part with TLD-like label", "Email sales.gh@gmail.com", []],
+    ["email local part me", "kofi.me@x.com", []],
+    ["ideographic full stop is normalised", "https://datagod.store。evil。com", ["datagod.store.evil.com"]],
+    ["scheme host plus bare host in query", "https://kings.datagod.store/buy?ref=kofi.me", ["kings.datagod.store", "kofi.me"]],
+    ["underscore does not hide a host", "Visit_evil.com", ["evil.com"]],
+    ["emails stay rejected", "a@b.com", []],
+  ]
+  for (const [name, input, expected] of cases) {
+    it(name, () => expect(extractLinkHosts(input)).toEqual(expected))
+  }
 })

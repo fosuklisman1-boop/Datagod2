@@ -93,7 +93,7 @@ function TransactionList({ transactions, emptyMessage }: { transactions: Transac
       {transactions.map((transaction) => {
         const credit = isCredit(transaction.type)
         return (
-          <div key={transaction.id} className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4">
+          <div key={transaction.id} className="flex items-center justify-between gap-3 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
             <div className="flex min-w-0 items-center gap-3">
               <span className={`grid h-9 w-9 flex-shrink-0 place-items-center rounded-xl ${credit ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
                 {credit ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
@@ -211,21 +211,21 @@ export default function TransactionsPage() {
 
         {tab === "stats" && (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
-            <div className="rounded-2xl border border-border bg-card p-4">
+            <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
               <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#1b388b]/10 text-[#1b388b]">
                 <DollarSign className="h-4 w-4" />
               </span>
               <p className="mt-2 text-lg font-black text-foreground">{stats.totalTransactions.toLocaleString()}</p>
               <p className="text-xs text-muted-foreground">Total Transactions</p>
             </div>
-            <div className="rounded-2xl border border-border bg-card p-4">
+            <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
               <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-success/10 text-success">
                 <TrendingUp className="h-4 w-4" />
               </span>
               <p className="mt-2 text-lg font-black text-foreground">GHS {formatAmount(stats.todayIncome)}</p>
               <p className="text-xs text-muted-foreground">Today&apos;s Income</p>
             </div>
-            <div className="rounded-2xl border border-border bg-card p-4">
+            <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
               <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
                 <TrendingDown className="h-4 w-4" />
               </span>

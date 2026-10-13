@@ -314,7 +314,7 @@ export default function ShopProfilePage() {
         </div>
 
         {/* Step content */}
-        <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
+        <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-5 space-y-4 clay">
           {step === 1 && (
             <>
               <p className="flex items-center gap-2 text-base font-bold text-foreground"><Store className="h-4 w-4 text-[#1b388b]" /> Shop Details</p>
@@ -549,7 +549,7 @@ export default function ShopProfilePage() {
                 ) : (
                   <p className="flex items-center gap-1.5 text-xs font-semibold text-success"><CheckCircle2 className="h-3.5 w-3.5" /> Activated — {smsAccount.unitBalance} units available</p>
                 )}
-                <Link href="/dashboard/sms" className="block text-xs font-semibold text-[#1b388b] underline">Configure templates & sender ID →</Link>
+                <Link href="/dashboard/sms/business" className="block text-xs font-semibold text-[#1b388b] underline">Set up your sender ID →</Link>
               </div>
             </>
           )}

@@ -185,17 +185,17 @@ export default function ShopProfitLogsPage() {
 
         {/* Period stats */}
         <div className="grid grid-cols-3 gap-2 sm:gap-3">
-          <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><TrendingUp className="h-3.5 w-3.5 text-success" /> Earned</p>
             <p className="mt-1 text-lg font-black text-success">GH₵{periodStats.earned.toFixed(2)}</p>
             <p className="text-[10px] text-muted-foreground">this period</p>
           </div>
-          <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><TrendingDown className="h-3.5 w-3.5 text-[#1b388b]" /> Withdrawn</p>
             <p className="mt-1 text-lg font-black text-[#1b388b]">GH₵{periodStats.withdrawn.toFixed(2)}</p>
             <p className="text-[10px] text-muted-foreground">this period</p>
           </div>
-          <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Scale className="h-3.5 w-3.5" /> Net</p>
             <p className="mt-1 text-lg font-black text-foreground">{periodStats.net >= 0 ? "+" : ""}GH₵{periodStats.net.toFixed(2)}</p>
             <p className="text-[10px] text-muted-foreground">earned − expenses</p>
@@ -241,7 +241,7 @@ export default function ShopProfitLogsPage() {
 
         {/* Ledger */}
         {filtered.length === 0 ? (
-          <div className="rounded-2xl border border-border bg-card p-8 text-center">
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-8 text-center clay">
             <Activity className="mx-auto mb-2 h-10 w-10 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">No entries for this filter.</p>
             <p className="text-xs text-muted-foreground">Try changing the period or category.</p>
@@ -252,7 +252,7 @@ export default function ShopProfitLogsPage() {
               const meta = typeMeta[entry.type]
               const Icon = meta.icon
               return (
-                <div key={entry.id} className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4">
+                <div key={entry.id} className="flex items-center justify-between gap-3 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
                   <div className="flex min-w-0 items-center gap-3">
                     <span className={`grid h-9 w-9 flex-shrink-0 place-items-center rounded-xl ${meta.className}`}>
                       <Icon className="h-4 w-4" />

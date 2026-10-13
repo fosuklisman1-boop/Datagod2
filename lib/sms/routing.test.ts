@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 
 // Hoist the fake admin_settings store before any module import
 const mockSettings = vi.hoisted(() => ({
-  store: {} as Record<string, string>,
+  store: {} as Record<string, unknown>,
   // setRoutingConfig write-path capture
   updates: [] as { key: string; patch: Record<string, unknown> }[],
   inserts: [] as Record<string, unknown>[],
@@ -20,7 +20,14 @@ const mockSettings = vi.hoisted(() => ({
 
 vi.mock("@supabase/supabase-js", () => ({
   createClient: vi.fn(() => ({
-    from: (_: string) => ({
+    from: (table: string) => table === "tenant_global_settings" ? {
+      // The REAL strict loadHubtelBalanceSettings reads through here.
+      select: () => ({
+        in: () => Promise.resolve(hub.settingsError
+          ? { data: null, error: hub.settingsError }
+          : { data: [{ key: "sms_hubtel_prefer_manual_balance", value: hub.prefer }], error: null }),
+      }),
+    } : ({
       select: () => ({
         in: (_col: string, keys: string[]) => ({
           data: keys
@@ -45,8 +52,32 @@ vi.mock("@supabase/supabase-js", () => ({
   })),
 }))
 
+const hub = vi.hoisted(() => ({
+  creds: true,
+  balance: { ok: true, amountGhs: 10 } as { ok: true; amountGhs: number } | { ok: false; error: string },
+  balanceCalls: 0,
+  resolved: { ok: false, error: "relay down" } as any,
+  resolveThrows: false,
+  resolveCalls: 0,
+  prefer: false as unknown,
+  settingsError: null as unknown,
+}))
+vi.mock("./wholesale", () => ({
+  resolveHubtelBalance: () => {
+    hub.resolveCalls++
+    return hub.resolveThrows ? Promise.reject(new Error("boom")) : Promise.resolve(hub.resolved)
+  },
+}))
+vi.mock("./providers/hubtel", () => ({
+  hubtelConfigFromEnv: () => (hub.creds ? { clientId: "i", clientSecret: "s" } : null),
+}))
+vi.mock("@/lib/ussd-hubtel/relay", () => ({
+  fetchDisbursementBalance: () => { hub.balanceCalls++; return Promise.resolve(hub.balance) },
+}))
+
 // Import AFTER mock registration
-import { parseRoutingConfig, setRoutingConfig, invalidateRoutingCache } from "./routing"
+import { parseRoutingConfig, setRoutingConfig, invalidateRoutingCache, narrowProvidersForSender } from "./routing"
+import { CATEGORY_DEFAULTS } from "./categories"
 
 describe("parseRoutingConfig", () => {
   it("returns primary + fallbacks from settings rows", () => {
@@ -133,5 +164,251 @@ describe("setRoutingConfig", () => {
     const res = await setRoutingConfig({})
     expect(res.ok).toBe(false)
     expect((res as { error: string }).error).toMatch(/No routing fields/)
+  })
+})
+
+describe("setRoutingConfig hubtel guard", () => {
+  beforeEach(() => {
+    mockSettings.reset()
+    invalidateRoutingCache()
+    hub.creds = true
+    hub.balance = { ok: true, amountGhs: 10 }
+    hub.balanceCalls = 0
+    hub.resolved = { ok: false, error: "relay down" }
+    hub.resolveThrows = false
+    hub.resolveCalls = 0
+    hub.prefer = false
+    hub.settingsError = null
+  })
+
+  describe("prefer-manual on (relay reads a different wallet)", () => {
+    it("relay healthy but manual estimate NOT computable → refused with the manual reason", async () => {
+      hub.prefer = true
+      hub.balance = { ok: true, amountGhs: 0 }
+      hub.resolved = { ok: false, error: "manual balance preferred but missing or older than 30 days" }
+      const res = await setRoutingConfig({ primary: "hubtel" })
+      expect(res.ok).toBe(false)
+      expect((res as { error: string }).error).toMatch(/manual balance preferred but missing or older than 30 days/)
+      expect(mockSettings.updates).toHaveLength(0)
+      expect(hub.balanceCalls).toBe(0)
+    })
+    it("manual estimate computable → accepted without consulting the relay", async () => {
+      hub.prefer = true
+      hub.balance = { ok: false, error: "relay down" }
+      hub.resolved = { ok: true, amountGhs: 80, source: "manual", manualSetAt: new Date().toISOString(), preferred: true }
+      expect((await setRoutingConfig({ primary: "hubtel" })).ok).toBe(true)
+      expect(hub.balanceCalls).toBe(0)
+    })
+    it("resolver throws → refused", async () => {
+      hub.prefer = true
+      hub.resolveThrows = true
+      expect((await setRoutingConfig({ primary: "hubtel" })).ok).toBe(false)
+    })
+  })
+
+  it("settings select returns an error (fresh instance) → refused even though the relay works", async () => {
+    hub.settingsError = { message: "connection reset" }
+    const res = await setRoutingConfig({ primary: "hubtel" })
+    expect(res.ok).toBe(false)
+    expect((res as { error: string }).error).toMatch(/connection reset/)
+    expect(mockSettings.updates).toHaveLength(0)
+    expect(hub.balanceCalls).toBe(0)
+  })
+
+  it("an unreadable prefer flag → refused (never treated as off)", async () => {
+    hub.prefer = "yes"
+    expect((await setRoutingConfig({ primary: "hubtel" })).ok).toBe(false)
+    expect(mockSettings.updates).toHaveLength(0)
+  })
+
+  it("fallback-only Hubtel never reads the strict settings", async () => {
+    hub.settingsError = { message: "down" }
+    expect((await setRoutingConfig({ primary: "moolre", fallbacks: ["hubtel"] })).ok).toBe(true)
+  })
+
+  it("relay works → accepted without computing a manual estimate", async () => {
+    expect((await setRoutingConfig({ primary: "hubtel" })).ok).toBe(true)
+    expect(hub.resolveCalls).toBe(0)
+  })
+
+  it("relay /balance down but the manual estimate can be computed → accepted", async () => {
+    hub.balance = { ok: false, error: "relay/hubtel 403" }
+    hub.resolved = { ok: true, amountGhs: 80, source: "manual", manualSetAt: new Date().toISOString() }
+    const res = await setRoutingConfig({ primary: "hubtel" })
+    expect(res.ok).toBe(true)
+    expect(mockSettings.updates.find((u) => u.key === "sms_primary_provider")?.patch.value).toBe("hubtel")
+  })
+
+  it("relay down + estimate cannot be computed (stale manual / migration missing) → refused, names the reason + manual option", async () => {
+    hub.balance = { ok: false, error: "relay/hubtel 403" }
+    hub.resolved = { ok: false, error: "relay/hubtel 403; manual balance estimate unavailable: function sms_hubtel_spend_since does not exist" }
+    const res = await setRoutingConfig({ primary: "hubtel" })
+    expect(res.ok).toBe(false)
+    const msg = (res as { error: string }).error
+    expect(msg).toMatch(/sms_hubtel_spend_since does not exist/)
+    expect(msg).toMatch(/manual Hubtel balance/i)
+    expect(mockSettings.updates).toHaveLength(0)
+  })
+
+  it("relay down + a relay result from the resolver (relay recovered) is also fine", async () => {
+    hub.balance = { ok: false, error: "blip" }
+    hub.resolved = { ok: true, amountGhs: 10, source: "relay" }
+    expect((await setRoutingConfig({ primary: "hubtel" })).ok).toBe(true)
+  })
+
+  it("relay down + the resolver throws → refused (fail closed)", async () => {
+    hub.balance = { ok: false, error: "relay/hubtel 403" }
+    hub.resolveThrows = true
+    const res = await setRoutingConfig({ primary: "hubtel" })
+    expect(res.ok).toBe(false)
+    expect(mockSettings.updates).toHaveLength(0)
+  })
+
+  it("a manual estimate does not bypass the credentials check", async () => {
+    hub.creds = false
+    hub.resolved = { ok: true, amountGhs: 80, source: "manual", manualSetAt: new Date().toISOString() }
+    expect((await setRoutingConfig({ primary: "hubtel" })).ok).toBe(false)
+  })
+
+  it("rejects hubtel primary when credentials are missing, without writing", async () => {
+    hub.creds = false
+    const res = await setRoutingConfig({ primary: "hubtel" })
+    expect(res.ok).toBe(false)
+    expect((res as { error: string }).error).toMatch(/Hubtel credentials are not set in Vercel/)
+    expect(mockSettings.updates).toHaveLength(0)
+  })
+
+  it("rejects hubtel primary when the relay balance check fails, naming the error", async () => {
+    hub.balance = { ok: false, error: "relay not configured" }
+    const res = await setRoutingConfig({ primary: "hubtel" })
+    expect(res.ok).toBe(false)
+    const msg = (res as { error: string }).error
+    expect(msg).toMatch(/balance check via the relay failed: relay not configured/)
+    expect(msg).toMatch(/HUBTEL_DISBURSEMENT_ACCOUNT/)
+    expect(mockSettings.updates).toHaveLength(0)
+  })
+
+  it("accepts hubtel primary when creds are set and the balance check passes", async () => {
+    const res = await setRoutingConfig({ primary: "hubtel" })
+    expect(res.ok).toBe(true)
+    expect(mockSettings.updates.find((u) => u.key === "sms_primary_provider")?.patch.value).toBe("hubtel")
+  })
+
+  it("hubtel as fallback only needs credentials (no balance check)", async () => {
+    hub.balance = { ok: false, error: "down" }
+    const ok = await setRoutingConfig({ primary: "moolre", fallbacks: ["hubtel"] })
+    expect(ok.ok).toBe(true)
+    expect(hub.balanceCalls).toBe(0)
+
+    hub.creds = false
+    mockSettings.updates = []
+    const bad = await setRoutingConfig({ fallbacks: ["hubtel"] })
+    expect(bad.ok).toBe(false)
+    expect((bad as { error: string }).error).toMatch(/credentials are not set/)
+    expect(mockSettings.updates).toHaveLength(0)
+  })
+
+  it("non-hubtel changes never touch the guard", async () => {
+    hub.creds = false
+    const res = await setRoutingConfig({ primary: "moolre", fallbacks: ["mnotify"] })
+    expect(res.ok).toBe(true)
+    expect(hub.balanceCalls).toBe(0)
+  })
+})
+
+describe("category routing config", () => {
+  it("defaults categoryProviders to CATEGORY_DEFAULTS and tenantProviderChoice to false", () => {
+    const r = parseRoutingConfig([])
+    expect(r.categoryProviders).toEqual(CATEGORY_DEFAULTS)
+    expect(r.tenantProviderChoice).toBe(false)
+  })
+  it("applies valid overrides, drops unknown categories and invalid providers", () => {
+    const r = parseRoutingConfig([
+      { key: "sms_category_providers", value: { otp: "hubtel", bogus: "moolre", system: "mnotify" } },
+    ])
+    expect(r.categoryProviders.otp).toBe("hubtel")
+    expect((r.categoryProviders as Record<string, string>).bogus).toBeUndefined()
+    expect(r.categoryProviders.system).toBe(CATEGORY_DEFAULTS.system)
+  })
+  it("accepts a JSON-string category map", () => {
+    const r = parseRoutingConfig([{ key: "sms_category_providers", value: '{"otp":"moolre"}' }])
+    expect(r.categoryProviders.otp).toBe("moolre")
+  })
+  it("ignores a malformed category map", () => {
+    const r = parseRoutingConfig([{ key: "sms_category_providers", value: "not-json" }])
+    expect(r.categoryProviders).toEqual(CATEGORY_DEFAULTS)
+  })
+  it("parses tenant provider choice flag", () => {
+    expect(parseRoutingConfig([{ key: "sms_tenant_provider_choice_enabled", value: true }]).tenantProviderChoice).toBe(true)
+    expect(parseRoutingConfig([{ key: "sms_tenant_provider_choice_enabled", value: "true" }]).tenantProviderChoice).toBe(true)
+    expect(parseRoutingConfig([{ key: "sms_tenant_provider_choice_enabled", value: "false" }]).tenantProviderChoice).toBe(false)
+  })
+})
+
+describe("setRoutingConfig category fields", () => {
+  beforeEach(() => {
+    mockSettings.reset()
+    invalidateRoutingCache()
+    hub.creds = true
+  })
+  it("accepts a patch with only the new fields and writes both keys", async () => {
+    const res = await setRoutingConfig({ categoryProviders: { otp: "moolre" }, tenantProviderChoice: true })
+    expect(res.ok).toBe(true)
+    const byKey = Object.fromEntries(mockSettings.updates.map((u) => [u.key, u.patch.value]))
+    expect(byKey["sms_category_providers"]).toMatchObject({ otp: "moolre" })
+    expect(byKey["sms_tenant_provider_choice_enabled"]).toBe(true)
+  })
+  it("merges a partial patch over the existing stored map", async () => {
+    mockSettings.store["sms_category_providers"] = { otp: "hubtel" } as any
+    await setRoutingConfig({ categoryProviders: { system: "hubtel" } })
+    const v = mockSettings.updates.find((u) => u.key === "sms_category_providers")?.patch.value as Record<string, string>
+    expect(v.otp).toBe("hubtel")
+    expect(v.system).toBe("hubtel")
+  })
+  it("rejects unknown category / invalid provider without writing", async () => {
+    const a = await setRoutingConfig({ categoryProviders: { nope: "moolre" } as any })
+    const b = await setRoutingConfig({ categoryProviders: { otp: "mnotify" } })
+    expect(a.ok).toBe(false)
+    expect(b.ok).toBe(false)
+    expect(mockSettings.updates).toHaveLength(0)
+  })
+  it("requires Hubtel credentials when any category is hubtel", async () => {
+    hub.creds = false
+    const res = await setRoutingConfig({ categoryProviders: { otp: "hubtel" } })
+    expect(res.ok).toBe(false)
+    expect((res as { error: string }).error).toMatch(/Hubtel credentials are not set in Vercel/)
+    expect(mockSettings.updates).toHaveLength(0)
+  })
+  it("non-boolean tenantProviderChoice is rejected", async () => {
+    const res = await setRoutingConfig({ tenantProviderChoice: "yes" as any })
+    expect(res.ok).toBe(false)
+  })
+})
+
+describe("hubtel routing", () => {
+  it("accepts hubtel as primary", () => {
+    expect(parseRoutingConfig([{ key: "sms_primary_provider", value: "hubtel" }]).primary).toBe("hubtel")
+  })
+  it("accepts hubtel as a fallback", () => {
+    expect(parseRoutingConfig([{ key: "sms_fallback_providers", value: ["hubtel"] }]).fallbacks).toEqual(["hubtel"])
+  })
+})
+
+describe("narrowProvidersForSender", () => {
+  const active = { local_status: "active", mnotify_local_status: "pending" }
+  it("no custom sender -> unchanged", () => {
+    expect(narrowProvidersForSender(["hubtel", "moolre", "mnotify"], null, false)).toEqual(["hubtel", "moolre", "mnotify"])
+  })
+  it("custom sender with hubtel leading -> hubtel only (fallback gateways never registered it)", () => {
+    expect(narrowProvidersForSender(["hubtel", "moolre", "mnotify"], active, true)).toEqual(["hubtel"])
+  })
+  it("custom sender with moolre leading keeps today's narrowing, hubtel allowed for local active", () => {
+    expect(narrowProvidersForSender(["moolre", "mnotify", "hubtel"], active, true)).toEqual(["moolre", "hubtel"])
+  })
+  it("unknown sender row leaves the order alone", () => {
+    expect(narrowProvidersForSender(["moolre", "mnotify"], null, true)).toEqual(["moolre", "mnotify"])
+  })
+  it("mnotify-only approval keeps mnotify", () => {
+    expect(narrowProvidersForSender(["moolre", "mnotify"], { local_status: "pending", mnotify_local_status: "active" }, true)).toEqual(["mnotify"])
   })
 })

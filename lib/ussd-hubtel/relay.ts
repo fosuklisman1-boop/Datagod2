@@ -55,6 +55,28 @@ export async function sendFulfillmentCallback(p: CallbackParams): Promise<Fulfil
   }
 }
 
+/** Hubtel Disbursement (prepaid) balance in GH₵ — the float SMS is paid from. Via the relay
+ *  because trnf.hubtel.com only accepts whitelisted IPs. Never throws. */
+export async function fetchDisbursementBalance(): Promise<{ ok: true; amountGhs: number } | { ok: false; error: string }> {
+  const cfg = relayConfig()
+  if (!cfg) return { ok: false, error: "relay not configured" }
+  try {
+    const res = await fetch(`${cfg.url}/balance`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${cfg.secret}` },
+      signal: AbortSignal.timeout(10_000),
+    })
+    const json: any = await res.json().catch(() => null)
+    const body = json?.body
+    if (res.ok && json?.ok && body?.responseCode === "0000" && typeof body?.data?.amount === "number") {
+      return { ok: true, amountGhs: body.data.amount }
+    }
+    return { ok: false, error: `relay/hubtel ${json?.upstreamStatus ?? res.status}: ${JSON.stringify(body ?? null).slice(0, 200)}` }
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message ?? e) }
+  }
+}
+
 export interface StatusCheckResult {
   ok: boolean
   status?: string

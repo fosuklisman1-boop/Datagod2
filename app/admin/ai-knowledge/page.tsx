@@ -170,7 +170,7 @@ export default function AIKnowledgePage() {
                   <select
                     value={form.category}
                     onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
-                    className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-card"
+                    className="w-full text-sm border border-white/60 dark:border-white/5 rounded-lg px-3 py-2 bg-background clay-inset"
                   >
                     {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>

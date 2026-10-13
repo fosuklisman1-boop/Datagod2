@@ -1,4 +1,4 @@
-export type OwnerType = "platform" | "shop" | "sub_agent"
+export type OwnerType = "platform" | "shop" | "sub_agent" | "individual"
 export type BundleScope = "all" | OwnerType
 
 export interface OwnerInput {
@@ -7,7 +7,10 @@ export interface OwnerInput {
   isSubAgent: boolean
   shopId?: string
   subAgentId?: string
+  allowedRoles?: string[]
 }
+
+const INDIVIDUAL_ROLES = ["dealer", "user"]
 
 export interface OwnerContext {
   ownerType: OwnerType
@@ -19,6 +22,10 @@ export function deriveOwnerType(input: OwnerInput): OwnerContext | null {
   if (input.role === "admin") return { ownerType: "platform", ownerId: null }
   if (input.ownsShop) return { ownerType: "shop", ownerId: input.shopId ?? null }
   if (input.isSubAgent) return { ownerType: "sub_agent", ownerId: input.subAgentId ?? null }
+  // Users without a shop get an individual account only if their role is an Allowed Role.
+  if (INDIVIDUAL_ROLES.includes(input.role) && input.allowedRoles?.includes(input.role)) {
+    return { ownerType: "individual", ownerId: null }
+  }
   return null
 }
 
@@ -37,4 +44,12 @@ export function canPurchaseBundle(
     return { ok: false, reason: "Bundle not available for this account type" }
   }
   return { ok: true }
+}
+
+export function bundleVisibleTo(
+  bundle: BundleLike & { mode: "platform" | "business" },
+  ownerType: OwnerType,
+  mode: "platform" | "business"
+): boolean {
+  return bundle.mode === mode && canPurchaseBundle(bundle, ownerType).ok
 }

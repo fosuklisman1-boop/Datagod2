@@ -8,7 +8,8 @@ import {
   getPaystackTransferBalance,
 } from "@/lib/paystack-transfer"
 import { sendPushToUser } from "@/lib/push-service"
-import { notificationTemplates } from "@/lib/notification-service"
+import { notifyUserOfOutcome } from "@/lib/admin-actions"
+import { notifyWithdrawalCompleted, applyWithdrawalCompletion } from "@/lib/admin-actions/withdrawal-hook"
 import { normalizePhoneNumber } from "@/lib/mtn-fulfillment"
 
 // Serial processing of N transfers can take several seconds each
@@ -38,9 +39,14 @@ async function notifyOwner(shopId: string, amount: number, withdrawalId: string,
       .single()
     if (!shop) return
 
-    const notif = succeeded
-      ? notificationTemplates.withdrawalApproved(amount, withdrawalId)
-      : { title: "Transfer Failed", message: `Your GHS ${amount.toFixed(2)} withdrawal could not be processed. It remains pending.`, type: "order_update" as const, reference_id: withdrawalId }
+    if (succeeded) {
+      // Approved: email + SMS + push + in-app via the central notifier (never throws)
+      await notifyUserOfOutcome("withdrawal", "approved", { userId: shop.user_id, reference: withdrawalId }, { withdrawalId, amount, shopName: shop.shop_name ?? null })
+      return
+    }
+
+    // Failed transfer reset to pending: neither approved nor rejected, keep the existing in-app + push.
+    const notif = { title: "Transfer Failed", message: `Your GHS ${amount.toFixed(2)} withdrawal could not be processed. It remains pending.`, type: "order_update" as const, reference_id: withdrawalId }
 
     await supabase.from("notifications").insert([{
       user_id: shop.user_id,
@@ -132,6 +138,8 @@ export async function POST(request: NextRequest) {
 
     // Serial processing loop — Moolre docs recommend serial/small batches to avoid rate limits
     const results: BulkResult[] = []
+    // Notifies are started inside the loop but awaited once after it (off the serial transfer path)
+    const pendingNotifies: Promise<unknown>[] = []
 
     for (const w of found) {
       const shopName = shopNameMap[w.shop_id] || w.shop_id.slice(0, 8)
@@ -170,7 +178,7 @@ export async function POST(request: NextRequest) {
             .update({ status: "approved", updated_at: new Date().toISOString() })
             .eq("id", locked.id)
 
-          notifyOwner(locked.shop_id, amount, locked.id, true).catch(() => {})
+          pendingNotifies.push(notifyOwner(locked.shop_id, amount, locked.id, true))
           results.push({ id: locked.id, shopName, amount, success: true, status: "approved", message: "Manually approved" })
           continue
         }
@@ -253,21 +261,21 @@ export async function POST(request: NextRequest) {
           }
 
           if (paystackResult.status === "success") {
-            const { error: persistErr } = await supabase
-              .from("withdrawal_requests")
-              .update({
-                status: "completed", payout_provider: "paystack",
-                paystack_recipient_code: recipient.recipientCode, paystack_transfer_code: paystackResult.transferCode,
-                paystack_fee: paystackResult.fee, transfer_completed_at: new Date().toISOString(), moolre_external_ref: null, updated_at: new Date().toISOString(),
-              })
-              .eq("id", locked.id)
+            const { shouldNotify: paystackNotify, error: persistErr } = await applyWithdrawalCompletion(supabase, locked.id, {
+              payout_provider: "paystack",
+              paystack_recipient_code: recipient.recipientCode, paystack_transfer_code: paystackResult.transferCode,
+              paystack_fee: paystackResult.fee, transfer_completed_at: new Date().toISOString(), moolre_external_ref: null, updated_at: new Date().toISOString(),
+            }, ["processing"])
             if (persistErr) {
               console.error(
                 "[BULK-APPROVE] CRITICAL: failed to persist Paystack transfer tracking after a real transfer was initiated:",
                 persistErr, "withdrawalId:", locked.id, "transferCode:", paystackResult.transferCode
               )
             }
-            notifyOwner(locked.shop_id, amount, locked.id, true).catch(() => {})
+            // Money has moved: "paid out" message, unless a webhook/cron already flipped the row
+            if (paystackNotify) {
+              pendingNotifies.push(notifyWithdrawalCompleted(supabase, locked))
+            }
             results.push({ id: locked.id, shopName, amount, success: true, status: "completed", message: `Sent — TX: ${paystackResult.transferCode}` })
             continue
           }
@@ -318,11 +326,12 @@ export async function POST(request: NextRequest) {
         }
 
         if (transferResult.txstatus === 1) {
-          await supabase
-            .from("withdrawal_requests")
-            .update({ status: "completed", moolre_transfer_id: transferResult.transactionId, moolre_fee: transferResult.fee, transfer_completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-            .eq("id", locked.id)
-          notifyOwner(locked.shop_id, amount, locked.id, true).catch(() => {})
+          const { shouldNotify: moolreNotify } = await applyWithdrawalCompletion(supabase, locked.id, {
+            moolre_transfer_id: transferResult.transactionId, moolre_fee: transferResult.fee, transfer_completed_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+          }, ["processing"])
+          if (moolreNotify) {
+            pendingNotifies.push(notifyWithdrawalCompleted(supabase, locked))
+          }
           results.push({ id: locked.id, shopName, amount, success: true, status: "completed", message: `Sent — TX: ${transferResult.transactionId}` })
 
         } else if (transferResult.txstatus === 2) {
@@ -354,6 +363,9 @@ export async function POST(request: NextRequest) {
         results.push({ id: w.id, shopName, amount, success: false, status: "error", message: err.message || "Unexpected error" })
       }
     }
+
+    // Deliver all queued notifications once, after the serial transfer loop (never throws)
+    await Promise.allSettled(pendingNotifies)
 
     const succeeded = results.filter(r => r.success).length
     const failed = results.filter(r => !r.success).length

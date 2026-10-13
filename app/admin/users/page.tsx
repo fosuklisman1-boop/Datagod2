@@ -671,7 +671,7 @@ export default function AdminUsersPage() {
               <ScrollArea className="max-h-[70vh] pr-4">
                 <div className="space-y-6">
                   {/* User Info Header with EDIT capability */}
-                  <div className="p-4 bg-card rounded-lg border border-border space-y-4">
+                  <div className="p-4 bg-card rounded-lg border border-white/60 dark:border-white/5 space-y-4 clay">
                     <div className="flex items-center justify-between">
                       <div className="space-y-1 w-full max-w-[300px]">
                         <Label htmlFor="edit-email">Email Address</Label>
@@ -1131,7 +1131,7 @@ export default function AdminUsersPage() {
                     <div className="mb-4">
                       <Label className="text-xs text-warning mb-1 block">Reason for Suspension (Optional)</Label>
                       <textarea
-                        className="w-full text-sm p-2 border rounded bg-card"
+                        className="w-full text-sm p-2 border rounded bg-background border-white/60 dark:border-white/5 clay-inset"
                         placeholder="e.g. Violation of terms, suspicious activity..."
                         rows={2}
                         value={suspensionReason}
