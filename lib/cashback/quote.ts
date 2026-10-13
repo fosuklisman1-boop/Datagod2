@@ -47,7 +47,8 @@ export function quoteCashback(i: QuoteInput, cfg: CashbackConfig): CashbackQuote
   const shares = effectiveShares(cfg, i.serviceKey)
   const storefront = i.channel === "storefront" || i.shop === true
   const share = storefront ? shares.storefrontCustomer : shares[i.buyer]
-  if (!(share > 0)) return notApplied(i)
+  // Storefront: a shop-only split (customer 0, shop > 0) is still applied.
+  if (!(share > 0) && !(storefront && shares.storefrontShop > 0)) return notApplied(i)
 
   const facePesewas = toPesewas(i.faceAmount)
   const customerP = floorShare(facePesewas, rate, share)

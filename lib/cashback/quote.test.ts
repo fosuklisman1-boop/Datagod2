@@ -31,6 +31,10 @@ describe("quoteCashback", () => {
     const q = quoteCashback(inp({ channel: "storefront", shop: true }), cfg())
     expect(q).toMatchObject({ applied: true, share: 20, customerCashback: 0.07, shopShare: 0.15, payAmount: 9.93, datagodKeeps: 0.176 })
   })
+  it("storefront shop-only split (customer 0) is applied: customer pays face, shop earns its share", () => {
+    const q = quoteCashback(inp({ channel: "storefront", shop: true }), cfg(c => { c.shares.airtime.storefrontCustomer = 0 }))
+    expect(q).toMatchObject({ applied: true, customerCashback: 0, shopShare: 0.15, payAmount: 10 })
+  })
   it("shop flag on another channel also uses storefront split", () => {
     expect(quoteCashback(inp({ channel: "bots", shop: true }), cfg()).shopShare).toBe(0.15)
   })
