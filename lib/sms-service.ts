@@ -6,6 +6,7 @@ import { categoryOf } from '@/lib/sms/categories'
 import { hubtelConfigFromEnv, hubtelSendSingle, toHubtelMsisdn, isValidHubtelMsisdn } from '@/lib/sms/providers/hubtel'
 import { notifyHubtelOutOfFunds } from '@/lib/sms/notify'
 import { resolvePlatformSender } from '@/lib/sms/platform-sender'
+import { isMissingSenderIdColumn } from '@/lib/sms/sms-log-sender'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -764,6 +765,17 @@ export function platformSenderName(): string {
   return process.env.HUBTEL_SENDER_ID || process.env.MOOLRE_SENDER_ID || 'CLINGDTGOD'
 }
 
+/** Insert a Hubtel sms_logs row with sender_id. If the column does not exist yet (the app deployed
+ *  before migrations/20261024_sms_logs_sender_id.sql), retry ONCE without it so logging is never
+ *  lost. Other errors are left exactly as before (ignored; callers wrap this in try/catch). */
+async function insertHubtelSmsLog(senderId: string, row: Record<string, unknown>): Promise<void> {
+  const first = await supabase.from('sms_logs').insert({ ...row, sender_id: senderId })
+  if (isMissingSenderIdColumn(first?.error)) {
+    console.warn('[SMS] sms_logs.sender_id column missing (apply migrations/20261024_sms_logs_sender_id.sql); logging without it')
+    await supabase.from('sms_logs').insert(row)
+  }
+}
+
 /** Single SMS via Hubtel (spec §5.4). Logs to sms_logs like the other providers
  *  (moolre_message_id column is reused for the provider message id, as Brevo does).
  *  Outcome "unknown" (Hubtel may have accepted) is treated as SENT: never fail over,
@@ -772,11 +784,13 @@ async function sendSMSViaHubtel(payload: SMSPayload): Promise<SendSMSResponse> {
   const cfg = hubtelConfigFromEnv()
   if (!cfg) return { success: false, error: 'Hubtel not configured', provider: 'hubtel' }
   const from = payload.senderId?.trim() ? payload.senderId.trim().toUpperCase() : await resolvePlatformSender()
+  // Recorded in sms_logs.sender_id for the admin "Sender ID health" panel.
+  const loggedSender = from.toUpperCase()
 
   const failHubtel = async (error: string): Promise<SendSMSResponse> => {
     if (!payload.skipLogging) {
       try {
-        await supabase.from('sms_logs').insert({
+        await insertHubtelSmsLog(loggedSender, {
           user_id: payload.userId || null,
           phone_number: payload.phone,
           message: logSafeSmsBody(payload),
@@ -809,7 +823,7 @@ async function sendSMSViaHubtel(payload: SMSPayload): Promise<SendSMSResponse> {
   }
   if (!payload.skipLogging) {
     try {
-      await supabase.from('sms_logs').insert({
+      await insertHubtelSmsLog(loggedSender, {
         user_id: payload.userId || null,
         phone_number: payload.phone,
         message: logSafeSmsBody(payload),

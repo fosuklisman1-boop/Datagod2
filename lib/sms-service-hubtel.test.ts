@@ -11,6 +11,8 @@ const h = vi.hoisted(() => {
     hubtelSend: vi.fn(),
     notifyOOF: vi.fn(),
     inserts: [] as Record<string, unknown>[],
+    /** Errors returned by successive sms_logs inserts (null/absent = ok). */
+    insertErrors: [] as ({ code?: string; message: string } | null)[],
     senderRow: null as unknown,
   }
 })
@@ -35,8 +37,9 @@ vi.mock("@supabase/supabase-js", () => ({
   createClient: vi.fn(() => ({
     from: (table: string) => ({
       insert: (row: Record<string, unknown>) => {
-        if (table === "sms_logs") h.inserts.push(row)
-        return Promise.resolve({ error: null })
+        if (table !== "sms_logs") return Promise.resolve({ error: null })
+        h.inserts.push(row)
+        return Promise.resolve({ error: h.insertErrors.shift() ?? null })
       },
       select: () => {
         const chain: any = {
@@ -61,6 +64,7 @@ beforeEach(() => {
   h.notifyOOF.mockReset()
   h.notifyOOF.mockResolvedValue(undefined)
   h.inserts.length = 0
+  h.insertErrors.length = 0
   h.senderRow = null
   h.axiosGet.mockResolvedValue(moolreOk)
 })
@@ -127,5 +131,82 @@ describe("sendSMS via Hubtel", () => {
     expect(h.hubtelSend.mock.calls[0][1].from).toBe("MYSHOP")
     expect(h.axiosGet).not.toHaveBeenCalled()
     expect(r).toMatchObject({ success: false, provider: "hubtel" })
+  })
+
+  describe("sms_logs.sender_id (Sender ID health)", () => {
+    it("records the platform sender, upper-cased, on the accepted row", async () => {
+      h.hubtelSend.mockResolvedValue({ outcome: "accepted", messageId: "m1", messages: [] })
+      await sendSMS(base)
+      const from = h.hubtelSend.mock.calls[0][1].from as string
+      expect(h.inserts).toHaveLength(1)
+      expect(h.inserts[0]).toMatchObject({ provider: "hubtel", status: "sent", sender_id: from.toUpperCase() })
+    })
+
+    it("records a custom sender upper-cased", async () => {
+      h.senderRow = { local_status: "active", mnotify_local_status: "pending" }
+      h.hubtelSend.mockResolvedValue({ outcome: "accepted", messageId: "m1", messages: [] })
+      await sendSMS({ ...base, senderId: "myShop" })
+      expect(h.inserts[0]).toMatchObject({ sender_id: "MYSHOP" })
+    })
+
+    it("records the sender on the hubtel failed row too", async () => {
+      h.hubtelSend.mockResolvedValue({ outcome: "rejected", error: "bad", messages: [] })
+      await sendSMS(base)
+      const row = h.inserts.find((i) => i.provider === "hubtel")!
+      expect(typeof row.sender_id).toBe("string")
+      expect(row.sender_id).toBe(String(row.sender_id).toUpperCase())
+    })
+
+    for (const err of [
+      { code: "PGRST204", message: "Could not find the 'sender_id' column of 'sms_logs' in the schema cache" },
+      { code: "42703", message: 'column "sender_id" of relation "sms_logs" does not exist' },
+    ]) {
+      it(`column missing (${err.code}) -> retries ONCE without sender_id, send still succeeds`, async () => {
+        h.hubtelSend.mockResolvedValue({ outcome: "accepted", messageId: "m1", messages: [] })
+        h.insertErrors.push(err)
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+        const r = await sendSMS(base)
+        expect(r).toMatchObject({ success: true, provider: "hubtel" })
+        expect(h.inserts).toHaveLength(2)
+        expect(h.inserts[0]).toHaveProperty("sender_id")
+        expect(h.inserts[1]).not.toHaveProperty("sender_id")
+        expect(h.inserts[1]).toMatchObject({ provider: "hubtel", status: "sent", moolre_message_id: "m1" })
+        expect(warn.mock.calls.some((c) => String(c[0]).includes("sender_id"))).toBe(true)
+        warn.mockRestore()
+      })
+    }
+
+    it("column missing on the failed row -> retried without sender_id, failover unchanged", async () => {
+      h.hubtelSend.mockResolvedValue({ outcome: "rejected", error: "bad", messages: [] })
+      h.insertErrors.push({ code: "PGRST204", message: "Could not find the 'sender_id' column" })
+      const r = await sendSMS(base)
+      expect(r.provider).toBe("moolre")
+      const hub = h.inserts.filter((i) => i.provider === "hubtel")
+      expect(hub).toHaveLength(2)
+      expect(hub[1]).not.toHaveProperty("sender_id")
+      expect(hub[1]).toMatchObject({ status: "failed", error_message: "bad" })
+    })
+
+    it("other insert errors -> no retry, send still succeeds (unchanged fail-soft)", async () => {
+      h.hubtelSend.mockResolvedValue({ outcome: "accepted", messageId: "m1", messages: [] })
+      h.insertErrors.push({ code: "57014", message: "canceling statement due to statement timeout" })
+      const r = await sendSMS(base)
+      expect(r).toMatchObject({ success: true, provider: "hubtel" })
+      expect(h.inserts).toHaveLength(1)
+    })
+
+    it("a retry that also fails never throws out of sendSMS", async () => {
+      h.hubtelSend.mockResolvedValue({ outcome: "accepted", messageId: "m1", messages: [] })
+      h.insertErrors.push({ code: "PGRST204", message: "x" }, { code: "57014", message: "timeout" })
+      const r = await sendSMS(base)
+      expect(r.success).toBe(true)
+      expect(h.inserts).toHaveLength(2)
+    })
+
+    it("skipLogging -> no insert at all", async () => {
+      h.hubtelSend.mockResolvedValue({ outcome: "accepted", messageId: "m1", messages: [] })
+      await sendSMS({ ...base, skipLogging: true })
+      expect(h.inserts).toHaveLength(0)
+    })
   })
 })
