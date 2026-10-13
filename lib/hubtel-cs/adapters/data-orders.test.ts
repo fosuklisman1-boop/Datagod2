@@ -3,7 +3,7 @@ import { DATA_ORDERS_TABLE, createDataOrdersAdapter } from "./data-orders"
 import { makeTx } from "../testing/fixtures"
 
 const LIVE = ["pending", "processing"]
-const order = (o: Partial<{ status: string; payment_status: string }> = {}) => ({
+const order = (o: Partial<{ status: string; payment_status: string; amount: number; paid_amount: number | null }> = {}) => ({
   status: "failed", payment_status: "paid", user_id: "u1", network: "MTN", bundle_display: "1GB", beneficiary_phone: "0241234567", amount: 50, ...o,
 })
 const base = () => ({
@@ -125,5 +125,19 @@ describe("hubtel_data_orders adapter", () => {
   it("refund: update error propagates", async () => {
     const a = createDataOrdersAdapter({ ...base(), update: async () => { throw new Error("db") }, get: async () => order() })
     await expect(a.refundToWallet!(makeTx({ order_id: "o1" }), "a")).rejects.toThrow("db")
+  })
+  it("refund returns paid_amount (cashback order), credit and message", async () => {
+    const creditWallet = vi.fn(async () => {}), notify = vi.fn(async () => {})
+    await createDataOrdersAdapter({ ...base(), creditWallet, notify, get: async () => order({ amount: 10, paid_amount: 9.81 }) })
+      .refundToWallet!(makeTx({ order_id: "o1", client_reference: "HCS-1" }), "a")
+    expect(creditWallet).toHaveBeenCalledWith("u1", 9.81, "data-refund-o1", expect.any(String))
+    expect(notify).toHaveBeenCalledWith("u1", "Standard bundle refunded", expect.stringContaining("GHS 9.81 for"), "o1")
+  })
+  it("refund with null paid_amount (legacy) returns amount", async () => {
+    const creditWallet = vi.fn(async () => {}), notify = vi.fn(async () => {})
+    await createDataOrdersAdapter({ ...base(), creditWallet, notify, get: async () => order({ amount: 10, paid_amount: null }) })
+      .refundToWallet!(makeTx({ order_id: "o1", client_reference: "HCS-1" }), "a")
+    expect(creditWallet).toHaveBeenCalledWith("u1", 10, "data-refund-o1", expect.any(String))
+    expect(notify).toHaveBeenCalledWith("u1", "Standard bundle refunded", expect.stringContaining("GHS 10.00 for"), "o1")
   })
 })

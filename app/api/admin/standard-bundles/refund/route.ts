@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import {
-  DATA_ORDERS_TABLE, executeBundleRefund, fetchLedgerOrderIds, releaseStuckClaimRow, type BundleRefundDeps, type RefundOrder,
+  DATA_ORDERS_TABLE, executeBundleRefund, fetchLedgerOrderIds, refundAmountOf, refundMessageOf, releaseStuckClaimRow, type BundleRefundDeps, type RefundOrder,
 } from "@/lib/standard-bundles/admin"
 import { auditLog, errorJson, requireAdmin, validateNote } from "@/lib/hubtel-cs/admin-route"
 import { getHubtelCsRuntime } from "@/lib/hubtel-cs/runtime"
@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     const deps: BundleRefundDeps = {
       async getOrder(id) {
         const { data, error } = await db.from(DATA_ORDERS_TABLE)
-          .select("id, reference_code, user_id, amount, network, bundle_display, beneficiary_phone, status, payment_status, hubtel_client_reference, notes, updated_at").eq("id", id).maybeSingle()
+          .select("id, reference_code, user_id, amount, paid_amount, network, bundle_display, beneficiary_phone, status, payment_status, hubtel_client_reference, notes, updated_at").eq("id", id).maybeSingle()
         if (error) throw error
         return (data as unknown as RefundOrder | null) ?? null
       },
@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
       },
       async notifyRefunded(order) {
         const title = "Standard bundle refunded"
-        const message = `GHS ${Number(order.amount).toFixed(2)} for your ${order.network} ${order.bundle_display} bundle to ${order.beneficiary_phone} was refunded to your wallet.`
+        const message = refundMessageOf(order)
         try {
           const { error } = await db.from("notifications").insert({
             user_id: order.user_id, title, message, type: "order_update", reference_id: order.id, action_url: "/dashboard/standard-bundles", read: false,
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
       async creditWallet(order) {
         // Same reference as the Hubtel adapter's refundToWallet, so the two paths can never both credit.
         const { error } = await db.rpc("credit_wallet_safely", {
-          p_user_id: order.user_id, p_amount: Number(order.amount), p_reference_id: `data-refund-${order.id}`,
+          p_user_id: order.user_id, p_amount: refundAmountOf(order), p_reference_id: `data-refund-${order.id}`,
           p_description: `Refund: ${order.network} ${order.bundle_display} bundle ${order.reference_code}`, p_source: "standard_bundle_refund",
         })
         // A unique violation means a concurrent/earlier call already credited this reference: idempotent success.

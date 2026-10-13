@@ -110,7 +110,14 @@ export async function releaseStuckClaimRow(db: SupabaseClient, orderId: string, 
 // Never-sent refund flow (all IO injected)
 // ---------------------------------------------------------------------------------------------
 
-export interface RefundOrder extends RefundFacts { id: string; reference_code: string; user_id: string; amount: number; network: string; bundle_display: string; beneficiary_phone: string }
+export interface RefundOrder extends RefundFacts { id: string; reference_code: string; user_id: string; amount: number; paid_amount?: number | null; network: string; bundle_display: string; beneficiary_phone: string }
+
+/** The money to return to the customer: what they paid, falling back to the face amount on legacy rows. */
+export const refundAmountOf = (o: Pick<RefundOrder, "amount" | "paid_amount">) => Number(o.paid_amount ?? o.amount)
+
+/** Customer-facing refund notification text (prints the amount actually paid). */
+export const refundMessageOf = (o: RefundOrder) =>
+  `GHS ${refundAmountOf(o).toFixed(2)} for your ${o.network} ${o.bundle_display} bundle to ${o.beneficiary_phone} was refunded to your wallet.`
 
 export interface BundleRefundDeps {
   getOrder(id: string): Promise<RefundOrder | null>

@@ -15,7 +15,12 @@ export interface DataOrderRow {
   bundle_display: string
   beneficiary_phone: string
   amount: number
+  /** What the customer actually paid (cashback orders); null/absent on legacy rows. */
+  paid_amount?: number | null
 }
+
+/** The money to return to the customer: what they paid, falling back to the face amount on legacy rows. */
+const refundAmount = (o: DataOrderRow) => Number(o.paid_amount ?? o.amount)
 
 export interface DataOrdersAdapterDeps {
   /** Current order (null if missing). Throws on DB error (the sweep retries). */
@@ -85,9 +90,9 @@ export function createDataOrdersAdapter(deps: DataOrdersAdapterDeps): OrderAdapt
         return { refunded: false, message: "Order is not a paid failed order" }
       }
       // Credit first (idempotent by reference), then flip the status.
-      await deps.creditWallet(o.user_id, Number(o.amount), `data-refund-${id}`, `Refund: ${o.network} ${o.bundle_display} bundle ${tx.client_reference}`)
+      await deps.creditWallet(o.user_id, refundAmount(o), `data-refund-${id}`, `Refund: ${o.network} ${o.bundle_display} bundle ${tx.client_reference}`)
       const n = await deps.update(id, { status: "refunded", payment_status: "refunded" }, ["failed"])
-      await notifyCustomer(id, "Standard bundle refunded", x => `GHS ${Number(x.amount).toFixed(2)} for your ${summary(x)} was refunded to your wallet.`)
+      await notifyCustomer(id, "Standard bundle refunded", x => `GHS ${refundAmount(x).toFixed(2)} for your ${summary(x)} was refunded to your wallet.`)
       return {
         refunded: true,
         message: n > 0
@@ -102,7 +107,7 @@ export function dataOrdersAdapterFor(db: SupabaseClient): OrderAdapter {
   return createDataOrdersAdapter({
     async get(orderId) {
       const { data, error } = await db.from(DATA_ORDERS_TABLE)
-        .select("status, payment_status, user_id, network, bundle_display, beneficiary_phone, amount").eq("id", orderId).maybeSingle()
+        .select("status, payment_status, user_id, network, bundle_display, beneficiary_phone, amount, paid_amount").eq("id", orderId).maybeSingle()
       if (error) throw error
       return data ? (data as unknown as DataOrderRow) : null
     },

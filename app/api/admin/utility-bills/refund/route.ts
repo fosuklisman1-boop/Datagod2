@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
     const deps: BillRefundDeps = {
       async getOrder(id) {
         const { data, error } = await db.from(BILL_ORDERS_TABLE)
-          .select("id, reference_code, status, payment_status, hubtel_client_reference, notes, updated_at, user_id, biller, amount, account_number").eq("id", id).maybeSingle()
+          .select("id, reference_code, status, payment_status, hubtel_client_reference, notes, updated_at, user_id, biller, amount, paid_amount, account_number").eq("id", id).maybeSingle()
         if (error) throw error
         return (data as unknown as RefundOrder | null) ?? null
       },

@@ -17,8 +17,13 @@ export interface BillOrderRow {
   user_id: string
   biller: string
   amount: number
+  /** What the customer actually paid (cashback orders); null/absent on legacy rows. */
+  paid_amount?: number | null
   account_number: string
 }
+
+/** The money to return to the customer: what they paid, falling back to the face amount on legacy rows. */
+const refundAmount = (o: BillOrderRow) => Number(o.paid_amount ?? o.amount)
 
 export interface BillOrdersAdapterDeps {
   /** Current order (null if missing). Throws on DB error (the sweep retries). */
@@ -88,9 +93,9 @@ export function createBillOrdersAdapter(deps: BillOrdersAdapterDeps): OrderAdapt
         return { refunded: false, message: "Order is not a paid failed order" }
       }
       // Credit first (idempotent by reference), then flip the status.
-      await deps.creditWallet(o.user_id, Number(o.amount), `bill-refund-${id}`, `Refund: ${labelOf(o.biller)} bill ${tx.client_reference}`)
+      await deps.creditWallet(o.user_id, refundAmount(o), `bill-refund-${id}`, `Refund: ${labelOf(o.biller)} bill ${tx.client_reference}`)
       const n = await deps.update(id, { status: "refunded", payment_status: "refunded" }, ["failed"])
-      await notifyCustomer(id, "Bill refunded", x => `GHS ${Number(x.amount).toFixed(2)} for ${labelOf(x.biller)} to ${x.account_number} was refunded to your wallet.`)
+      await notifyCustomer(id, "Bill refunded", x => `GHS ${refundAmount(x).toFixed(2)} for ${labelOf(x.biller)} to ${x.account_number} was refunded to your wallet.`)
       return {
         refunded: true,
         message: n > 0
@@ -105,7 +110,7 @@ export function billOrdersAdapterFor(db: SupabaseClient): OrderAdapter {
   return createBillOrdersAdapter({
     async get(orderId) {
       const { data, error } = await db.from(BILL_ORDERS_TABLE)
-        .select("status, payment_status, user_id, biller, amount, account_number").eq("id", orderId).maybeSingle()
+        .select("status, payment_status, user_id, biller, amount, paid_amount, account_number").eq("id", orderId).maybeSingle()
       if (error) throw error
       return data ? (data as unknown as BillOrderRow) : null
     },

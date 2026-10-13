@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest"
 import {
-  bundleRefundDecision, executeBundleRefund, isStuckClaim, parseOrderFilters, releaseStuckClaimRow, STUCK_CLAIM_MS, UNSENT_GRACE_MS,
+  bundleRefundDecision, executeBundleRefund, isStuckClaim, parseOrderFilters, refundAmountOf, refundMessageOf, releaseStuckClaimRow, STUCK_CLAIM_MS, UNSENT_GRACE_MS,
   type BundleRefundDeps, type RefundOrder,
 } from "./admin"
 
@@ -153,5 +153,21 @@ describe("executeBundleRefund", () => {
     const r = await executeBundleRefund(deps({ creditWallet: async () => { throw new Error("boom") } }), "o1", "n")
     expect(r.status).toBe(502)
     expect(r.message).toContain("UNKNOWN")
+  })
+  it("never-sent refund hands creditWallet/notify the order whose refund amount is paid_amount", async () => {
+    const credited: number[] = [], texts: string[] = []
+    const o = facts({ status: "failed", amount: 10, paid_amount: 9.81 })
+    const r = await executeBundleRefund(deps({
+      getOrder: async () => o,
+      creditWallet: async x => { credited.push(refundAmountOf(x)) },
+      notifyRefunded: async x => { texts.push(refundMessageOf(x)) },
+    }), "o1", "n")
+    expect(r.ok).toBe(true)
+    expect(credited).toEqual([9.81])
+    expect(texts[0]).toContain("GHS 9.81 for")
+  })
+  it("refundAmountOf falls back to amount when paid_amount is null (legacy)", () => {
+    expect(refundAmountOf(facts({ amount: 10, paid_amount: null }))).toBe(10)
+    expect(refundMessageOf(facts({ amount: 10, paid_amount: null }))).toContain("GHS 10.00 for")
   })
 })
