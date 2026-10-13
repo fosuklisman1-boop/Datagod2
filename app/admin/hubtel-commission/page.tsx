@@ -167,6 +167,8 @@ export default function HubtelCommissionPage() {
   const [test, setTest] = useState({ serviceKey: "airtime_mtn" as HubtelCsServiceKey, destination: "", amount: "0.50", bundle: "" })
   const [testBusy, setTestBusy] = useState(false)
   const testInFlight = useRef(false)
+  const actionInFlight = useRef(false)
+  const [testLock, setTestLock] = useState(0)
   const [testResult, setTestResult] = useState<{ kind: "ok" | "unknown" | "error"; text: string; ref?: string } | null>(null)
   const [resolving, setResolving] = useState<{ row: Row; outcome: "fulfilled" | "failed" } | null>(null)
   const [note, setNote] = useState("")
@@ -176,18 +178,18 @@ export default function HubtelCommissionPage() {
   const [banner, setBanner] = useState<{ ok: boolean; text: string } | null>(null)
   const seq = useRef({ transactions: 0, review: 0 })
 
-  const loadConfig = useCallback(async () => {
+  const loadConfig = useCallback(async (opts?: { keepThreshold?: boolean }) => {
     try {
       const j = await authed("/api/admin/hubtel-cs/config")
       setConfig(j.config); setEnv(j.env); setServices(j.services ?? [])
-      setThreshold(j.config.lowBalanceThreshold == null ? "" : String(j.config.lowBalanceThreshold))
+      if (!opts?.keepThreshold) setThreshold(j.config.lowBalanceThreshold == null ? "" : String(j.config.lowBalanceThreshold))
       setConfigError(null)
     } catch (e) {
       setConfigError(errMsg(e)); toast.error(`Settings: ${errMsg(e)}`)
     }
   }, [])
 
-  const loadList = useCallback(async (scope: Scope, offset: number) => {
+  const loadList = useCallback(async (scope: Scope, offset: number): Promise<void> => {
     const id = ++seq.current[scope]
     const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset) })
     if (scope === "review") params.set("state", "attention")
@@ -198,7 +200,10 @@ export default function HubtelCommissionPage() {
     try {
       const j = await authed(`/api/admin/hubtel-cs/transactions?${params}`)
       if (id !== seq.current[scope]) return
-      const next: Listing = { rows: j.rows ?? [], total: j.total ?? 0, offset }
+      const total: number = j.total ?? 0
+      const maxOffset = total > 0 ? Math.floor((total - 1) / PAGE_SIZE) * PAGE_SIZE : 0
+      if (offset > maxOffset) { await loadList(scope, maxOffset); return }
+      const next: Listing = { rows: j.rows ?? [], total, offset }
       if (scope === "review") setReviewList(next); else setTxList(next)
       if (j.stats) setStats(j.stats)
     } catch (e) {
@@ -206,23 +211,40 @@ export default function HubtelCommissionPage() {
     }
   }, [filter, q])
 
+  const reloadLists = useCallback(async () => {
+    setLoading(true)
+    try { await Promise.all([loadList("transactions", 0), loadList("review", 0)]) }
+    finally { setLoading(false) }
+  }, [loadList])
   const reloadAll = useCallback(async () => {
     setLoading(true)
     try { await Promise.all([loadConfig(), loadList("transactions", 0), loadList("review", 0)]) }
     finally { setLoading(false) }
   }, [loadConfig, loadList])
-  useEffect(() => { reloadAll() }, [reloadAll])
+  // Config loads once; changing the filter/search only reloads the lists (never clobbers an unsaved threshold).
+  useEffect(() => { void loadConfig() }, [loadConfig])
+  useEffect(() => { void reloadLists() }, [reloadLists])
+  useEffect(() => {
+    if (testLock <= 0) return
+    const t = setTimeout(() => setTestLock(n => Math.max(0, n - 1)), 1000)
+    return () => clearTimeout(t)
+  }, [testLock])
 
   const refreshLists = () => Promise.all([loadList("transactions", txList.offset), loadList("review", reviewList.offset)])
 
   async function patchConfig(patch: object, okMsg = "Saved") {
+    if (actionInFlight.current) return
+    actionInFlight.current = true
     setBusy("config")
     try {
       const j = await authed("/api/admin/hubtel-cs/config", { method: "POST", body: JSON.stringify(patch) })
       setConfig(j.config)
-      setThreshold(j.config.lowBalanceThreshold == null ? "" : String(j.config.lowBalanceThreshold))
+      const touchedThreshold = "lowBalanceThreshold" in patch
+      if (touchedThreshold) setThreshold(j.config.lowBalanceThreshold == null ? "" : String(j.config.lowBalanceThreshold))
       toast.success(okMsg)
-    } catch (e) { toast.error(errMsg(e)) } finally { setBusy(null) }
+      // Readiness depends on the transport mode; re-read env status and gating from the server.
+      await loadConfig({ keepThreshold: !touchedThreshold })
+    } catch (e) { toast.error(errMsg(e)) } finally { actionInFlight.current = false; setBusy(null) }
   }
 
   async function checkStatus(r: Row) {
@@ -238,12 +260,14 @@ export default function HubtelCommissionPage() {
     const { row, outcome } = resolving
     const trimmed = note.trim()
     if (!trimmed || trimmed.length > NOTE_MAX) return
+    if (actionInFlight.current) return
+    actionInFlight.current = true
     setBusy("resolve")
     try {
       const j = await authed("/api/admin/hubtel-cs/resolve", { method: "POST", body: JSON.stringify({ ref: row.client_reference, outcome, note: trimmed }) })
       toast.success(j.message ?? "Resolved")
       setResolving(null)
-    } catch (e) { toast.error(errMsg(e)) } finally { setBusy(null); await refreshLists() }
+    } catch (e) { toast.error(errMsg(e)) } finally { actionInFlight.current = false; setBusy(null); await refreshLists() }
   }
 
   async function confirmRefund() {
@@ -251,6 +275,8 @@ export default function HubtelCommissionPage() {
     const row = refunding
     const force = !!row.resolved_by
     if (force && !refundAck) return
+    if (actionInFlight.current) return
+    actionInFlight.current = true
     setBusy("refund")
     try {
       const j = await authed("/api/admin/hubtel-cs/refund", { method: "POST", body: JSON.stringify({ ref: row.client_reference, ...(force ? { force: true } : {}) }) })
@@ -262,7 +288,7 @@ export default function HubtelCommissionPage() {
       setBanner({ ok: false, text: `${row.client_reference}: ${errMsg(e)}` })
       toast.error(errMsg(e))
       setRefunding(null)
-    } finally { setBusy(null); await refreshLists() }
+    } finally { actionInFlight.current = false; setBusy(null); await refreshLists() }
   }
 
   const testAmount = Number(test.amount)
@@ -271,7 +297,7 @@ export default function HubtelCommissionPage() {
   const testReady = testAmountValid && test.destination.trim() !== "" && (!testSvc.needsBundle || test.bundle.trim() !== "")
 
   async function sendTest() {
-    if (testInFlight.current || !testReady) return
+    if (testInFlight.current || testLock > 0 || !testReady) return
     testInFlight.current = true
     setTestBusy(true); setTestResult(null)
     try {
@@ -282,14 +308,24 @@ export default function HubtelCommissionPage() {
           bundle: test.bundle.trim() || undefined,
         }),
       })
-      setTestResult({ kind: "ok", text: `Test sent: state is ${j.tx?.state ?? "unknown"}`, ref: j.tx?.client_reference })
-      toast.success("Test purchase sent")
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 502) {
-        const m = /reference ([A-Za-z0-9_-]+)/.exec(e.message)
-        setTestResult({ kind: "unknown", text: e.message, ref: m?.[1] })
+      if (!j?.tx) {
+        setTestResult({ kind: "unknown", text: "The response had no transaction details, so the outcome is unknown.", ref: undefined })
+        setTestLock(10)
       } else {
+        setTestResult({ kind: "ok", text: `Test sent: state is ${j.tx.state ?? "unknown"}`, ref: j.tx.client_reference })
+        toast.success("Test purchase sent")
+      }
+    } catch (e) {
+      // Only an explicit 4xx (validation, disabled, duplicate, auth) proves nothing was sent. Anything else
+      // (network error, 5xx incl. 502/504, non-JSON gateway page, timeout) leaves the outcome unknown.
+      const explicit = e instanceof ApiError && e.status >= 400 && e.status < 500
+      if (explicit) {
         setTestResult({ kind: "error", text: errMsg(e) })
+      } else {
+        const m = /reference ([A-Za-z0-9_-]+)/.exec(errMsg(e))
+        const bodyRef = e instanceof ApiError && e.body && typeof e.body === "object" ? (e.body as { reference?: unknown }).reference : undefined
+        setTestResult({ kind: "unknown", text: errMsg(e), ref: typeof bodyRef === "string" ? bodyRef : m?.[1] })
+        setTestLock(10)
       }
       toast.error(errMsg(e))
     } finally {
@@ -335,10 +371,10 @@ export default function HubtelCommissionPage() {
         )}
 
         <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-          <Stat label="Transactions" value={String(stats?.total ?? 0)} hint={`${stats?.fulfilled ?? 0} fulfilled`} />
-          <Stat label="In flight" value={String(stats?.in_flight ?? 0)} hint="created or pending" />
-          <Stat label="Commission earned" value={money(stats?.commission_earned ?? 0, 4)} hint="fulfilled transactions" tone="text-emerald-600" />
-          <Stat label="Failed / needs review" value={String((stats?.needs_review ?? 0) + (stats?.failed ?? 0))} hint={`${stats?.needs_review ?? 0} review · ${stats?.failed ?? 0} failed`} />
+          <Stat label="Transactions" value={stats ? String(stats.total) : "—"} hint={stats ? `${stats.fulfilled} fulfilled` : undefined} />
+          <Stat label="In flight" value={stats ? String(stats.in_flight) : "—"} hint="created or pending" />
+          <Stat label="Commission earned" value={stats ? money(stats.commission_earned, 4) : "—"} hint="fulfilled transactions" tone="text-emerald-600" />
+          <Stat label="Failed / needs review" value={stats ? String(stats.needs_review + stats.failed) : "—"} hint={stats ? `${stats.needs_review} review · ${stats.failed} failed` : undefined} />
         </div>
 
         <Tabs defaultValue="settings">
@@ -368,7 +404,7 @@ export default function HubtelCommissionPage() {
                         <div className="font-medium">Commission Services enabled</div>
                         <div className="text-xs text-muted-foreground">Master switch{!config.enabled && env && !env.ready ? " (blocked: environment not ready)" : ""}</div>
                       </div>
-                      <Switch checked={config.enabled} disabled={anyBusy || (!config.enabled && !!env && !env.ready)}
+                      <Switch aria-label="Commission Services master switch" checked={config.enabled} disabled={anyBusy || (!config.enabled && !!env && !env.ready)}
                         onCheckedChange={v => patchConfig({ enabled: v }, v ? "Enabled" : "Disabled")} />
                     </div>
                     <div className="text-sm font-medium">Services</div>
@@ -378,7 +414,7 @@ export default function HubtelCommissionPage() {
                           <div className="font-medium">{s.label}</div>
                           {s.key === "bill_telecel_broadband" && <div className="text-xs text-muted-foreground">Off by default until verified</div>}
                         </div>
-                        <Switch checked={!!config.services[s.key]} disabled={anyBusy}
+                        <Switch aria-label={`${s.label} enabled`} checked={!!config.services[s.key]} disabled={anyBusy}
                           onCheckedChange={v => patchConfig({ services: { [s.key]: v } }, `${s.label} ${v ? "on" : "off"}`)} />
                       </div>
                     ))}
@@ -393,7 +429,7 @@ export default function HubtelCommissionPage() {
                     </CardHeader>
                     <CardContent className="space-y-3">
                       <Select value={config.mode} disabled={anyBusy} onValueChange={v => patchConfig({ mode: v }, "Transport updated")}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectTrigger aria-label="Transport mode"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="direct">Direct (Vercel)</SelectItem>
                           <SelectItem value="relay">Via relay droplet</SelectItem>
@@ -420,7 +456,7 @@ export default function HubtelCommissionPage() {
                     <CardContent className="space-y-3">
                       <div className="text-sm">Low-balance alert threshold (GHS)</div>
                       <div className="flex gap-2">
-                        <Input inputMode="decimal" placeholder="e.g. 200 (blank = off)" value={threshold} onChange={e => setThreshold(e.target.value)} />
+                        <Input aria-label="Low-balance alert threshold in GHS" inputMode="decimal" placeholder="e.g. 200 (blank = off)" value={threshold} onChange={e => setThreshold(e.target.value)} />
                         <Button disabled={anyBusy} onClick={() => {
                           const t = threshold.trim()
                           const n = Number(t)
@@ -440,21 +476,21 @@ export default function HubtelCommissionPage() {
                   </CardHeader>
                   <CardContent className="space-y-3">
                     <Select value={test.serviceKey} onValueChange={v => setTest(t => ({ ...t, serviceKey: v as HubtelCsServiceKey }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectTrigger aria-label="Test purchase service"><SelectValue /></SelectTrigger>
                       <SelectContent>{services.map(s => <SelectItem key={s.key} value={s.key}>{s.label}</SelectItem>)}</SelectContent>
                     </Select>
-                    <Input placeholder="Destination (e.g. 233246912184)" value={test.destination} onChange={e => setTest(t => ({ ...t, destination: e.target.value }))} />
+                    <Input aria-label="Test destination number" placeholder="Destination (e.g. 233246912184)" value={test.destination} onChange={e => setTest(t => ({ ...t, destination: e.target.value }))} />
                     <div>
-                      <Input inputMode="decimal" placeholder={`Amount (max ${TEST_MAX})`} value={test.amount} onChange={e => setTest(t => ({ ...t, amount: e.target.value }))} />
+                      <Input aria-label="Test amount in GHS" inputMode="decimal" placeholder={`Amount (max ${TEST_MAX})`} value={test.amount} onChange={e => setTest(t => ({ ...t, amount: e.target.value }))} />
                       {!testAmountValid && <div className="mt-1 text-xs text-red-600">Enter an amount above 0 and at most GHS {TEST_MAX}</div>}
                     </div>
                     {testSvc.needsBundle && (
-                      <Input placeholder="Bundle value / meter number (exactly as Hubtel returns it)" value={test.bundle} onChange={e => setTest(t => ({ ...t, bundle: e.target.value }))} />
+                      <Input aria-label="Test bundle or meter number" placeholder="Bundle value / meter number (exactly as Hubtel returns it)" value={test.bundle} onChange={e => setTest(t => ({ ...t, bundle: e.target.value }))} />
                     )}
-                    <Button className="w-full" disabled={testBusy || !testReady} onClick={sendTest}>{testBusy ? "Sending..." : "Send test purchase"}</Button>
+                    <Button className="w-full" disabled={testBusy || testLock > 0 || !testReady} onClick={sendTest}>{testBusy ? "Sending..." : testLock > 0 ? `Locked: check Transactions (${testLock}s)` : "Send test purchase"}</Button>
                     {testResult && (
                       <div className={`rounded-xl border p-3 text-sm ${testResult.kind === "ok" ? "border-emerald-300 bg-emerald-50 text-emerald-900" : testResult.kind === "unknown" ? "border-red-500 bg-red-100 font-semibold text-red-900" : "border-red-300 bg-red-50 text-red-900"}`}>
-                        {testResult.kind === "unknown" && <div className="mb-1 text-base">Outcome unknown: do NOT retry. Check this reference first.</div>}
+                        {testResult.kind === "unknown" && <div className="mb-1 text-base">Outcome unknown: do NOT retry. Check the Transactions tab before sending another.</div>}
                         <div>{testResult.text}</div>
                         {testResult.ref && <div className="mt-1 break-all font-mono text-xs">Client reference: {testResult.ref}</div>}
                       </div>
@@ -469,11 +505,11 @@ export default function HubtelCommissionPage() {
             <Card>
               <CardContent className="flex flex-col gap-3 p-4 sm:flex-row">
                 <form className="flex flex-1 gap-2" onSubmit={e => { e.preventDefault(); setQ(qInput) }}>
-                  <Input placeholder="Search phone, reference or Hubtel id" value={qInput} maxLength={100} onChange={e => setQInput(e.target.value)} />
+                  <Input aria-label="Search by phone, reference or Hubtel id" placeholder="Search phone, reference or Hubtel id" value={qInput} maxLength={100} onChange={e => setQInput(e.target.value)} />
                   <Button type="submit" variant="outline" aria-label="Search"><Search className="h-4 w-4" /></Button>
                 </form>
                 <Select value={filter} onValueChange={setFilter}>
-                  <SelectTrigger className="sm:w-56"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="sm:w-56" aria-label="Filter by state"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All statuses</SelectItem>
                     <SelectItem value="created">Created</SelectItem>
@@ -522,7 +558,7 @@ export default function HubtelCommissionPage() {
             </label>
           )}
           <div>
-            <Textarea placeholder="Note (required)" maxLength={NOTE_MAX + 50} value={note} onChange={e => setNote(e.target.value)} />
+            <Textarea aria-label="Resolution note" placeholder="Note (required)" maxLength={NOTE_MAX + 50} value={note} onChange={e => setNote(e.target.value)} />
             <div className={`mt-1 text-right text-xs ${note.trim().length > NOTE_MAX ? "text-red-600" : "text-muted-foreground"}`}>{note.trim().length}/{NOTE_MAX}</div>
           </div>
           <DialogFooter>
