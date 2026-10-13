@@ -342,14 +342,14 @@ describe("purchaseAirtime — instant cashback", () => {
   it("provider manual ⇒ legacy fee path", async () => {
     h.state.settings.commission_cashback_config = CASHBACK_CFG
     h.state.settings.airtime_provider_mtn = { provider: "manual" }
-    await buy({ expectedPay: 1 })
+    await buy()
     expect(h.state.orderInserts[0]).toEqual(LEGACY_ROW)
     expect(h.state.deductCalls[0].p_amount).toBe(10)
   })
 
   it("shopId set ⇒ legacy path even with the dashboard switch on", async () => {
     h.state.settings.commission_cashback_config = CASHBACK_CFG
-    await buy({ shopId: "shop-1", expectedPay: 1 })
+    await buy({ shopId: "shop-1" })
     expect(h.state.orderInserts[0]).toEqual({ ...LEGACY_ROW, shop_id: "shop-1" })
     expect(h.state.orderInserts[0]).not.toHaveProperty("cashback_amount")
   })
@@ -360,7 +360,7 @@ describe("purchaseAirtime — instant cashback", () => {
 
     h.state.orderInserts = []; h.state.deductCalls = []; h.state.txInserts = []
     h.state.settings.commission_cashback_config = CASHBACK_CFG // dashboard on, api off
-    await buy({ channel: "api", expectedPay: 1 })
+    await buy({ channel: "api" })
 
     expect(h.state.orderInserts[0]).toEqual(LEGACY_ROW)
     expect(h.state.orderInserts[0]).toEqual({ ...before.order, reference_code: expect.any(String) })
@@ -372,8 +372,58 @@ describe("purchaseAirtime — instant cashback", () => {
   it("config read throws ⇒ legacy path", async () => {
     h.state.settings.commission_cashback_config = CASHBACK_CFG
     h.state.cashbackReadError = true
-    await buy({ expectedPay: 1 })
+    await buy()
     expect(h.state.orderInserts[0]).toEqual(LEGACY_ROW)
     expect(h.state.deductCalls[0].p_amount).toBe(10)
+  })
+
+  it("applied price shown, then switch turned off ⇒ PRICE_CHANGED with the legacy quote, no debit, no insert", async () => {
+    // No cashback config (switch off): legacy total is 10, client expected the cashback price 9.91.
+    await expect(buy({ expectedPay: 9.91 })).rejects.toMatchObject({
+      code: "PRICE_CHANGED",
+      quote: { faceAmount: 10, payAmount: 10, customerCashback: 0 },
+    })
+    expect(h.state.deductCalls).toHaveLength(0)
+    expect(h.state.orderInserts).toHaveLength(0)
+  })
+
+  it("legacy path with matching expectedPay proceeds unchanged", async () => {
+    await buy({ expectedPay: 10 })
+    expect(h.state.orderInserts[0]).toEqual(LEGACY_ROW)
+  })
+
+  it("hubtel provider with face above Hubtel's max (101) ⇒ legacy path, no cashback", async () => {
+    h.state.settings.commission_cashback_config = CASHBACK_CFG
+    h.state.settings.airtime_provider_mtn = { provider: "hubtel" }
+    await buy({ airtimeAmount: 101 })
+    // 5% inclusive fee: 101*5/105 = 4.81, recipient 96.19
+    expect(h.state.orderInserts[0]).toEqual({ ...LEGACY_ROW, airtime_amount: 96.19, fee_amount: 4.81, total_paid: 101 })
+    expect(h.state.deductCalls[0].p_amount).toBe(101)
+  })
+
+  it("hubtel provider with face at Hubtel's max (100) still gets cashback", async () => {
+    h.state.settings.commission_cashback_config = CASHBACK_CFG
+    h.state.settings.airtime_provider_mtn = { provider: "hubtel" }
+    await buy({ airtimeAmount: 100 })
+    // 10000 * 3.96 * 25 / 10000 = 99 pesewas
+    expect(h.state.deductCalls[0].p_amount).toBe(99.01)
+    expect(h.state.orderInserts[0]).toMatchObject({ airtime_amount: 100, cashback_amount: 0.99 })
+  })
+
+  it("AirtelTigo resolves to the airtime_at rate key", async () => {
+    h.state.settings.network_prefix_validation_enabled = { enabled: false }
+    h.state.settings.commission_cashback_config = {
+      ...CASHBACK_CFG,
+      rates: { "airtime_at:digiwapy": 3.96 }, // no MTN rate: only the AT key can apply
+    }
+    await buy({ network: "AirtelTigo", beneficiaryPhone: "0271234567" })
+    expect(h.state.deductCalls[0].p_amount).toBe(9.91)
+    expect(h.state.orderInserts[0]).toMatchObject({ network: "AirtelTigo", airtime_amount: 10, cashback_provider: "digiwapy" })
+  })
+
+  it("applied path INSUFFICIENT_BALANCE reports required = payAmount", async () => {
+    h.state.settings.commission_cashback_config = CASHBACK_CFG
+    h.state.deductResult = []
+    await expect(buy()).rejects.toMatchObject({ code: "INSUFFICIENT_BALANCE", required: 9.91 })
   })
 })

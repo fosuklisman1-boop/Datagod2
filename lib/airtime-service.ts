@@ -2,7 +2,8 @@ import { createClient } from "@supabase/supabase-js"
 import { isDigiWapyConfigured, isDigiWapyEnabledForNetwork, sendAirtimeViaDigiwapy } from "@/lib/digiwapy-provider"
 import { notifyAdmins, SMSTemplates } from "@/lib/sms-service"
 import { type AirtimeOrderMinimal, fulfillAirtimeViaHubtel } from "@/lib/airtime-hubtel"
-import { getAirtimeProvider, airtimeNetId } from "@/lib/airtime-provider"
+import { getAirtimeProvider, airtimeNetId, type AirtimeProvider } from "@/lib/airtime-provider"
+import { HUBTEL_CS_SERVICES } from "@/lib/hubtel-cs/services"
 import { getCashbackConfig, type CashbackChannel } from "@/lib/cashback/config"
 import { quoteCashback, samePrice, type CashbackQuote } from "@/lib/cashback/quote"
 import { secureReference } from "@/lib/secure-random"
@@ -80,10 +81,15 @@ async function fulfillViaDigiwapy(order: AirtimeOrderMinimal): Promise<boolean> 
  * Single fulfilment chokepoint for every airtime surface (wallet, storefront Paystack, API v1, USSD).
  * Provider per network: explicit admin setting, else the legacy Digiwapy toggle. Never falls back
  * between providers automatically.
+ * `resolvedProvider`: a provider already resolved for this order (cashback quote) — reused so the
+ * snapshot provider and the sending provider are always the same.
  */
-export async function triggerAirtimeFulfillment(order: AirtimeOrderMinimal): Promise<boolean> {
+export async function triggerAirtimeFulfillment(
+  order: AirtimeOrderMinimal,
+  resolvedProvider?: AirtimeProvider,
+): Promise<boolean> {
   try {
-    const provider = await getAirtimeProvider(supabase, order.network, isDigiWapyEnabledForNetwork)
+    const provider = resolvedProvider ?? await getAirtimeProvider(supabase, order.network, isDigiWapyEnabledForNetwork)
     console.log(`[AIRTIME-SVC] provider for ${order.network}: ${provider}`)
     if (provider === "digiwapy") return await fulfillViaDigiwapy(order)
     if (provider === "hubtel") {
@@ -233,15 +239,20 @@ async function quoteAirtimeCashback(
   faceAmount: number,
   buyer: "customer" | "dealer",
   channel: CashbackChannel,
-): Promise<CashbackQuote | null> {
+): Promise<(CashbackQuote & { airtimeProvider: AirtimeProvider }) | null> {
   try {
     const netId = airtimeNetId(network)
     if (!netId) return null
     const cfg = await getCashbackConfig(supabase)
     if (!cfg.enabled || !cfg.surfaces[channel]) return null
+    const serviceKey = `airtime_${netId}` as const
     const provider = await getAirtimeProvider(supabase, network, isDigiWapyEnabledForNetwork)
-    const q = quoteCashback({ serviceKey: `airtime_${netId}`, provider, faceAmount, buyer, channel }, cfg)
-    return q.applied ? q : null
+    // Hubtel rejects face above its per-request cap after the debit: never give cashback on an order
+    // Hubtel cannot send (no commission would be earned). Legacy path, exactly as today.
+    const hubtelMax = HUBTEL_CS_SERVICES[serviceKey].maxAmount ?? Infinity
+    if (provider === "hubtel" && faceAmount > hubtelMax) return null
+    const q = quoteCashback({ serviceKey, provider, faceAmount, buyer, channel }, cfg)
+    return q.applied ? { ...q, airtimeProvider: provider } : null
   } catch (e: any) {
     console.warn("[AIRTIME-SVC] cashback quote unavailable, using standard pricing:", e?.message ?? e)
     return null
@@ -354,16 +365,6 @@ export async function purchaseAirtime(params: PurchaseAirtimeParams): Promise<Pu
     airtimeToRecipient = params.airtimeAmount
     totalPaid = cashback.payAmount
     feeAmount = 0
-    if (expectedPay !== undefined && !samePrice(expectedPay, cashback.payAmount)) {
-      const err: any = new Error("The price has changed. Please review the new price and try again.")
-      err.code = "PRICE_CHANGED"
-      err.quote = {
-        faceAmount: cashback.faceAmount,
-        payAmount: cashback.payAmount,
-        customerCashback: cashback.customerCashback,
-      }
-      throw err
-    }
   } else {
     if (paySeparately) {
       airtimeToRecipient = params.airtimeAmount
@@ -375,6 +376,19 @@ export async function purchaseAirtime(params: PurchaseAirtimeParams): Promise<Pu
       airtimeToRecipient = parseFloat((totalPaid - totalFeeAmount).toFixed(2))
     }
     feeAmount = parseFloat((totalPaid - airtimeToRecipient).toFixed(2))
+  }
+
+  // Price the client showed vs. what we'd charge now — on BOTH paths (e.g. cashback switched off after the
+  // page loaded). Thrown before the duplicate check and any debit. No current caller omits => legacy unchanged.
+  if (expectedPay !== undefined && !samePrice(expectedPay, totalPaid)) {
+    const err: any = new Error("The price has changed. Please review the new price and try again.")
+    err.code = "PRICE_CHANGED"
+    err.quote = {
+      faceAmount: params.airtimeAmount,
+      payAmount: totalPaid,
+      customerCashback: cashback ? cashback.customerCashback : 0,
+    }
+    throw err
   }
 
   const thirtySecondsAgo = new Date(Date.now() - 30_000).toISOString()
@@ -485,7 +499,7 @@ export async function purchaseAirtime(params: PurchaseAirtimeParams): Promise<Pu
     network,
     beneficiary_phone: cleanPhone,
     airtime_amount: airtimeToRecipient,
-  })
+  }, cashback ? cashback.airtimeProvider : undefined)
 
   try {
     const { data: shopData } = order.shop_id

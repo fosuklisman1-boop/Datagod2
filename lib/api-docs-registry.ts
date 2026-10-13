@@ -94,6 +94,7 @@ export const apiDocsRegistry: ApiDocSection[] = [
           { name: "recipient", type: "string", required: true, description: "10-digit recipient phone number" },
           { name: "amount", type: "number", required: true, description: "GHS amount (subject to the admin-configured min/max — check GET /api/v1/products for current limits)" },
           { name: "pay_separately", type: "boolean", required: false, description: "If true, the fee is added on top instead of deducted from amount" },
+          { name: "expected_pay", type: "number", required: false, description: "The GHS amount you expect to be charged. If the current price differs, nothing is charged and you get a 409 with the current `quote`" },
         ],
         curl: `curl -X POST ${BASE_URL}/api/v1/airtime \\\n  -H "X-API-Key: dg_live_your_key_here" \\\n  -H "Content-Type: application/json" \\\n  -d '{ "network": "MTN", "recipient": "0541234567", "amount": 5 }'`,
         successExample: `{\n  "success": true,\n  "order": { "reference_code": "AT-XXX-YYY", "status": "pending" },\n  "new_balance": 32.5\n}`,
@@ -101,6 +102,7 @@ export const apiDocsRegistry: ApiDocSection[] = [
           { status: 400, body: `{ "success": false, "error": "0201234567 looks like a Telecel number - check the number or switch to Telecel." }` },
           { status: 402, body: `{ "success": false, "error": "Insufficient wallet balance", "required": 5.25 }` },
           { status: 403, body: `{ "success": false, "error": "Please verify your phone number to continue. Visit your dashboard to complete verification." }` },
+          { status: 409, body: `{ "success": false, "error": "The price has changed. Please review the new price and try again.", "quote": { "faceAmount": 10, "payAmount": 10, "customerCashback": 0 } }` },
         ],
       },
       {
