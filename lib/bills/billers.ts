@@ -92,6 +92,11 @@ export function parseLookup(biller: BillerKey, items: HubtelQueryItem[]): Parsed
   return out
 }
 
+/** Plain positive decimal with at most 2 decimal places (no sign, exponent, spaces). */
+export function isValidAmountInput(s: string): boolean {
+  return /^\d+(\.\d{1,2})?$/.test(s)
+}
+
 export function suggestedAmount(amountDue: number | null): number {
   if (amountDue === null || !Number.isFinite(amountDue) || amountDue <= 0) return 0
   return Math.round(amountDue * 100) / 100

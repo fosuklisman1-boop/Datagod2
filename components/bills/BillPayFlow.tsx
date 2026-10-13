@@ -1,7 +1,8 @@
 "use client"
 
 import { useRef, useState } from "react"
-import { ArrowRight, CheckCircle2, Loader2, Phone } from "lucide-react"
+import { ArrowRight, CheckCircle2, Clock, Loader2, Phone, XCircle } from "lucide-react"
+import { isValidAmountInput } from "@/lib/bills/billers"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import { supabase } from "@/lib/supabase"
 import type { AvailabilityBiller } from "./use-bills-availability"
@@ -179,7 +180,7 @@ function PaySheet({
   }
 
   const numAmount = Number(amount)
-  const amountValid = /^d+(.d{1,2})?$/.test(amount) && Number.isFinite(numAmount) && numAmount >= biller.min && numAmount <= biller.max
+  const amountValid = isValidAmountInput(amount) && Number.isFinite(numAmount) && numAmount >= biller.min && numAmount <= biller.max
   const insufficient = balance !== null && amountValid && numAmount > balance
 
   const pay = async () => {
@@ -342,7 +343,13 @@ function PaySheet({
 
           {step === "done" && (
             <div className="space-y-4 py-2 text-center">
-              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-success/15"><CheckCircle2 className="h-9 w-9 text-success" /></div>
+              {doneStatus === "failed" ? (
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-destructive/15"><XCircle className="h-9 w-9 text-destructive" /></div>
+              ) : doneStatus === "completed" ? (
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-success/15"><CheckCircle2 className="h-9 w-9 text-success" /></div>
+              ) : (
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-warning/15"><Clock className="h-9 w-9 text-warning" /></div>
+              )}
               <div>
                 <h3 className="text-lg font-bold text-foreground">{doneStatus === "completed" ? "Completed" : doneStatus === "failed" ? "Payment failed" : "Processing"}</h3>
                 <p className="mt-1 text-sm text-muted-foreground">{doneStatus === "completed" ? "Your bill has been paid." : doneStatus === "failed" ? "Payment failed — under review; a refund follows if nothing was delivered." : "Processing — we'll notify you when it completes."}</p>

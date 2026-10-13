@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { BILLERS, BILLER_KEYS, isBillerKey, lookupRequest, normaliseInputs, parseLookup, purchaseFields, suggestedAmount } from "./billers"
+import { isValidAmountInput, BILLERS, BILLER_KEYS, isBillerKey, lookupRequest, normaliseInputs, parseLookup, purchaseFields, suggestedAmount } from "./billers"
 
 const it_ = (Display: string, Value: string, Amount: number) => ({ Display, Value, Amount })
 
@@ -73,4 +73,9 @@ describe("billers", () => {
     expect(parseLookup("dstv", [it_("amountDue", "n/a", 0)]).amountDue).toBeNull()
     expect(parseLookup("ghana_water", [it_("amountDue", "", 55)]).amountDue).toBe(55)
   })
+})
+
+describe("isValidAmountInput", () => {
+  it.each(["10", "10.5", "10.50", "0.50"])("accepts %j", s => expect(isValidAmountInput(s)).toBe(true))
+  it.each(["abc", "1e3", "10.555", "", " 10", "-5", "10."])("rejects %j", s => expect(isValidAmountInput(s)).toBe(false))
 })
