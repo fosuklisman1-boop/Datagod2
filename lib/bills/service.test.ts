@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest"
 import { verifyBill, payBill, dispatchBillOrder, type BillsDeps, type BillOrderRow } from "./service"
 import { resolveBillsConfig, type BillsConfig } from "./config"
 import { BILLER_KEYS } from "./billers"
-import { HubtelPausedError, HubtelOutcomeUnknownError } from "@/lib/hubtel-cs/errors"
+import { HubtelPausedError, HubtelOutcomeUnknownError, HubtelDuplicateOrderError } from "@/lib/hubtel-cs/errors"
 import type { HubtelCsTx } from "@/lib/hubtel-cs/types"
 
 const allOn = (): BillsConfig =>
@@ -14,7 +14,8 @@ function make(over: Partial<BillsDeps> = {}) {
   const cfg = allOn()
   const hub = { enabled: true, paused: false, services: Object.fromEntries(BILLER_KEYS.map(k => ["bill_" + k, true])) as Record<string, boolean> }
   let queryResult: any = { ok: true, data: [{ Display: "Name", Value: "Kofi", Amount: 0 }, { Display: "Amount Due", Value: "42.5", Amount: 0 }] }
-  let wallet: "ok" | "insufficient" = "ok"
+  let wallet: "ok" | "insufficient" | "not_found" | "throw_paid" | "throw_unpaid" = "ok"
+  const hashes = new Set<string>()
   const d: BillsDeps = {
     getBillsConfig: async () => cfg,
     getHubtelConfig: async () => hub,
@@ -22,6 +23,10 @@ function make(over: Partial<BillsDeps> = {}) {
     purchase: async (i) => { calls.purchase++; calls.purchaseInputs.push(i); return { client_reference: "CR1", state: "pending" } as HubtelCsTx },
     insertOrder: async (r) => {
       calls.insert++
+      if ((r as any).verify_token_hash) {
+        if (hashes.has((r as any).verify_token_hash)) throw Object.assign(new Error("duplicate key"), { code: "23505" })
+        hashes.add((r as any).verify_token_hash)
+      }
       const o = { ...r, id: "o" + (orders.length + 1), hubtel_client_reference: null, commission: null, failure_reason: null, notes: null, created_at: "", updated_at: "" } as BillOrderRow
       orders.push(o)
       return { ...o }
@@ -32,7 +37,14 @@ function make(over: Partial<BillsDeps> = {}) {
       Object.assign(o, patch)
       return 1
     },
-    debitWallet: async () => { calls.debit++; return wallet },
+    getOrder: async (id) => { const o = orders.find(x => x.id === id); return o ? { ...o } : null },
+    debitOrder: async (id) => {
+      calls.debit++
+      const o = orders.find(x => x.id === id)!
+      if (wallet === "ok" || wallet === "throw_paid") o.payment_status = "paid"
+      if (wallet === "throw_paid" || wallet === "throw_unpaid") throw new Error("rpc down")
+      return wallet
+    },
     alert: async (m) => { calls.alerts.push(m) },
     newReference: () => "BILL-ABC",
     secret: "s".repeat(40),
@@ -44,7 +56,7 @@ function make(over: Partial<BillsDeps> = {}) {
     setCfg: (f: (c: BillsConfig) => void) => f(cfg),
     setHub: (f: (h: typeof hub) => void) => f(hub),
     setQuery: (q: any) => { queryResult = q },
-    setWallet: (w: "ok" | "insufficient") => { wallet = w },
+    setWallet: (w: "ok" | "insufficient" | "not_found" | "throw_paid" | "throw_unpaid") => { wallet = w },
   }
 }
 const token = async (m: ReturnType<typeof make>, biller = "dstv", inputs: any = { account: "1234567890" }) => {
@@ -124,8 +136,9 @@ describe("payBill", () => {
     const m = make(); m.setWallet("insufficient"); const t = await token(m)
     const r = await payBill(m.d, "u1", t, 10)
     expect(r).toMatchObject({ ok: false, status: 402 })
-    expect(m.orders[0]).toMatchObject({ status: "failed", failure_reason: "Insufficient wallet balance" })
+    expect(m.orders[0]).toMatchObject({ status: "failed", payment_status: "unpaid", failure_reason: "Insufficient wallet balance" })
     expect(m.calls.purchase).toBe(0)
+    expect(m.calls.debit).toBe(1)
   })
   it("9 happy path, Ghana Water extras", async () => {
     const m = make()
@@ -169,5 +182,81 @@ describe("payBill", () => {
     expect(m.calls.alerts.length).toBe(1)
     expect(await dispatchBillOrder(d, m.orders[0])).toBe("processing")
     expect(n).toBe(1)
+  })
+})
+
+describe("review fixes", () => {
+  it("debitOrder throws but DB says paid => continues as paid and dispatches", async () => {
+    const m = make(); m.setWallet("throw_paid"); const t = await token(m)
+    const r = await payBill(m.d, "u1", t, 10)
+    expect(r.ok && r.order).toMatchObject({ payment_status: "paid", status: "processing" })
+    expect(m.calls.purchase).toBe(1)
+  })
+  it("debitOrder throws and DB unpaid => alert + 500, no purchase, order left pending unpaid", async () => {
+    const m = make(); m.setWallet("throw_unpaid"); const t = await token(m)
+    const r = await payBill(m.d, "u1", t, 10)
+    expect(r).toMatchObject({ ok: false, status: 500 })
+    expect(m.orders[0]).toMatchObject({ status: "pending", payment_status: "unpaid" })
+    expect(m.calls.alerts.join()).toMatch(/debit outcome uncertain/)
+    expect(m.calls.purchase).toBe(0)
+  })
+  it("not_found => 409", async () => {
+    const m = make(); m.setWallet("not_found"); const t = await token(m)
+    expect(await payBill(m.d, "u1", t, 10)).toMatchObject({ ok: false, status: 409 })
+    expect(m.calls.purchase).toBe(0)
+  })
+  it("token reuse => 409, nothing debited the second time", async () => {
+    const m = make(); const t = await token(m)
+    expect((await payBill(m.d, "u1", t, 10)).ok).toBe(true)
+    const r = await payBill(m.d, "u1", t, 10)
+    expect(r).toMatchObject({ ok: false, status: 409 })
+    expect(m.calls.debit).toBe(1)
+    expect(m.calls.purchase).toBe(1)
+  })
+  it("Not-sent note is guarded; no alert when 0 rows matched", async () => {
+    const m = make()
+    const d: BillsDeps = {
+      ...m.d,
+      purchase: async () => { throw new HubtelPausedError(null) },
+      updateOrder: async (id, patch, only) => { if ((patch as any).notes && only?.includes("pending")) { m.orders[0].status = "failed"; return 0 } return m.d.updateOrder(id, patch, only) },
+    }
+    const t = await token(m)
+    await payBill(d, "u1", t, 10)
+    expect(m.calls.alerts.length).toBe(0)
+  })
+  it("duplicate order error alerts and does not write", async () => {
+    const m = make()
+    const d = { ...m.d, purchase: async () => { throw new HubtelDuplicateOrderError("hubtel_bill_orders", "o1") } }
+    const t = await token(m)
+    const r = await payBill(d, "u1", t, 10)
+    expect(r.ok && r.order.status).toBe("pending")
+    expect(m.calls.alerts.join()).toMatch(/do not resend/)
+  })
+  it("stale snapshot (fresh row failed) => no purchase", async () => {
+    const m = make(); const t = await token(m)
+    await payBill({ ...m.d, purchase: async () => { throw new HubtelPausedError(null) } }, "u1", t, 10)
+    const stale = { ...m.orders[0] }
+    m.orders[0].status = "failed"
+    expect(await dispatchBillOrder(m.d, stale)).toBe("failed")
+    expect(m.calls.purchase).toBe(0)
+  })
+  it("empty secret => 503 on verify and pay", async () => {
+    const m = make(); const d = { ...m.d, secret: "" }
+    expect(await verifyBill(d, "u1", "dstv", { account: "1234567890" })).toMatchObject({ ok: false, status: 503 })
+    expect(await payBill(d, "u1", "x.y", 10)).toMatchObject({ ok: false, status: 503 })
+    expect(m.calls.query + m.calls.insert).toBe(0)
+  })
+  it("getBillsConfig throws / hubtel disabled => 503, nothing written", async () => {
+    const m = make(); const t = await token(m)
+    expect(await payBill({ ...m.d, getBillsConfig: async () => { throw new Error("x") } }, "u1", t, 10)).toMatchObject({ ok: false, status: 503 })
+    m.setHub(h => { h.enabled = false })
+    expect(await payBill(m.d, "u1", t, 10)).toMatchObject({ ok: false, status: 503 })
+    expect(m.calls.insert + m.calls.debit).toBe(0)
+  })
+  it("query throw => generic 422; addMeter without account => 400 meter message", async () => {
+    const m = make()
+    const r = await verifyBill({ ...m.d, query: async () => { throw new Error("secret detail") } }, "u1", "dstv", { account: "1234567890" })
+    expect(r).toMatchObject({ ok: false, status: 422, error: "Couldn't verify this account right now" })
+    expect(await verifyBill(m.d, "u1", "ecg", { phone: "0244000000", addMeter: true })).toMatchObject({ ok: false, status: 400, error: "Enter the meter or account number" })
   })
 })

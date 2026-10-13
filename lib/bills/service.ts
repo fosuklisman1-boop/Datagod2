@@ -1,3 +1,4 @@
+import { createHash } from "crypto"
 import type { HubtelCsServiceKey } from "@/lib/hubtel-cs/services"
 import type { HubtelCsTx, HubtelQueryItem } from "@/lib/hubtel-cs/types"
 import type { PurchaseInput } from "@/lib/hubtel-cs/client"
@@ -23,9 +24,11 @@ export interface BillsDeps {
   query(serviceKey: HubtelCsServiceKey, destination: string, params?: { mobile?: string }):
     Promise<{ ok: true; data: HubtelQueryItem[] } | { ok: false; error: string; code?: string }>
   purchase(input: PurchaseInput): Promise<HubtelCsTx>
-  insertOrder(row: Omit<BillOrderRow, "id" | "created_at" | "updated_at" | "hubtel_client_reference" | "commission" | "failure_reason" | "notes">): Promise<BillOrderRow>
+  insertOrder(row: Omit<BillOrderRow, "id" | "created_at" | "updated_at" | "hubtel_client_reference" | "commission" | "failure_reason" | "notes"> & { verify_token_hash: string }): Promise<BillOrderRow>
+  getOrder(id: string): Promise<BillOrderRow | null>
   updateOrder(id: string, patch: Partial<BillOrderRow>, onlyFromStatuses?: BillOrderRow["status"][]): Promise<number>
-  debitWallet(userId: string, amount: number): Promise<"ok" | "insufficient">
+  /** Atomic: lock order, deduct wallet, mark paid, write history. Throws on RPC error (outcome unknown). */
+  debitOrder(orderId: string): Promise<"ok" | "insufficient" | "not_found">
   alert(message: string): Promise<void>
   newReference(): string
   secret: string
@@ -67,6 +70,7 @@ export async function verifyBill(
   d: BillsDeps, userId: string, biller: string, inputs: BillInputs & { addMeter?: boolean; consent?: boolean },
 ): Promise<VerifyResult> {
   if (!isBillerKey(biller)) return fail(400, "Unknown biller")
+  if (!d.secret) return fail(503, "Temporarily unavailable")
   const g = await gate(d, biller)
   if (!g.ok) return g
   const hg = await hubtelGate(d, biller, { checkPause: false })
@@ -75,15 +79,15 @@ export async function verifyBill(
   if (!n.ok) return fail(400, n.error)
   const v = n.value
   const addMeter = biller === "ecg" && inputs.addMeter === true
-  if (addMeter && (!v.account || inputs.consent !== true)) {
-    return fail(400, "Tick to confirm linking this meter to your payment before continuing")
-  }
+  if (addMeter && !v.account) return fail(400, "Enter the meter or account number")
+  if (addMeter && inputs.consent !== true) return fail(400, "Tick to confirm linking this meter to your payment before continuing")
   const req = lookupRequest(biller, v)
   let res: Awaited<ReturnType<BillsDeps["query"]>>
   try {
     res = await d.query(BILLERS[biller].serviceKey, req.destination, req.mobile ? { mobile: req.mobile } : undefined)
   } catch (e) {
-    return fail(422, `Couldn't verify this account: ${msg(e)}`)
+    console.error("[bills] lookup threw:", msg(e))
+    return fail(422, "Couldn't verify this account right now")
   }
   if (!res.ok) return fail(422, `Couldn't verify this account: ${res.error}`)
   const parsed = parseLookup(biller, res.data)
@@ -113,6 +117,7 @@ export async function verifyBill(
 export type PayResult = { ok: true; order: BillOrderRow } | { ok: false; status: number; error: string; order?: BillOrderRow }
 
 export async function payBill(d: BillsDeps, userId: string, token: string, amount: number): Promise<PayResult> {
+  if (!d.secret) return fail(503, "Temporarily unavailable")
   const v = verifyBillToken(token, d.secret, userId, d.now())
   if (!v) return fail(400, "Please verify the account again")
   // Every pre-debit check happens before the first write.
@@ -124,33 +129,40 @@ export async function payBill(d: BillsDeps, userId: string, token: string, amoun
   const hg = await hubtelGate(d, v.biller, { checkPause: true })
   if (!hg.ok) return hg
 
-  let order = await d.insertOrder({
-    reference_code: d.newReference(), user_id: userId, biller: v.biller, account_number: v.account, phone: v.phone,
-    email: v.email, broadband_account: v.broadbandAccount, session_id: v.sessionId, customer_name: v.customerName,
-    verified: v.verified, amount: pay, status: "pending", payment_status: "unpaid",
-  })
-
-  let debit: "ok" | "insufficient"
+  let order: BillOrderRow
   try {
-    debit = await d.debitWallet(userId, pay)
-  } catch {
-    const patch = { status: "failed" as const, failure_reason: "Payment error" }
-    await d.updateOrder(order.id, patch, ["pending"]).catch(() => 0)
-    return { ok: false, status: 500, error: "Payment error. Please try again.", order: { ...order, ...patch } }
+    order = await d.insertOrder({
+      reference_code: d.newReference(), user_id: userId, biller: v.biller, account_number: v.account, phone: v.phone,
+      email: v.email, broadband_account: v.broadbandAccount, session_id: v.sessionId, customer_name: v.customerName,
+      verified: v.verified, amount: pay, status: "pending", payment_status: "unpaid",
+      verify_token_hash: createHash("sha256").update(token).digest("hex"),
+    })
+  } catch (e: any) {
+    if (e?.code === "23505") return fail(409, "This verification was already used — please verify again")
+    return fail(500, "Could not create the order")
   }
+
+  let debit: "ok" | "insufficient" | "not_found" | null = null
+  try {
+    debit = await d.debitOrder(order.id)
+  } catch {
+    // Outcome unknown: believe only the database.
+    let fresh: BillOrderRow | null = null
+    try { fresh = await d.getOrder(order.id) } catch { fresh = null }
+    if (fresh && fresh.payment_status === "paid") {
+      debit = "ok"
+    } else {
+      await safeAlert(d, `Bill debit outcome uncertain: order ${order.reference_code}, user ${userId}, GHS ${pay} — check wallet`)
+      return { ok: false, status: 500, error: "We could not confirm your payment. Please check your wallet before retrying.", order }
+    }
+  }
+  if (debit === "not_found") return { ok: false, status: 409, error: "This order can no longer be paid", order }
   if (debit === "insufficient") {
     const patch = { status: "failed" as const, failure_reason: "Insufficient wallet balance" }
     await d.updateOrder(order.id, patch, ["pending"]).catch(() => 0)
     return { ok: false, status: 402, error: "Insufficient wallet balance", order: { ...order, ...patch } }
   }
-
-  let marked = 0
-  try { marked = await d.updateOrder(order.id, { payment_status: "paid" }) } catch { marked = 0 }
   order = { ...order, payment_status: "paid" }
-  if (marked === 0) {
-    await safeAlert(d, `Bill order ${order.reference_code}: wallet debited GHS ${pay} but the order could not be marked paid. Needs manual review.`)
-    return { ok: false, status: 500, error: "We took your payment but could not finish the order. Support has been notified.", order }
-  }
   if (g.bills.autoFulfil) {
     const r = await dispatchInternal(d, order)
     order = { ...order, ...r.patch, status: r.status }
@@ -161,6 +173,13 @@ export async function payBill(d: BillsDeps, userId: string, token: string, amoun
 async function dispatchInternal(d: BillsDeps, order: BillOrderRow): Promise<{ status: BillOrderRow["status"]; patch: Partial<BillOrderRow> }> {
   if (order.status !== "pending" || order.payment_status !== "paid") return { status: order.status, patch: {} }
   const ref = order.reference_code
+  try {
+    const fresh = await d.getOrder(order.id)
+    if (!fresh || fresh.status !== "pending" || fresh.payment_status !== "paid") return { status: fresh?.status ?? order.status, patch: {} }
+    order = fresh
+  } catch {
+    return { status: order.status, patch: {} }
+  }
   const guarded = async (patch: Partial<BillOrderRow>) => {
     try { return await d.updateOrder(order.id, patch, ["pending"]) } catch { return 0 }
   }
@@ -178,7 +197,10 @@ async function dispatchInternal(d: BillsDeps, order: BillOrderRow): Promise<{ st
     try {
       tx = await d.purchase(input)
     } catch (e) {
-      if (e instanceof HubtelDuplicateOrderError) return { status: order.status, patch: {} }
+      if (e instanceof HubtelDuplicateOrderError) {
+        await safeAlert(d, `Bill order ${ref}: a live Hubtel transaction exists but the order is not marked processing — check the Hubtel review queue; do not resend.`)
+        return { status: order.status, patch: {} }
+      }
       if (e instanceof HubtelOutcomeUnknownError) {
         const patch: Partial<BillOrderRow> = {
           status: "processing", hubtel_client_reference: e.clientReference,
@@ -190,7 +212,8 @@ async function dispatchInternal(d: BillsDeps, order: BillOrderRow): Promise<{ st
       }
       // Raised before the POST: nothing was sent. Leave pending+paid for an admin.
       const patch: Partial<BillOrderRow> = { notes: `Not sent: ${msg(e)}` }
-      try { await d.updateOrder(order.id, patch) } catch { /* note only */ }
+      const n = await guarded(patch)
+      if (n === 0) return { status: order.status, patch: {} }
       await safeAlert(d, `Bill order ${ref} was paid but NOT sent to Hubtel: ${msg(e)}`)
       return { status: order.status, patch }
     }

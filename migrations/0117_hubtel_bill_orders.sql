@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS hubtel_bill_orders (
   status                  text NOT NULL DEFAULT 'pending'
                             CHECK (status IN ('pending','processing','completed','failed','refunded')),
   payment_status          text NOT NULL DEFAULT 'unpaid' CHECK (payment_status IN ('unpaid','paid','refunded')),
+  verify_token_hash       text UNIQUE,
   hubtel_client_reference text UNIQUE,
   commission              numeric(12,6),
   failure_reason          text,
@@ -59,3 +60,30 @@ $$;
 
 REVOKE ALL ON FUNCTION utility_bills_config_patch(jsonb) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION utility_bills_config_patch(jsonb) TO service_role;
+
+-- Atomic wallet debit for a bill order: lock the order, deduct, mark paid and write the wallet history row in ONE transaction.
+CREATE OR REPLACE FUNCTION bill_order_debit(p_order_id uuid)
+RETURNS text
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+DECLARE o hubtel_bill_orders%ROWTYPE; d record;
+BEGIN
+  SELECT * INTO o FROM hubtel_bill_orders
+   WHERE id = p_order_id AND status = 'pending' AND payment_status = 'unpaid' FOR UPDATE;
+  IF NOT FOUND THEN RETURN 'not_found'; END IF;
+
+  SELECT * INTO d FROM deduct_wallet(o.user_id, o.amount);
+  IF NOT FOUND THEN RETURN 'insufficient'; END IF;
+
+  UPDATE hubtel_bill_orders SET payment_status = 'paid', updated_at = now() WHERE id = o.id;
+
+  INSERT INTO transactions (user_id, type, source, amount, balance_before, balance_after, description, reference_id, status, created_at)
+  VALUES (o.user_id, 'debit', 'utility_bill', o.amount, d.old_balance, d.new_balance,
+          'Utility bill: ' || o.biller || ' ' || o.account_number, o.reference_code, 'completed', now());
+  RETURN 'ok';
+END;
+$$;
+
+REVOKE ALL ON FUNCTION bill_order_debit(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION bill_order_debit(uuid) TO service_role;
