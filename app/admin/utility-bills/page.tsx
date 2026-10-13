@@ -20,7 +20,7 @@ import { BILL_LIMIT_CEIL, BILL_LIMIT_FLOOR, type BillsConfig } from "@/lib/bills
 type Refund = { action: "blocked"; reason: string } | { action: "ledger"; ref: string; needsForce: boolean } | { action: "direct"; markFailedFirst: boolean }
 type Order = {
   id: string; reference_code: string; biller: BillerKey; account_number: string; phone: string | null; email: string | null
-  broadband_account: string | null; customer_name: string | null; verified: boolean; amount: number
+  broadband_account: string | null; customer_name: string | null; verified: boolean; amount: number; paid_amount?: number | null
   status: "pending" | "processing" | "completed" | "failed" | "refunded"; payment_status: "unpaid" | "paid" | "refunded"
   hubtel_client_reference: string | null; commission: number | null; failure_reason: string | null; notes: string | null
   created_at: string; updated_at: string; purchaser: string; purchaser_email: string | null; source: string
@@ -136,6 +136,7 @@ function OrderRow({ o, busy, onDetails, onSync, onDispatch, onRefund, queue }: {
       <div className="lg:w-28 lg:text-right">
         <div className="text-xs uppercase tracking-wide text-muted-foreground">Amount</div>
         <div className="text-lg font-semibold">{money(o.amount)}</div>
+        {o.paid_amount != null && <div className="text-xs text-muted-foreground">Paid {money(o.paid_amount)}</div>}
         {o.commission !== null && <div className="text-xs text-emerald-600">+{Number(o.commission).toFixed(4)} comm.</div>}
       </div>
       <div className="flex flex-wrap items-center gap-2 lg:ml-auto lg:justify-end">
@@ -356,7 +357,7 @@ export default function UtilityBillsPage() {
 
           <TabsContent value="orders" className="mt-4 space-y-4">
             <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
-              <Stat label="Total sales" value={stats ? money(stats.totalSales) : "—"} hint={stats ? `${stats.orders} orders in view` : undefined} tone="text-emerald-600" />
+              <Stat label="Sales (face value)" value={stats ? money(stats.totalSales) : "—"} hint={stats ? `${stats.orders} orders in view` : undefined} tone="text-emerald-600" />
               <Stat label="Orders" value={stats ? String(stats.orders) : "—"} hint={stats ? `${stats.completed} completed · ${stats.inFlight} in flight` : undefined} />
               <Stat label="Hubtel commission earned" value={stats ? money(stats.commission, 4) : "—"} hint="Across filtered window" tone="text-emerald-600" />
               <Stat label="Partner share paid" value="—" hint="3b" />

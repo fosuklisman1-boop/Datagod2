@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic"
 
 // Explicit columns; never select idempotency_key.
 const COLUMNS =
-  "id, reference_code, user_id, channel, network, service_key, beneficiary_phone, bundle_value, bundle_display, bundle_category, amount, status, payment_status, hubtel_client_reference, commission, failure_reason, notes, created_at, updated_at"
+  "id, reference_code, user_id, channel, network, service_key, beneficiary_phone, bundle_value, bundle_display, bundle_category, amount, paid_amount, status, payment_status, hubtel_client_reference, commission, failure_reason, notes, created_at, updated_at"
 
 export async function GET(request: NextRequest) {
   const auth = await requireAdmin(request)

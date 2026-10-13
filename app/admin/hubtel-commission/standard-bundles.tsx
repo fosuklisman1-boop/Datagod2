@@ -144,7 +144,7 @@ export function BundlesSettingsCard({ authed }: { authed: Authed }) {
 type RefundInfo = { action: "blocked"; reason: string; reviewQueue?: boolean } | { action: "direct"; releaseStuck: boolean } | null
 type OrderRow = {
   id: string; reference_code: string; network: BundleNetwork; bundle_display: string; bundle_category: string; beneficiary_phone: string
-  amount: number; status: string; payment_status: string; hubtel_client_reference: string | null; commission: number | null
+  amount: number; paid_amount?: number | null; status: string; payment_status: string; hubtel_client_reference: string | null; commission: number | null
   failure_reason: string | null; notes: string | null; created_at: string; updated_at: string
   purchaser: string; stuck_claim: boolean; has_ledger: boolean | null; refund: RefundInfo
 }
@@ -289,6 +289,7 @@ export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; on
               <div className="lg:w-36">
                 <div className="text-xs uppercase tracking-wide text-muted-foreground">{when(r.created_at)}</div>
                 <div className="font-semibold">{money(r.amount)}</div>
+                {r.paid_amount != null && <div className="text-xs text-muted-foreground">Paid {money(r.paid_amount)}</div>}
                 {r.commission !== null && <div className="text-xs text-emerald-600">+{money(r.commission, 4)} comm.</div>}
               </div>
               <div className="flex flex-wrap gap-2 lg:w-56 lg:justify-end">

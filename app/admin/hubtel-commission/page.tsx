@@ -19,6 +19,7 @@ import { HUBTEL_CS_SERVICES, isServiceKey, type HubtelCsServiceKey } from "@/lib
 import type { HubtelCsConfig } from "@/lib/hubtel-cs/config"
 import type { HubtelCsTx } from "@/lib/hubtel-cs/types"
 import { BundlesOrdersTab, BundlesSettingsCard } from "./standard-bundles"
+import { CashbackTab } from "./cashback"
 
 type Row = HubtelCsTx & { refundable: boolean }
 type Stats = { total: number; in_flight: number; needs_review: number; failed: number; fulfilled: number; commission_earned: number }
@@ -385,7 +386,12 @@ export default function HubtelCommissionPage() {
             <TabsTrigger value="transactions">Transactions</TabsTrigger>
             <TabsTrigger value="review">Review Queue{reviewList.total ? ` (${reviewList.total})` : ""}</TabsTrigger>
             <TabsTrigger value="bundles">Standard Bundles</TabsTrigger>
+            <TabsTrigger value="cashback">Cashback</TabsTrigger>
           </TabsList>
+
+          <TabsContent value="cashback" className="mt-4">
+            <CashbackTab authed={authed} />
+          </TabsContent>
 
           <TabsContent value="bundles" className="mt-4">
             <BundlesOrdersTab authed={authed} onReviewQueue={() => setTab("review")} />

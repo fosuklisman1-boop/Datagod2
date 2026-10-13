@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic"
 
 // Never select verify_token_hash or session_id.
 const COLUMNS =
-  "id, reference_code, user_id, channel, biller, account_number, phone, email, broadband_account, customer_name, verified, amount, status, payment_status, hubtel_client_reference, commission, failure_reason, notes, created_at, updated_at"
+  "id, reference_code, user_id, channel, biller, account_number, phone, email, broadband_account, customer_name, verified, amount, paid_amount, status, payment_status, hubtel_client_reference, commission, failure_reason, notes, created_at, updated_at"
 
 export async function GET(request: NextRequest) {
   const auth = await requireAdmin(request)
