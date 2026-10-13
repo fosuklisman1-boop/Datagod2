@@ -14,5 +14,6 @@ describe("getHubtelCsRuntime registration", () => {
     const { getHubtelCsRuntime } = await import("./runtime")
     getHubtelCsRuntime()
     expect(getOrderAdapter("airtime_orders")).toBeDefined()
+    expect(getOrderAdapter("hubtel_bill_orders")).toBeDefined()
   })
 })
