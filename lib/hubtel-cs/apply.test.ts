@@ -43,3 +43,19 @@ describe("applyAndCommit", () => {
     expect(hook).not.toHaveBeenCalled()
   })
 })
+
+it("fires the hook when a row enters needs_review", async () => {
+  const store = createMemoryStore()
+  const tx = store.seed(makeTx({ state: "created" }))
+  const hook = vi.fn(async () => {})
+  await applyAndCommit(store, tx, { next: "needs_review", patch: { state: "needs_review", review_reason: "x" } }, hook)
+  expect(hook).toHaveBeenCalledTimes(1)
+  expect((hook.mock.calls[0] as any)[0].state).toBe("needs_review")
+})
+it("does not fire again for a needs_review row staying in needs_review", async () => {
+  const store = createMemoryStore()
+  const tx = store.seed(makeTx({ state: "needs_review" }))
+  const hook = vi.fn(async () => {})
+  await applyAndCommit(store, tx, { next: "needs_review", patch: { state: "needs_review", status_check_attempts: 2 } }, hook)
+  expect(hook).not.toHaveBeenCalled()
+})

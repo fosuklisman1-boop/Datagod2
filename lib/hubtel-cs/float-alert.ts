@@ -38,8 +38,8 @@ const realSenders: AlertSenders = {
  * debounce. Never throws.
  */
 export async function sendFloatAlert(
-  db: SupabaseClient, kind: "paused" | "low_balance", subject: string, message: string,
-  opts: { force?: boolean; senders?: AlertSenders; now?: () => Date } = {},
+  db: SupabaseClient, kind: "paused" | "low_balance" | "needs_review", subject: string, message: string,
+  opts: { force?: boolean; senders?: AlertSenders; now?: () => Date; windowMs?: number } = {},
 ): Promise<void> {
   try {
     const senders = opts.senders ?? realSenders
@@ -47,7 +47,7 @@ export async function sendFloatAlert(
     const { data } = await db.from("admin_settings").select("value").eq("key", key).maybeSingle()
     const now = (opts.now ?? (() => new Date()))()
     const prev = data?.value ?? null
-    if (!opts.force && !shouldSendAlert(prev?.timestamp, now)) return
+    if (!opts.force && !shouldSendAlert(prev?.timestamp, now, opts.windowMs)) return
     const { error: stampErr } = (await db.from("admin_settings").upsert({ key, value: { timestamp: now.toISOString() }, description: "Hubtel Commission Services alert debounce", updated_at: now.toISOString() }, { onConflict: "key" })) ?? {}
     if (stampErr) console.error("[hubtel-cs] alert debounce stamp failed:", stampErr.message ?? stampErr)
 

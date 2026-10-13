@@ -7,6 +7,7 @@ import { createHubtelCsClient } from "./client"
 import { getHubtelCsConfig, setHubtelCsPaused } from "./config"
 import { pauseForFloat, type FloatDeps } from "./float"
 import { sendFloatAlert } from "./float-alert"
+import { REVIEW_ALERT_DEBOUNCE_MS, reviewAlertText } from "./review-alert"
 import { createSupabaseHubtelCsStore } from "./store"
 import { transportFromEnv } from "./transport"
 
@@ -27,7 +28,13 @@ export function getHubtelCsRuntime() {
   const db = serviceRoleClient()
   const store = createSupabaseHubtelCsStore(db)
   const getConfig = () => getHubtelCsConfig(db)
-  const orderHook = makeOrderHook({ store, notify: notifyAdapter, alertReview: async () => {} }) // Task 4 supplies the real alertReview
+  const orderHook = makeOrderHook({
+    store, notify: notifyAdapter,
+    alertReview: async tx => {
+      const t = reviewAlertText(tx)
+      await sendFloatAlert(db, "needs_review", t.subject, t.message, { windowMs: REVIEW_ALERT_DEBOUNCE_MS })
+    },
+  })
   const floatDeps: FloatDeps = {
     setPaused: reason => setHubtelCsPaused(db, reason),
     alert: (kind, subject, message, opts) => sendFloatAlert(db, kind, subject, message, opts),
