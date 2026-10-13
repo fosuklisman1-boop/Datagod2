@@ -1,6 +1,6 @@
 // lib/ussd-hubtel/relay-handler.ts
 // Pure request handler for the DigitalOcean relay. No business logic, no queue.
-// It exists so Hubtel sees a fixed (whitelisted) source IP for three outbound calls.
+// It exists so Hubtel sees a fixed (whitelisted) source IP for four outbound calls.
 import crypto from "crypto"
 
 export interface RelayConfig {
@@ -15,6 +15,9 @@ export interface RelayConfig {
   /** Basic credential for the balance endpoint; defaults to statusBasicAuth. */
   balanceBasicAuth?: string
   balanceBaseUrl?: string
+  /** Basic credential for Commission Services (cs.hubtel.com); required for the /cs passthrough. */
+  csBasicAuth?: string
+  csBaseUrl?: string
 }
 
 export interface RelayRequest {
@@ -26,6 +29,9 @@ export interface RelayRequest {
 }
 
 const SAFE_REF = /^[A-Za-z0-9_-]{1,100}$/
+const CS_PATH = /^\/cs\/([a-f0-9]{32})$/
+const CS_QUERY_KEYS = ["destination", "mobile"] as const
+const CS_QUERY_VALUE = /^[A-Za-z0-9+_-]{1,40}$/
 /** Bounds each upstream call (headers + body), below the Vercel side's own timeout. */
 const UPSTREAM_TIMEOUT_MS = 8000
 
@@ -46,6 +52,7 @@ export function createRelayHandler(cfg: RelayConfig) {
   const callbackUrl = cfg.callbackUrl ?? "https://gs-callback.hubtel.com:9055/callback"
   const statusBase = cfg.statusBaseUrl ?? "https://api-txnstatus.hubtel.com"
   const balanceBase = cfg.balanceBaseUrl ?? "https://trnf.hubtel.com"
+  const csBase = (cfg.csBaseUrl ?? "https://cs.hubtel.com/commissionservices").replace(/\/$/, "")
 
   return async function handle(req: RelayRequest): Promise<{ status: number; body: unknown }> {
     if (!bearerOk(req.authorization, cfg.secret)) return { status: 401, body: { error: "unauthorized" } }
@@ -101,6 +108,40 @@ export function createRelayHandler(cfg: RelayConfig) {
             Authorization: `Basic ${cfg.balanceBasicAuth ?? cfg.statusBasicAuth}`,
             Accept: "application/json", "Content-Type": "application/json", "Cache-Control": "no-cache",
           },
+          signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+        })
+        return { status: 200, body: { ok: res.ok, upstreamStatus: res.status, body: await readBody(res) } }
+      } catch (e: any) {
+        return { status: 200, body: { ok: false, upstreamStatus: 0, body: String(e?.message ?? e) } }
+      }
+    }
+
+    const cs = CS_PATH.exec(req.path)
+    if (cs && (req.method === "GET" || req.method === "POST")) {
+      if (!cfg.disbursementAccount || !cfg.csBasicAuth) return { status: 501, body: { error: "cs not configured" } }
+      let url = `${csBase}/${encodeURIComponent(cfg.disbursementAccount)}/${cs[1]}`
+      let body: string | undefined
+      if (req.method === "GET") {
+        const q = new URLSearchParams()
+        for (const k of CS_QUERY_KEYS) {
+          const v = req.query.get(k)
+          if (v !== null) {
+            if (!CS_QUERY_VALUE.test(v)) return { status: 400, body: { error: `invalid ${k}` } }
+            q.set(k, v)
+          }
+        }
+        if ([...q].length) url += `?${q.toString()}`
+      } else {
+        let parsed: unknown
+        try { parsed = JSON.parse(req.body) } catch { return { status: 400, body: { error: "invalid json" } } }
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { status: 400, body: { error: "json object required" } }
+        body = JSON.stringify(parsed)
+      }
+      try {
+        const res = await doFetch(url, {
+          method: req.method,
+          headers: { Authorization: `Basic ${cfg.csBasicAuth}`, Accept: "application/json", "Content-Type": "application/json" },
+          ...(body !== undefined ? { body } : {}),
           signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
         })
         return { status: 200, body: { ok: res.ok, upstreamStatus: res.status, body: await readBody(res) } }

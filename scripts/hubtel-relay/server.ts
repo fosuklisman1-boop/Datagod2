@@ -19,6 +19,7 @@ const handle = createRelayHandler({
   collectionAccount: process.env.HUBTEL_COLLECTION_ACCOUNT!,
   statusBasicAuth: process.env.HUBTEL_STATUS_BASIC_AUTH!,
   disbursementAccount: process.env.HUBTEL_DISBURSEMENT_ACCOUNT || undefined,
+  csBasicAuth: process.env.HUBTEL_CS_BASIC_AUTH || undefined,
   balanceBasicAuth: process.env.HUBTEL_BALANCE_BASIC_AUTH || undefined,
 })
 
