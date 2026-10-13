@@ -5,7 +5,7 @@ import Link from "next/link"
 import { CheckCircle2, Clock, Loader2, Phone, XCircle } from "lucide-react"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import { supabase } from "@/lib/supabase"
-import { classifyBuyResponse, shouldRegenerateKey, validateBundleRecipient } from "@/lib/standard-bundles/ui-helpers"
+import { classifyBuyResponse, shouldRotateIdempotencyKey, validateBundleRecipient } from "@/lib/standard-bundles/ui-helpers"
 
 export interface PickedBundle {
   token: string
@@ -77,8 +77,8 @@ export function BundleBuySheet({
       phone: phone.trim(),
       idempotencyKey: keyRef.current,
     })
-    // The request has settled, so it is now safe to rotate the key.
-    if (shouldRegenerateKey(status, json)) keyRef.current = crypto.randomUUID()
+    // The request has settled. Rotate only after a definite non-delivery; uncertain outcomes keep the key so a retry dedupes.
+    if (shouldRotateIdempotencyKey(status, json)) keyRef.current = crypto.randomUUID()
     setBusy(false)
     buyingRef.current = false
     const outcome = classifyBuyResponse(status, json)
@@ -132,7 +132,11 @@ export function BundleBuySheet({
                     inputMode="tel"
                     placeholder="024XXXXXXX"
                     value={phone}
-                    onChange={e => setPhone(e.target.value)}
+                    onChange={e => {
+                      // A different recipient is a different purchase: never reuse the key (never while in flight).
+                      if (!buyingRef.current) keyRef.current = crypto.randomUUID()
+                      setPhone(e.target.value)
+                    }}
                     onBlur={() => setTouched(true)}
                   />
                 </div>

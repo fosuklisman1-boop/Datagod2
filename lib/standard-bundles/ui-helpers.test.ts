@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import {
-  classifyBuyResponse, shouldRegenerateKey, validateBundleRecipient, bundleStatusLabel,
+  classifyBuyResponse, shouldRotateIdempotencyKey, validateBundleRecipient, bundleStatusLabel,
   BUNDLE_CHANGED_MESSAGE, BUNDLE_UNCONFIRMED_MESSAGE,
 } from "./ui-helpers"
 
@@ -50,14 +50,27 @@ describe("classifyBuyResponse", () => {
   })
 })
 
-describe("shouldRegenerateKey", () => {
-  it("regenerates after non-2xx and failed orders only", () => {
-    expect(shouldRegenerateKey(500, {})).toBe(true)
-    expect(shouldRegenerateKey(0, {})).toBe(true)
-    expect(shouldRegenerateKey(402, {})).toBe(true)
-    expect(shouldRegenerateKey(200, { order: { status: "failed" } })).toBe(true)
-    expect(shouldRegenerateKey(200, { order: { status: "completed" } })).toBe(false)
-    expect(shouldRegenerateKey(200, { order: { status: "processing" } })).toBe(false)
+describe("shouldRotateIdempotencyKey", () => {
+  it("keeps the key on uncertain outcomes", () => {
+    expect(shouldRotateIdempotencyKey(null, {})).toBe(false)
+    expect(shouldRotateIdempotencyKey(0, {})).toBe(false)
+    expect(shouldRotateIdempotencyKey(500, {})).toBe(false)
+    expect(shouldRotateIdempotencyKey(502, { error: "x" })).toBe(false)
+    expect(shouldRotateIdempotencyKey(504, {})).toBe(false)
+    expect(shouldRotateIdempotencyKey(200, {})).toBe(false)
+    expect(shouldRotateIdempotencyKey(200, { order: { status: "processing" } })).toBe(false)
+    expect(shouldRotateIdempotencyKey(200, { order: { status: "pending" } })).toBe(false)
+    expect(shouldRotateIdempotencyKey(200, { order: { status: "completed" } })).toBe(false)
+    expect(shouldRotateIdempotencyKey(429, {})).toBe(false)
+    expect(shouldRotateIdempotencyKey(503, {})).toBe(false)
+  })
+  it("rotates after definite non-delivery", () => {
+    expect(shouldRotateIdempotencyKey(402, {})).toBe(true)
+    expect(shouldRotateIdempotencyKey(409, {})).toBe(true)
+    expect(shouldRotateIdempotencyKey(400, {})).toBe(true)
+    expect(shouldRotateIdempotencyKey(403, {})).toBe(true)
+    expect(shouldRotateIdempotencyKey(200, { order: { status: "failed" } })).toBe(true)
+    expect(shouldRotateIdempotencyKey(502, { order: { status: "failed" } })).toBe(true)
   })
 })
 

@@ -46,10 +46,16 @@ export function classifyBuyResponse(status: number, json: any): BuyOutcome {
     : { kind: "failed", message: o.message }
 }
 
-/** True when the idempotency key must be regenerated before the next attempt. */
-export function shouldRegenerateKey(status: number, json: any): boolean {
-  if (status < 200 || status >= 300) return true
-  return json?.order?.status === "failed"
+/**
+ * True only after a DEFINITE non-delivery. Uncertain outcomes (timeout/network error = status 0 or null,
+ * 5xx, unparseable 2xx, pending/processing orders) keep the key so a retry dedupes server-side.
+ * 429/503 are rejected before any order exists, so reusing the key is harmless and we keep it.
+ */
+export function shouldRotateIdempotencyKey(httpStatus: number | null, json: any): boolean {
+  if (httpStatus === null || httpStatus === 0) return false
+  if (json?.order?.status === "failed") return true
+  if (httpStatus === 429) return false
+  return httpStatus >= 400 && httpStatus < 500
 }
 
 export function bundleStatusLabel(status: string, paymentStatus: string): { label: string; tone: string } {
