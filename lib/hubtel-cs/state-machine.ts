@@ -15,12 +15,15 @@ export const NEGATIVE_CONFIRM_COUNT = 2
 
 export type CodeClass = "success" | "pending" | "unknown" | "float" | "failed"
 
-export function classifyCode(code: unknown): CodeClass {
-  const c = typeof code === "string" ? code.trim() : typeof code === "number" ? String(code) : ""
+export function classifyCode(code: unknown, httpStatus?: number): CodeClass {
+  const c = typeof code === "string" ? code.trim() : ""
   if (c === "0000") return "success"
   if (c === "0001") return "pending"
   if (c === "" || c === "0005") return "unknown"
   if (c === "4075") return "float"
+  // A definite failure must be a well-formed 4-digit code on a non-5xx response; anything else is unknown.
+  if (!/^\d{4}$/.test(c)) return "unknown"
+  if (httpStatus !== undefined && httpStatus >= 500) return "unknown"
   return "failed"
 }
 
@@ -43,7 +46,8 @@ export function applyPostResponse(tx: HubtelCsTx, res: PostResult, now: Date): T
   }
   const b = (res.body && typeof res.body === "object" ? res.body : {}) as Record<string, any>
   const data = (b.Data && typeof b.Data === "object" ? b.Data : {}) as Record<string, any>
-  const code = b.ResponseCode !== undefined && b.ResponseCode !== null ? String(b.ResponseCode).trim() : null
+  const rawCode = typeof b.ResponseCode === "number" ? String(b.ResponseCode) : b.ResponseCode
+  const code = typeof rawCode === "string" && rawCode.trim() ? rawCode.trim() : null
   const message = textOrNull(b.Message)
   const base: HubtelCsPatch = {
     response_code: code, response_message: message,
@@ -51,7 +55,7 @@ export function applyPostResponse(tx: HubtelCsTx, res: PostResult, now: Date): T
     commission: parseCommission(data.Meta?.Commission),
     submitted_at: ts, updated_at: ts,
   }
-  switch (classifyCode(code)) {
+  switch (classifyCode(code, res.httpStatus)) {
     case "pending": return { next: "pending", patch: { ...base, state: "pending" } }
     case "success": return { next: "fulfilled", patch: { ...base, state: "fulfilled", completed_at: ts } }
     case "float":
@@ -71,9 +75,9 @@ export function applyCallback(tx: HubtelCsTx, cb: ParsedCallback, now: Date): Tr
   const ts = now.toISOString()
   const common: HubtelCsPatch = {
     callback_received_at: ts, updated_at: ts, response_code: cb.responseCode,
-    hubtel_transaction_id: cb.transactionId ?? tx.hubtel_transaction_id,
-    external_transaction_id: cb.externalTransactionId,
-    amount_debited: cb.amountDebited, charges: cb.charges, commission: cb.commission ?? tx.commission,
+    hubtel_transaction_id: textOrNull(cb.transactionId) ?? tx.hubtel_transaction_id,
+    external_transaction_id: cb.externalTransactionId ?? tx.external_transaction_id,
+    amount_debited: cb.amountDebited ?? tx.amount_debited, charges: cb.charges ?? tx.charges, commission: cb.commission ?? tx.commission,
   }
   if (cls === "success") {
     return { next: "fulfilled", patch: { ...common, state: "fulfilled", completed_at: ts, review_reason: null, failure_reason: null } }
@@ -81,7 +85,11 @@ export function applyCallback(tx: HubtelCsTx, cb: ParsedCallback, now: Date): Tr
   if (cls === "unknown") {
     return { next: "needs_review", patch: { ...common, state: "needs_review", review_reason: `Hubtel callback reported an unknown state (${cb.responseCode}). Check the status first.` } }
   }
-  return { next: "failed", patch: { ...common, state: "failed", completed_at: ts, review_reason: null, failure_reason: cb.description ?? `Hubtel code ${cb.responseCode}` } }
+  return {
+    next: "failed",
+    ...(cls === "float" ? { float: true } : {}),
+    patch: { ...common, state: "failed", completed_at: ts, review_reason: null, failure_reason: cb.description ?? `Hubtel code ${cb.responseCode}` },
+  }
 }
 
 export function applyStatusCheck(tx: HubtelCsTx, obs: StatusObservation, now: Date): Transition {
@@ -122,7 +130,8 @@ export function sweepStale(tx: HubtelCsTx, now: Date): Transition {
 }
 
 export function applyResolve(tx: HubtelCsTx, outcome: "fulfilled" | "failed", note: string, adminId: string, now: Date): Transition {
-  if (tx.resolved_at && tx.state === outcome) return { ignored: `already resolved as ${outcome}` }
+  if (tx.state === outcome) return { ignored: `already ${outcome}` }
+  if (tx.state === "created" || tx.state === "pending") return { ignored: `in flight (${tx.state})` }
   const ts = now.toISOString()
   return {
     next: outcome,

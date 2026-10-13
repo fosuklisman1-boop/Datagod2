@@ -175,4 +175,61 @@ describe("applyResolve", () => {
   it("resolving the same way twice is a no-op", () => {
     expect("ignored" in applyResolve(makeTx({ state: "fulfilled", resolved_at: T0.toISOString() }), "fulfilled", "x", "a", T0)).toBe(true)
   })
+  it("ignores resolve when state already equals outcome even with resolved_at null", () => {
+    expect("ignored" in applyResolve(makeTx({ state: "fulfilled" }), "fulfilled", "x", "a", T0)).toBe(true)
+    expect("ignored" in applyResolve(makeTx({ state: "failed" }), "failed", "x", "a", T0)).toBe(true)
+  })
+  it("ignores resolve on in-flight created / pending rows", () => {
+    expect("ignored" in applyResolve(makeTx({ state: "created" }), "failed", "x", "a", T0)).toBe(true)
+    expect("ignored" in applyResolve(makeTx({ state: "pending" }), "fulfilled", "x", "a", T0)).toBe(true)
+  })
+  it("allows an explicit override of a terminal row to the opposite outcome", () => {
+    const t = next(applyResolve(makeTx({ state: "fulfilled" }), "failed", "reversed", "admin-1", T0))
+    expect(t.next).toBe("failed")
+    expect(t.patch.resolved_by).toBe("admin-1")
+  })
+})
+
+describe("hardening", () => {
+  it("classifyCode: non-string, malformed and 5xx codes are unknown", () => {
+    expect(classifyCode({ a: 1 })).toBe("unknown")
+    expect(classifyCode("abc")).toBe("unknown")
+    expect(classifyCode("2001", 502)).toBe("unknown")
+    expect(classifyCode("2001", 400)).toBe("failed")
+    expect(classifyCode("2001")).toBe("failed")
+  })
+  it("post: object code, 'abc' and 5xx-with-code -> needs_review", () => {
+    for (const res of [
+      { httpStatus: 200, body: { ResponseCode: { x: 1 } } },
+      { httpStatus: 200, body: { ResponseCode: "abc" } },
+      { httpStatus: 503, body: { ResponseCode: "2001", Message: "oops" } },
+    ]) expect(next(applyPostResponse(makeTx(), res, T0)).next).toBe("needs_review")
+  })
+  it("callback: trims transactionId and never overwrites existing values with null", () => {
+    const tx = makeTx({ state: "pending", hubtel_transaction_id: "old", external_transaction_id: "oe", amount_debited: 7, charges: 1 })
+    const t = next(applyCallback(tx, cb({ transactionId: "  new1 " }), T0))
+    expect(t.patch.hubtel_transaction_id).toBe("new1")
+    const u = next(applyCallback(tx, cb({ transactionId: null as any, externalTransactionId: null as any, amountDebited: null as any, charges: null as any }), T0))
+    expect(u.patch.hubtel_transaction_id).toBe("old")
+    expect(u.patch.external_transaction_id).toBe("oe")
+    expect(u.patch.amount_debited).toBe(7)
+    expect(u.patch.charges).toBe(1)
+  })
+  it("callback 4075 -> failed with float flag", () => {
+    const t = next(applyCallback(makeTx({ state: "pending" }), cb({ responseCode: "4075" }), T0))
+    expect(t.next).toBe("failed")
+    expect(t.float).toBe(true)
+  })
+  it("exact boundaries", () => {
+    const pend = (over = {}) => makeTx({ state: "pending", submitted_at: T0.toISOString(), ...over })
+    const neg = { ok: true, status: "Unpaid", isFulfilled: false }
+    expect(next(applyStatusCheck(pend({ negative_checks: 1 }), neg, minutesAfter(10))).next).toBe("failed")
+    expect(next(applyStatusCheck(pend({ negative_checks: 1 }), neg, new Date(minutesAfter(10).getTime() - 1000))).next).toBe("pending")
+    expect(next(sweepStale(pend(), minutesAfter(24 * 60))).next).toBe("needs_review")
+    expect(next(sweepStale(makeTx({ state: "created" }), minutesAfter(2))).next).toBe("needs_review")
+  })
+  it("needs_review row can be failed by two negatives", () => {
+    const tx = makeTx({ state: "needs_review", submitted_at: T0.toISOString(), negative_checks: 1 })
+    expect(next(applyStatusCheck(tx, { ok: true, status: "Unpaid", isFulfilled: false }, minutesAfter(12))).next).toBe("failed")
+  })
 })
