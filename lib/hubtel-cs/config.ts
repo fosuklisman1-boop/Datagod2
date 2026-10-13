@@ -99,37 +99,31 @@ export async function getHubtelCsConfig(db: SupabaseClient): Promise<HubtelCsCon
   return resolveConfig(data?.value)
 }
 
-async function save(db: SupabaseClient, c: HubtelCsConfig): Promise<HubtelCsConfig> {
-  const { error } = await db.from("admin_settings").upsert(
-    {
-      key: HUBTEL_CS_CONFIG_KEY,
-      value: c,
-      description: "Hubtel Commission Services: master switch, transport mode, per-service switches, pause state, low-balance threshold.",
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "key" }
-  )
+/** Only the keys the admin actually changed; pause keys only on an explicit resume. Pure. */
+export function buildConfigPatch(patch: ConfigPatch): Record<string, unknown> {
+  const p: Record<string, unknown> = {}
+  if (patch.enabled !== undefined) p.enabled = patch.enabled
+  if (patch.mode !== undefined) p.mode = patch.mode
+  if (patch.lowBalanceThreshold !== undefined) p.lowBalanceThreshold = patch.lowBalanceThreshold
+  if (patch.services !== undefined) p.services = patch.services
+  if (patch.paused === false) { p.paused = false; p.pausedReason = null; p.pausedAt = null }
+  return p
+}
+
+/** Atomic merge (migration 0115) — an admin save and a 4075 pause can no longer overwrite each other. */
+async function patchConfig(db: SupabaseClient, p: Record<string, unknown>): Promise<HubtelCsConfig> {
+  const { data, error } = await db.rpc("hubtel_cs_config_patch", { p_patch: p })
   if (error) throw error
-  return c
+  return resolveConfig(data)
 }
 
 export async function setHubtelCsConfig(db: SupabaseClient, patch: ConfigPatch): Promise<HubtelCsConfig> {
-  const cur = await getHubtelCsConfig(db)
-  const next: HubtelCsConfig = {
-    ...cur,
-    enabled: patch.enabled ?? cur.enabled,
-    mode: patch.mode ?? cur.mode,
-    lowBalanceThreshold: patch.lowBalanceThreshold !== undefined ? patch.lowBalanceThreshold : cur.lowBalanceThreshold,
-    services: { ...cur.services, ...(patch.services ?? {}) },
-    ...(patch.paused === false ? { paused: false, pausedReason: null, pausedAt: null } : {}),
-  }
-  return save(db, next)
+  return patchConfig(db, buildConfigPatch(patch))
 }
 
-/** reason=null resumes. Read-modify-write, same pattern (and same tiny race) as the USSD config. */
+/** reason=null resumes. */
 export async function setHubtelCsPaused(db: SupabaseClient, reason: string | null): Promise<HubtelCsConfig> {
-  const cur = await getHubtelCsConfig(db)
-  return save(db, reason === null
-    ? { ...cur, paused: false, pausedReason: null, pausedAt: null }
-    : { ...cur, paused: true, pausedReason: reason, pausedAt: new Date().toISOString() })
+  return patchConfig(db, reason === null
+    ? { paused: false, pausedReason: null, pausedAt: null }
+    : { paused: true, pausedReason: reason, pausedAt: new Date().toISOString() })
 }
