@@ -44,6 +44,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
 import { Badge } from "@/components/ui/badge"
+import { NewTag } from "./new-tag"
+import { useNavNew } from "./use-nav-new"
 
 // Format large numbers with K/M suffix
 const formatCount = (num: number): string => {
@@ -80,6 +82,8 @@ export function Sidebar() {
   const [roleLoading, setRoleLoading] = useState(true)
   const skin: SidebarSkin = userRole === 'dealer' ? 'dealer' : (isAdmin || userRole === 'admin') ? 'admin' : 'default'
   const c = sidebarSkinClasses(skin)
+  // Sidebar NEW tags: registry in lib/nav-new.ts, click counts on the user's account.
+  const { isNew, markClicked } = useNavNew(user?.id)
 
   const handleLogout = async () => {
     await logout()
@@ -334,13 +338,14 @@ export function Sidebar() {
               const isActive = isNavActive(pathname, item.href)
               const isLoading = loadingPath === item.href
               const showBadge = item.label === "My Orders" && userPendingOrderCount > 0
+              const showNew = isNew(item.href)
 
               return (
-                <Link key={item.href} href={item.href} onClick={() => handleNavigation(item.href)}>
+                <Link key={item.href} href={item.href} onClick={() => { markClicked(item.href); handleNavigation(item.href) }}>
                   <Button
                     variant="ghost"
                     className={cn(
-                      "w-full justify-start gap-3 transition-all duration-200",
+                      "relative w-full justify-start gap-3 transition-all duration-200",
                       isActive ? c.navLinkActive : c.navLinkInactive,
                       !isOpen && "justify-center",
                       isLoading && "opacity-70"
@@ -355,15 +360,21 @@ export function Sidebar() {
                       <Icon className="w-5 h-5 flex-shrink-0" />
                     )}
                     {isOpen && (
-                      <div className="flex items-center justify-between flex-1">
-                        <span>{item.label}</span>
-                        {showBadge && (
-                          <Badge className="bg-destructive hover:bg-destructive text-destructive-foreground text-xs ml-2">
-                            {formatCount(userPendingOrderCount)}
-                          </Badge>
+                      <div className="flex items-center justify-between flex-1 min-w-0 gap-2">
+                        <span className="truncate">{item.label}</span>
+                        {(showNew || showBadge) && (
+                          <span className="flex items-center gap-1.5 shrink-0">
+                            {showNew && <NewTag />}
+                            {showBadge && (
+                              <Badge className="bg-destructive hover:bg-destructive text-destructive-foreground text-xs">
+                                {formatCount(userPendingOrderCount)}
+                              </Badge>
+                            )}
+                          </span>
                         )}
                       </div>
                     )}
+                    {!isOpen && showNew && <NewTag compact />}
                   </Button>
                 </Link>
               )
@@ -386,12 +397,13 @@ export function Sidebar() {
                 const Icon = item.icon
                 const isActive = isNavActive(pathname, item.href)
                 const isLoading = loadingPath === item.href
+                const showNew = isNew(item.href)
                 return (
-                  <Link key={item.href} href={item.href} onClick={() => handleNavigation(item.href)}>
+                  <Link key={item.href} href={item.href} onClick={() => { markClicked(item.href); handleNavigation(item.href) }}>
                     <Button
                       variant="ghost"
                       className={cn(
-                        "w-full justify-start gap-3 transition-all duration-200",
+                        "relative w-full justify-start gap-3 transition-all duration-200",
                         isActive ? c.navLinkActive : c.navLinkInactive,
                         !isOpen && "justify-center",
                         isLoading && "opacity-70"
@@ -404,7 +416,13 @@ export function Sidebar() {
                       ) : (
                         <Icon className="w-5 h-5 flex-shrink-0" />
                       )}
-                      {isOpen && item.label}
+                      {isOpen && (
+                        <span className="flex items-center justify-between flex-1 min-w-0 gap-2">
+                          <span className="truncate">{item.label}</span>
+                          {showNew && <NewTag />}
+                        </span>
+                      )}
+                      {!isOpen && showNew && <NewTag compact />}
                     </Button>
                   </Link>
                 )
@@ -527,11 +545,14 @@ export function Sidebar() {
                 </Button>
               </Link>
 
-              <Link href="/admin/sms" onClick={() => handleNavigation("/admin/sms")}>
+              {/* NEW-tag pattern for hand-written admin links (href must be in lib/nav-new.ts):
+                  onClick also calls markClicked(href); Button gets "relative"; render <NewTag />
+                  beside the label when expanded and <NewTag compact /> when collapsed. */}
+              <Link href="/admin/sms" onClick={() => { markClicked("/admin/sms"); handleNavigation("/admin/sms") }}>
                 <Button
                   variant="ghost"
                   className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
+                    "relative w-full justify-start gap-3 transition-all duration-200",
                     pathname === "/admin/sms" ? c.navLinkActive : c.navLinkInactive,
                     !isOpen && "justify-center",
                     loadingPath === "/admin/sms" && "opacity-70"
@@ -544,7 +565,13 @@ export function Sidebar() {
                   ) : (
                     <MessageSquare className="w-5 h-5 flex-shrink-0" />
                   )}
-                  {isOpen && "SMS Platform"}
+                  {isOpen && (
+                    <span className="flex items-center justify-between flex-1 min-w-0 gap-2">
+                      <span className="truncate">SMS Platform</span>
+                      {isNew("/admin/sms") && <NewTag />}
+                    </span>
+                  )}
+                  {!isOpen && isNew("/admin/sms") && <NewTag compact />}
                 </Button>
               </Link>
 
