@@ -202,3 +202,21 @@ export async function fetchLedgerByOrders(db: SupabaseClient, orderIds: string[]
   }
   return out
 }
+
+/**
+ * Release a stuck dispatch claim (processing -> pending), fully guarded in SQL so a stale request can never
+ * release another admin's fresh live claim. Returns rows changed (0 => the claim is no longer stuck).
+ */
+export async function releaseStuckClaimRow(db: SupabaseClient, orderId: string, adminId: string, now: number = Date.now()): Promise<number> {
+  const { data, error } = await db.from(BILL_ORDERS_TABLE)
+    .update({ status: "pending", notes: `Released stuck dispatch claim by admin ${adminId}`, updated_at: new Date(now).toISOString() })
+    .eq("id", orderId)
+    .eq("status", "processing")
+    .eq("payment_status", "paid")
+    .is("hubtel_client_reference", null)
+    .like("notes", "Dispatching%")
+    .lt("updated_at", new Date(now - STUCK_CLAIM_MS).toISOString())
+    .select("id")
+  if (error) throw error
+  return data?.length ?? 0
+}

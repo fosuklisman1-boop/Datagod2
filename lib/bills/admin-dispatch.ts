@@ -28,7 +28,7 @@ export async function executeBillDispatch(d: BillDispatchDeps, orderId: string):
 
   let released = false
   if (isStuckClaim(order, ledger, d.now())) {
-    if ((await d.releaseStuckClaim(orderId)) === 0) return { ok: false, status: 409, message: "The order changed while releasing the stuck claim; reload and retry" }
+    if ((await d.releaseStuckClaim(orderId)) === 0) return { ok: false, status: 409, message: "Claim is no longer stuck" }
     released = true
     const rows = await d.getLedger(orderId).catch(() => null)
     if (rows === null || rows.length > 0) {

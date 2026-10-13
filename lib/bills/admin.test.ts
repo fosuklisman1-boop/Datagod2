@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { canDispatch, isStuckClaim, STUCK_CLAIM_MS, computeStats, statsFromRpc, statsRpcArgs, parseOrderFilters, purchaserLabel, refundDecision, UNSENT_GRACE_MS, type LedgerFact } from "./admin"
+import { releaseStuckClaimRow, canDispatch, isStuckClaim, STUCK_CLAIM_MS, computeStats, statsFromRpc, statsRpcArgs, parseOrderFilters, purchaserLabel, refundDecision, UNSENT_GRACE_MS, type LedgerFact } from "./admin"
 import { executeBillRefund, type BillRefundDeps, type RefundOrder } from "./admin-refund"
 
 const NOW = Date.parse("2026-10-13T12:00:00Z")
@@ -222,5 +222,46 @@ describe("executeBillRefund with a stuck claim", () => {
     const { deps, calls } = fakeDeps({ order: stuckOrder(), getLedger: async () => (n++ === 0 ? [] : [led({ state: "pending", client_reference: "RZ" })]) })
     const r = await executeBillRefund(deps, "o1", "n", false)
     expect(r.ok).toBe(false); expect(calls).toEqual(["release", "revert:RZ:pending", "alert"])
+  })
+})
+
+describe("releaseStuckClaimRow", () => {
+  it("guards the release fully in SQL and returns the row count", async () => {
+    const chain: [string, ...unknown[]][] = []
+    const q: any = new Proxy({}, { get: (_t, name: string) => (...args: unknown[]) => {
+      chain.push([name, ...args])
+      return name === "select" ? Promise.resolve({ data: [{ id: "o1" }], error: null }) : q
+    } })
+    const db: any = { from: (t: string) => { chain.push(["from", t]); return q } }
+    expect(await releaseStuckClaimRow(db, "o1", "admin1", NOW)).toBe(1)
+    const has = (...e: unknown[]) => expect(chain).toContainEqual(e)
+    has("from", "hubtel_bill_orders")
+    has("eq", "id", "o1"); has("eq", "status", "processing"); has("eq", "payment_status", "paid")
+    has("is", "hubtel_client_reference", null); has("like", "notes", "Dispatching%")
+    has("lt", "updated_at", new Date(NOW - STUCK_CLAIM_MS).toISOString())
+    const upd = chain.find(c => c[0] === "update")![1] as any
+    expect(upd).toMatchObject({ status: "pending", notes: "Released stuck dispatch claim by admin admin1" })
+  })
+})
+
+describe("stuck release aborts", () => {
+  const stuckOrder = () => order({ status: "processing", notes: "Dispatching…", updated_at: new Date(NOW - STUCK_CLAIM_MS - 1000).toISOString() })
+  it("0-row release aborts the refund with no further action", async () => {
+    const { deps, calls } = fakeDeps({ order: stuckOrder(), releaseStuckClaim: async () => { calls0.push("release"); return 0 } })
+    const calls0: string[] = []
+    const r = await executeBillRefund(deps, "o1", "n", false)
+    expect(r).toMatchObject({ ok: false, status: 409, message: "Claim is no longer stuck" })
+    expect(calls).toEqual([]); expect(calls0).toEqual(["release"])
+  })
+  it("ledger read failing after the release restores, alerts and aborts (released flagged)", async () => {
+    let n = 0
+    const { deps, calls } = fakeDeps({ order: stuckOrder(), getLedger: async () => { if (n++ === 0) return []; throw new Error("db") } })
+    const r = await executeBillRefund(deps, "o1", "n", false)
+    expect(r).toMatchObject({ ok: false, released: true })
+    expect(calls).toEqual(["release", "revert:null:pending", "alert"])
+  })
+  it("a successful stuck refund reports released", async () => {
+    const { deps } = fakeDeps({ order: stuckOrder() })
+    expect(await executeBillRefund(deps, "o1", "n", false)).toMatchObject({ ok: true, released: true })
   })
 })

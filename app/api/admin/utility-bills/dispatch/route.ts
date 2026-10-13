@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { fetchLedgerByOrders } from "@/lib/bills/admin"
+import { fetchLedgerByOrders, releaseStuckClaimRow } from "@/lib/bills/admin"
 import { executeBillDispatch, type BillDispatchDeps, type DispatchOrder } from "@/lib/bills/admin-dispatch"
 import { getBillsRuntime } from "@/lib/bills/runtime"
 import { dispatchBillOrder } from "@/lib/bills/service"
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
       async getOrder(id) { return (await deps.getOrder(id)) as unknown as DispatchOrder | null },
       async getLedger(id) { return (await fetchLedgerByOrders(db, [id])).get(id) ?? [] },
       async releaseStuckClaim(id) {
-        return deps.updateOrder(id, { status: "pending", notes: `Released stuck dispatch claim by admin ${adminId}` }, ["processing"])
+        return releaseStuckClaimRow(db, id, adminId)
       },
       async restoreProcessing(id, ref) {
         return deps.updateOrder(id, { status: "processing", notes: "Dispatch aborted: a Hubtel transaction exists. Do not resend.", ...(ref ? { hubtel_client_reference: ref } : {}) }, ["pending"])

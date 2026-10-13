@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { BILL_ORDERS_TABLE, fetchLedgerByOrders } from "@/lib/bills/admin"
+import { BILL_ORDERS_TABLE, fetchLedgerByOrders, releaseStuckClaimRow } from "@/lib/bills/admin"
 import { executeBillRefund, type BillRefundDeps, type RefundOrder } from "@/lib/bills/admin-refund"
 import { adminRefund } from "@/lib/hubtel-cs/admin-actions"
 import { getOrderAdapter } from "@/lib/hubtel-cs/adapters"
@@ -49,13 +49,7 @@ export async function POST(request: NextRequest) {
         if (error) throw error
         return data?.length ?? 0
       },
-      async releaseStuckClaim(orderId) {
-        const { data, error } = await db.from(BILL_ORDERS_TABLE)
-          .update({ status: "pending", notes: `Released stuck dispatch claim by admin ${adminId}`, updated_at: new Date().toISOString() })
-          .eq("id", orderId).in("status", ["processing"]).eq("payment_status", "paid").select("id")
-        if (error) throw error
-        return data?.length ?? 0
-      },
+      async releaseStuckClaim(orderId) { return releaseStuckClaimRow(db, orderId, adminId) },
       async refundViaLedger(ref, f) {
         const out = await adminRefund(rt.adminDeps, ref, adminId, { force: f })
         return { ok: out.ok, message: out.message }
@@ -76,7 +70,7 @@ export async function POST(request: NextRequest) {
     const out = await executeBillRefund(deps, body.orderId, note.note, force)
     auditLog(db, {
       adminId, action: "utility_bills_refund",
-      newValue: { orderId: body.orderId, note: note.note, force, ok: out.ok, mode: out.mode ?? null, message: out.message },
+      newValue: { orderId: body.orderId, note: note.note, force, ok: out.ok, mode: out.mode ?? null, released: out.released ?? false, message: out.message },
     })
     return NextResponse.json({ ok: out.ok, message: out.message, mode: out.mode ?? null }, { status: out.status })
   } catch (e) {

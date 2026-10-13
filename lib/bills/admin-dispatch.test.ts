@@ -63,3 +63,19 @@ describe("executeBillDispatch", () => {
     expect(calls).toEqual([])
   })
 })
+
+describe("executeBillDispatch release guards", () => {
+  it("0-row release aborts without dispatching", async () => {
+    const { d, calls } = make({ order: stuck() })
+    const r = await executeBillDispatch({ ...d, releaseStuckClaim: async () => 0 }, "o1")
+    expect(r).toMatchObject({ ok: false, status: 409, message: "Claim is no longer stuck" })
+    expect(calls).toEqual([])
+  })
+  it("ledger read failing after the release restores processing, alerts and aborts", async () => {
+    let n = 0
+    const { d, calls } = make({ order: stuck(), ledger: async () => { if (n++ === 0) return []; throw new Error("db") } })
+    const r = await executeBillDispatch(d, "o1")
+    expect(r.ok).toBe(false)
+    expect(calls).toEqual(["release", "restore:null", "alert"])
+  })
+})

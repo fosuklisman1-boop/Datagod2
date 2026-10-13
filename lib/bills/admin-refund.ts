@@ -19,7 +19,7 @@ export interface BillRefundDeps {
   now(): number
 }
 
-export interface BillRefundResult { ok: boolean; status: number; message: string; mode?: "ledger" | "direct" }
+export interface BillRefundResult { ok: boolean; status: number; message: string; mode?: "ledger" | "direct"; released?: boolean }
 
 const safe = async (d: BillRefundDeps, m: string) => { try { await d.alert(m) } catch { /* never break the flow */ } }
 
@@ -41,24 +41,26 @@ export async function executeBillRefund(d: BillRefundDeps, orderId: string, note
   }
 
   // Never reached Hubtel: flip pending -> failed (guarded), then re-check that no ledger row appeared meanwhile.
+  let released = false
   if (decision.markFailedFirst) {
     if (decision.releaseStuck) {
-      if ((await d.releaseStuckClaim(orderId)) === 0) return { ok: false, status: 409, message: "The order changed while releasing the stuck claim; reload and retry" }
+      if ((await d.releaseStuckClaim(orderId)) === 0) return { ok: false, status: 409, message: "Claim is no longer stuck" }
+      released = true
       const rows = await d.getLedger(orderId).catch(() => null)
-      if (rows === null || rows.length > 0) return abort(d, order, orderId, rows, "pending")
+      if (rows === null || rows.length > 0) return { ...(await abort(d, order, orderId, rows, "pending")), released }
     }
     const n = await d.markFailed(orderId, `Admin refund: never sent to Hubtel. ${note}`)
-    if (n === 0) return { ok: false, status: 409, message: "The order changed while refunding; reload and retry" }
+    if (n === 0) return { ok: false, status: 409, message: "The order changed while refunding; reload and retry", released }
     const after = await d.getLedger(orderId).catch(() => null)
-    if (after === null || after.length > 0) return abort(d, order, orderId, after, "failed")
+    if (after === null || after.length > 0) return { ...(await abort(d, order, orderId, after, "failed")), released }
   }
   const fresh = await d.getOrder(orderId)
   if (!fresh) return { ok: false, status: 404, message: "Order not found" }
   try {
     const r = await d.refundDirect(fresh)
-    return { ok: r.refunded, status: r.refunded ? 200 : 409, message: r.message, mode: "direct" }
+    return { ok: r.refunded, status: r.refunded ? 200 : 409, message: r.message, mode: "direct", released }
   } catch (e: any) {
-    return { ok: false, status: 502, message: `Refund outcome UNKNOWN (${e?.message ?? e}). Check the customer's wallet before any retry; the credit is idempotent, so retrying is safe.`, mode: "direct" }
+    return { ok: false, status: 502, message: `Refund outcome UNKNOWN (${e?.message ?? e}). Check the customer's wallet before any retry; the credit is idempotent, so retrying is safe.`, mode: "direct", released }
   }
 }
 
