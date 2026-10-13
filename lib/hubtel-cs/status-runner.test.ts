@@ -7,7 +7,7 @@ const PAID = async () => ({ ok: true, status: "Paid", data: { status: "Paid", is
 const UNPAID = async () => ({ ok: true, status: "Unpaid", data: { status: "Unpaid", isFulfilled: false } })
 
 function run(store: any, check: any, minutes: number, extra: any = {}) {
-  const onTransition = vi.fn(async () => {})
+  const onTransition = vi.fn(async (_tx: any) => {})
   return {
     onTransition,
     out: runHubtelCsStatusChecks({ store, check, onTransition, now: () => minutesAfter(minutes), deadlineMs: Date.now() + 60_000, ...extra }),
@@ -167,5 +167,26 @@ describe("runHubtelCsStatusChecks before migrations", () => {
     expect(res.errors).toBeGreaterThan(0)
     expect(res.skipped).toBeUndefined()
     err.mockRestore()
+  })
+})
+
+describe("re-notify sweep (phase 2a)", () => {
+  it("retries the order hook for settled rows never synced, older than 2 minutes", async () => {
+    const store = createMemoryStore()
+    const old = new Date(Date.now() - 10 * 60_000).toISOString()
+    store.seed(makeTx({ id: "u1", client_reference: "HCS-a", state: "fulfilled", order_table: "airtime_orders", order_id: "o1", order_synced_at: null, updated_at: old }))
+    store.seed(makeTx({ id: "u2", client_reference: "HCS-b", state: "failed", order_table: "airtime_orders", order_id: "o2", order_synced_at: old, updated_at: old }))
+    store.seed(makeTx({ id: "u3", client_reference: "HCS-c", state: "fulfilled", order_table: null, order_id: null, updated_at: old }))
+    store.seed(makeTx({ id: "u4", client_reference: "HCS-d", state: "fulfilled", order_table: "airtime_orders", order_id: "o4", order_synced_at: null, updated_at: new Date().toISOString() }))
+    const onTransition = vi.fn(async (_tx: any) => {})
+    const out = await runHubtelCsStatusChecks({ store, check: async () => ({ ok: true }), onTransition, deadlineMs: Date.now() + 60_000 })
+    expect(onTransition.mock.calls.map((c: any[]) => c[0].id)).toEqual(["u1"])
+    expect(out.resynced).toBe(1)
+  })
+  it("a missing column or table is skipped quietly, not counted as an error", async () => {
+    const store = createMemoryStore()
+    ;(store as any).listUnsynced = async () => { throw Object.assign(new Error("column missing"), { code: "42703" }) }
+    const out = await runHubtelCsStatusChecks({ store, check: async () => ({ ok: true }), onTransition: async () => {}, deadlineMs: Date.now() + 60_000 })
+    expect(out.errors).toBe(0)
   })
 })

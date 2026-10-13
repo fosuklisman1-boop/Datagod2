@@ -34,6 +34,7 @@ export interface HubtelCsTx {
   resolution_note: string | null
   refund_claimed_at: string | null
   refund_claimed_by: string | null
+  order_synced_at: string | null
   created_at: string
   updated_at: string
 }

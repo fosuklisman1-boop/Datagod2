@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { checkTransactionStatus, fetchDisbursementBalance } from "@/lib/ussd-hubtel/relay"
 import { notifyAdapter } from "./adapters"
+import { makeOrderHook } from "./order-hook"
 import type { AdminDeps } from "./admin-actions"
 import { createHubtelCsClient } from "./client"
 import { getHubtelCsConfig, setHubtelCsPaused } from "./config"
@@ -26,6 +27,7 @@ export function getHubtelCsRuntime() {
   const db = serviceRoleClient()
   const store = createSupabaseHubtelCsStore(db)
   const getConfig = () => getHubtelCsConfig(db)
+  const orderHook = makeOrderHook({ store, notify: notifyAdapter, alertReview: async () => {} }) // Task 4 supplies the real alertReview
   const floatDeps: FloatDeps = {
     setPaused: reason => setHubtelCsPaused(db, reason),
     alert: (kind, subject, message, opts) => sendFloatAlert(db, kind, subject, message, opts),
@@ -44,12 +46,12 @@ export function getHubtelCsRuntime() {
     callbackBaseUrl: process.env.NEXT_PUBLIC_APP_URL ?? "",
     callbackSecret: process.env.HUBTEL_CS_CALLBACK_SECRET ?? "",
     onFloat,
-    onTransition: notifyAdapter,
+    onTransition: orderHook,
   })
-  const adminDeps: AdminDeps = { store, checkStatus: checkTransactionStatus, onTransition: notifyAdapter }
+  const adminDeps: AdminDeps = { store, checkStatus: checkTransactionStatus, onTransition: orderHook }
   return {
     db, store, getConfig, client, floatDeps, adminDeps, onFloat,
-    onTransition: notifyAdapter,
+    onTransition: orderHook,
     checkStatus: checkTransactionStatus,
     fetchBalance: fetchDisbursementBalance,
   }

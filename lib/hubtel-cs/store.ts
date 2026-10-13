@@ -19,6 +19,10 @@ export interface HubtelCsStore {
   /** Clear a claim; only when the adapter explicitly reports nothing was refunded. */
   releaseRefundClaim(id: string): Promise<void>
   purgeEventsOlderThan(iso: string): Promise<void>
+  /** Stamp a settled row whose order hook succeeded. */
+  markOrderSynced(id: string): Promise<void>
+  /** Settled rows linked to an order whose hook has not succeeded yet, oldest first. */
+  listUnsynced(o: { olderThan: string; limit: number }): Promise<HubtelCsTx[]>
 }
 
 const T = "hubtel_cs_transactions"
@@ -58,6 +62,17 @@ export function createSupabaseHubtelCsStore(db: SupabaseClient): HubtelCsStore {
     async releaseRefundClaim(id) {
       const { error } = await db.from(T).update({ refund_claimed_at: null, refund_claimed_by: null, updated_at: new Date().toISOString() }).eq("id", id)
       if (error) throw error
+    },
+    async markOrderSynced(id) {
+      const { error } = await db.from(T).update({ order_synced_at: new Date().toISOString() }).eq("id", id)
+      if (error) throw error
+    },
+    async listUnsynced(o) {
+      const { data, error } = await db.from(T).select("*")
+        .in("state", ["fulfilled", "failed"]).not("order_table", "is", null).is("order_synced_at", null)
+        .lte("updated_at", o.olderThan).order("updated_at", { ascending: true }).limit(o.limit)
+      if (error) throw error
+      return (data ?? []) as HubtelCsTx[]
     },
     async listByStates(states, o) {
       let q = db.from(T).select("*").in("state", states)

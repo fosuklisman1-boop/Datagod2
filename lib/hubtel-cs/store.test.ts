@@ -54,3 +54,17 @@ describe("memory store contract", () => {
     void T0
   })
 })
+
+describe("order sync tracking", () => {
+  it("markOrderSynced sets order_synced_at; listUnsynced only returns settled, linked, unsynced, old-enough rows", async () => {
+    const store = createMemoryStore()
+    const old = new Date(Date.now() - 5 * 60_000).toISOString()
+    store.seed(makeTx({ id: "x", client_reference: "HCS-x", state: "failed", order_table: "t", order_id: "1", updated_at: old }))
+    store.seed(makeTx({ id: "y", client_reference: "HCS-y", state: "pending", order_table: "t", order_id: "2", updated_at: old }))
+    const cutoff = new Date(Date.now() - 2 * 60_000).toISOString()
+    expect((await store.listUnsynced({ olderThan: cutoff, limit: 10 })).map(r => r.id)).toEqual(["x"])
+    await store.markOrderSynced("x")
+    expect(store.rows.find(r => r.id === "x")!.order_synced_at).not.toBeNull()
+    expect(await store.listUnsynced({ olderThan: cutoff, limit: 10 })).toEqual([])
+  })
+})

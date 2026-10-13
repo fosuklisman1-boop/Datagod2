@@ -14,6 +14,8 @@ export interface RunDeps {
 
 /** Hubtel makes the status check mandatory for pending rows older than 5 minutes. */
 const MIN_PENDING_AGE_MS = 5 * 60_000
+/** Settled rows whose order hook has not succeeded are retried once they are this old. */
+export const RESYNC_AFTER_MS = 2 * 60_000
 
 /** PostgREST PGRST205 / Postgres 42P01: the ledger table does not exist yet (migrations 0113/0114 not applied). */
 export function isMissingTableError(e: unknown): boolean {
@@ -31,8 +33,8 @@ export function warnLedgerNotMigrated(): void {
 /** Reconciliation only: never POSTs a purchase, never reads the pause/enabled flags, never resends or refunds. */
 export async function runHubtelCsStatusChecks(deps: RunDeps) {
   const now = deps.now ?? (() => new Date())
-  const out: { swept: number; checked: number; fulfilled: number; failed: number; needsReview: number; errors: number; skipped?: string } =
-    { swept: 0, checked: 0, fulfilled: 0, failed: 0, needsReview: 0, errors: 0 }
+  const out: { swept: number; checked: number; fulfilled: number; failed: number; needsReview: number; resynced: number; errors: number; skipped?: string } =
+    { swept: 0, checked: 0, fulfilled: 0, failed: 0, needsReview: 0, resynced: 0, errors: 0 }
   // A hook failure must never break reconciliation of the rest.
   const safeHook = async (tx: HubtelCsTx) => {
     try { await deps.onTransition(tx) } catch (e: any) { console.error("[hubtel-cs] onTransition hook failed:", e?.message ?? e) }
@@ -84,6 +86,20 @@ export async function runHubtelCsStatusChecks(deps: RunDeps) {
         else if (r.tx.state === "needs_review") out.needsReview++
       }
     } catch (e: any) { out.errors++; console.error("[hubtel-cs] row failed:", e?.message ?? e) }
+  }
+
+  // 3. settled rows whose order hook never succeeded (adapter threw / missing at the time)
+  try {
+    const unsynced = await deps.store.listUnsynced({ olderThan: new Date(now().getTime() - RESYNC_AFTER_MS).toISOString(), limit: 50 })
+    for (const tx of unsynced) {
+      if (Date.now() >= deps.deadlineMs) break
+      await safeHook(tx)
+      out.resynced++
+    }
+  } catch (e: any) {
+    // 42703 = column missing (0116 not applied yet): skip quietly like a missing table.
+    if (isMissingTableError(e) || (e as any)?.code === "42703") warnLedgerNotMigrated()
+    else { out.errors++; console.error("[hubtel-cs] re-notify sweep failed:", e?.message ?? e) }
   }
   return out
 }

@@ -24,7 +24,7 @@ describe("order adapters", () => {
   it("never throws when an adapter hook throws", async () => {
     const a = { ...adapter(), onFulfilled: vi.fn(async () => { throw new Error("db down") }) }
     registerOrderAdapter(a)
-    await expect(notifyAdapter(makeTx({ state: "fulfilled", order_table: "airtime_orders", order_id: "o" }))).resolves.toBeUndefined()
+    await expect(notifyAdapter(makeTx({ state: "fulfilled", order_table: "airtime_orders", order_id: "o" }))).resolves.toBe("failed")
   })
   it("getOrderAdapter looks up by table", () => {
     const a = adapter(); registerOrderAdapter(a)

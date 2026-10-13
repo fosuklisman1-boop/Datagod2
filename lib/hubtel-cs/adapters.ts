@@ -27,19 +27,24 @@ export function registerOrderAdapter(a: OrderAdapter): void { registry.set(a.tab
 export function getOrderAdapter(table: string | null): OrderAdapter | undefined { return table ? registry.get(table) : undefined }
 export function clearOrderAdapters(): void { registry.clear() }
 
-/** Route a terminal ledger row to its product. A failing hook must never break a callback or cron. */
-export async function notifyAdapter(tx: HubtelCsTx): Promise<void> {
-  if (!tx.order_table || !tx.order_id) return
+export type NotifyResult = "synced" | "no_order" | "not_terminal" | "no_adapter" | "failed"
+
+/** Route a terminal ledger row to its product. Never throws; the result says whether the order was updated. */
+export async function notifyAdapter(tx: HubtelCsTx): Promise<NotifyResult> {
+  if (!tx.order_table || !tx.order_id) return "no_order"
+  if (tx.state !== "fulfilled" && tx.state !== "failed") return "not_terminal"
   const adapter = registry.get(tx.order_table)
   if (!adapter) {
     // The ledger row is terminal but its order will never be updated: this needs a human, so log loudly.
     console.error(`[hubtel-cs] no order adapter registered for order_table "${tx.order_table}" (ref ${tx.client_reference}, state ${tx.state}); order not updated`)
-    return
+    return "no_adapter"
   }
   try {
     if (tx.state === "fulfilled") await adapter.onFulfilled(tx)
-    else if (tx.state === "failed") await adapter.onFailed(tx)
+    else await adapter.onFailed(tx)
+    return "synced"
   } catch (e: any) {
     console.error(`[hubtel-cs] order adapter ${tx.order_table} hook failed for ${tx.client_reference}:`, e?.message ?? e)
+    return "failed"
   }
 }
