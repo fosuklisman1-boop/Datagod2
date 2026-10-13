@@ -2,8 +2,10 @@
  * Backed SMS supply for the solvency gate (spec §5.5a). credit_sms_units_if_solvent only
  * issues credits while all balances + this purchase stay ≤ this number, so it must fail
  * CLOSED (0) whenever the real supply is unknown.
- *   Hubtel primary → Disbursement balance (GH₵) ÷ highest per-SMS rate seen in 7 days
- *                    (admin setting sms_hubtel_cost_per_sms until any rate is observed).
+ *   Hubtel primary → Hubtel balance (GH₵) ÷ highest PER-SEGMENT price seen in 7 days
+ *                    (admin setting sms_hubtel_cost_per_sms, also per segment, until any is observed).
+ *                    Credits are segments, so this is credits backed. Hubtel's reported rate
+ *                    (cost_ghs) is the TOTAL per MESSAGE; per-part = cost_ghs / segments (0.0243 live).
  *                    The balance comes from resolveHubtelBalance(): the relay /balance, else a
  *                    manual balance (< 30 days old) minus the Hubtel spend recorded since it was set.
  *   otherwise      → Moolre wholesale credit balance (unchanged behaviour)
@@ -24,15 +26,17 @@ export function backedCredits(balanceGhs: number, costPerSms: number): number {
   return Math.floor(balanceGhs / costPerSms + 1e-9)
 }
 
-/** Highest per-SMS rate Hubtel charged in the window, or null when none observed.
- *  Throws on a query error: a failed lookup must not silently fall back to a possibly lower rate. */
+/**
+ * Highest PER-SEGMENT (per-part) price Hubtel charged in the window, or null when none observed.
+ * Hubtel's reported rate (sms_messages.cost_ghs) is the TOTAL price of the whole message, so the
+ * per-part price is cost_ghs / segments (live 2026-10-13: 0.0243 per part; a 2-part message 0.0486);
+ * computed exactly in SQL by sms_hubtel_max_rate (migration 20261022).
+ * Throws on a query error: a failed lookup must not silently fall back to a possibly lower rate.
+ */
 export async function maxObservedHubtelRate(days = 7): Promise<number | null> {
-  const since = new Date(Date.now() - days * 86_400_000).toISOString()
-  const { data, error } = await supabaseAdmin.from("sms_messages").select("cost_ghs")
-    .eq("provider", "hubtel").not("cost_ghs", "is", null).gte("processed_at", since)
-    .order("cost_ghs", { ascending: false }).limit(1).maybeSingle()
+  const { data, error } = await supabaseAdmin.rpc("sms_hubtel_max_rate", { p_days: days })
   if (error) throw new Error(`observed-rate lookup failed: ${error.message}`)
-  const v = Number((data as { cost_ghs?: number | string } | null)?.cost_ghs)
+  const v = typeof data === "number" ? data : typeof data === "string" && data.trim() !== "" ? Number(data) : NaN
   return Number.isFinite(v) && v > 0 ? v : null
 }
 
@@ -94,7 +98,8 @@ const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
  *   prefer-manual OFF (default):
  *     1. the relay /balance — when it works it wins;
  *     2. else a manual balance set < 30 days ago: amount − Hubtel spend since it was set (floored at 0),
- *        unknown per-message costs priced at the highest observed rate, else the configured cost;
+ *        each message priced at its reported whole-message cost, floored at segments × the highest
+ *        observed per-segment price (else the configured per-segment cost);
  *     3. else unavailable. Any failure on the manual path (settings, rate, spend) ⇒ unavailable (fail closed).
  * Never throws.
  */
@@ -175,7 +180,7 @@ export interface WholesaleSnapshot {
   backedCredits: number
   /** Hubtel Disbursement balance in GH₵ (null for Moolre or when unreadable). */
   balanceGhs: number | null
-  /** Per-SMS rate used for the Hubtel calculation. */
+  /** Per-SEGMENT (per-part) price used for the Hubtel calculation. */
   ratePerSms: number | null
   /** Units already deducted from customers but not yet sent. */
   queuedUnsent: number | null

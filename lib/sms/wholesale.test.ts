@@ -32,6 +32,15 @@ vi.mock("./notify", () => ({
 vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
     rpc: (name: string, params?: unknown) => {
+      if (name === "sms_hubtel_max_rate") {
+        h.queries++
+        h.calls.push({ m: "rpc", args: [name, params] })
+        const n = h.queries
+        return Promise.resolve({
+          data: h.observed,
+          error: h.failRateQueryNo === n ? { message: "timeout" } : h.observedError,
+        })
+      }
       if (name === "sms_hubtel_spend_since") {
         h.calls.push({ m: "rpc", args: [name, params] })
         return Promise.resolve({ data: h.spend, error: h.spendError })
@@ -49,16 +58,7 @@ vi.mock("@supabase/supabase-js", () => ({
         ]
         return { select: () => ({ in: () => Promise.resolve(h.settingsError ? { data: null, error: h.settingsError } : { data: rows, error: null }) }) }
       }
-      h.queries++
-      const rec = (m: string, q: any) => (...args: unknown[]) => { h.calls.push({ m, args }); return q }
-      const q: any = {}
-      for (const m of ["select", "eq", "not", "gte", "order", "limit"]) q[m] = rec(m, q)
-      const n = h.queries
-      q.maybeSingle = () => Promise.resolve({
-        data: h.observed === null ? null : { cost_ghs: h.observed },
-        error: h.failRateQueryNo === n ? { message: "timeout" } : h.observedError,
-      })
-      return q
+      throw new Error(`unexpected table read: ${table}`)
     },
   }),
 }))
@@ -95,18 +95,23 @@ describe("getWholesaleCredits", () => {
     h.observed = 0.05
     expect(await getWholesaleCredits()).toBe(700)
   })
-  it("queries the 7-day max Hubtel rate with the right filters", async () => {
-    const before = Date.now()
+  it("gets the 7-day max PER-SEGMENT Hubtel rate from sms_hubtel_max_rate", async () => {
     await getWholesaleCredits()
-    const find = (m: string) => h.calls.filter(c => c.m === m)
-    expect(find("eq").map(c => c.args)).toContainEqual(["provider", "hubtel"])
-    expect(find("not").map(c => c.args)).toContainEqual(["cost_ghs", "is", null])
-    const gte = find("gte")[0].args as [string, string]
-    expect(gte[0]).toBe("processed_at")
-    const since = new Date(gte[1]).getTime()
-    expect(Math.abs(before - 7 * 86_400_000 - since)).toBeLessThan(5_000)
-    expect(find("order")[0].args).toEqual(["cost_ghs", { ascending: false }])
-    expect(find("limit")[0].args).toEqual([1])
+    expect(h.calls).toContainEqual({ m: "rpc", args: ["sms_hubtel_max_rate", { p_days: 7 }] })
+  })
+  it("per-segment rate: a 2-part message reported at GH₵0.0486 → 0.0243/part, so 35 GH₵ backs 1440 parts", async () => {
+    h.observed = 0.0243 // what sms_hubtel_max_rate returns for cost_ghs 0.0486 / segments 2
+    expect(await getWholesaleCredits()).toBe(1440)
+  })
+  it("accepts the numeric-as-string PostgREST returns", async () => {
+    h.observed = "0.0243" as any
+    expect(await getWholesaleCredits()).toBe(1440)
+  })
+  it("a non-positive or garbage rate counts as 'nothing observed' (configured cost used)", async () => {
+    h.observed = 0 as any
+    expect(await getWholesaleCredits()).toBe(1000)
+    resetObservedRateCache(); h.observed = "abc" as any
+    expect(await getWholesaleCredits()).toBe(1000)
   })
   it("subtracts the queued-unsent backlog", async () => {
     h.backlog = 300
