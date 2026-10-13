@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
+import {
+  normalizeSenderHealthRows,
+  sortSenderHealth,
+  withHealthStatus,
+  type SenderHealthRowWithStatus,
+} from "@/lib/sms/sender-health"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -19,6 +25,10 @@ function maskPhone(p?: string | null): string {
  * Aggregated SMS deliverability for the admin panel: overall counts, per message
  * type, per provider, and recent failures (phones masked). Backed by the
  * sms_health() RPC (migrations/sms_health_panel.sql).
+ *
+ * Also returns `sender_health` (per sender name, Hubtel only, with a computed `status`) from the
+ * sms_sender_health() RPC (migrations/20261023_sms_sender_health.sql). If that RPC is missing or
+ * errors, `sender_health` is null and `sender_health_error` explains why; the rest still loads.
  */
 export async function GET(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
@@ -54,7 +64,33 @@ export async function GET(request: NextRequest) {
       otpBreaker = { open: v?.open === true && !!v?.until && new Date(v.until) > new Date(), until: v?.until ?? null }
     } catch { /* ignore */ }
 
-    return NextResponse.json({ success: true, otp_breaker: otpBreaker, ...payload }, { headers: { "Cache-Control": "no-store" } })
+    // Sender ID health (Hubtel DLR per sender name). Optional: a missing/failed RPC must never
+    // take down the rest of the health page.
+    let senderHealth: SenderHealthRowWithStatus[] | null = null
+    let senderHealthError: string | undefined
+    try {
+      const { data: sh, error: shErr } = await supabase.rpc("sms_sender_health", { p_hours: hours })
+      if (shErr) {
+        console.error("[SMS-HEALTH] sender health RPC error:", shErr.message)
+        senderHealthError = `Sender ID health not available (apply migrations/20261023_sms_sender_health.sql): ${shErr.message}`
+      } else {
+        senderHealth = sortSenderHealth(withHealthStatus(normalizeSenderHealthRows(sh)))
+      }
+    } catch (e) {
+      console.error("[SMS-HEALTH] sender health error:", e)
+      senderHealthError = `Sender ID health failed: ${e instanceof Error ? e.message : String(e)}`
+    }
+
+    return NextResponse.json(
+      {
+        success: true,
+        otp_breaker: otpBreaker,
+        ...payload,
+        sender_health: senderHealth,
+        ...(senderHealthError ? { sender_health_error: senderHealthError } : {}),
+      },
+      { headers: { "Cache-Control": "no-store" } }
+    )
   } catch (e) {
     console.error("[SMS-HEALTH] Error:", e)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
