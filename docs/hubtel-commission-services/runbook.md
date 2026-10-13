@@ -2,10 +2,14 @@
 
 Phase 1 ships DARK: nothing customer-facing, master switch OFF. Order matters.
 
+> **WARNING: apply migrations 0113 and 0114 BEFORE merging to main.** The merge deploys the every-2-minutes status-check cron, which reads the ledger table. (It now skips quietly with `skipped: "ledger not migrated"` if the table is missing, but do not rely on that.)
+> Pre-apply check: `select to_regclass('public.hubtel_cs_transactions');` must return NULL. 0113 was edited in place before it was ever applied; if the table ALREADY exists, STOP: do not re-run 0113. Add the missing columns/index via a follow-up migration instead.
+
 ## Before enabling
 1. Apply migrations `0113` and `0114` to production (Supabase Management API SQL, see memory `reference-supabase-access`). Both are additive. Verify: `select * from hubtel_cs_stats();` returns one row of zeros.
 2. Set Vercel env (production): `HUBTEL_CS_CALLBACK_SECRET`, `HUBTEL_CS_BASIC_AUTH` (base64 `clientId:secret` for Commission Services), `HUBTEL_DISBURSEMENT_ACCOUNT`. Confirm `NEXT_PUBLIC_APP_URL`, `HUBTEL_RELAY_URL`, `HUBTEL_RELAY_SECRET` already exist. Optional: `HUBTEL_CS_ENFORCE_CALLBACK_IP=true` once a first callback has been seen from 18.202.122.131.
-   - Use a callback secret of at least 32 random characters. The readiness check does NOT enforce a minimum length.
+   - Use a callback secret of at least 32 random characters. The readiness check enforces this: a shorter `HUBTEL_CS_CALLBACK_SECRET` is reported as not ready ("HUBTEL_CS_CALLBACK_SECRET (min 32 chars)").
+   - Confirm `NEXT_PUBLIC_APP_URL` is the canonical `https://www` host. An apex-to-www 307 redirect silently dropped another provider's webhooks. A POST with a bad signature to the callback URL (`/api/hubtel-cs/callback?...`) must return 401, not a 3xx.
    - The callback URL carries the HMAC signature in its query string, so Vercel and relay request logs contain it. Restrict log access, and rotate `HUBTEL_CS_CALLBACK_SECRET` if it leaks. Rotation invalidates in-flight callbacks; the status-check cron settles those rows.
 3. Deploy. Open `/admin/hubtel-commission`: the readiness card must say all variables are set.
 4. Status checks use the relay `/status` (already deployed for USSD). If `mode: relay` is ever used for purchases, redeploy the droplet with `HUBTEL_CS_BASIC_AUTH` set (see `scripts/hubtel-relay/README.md`).
@@ -14,9 +18,16 @@ Phase 1 ships DARK: nothing customer-facing, master switch OFF. Order matters.
 The page's test purchase sends a REAL purchase. It requires `confirm` (the UI sends it), is capped at GHS 5, and the page locks the Send button for 10 s after an unknown outcome (check Transactions before trying again).
 1. Settings: master switch ON.
 2. Live test: MTN Airtime, your own number, GHS 0.50. Expect state `pending` immediately, then `fulfilled` via callback within about 1 min, and a commission value on the row.
-3. Force the fallback: temporarily set `HUBTEL_CS_CALLBACK_SECRET` to a wrong value for one test, run another GHS 0.50 test, and confirm the row settles via the status-check cron after 5 min or more (the callback gets 401 and is not logged as a transition). Restore the secret afterwards.
+3. Force the fallback: temporarily block `/api/hubtel-cs/callback` (for example with a Vercel firewall rule), run one GHS 0.50 test, and confirm the status-check cron settles it after 5 min or more. Then remove the rule. (A wrong-secret trick cannot work: the same env var both signs and verifies the callback URL.)
+3a. After a callback-settled test, call `POST /api/admin/hubtel-cs/check-status` with `{ "ref": "<client reference>" }` (curl with an admin session, or temporarily via the UI) and confirm Hubtel `/status` reports `Paid` with `isFulfilled: true` for a commission reference. This validates the spec's open assumption that the Collection account is the right account to query.
 4. Data: use the query endpoint via a one-off script to read a real bundle `Value` and price, then send one live test with that exact bundle and amount.
 5. Set a low-balance threshold above the current float and confirm one SMS/email arrives (then set it back).
+
+## Status-check semantics
+- `Paid` with `isFulfilled=false` is treated as keep-polling (inconclusive), never a failure. Only a non-Paid status with `isFulfilled=false`, seen twice at least 90 s apart and after the row is 10 min old, fails a row.
+- Manual **Check status** inside 90 s of the previous check is recorded but not counted as a second negative.
+- `needs_review` rows are NOT polled and raise NO alert: admins must watch the Review Queue (follow-up: add an alert).
+- Status-check errors (relay down, bad response) leave rows `pending`; the 24 h sweep then moves them to `needs_review`.
 
 ## Destinations
 - Airtime and data destinations are normalised and stored as `233XXXXXXXXX`. Admin search in Transactions accepts 0-prefixed numbers too.
@@ -39,7 +50,13 @@ The page's test purchase sends a REAL purchase. It requires `confirm` (the UI se
 
 ## Known limits and follow-ups
 - No product wiring yet: no order adapters are registered, so **Refund to wallet** is disabled until Phases 2/3 add them. The data bundle sync and an airtime provider are Phase 2.
-- The readiness check does not enforce a minimum callback secret length.
 - `hubtel_cs_stats()` is defined with `SET search_path = public` in the 0113 file here; if 0113 was already applied before that change, re-run the `CREATE OR REPLACE FUNCTION` statement.
 - No route-level tests exist for the admin routes, and the Supabase store has no unit tests (fake-client gap).
 - Hubtel de-duplication of a repeated `ClientReference` is unknown, so unknown POSTs are never resent.
+
+## Phase 2 carry-over
+- Register order adapters statically in `lib/hubtel-cs/runtime.ts` (imported by both the callback route and the cron) so they exist in every serverless entry point.
+- Add a re-notify sweep for rows where the ledger is terminal but the order was not updated.
+- Make the 4075 pause atomic (a `jsonb_set` RPC) before any customer traffic.
+- Decide how to classify a 5xx response carrying code 0000/0001.
+- Verify bill account number formats against the relay `CS_QUERY_VALUE` charset (Phase 3).
