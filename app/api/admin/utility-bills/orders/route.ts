@@ -1,0 +1,60 @@
+import { NextRequest, NextResponse } from "next/server"
+import {
+  applyOrderFilters, BILL_ORDERS_TABLE, canDispatch, fetchLedgerByOrders, fetchStats, parseOrderFilters, purchaserLabel, refundDecision,
+} from "@/lib/bills/admin"
+import { clampPage, errorJson, requireAdmin, searchAlternate } from "@/lib/hubtel-cs/admin-route"
+import { getHubtelCsRuntime } from "@/lib/hubtel-cs/runtime"
+
+export const dynamic = "force-dynamic"
+
+export async function GET(request: NextRequest) {
+  const auth = await requireAdmin(request)
+  if (!auth.ok) return auth.response
+  const sp = new URL(request.url).searchParams
+  const f = parseOrderFilters(sp)
+  const qAlt = searchAlternate(f.q)
+  const { limit, offset } = clampPage(sp)
+  try {
+    const { db } = getHubtelCsRuntime()
+    const base = db.from(BILL_ORDERS_TABLE).select("*", { count: "exact" })
+    const [page, stats] = await Promise.all([
+      applyOrderFilters(base, f, qAlt).order("created_at", { ascending: false }).order("id", { ascending: true }).range(offset, offset + limit - 1),
+      fetchStats(db, f, qAlt),
+    ])
+    if (page.error) throw page.error
+    const orders = (page.data ?? []) as any[]
+
+    // hubtel_bill_orders.user_id has no FK to users, so purchasers are looked up by id (users.email, as the airtime list shows).
+    const userIds = [...new Set(orders.map(o => o.user_id).filter(Boolean))]
+    const users = new Map<string, any>()
+    if (userIds.length) {
+      const { data, error } = await db.from("users").select("id, email, first_name, last_name").in("id", userIds)
+      if (error) throw error
+      for (const u of data ?? []) users.set((u as any).id, u)
+    }
+    // Refund eligibility needs the ledger; fail closed (no refund offered) if it cannot be read.
+    const refundCandidates = orders.filter(o => o.payment_status === "paid" && (o.status === "failed" || o.status === "pending"))
+    let ledger = new Map<string, any[]>()
+    let ledgerOk = true
+    try { ledger = await fetchLedgerByOrders(db, refundCandidates.map(o => o.id)) } catch { ledgerOk = false }
+
+    const now = Date.now()
+    const rows = orders.map(o => {
+      const { verify_token_hash: _omit, ...safe } = o
+      const decision = o.payment_status === "paid" && (o.status === "failed" || o.status === "pending")
+        ? (ledgerOk ? refundDecision(o, ledger.get(o.id) ?? [], now) : { action: "blocked" as const, reason: "Could not read the Hubtel ledger; try again" })
+        : null
+      return {
+        ...safe,
+        purchaser: purchaserLabel(users.get(o.user_id)),
+        purchaser_email: users.get(o.user_id)?.email ?? null,
+        source: "dashboard",
+        can_dispatch: canDispatch(o),
+        refund: decision,
+      }
+    })
+    return NextResponse.json({ rows, total: page.count ?? 0, stats })
+  } catch (e) {
+    return errorJson(e)
+  }
+}

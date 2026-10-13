@@ -26,6 +26,7 @@ import {
   Clock,
   Users,
   Zap,
+  Lightbulb,
   Crown,
   Sparkles,
   Smartphone,
@@ -1132,6 +1133,32 @@ export function Sidebar() {
                     </span>
                   )}
                   {!isOpen && isNew("/admin/hubtel-commission") && <NewTag compact />}
+                </Button>
+              </Link>
+              <Link href="/admin/utility-bills" onClick={() => { markClicked("/admin/utility-bills"); handleNavigation("/admin/utility-bills") }}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "relative w-full justify-start gap-3 transition-all duration-200",
+                    pathname === "/admin/utility-bills" ? c.navLinkActive : c.navLinkInactive,
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/utility-bills" && "opacity-70"
+                  )}
+                  title={!isOpen ? "Utility Bills" : undefined}
+                  disabled={loadingPath === "/admin/utility-bills"}
+                >
+                  {loadingPath === "/admin/utility-bills" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <Lightbulb className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && (
+                    <span className="flex items-center justify-between flex-1 min-w-0 gap-2">
+                      <span className="truncate">Utility Bills</span>
+                      {isNew("/admin/utility-bills") && <NewTag />}
+                    </span>
+                  )}
+                  {!isOpen && isNew("/admin/utility-bills") && <NewTag compact />}
                 </Button>
               </Link>
             </div>

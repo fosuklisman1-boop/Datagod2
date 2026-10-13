@@ -22,6 +22,7 @@ export const NEW_NAV_ITEMS: Readonly<Record<string, { since: string }>> = Object
   "/dashboard/broadband": { since: "2026-10-13" },
   "/admin/sms": { since: "2026-10-13" },
   "/admin/hubtel-commission": { since: "2026-10-13" },
+  "/admin/utility-bills": { since: "2026-10-13" },
 })
 
 /** Clicks after which the tag is gone. Mirrors the DB CHECK (clicks BETWEEN 0 AND 2). */
