@@ -28,8 +28,10 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const phone233 = (p: string) => "233" + ghanaSignificant(p)!
 
 export function normaliseInputs(biller: BillerKey, i: BillInputs): { ok: true; value: NormalisedInputs } | { ok: false; error: string } {
-  const account = (i.account ?? "").trim()
-  const phoneRaw = (i.phone ?? "").trim()
+  const str = (x: unknown) => String(x ?? "").trim()
+  const compact = (x: unknown) => str(x).replace(/ /g, "")
+  const account = compact(i.account)
+  const phoneRaw = str(i.phone)
   const needPhone = biller === "ecg" || biller === "ghana_water"
   if (needPhone && !isValidGhanaMobile(phoneRaw)) return { ok: false, error: "Enter a valid Ghana mobile number" }
   const phone = needPhone ? phone233(phoneRaw) : null
@@ -38,14 +40,14 @@ export function normaliseInputs(biller: BillerKey, i: BillInputs): { ok: true; v
     return { ok: true, value: { account, phone, email: null, broadbandAccount: null } }
   }
   if (biller === "telecel_broadband") {
-    const bb = (i.broadbandAccount ?? "").trim()
+    const bb = compact(i.broadbandAccount)
     if (!LANDLINE.test(account)) return { ok: false, error: "Enter the 10-digit landline (e.g. 0302450262)" }
     if (!BROADBAND.test(bb)) return { ok: false, error: "Enter the broadband account number (e.g. P0444101)" }
     return { ok: true, value: { account, phone: null, email: null, broadbandAccount: bb } }
   }
   if (!ACCOUNT.test(account)) return { ok: false, error: `Enter a valid ${BILLERS[biller].inputHint.toLowerCase()}` }
   if (biller === "ghana_water") {
-    const email = (i.email ?? "").trim()
+    const email = str(i.email)
     if (!EMAIL.test(email)) return { ok: false, error: "Enter a valid email (Ghana Water requires it)" }
     return { ok: true, value: { account, phone, email, broadbandAccount: null } }
   }
@@ -65,8 +67,9 @@ export interface ParsedLookup {
   meters: { meter: string; name: string | null; outstanding: number | null }[]
 }
 const num = (v: unknown): number | null => {
-  const n = typeof v === "number" ? v : Number(String(v ?? "").trim())
-  return Number.isFinite(n) && String(v ?? "").trim() !== "" ? n : null
+  const s = typeof v === "number" ? String(v) : String(v ?? "").replace(/,/g, "").trim()
+  const n = Number(s)
+  return s !== "" && Number.isFinite(n) ? n : null
 }
 const keyOf = (d: string) => d.trim().toLowerCase().replace(/[\s_-]/g, "")
 
@@ -83,7 +86,7 @@ export function parseLookup(biller: BillerKey, items: HubtelQueryItem[]): Parsed
     }
     const k = keyOf(display)
     if (k === "name") out.customerName = value || null
-    else if (k === "amountdue") out.amountDue = num(value) ?? num(it?.Amount)
+    else if (k === "amountdue") out.amountDue = num(value) ?? (biller === "ghana_water" ? num(it?.Amount) : null)
     else if (k === "sessionid") out.sessionId = value || null
   }
   return out

@@ -64,4 +64,13 @@ describe("billers", () => {
     expect(purchaseFields("telecel_broadband", { account: "0302450262", phone: null, email: null, broadbandAccount: "P0444101", sessionId: null }))
       .toEqual({ destination: "0302450262", bundle: "P0444101" })
   })
+  it("tolerates non-strings, inner spaces, thousands separators", () => {
+    expect(normaliseInputs("dstv", { account: 7029864396 as unknown as string })).toMatchObject({ ok: true, value: { account: "7029864396" } })
+    expect(normaliseInputs("dstv", { account: "7029 864 396" })).toMatchObject({ ok: true, value: { account: "7029864396" } })
+    expect(normaliseInputs("telecel_broadband", { account: "0302 450 262", broadbandAccount: "P044 4101" })).toMatchObject({ ok: true, value: { account: "0302450262", broadbandAccount: "P0444101" } })
+    expect(normaliseInputs("dstv", { account: null as unknown as string }).ok).toBe(false)
+    expect(parseLookup("dstv", [it_("amountDue", "1,234.50", 0)]).amountDue).toBe(1234.5)
+    expect(parseLookup("dstv", [it_("amountDue", "n/a", 0)]).amountDue).toBeNull()
+    expect(parseLookup("ghana_water", [it_("amountDue", "", 55)]).amountDue).toBe(55)
+  })
 })
