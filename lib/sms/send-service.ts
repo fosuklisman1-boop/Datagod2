@@ -5,6 +5,7 @@ import { calculateSegments } from "./segments"
 import { resolveCampaignSender, shadowPolicyWithin, type PolicyShadow } from "./policy-context"
 import { isSmsEnabled } from "./kill-switch"
 import { dispatchCampaign, type SentRow } from "./campaign-dispatch"
+import { isMissingColumn } from "./provider-override"
 import {
   evaluateForEnforcement, isPolicyEnforced, recordFlags, releaseSendLock, trySendLock,
   POLICY_UNAVAILABLE_REASON, SEND_IN_PROGRESS_MESSAGE, type EnforcementCode,
@@ -57,6 +58,8 @@ export interface EnqueueSendOptions {
   scheduledFor?: Date
   /** Log label; written only when non-default (the DB default is 'campaign'). */
   source?: "campaign" | "order_confirmation"
+  /** Explicit provider for this send; persisted (provider_override) only when set so retries honour it. */
+  provider?: "moolre" | "hubtel"
 }
 
 export interface EnqueueSendError {
@@ -128,6 +131,7 @@ export async function enqueueSend(
   const extraLogCols: Record<string, string> = {}
   if (scheduledIso !== null) extraLogCols.scheduled_for = scheduledIso
   if (opts?.source && opts.source !== "campaign") extraLogCols.source = opts.source
+  if (opts?.provider) extraLogCols.provider_override = opts.provider
 
   // 0. Master switch (Phase 2): refuse new customer sends while the platform switch is off.
   if (!(await isSmsEnabled())) return { ok: false, error: "SMS_DISABLED" }
@@ -224,7 +228,7 @@ export async function enqueueSend(
   let claimedAtMs = Date.now()
   try {
     const { mode, shadow } = await shadowPromise // never rejects (shadowPolicyWithin catches)
-    const { data: logData, error: logError } = await supabaseAdmin
+    const insertLog = (extra: Record<string, string>) => supabaseAdmin
       .from("sms_send_logs")
       .insert({
         sms_account_id: accountId,
@@ -241,10 +245,19 @@ export async function enqueueSend(
         flag_reason: filterResult.flagged ? (filterResult.reason ?? null) : null,
         mode,
         policy_shadow: shadow,
-        ...extraLogCols,
+        ...extra,
       })
       .select("id")
       .single()
+    let { data: logData, error: logError } = await insertLog(extraLogCols)
+    if (logError && extraLogCols.provider_override && isMissingColumn(logError)) {
+      // Migration 20261020 not applied yet. The credits are already debited: do NOT fail (and refund)
+      // the send. Retry once without the column; the instant dispatch below still honours the pick,
+      // only later drain retries fall back to category routing.
+      console.error("[SMS-SEND] provider_override column missing - apply migration 20261020; retrying without it")
+      const { provider_override: _drop, ...withoutOverride } = extraLogCols
+      ;({ data: logData, error: logError } = await insertLog(withoutOverride))
+    }
     if (logError || !logData) throw logError ?? new Error("Failed to insert sms_send_logs row")
 
     sendLogId = logData.id
@@ -424,7 +437,8 @@ export async function enqueueSend(
       mark,
       // Stop starting chunks 1 min before send-drain's STALE_CLAIM_MS (5 min) reaper could
       // hand still-claimed rows back to the drain mid-dispatch.
-      claimedAtMs + 4 * 60_000
+      claimedAtMs + 4 * 60_000,
+      opts?.provider ?? undefined
     )
     const firstBatch = result.sent.find((r) => r.bid)?.bid
     if (firstBatch) {

@@ -28,19 +28,31 @@ const h = vi.hoisted(() => {
     sendError: "provider failed",
     parkedLogIds: [] as (string | number)[], // sms_send_logs ids whose status is held/scheduled
     parkLookupError: false,
+    overrides: {} as Record<string, string>, // log id -> provider_override
+    overrideError: false,
+    overrideMessage: "column sms_send_logs.provider_override does not exist",
+    overrideLookups: [] as any[][],
     parkLookups: [] as { table: string; filters: Record<string, any> }[],
   }
 
   const fake = {
     from: (table: string) => ({
       // .select("id").in("id", ids).in("status", [...]) — the held/scheduled guard lookup
-      select: (_cols: string) => {
+      select: (cols: string) => {
         const filters: Record<string, any> = {}
         const chain: any = {
           in: (col: string, vals: any[]) => { filters[col] = vals; return chain },
           then: (resolve: any) => {
-            state.parkLookups.push({ table, filters })
             const ids = (filters.id ?? []) as any[]
+            if (cols.includes("provider_override")) {
+              state.overrideLookups.push(ids)
+              const rr = state.overrideError
+                ? { data: null, error: { message: state.overrideMessage } }
+                : { data: ids.filter((id) => state.overrides[String(id)]).map((id) => ({ id, provider_override: state.overrides[String(id)] })), error: null }
+              resolve(rr)
+              return Promise.resolve(rr)
+            }
+            state.parkLookups.push({ table, filters })
             const r = state.parkLookupError
               ? { data: null, error: { message: "logs down" } }
               : { data: ids.filter((id) => state.parkedLogIds.map(String).includes(String(id))).map((id) => ({ id })), error: null }
@@ -130,6 +142,10 @@ beforeEach(() => {
   h.state.parkedLogIds = []
   h.state.parkLookupError = false
   h.state.parkLookups.length = 0
+  h.state.overrides = {}
+  h.state.overrideError = false
+  h.state.overrideMessage = "column sms_send_logs.provider_override does not exist"
+  h.state.overrideLookups.length = 0
   h.sendSmsMock.mockReset()
 })
 
@@ -212,6 +228,52 @@ describe("drainSmsMessages", () => {
     h.sendSmsMock.mockResolvedValue({ success: true, ref: "r9", provider: "moolre" })
     await drainSmsMessages()
     expect(h.sendSmsMock).toHaveBeenCalledWith(expect.objectContaining({ phone: "+233241234567", senderId: "MYSHOP" }))
+  })
+
+  it("a log with provider_override=hubtel → sendSMS gets provider:'hubtel'; others get none", async () => {
+    h.state.claimedRows = [
+      { id: "a", send_log_id: "L1", sms_account_id: "x", phone: "+233241234567", rendered_message: "Hi", segments: 1, attempts: 0, sender_id: null },
+      { id: "b", send_log_id: "L2", sms_account_id: "x", phone: "+233241234568", rendered_message: "Hi", segments: 1, attempts: 0, sender_id: null },
+    ]
+    h.state.overrides = { L1: "hubtel" }
+    h.sendSmsMock.mockResolvedValue({ success: true, ref: "r", provider: "hubtel" })
+    await drainSmsMessages()
+    const byRef = (id: string) => h.sendSmsMock.mock.calls.map((c: any[]) => c[0]).find((a: any) => a.reference === id)
+    expect(byRef("a")).toMatchObject({ provider: "hubtel", type: "shop_sms" })
+    expect(byRef("b").provider).toBeUndefined()
+    expect(h.state.overrideLookups).toHaveLength(1)
+  })
+
+  it("override lookup failure (column missing) does not break the drain: sends with no provider", async () => {
+    h.state.claimedRows = [
+      { id: "a", send_log_id: "L1", sms_account_id: "x", phone: "+233241234567", rendered_message: "Hi", segments: 1, attempts: 0, sender_id: null },
+    ]
+    h.state.overrideError = true
+    h.sendSmsMock.mockResolvedValue({ success: true, ref: "r", provider: "moolre" })
+    const res = await drainSmsMessages()
+    expect(res.sent).toBe(1)
+    expect(h.sendSmsMock.mock.calls[0][0].provider).toBeUndefined()
+  })
+
+  it("override lookup transient error: nothing sent, rows handed back to pending (attempt restored)", async () => {
+    h.state.claimedRows = [
+      { id: "a", send_log_id: "L1", sms_account_id: "x", phone: "+233241234567", rendered_message: "Hi", segments: 1, attempts: 2, sender_id: null },
+    ]
+    h.state.overrideError = true
+    h.state.overrideMessage = "connection reset"
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    const res = await drainSmsMessages()
+    err.mockRestore()
+    expect(res).toEqual({ claimed: 0, sent: 0, failed: 0, refunded: 0 })
+    expect(h.sendSmsMock).not.toHaveBeenCalled()
+    expect(h.state.updates.find((u) => u.table === "sms_messages" && u.data.status === "pending" && u.data.attempts === 1)).toBeTruthy()
+  })
+
+  it("override lookups are chunked to <=200 ids", async () => {
+    h.state.claimedRows = Array.from({ length: 250 }, (_, i) => ({ id: "m" + i, send_log_id: "L" + i, sms_account_id: "x", phone: "+233241234567", rendered_message: "Hi", segments: 1, attempts: 0, sender_id: null }))
+    h.sendSmsMock.mockResolvedValue({ success: true, ref: "r", provider: "moolre" })
+    await drainSmsMessages({ limit: 250 })
+    expect(h.state.overrideLookups.map((l) => l.length)).toEqual([200, 50])
   })
 
   it("null sender_id → sendSMS called with senderId undefined (platform default)", async () => {

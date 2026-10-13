@@ -44,6 +44,7 @@ export async function dispatchClaimed(
   items: ClaimedItem[],
   senderId: string | null,
   claimedAtMs: number,
+  provider?: "moolre" | "hubtel",
 ): Promise<number> {
   const placedUnmarked = new Set<string>()
   let placed = 0
@@ -79,7 +80,7 @@ export async function dispatchClaimed(
           if (tagErr) console.error("[SMS-HELD] unconfirmed tagging failed:", tagErr.message)
         }
       }
-      const result = await dispatchCampaign(items, senderId, mark, claimedAtMs + DISPATCH_WINDOW_MS)
+      const result = await dispatchCampaign(items, senderId, mark, claimedAtMs + DISPATCH_WINDOW_MS, provider)
       placed = result.sent.length + result.fallbackSent.length
       const firstBatch = result.sent.find((r) => r.bid)?.bid
       if (firstBatch) {

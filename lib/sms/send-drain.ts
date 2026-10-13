@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { sendSMS } from "@/lib/sms-service"
+import { fetchProviderOverrides, type SmsProviderChoice } from "./provider-override"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -55,11 +56,11 @@ async function refundMessage(row: SmsMessageRow): Promise<boolean> {
 }
 
 /** Send one message with a hard timeout, clearing the timer so it never leaks / rejects late. */
-async function sendWithTimeout(row: SmsMessageRow) {
+async function sendWithTimeout(row: SmsMessageRow, provider?: SmsProviderChoice) {
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     return await Promise.race([
-      sendSMS({ phone: row.phone, message: row.rendered_message, type: "shop_sms", reference: row.id, senderId: row.sender_id ?? undefined }),
+      sendSMS({ phone: row.phone, message: row.rendered_message, type: "shop_sms", reference: row.id, senderId: row.sender_id ?? undefined, ...(provider ? { provider } : {}) }),
       new Promise<{ success: false; error: string }>((_, reject) => {
         timer = setTimeout(() => reject(new Error(`send timeout after ${SEND_TIMEOUT_MS}ms`)), SEND_TIMEOUT_MS)
       }),
@@ -139,13 +140,31 @@ export async function drainSmsMessages(opts: { limit?: number } = {}): Promise<D
   let failed = 0
   let refunded = 0
   const touchedLogIds = new Set<string>()
+  // Per-send provider choice. ONLY a missing column (migration not applied) means "no overrides"
+  // (fetchProviderOverrides returns an empty map). Any other lookup failure throws: it must not
+  // let rows go out via a provider the sender did not choose, so hand them back (attempt
+  // restored) and retry next run.
+  let overrides: Map<string, SmsProviderChoice>
+  try {
+    overrides = await fetchProviderOverrides(supabaseAdmin, [...new Set(rows.map((r) => r.send_log_id))])
+  } catch {
+    for (const row of rows) {
+      const { error: backErr } = await supabaseAdmin
+        .from("sms_messages")
+        .update({ status: "pending", claimed_at: null, attempts: Math.max(0, row.attempts - 1) })
+        .eq("id", row.id)
+        .eq("status", "claimed")
+      if (backErr) console.error(`[SMS-DRAIN] could not hand back message ${row.id} (stale-claim reaper will):`, backErr.message)
+    }
+    return { claimed: 0, sent: 0, failed: 0, refunded: 0 }
+  }
 
   // (c) Process each row — never abort the batch on a single row error.
   for (const row of rows) {
     touchedLogIds.add(row.send_log_id)
     const isTerminal = row.attempts >= MAX_ATTEMPTS
     try {
-      const r = await sendWithTimeout(row)
+      const r = await sendWithTimeout(row, overrides.get(String(row.send_log_id)))
 
       if (r.success) {
         const { error: sentErr } = await supabaseAdmin

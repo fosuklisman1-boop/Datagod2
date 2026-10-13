@@ -12,6 +12,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { hubtelConfigFromEnv } from "./providers/hubtel"
 import { fetchDisbursementBalance } from "@/lib/ussd-hubtel/relay"
+import { CATEGORY_DEFAULTS, SMS_CATEGORIES, type CategoryProvider, type SmsCategory } from "./categories"
 import { loadHubtelBalanceSettings } from "./platform-settings"
 const VALID_PROVIDERS = ["moolre", "mnotify", "brevo", "hubtel"] as const
 type Provider = (typeof VALID_PROVIDERS)[number]
@@ -19,6 +20,34 @@ type Provider = (typeof VALID_PROVIDERS)[number]
 export interface RoutingConfig {
   primary: Provider | string
   fallbacks: (Provider | string)[]
+  /** Per-category provider choice ("global" = follow primary/fallbacks). */
+  categoryProviders: Record<SmsCategory, CategoryProvider>
+  /** Whether tenants may choose their own provider. */
+  tenantProviderChoice: boolean
+}
+
+const CATEGORY_PROVIDER_VALUES: readonly string[] = ["global", "moolre", "hubtel"]
+
+function isCategory(c: unknown): c is SmsCategory {
+  return typeof c === "string" && (SMS_CATEGORIES as readonly string[]).includes(c)
+}
+
+function toObject(raw: unknown): Record<string, unknown> {
+  let v = raw
+  if (typeof v === "string") {
+    try { v = JSON.parse(v) } catch { return {} }
+  }
+  return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {}
+}
+
+function parseCategoryProviders(raw: unknown): Record<SmsCategory, CategoryProvider> {
+  const out = { ...CATEGORY_DEFAULTS }
+  for (const [k, v] of Object.entries(toObject(raw))) {
+    if (isCategory(k) && typeof v === "string" && CATEGORY_PROVIDER_VALUES.includes(v)) {
+      out[k] = v as CategoryProvider
+    }
+  }
+  return out
 }
 
 // ---------------------------------------------------------------------------
@@ -59,7 +88,15 @@ export function parseRoutingConfig(rows: SettingRow[]): RoutingConfig {
     fallbacks = []
   }
 
-  return { primary, fallbacks }
+  const rawChoice = map["sms_tenant_provider_choice_enabled"]
+  const tenantProviderChoice = rawChoice === true || rawChoice === "true"
+
+  return {
+    primary,
+    fallbacks,
+    categoryProviders: parseCategoryProviders(map["sms_category_providers"]),
+    tenantProviderChoice,
+  }
 }
 
 /**
@@ -110,7 +147,12 @@ export async function getRoutingConfig(): Promise<RoutingConfig> {
     const { data, error } = await supabase
       .from("admin_settings")
       .select("key, value")
-      .in("key", ["sms_primary_provider", "sms_fallback_providers"])
+      .in("key", [
+        "sms_primary_provider",
+        "sms_fallback_providers",
+        "sms_category_providers",
+        "sms_tenant_provider_choice_enabled",
+      ])
 
     if (error) throw error
 
@@ -187,8 +229,10 @@ export function isValidProvider(p: unknown): p is Provider {
 export async function setRoutingConfig(patch: {
   primary?: string
   fallbacks?: string[]
+  categoryProviders?: Partial<Record<SmsCategory, string>>
+  tenantProviderChoice?: boolean
 }): Promise<{ ok: true } | { ok: false; error: string }> {
-  const writes: { key: string; value: string | string[] }[] = []
+  const writes: { key: string; value: string | string[] | boolean | Record<string, string> }[] = []
 
   if (patch.primary !== undefined) {
     if (!isValidProvider(patch.primary))
@@ -202,6 +246,47 @@ export async function setRoutingConfig(patch: {
     const invalid = patch.fallbacks.filter((p) => !isValidProvider(p))
     if (invalid.length) return { ok: false, error: `Invalid fallback provider(s): ${invalid.join(", ")}` }
     writes.push({ key: "sms_fallback_providers", value: patch.fallbacks })
+  }
+
+  let newCategoryValues: string[] = []
+  if (patch.categoryProviders !== undefined) {
+    const cp = patch.categoryProviders
+    if (!cp || typeof cp !== "object" || Array.isArray(cp))
+      return { ok: false, error: "categoryProviders must be an object" }
+    for (const [k, v] of Object.entries(cp)) {
+      if (!isCategory(k)) return { ok: false, error: `Unknown SMS category: ${k}` }
+      if (typeof v !== "string" || !CATEGORY_PROVIDER_VALUES.includes(v))
+        return { ok: false, error: `Invalid provider for category ${k}: ${String(v)}` }
+    }
+    newCategoryValues = Object.values(cp) as string[]
+  }
+
+  if (patch.tenantProviderChoice !== undefined && typeof patch.tenantProviderChoice !== "boolean")
+    return { ok: false, error: "tenantProviderChoice must be a boolean" }
+
+  if (newCategoryValues.includes("hubtel") && !hubtelConfigFromEnv()) {
+    return { ok: false, error: "Hubtel credentials are not set in Vercel (HUBTEL_SMS_CLIENT_ID / HUBTEL_SMS_CLIENT_SECRET)." }
+  }
+
+  if (patch.categoryProviders !== undefined) {
+    // Merge over the currently stored map so a partial patch keeps other categories.
+    const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
+    const { data: cur, error: curErr } = await sb
+      .from("admin_settings")
+      .select("key, value")
+      .in("key", ["sms_category_providers"])
+    if (curErr) return { ok: false, error: curErr.message }
+    const stored = toObject((cur ?? [])[0]?.value)
+    const merged: Record<string, string> = {}
+    for (const [k, v] of Object.entries(stored)) {
+      if (isCategory(k) && typeof v === "string" && CATEGORY_PROVIDER_VALUES.includes(v)) merged[k] = v
+    }
+    Object.assign(merged, patch.categoryProviders)
+    writes.push({ key: "sms_category_providers", value: merged })
+  }
+
+  if (patch.tenantProviderChoice !== undefined) {
+    writes.push({ key: "sms_tenant_provider_choice_enabled", value: patch.tenantProviderChoice })
   }
 
   if (writes.length === 0) return { ok: false, error: "No routing fields to update" }

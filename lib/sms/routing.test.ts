@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 
 // Hoist the fake admin_settings store before any module import
 const mockSettings = vi.hoisted(() => ({
-  store: {} as Record<string, string>,
+  store: {} as Record<string, unknown>,
   // setRoutingConfig write-path capture
   updates: [] as { key: string; patch: Record<string, unknown> }[],
   inserts: [] as Record<string, unknown>[],
@@ -77,6 +77,7 @@ vi.mock("@/lib/ussd-hubtel/relay", () => ({
 
 // Import AFTER mock registration
 import { parseRoutingConfig, setRoutingConfig, invalidateRoutingCache, narrowProvidersForSender } from "./routing"
+import { CATEGORY_DEFAULTS } from "./categories"
 
 describe("parseRoutingConfig", () => {
   it("returns primary + fallbacks from settings rows", () => {
@@ -312,6 +313,75 @@ describe("setRoutingConfig hubtel guard", () => {
     const res = await setRoutingConfig({ primary: "moolre", fallbacks: ["mnotify"] })
     expect(res.ok).toBe(true)
     expect(hub.balanceCalls).toBe(0)
+  })
+})
+
+describe("category routing config", () => {
+  it("defaults categoryProviders to CATEGORY_DEFAULTS and tenantProviderChoice to false", () => {
+    const r = parseRoutingConfig([])
+    expect(r.categoryProviders).toEqual(CATEGORY_DEFAULTS)
+    expect(r.tenantProviderChoice).toBe(false)
+  })
+  it("applies valid overrides, drops unknown categories and invalid providers", () => {
+    const r = parseRoutingConfig([
+      { key: "sms_category_providers", value: { otp: "hubtel", bogus: "moolre", system: "mnotify" } },
+    ])
+    expect(r.categoryProviders.otp).toBe("hubtel")
+    expect((r.categoryProviders as Record<string, string>).bogus).toBeUndefined()
+    expect(r.categoryProviders.system).toBe(CATEGORY_DEFAULTS.system)
+  })
+  it("accepts a JSON-string category map", () => {
+    const r = parseRoutingConfig([{ key: "sms_category_providers", value: '{"otp":"moolre"}' }])
+    expect(r.categoryProviders.otp).toBe("moolre")
+  })
+  it("ignores a malformed category map", () => {
+    const r = parseRoutingConfig([{ key: "sms_category_providers", value: "not-json" }])
+    expect(r.categoryProviders).toEqual(CATEGORY_DEFAULTS)
+  })
+  it("parses tenant provider choice flag", () => {
+    expect(parseRoutingConfig([{ key: "sms_tenant_provider_choice_enabled", value: true }]).tenantProviderChoice).toBe(true)
+    expect(parseRoutingConfig([{ key: "sms_tenant_provider_choice_enabled", value: "true" }]).tenantProviderChoice).toBe(true)
+    expect(parseRoutingConfig([{ key: "sms_tenant_provider_choice_enabled", value: "false" }]).tenantProviderChoice).toBe(false)
+  })
+})
+
+describe("setRoutingConfig category fields", () => {
+  beforeEach(() => {
+    mockSettings.reset()
+    invalidateRoutingCache()
+    hub.creds = true
+  })
+  it("accepts a patch with only the new fields and writes both keys", async () => {
+    const res = await setRoutingConfig({ categoryProviders: { otp: "moolre" }, tenantProviderChoice: true })
+    expect(res.ok).toBe(true)
+    const byKey = Object.fromEntries(mockSettings.updates.map((u) => [u.key, u.patch.value]))
+    expect(byKey["sms_category_providers"]).toMatchObject({ otp: "moolre" })
+    expect(byKey["sms_tenant_provider_choice_enabled"]).toBe(true)
+  })
+  it("merges a partial patch over the existing stored map", async () => {
+    mockSettings.store["sms_category_providers"] = { otp: "hubtel" } as any
+    await setRoutingConfig({ categoryProviders: { system: "hubtel" } })
+    const v = mockSettings.updates.find((u) => u.key === "sms_category_providers")?.patch.value as Record<string, string>
+    expect(v.otp).toBe("hubtel")
+    expect(v.system).toBe("hubtel")
+  })
+  it("rejects unknown category / invalid provider without writing", async () => {
+    const a = await setRoutingConfig({ categoryProviders: { nope: "moolre" } as any })
+    const b = await setRoutingConfig({ categoryProviders: { otp: "mnotify" } })
+    expect(a.ok).toBe(false)
+    expect(b.ok).toBe(false)
+    expect(mockSettings.updates).toHaveLength(0)
+  })
+  it("requires Hubtel credentials when any category is hubtel", async () => {
+    hub.creds = false
+    const res = await setRoutingConfig({ categoryProviders: { otp: "hubtel" } })
+    expect(res.ok).toBe(false)
+    expect((res as { error: string }).error).toMatch(/Hubtel credentials are not set in Vercel/)
+    expect(mockSettings.updates).toHaveLength(0)
+  })
+  it("non-boolean tenantProviderChoice is rejected", async () => {
+    const res = await setRoutingConfig({ tenantProviderChoice: "yes" as any })
+    expect(res.ok).toBe(false)
   })
 })
 

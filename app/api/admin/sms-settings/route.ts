@@ -12,20 +12,30 @@ export async function GET(request: NextRequest) {
 }
 
 // PATCH /api/admin/sms-settings — update provider routing
-// Body: { primary?: string; fallbacks?: string[] }
+// Body: { primary?, fallbacks?, categoryProviders?, tenantProviderChoice? }
 // Persists as JSONB into admin_settings and invalidates the routing cache.
 export async function PATCH(request: NextRequest) {
   const auth = await verifyAdminAccess(request)
   if (!auth.isAdmin) return auth.errorResponse!
 
-  let body: { primary?: string; fallbacks?: string[] }
+  let body: {
+    primary?: string
+    fallbacks?: string[]
+    categoryProviders?: Record<string, string>
+    tenantProviderChoice?: boolean
+  }
   try {
     body = await request.json()
   } catch {
     return NextResponse.json({ success: false, error: "Invalid JSON body" }, { status: 400 })
   }
 
-  const result = await setRoutingConfig({ primary: body.primary, fallbacks: body.fallbacks })
+  const result = await setRoutingConfig({
+    primary: body.primary,
+    fallbacks: body.fallbacks,
+    categoryProviders: body.categoryProviders,
+    tenantProviderChoice: body.tenantProviderChoice,
+  })
   if (!result.ok) return NextResponse.json({ success: false, error: result.error }, { status: 400 })
 
   const routing = await getRoutingConfig()

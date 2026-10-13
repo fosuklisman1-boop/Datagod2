@@ -17,6 +17,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { isSmsEnabled } from "./kill-switch"
 import { claimPendingForLog, dispatchClaimed, DISPATCH_WINDOW_MS } from "./dispatch-claimed"
+import { fetchProviderOverrides } from "./provider-override"
 import { parseLogId } from "./held-service"
 
 const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
@@ -220,8 +221,10 @@ export async function runScheduledDispatch(opts: { limit?: number; deadlineMs: n
     try {
       const now = Date.now()
       const claimedAtMs = opts.hardDeadlineMs !== undefined ? Math.min(now, opts.hardDeadlineMs - DISPATCH_WINDOW_MS) : now
+      // Lookup first: a failure throws before any row is claimed (caught below; the drain sends the queued log).
+      const override = (await fetchProviderOverrides(supabaseAdmin, [logId])).get(String(logId))
       const items = await claimPendingForLog(supabaseAdmin, logId)
-      s.placed += await dispatchClaimed(supabaseAdmin, logId, items, p.out_sender_id ?? null, claimedAtMs)
+      s.placed += await dispatchClaimed(supabaseAdmin, logId, items, p.out_sender_id ?? null, claimedAtMs, override)
       s.dispatched++
     } catch (e) {
       // The log is 'queued' with pending (or soon reaped) messages: the drain sends them.

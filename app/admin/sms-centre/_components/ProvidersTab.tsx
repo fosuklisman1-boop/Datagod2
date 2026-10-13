@@ -11,6 +11,22 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from "sonner"
 import { Loader2, Plus, RefreshCw, Wallet, AlertTriangle } from "lucide-react"
+import {
+  SMS_CATEGORIES,
+  CATEGORY_DEFAULTS,
+  CATEGORY_LABELS,
+  CATEGORY_HINTS,
+  type SmsCategory,
+  type CategoryProvider,
+  resolveGlobalHint,
+} from "@/lib/sms/categories"
+
+type CategoryProviders = Record<SmsCategory, CategoryProvider>
+const CATEGORY_OPTIONS: { value: CategoryProvider; label: string }[] = [
+  { value: "global", label: "Global" },
+  { value: "moolre", label: "Moolre" },
+  { value: "hubtel", label: "Hubtel" },
+]
 
 const PROVIDERS = ["hubtel", "moolre", "mnotify", "brevo"] as const
 type Provider = (typeof PROVIDERS)[number]
@@ -18,6 +34,8 @@ type Provider = (typeof PROVIDERS)[number]
 interface Routing {
   primary: string
   fallbacks: string[]
+  categoryProviders?: Partial<CategoryProviders>
+  tenantProviderChoice?: boolean
 }
 
 interface Supply {
@@ -53,6 +71,9 @@ export default function ProvidersTab() {
   const [supply, setSupply] = useState<Supply | null>(null)
   const [newSender, setNewSender] = useState("")
   const [busy, setBusy] = useState(false)
+  const [categoryProviders, setCategoryProviders] = useState<CategoryProviders>({ ...CATEGORY_DEFAULTS })
+  const [tenantChoice, setTenantChoice] = useState(false)
+  const [savingCategories, setSavingCategories] = useState(false)
 
   const load = useCallback(async () => {
     const [r, s, sup] = await Promise.all([
@@ -60,7 +81,11 @@ export default function ProvidersTab() {
       api<SenderId[]>("/api/admin/sms-sender-ids"),
       api<Supply>("/api/admin/sms-supply"),
     ])
-    if (r.success && r.data) setRouting({ primary: r.data.primary, fallbacks: r.data.fallbacks ?? [] })
+    if (r.success && r.data) {
+      setRouting({ primary: r.data.primary, fallbacks: r.data.fallbacks ?? [] })
+      setCategoryProviders({ ...CATEGORY_DEFAULTS, ...(r.data.categoryProviders ?? {}) })
+      setTenantChoice(!!r.data.tenantProviderChoice)
+    }
     if (s.success && s.data) setSenders(s.data)
     if (sup.success && sup.data) setSupply(sup.data)
   }, [])
@@ -91,6 +116,24 @@ export default function ProvidersTab() {
       toast.success("Routing saved.")
     } else {
       toast.error(res.error ?? "Failed to save routing")
+    }
+  }
+
+  async function saveCategories() {
+    setSavingCategories(true)
+    const res = await api<Routing>("/api/admin/sms-settings", {
+      method: "PATCH",
+      body: JSON.stringify({ categoryProviders, tenantProviderChoice: tenantChoice }),
+    })
+    setSavingCategories(false)
+    if (res.success) {
+      if (res.data) {
+        setCategoryProviders({ ...CATEGORY_DEFAULTS, ...(res.data.categoryProviders ?? categoryProviders) })
+        setTenantChoice(res.data.tenantProviderChoice ?? tenantChoice)
+      }
+      toast.success("Provider routing by SMS type saved.")
+    } else {
+      toast.error(res.error ?? "Failed to save provider routing by SMS type")
     }
   }
 
@@ -270,6 +313,65 @@ export default function ProvidersTab() {
 
           <Button onClick={saveRouting} disabled={busy}>
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Save routing
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Provider routing by SMS type */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Provider routing by SMS type</CardTitle>
+          <CardDescription>
+            Each type of SMS can be sent through Moolre or Hubtel. &quot;Global&quot; follows the primary and fallbacks
+            above. The OTP failover breaker overrides this: while it is open, OTPs go to the fallback provider.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="divide-y">
+            {SMS_CATEGORIES.map((c) => (
+              <div
+                key={c}
+                className="flex flex-col gap-2 py-3 first:pt-0 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{CATEGORY_LABELS[c]}</p>
+                  <p className="text-xs text-muted-foreground">{CATEGORY_HINTS[c]}</p>
+                </div>
+                <div className="flex items-center gap-3 sm:shrink-0">
+                  <Select
+                    value={categoryProviders[c]}
+                    onValueChange={(v) => setCategoryProviders((cur) => ({ ...cur, [c]: v as CategoryProvider }))}
+                  >
+                    <SelectTrigger aria-label={`Provider for ${CATEGORY_LABELS[c]}`} className="w-36 bg-card">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CATEGORY_OPTIONS.map((o) => (
+                        <SelectItem key={o.value} value={o.value}>
+                          {o.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {categoryProviders[c] === "global" && (
+                    <span className="text-xs capitalize text-muted-foreground">→ {resolveGlobalHint(c, { primary: routing.primary, categoryProviders })}</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <label className="flex cursor-pointer items-start gap-2 text-sm">
+            <Checkbox
+              className="mt-0.5"
+              checked={tenantChoice}
+              onCheckedChange={(v) => setTenantChoice(v === true)}
+            />
+            Let customers choose the provider when sending bulk SMS
+          </label>
+
+          <Button onClick={saveCategories} disabled={savingCategories}>
+            {savingCategories ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Save
           </Button>
         </CardContent>
       </Card>
