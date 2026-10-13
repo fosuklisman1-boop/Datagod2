@@ -81,7 +81,7 @@ describe("dispatchCampaign", () => {
   it("hubtel not primary → today's Moolre bulk", async () => {
     h.primary = "moolre"
     h.moolre.mockResolvedValue({ ok: true })
-    const r = await dispatchCampaign(items(3), "KINGS")
+    const r = await dispatchCampaign(items(3), null)
     expect(h.simple).not.toHaveBeenCalled()
     expect(r.provider).toBe("moolre")
     expect(r.sent.map((s) => s.id)).toEqual(["id0", "id1", "id2"])
@@ -167,7 +167,7 @@ describe("dispatchCampaign", () => {
     const okHubtel = () => h.simple.mockImplementation(async (_c: unknown, m: { recipients: string[] }) => accepted(m.recipients.map((r) => ({ phone: r }))))
     it("provider=moolre while primary=hubtel uses Moolre chunks", async () => {
       h.moolre.mockResolvedValue({ ok: true })
-      const r = await dispatchCampaign(items(3), "KINGS", undefined, undefined, "moolre")
+      const r = await dispatchCampaign(items(3), null, undefined, undefined, "moolre")
       expect(h.simple).not.toHaveBeenCalled()
       expect(r.provider).toBe("moolre")
       expect(r.sent).toHaveLength(3)
@@ -199,6 +199,20 @@ describe("dispatchCampaign", () => {
     it("explicit provider with customer_bulk='global' is honoured", async () => {
       h.bulk = "global"; h.moolre.mockResolvedValue({ ok: true })
       expect((await dispatchCampaign(items(2), null, undefined, undefined, "moolre")).provider).toBe("moolre")
+    })
+    it("custom sender + forced moolre: Hubtel is used instead", async () => {
+      h.primary = "moolre"; okHubtel()
+      const r = await dispatchCampaign(items(2), "KINGS", undefined, undefined, "moolre")
+      expect(r.provider).toBe("hubtel")
+      expect(h.moolre).not.toHaveBeenCalled()
+    })
+    it("custom sender + category moolre (customer_bulk): Hubtel is used instead", async () => {
+      h.bulk = "moolre"; okHubtel()
+      expect((await dispatchCampaign(items(2), "KINGS")).provider).toBe("hubtel")
+    })
+    it("custom sender + moolre but Hubtel unconfigured: stays on Moolre", async () => {
+      h.hubtelCfg = null; h.moolre.mockResolvedValue({ ok: true })
+      expect((await dispatchCampaign(items(2), "KINGS", undefined, undefined, "moolre")).provider).toBe("moolre")
     })
     it("explicit provider beats the customer_bulk category provider", async () => {
       h.bulk = "moolre"; okHubtel()

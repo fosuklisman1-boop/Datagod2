@@ -872,8 +872,10 @@ export function buildProviderOrder(args: {
   breakerOpen: boolean
   fallbackProvider: string
   otpEnvProvider?: string
+  /** Hubtel credentials present (needed to redirect a custom-sender send away from Moolre). */
+  hubtelConfigured?: boolean
 }): string[] {
-  const { payload, routing, isOtp, breakerOpen, fallbackProvider, otpEnvProvider } = args
+  const { payload, routing, isOtp, breakerOpen, fallbackProvider, otpEnvProvider, hubtelConfigured } = args
   const primary = routing.primary
   const sel = routing.categoryProviders?.[categoryOf(payload.type)] ?? 'global'
   let forced = payload.provider
@@ -887,6 +889,12 @@ export function buildProviderOrder(args: {
   } else {
     lead = forced ?? (sel !== 'global' ? sel : undefined)
   }
+  // Custom (tenant) sender IDs are approved locally and may not be registered with Moolre, which
+  // historically only ever carried them via Hubtel: a forced/category Moolre lead becomes Hubtel.
+  // Platform-sender sends (no senderId) are unaffected.
+  if (lead === 'moolre' && hubtelConfigured && payload.senderId && payload.senderId.trim()) {
+    lead = 'hubtel'
+  }
   const base = isOtp ? [fallbackProvider, primary, ...routing.fallbacks] : [primary, ...routing.fallbacks]
   const order = lead ? [lead, ...base] : base
   return [...new Set(order)]
@@ -895,9 +903,10 @@ export function buildProviderOrder(args: {
 /**
  * Send SMS using the configured provider (Brevo, Moolre, or mNotify).
  *
- * Every message fails over on a hard REJECT: it tries the primary provider, then
- * the fallback(s), until one accepts. OTP additionally prefers SMS_OTP_PROVIDER
- * first. The chain only advances when a provider returns failure, so a normally
+ * Every message fails over on a hard REJECT: it tries the lead provider, then
+ * the primary and fallback(s), until one accepts. The lead is payload.provider, else the
+ * admin's per-category selector (see buildProviderOrder); OTP-category messages use the OTP
+ * breaker and, for a Global selector, SMS_OTP_PROVIDER else the primary. The chain only advances when a provider returns failure, so a normally
  * accepted send is a single call — there is NO double-send here (delivered-but-
  * not-DLR'd is the cron's concern, not this path).
  */
@@ -924,6 +933,7 @@ export async function sendSMS(payload: SMSPayload): Promise<SendSMSResponse> {
   let order = buildProviderOrder({
     payload, routing, isOtp, breakerOpen, fallbackProvider,
     otpEnvProvider: process.env.SMS_OTP_PROVIDER || undefined,
+    hubtelConfigured: isProviderConfigured('hubtel'),
   })
   // De-dupe, keep only known + configured providers.
   order = [...new Set(order)].filter((p) => SMS_SENDERS[p] && isProviderConfigured(p))

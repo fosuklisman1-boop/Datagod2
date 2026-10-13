@@ -140,9 +140,10 @@ export async function drainSmsMessages(opts: { limit?: number } = {}): Promise<D
   let failed = 0
   let refunded = 0
   const touchedLogIds = new Set<string>()
-  // Per-send provider choice (best-effort: a missing column / query error => no overrides).
-  // A real lookup failure must not let rows go out via a provider the sender did not choose:
-  // hand them back (attempt restored) and retry next run.
+  // Per-send provider choice. ONLY a missing column (migration not applied) means "no overrides"
+  // (fetchProviderOverrides returns an empty map). Any other lookup failure throws: it must not
+  // let rows go out via a provider the sender did not choose, so hand them back (attempt
+  // restored) and retry next run.
   let overrides: Map<string, SmsProviderChoice>
   try {
     overrides = await fetchProviderOverrides(supabaseAdmin, [...new Set(rows.map((r) => r.send_log_id))])

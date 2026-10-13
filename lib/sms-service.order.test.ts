@@ -59,4 +59,16 @@ describe("buildProviderOrder", () => {
     const o = buildProviderOrder({ ...base, payload: { phone: "1", message: "m", type: "totally_unknown" }, routing: routing({ system: "moolre" }), isOtp: false })
     expect(o).toEqual(["moolre", "hubtel"])
   })
+
+  it("custom sender: forced moolre lead becomes hubtel when Hubtel is configured", () => {
+    const o = buildProviderOrder({ ...base, payload: { phone: "1", message: "m", type: "wallet_topup_success", provider: "moolre", senderId: "KINGS" }, routing: routing({}, "moolre", ["hubtel"]), isOtp: false, hubtelConfigured: true })
+    expect(o[0]).toBe("hubtel")
+  })
+  it("custom sender: category moolre lead becomes hubtel; unconfigured Hubtel or platform sender unaffected", () => {
+    const r = routing({ payments_wallet: "moolre" }, "hubtel", [])
+    const p = { phone: "1", message: "m", type: "wallet_topup_success" }
+    expect(buildProviderOrder({ ...base, payload: { ...p, senderId: "KINGS" }, routing: r, isOtp: false, hubtelConfigured: true })[0]).toBe("hubtel")
+    expect(buildProviderOrder({ ...base, payload: { ...p, senderId: "KINGS" }, routing: r, isOtp: false, hubtelConfigured: false })[0]).toBe("moolre")
+    expect(buildProviderOrder({ ...base, payload: p, routing: r, isOtp: false, hubtelConfigured: true })[0]).toBe("moolre")
+  })
 })
