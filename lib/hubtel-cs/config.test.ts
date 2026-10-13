@@ -58,7 +58,7 @@ describe("validateConfigPatch", () => {
 })
 
 describe("hubtelCsEnvReady", () => {
-  const base = { HUBTEL_CS_CALLBACK_SECRET: "s", NEXT_PUBLIC_APP_URL: "https://x", HUBTEL_RELAY_URL: "https://r", HUBTEL_RELAY_SECRET: "rs" }
+  const base = { HUBTEL_CS_CALLBACK_SECRET: "s".repeat(32), NEXT_PUBLIC_APP_URL: "https://x", HUBTEL_RELAY_URL: "https://r", HUBTEL_RELAY_SECRET: "rs" }
   it("direct mode also needs the CS credentials", () => {
     expect(hubtelCsEnvReady("direct", base).missing.sort()).toEqual(["HUBTEL_CS_BASIC_AUTH", "HUBTEL_DISBURSEMENT_ACCOUNT"])
     expect(hubtelCsEnvReady("direct", { ...base, HUBTEL_CS_BASIC_AUTH: "a", HUBTEL_DISBURSEMENT_ACCOUNT: "11691" }).ready).toBe(true)
@@ -68,5 +68,18 @@ describe("hubtelCsEnvReady", () => {
   })
   it("status checks always use the relay, so relay env is required in both modes", () => {
     expect(hubtelCsEnvReady("relay", { ...base, HUBTEL_RELAY_URL: "" }).missing).toEqual(["HUBTEL_RELAY_URL"])
+  })
+})
+
+describe("hubtelCsEnvReady callback secret length", () => {
+  const env = { NEXT_PUBLIC_APP_URL: "https://x", HUBTEL_RELAY_URL: "https://r", HUBTEL_RELAY_SECRET: "rs" }
+  it("a callback secret shorter than 32 chars is not ready, reported by name only", () => {
+    const r = hubtelCsEnvReady("relay", { ...env, HUBTEL_CS_CALLBACK_SECRET: "short-secret-value" })
+    expect(r.ready).toBe(false)
+    expect(r.missing).toEqual(["HUBTEL_CS_CALLBACK_SECRET (min 32 chars)"])
+    expect(JSON.stringify(r)).not.toContain("short-secret-value")
+  })
+  it("32 chars is accepted", () => {
+    expect(hubtelCsEnvReady("relay", { ...env, HUBTEL_CS_CALLBACK_SECRET: "x".repeat(32) }).ready).toBe(true)
   })
 })

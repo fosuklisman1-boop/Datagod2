@@ -88,6 +88,8 @@ export function hubtelCsEnvReady(
   const required = ["HUBTEL_CS_CALLBACK_SECRET", "NEXT_PUBLIC_APP_URL", "HUBTEL_RELAY_URL", "HUBTEL_RELAY_SECRET"]
   if (mode === "direct") required.push("HUBTEL_CS_BASIC_AUTH", "HUBTEL_DISBURSEMENT_ACCOUNT")
   const missing = required.filter(k => !env[k])
+  // A short HMAC secret is guessable; names only, never the value.
+  if (env.HUBTEL_CS_CALLBACK_SECRET && env.HUBTEL_CS_CALLBACK_SECRET.length < 32) missing.push("HUBTEL_CS_CALLBACK_SECRET (min 32 chars)")
   return { ready: missing.length === 0, missing }
 }
 

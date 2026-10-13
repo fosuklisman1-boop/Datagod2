@@ -33,3 +33,21 @@ describe("order adapters", () => {
     expect(getOrderAdapter("nope")).toBeUndefined()
   })
 })
+
+describe("notifyAdapter with no registered adapter", () => {
+  it("logs at error level with reference and table (no secrets) and does not throw", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    await notifyAdapter(makeTx({ state: "fulfilled", client_reference: "HCS-REF-9", order_table: "other_orders", order_id: "o" }))
+    expect(err).toHaveBeenCalledTimes(1)
+    const msg = String(err.mock.calls[0].join(" "))
+    expect(msg).toContain("HCS-REF-9")
+    expect(msg).toContain("other_orders")
+    err.mockRestore()
+  })
+  it("stays silent for unlinked rows", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    await notifyAdapter(makeTx({ state: "fulfilled", order_table: null }))
+    expect(err).not.toHaveBeenCalled()
+    err.mockRestore()
+  })
+})

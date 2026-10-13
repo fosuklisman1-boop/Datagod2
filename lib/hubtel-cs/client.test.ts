@@ -256,3 +256,15 @@ describe("outcome unknown / idempotency / destination", () => {
     expect(onFloat).not.toHaveBeenCalled()
   })
 })
+
+describe("validatePurchase orderTable/orderId pairing", () => {
+  it("rejects one without the other (a NULL order_table would defeat the per-order unique index)", () => {
+    expect(() => validatePurchase({ ...AIRTIME, orderId: "o1" })).toThrow(HubtelValidationError)
+    expect(() => validatePurchase({ ...AIRTIME, orderTable: "airtime_orders" })).toThrow(HubtelValidationError)
+    expect(() => validatePurchase({ ...AIRTIME, orderTable: "", orderId: "o1" })).toThrow(HubtelValidationError)
+  })
+  it("accepts both together or neither", () => {
+    expect(() => validatePurchase({ ...AIRTIME, orderTable: "airtime_orders", orderId: "o1" })).not.toThrow()
+    expect(() => validatePurchase(AIRTIME)).not.toThrow()
+  })
+})

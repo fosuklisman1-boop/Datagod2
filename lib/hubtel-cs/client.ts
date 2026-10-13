@@ -38,6 +38,8 @@ const hasTwoDecimals = (n: number) => Math.abs(n * 100 - Math.round(n * 100)) < 
 export function validatePurchase(input: PurchaseInput): void {
   const svc = getService(input.serviceKey)
   if (!input.destination || !input.destination.trim()) throw new HubtelValidationError("destination is required")
+  // Both or neither: a NULL order_table would let the per-order unique index be bypassed.
+  if (!!input.orderTable !== !!input.orderId) throw new HubtelValidationError("orderTable and orderId must be provided together")
   if ((svc.kind === "airtime" || svc.kind === "data") && !isValidGhanaMobile(input.destination)) {
     throw new HubtelValidationError(`${svc.label} destination must be a valid Ghana mobile number`)
   }
