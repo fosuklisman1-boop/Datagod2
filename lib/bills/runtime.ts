@@ -4,8 +4,17 @@ import { getHubtelCsRuntime } from "@/lib/hubtel-cs/runtime"
 import type { BillOrderRow, BillsDeps } from "./service"
 import { BILLER_KEYS, BILLERS, isBillerKey, type BillerKey } from "./billers"
 import { getBillsConfig } from "./config"
+import { getCashbackConfig } from "@/lib/cashback/config"
 
 const TABLE = "hubtel_bill_orders"
+
+/** Cashback tier: dealers and sub-agents get the dealer share. Throws on a read error (caller treats as not applied). */
+export async function getBuyerTier(db: SupabaseClient, userId: string): Promise<"customer" | "dealer"> {
+  const { data, error } = await db.from("users").select("role").eq("id", userId).maybeSingle()
+  if (error) throw error
+  const role = (data as { role?: string } | null)?.role
+  return role === "dealer" || role === "sub_agent" ? "dealer" : "customer"
+}
 const ORDER_STATUSES = ["pending", "processing", "completed", "failed", "refunded"] as const
 
 interface RuntimeParts {
@@ -18,6 +27,8 @@ interface RuntimeParts {
 export function buildBillsDeps(rt: RuntimeParts, secret: string, alert: (m: string, urgent?: boolean) => Promise<void>): BillsDeps {
   const { db } = rt
   return {
+    getCashbackConfig: () => getCashbackConfig(db),
+    getBuyerTier: userId => getBuyerTier(db, userId),
     getBillsConfig: () => getBillsConfig(db),
     getHubtelConfig: () => rt.getConfig(),
     query: (serviceKey, destination, params) => rt.client.query(serviceKey, destination, params),

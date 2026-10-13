@@ -5,6 +5,8 @@ import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import type { DataOrderRow, BundlesDeps } from "./service"
 import { BUNDLE_NETWORKS, NETWORK_SERVICE, type BundleNetwork } from "./categories"
 import { getBundlesConfig } from "./config"
+import { getCashbackConfig } from "@/lib/cashback/config"
+import { getBuyerTier } from "@/lib/bills/runtime"
 
 const TABLE = "hubtel_data_orders"
 
@@ -23,6 +25,8 @@ export function buildBundlesDeps(
 ): BundlesDeps {
   const { db } = rt
   return {
+    getCashbackConfig: () => getCashbackConfig(db),
+    getBuyerTier: userId => getBuyerTier(db, userId),
     getBundlesConfig: () => getBundlesConfig(db),
     getHubtelConfig: () => rt.getConfig(),
     query: (serviceKey, destination, params) => rt.client.query(serviceKey, destination, params),
@@ -119,5 +123,6 @@ export function pickOrder(o: DataOrderRow) {
   return {
     id: o.id, reference_code: o.reference_code, network: o.network, bundle_display: o.bundle_display, amount: o.amount,
     beneficiary_phone: o.beneficiary_phone, status: o.status, payment_status: o.payment_status, created_at: o.created_at,
+    faceAmount: o.amount, paidAmount: o.paid_amount ?? o.amount, cashback: o.cashback_amount ?? 0,
   }
 }

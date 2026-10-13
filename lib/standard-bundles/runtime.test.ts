@@ -118,7 +118,32 @@ describe("listUserDataOrders / pickOrder", () => {
   it("pickOrder returns only the allow-listed fields", () => {
     const row: any = { id: "i", reference_code: "SB-1", network: "MTN", bundle_display: "1GB", amount: 5, beneficiary_phone: "233240000000", status: "failed", payment_status: "paid", created_at: "t", notes: "raw hubtel", user_id: "u", idempotency_key: "k" }
     expect(Object.keys(pickOrder(row)).sort()).toEqual(
-      ["amount", "beneficiary_phone", "bundle_display", "created_at", "id", "network", "payment_status", "reference_code", "status"],
+      ["amount", "beneficiary_phone", "bundle_display", "cashback", "created_at", "faceAmount", "id", "network", "paidAmount", "payment_status", "reference_code", "status"],
     )
+  })
+  it("pickOrder price fields: no cashback => paid = face, cashback 0; cashback => stored paid_amount + cashback_amount", () => {
+    const base: any = { id: "i", amount: 10, paid_amount: null, cashback_amount: null }
+    expect(pickOrder(base)).toMatchObject({ amount: 10, faceAmount: 10, paidAmount: 10, cashback: 0 })
+    expect(pickOrder({ ...base, paid_amount: 9.8, cashback_amount: 0.2 })).toMatchObject({ amount: 10, faceAmount: 10, paidAmount: 9.8, cashback: 0.2 })
+  })
+})
+
+describe("cashback wiring", () => {
+  const usersDb = (role: string | null, error: any = null): any => ({
+    from: (t: string) => t === "users"
+      ? { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: role === null ? null : { role }, error }) }) }) }
+      : cfgChain({ enabled: true, surfaces: { dashboard: true } }),
+  })
+  it("getBuyerTier: dealer and sub_agent => dealer; anything else => customer; read error throws", async () => {
+    expect(await deps(usersDb("dealer")).getBuyerTier("u1")).toBe("dealer")
+    expect(await deps(usersDb("sub_agent")).getBuyerTier("u1")).toBe("dealer")
+    expect(await deps(usersDb("user")).getBuyerTier("u1")).toBe("customer")
+    expect(await deps(usersDb(null)).getBuyerTier("u1")).toBe("customer")
+    await expect(deps(usersDb(null, { message: "x" })).getBuyerTier("u1")).rejects.toBeTruthy()
+  })
+  it("getCashbackConfig reads and resolves admin_settings", async () => {
+    const c = await deps(usersDb(null)).getCashbackConfig()
+    expect(c.enabled).toBe(true)
+    expect(c.surfaces.dashboard).toBe(true)
   })
 })

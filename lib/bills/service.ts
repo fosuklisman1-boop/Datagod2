@@ -9,6 +9,8 @@ import {
 } from "./billers"
 import { checkBillAmount, type BillsConfig } from "./config"
 import { signBillToken, verifyBillToken, type VerifiedBill } from "./token"
+import type { CashbackConfig } from "@/lib/cashback/config"
+import { quoteCashback, samePrice, type CashbackQuote } from "@/lib/cashback/quote"
 
 export interface BillOrderRow {
   id: string; reference_code: string; user_id: string; biller: BillerKey; account_number: string; phone: string | null
@@ -16,9 +18,15 @@ export interface BillOrderRow {
   verified: boolean; amount: number; status: "pending" | "processing" | "completed" | "failed" | "refunded"
   payment_status: "unpaid" | "paid" | "refunded"; hubtel_client_reference: string | null; commission: number | null
   failure_reason: string | null; notes: string | null; created_at: string; updated_at: string
+  /** Wallet charge when instant cashback applied (amount stays the face value Hubtel receives); null = amount. */
+  paid_amount?: number | null
+  cashback_amount?: number | null; shop_share_amount?: number | null; cashback_rate?: number | null
+  cashback_share?: number | null; cashback_provider?: string | null; expected_commission?: number | null
 }
 
 export interface BillsDeps {
+  getCashbackConfig(): Promise<CashbackConfig>
+  getBuyerTier(userId: string): Promise<"customer" | "dealer">
   getBillsConfig(): Promise<BillsConfig>
   getHubtelConfig(): Promise<{ enabled: boolean; paused: boolean; services: Record<string, boolean> }>
   query(serviceKey: HubtelCsServiceKey, destination: string, params?: { mobile?: string }):
@@ -115,9 +123,34 @@ export async function verifyBill(
   return { ok: true, customerName: parsed.customerName, amountDue: parsed.amountDue, suggestedAmount: suggestedAmount(parsed.amountDue), token }
 }
 
-export type PayResult = { ok: true; order: BillOrderRow } | { ok: false; status: number; error: string; order?: BillOrderRow }
+export type PriceQuote = { faceAmount: number; payAmount: number; customerCashback: number }
+export type PayResult =
+  | { ok: true; order: BillOrderRow }
+  | { ok: false; status: number; error: string; order?: BillOrderRow; quote?: PriceQuote }
 
-export async function payBill(d: BillsDeps, userId: string, token: string, amount: number): Promise<PayResult> {
+export const PRICE_UPDATED = "Price updated — please review"
+
+/**
+ * Instant-cashback quote for a dashboard bill payment. Any config or tier read failure => not applied (standard price),
+ * never a blocked payment.
+ */
+async function quoteBill(d: BillsDeps, userId: string, biller: BillerKey, face: number): Promise<CashbackQuote> {
+  const none: CashbackQuote = {
+    applied: false, faceAmount: face, rate: 0, share: 0, commission: 0, customerCashback: 0, shopShare: 0,
+    payAmount: face, datagodKeeps: 0, provider: "hubtel",
+  }
+  try {
+    const cfg = await d.getCashbackConfig()
+    if (!cfg.enabled || !cfg.surfaces.dashboard) return none
+    const buyer = await d.getBuyerTier(userId)
+    return quoteCashback({ serviceKey: BILLERS[biller].serviceKey, provider: "hubtel", faceAmount: face, buyer, channel: "dashboard" }, cfg)
+  } catch (e) {
+    console.warn("[bills] cashback quote unavailable, using standard pricing:", msg(e))
+    return none
+  }
+}
+
+export async function payBill(d: BillsDeps, userId: string, token: string, amount: number, expectedPay?: number): Promise<PayResult> {
   if (!d.secret) return fail(503, "Temporarily unavailable")
   const v = verifyBillToken(token, d.secret, userId, d.now())
   if (!v) return fail(400, "Please verify the account again")
@@ -130,12 +163,28 @@ export async function payBill(d: BillsDeps, userId: string, token: string, amoun
   const hg = await hubtelGate(d, v.biller, { checkPause: true })
   if (!hg.ok) return hg
 
+  // Face value goes to Hubtel; the wallet is charged face − cashback when cashback applies.
+  const q = await quoteBill(d, userId, v.biller, pay)
+  if (expectedPay !== undefined && !samePrice(expectedPay, q.payAmount)) {
+    return {
+      ok: false, status: 409, error: PRICE_UPDATED,
+      quote: { faceAmount: q.faceAmount, payAmount: q.payAmount, customerCashback: q.customerCashback },
+    }
+  }
+
   let order: BillOrderRow
   try {
     order = await d.insertOrder({
       reference_code: d.newReference(), user_id: userId, biller: v.biller, account_number: v.account, phone: v.phone,
       email: v.email, broadband_account: v.broadbandAccount, session_id: v.sessionId, customer_name: v.customerName,
       verified: v.verified, amount: pay, status: "pending", payment_status: "unpaid",
+      paid_amount: q.applied ? q.payAmount : null,
+      ...(q.applied
+        ? {
+            cashback_amount: q.customerCashback, shop_share_amount: q.shopShare, cashback_rate: q.rate,
+            cashback_share: q.share, cashback_provider: q.provider, expected_commission: q.commission,
+          }
+        : {}),
       verify_token_hash: createHash("sha256").update(token).digest("hex"),
     })
   } catch (e: any) {
@@ -153,7 +202,7 @@ export async function payBill(d: BillsDeps, userId: string, token: string, amoun
     if (fresh && fresh.payment_status === "paid") {
       debit = "ok"
     } else {
-      await safeAlert(d, `Bill debit outcome uncertain: order ${order.reference_code}, user ${userId}, GHS ${pay} — check wallet`, true)
+      await safeAlert(d, `Bill debit outcome uncertain: order ${order.reference_code}, user ${userId}, GHS ${q.payAmount} — check wallet`, true)
       return { ok: false, status: 500, error: "We could not confirm your payment. Please check your wallet before retrying.", order }
     }
   }

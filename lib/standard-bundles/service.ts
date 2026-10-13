@@ -6,6 +6,8 @@ import type { CatalogDeps } from "./catalog"
 import { NETWORK_SERVICE, type BundleNetwork } from "./categories"
 import type { BundlesConfig } from "./config"
 import { verifyBundleToken } from "./token"
+import type { CashbackConfig } from "@/lib/cashback/config"
+import { quoteCashback, samePrice, type CashbackQuote } from "@/lib/cashback/quote"
 
 export interface DataOrderRow {
   id: string; reference_code: string; user_id: string; channel: "dashboard"; network: BundleNetwork; service_key: string
@@ -13,11 +15,17 @@ export interface DataOrderRow {
   status: "pending" | "processing" | "completed" | "failed" | "refunded"
   payment_status: "unpaid" | "paid" | "refunded"; idempotency_key: string; hubtel_client_reference: string | null
   commission: number | null; failure_reason: string | null; notes: string | null; created_at: string; updated_at: string
+  /** Wallet charge when instant cashback applied (amount stays the face value Hubtel receives); null = amount. */
+  paid_amount?: number | null
+  cashback_amount?: number | null; shop_share_amount?: number | null; cashback_rate?: number | null
+  cashback_share?: number | null; cashback_provider?: string | null; expected_commission?: number | null
 }
 
 export type NewDataOrder = Omit<DataOrderRow, "id" | "created_at" | "updated_at" | "hubtel_client_reference" | "commission" | "failure_reason" | "notes">
 
 export interface BundlesDeps extends CatalogDeps {
+  getCashbackConfig(): Promise<CashbackConfig>
+  getBuyerTier(userId: string): Promise<"customer" | "dealer">
   purchase(input: PurchaseInput): Promise<HubtelCsTx>
   /** Admin-editable network prefix map + its on/off toggle (lib/network-prefix-config.ts). */
   getPrefixConfig(): Promise<{ enabled: boolean; map: NetworkPrefixMap }>
@@ -34,8 +42,14 @@ export interface BundlesDeps extends CatalogDeps {
   newReference(): string
 }
 
-export type BuyInput = { token: string; phone: string; idempotencyKey: string }
-export type BuyResult = { ok: true; order: DataOrderRow } | { ok: false; status: number; error: string; order?: DataOrderRow }
+/** `expectedPay`: the price the client was shown; a mismatch with the live quote => 409 before any write. */
+export type BuyInput = { token: string; phone: string; idempotencyKey: string; expectedPay?: number }
+export type PriceQuote = { faceAmount: number; payAmount: number; customerCashback: number }
+export type BuyResult =
+  | { ok: true; order: DataOrderRow }
+  | { ok: false; status: number; error: string; order?: DataOrderRow; quote?: PriceQuote }
+
+export const PRICE_UPDATED = "Price updated — please review"
 
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9-]{8,64}$/
 export function isValidIdempotencyKey(key: unknown): key is string {
@@ -107,12 +121,27 @@ export async function buyBundle(d: BundlesDeps, userId: string, input: BuyInput)
   if (!offered) return fail(409, NOT_AVAILABLE_FOR_NUMBER)
 
   const amount = Math.round(v.amount * 100) / 100
+  // Face value (the Hubtel price) goes to Hubtel; the wallet is charged face − cashback when cashback applies.
+  const q = await quoteBundle(d, userId, serviceKey, amount)
+  if (input.expectedPay !== undefined && !samePrice(input.expectedPay, q.payAmount)) {
+    return {
+      ok: false, status: 409, error: PRICE_UPDATED,
+      quote: { faceAmount: q.faceAmount, payAmount: q.payAmount, customerCashback: q.customerCashback },
+    }
+  }
   let order: DataOrderRow
   try {
     order = await d.insertOrder({
       reference_code: d.newReference(), user_id: userId, channel: "dashboard", network: v.network, service_key: serviceKey,
       beneficiary_phone: phone233, bundle_value: v.value, bundle_display: v.display, bundle_category: v.category,
       amount, status: "pending", payment_status: "unpaid", idempotency_key: input.idempotencyKey,
+      paid_amount: q.applied ? q.payAmount : null,
+      ...(q.applied
+        ? {
+            cashback_amount: q.customerCashback, shop_share_amount: q.shopShare, cashback_rate: q.rate,
+            cashback_share: q.share, cashback_provider: q.provider, expected_commission: q.commission,
+          }
+        : {}),
     })
   } catch (e: any) {
     if (e?.code === "23505") {
@@ -127,6 +156,26 @@ export async function buyBundle(d: BundlesDeps, userId: string, input: BuyInput)
   }
 
   return debitAndDispatch(d, userId, order)
+}
+
+/**
+ * Instant-cashback quote for a dashboard bundle purchase. Any config or tier read failure => not applied (standard
+ * price), never a blocked purchase.
+ */
+async function quoteBundle(d: BundlesDeps, userId: string, serviceKey: string, face: number): Promise<CashbackQuote> {
+  const none: CashbackQuote = {
+    applied: false, faceAmount: face, rate: 0, share: 0, commission: 0, customerCashback: 0, shopShare: 0,
+    payAmount: face, datagodKeeps: 0, provider: "hubtel",
+  }
+  try {
+    const cfg = await d.getCashbackConfig()
+    if (!cfg.enabled || !cfg.surfaces.dashboard) return none
+    const buyer = await d.getBuyerTier(userId)
+    return quoteCashback({ serviceKey, provider: "hubtel", faceAmount: face, buyer, channel: "dashboard" }, cfg)
+  } catch (e) {
+    console.warn("[bundles] cashback quote unavailable, using standard pricing:", msg(e))
+    return none
+  }
 }
 
 /**
@@ -157,7 +206,7 @@ async function replayExisting(d: BundlesDeps, userId: string, existing: DataOrde
 
 /** Debit a pending+unpaid order, then claim and dispatch it. Shared by a fresh buy and a resumed replay. */
 async function debitAndDispatch(d: BundlesDeps, userId: string, order: DataOrderRow): Promise<BuyResult> {
-  const amount = order.amount
+  const amount = order.paid_amount ?? order.amount // what data_order_debit deducts
   let debit: "ok" | "insufficient" | "not_found" | null = null
   try {
     debit = await d.debitOrder(order.id)

@@ -4,19 +4,24 @@ import { resolveBillsConfig, type BillsConfig } from "./config"
 import { BILLER_KEYS } from "./billers"
 import { HubtelPausedError, HubtelOutcomeUnknownError, HubtelDuplicateOrderError } from "@/lib/hubtel-cs/errors"
 import type { HubtelCsTx } from "@/lib/hubtel-cs/types"
+import { resolveCashbackConfig, type CashbackConfig } from "@/lib/cashback/config"
 
 const allOn = (): BillsConfig =>
   resolveBillsConfig({ enabled: true, billers: Object.fromEntries(BILLER_KEYS.map(k => [k, { enabled: true, min: 5, max: 1000 }])) })
 
 function make(over: Partial<BillsDeps> = {}) {
   const orders: BillOrderRow[] = []
-  const calls = { query: 0, purchase: 0, debit: 0, insert: 0, alerts: [] as string[], purchaseInputs: [] as any[] }
+  const calls = { query: 0, purchase: 0, debit: 0, insert: 0, alerts: [] as string[], purchaseInputs: [] as any[], debitAmounts: [] as number[] }
   const cfg = allOn()
+  let cashback: CashbackConfig = resolveCashbackConfig({}) // off by default: every legacy test runs unchanged
+  let tier: "customer" | "dealer" = "customer"
   const hub = { enabled: true, paused: false, services: Object.fromEntries(BILLER_KEYS.map(k => ["bill_" + k, true])) as Record<string, boolean> }
   let queryResult: any = { ok: true, data: [{ Display: "Name", Value: "Kofi", Amount: 0 }, { Display: "Amount Due", Value: "42.5", Amount: 0 }] }
   let wallet: "ok" | "insufficient" | "not_found" | "throw_paid" | "throw_unpaid" = "ok"
   const hashes = new Set<string>()
   const d: BillsDeps = {
+    getCashbackConfig: async () => cashback,
+    getBuyerTier: async () => tier,
     getBillsConfig: async () => cfg,
     getHubtelConfig: async () => hub,
     query: async () => { calls.query++; return queryResult },
@@ -41,7 +46,8 @@ function make(over: Partial<BillsDeps> = {}) {
     debitOrder: async (id) => {
       calls.debit++
       const o = orders.find(x => x.id === id)!
-      if (wallet === "ok" || wallet === "throw_paid") o.payment_status = "paid"
+      // Mirrors bill_order_debit (0119): deducts COALESCE(paid_amount, amount).
+      if (wallet === "ok" || wallet === "throw_paid") { o.payment_status = "paid"; calls.debitAmounts.push(o.paid_amount ?? o.amount) }
       if (wallet === "throw_paid" || wallet === "throw_unpaid") throw new Error("rpc down")
       return wallet
     },
@@ -57,6 +63,8 @@ function make(over: Partial<BillsDeps> = {}) {
     setHub: (f: (h: typeof hub) => void) => f(hub),
     setQuery: (q: any) => { queryResult = q },
     setWallet: (w: "ok" | "insufficient" | "not_found" | "throw_paid" | "throw_unpaid") => { wallet = w },
+    setCashback: (c: CashbackConfig) => { cashback = c },
+    setTier: (t: "customer" | "dealer") => { tier = t },
   }
 }
 const token = async (m: ReturnType<typeof make>, biller = "dstv", inputs: any = { account: "1234567890" }) => {
@@ -341,5 +349,92 @@ describe("final review fixes", () => {
     const r = await payBill(d2, "u1", (v as any).token, 10)
     expect((r as any).order.status).toBe("processing")
     expect(m.calls.alerts.some(a => a.includes("could not be updated"))).toBe(true)
+  })
+})
+
+describe("payBill — instant cashback", () => {
+  // bill_dstv at 2% commission; bills customer share 50%, dealer 75%. GHS 100 => commission 2.00.
+  const CB = (over: Record<string, unknown> = {}) => resolveCashbackConfig({
+    enabled: true,
+    surfaces: { dashboard: true },
+    rates: { "bill_dstv:hubtel": 2 },
+    shares: { bills: { customer: 50, dealer: 75, storefrontCustomer: 0, storefrontShop: 0 } },
+    ...over,
+  })
+
+  it("applied (customer): wallet debited 99, order amount 100 (face), Hubtel receives 100, snapshot columns set", async () => {
+    const m = make(); m.setCashback(CB()); const t = await token(m)
+    const r = await payBill(m.d, "u1", t, 100)
+    expect(r.ok).toBe(true)
+    expect(m.calls.debitAmounts).toEqual([99])
+    expect(m.calls.purchaseInputs[0]).toMatchObject({ serviceKey: "bill_dstv", amount: 100 })
+    expect(m.orders[0]).toMatchObject({
+      amount: 100, paid_amount: 99, cashback_amount: 1, shop_share_amount: 0, cashback_rate: 2, cashback_share: 50,
+      cashback_provider: "hubtel", expected_commission: 2,
+    })
+    expect(r.ok && r.order).toMatchObject({ amount: 100, paid_amount: 99, cashback_amount: 1 })
+  })
+  it("applied (dealer tier): debits 98.5", async () => {
+    const m = make(); m.setCashback(CB()); m.setTier("dealer"); const t = await token(m)
+    await payBill(m.d, "u1", t, 100)
+    expect(m.calls.debitAmounts).toEqual([98.5])
+    expect(m.orders[0]).toMatchObject({ amount: 100, paid_amount: 98.5, cashback_amount: 1.5, cashback_share: 75 })
+  })
+  it("expectedPay matching the quote proceeds", async () => {
+    const m = make(); m.setCashback(CB()); const t = await token(m)
+    expect((await payBill(m.d, "u1", t, 100, 99)).ok).toBe(true)
+    expect(m.calls.debitAmounts).toEqual([99])
+  })
+  it("expectedPay mismatch => 409 'Price updated' with the quote, nothing written", async () => {
+    const m = make(); m.setCashback(CB()); const t = await token(m)
+    expect(await payBill(m.d, "u1", t, 100, 100)).toEqual({
+      ok: false, status: 409, error: "Price updated — please review",
+      quote: { faceAmount: 100, payAmount: 99, customerCashback: 1 },
+    })
+    expect(m.calls.insert + m.calls.debit + m.calls.purchase).toBe(0)
+    // The token was not consumed: paying at the quoted price still works.
+    expect((await payBill(m.d, "u1", t, 100, 99)).ok).toBe(true)
+  })
+  it("expectedPay mismatch while not applied (shown a cashback price, cashback since switched off) => 409 at face", async () => {
+    const m = make(); const t = await token(m)
+    expect(await payBill(m.d, "u1", t, 100, 99)).toMatchObject({
+      ok: false, status: 409, quote: { faceAmount: 100, payAmount: 100, customerCashback: 0 },
+    })
+    expect(m.calls.insert).toBe(0)
+  })
+  it("cashback runs after the pre-checks: amount out of range / paused still fail first, nothing written", async () => {
+    const m = make(); m.setCashback(CB()); const t = await token(m)
+    expect(await payBill(m.d, "u1", t, 5000, 1)).toMatchObject({ ok: false, status: 400 })
+    m.setHub(h => { h.paused = true })
+    expect(await payBill(m.d, "u1", t, 100, 1)).toMatchObject({ ok: false, status: 503 })
+    expect(m.calls.insert).toBe(0)
+  })
+  it("not applied (master off / dashboard off / no rate) => paid_amount null, no snapshot, debit = amount", async () => {
+    for (const cfg of [CB({ enabled: false }), CB({ surfaces: { dashboard: false, bots: true } }), CB({ rates: {} })]) {
+      const m = make(); m.setCashback(cfg); const t = await token(m)
+      expect((await payBill(m.d, "u1", t, 100)).ok).toBe(true)
+      expect(m.orders[0].paid_amount).toBeNull()
+      expect(m.orders[0]).not.toHaveProperty("cashback_amount")
+      expect(m.calls.debitAmounts).toEqual([100])
+      expect(m.calls.purchaseInputs[0].amount).toBe(100)
+    }
+  })
+  it("config or tier read failure => not applied, purchase goes ahead at face", async () => {
+    for (const over of [
+      { getCashbackConfig: async () => { throw new Error("db") } },
+      { getBuyerTier: async () => { throw new Error("db") } },
+    ] as Partial<BillsDeps>[]) {
+      const m = make(over); m.setCashback(CB()); const t = await token(m)
+      expect((await payBill(m.d, "u1", t, 100)).ok).toBe(true)
+      expect(m.orders[0].paid_amount).toBeNull()
+      expect(m.calls.debitAmounts).toEqual([100])
+    }
+  })
+  it("biller without a configured rate is not applied (other biller keys unaffected)", async () => {
+    const m = make(); m.setCashback(CB())
+    const t = await token(m, "gotv")
+    await payBill(m.d, "u1", t, 100)
+    expect(m.orders[0].paid_amount).toBeNull()
+    expect(m.calls.debitAmounts).toEqual([100])
   })
 })

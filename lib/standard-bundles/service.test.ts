@@ -9,6 +9,7 @@ import type { BundleNetwork } from "./categories"
 import { DEFAULT_NETWORK_PREFIXES, type NetworkPrefixMap } from "@/lib/phone-format"
 import { HubtelPausedError, HubtelOutcomeUnknownError, HubtelDuplicateOrderError } from "@/lib/hubtel-cs/errors"
 import type { HubtelCsTx } from "@/lib/hubtel-cs/types"
+import { resolveCashbackConfig, type CashbackConfig } from "@/lib/cashback/config"
 
 const T0 = 1_800_000_000_000
 const SECRET = "s".repeat(40)
@@ -31,8 +32,10 @@ const allOn = (): BundlesConfig => ({
 
 function make(over: Partial<BundlesDeps> = {}) {
   const orders: DataOrderRow[] = []
-  const calls = { query: 0, purchase: 0, debit: 0, insert: 0, find: 0, alerts: [] as string[], urgent: [] as boolean[], purchaseInputs: [] as any[], queryArgs: [] as any[] }
+  const calls = { query: 0, purchase: 0, debit: 0, insert: 0, find: 0, alerts: [] as string[], urgent: [] as boolean[], purchaseInputs: [] as any[], queryArgs: [] as any[], debitAmounts: [] as number[] }
   const cfg = allOn()
+  let cashback: CashbackConfig = resolveCashbackConfig({}) // off by default: every legacy test runs unchanged
+  let tier: "customer" | "dealer" = "customer"
   const hub = { enabled: true, paused: false, services: { data_mtn: true, data_telecel: true, data_at: true } as Record<string, boolean> }
   const prefix = { enabled: true, map: DEFAULT_NETWORK_PREFIXES as NetworkPrefixMap }
   let queryData: any[] = Object.values(BUNDLES).map(b => ({ Display: b.display, Value: b.value, Amount: b.amount }))
@@ -40,6 +43,8 @@ function make(over: Partial<BundlesDeps> = {}) {
   let wallet: "ok" | "insufficient" | "not_found" | "throw_paid" | "throw_unpaid" = "ok"
   let txState: HubtelCsTx["state"] = "pending"
   const d: BundlesDeps = {
+    getCashbackConfig: async () => cashback,
+    getBuyerTier: async () => tier,
     getBundlesConfig: async () => cfg,
     getHubtelConfig: async () => hub,
     getPrefixConfig: async () => prefix,
@@ -66,7 +71,8 @@ function make(over: Partial<BundlesDeps> = {}) {
     debitOrder: async (id) => {
       calls.debit++
       const o = orders.find(x => x.id === id)!
-      if (wallet === "ok" || wallet === "throw_paid") o.payment_status = "paid"
+      // Mirrors data_order_debit (0119): deducts COALESCE(paid_amount, amount).
+      if (wallet === "ok" || wallet === "throw_paid") { o.payment_status = "paid"; calls.debitAmounts.push(o.paid_amount ?? o.amount) }
       if (wallet === "throw_paid" || wallet === "throw_unpaid") throw new Error("rpc down")
       return wallet
     },
@@ -82,13 +88,15 @@ function make(over: Partial<BundlesDeps> = {}) {
     setQueryResult: (x: any) => { queryResult = x },
     setWallet: (w: typeof wallet) => { wallet = w },
     setTxState: (s: HubtelCsTx["state"]) => { txState = s },
+    setCashback: (c: CashbackConfig) => { cashback = c },
+    setTier: (t: "customer" | "dealer") => { tier = t },
     writes: () => calls.insert + calls.debit + calls.purchase,
   }
 }
 
 const tok = (network: BundleNetwork = "MTN", over: Partial<VerifiedBundle> = {}) =>
   signBundleToken({ network, ...BUNDLES[network], issuedAt: T0 - 1000, ...over }, SECRET)
-const buy = (m: ReturnType<typeof make>, network: BundleNetwork = "MTN", over: Partial<{ token: string; phone: string; idempotencyKey: string }> = {}, d = m.d) =>
+const buy = (m: ReturnType<typeof make>, network: BundleNetwork = "MTN", over: Partial<{ token: string; phone: string; idempotencyKey: string; expectedPay: number }> = {}, d = m.d) =>
   buyBundle(d, "u1", { token: tok(network), phone: PHONES[network], idempotencyKey: KEY, ...over })
 
 describe("isValidIdempotencyKey", () => {
@@ -549,5 +557,105 @@ describe("dispatch outcomes", () => {
     const r = await buy(m, "MTN", {}, d)
     expect(r.ok && r.order.status).toBe("processing")
     expect(m.calls.alerts.some(a => a.includes("could not be updated"))).toBe(true)
+  })
+})
+
+describe("buyBundle — instant cashback", () => {
+  // data_mtn at 4% commission; bundles customer share 50%, dealer 75%. MTN bundle GHS 10 => commission 0.40.
+  const CB = (over: Record<string, unknown> = {}) => resolveCashbackConfig({
+    enabled: true,
+    surfaces: { dashboard: true },
+    rates: { "data_mtn:hubtel": 4 },
+    shares: { bundles: { customer: 50, dealer: 75, storefrontCustomer: 0, storefrontShop: 0 } },
+    ...over,
+  })
+
+  it("applied (customer): wallet debited 9.80, order amount 10 (face), Hubtel receives 10, snapshot columns set", async () => {
+    const m = make(); m.setCashback(CB())
+    const r = await buy(m)
+    expect(r.ok).toBe(true)
+    expect(m.calls.debitAmounts).toEqual([9.8])
+    expect(m.calls.purchaseInputs[0]).toMatchObject({ serviceKey: "data_mtn", amount: 10 })
+    expect(m.orders[0]).toMatchObject({
+      amount: 10, paid_amount: 9.8, cashback_amount: 0.2, shop_share_amount: 0, cashback_rate: 4, cashback_share: 50,
+      cashback_provider: "hubtel", expected_commission: 0.4,
+    })
+  })
+  it("applied (dealer tier): debits 9.70", async () => {
+    const m = make(); m.setCashback(CB()); m.setTier("dealer")
+    await buy(m)
+    expect(m.calls.debitAmounts).toEqual([9.7])
+    expect(m.orders[0]).toMatchObject({ amount: 10, paid_amount: 9.7, cashback_amount: 0.3, cashback_share: 75 })
+  })
+  it("expectedPay matching the quote proceeds", async () => {
+    const m = make(); m.setCashback(CB())
+    expect((await buy(m, "MTN", { expectedPay: 9.8 })).ok).toBe(true)
+    expect(m.calls.debitAmounts).toEqual([9.8])
+  })
+  it("expectedPay mismatch => 409 'Price updated' with the quote, nothing written (key stays usable)", async () => {
+    const m = make(); m.setCashback(CB())
+    expect(await buy(m, "MTN", { expectedPay: 10 })).toEqual({
+      ok: false, status: 409, error: "Price updated — please review",
+      quote: { faceAmount: 10, payAmount: 9.8, customerCashback: 0.2 },
+    })
+    expect(m.writes()).toBe(0)
+    expect(m.orders.length).toBe(0)
+    expect((await buy(m, "MTN", { expectedPay: 9.8 })).ok).toBe(true)
+  })
+  it("expectedPay mismatch while not applied => 409 quoted at face", async () => {
+    const m = make()
+    expect(await buy(m, "MTN", { expectedPay: 9.8 })).toMatchObject({
+      ok: false, status: 409, quote: { faceAmount: 10, payAmount: 10, customerCashback: 0 },
+    })
+    expect(m.writes()).toBe(0)
+  })
+  it("pre-checks still win: bundle not offered for the number => 409 NOT_AVAILABLE, no quote", async () => {
+    const m = make(); m.setCashback(CB())
+    m.setQueryData([{ Display: "x", Value: "other", Amount: 10 }])
+    expect(await buy(m, "MTN", { expectedPay: 1 })).toEqual({ ok: false, status: 409, error: NOT_AVAILABLE_FOR_NUMBER })
+    expect(m.writes()).toBe(0)
+  })
+  it("not applied (master off / dashboard off / network without rate) => paid_amount null, debit = amount", async () => {
+    const cases: [ReturnType<typeof CB>, BundleNetwork][] = [
+      [CB({ enabled: false }), "MTN"], [CB({ surfaces: { dashboard: false, bots: true } }), "MTN"], [CB(), "AT"],
+    ]
+    for (const [cfg, n] of cases) {
+      const m = make(); m.setCashback(cfg)
+      expect((await buy(m, n)).ok).toBe(true)
+      expect(m.orders[0].paid_amount).toBeNull()
+      expect(m.orders[0]).not.toHaveProperty("cashback_amount")
+      expect(m.calls.debitAmounts).toEqual([BUNDLES[n].amount])
+      expect(m.calls.purchaseInputs[0].amount).toBe(BUNDLES[n].amount)
+    }
+  })
+  it("config or tier read failure => not applied, purchase goes ahead at face", async () => {
+    for (const over of [
+      { getCashbackConfig: async () => { throw new Error("db") } },
+      { getBuyerTier: async () => { throw new Error("db") } },
+    ] as Partial<BundlesDeps>[]) {
+      const m = make(over); m.setCashback(CB())
+      expect((await buy(m)).ok).toBe(true)
+      expect(m.orders[0].paid_amount).toBeNull()
+      expect(m.calls.debitAmounts).toEqual([10])
+    }
+  })
+  it("replay is never re-quoted: a resumed cashback order debits its stored paid_amount even after cashback is switched off", async () => {
+    const m = make(); m.setCashback(CB()); m.setWallet("throw_unpaid")
+    expect(await buy(m)).toMatchObject({ ok: false, status: 500 })
+    expect(m.orders[0]).toMatchObject({ amount: 10, paid_amount: 9.8, payment_status: "unpaid" })
+    m.setWallet("ok"); m.setCashback(CB({ enabled: false }))
+    // A different expectedPay on the replay is ignored: the replay check runs first.
+    const r = await buy(m, "MTN", { token: "garbage", expectedPay: 10 })
+    expect(r.ok && r.order).toMatchObject({ id: "o1", payment_status: "paid", paid_amount: 9.8 })
+    expect(m.calls.debitAmounts).toEqual([9.8])
+    expect(m.calls.purchaseInputs[0].amount).toBe(10)
+    expect([m.calls.insert, m.calls.purchase]).toEqual([1, 1])
+  })
+  it("a paid replay returns the stored order unchanged", async () => {
+    const m = make(); m.setCashback(CB())
+    await buy(m)
+    const r = await buy(m, "MTN", { expectedPay: 1 })
+    expect(r.ok && r.order).toMatchObject({ id: "o1", paid_amount: 9.8, cashback_amount: 0.2 })
+    expect(m.calls.debitAmounts).toEqual([9.8])
   })
 })

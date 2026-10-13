@@ -28,14 +28,25 @@ export async function POST(request: NextRequest) {
     const guard = await checkPhoneVerified(db, auth.userId)
     if (!guard.allowed) return NextResponse.json({ error: guard.error }, { status: 403 })
 
-    const result = await payBill(deps, auth.userId, token, amount)
+    const ep = body.expectedPay
+    const expectedPay = typeof ep === "number" && Number.isFinite(ep) ? ep
+      : typeof ep === "string" && /^\d+(\.\d+)?$/.test(ep.trim()) ? Number(ep.trim()) : undefined
+
+    const result = await payBill(deps, auth.userId, token, amount, expectedPay)
     if (!result.ok) {
-      return NextResponse.json({ error: result.error, ...(result.order ? { reference: result.order.reference_code } : {}) }, { status: result.status })
+      return NextResponse.json({
+        error: result.error,
+        ...(result.order ? { reference: result.order.reference_code } : {}),
+        ...(result.quote ? { quote: result.quote } : {}),
+      }, { status: result.status })
     }
     const o = result.order
     return NextResponse.json({
       success: true,
-      order: { id: o.id, reference_code: o.reference_code, biller: o.biller, amount: o.amount, status: o.status, payment_status: o.payment_status },
+      order: {
+        id: o.id, reference_code: o.reference_code, biller: o.biller, amount: o.amount, status: o.status, payment_status: o.payment_status,
+        faceAmount: o.amount, paidAmount: o.paid_amount ?? o.amount, cashback: o.cashback_amount ?? 0,
+      },
     })
   } catch (e) {
     console.error("[bills] pay error:", e instanceof Error ? e.message : "error")

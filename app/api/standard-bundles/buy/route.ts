@@ -26,10 +26,18 @@ export async function POST(request: NextRequest) {
     const guard = await checkPhoneVerified(db, auth.userId)
     if (!guard.allowed) return NextResponse.json({ success: false, error: guard.error }, { status: 403 })
 
-    const result = await buyBundle(deps, auth.userId, { token, phone, idempotencyKey })
+    const ep = body.expectedPay
+    const expectedPay = typeof ep === "number" && Number.isFinite(ep) ? ep
+      : typeof ep === "string" && /^\d+(\.\d+)?$/.test(ep.trim()) ? Number(ep.trim()) : undefined
+
+    const result = await buyBundle(deps, auth.userId, { token, phone, idempotencyKey, expectedPay })
     if (!result.ok) {
       return NextResponse.json(
-        { success: false, error: result.error, ...(result.order ? { order: pickOrder(result.order) } : {}) },
+        {
+          success: false, error: result.error,
+          ...(result.order ? { order: pickOrder(result.order) } : {}),
+          ...(result.quote ? { quote: result.quote } : {}),
+        },
         { status: result.status },
       )
     }
