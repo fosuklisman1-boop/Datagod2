@@ -6,8 +6,8 @@ import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 export const dynamic = "force-dynamic"
 
 export async function GET() {
-  const { map } = await getPrefixValidationConfig()
-  return NextResponse.json({ map }, {
+  const { enabled, map } = await getPrefixValidationConfig()
+  return NextResponse.json({ enabled, map }, {
     headers: { "Cache-Control": "public, max-age=300, s-maxage=300" },
   })
 }

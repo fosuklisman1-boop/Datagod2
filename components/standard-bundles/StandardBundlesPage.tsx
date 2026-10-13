@@ -1,17 +1,23 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Package, RefreshCw, Wallet } from "lucide-react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { supabase } from "@/lib/supabase"
-import { bundleStatusLabel } from "@/lib/standard-bundles/ui-helpers"
+import {
+  bundleStatusLabel, findSameBundle, formatGhs, isCatalogStale, parsePrefixRules, type PrefixRules,
+} from "@/lib/standard-bundles/ui-helpers"
 import { BundleBuySheet, type PickedBundle } from "./BundleBuySheet"
 import { useBundlesAvailability } from "./use-bundles-availability"
 
 type Network = "MTN" | "TELECEL" | "AT"
 interface Bundle { value: string; display: string; amount: number; category: string; token: string }
 interface Category { name: string; bundles: Bundle[] }
+/** A loaded catalog is always tagged with the network it was fetched for. */
+interface Catalog { network: Network; categories: Category[]; fetchedAt: number }
+
+const BUNDLE_GONE_MESSAGE = "Prices refreshed — that bundle is no longer offered. Please pick again."
 interface BundleOrder {
   id: string
   reference_code: string
@@ -40,8 +46,12 @@ export function StandardBundlesPage() {
   const availability = useBundlesAvailability()
 
   const [network, setNetwork] = useState<Network | null>(null)
-  const [categories, setCategories] = useState<Category[]>([])
+  const [catalog, setCatalog] = useState<Catalog | null>(null)
   const [category, setCategory] = useState("")
+  const [notice, setNotice] = useState("")
+  const [prefixRules, setPrefixRules] = useState<PrefixRules | null>(null)
+  const catalogSeq = useRef(0)
+  const catalogRef = useRef<Catalog | null>(null)
   const [loadingCatalog, setLoadingCatalog] = useState(false)
   const [catalogError, setCatalogError] = useState("")
   const [balance, setBalance] = useState<number | null>(null)
@@ -84,32 +94,96 @@ export function StandardBundlesPage() {
     }
   }, [])
 
-  const loadCatalog = useCallback(async (net: Network) => {
+  /** Loads one network's catalog. Only the latest request wins; returns its categories, or null on failure/superseded. */
+  const loadCatalog = useCallback(async (net: Network): Promise<Category[] | null> => {
+    const putCatalog = (c: Catalog | null) => { catalogRef.current = c; setCatalog(c) }
+    const seq = ++catalogSeq.current
     setLoadingCatalog(true)
     setCatalogError("")
+    // Never show (or let anyone tap) another network's bundles while this one loads.
+    if (catalogRef.current && catalogRef.current.network !== net) putCatalog(null)
     const { data: { session } } = await supabase.auth.getSession()
-    if (!session) { setLoadingCatalog(false); return }
+    if (!session) { if (seq === catalogSeq.current) setLoadingCatalog(false); return null }
     try {
       const res = await fetch(`/api/standard-bundles/catalog?network=${net}`, { headers: { Authorization: `Bearer ${session.access_token}` } })
       const json = await res.json().catch(() => ({}))
+      if (seq !== catalogSeq.current) return null
       if (!res.ok) throw new Error(String(json?.error || "Bundles unavailable right now"))
       const cats: Category[] = Array.isArray(json.categories) ? json.categories : []
-      setCategories(cats)
+      putCatalog({ network: net, categories: cats, fetchedAt: Date.now() })
       setCategory(prev => (cats.some(c => c.name === prev) ? prev : (cats[0]?.name ?? "")))
+      return cats
     } catch (e) {
-      setCategories([])
+      if (seq !== catalogSeq.current) return null
+      putCatalog(null)
       setCatalogError(e instanceof Error ? e.message : "Bundles unavailable right now")
+      return null
     } finally {
-      setLoadingCatalog(false)
+      if (seq === catalogSeq.current) setLoadingCatalog(false)
     }
   }, [])
 
   useEffect(() => { loadWallet() }, [loadWallet])
   useEffect(() => { loadOrders() }, [loadOrders])
-  useEffect(() => { if (activeNetwork) loadCatalog(activeNetwork) }, [activeNetwork, loadCatalog])
+  useEffect(() => { setNotice(""); if (activeNetwork) loadCatalog(activeNetwork) }, [activeNetwork, loadCatalog])
+
+  // Live admin prefix map + toggle (same source as the Data page). On failure the sheet only checks the number shape.
+  useEffect(() => {
+    let alive = true
+    fetch("/api/network-prefixes")
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => { if (alive) setPrefixRules(parsePrefixRules(j)) })
+      .catch(() => {})
+    return () => { alive = false }
+  }, [])
+
+  // Catalog tokens expire after 10 minutes: refetch an old list when the customer comes back to the tab.
+  const activeRef = useRef<Network | null>(null)
+  activeRef.current = activeNetwork
+  useEffect(() => {
+    const refreshIfOld = () => {
+      if (document.visibilityState !== "visible") return
+      const net = activeRef.current
+      const c = catalogRef.current
+      if (net && c && c.network === net && isCatalogStale(c.fetchedAt, Date.now())) loadCatalog(net)
+    }
+    document.addEventListener("visibilitychange", refreshIfOld)
+    window.addEventListener("focus", refreshIfOld)
+    return () => {
+      document.removeEventListener("visibilitychange", refreshIfOld)
+      window.removeEventListener("focus", refreshIfOld)
+    }
+  }, [loadCatalog])
 
   const onChanged = () => { loadWallet(); loadOrders() }
+  const categories = catalog && catalog.network === activeNetwork ? catalog.categories : []
   const visible = categories.find(c => c.name === category)?.bundles ?? []
+  const catalogEmpty = !loadingCatalog && !catalogError && !!catalog && catalog.network === activeNetwork && catalog.categories.every(c => c.bundles.length === 0)
+
+  const openBundle = async (b: Bundle) => {
+    const c = catalogRef.current
+    if (!c) return
+    setNotice("")
+    let chosen: Bundle | null = b
+    let net = c.network
+    if (isCatalogStale(c.fetchedAt, Date.now())) {
+      // An old token would be refused: reload first and reopen the same bundle with a fresh token.
+      const cats = await loadCatalog(net)
+      if (!cats) return
+      chosen = findSameBundle(cats, b)
+      net = catalogRef.current?.network ?? net
+      if (!chosen) { setNotice(BUNDLE_GONE_MESSAGE); return }
+    }
+    const label = networks.find(n => n.network === net)?.label ?? net
+    setPicked({ token: chosen.token, display: chosen.display, amount: chosen.amount, network: net, networkLabel: label })
+  }
+
+  const onStale = async (message: string) => {
+    const net = picked?.network
+    setNotice(message)
+    if (net) await loadCatalog(net)
+    setPicked(null) // let the customer re-pick from the reloaded list
+  }
 
   return (
     <DashboardLayout>
@@ -135,7 +209,7 @@ export function StandardBundlesPage() {
             <div className="rounded-3xl border border-white/60 dark:border-white/5 bg-card p-5 clay">
               <p className="flex items-center gap-2 text-sm text-muted-foreground"><Wallet className="h-4 w-4" /> Wallet balance</p>
               <p className="mt-1 text-3xl font-extrabold text-foreground">
-                {balance === null ? "—" : `GH₵${balance.toFixed(2)}`}
+                {balance === null ? "—" : formatGhs(balance)}
               </p>
             </div>
 
@@ -172,6 +246,9 @@ export function StandardBundlesPage() {
                 </div>
               )}
 
+              {notice && (
+                <div role="status" className="rounded-2xl bg-warning/10 px-4 py-3 text-sm font-medium text-warning">{notice}</div>
+              )}
               {catalogError && (
                 <div role="alert" className="flex items-center justify-between gap-3 rounded-2xl bg-destructive/10 px-4 py-3 text-sm text-destructive">
                   <span>{catalogError}</span>
@@ -180,17 +257,24 @@ export function StandardBundlesPage() {
               )}
               {loadingCatalog && categories.length === 0 ? (
                 <div className="py-8 text-center text-muted-foreground">Loading bundles…</div>
+              ) : catalogEmpty ? (
+                <div className="rounded-3xl border border-white/60 dark:border-white/5 bg-card p-8 text-center clay">
+                  <Package className="mx-auto mb-3 h-10 w-10 text-muted-foreground/50" />
+                  <p className="font-bold text-foreground">No {networkLabel} bundles available right now</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Please check back soon or try another network.</p>
+                </div>
               ) : (
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4" aria-busy={loadingCatalog}>
                   {visible.map(b => (
                     <button
                       key={b.token}
                       type="button"
-                      onClick={() => activeNetwork && setPicked({ token: b.token, display: b.display, amount: b.amount, network: activeNetwork, networkLabel })}
-                      className="flex flex-col items-start gap-2 rounded-3xl border border-white/60 dark:border-white/5 bg-card p-4 text-left transition hover:-translate-y-0.5 clay"
+                      disabled={loadingCatalog}
+                      onClick={() => openBundle(b)}
+                      className="flex flex-col items-start gap-2 rounded-3xl border border-white/60 dark:border-white/5 bg-card p-4 text-left transition hover:-translate-y-0.5 clay disabled:opacity-50 disabled:hover:translate-y-0"
                     >
                       <span className="text-sm font-bold text-foreground">{b.display}</span>
-                      <span className="text-base font-extrabold text-primary">GHS {b.amount.toFixed(2)}</span>
+                      <span className="text-base font-extrabold text-primary">{formatGhs(b.amount)}</span>
                     </button>
                   ))}
                 </div>
@@ -225,7 +309,7 @@ export function StandardBundlesPage() {
                           <p className="text-xs text-muted-foreground">{new Date(o.created_at).toLocaleString()}</p>
                         </div>
                         <div className="shrink-0 text-right">
-                          <p className="text-sm font-bold text-foreground">GHS {Number(o.amount).toFixed(2)}</p>
+                          <p className="text-sm font-bold text-foreground">{formatGhs(Number(o.amount))}</p>
                           <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_CLASSES[s.tone] || "bg-muted text-muted-foreground"}`}>{s.label}</span>
                         </div>
                       </div>
@@ -244,9 +328,10 @@ export function StandardBundlesPage() {
           bundle={picked}
           balance={balance}
           defaultPhone={phone}
+          prefixRules={prefixRules}
           onClose={() => setPicked(null)}
           onChanged={onChanged}
-          onStale={() => { if (activeNetwork) loadCatalog(activeNetwork) }}
+          onStale={onStale}
         />
       )}
     </DashboardLayout>

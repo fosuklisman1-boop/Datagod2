@@ -5,7 +5,11 @@ import Link from "next/link"
 import { CheckCircle2, Clock, Loader2, Phone, XCircle } from "lucide-react"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import { supabase } from "@/lib/supabase"
-import { classifyBuyResponse, shouldRotateIdempotencyKey, validateBundleRecipient } from "@/lib/standard-bundles/ui-helpers"
+import {
+  classifyBuyResponse, formatGhs, keyAfterPhoneEdit, recipientIdentity, shouldRotateIdempotencyKey, validateBundleRecipient,
+  type PrefixRules,
+} from "@/lib/standard-bundles/ui-helpers"
+import { newUuid } from "@/lib/standard-bundles/uuid"
 
 export interface PickedBundle {
   token: string
@@ -19,7 +23,7 @@ type Step = "input" | "done"
 
 const inputCls =
   "w-full rounded-2xl border border-white/60 dark:border-white/5 bg-background px-4 py-3.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary clay-inset"
-const money = (n: number) => `GHS ${n.toFixed(2)}`
+const money = formatGhs
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function authedPost(path: string, body: unknown): Promise<{ status: number; json: any }> {
@@ -39,16 +43,18 @@ async function authedPost(path: string, body: unknown): Promise<{ status: number
 }
 
 export function BundleBuySheet({
-  bundle, balance, defaultPhone, onClose, onChanged, onStale,
+  bundle, balance, defaultPhone, prefixRules, onClose, onChanged, onStale,
 }: {
   bundle: PickedBundle
   balance: number | null
   defaultPhone?: string
+  /** Live admin prefix map + toggle; null while loading or when the fetch failed (then only the server checks). */
+  prefixRules: PrefixRules | null
   onClose: () => void
   /** A purchase went through (or may have): refresh wallet + orders. */
   onChanged: () => void
-  /** 409: the signed bundle is no longer valid; reload the catalog. */
-  onStale: () => void
+  /** 409: the signed bundle is no longer valid; the page reloads the catalog, shows the message and closes the sheet. */
+  onStale: (message: string) => void
 }) {
   const [step, setStep] = useState<Step>("input")
   const [phone, setPhone] = useState(defaultPhone ?? "")
@@ -59,11 +65,14 @@ export function BundleBuySheet({
   const [stale, setStale] = useState(false)
   const [reference, setReference] = useState("")
   const [doneStatus, setDoneStatus] = useState("processing")
-  // Generated once when the sheet opens (this component mounts per open); regenerated after a non-2xx or failed order.
-  const keyRef = useRef<string>(crypto.randomUUID())
+  // Generated once when the sheet opens (this component mounts per open); regenerated after a definite non-delivery.
+  const keyRef = useRef<string>("")
+  if (!keyRef.current) keyRef.current = newUuid()
+  // The recipient + key of the last request, so returning to that number reuses its key (a retry then dedupes).
+  const lastAttemptRef = useRef<{ recipient: string; key: string } | null>(null)
   const buyingRef = useRef(false)
 
-  const phoneError = validateBundleRecipient(bundle.network, phone)
+  const phoneError = validateBundleRecipient(bundle.network, phone, prefixRules)
   const lowBalance = balance !== null && bundle.amount > balance
 
   const buy = async () => {
@@ -72,13 +81,15 @@ export function BundleBuySheet({
     setBusy(true)
     setError("")
     setInsufficient(false)
+    const sentPhone = phone.trim()
     const { status, json } = await authedPost("/api/standard-bundles/buy", {
       token: bundle.token,
-      phone: phone.trim(),
+      phone: sentPhone,
       idempotencyKey: keyRef.current,
     })
     // The request has settled. Rotate only after a definite non-delivery; uncertain outcomes keep the key so a retry dedupes.
-    if (shouldRotateIdempotencyKey(status, json)) keyRef.current = crypto.randomUUID()
+    if (shouldRotateIdempotencyKey(status, json)) keyRef.current = newUuid()
+    lastAttemptRef.current = { recipient: recipientIdentity(sentPhone), key: keyRef.current }
     setBusy(false)
     buyingRef.current = false
     const outcome = classifyBuyResponse(status, json)
@@ -91,9 +102,10 @@ export function BundleBuySheet({
         onChanged()
         return
       case "refresh":
+        // Buy stays disabled until the page has reloaded the catalog and closed this sheet for a re-pick.
         setStale(true)
         setError(outcome.message)
-        onStale()
+        onStale(outcome.message)
         return
       case "insufficient":
         setInsufficient(true)
@@ -133,9 +145,15 @@ export function BundleBuySheet({
                     placeholder="024XXXXXXX"
                     value={phone}
                     onChange={e => {
-                      // A different recipient is a different purchase: never reuse the key (never while in flight).
-                      if (!buyingRef.current) keyRef.current = crypto.randomUUID()
-                      setPhone(e.target.value)
+                      // A different recipient is a different purchase (new key); reformatting the same number is not.
+                      // Never change the key while a request is in flight.
+                      const next = e.target.value
+                      if (!buyingRef.current) {
+                        keyRef.current = keyAfterPhoneEdit({
+                          prevPhone: phone, nextPhone: next, currentKey: keyRef.current, lastAttempt: lastAttemptRef.current, newKey: newUuid,
+                        })
+                      }
+                      setPhone(next)
                     }}
                     onBlur={() => setTouched(true)}
                   />
