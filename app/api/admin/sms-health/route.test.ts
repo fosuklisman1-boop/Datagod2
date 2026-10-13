@@ -46,13 +46,13 @@ beforeEach(() => {
 describe("GET /api/admin/sms-health", () => {
   it("non-admin gets the guard's error response and no RPC runs", async () => {
     h.auth = { isAdmin: false, errorResponse: NextResponse.json({ error: "Forbidden" }, { status: 403 }) }
-    const res = await GET(req())
+    const res = (await GET(req()))!
     expect(res.status).toBe(403)
     expect(h.calls).toEqual([])
   })
 
   it("keeps the existing payload (masked phones, otp_breaker) and adds sender_health with a computed status", async () => {
-    const res = await GET(req("?hours=72"))
+    const res = (await GET(req("?hours=72")))!
     expect(res.status).toBe(200)
     const d = await res.json()
     expect(d.success).toBe(true)
@@ -71,13 +71,13 @@ describe("GET /api/admin/sms-health", () => {
   })
 
   it("invalid hours falls back to 24 for both RPCs", async () => {
-    await GET(req("?hours=5"))
+    (await GET(req("?hours=5")))!
     expect(h.calls.map((c) => c.args)).toEqual([{ p_hours: 24 }, { p_hours: 24 }])
   })
 
   it("sender RPC missing ⇒ sender_health null + error text, everything else intact", async () => {
     delete h.rpc.sms_sender_health
-    const res = await GET(req())
+    const res = (await GET(req()))!
     expect(res.status).toBe(200)
     const d = await res.json()
     expect(d.sender_health).toBeNull()
@@ -88,7 +88,7 @@ describe("GET /api/admin/sms-health", () => {
 
   it("sender RPC throwing ⇒ sender_health null, page still 200", async () => {
     h.rpc.sms_sender_health = async () => { throw new Error("boom") }
-    const res = await GET(req())
+    const res = (await GET(req()))!
     expect(res.status).toBe(200)
     const d = await res.json()
     expect(d.sender_health).toBeNull()
@@ -97,7 +97,7 @@ describe("GET /api/admin/sms-health", () => {
 
   it("main RPC error still returns 503 (unchanged)", async () => {
     h.rpc.sms_health = async () => ({ data: null, error: { message: "nope" } })
-    const res = await GET(req())
+    const res = (await GET(req()))!
     expect(res.status).toBe(503)
     const d = await res.json()
     expect(d.error).toMatch(/sms_health_panel\.sql/)
