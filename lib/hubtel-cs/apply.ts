@@ -1,4 +1,4 @@
-import type { HubtelCsStore } from "./store"
+import type { HubtelCsStore, UpdateGuard } from "./store"
 import type { Transition } from "./state-machine"
 import type { HubtelCsTx } from "./types"
 
@@ -11,10 +11,11 @@ export async function applyAndCommit(
   store: HubtelCsStore,
   tx: HubtelCsTx,
   transition: Transition,
-  onTransition: (tx: HubtelCsTx) => Promise<void>
+  onTransition: (tx: HubtelCsTx) => Promise<void>,
+  guard?: UpdateGuard
 ): Promise<{ tx: HubtelCsTx; changed: boolean }> {
   if ("ignored" in transition) return { tx, changed: false }
-  const updated = await store.updateGuarded(tx.id, tx.state, transition.patch)
+  const updated = await store.updateGuarded(tx.id, tx.state, transition.patch, guard)
   if (!updated) return { tx: (await store.getByRef(tx.client_reference)) ?? tx, changed: false }
   const entered = updated.state !== tx.state && (updated.state === "fulfilled" || updated.state === "failed")
   if (entered) await onTransition(updated)

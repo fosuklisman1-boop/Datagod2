@@ -239,3 +239,32 @@ describe("hardening", () => {
     expect(next(applyStatusCheck(tx, { ok: true, status: "Unpaid", isFulfilled: false }, minutesAfter(12))).next).toBe("failed")
   })
 })
+
+describe("applyStatusCheck Paid + isFulfilled=false", () => {
+  const pending = (over = {}) => makeTx({ state: "pending", submitted_at: T0.toISOString(), ...over })
+  it("never fails a row, however many checks over however long", () => {
+    let tx = pending()
+    for (let m = 6; m <= 600; m += 3) {
+      const t = applyStatusCheck(tx, { ok: true, status: " paid ", isFulfilled: false }, minutesAfter(m))
+      if ("ignored" in t) throw new Error("ignored")
+      expect(t.next).not.toBe("failed")
+      tx = { ...tx, ...t.patch } as any
+    }
+    expect(tx.negative_checks).toBe(0)
+  })
+  it("does not add to existing negatives (Paid is not a negative observation)", () => {
+    const t = next(applyStatusCheck(pending({ negative_checks: 1 }), { ok: true, status: "Paid", isFulfilled: false }, minutesAfter(20)))
+    expect(t.next).toBe("pending")
+    expect(t.patch.negative_checks).toBe(0)
+  })
+  it("Unpaid + false still counts a negative", () => {
+    const t = next(applyStatusCheck(pending(), { ok: true, status: "Unpaid", isFulfilled: false }, minutesAfter(12)))
+    expect(t.patch.negative_checks).toBe(1)
+  })
+  it("countNegative=false records the observation without counting a negative", () => {
+    const t = next(applyStatusCheck(pending({ negative_checks: 1 }), { ok: true, status: "Unpaid", isFulfilled: false }, minutesAfter(12), { countNegative: false }))
+    expect(t.next).toBe("pending")
+    expect(t.patch.negative_checks).toBeUndefined()
+    expect(t.patch.status_check_attempts).toBe(1)
+  })
+})

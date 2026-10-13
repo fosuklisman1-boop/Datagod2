@@ -181,3 +181,57 @@ describe("adminCheckStatus throwing checkStatus", () => {
     expect(row.status_check_attempts).toBe(0)
   })
 })
+
+describe("adminCheckStatus recheck gap", () => {
+  const UNPAID = async () => ({ ok: true, status: "Unpaid", data: { isFulfilled: false } })
+  it("two admin checks seconds apart cannot fail a row", async () => {
+    const { deps, store } = setup({}, UNPAID)
+    await adminCheckStatus(deps, REF)
+    expect((await store.getByRef(REF))!.negative_checks).toBe(1)
+    const second = await adminCheckStatus({ ...deps, now: () => new Date(minutesAfter(12).getTime() + 5_000) }, REF)
+    const tx = (await store.getByRef(REF))!
+    expect(tx.state).toBe("pending")
+    expect(tx.negative_checks).toBe(1)
+    expect(tx.status_check_attempts).toBe(2)
+    expect(second.message).toMatch(/not counted/i)
+  })
+  it("a check after the gap counts again", async () => {
+    const { deps, store } = setup({}, UNPAID)
+    await adminCheckStatus(deps, REF)
+    await adminCheckStatus({ ...deps, now: () => minutesAfter(15) }, REF)
+    expect((await store.getByRef(REF))!.state).toBe("failed")
+  })
+})
+
+describe("adminResolve guards", () => {
+  it("a refund claim landing between read and write wins over resolving to fulfilled", async () => {
+    const { deps, store, onTransition } = setup({ state: "failed" })
+    const realGet = store.getByRef.bind(store)
+    // simulate: the read sees no claim, then a claim lands before the write
+    store.getByRef = async (ref: string) => {
+      const r = await realGet(ref)
+      const row = store.rows.find(x => x.client_reference === ref)!
+      queueMicrotask(() => { row.refund_claimed_at = T0.toISOString() })
+      return r
+    }
+    const out = await adminResolve(deps, REF, "fulfilled", "paid in fact", "admin-1")
+    expect(out.ok).toBe(false)
+    expect((await realGet(REF))!.state).toBe("failed")
+    expect(onTransition).not.toHaveBeenCalled()
+  })
+  it("a unique violation during resolve is a clear ok:false message", async () => {
+    const { deps, store } = setup({ state: "failed", order_table: "airtime_orders", order_id: "o1" })
+    store.seed(makeTx({ id: "tx-2", client_reference: "OTHER", state: "pending", order_table: "airtime_orders", order_id: "o1" }))
+    const out = await adminResolve(deps, REF, "fulfilled", "paid in fact", "admin-1")
+    expect(out.ok).toBe(false)
+    expect(out.message).toMatch(/another active purchase exists for this order/i)
+    expect((await store.getByRef(REF))!.state).toBe("failed")
+  })
+  it("a real 23505 error code is mapped the same way", async () => {
+    const { deps, store } = setup({ state: "failed" })
+    store.updateGuarded = async () => { throw { code: "23505", message: "dup" } }
+    const out = await adminResolve(deps, REF, "fulfilled", "n", "admin-1")
+    expect(out.ok).toBe(false)
+    expect(out.message).toMatch(/another active purchase exists/i)
+  })
+})

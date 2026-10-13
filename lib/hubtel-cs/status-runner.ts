@@ -1,5 +1,5 @@
 import { applyAndCommit } from "./apply"
-import { applyStatusCheck, sweepStale, CREATED_STALE_MS } from "./state-machine"
+import { applyStatusCheck, sweepStale, CREATED_STALE_MS, RECHECK_GAP_MS } from "./state-machine"
 import type { HubtelCsStore } from "./store"
 import type { HubtelCsTx } from "./types"
 
@@ -14,8 +14,6 @@ export interface RunDeps {
 
 /** Hubtel makes the status check mandatory for pending rows older than 5 minutes. */
 const MIN_PENDING_AGE_MS = 5 * 60_000
-/** Do not re-check a row more often than the 2-minute cron cadence allows. */
-const RECHECK_GAP_MS = 90_000
 
 /** PostgREST PGRST205 / Postgres 42P01: the ledger table does not exist yet (migrations 0113/0114 not applied). */
 export function isMissingTableError(e: unknown): boolean {

@@ -20,9 +20,15 @@ export function createMemoryStore(): HubtelCsStore & { rows: HubtelCsTx[]; event
       return { ...tx }
     },
     async getByRef(ref) { const r = rows.find(x => x.client_reference === ref); return r ? { ...r } : null },
-    async updateGuarded(id, expectedState: HubtelCsState, patch: HubtelCsPatch) {
+    async updateGuarded(id, expectedState: HubtelCsState, patch: HubtelCsPatch, guard) {
       const r = rows.find(x => x.id === id && x.state === expectedState)
       if (!r) return null
+      if (guard?.refundUnclaimed && r.refund_claimed_at) return null
+      // Mirror the per-order partial unique index (one non-failed row per order).
+      if (patch.state && patch.state !== "failed" && r.order_id &&
+          rows.some(o => o.id !== r.id && o.order_table === r.order_table && o.order_id === r.order_id && o.state !== "failed")) {
+        throw new Error("duplicate key value violates unique constraint hubtel_cs_tx_order_active_uidx")
+      }
       Object.assign(r, patch, { updated_at: patch.updated_at ?? nowIso() })
       return { ...r }
     },

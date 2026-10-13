@@ -12,6 +12,8 @@ export const CREATED_STALE_MS = 2 * 60_000
 export const PENDING_STALE_MS = 24 * 60 * 60_000
 export const NEGATIVE_CONFIRM_AGE_MS = 10 * 60_000
 export const NEGATIVE_CONFIRM_COUNT = 2
+/** Minimum gap between two status observations that may each count as a negative (cron cadence is 2 min). */
+export const RECHECK_GAP_MS = 90_000
 
 export type CodeClass = "success" | "pending" | "unknown" | "float" | "failed"
 
@@ -93,7 +95,7 @@ export function applyCallback(tx: HubtelCsTx, cb: ParsedCallback, now: Date): Tr
   }
 }
 
-export function applyStatusCheck(tx: HubtelCsTx, obs: StatusObservation, now: Date): Transition {
+export function applyStatusCheck(tx: HubtelCsTx, obs: StatusObservation, now: Date, opts: { countNegative?: boolean } = {}): Transition {
   if (tx.resolved_at) return { ignored: "resolved by admin" }
   if (tx.state !== "pending" && tx.state !== "needs_review") return { ignored: `state is ${tx.state}` }
   const ts = now.toISOString()
@@ -109,7 +111,12 @@ export function applyStatusCheck(tx: HubtelCsTx, obs: StatusObservation, now: Da
   if (obs.isFulfilled === true && String(obs.status ?? "").toLowerCase() === "paid") {
     return { next: "fulfilled", patch: { ...base, state: "fulfilled", completed_at: ts, negative_checks: 0, review_reason: null, failure_reason: null } }
   }
-  if (obs.isFulfilled === false) {
+  // Only an UNPAID-style negative counts. Hubtel "Paid" with isFulfilled=false is the money-taken-but-not-yet
+  // -delivered window: treated as inconclusive (keep polling), negatives reset to 0, and it can NEVER lead to "failed".
+  const paid = String(obs.status ?? "").trim().toLowerCase() === "paid"
+  if (obs.isFulfilled === false && !paid) {
+    // A caller that re-checks inside the recheck gap records the observation but must not count a second negative.
+    if (opts.countNegative === false) return open()
     const neg = tx.negative_checks + 1
     if (neg >= NEGATIVE_CONFIRM_COUNT && age >= NEGATIVE_CONFIRM_AGE_MS) {
       return { next: "failed", patch: { ...base, state: "failed", completed_at: ts, negative_checks: neg, review_reason: null, failure_reason: "Hubtel status check: transaction not fulfilled" } }

@@ -2,12 +2,14 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import type { HubtelCsEvent, HubtelCsPatch, HubtelCsState, HubtelCsTx, NewHubtelCsTx } from "./types"
 
 export interface ListOpts { state?: HubtelCsState | "attention"; q?: string; qAlt?: string; limit: number; offset: number }
+export interface UpdateGuard { refundUnclaimed?: boolean }
 export interface HubtelCsStats { total: number; in_flight: number; needs_review: number; failed: number; fulfilled: number; commission_earned: number }
 
 export interface HubtelCsStore {
   insert(row: NewHubtelCsTx): Promise<HubtelCsTx>
   getByRef(ref: string): Promise<HubtelCsTx | null>
-  updateGuarded(id: string, expectedState: HubtelCsState, patch: HubtelCsPatch): Promise<HubtelCsTx | null>
+  /** Guarded write; with `guard.refundUnclaimed` it additionally requires refund_claimed_at IS NULL (a refund claim wins). */
+  updateGuarded(id: string, expectedState: HubtelCsState, patch: HubtelCsPatch, guard?: UpdateGuard): Promise<HubtelCsTx | null>
   listByStates(states: HubtelCsState[], o: { olderThan?: string; limit: number; orderBy?: "created_at" | "last_status_check_at" }): Promise<HubtelCsTx[]>
   listForAdmin(o: ListOpts): Promise<{ rows: HubtelCsTx[]; total: number }>
   stats(): Promise<HubtelCsStats>
@@ -38,9 +40,11 @@ export function createSupabaseHubtelCsStore(db: SupabaseClient): HubtelCsStore {
       if (error) throw error
       return (data as HubtelCsTx | null) ?? null
     },
-    async updateGuarded(id, expectedState, patch) {
+    async updateGuarded(id, expectedState, patch, guard) {
       const withTs = { ...patch, updated_at: patch.updated_at ?? new Date().toISOString() }
-      const { data, error } = await db.from(T).update(withTs).eq("id", id).eq("state", expectedState).select().maybeSingle()
+      let q = db.from(T).update(withTs).eq("id", id).eq("state", expectedState)
+      if (guard?.refundUnclaimed) q = q.is("refund_claimed_at", null)
+      const { data, error } = await q.select().maybeSingle()
       if (error) throw error
       return (data as HubtelCsTx | null) ?? null
     },
