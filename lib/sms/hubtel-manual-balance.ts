@@ -24,6 +24,10 @@ export const HUBTEL_PREFER_MANUAL_KEY = "sms_hubtel_prefer_manual_balance"
 export const MANUAL_BALANCE_MAX_GHS = 1_000_000
 /** A manual balance older than this is ignored everywhere (solvency gate, snapshot, primary switch). */
 export const MANUAL_BALANCE_MAX_AGE_MS = 30 * 86_400_000
+// Spend since setAt is computed in SQL (sms_hubtel_spend_since): Hubtel's reported rate (cost_ghs) is
+// the TOTAL price of the whole message (live: GH₵0.0243 per part), so each message counts at
+// max(cost_ghs, segments × the per-part default); see migration 20261022.
+
 /** Tolerated forward clock skew for setAt; anything further ahead is not trusted. */
 const MAX_FUTURE_SKEW_MS = 5 * 60_000
 

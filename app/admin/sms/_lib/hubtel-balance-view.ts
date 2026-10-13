@@ -35,6 +35,7 @@ export const MANUAL_BALANCE_NOTES: readonly string[] = [
   "Update it after every top-up — \"Set balance now\" restarts the count from this moment.",
   "Not counted, so the estimate can be slightly high: messages sent outside this app (e.g. test requests sent by hand), and in-app sends that skip the SMS log — admin notify, notify-self, AI tasks and admin-broadcast retries.",
   "A manual balance older than 30 days is ignored, and credit sales pause until it is set again.",
+  "Each SMS counts at the price Hubtel reported for the whole message (a long message is several parts), and never less than its parts × the highest price per part seen recently.",
 ]
 
 export const SET_BALANCE_CONFIRM_NOTE =

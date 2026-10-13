@@ -33,6 +33,8 @@ describe("copy", () => {
     expect(all).toMatch(/notify-self/i)
     expect(all).toMatch(/AI tasks/i)
     expect(all).toMatch(/30 days/)
+    expect(all).toMatch(/whole message/)
+    expect(all).toMatch(/per part/)
   })
   it("the confirm dialog warns about the gap before clicking", () => {
     expect(SET_BALANCE_CONFIRM_NOTE).toBe("Enter the balance exactly as shown on the Hubtel dashboard right now — messages sent in the gap before you click are not counted.")

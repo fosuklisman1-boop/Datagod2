@@ -12,7 +12,7 @@ export default function SupplyStrip({ overview }: { overview: OverviewData }) {
       <span className={s.error ? "text-amber-700 dark:text-amber-300" : ""}>{supplyHeadline(s)}</span>
       {s.balanceGhs !== null && <span className="text-muted-foreground">{manual ? "Estimated balance" : "Balance"} {formatGhs(s.balanceGhs)}</span>}
       {manual && s.manualSetAt && <span className="text-muted-foreground">Manual balance set {formatGmt(s.manualSetAt)}{s.manualPreferred ? " · used instead of the relay" : ""}</span>}
-      {s.ratePerSms !== null && <span className="text-muted-foreground">Rate {formatRate(s.ratePerSms)}/SMS</span>}
+      {s.ratePerSms !== null && <span className="text-muted-foreground">Rate {formatRate(s.ratePerSms)}/SMS part</span>}
       {s.queuedUnsent !== null && <span className="text-muted-foreground">{formatCount(s.queuedUnsent)} queued, not yet sent</span>}
     </div>
   )
