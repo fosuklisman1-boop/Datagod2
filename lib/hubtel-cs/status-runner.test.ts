@@ -139,3 +139,33 @@ describe("runHubtelCsStatusChecks isolation", () => {
     expect((await store.getByRef("A"))!.state).toBe("needs_review")
   })
 })
+
+describe("runHubtelCsStatusChecks before migrations", () => {
+  it("treats a missing ledger table as skipped, not as errors, and does not log at error level", async () => {
+    const store = createMemoryStore()
+    store.listByStates = async () => { throw { code: "PGRST205", message: "Could not find the table" } }
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    const { out } = run(store, PAID, 6)
+    const res = await out
+    expect(res.errors).toBe(0)
+    expect(res.skipped).toBe("ledger not migrated")
+    expect(err).not.toHaveBeenCalled()
+    err.mockRestore()
+  })
+  it("also tolerates Postgres 42P01 (undefined_table)", async () => {
+    const store = createMemoryStore()
+    store.listByStates = async () => { throw { code: "42P01", message: "relation does not exist" } }
+    const res = await run(store, PAID, 6).out
+    expect(res.errors).toBe(0)
+    expect(res.skipped).toBe("ledger not migrated")
+  })
+  it("still counts other list errors as errors", async () => {
+    const store = createMemoryStore()
+    store.listByStates = async () => { throw new Error("boom") }
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    const res = await run(store, PAID, 6).out
+    expect(res.errors).toBeGreaterThan(0)
+    expect(res.skipped).toBeUndefined()
+    err.mockRestore()
+  })
+})

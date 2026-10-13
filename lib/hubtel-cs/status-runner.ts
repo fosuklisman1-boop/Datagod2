@@ -17,10 +17,24 @@ const MIN_PENDING_AGE_MS = 5 * 60_000
 /** Do not re-check a row more often than the 2-minute cron cadence allows. */
 const RECHECK_GAP_MS = 90_000
 
+/** PostgREST PGRST205 / Postgres 42P01: the ledger table does not exist yet (migrations 0113/0114 not applied). */
+export function isMissingTableError(e: unknown): boolean {
+  const code = (e as any)?.code
+  return code === "PGRST205" || code === "42P01"
+}
+let warnedNotMigrated = false
+/** Warn at most once per process so the every-2-minutes cron does not spam logs before migration. */
+export function warnLedgerNotMigrated(): void {
+  if (warnedNotMigrated) return
+  warnedNotMigrated = true
+  console.warn("[hubtel-cs] ledger table missing (migrations 0113/0114 not applied); skipping reconciliation")
+}
+
 /** Reconciliation only: never POSTs a purchase, never reads the pause/enabled flags, never resends or refunds. */
 export async function runHubtelCsStatusChecks(deps: RunDeps) {
   const now = deps.now ?? (() => new Date())
-  const out = { swept: 0, checked: 0, fulfilled: 0, failed: 0, needsReview: 0, errors: 0 }
+  const out: { swept: number; checked: number; fulfilled: number; failed: number; needsReview: number; errors: number; skipped?: string } =
+    { swept: 0, checked: 0, fulfilled: 0, failed: 0, needsReview: 0, errors: 0 }
   // A hook failure must never break reconciliation of the rest.
   const safeHook = async (tx: HubtelCsTx) => {
     try { await deps.onTransition(tx) } catch (e: any) { console.error("[hubtel-cs] onTransition hook failed:", e?.message ?? e) }
@@ -35,7 +49,10 @@ export async function runHubtelCsStatusChecks(deps: RunDeps) {
         if (r.changed) out.swept++
       } catch (e: any) { out.errors++; console.error("[hubtel-cs] sweep row failed:", e?.message ?? e) }
     }
-  } catch (e: any) { out.errors++; console.error("[hubtel-cs] sweep phase failed:", e?.message ?? e) }
+  } catch (e: any) {
+    if (isMissingTableError(e)) { out.skipped = "ledger not migrated"; warnLedgerNotMigrated() }
+    else { out.errors++; console.error("[hubtel-cs] sweep phase failed:", e?.message ?? e) }
+  }
 
   // 2. pending rows older than 5 minutes, least-recently-checked first
   let pending: HubtelCsTx[] = []
@@ -44,7 +61,10 @@ export async function runHubtelCsStatusChecks(deps: RunDeps) {
       olderThan: new Date(now().getTime() - MIN_PENDING_AGE_MS).toISOString(),
       limit: deps.batch ?? 50, orderBy: "last_status_check_at",
     })
-  } catch (e: any) { out.errors++; console.error("[hubtel-cs] pending list failed:", e?.message ?? e) }
+  } catch (e: any) {
+    if (isMissingTableError(e)) { out.skipped = "ledger not migrated"; warnLedgerNotMigrated() }
+    else { out.errors++; console.error("[hubtel-cs] pending list failed:", e?.message ?? e) }
+  }
   for (const tx of pending) {
     if (Date.now() >= deps.deadlineMs) break
     if (tx.last_status_check_at && now().getTime() - Date.parse(tx.last_status_check_at) < RECHECK_GAP_MS) continue

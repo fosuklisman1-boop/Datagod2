@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getOrderAdapter } from "@/lib/hubtel-cs/adapters"
 import { clampPage, clampSearch, errorJson, requireAdmin, searchAlternate } from "@/lib/hubtel-cs/admin-route"
 import { getHubtelCsRuntime } from "@/lib/hubtel-cs/runtime"
+import { isMissingTableError } from "@/lib/hubtel-cs/status-runner"
 import type { HubtelCsState } from "@/lib/hubtel-cs/types"
 
 export const dynamic = "force-dynamic"
@@ -26,6 +27,10 @@ export async function GET(request: NextRequest) {
       total, stats,
     })
   } catch (e) {
+    // Before migrations 0113/0114 the ledger table does not exist: show an empty page, not a 500.
+    if (isMissingTableError(e)) {
+      return NextResponse.json({ rows: [], total: 0, stats: { total: 0, in_flight: 0, needs_review: 0, failed: 0, fulfilled: 0, commission_earned: 0 }, notMigrated: true })
+    }
     return errorJson(e)
   }
 }

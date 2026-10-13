@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { verifyCronAuth } from "@/lib/cron-auth"
 import { checkLowBalance } from "@/lib/hubtel-cs/float"
 import { getHubtelCsRuntime, HUBTEL_CS_CRON_TIME_BUDGET_MS, HUBTEL_CS_EVENT_RETENTION_MS } from "@/lib/hubtel-cs/runtime"
-import { runHubtelCsStatusChecks } from "@/lib/hubtel-cs/status-runner"
+import { isMissingTableError, runHubtelCsStatusChecks, warnLedgerNotMigrated } from "@/lib/hubtel-cs/status-runner"
 
 export const maxDuration = 300
 
@@ -19,7 +19,8 @@ export async function GET(request: NextRequest) {
   try {
     await rt.store.purgeEventsOlderThan(new Date(Date.now() - HUBTEL_CS_EVENT_RETENTION_MS).toISOString())
   } catch (e) {
-    console.error("[hubtel-cs] event purge failed:", e instanceof Error ? e.message : "error")
+    if (isMissingTableError(e)) warnLedgerNotMigrated()
+    else console.error("[hubtel-cs] event purge failed:", e instanceof Error ? e.message : "error")
   }
 
   let balance: Awaited<ReturnType<typeof checkLowBalance>> = { checked: false }
