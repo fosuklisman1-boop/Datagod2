@@ -21,6 +21,8 @@ export interface HubtelCsStore {
   purgeEventsOlderThan(iso: string): Promise<void>
   /** Stamp a settled row whose order hook succeeded. */
   markOrderSynced(id: string): Promise<void>
+  /** Stamp a re-notify attempt so a failing row is retried at most once per window and rotates behind newer rows. */
+  markOrderSyncAttempt(id: string): Promise<void>
   /** Settled rows linked to an order whose hook has not succeeded yet, oldest first. */
   listUnsynced(o: { olderThan: string; limit: number }): Promise<HubtelCsTx[]>
 }
@@ -63,6 +65,10 @@ export function createSupabaseHubtelCsStore(db: SupabaseClient): HubtelCsStore {
       const { error } = await db.from(T).update({ refund_claimed_at: null, refund_claimed_by: null, updated_at: new Date().toISOString() }).eq("id", id)
       if (error) throw error
     },
+    async markOrderSyncAttempt(id) {
+      const { error } = await db.from(T).update({ order_sync_attempted_at: new Date().toISOString() }).eq("id", id)
+      if (error) throw error
+    },
     async markOrderSynced(id) {
       const { error } = await db.from(T).update({ order_synced_at: new Date().toISOString() }).eq("id", id)
       if (error) throw error
@@ -70,7 +76,8 @@ export function createSupabaseHubtelCsStore(db: SupabaseClient): HubtelCsStore {
     async listUnsynced(o) {
       const { data, error } = await db.from(T).select("*")
         .in("state", ["fulfilled", "failed"]).not("order_table", "is", null).is("order_synced_at", null)
-        .lte("updated_at", o.olderThan).order("updated_at", { ascending: true }).limit(o.limit)
+        .lte("updated_at", o.olderThan).or(`order_sync_attempted_at.is.null,order_sync_attempted_at.lte.${o.olderThan}`)
+        .order("order_sync_attempted_at", { ascending: true, nullsFirst: true }).order("updated_at", { ascending: true }).limit(o.limit)
       if (error) throw error
       return (data ?? []) as HubtelCsTx[]
     },

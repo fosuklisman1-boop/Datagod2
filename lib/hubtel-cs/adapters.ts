@@ -2,6 +2,7 @@ import type { HubtelCsTx } from "./types"
 
 export interface OrderAdapter {
   /** The `order_table` value this adapter owns (e.g. "airtime_orders"). */
+  /* Hooks may be re-run by the cron re-notify sweep even after a success (if the sync stamp failed), hence MUST be idempotent. */
   table: string
   /** Called when a linked ledger row enters `fulfilled`. MUST be idempotent. */
   onFulfilled(tx: HubtelCsTx): Promise<void>

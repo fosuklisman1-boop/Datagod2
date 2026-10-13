@@ -42,14 +42,18 @@ export function createMemoryStore(): HubtelCsStore & { rows: HubtelCsTx[]; event
       const r = rows.find(x => x.id === id)
       if (r) Object.assign(r, { refund_claimed_at: null, refund_claimed_by: null, updated_at: nowIso() })
     },
+    async markOrderSyncAttempt(id: string) {
+      const r = rows.find(x => x.id === id)
+      if (r) r.order_sync_attempted_at = nowIso()
+    },
     async markOrderSynced(id: string) {
       const r = rows.find(x => x.id === id)
       if (r) r.order_synced_at = nowIso()
     },
     async listUnsynced(o: { olderThan: string; limit: number }) {
       return rows
-        .filter(r => (r.state === "fulfilled" || r.state === "failed") && r.order_table && !r.order_synced_at && r.updated_at <= o.olderThan)
-        .sort((a, b) => a.updated_at.localeCompare(b.updated_at))
+        .filter(r => (r.state === "fulfilled" || r.state === "failed") && r.order_table && !r.order_synced_at && r.updated_at <= o.olderThan && (!r.order_sync_attempted_at || r.order_sync_attempted_at <= o.olderThan))
+        .sort((a, b) => (a.order_sync_attempted_at ?? "").localeCompare(b.order_sync_attempted_at ?? "") || a.updated_at.localeCompare(b.updated_at))
         .slice(0, o.limit)
         .map(r => ({ ...r }))
     },

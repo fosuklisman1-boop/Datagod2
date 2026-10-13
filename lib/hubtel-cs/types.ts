@@ -35,6 +35,7 @@ export interface HubtelCsTx {
   refund_claimed_at: string | null
   refund_claimed_by: string | null
   order_synced_at: string | null
+  order_sync_attempted_at: string | null
   created_at: string
   updated_at: string
 }

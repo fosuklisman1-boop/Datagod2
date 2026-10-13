@@ -33,8 +33,8 @@ export function warnLedgerNotMigrated(): void {
 /** Reconciliation only: never POSTs a purchase, never reads the pause/enabled flags, never resends or refunds. */
 export async function runHubtelCsStatusChecks(deps: RunDeps) {
   const now = deps.now ?? (() => new Date())
-  const out: { swept: number; checked: number; fulfilled: number; failed: number; needsReview: number; resynced: number; errors: number; skipped?: string } =
-    { swept: 0, checked: 0, fulfilled: 0, failed: 0, needsReview: 0, resynced: 0, errors: 0 }
+  const out: { swept: number; checked: number; fulfilled: number; failed: number; needsReview: number; resyncAttempted: number; errors: number; skipped?: string } =
+    { swept: 0, checked: 0, fulfilled: 0, failed: 0, needsReview: 0, resyncAttempted: 0, errors: 0 }
   // A hook failure must never break reconciliation of the rest.
   const safeHook = async (tx: HubtelCsTx) => {
     try { await deps.onTransition(tx) } catch (e: any) { console.error("[hubtel-cs] onTransition hook failed:", e?.message ?? e) }
@@ -93,8 +93,13 @@ export async function runHubtelCsStatusChecks(deps: RunDeps) {
     const unsynced = await deps.store.listUnsynced({ olderThan: new Date(now().getTime() - RESYNC_AFTER_MS).toISOString(), limit: 50 })
     for (const tx of unsynced) {
       if (Date.now() >= deps.deadlineMs) break
+      try { await deps.store.markOrderSyncAttempt(tx.id) } catch (e: any) {
+        // A row we cannot stamp would be hammered every run: skip it.
+        console.error("[hubtel-cs] could not stamp re-notify attempt:", e?.message ?? e)
+        continue
+      }
       await safeHook(tx)
-      out.resynced++
+      out.resyncAttempted++
     }
   } catch (e: any) {
     // 42703 = column missing (0116 not applied yet): skip quietly like a missing table.

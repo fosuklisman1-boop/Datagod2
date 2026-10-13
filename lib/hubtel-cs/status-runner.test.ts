@@ -181,11 +181,63 @@ describe("re-notify sweep (phase 2a)", () => {
     const onTransition = vi.fn(async (_tx: any) => {})
     const out = await runHubtelCsStatusChecks({ store, check: async () => ({ ok: true }), onTransition, deadlineMs: Date.now() + 60_000 })
     expect(onTransition.mock.calls.map((c: any[]) => c[0].id)).toEqual(["u1"])
-    expect(out.resynced).toBe(1)
+    expect(out.resyncAttempted).toBe(1)
   })
   it("a missing column or table is skipped quietly, not counted as an error", async () => {
     const store = createMemoryStore()
     ;(store as any).listUnsynced = async () => { throw Object.assign(new Error("column missing"), { code: "42703" }) }
+    const out = await runHubtelCsStatusChecks({ store, check: async () => ({ ok: true }), onTransition: async () => {}, deadlineMs: Date.now() + 60_000 })
+    expect(out.errors).toBe(0)
+  })
+})
+
+describe("re-notify sweep fairness (phase 2a fix)", () => {
+  it("rotates: rows not reached last run are picked before rows already attempted", async () => {
+    const store = createMemoryStore()
+    const t = (i: number) => new Date(Date.now() - 60 * 60_000 + i * 1000).toISOString()
+    for (let i = 0; i < 60; i++) store.seed(makeTx({ id: `r${i}`, client_reference: `HCS-${i}`, state: "failed", order_table: "airtime_orders", order_id: `o${i}`, updated_at: t(i) }))
+    const seen: string[][] = []
+    const onTransition = vi.fn(async (_tx: any) => {}) // never marks synced: oldest 50 "always fail"
+    const go = async () => {
+      onTransition.mockClear()
+      await runHubtelCsStatusChecks({ store, check: async () => ({ ok: true }), onTransition, deadlineMs: Date.now() + 60_000 })
+      seen.push(onTransition.mock.calls.map((c: any[]) => c[0].id))
+    }
+    await go()
+    expect(seen[0]).toHaveLength(50)
+    expect(seen[0]).not.toContain("r55")
+    // time passes: the 50 attempts become older than the window
+    for (const r of store.rows) if (r.order_sync_attempted_at) r.order_sync_attempted_at = new Date(Date.now() - 10 * 60_000).toISOString()
+    await go()
+    expect(seen[1].slice(0, 10)).toEqual(["r50", "r51", "r52", "r53", "r54", "r55", "r56", "r57", "r58", "r59"])
+  })
+  it("does not return a row attempted less than 2 minutes ago", async () => {
+    const store = createMemoryStore()
+    const old = new Date(Date.now() - 10 * 60_000).toISOString()
+    store.seed(makeTx({ id: "a", client_reference: "HCS-a", state: "failed", order_table: "t", order_id: "1", updated_at: old }))
+    await store.markOrderSyncAttempt("a")
+    const cutoff = new Date(Date.now() - 2 * 60_000).toISOString()
+    expect(await store.listUnsynced({ olderThan: cutoff, limit: 10 })).toEqual([])
+  })
+  it("orders never-attempted rows first, then oldest attempt", async () => {
+    const store = createMemoryStore()
+    const ago = (m: number) => new Date(Date.now() - m * 60_000).toISOString()
+    store.seed(makeTx({ id: "a", client_reference: "HCS-a", state: "failed", order_table: "t", order_id: "1", updated_at: ago(30), order_sync_attempted_at: ago(10) }))
+    store.seed(makeTx({ id: "b", client_reference: "HCS-b", state: "failed", order_table: "t", order_id: "2", updated_at: ago(20), order_sync_attempted_at: ago(20) }))
+    store.seed(makeTx({ id: "c", client_reference: "HCS-c", state: "failed", order_table: "t", order_id: "3", updated_at: ago(10) }))
+    expect((await store.listUnsynced({ olderThan: ago(2), limit: 10 })).map(r => r.id)).toEqual(["c", "b", "a"])
+  })
+  it("a row that cannot be stamped is skipped without running the hook", async () => {
+    const store = createMemoryStore()
+    store.seed(makeTx({ id: "a", client_reference: "HCS-a", state: "failed", order_table: "t", order_id: "1", updated_at: new Date(Date.now() - 10 * 60_000).toISOString() }))
+    ;(store as any).markOrderSyncAttempt = async () => { throw new Error("db") }
+    const onTransition = vi.fn(async (_tx: any) => {})
+    await runHubtelCsStatusChecks({ store, check: async () => ({ ok: true }), onTransition, deadlineMs: Date.now() + 60_000 })
+    expect(onTransition).not.toHaveBeenCalled()
+  })
+  it("PGRST205 in the re-notify phase is skipped quietly", async () => {
+    const store = createMemoryStore()
+    ;(store as any).listUnsynced = async () => { throw Object.assign(new Error("no table"), { code: "PGRST205" }) }
     const out = await runHubtelCsStatusChecks({ store, check: async () => ({ ok: true }), onTransition: async () => {}, deadlineMs: Date.now() + 60_000 })
     expect(out.errors).toBe(0)
   })

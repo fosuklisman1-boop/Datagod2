@@ -13,7 +13,7 @@ export function makeTx(over: Partial<HubtelCsTx> = {}): HubtelCsTx {
     commission: null, charges: null, amount_debited: null, order_table: null, order_id: null,
     submitted_at: null, completed_at: null, callback_received_at: null,
     status_check_attempts: 0, negative_checks: 0, last_status_check_at: null,
-    review_reason: null, resolved_by: null, resolved_at: null, resolution_note: null, refund_claimed_at: null, refund_claimed_by: null, order_synced_at: null,
+    review_reason: null, resolved_by: null, resolved_at: null, resolution_note: null, refund_claimed_at: null, refund_claimed_by: null, order_synced_at: null, order_sync_attempted_at: null,
     created_at: ts, updated_at: ts,
     ...over,
   }
