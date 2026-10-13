@@ -2,7 +2,9 @@ import { createClient } from "@supabase/supabase-js"
 import { isDigiWapyConfigured, isDigiWapyEnabledForNetwork, sendAirtimeViaDigiwapy } from "@/lib/digiwapy-provider"
 import { notifyAdmins, SMSTemplates } from "@/lib/sms-service"
 import { type AirtimeOrderMinimal, fulfillAirtimeViaHubtel } from "@/lib/airtime-hubtel"
-import { getAirtimeProvider } from "@/lib/airtime-provider"
+import { getAirtimeProvider, airtimeNetId } from "@/lib/airtime-provider"
+import { getCashbackConfig, type CashbackChannel } from "@/lib/cashback/config"
+import { quoteCashback, samePrice, type CashbackQuote } from "@/lib/cashback/quote"
 import { secureReference } from "@/lib/secure-random"
 import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
@@ -216,6 +218,34 @@ export interface PurchaseAirtimeParams {
   airtimeAmount: number
   paySeparately?: boolean
   shopId?: string | null
+  /** Surface the purchase came from; decides whether the cashback surface switch applies. */
+  channel: CashbackChannel
+  /** Price the client was shown. With cashback applied, a mismatch throws PRICE_CHANGED before any debit. */
+  expectedPay?: number
+}
+
+/**
+ * Instant-cashback quote for a non-shop purchase, or null when cashback is not applied.
+ * Any failure (config read, provider read) means "not applied" — the legacy fee path runs.
+ */
+async function quoteAirtimeCashback(
+  network: string,
+  faceAmount: number,
+  buyer: "customer" | "dealer",
+  channel: CashbackChannel,
+): Promise<CashbackQuote | null> {
+  try {
+    const netId = airtimeNetId(network)
+    if (!netId) return null
+    const cfg = await getCashbackConfig(supabase)
+    if (!cfg.enabled || !cfg.surfaces[channel]) return null
+    const provider = await getAirtimeProvider(supabase, network, isDigiWapyEnabledForNetwork)
+    const q = quoteCashback({ serviceKey: `airtime_${netId}`, provider, faceAmount, buyer, channel }, cfg)
+    return q.applied ? q : null
+  } catch (e: any) {
+    console.warn("[AIRTIME-SVC] cashback quote unavailable, using standard pricing:", e?.message ?? e)
+    return null
+  }
 }
 
 export interface PurchaseAirtimeResult {
@@ -241,7 +271,7 @@ export interface PurchaseAirtimeResult {
  * use a different network vocabulary ("AT") that reads a different key.
  */
 export async function purchaseAirtime(params: PurchaseAirtimeParams): Promise<PurchaseAirtimeResult> {
-  const { userId, network, beneficiaryPhone, paySeparately = false, shopId } = params
+  const { userId, network, beneficiaryPhone, paySeparately = false, shopId, channel, expectedPay } = params
   const cleanPhone = beneficiaryPhone.replace(/\s/g, "")
   const networkKey = network.toLowerCase().replace(/\s/g, "_")
 
@@ -264,6 +294,7 @@ export async function purchaseAirtime(params: PurchaseAirtimeParams): Promise<Pu
 
   let merchantRoleFeeRate = 5
   let customMarkupRate = 0
+  let isBuyerDealer = false
 
   if (shopId) {
     const { data: shop } = await supabase
@@ -286,6 +317,7 @@ export async function purchaseAirtime(params: PurchaseAirtimeParams): Promise<Pu
   } else {
     const { data: userProfile } = await supabase.from("users").select("role").eq("id", userId).single()
     const isUserDealer = userProfile?.role === "dealer" || userProfile?.role === "sub_agent"
+    isBuyerDealer = isUserDealer
     const feeKey = isUserDealer ? `airtime_fee_${networkKey}_dealer` : `airtime_fee_${networkKey}_customer`
     const feeSetting = await getAdminSetting(feeKey)
     merchantRoleFeeRate = feeSetting?.rate ?? 5
@@ -310,18 +342,40 @@ export async function purchaseAirtime(params: PurchaseAirtimeParams): Promise<Pu
 
   let airtimeToRecipient: number
   let totalPaid: number
+  let feeAmount: number
   const merchantCommissionValue = 0
 
-  if (paySeparately) {
+  // Instant cashback: non-shop purchases only. Not applied => the legacy fee path below, unchanged.
+  const cashback = shopId
+    ? null
+    : await quoteAirtimeCashback(network, params.airtimeAmount, isBuyerDealer ? "dealer" : "customer", channel)
+
+  if (cashback) {
     airtimeToRecipient = params.airtimeAmount
-    const totalFeeAmount = parseFloat((params.airtimeAmount * totalFeeRate / 100).toFixed(2))
-    totalPaid = parseFloat((params.airtimeAmount + totalFeeAmount).toFixed(2))
+    totalPaid = cashback.payAmount
+    feeAmount = 0
+    if (expectedPay !== undefined && !samePrice(expectedPay, cashback.payAmount)) {
+      const err: any = new Error("The price has changed. Please review the new price and try again.")
+      err.code = "PRICE_CHANGED"
+      err.quote = {
+        faceAmount: cashback.faceAmount,
+        payAmount: cashback.payAmount,
+        customerCashback: cashback.customerCashback,
+      }
+      throw err
+    }
   } else {
-    totalPaid = params.airtimeAmount
-    const totalFeeAmount = parseFloat((params.airtimeAmount * totalFeeRate / (100 + totalFeeRate)).toFixed(2))
-    airtimeToRecipient = parseFloat((totalPaid - totalFeeAmount).toFixed(2))
+    if (paySeparately) {
+      airtimeToRecipient = params.airtimeAmount
+      const totalFeeAmount = parseFloat((params.airtimeAmount * totalFeeRate / 100).toFixed(2))
+      totalPaid = parseFloat((params.airtimeAmount + totalFeeAmount).toFixed(2))
+    } else {
+      totalPaid = params.airtimeAmount
+      const totalFeeAmount = parseFloat((params.airtimeAmount * totalFeeRate / (100 + totalFeeRate)).toFixed(2))
+      airtimeToRecipient = parseFloat((totalPaid - totalFeeAmount).toFixed(2))
+    }
+    feeAmount = parseFloat((totalPaid - airtimeToRecipient).toFixed(2))
   }
-  const feeAmount = parseFloat((totalPaid - airtimeToRecipient).toFixed(2))
 
   const thirtySecondsAgo = new Date(Date.now() - 30_000).toISOString()
   const { data: recentOrder } = await supabase
@@ -370,11 +424,21 @@ export async function purchaseAirtime(params: PurchaseAirtimeParams): Promise<Pu
       airtime_amount: airtimeToRecipient,
       fee_amount: feeAmount,
       total_paid: totalPaid,
-      pay_separately: paySeparately,
+      pay_separately: cashback ? false : paySeparately,
       status: "pending",
       payment_status: "completed",
       shop_id: shopId || null,
       merchant_commission: merchantCommissionValue,
+      ...(cashback
+        ? {
+            cashback_amount: cashback.customerCashback,
+            shop_share_amount: 0,
+            cashback_rate: cashback.rate,
+            cashback_share: cashback.share,
+            cashback_provider: cashback.provider,
+            expected_commission: cashback.commission,
+          }
+        : {}),
     }])
     .select()
     .single()
@@ -397,7 +461,9 @@ export async function purchaseAirtime(params: PurchaseAirtimeParams): Promise<Pu
     amount: totalPaid,
     balance_before: balanceBefore,
     balance_after: newBalance,
-    description: `Airtime: ${network} GHS ${airtimeToRecipient} to ${cleanPhone}`,
+    description: cashback
+      ? `Airtime: ${network} GHS ${airtimeToRecipient} to ${cleanPhone} (cashback GHS ${cashback.customerCashback})`
+      : `Airtime: ${network} GHS ${airtimeToRecipient} to ${cleanPhone}`,
     reference_id: order.id,
     status: "completed",
     created_at: new Date().toISOString(),

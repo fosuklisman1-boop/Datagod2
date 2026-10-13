@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Invalid JSON body" }, { status: 400 })
   }
 
-  const { network, recipient, amount, pay_separately = false } = body
+  const { network, recipient, amount, pay_separately = false, expected_pay } = body
   if (!network || !recipient || !amount) {
     return NextResponse.json({ success: false, error: "Missing required fields: network, recipient, amount" }, { status: 400 })
   }
@@ -153,8 +153,11 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const expected = expected_pay === undefined || expected_pay === null ? NaN : Number(expected_pay)
     const result = await purchaseAirtime({
       userId: user.id, network, beneficiaryPhone: cleanPhone, airtimeAmount: numericAmount, paySeparately: pay_separately,
+      channel: "api",
+      expectedPay: Number.isFinite(expected) ? expected : undefined,
     })
 
     logApiRequest({
@@ -171,6 +174,7 @@ export async function POST(request: NextRequest) {
       NETWORK_MISMATCH: 400,
       INVALID_AMOUNT: 400,
       DUPLICATE_REQUEST: 409,
+      PRICE_CHANGED: 409,
       INSUFFICIENT_BALANCE: 402,
       PAYMENT_FAILED: 500,
       ORDER_CREATE_FAILED: 500,
@@ -188,7 +192,7 @@ export async function POST(request: NextRequest) {
     }).catch(() => {})
 
     return NextResponse.json(
-      { success: false, error: publicMessage, required: error?.required, reference: error?.reference },
+      { success: false, error: publicMessage, required: error?.required, reference: error?.reference, quote: error?.quote },
       { status }
     )
   }

@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: phoneGuard.error }, { status: 403 })
     }
 
-    const { network, beneficiaryPhone, airtimeAmount, paySeparately = false, shopId } = await request.json()
+    const { network, beneficiaryPhone, airtimeAmount, paySeparately = false, shopId, expectedPay } = await request.json()
 
     if (!network || !beneficiaryPhone || !airtimeAmount) {
       return NextResponse.json({ error: "network, beneficiaryPhone, and airtimeAmount are required" }, { status: 400 })
@@ -43,8 +43,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Airtime amount must be between GHS 0.01 and GHS 1000" }, { status: 400 })
     }
 
+    const expected = expectedPay === undefined || expectedPay === null ? NaN : Number(expectedPay)
+
     const result = await purchaseAirtime({
       userId: user.id, network, beneficiaryPhone: cleanPhone, airtimeAmount: amount, paySeparately, shopId,
+      channel: "dashboard",
+      expectedPay: Number.isFinite(expected) ? expected : undefined,
     })
 
     console.log(`[AIRTIME] ✓ Order created: ${result.order.reference_code} | ${network} GHS ${result.order.airtime_amount} → ${cleanPhone}`)
@@ -56,12 +60,13 @@ export async function POST(request: NextRequest) {
       newBalance: result.newBalance,
     })
   } catch (error: any) {
-    const knownCodes = ["NETWORK_DISABLED", "NETWORK_MISMATCH", "INVALID_AMOUNT", "DUPLICATE_REQUEST", "INSUFFICIENT_BALANCE", "PAYMENT_FAILED", "ORDER_CREATE_FAILED"]
+    const knownCodes = ["NETWORK_DISABLED", "NETWORK_MISMATCH", "INVALID_AMOUNT", "DUPLICATE_REQUEST", "INSUFFICIENT_BALANCE", "PAYMENT_FAILED", "ORDER_CREATE_FAILED", "PRICE_CHANGED"]
     const status =
       error?.code === "NETWORK_DISABLED" ? 503 :
       error?.code === "NETWORK_MISMATCH" ? 400 :
       error?.code === "INVALID_AMOUNT" ? 400 :
       error?.code === "DUPLICATE_REQUEST" ? 409 :
+      error?.code === "PRICE_CHANGED" ? 409 :
       error?.code === "INSUFFICIENT_BALANCE" ? 402 :
       error?.code === "PAYMENT_FAILED" || error?.code === "ORDER_CREATE_FAILED" ? 500 :
       500
@@ -71,6 +76,7 @@ export async function POST(request: NextRequest) {
       const body: Record<string, unknown> = { error: error.message }
       if (error.reference) body.reference = error.reference
       if (error.required) body.required = error.required
+      if (error.quote) body.quote = error.quote
       return NextResponse.json(body, { status })
     }
     console.error("[AIRTIME] Unexpected error:", error)
