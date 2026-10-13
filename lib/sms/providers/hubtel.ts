@@ -75,7 +75,8 @@ export type HubtelDeliveryState = "delivered" | "pending" | "failed"
 export function mapHubtelStatus(status: string | null | undefined): HubtelDeliveryState {
   const s = (status ?? "").trim().toLowerCase()
   if (s === "delivered") return "delivered"
-  if (s === "blacklisted" || s === "rejected" || s.startsWith("nack") ||
+  // "Expired" is final (verified live 2026-10-13: the carrier gave up within the validity period).
+  if (s === "blacklisted" || s === "rejected" || s === "expired" || s.startsWith("nack") ||
     s.includes("undeliver") || s.includes("unrout") || s.includes("fail") || s.includes("error")) return "failed"
   return "pending"
 }

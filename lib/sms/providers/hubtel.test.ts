@@ -40,7 +40,7 @@ describe("mapHubtelStatus", () => {
     expect(mapHubtelStatus("Sent")).toBe("pending")
     expect(mapHubtelStatus("Pending")).toBe("pending")
     expect(mapHubtelStatus("")).toBe("pending")
-    for (const s of ["Blacklisted", "Undeliverable/Failed", "Rejected", "NACK/0x0000000b/Invalid Destination Address"]) {
+    for (const s of ["Blacklisted", "Undeliverable/Failed", "Rejected", "NACK/0x0000000b/Invalid Destination Address", "Expired", "EXPIRED", "Undeliverable"]) {
       expect(mapHubtelStatus(s)).toBe("failed")
     }
   })
