@@ -55,7 +55,7 @@ REVOKE ALL ON hubtel_cs_transactions FROM anon, authenticated;
 -- Aggregates in SQL (PostgREST caps selects at 1000 rows, so never sum in app code).
 CREATE OR REPLACE FUNCTION hubtel_cs_stats()
 RETURNS TABLE (total bigint, in_flight bigint, needs_review bigint, failed bigint, fulfilled bigint, commission_earned numeric)
-LANGUAGE sql STABLE AS $$
+LANGUAGE sql STABLE SET search_path = public AS $$
   SELECT count(*),
          count(*) FILTER (WHERE state IN ('created','pending')),
          count(*) FILTER (WHERE state = 'needs_review'),

@@ -25,7 +25,7 @@ Success = an admin can enable Hubtel, fire a test airtime/data call, watch it go
 7. **Transport is a setting, not code.** `mode: relay | direct` in config, because it is unconfirmed whether `cs.hubtel.com` requires the whitelisted IP. In relay mode credentials live only on the droplet.
 8. **Config in `admin_settings`** (key `hubtel_cs_config`), never `app_settings` (known collision, see memory).
 
-## 4. Data model (migrations `0111_hubtel_cs_transactions.sql`, `0112_hubtel_cs_events.sql`; additive, service-role only: RLS on, `REVOKE ALL` from anon/authenticated, like 0106)
+## 4. Data model (migrations `0113_hubtel_cs_transactions.sql`, `0114_hubtel_cs_events.sql`; additive, service-role only: RLS on, `REVOKE ALL` from anon/authenticated, like 0106)
 
 `hubtel_cs_transactions`
 - `id uuid pk`, `client_reference text unique not null` (≤100 chars, `[A-Za-z0-9_-]`, format `HCS-{serviceKey}-{ulid}`)
@@ -37,10 +37,12 @@ Success = an admin can enable Hubtel, fire a test airtime/data call, watch it go
 - `commission numeric(12,6)` (Hubtel returns a string with 4 dp; store as numeric), `charges numeric(12,4)`, `amount_debited numeric(12,2)`
 - `order_table text`, `order_id uuid` (nullable; set by the product that owns the order)
 - `submitted_at`, `completed_at`, `callback_received_at timestamptz`
-- `status_check_attempts int default 0`, `last_status_check_at timestamptz`
+- `status_check_attempts int default 0`, `negative_checks int default 0`, `last_status_check_at timestamptz`
+- `refund_claimed_at timestamptz`, `refund_claimed_by uuid` (atomic refund claim; see section 10)
 - `review_reason text`, `resolved_by uuid`, `resolved_at timestamptz`, `resolution_note text`
 - `created_at`, `updated_at`
-- Indexes: `(state)` partial on `pending`/`needs_review`/`created`, `(order_table, order_id)`, `(created_at desc)`.
+- Indexes: `(state)` partial on `pending`/`needs_review`/`created`, `(order_table, order_id)`, `(created_at desc)`, plus a partial UNIQUE index on `(order_table, order_id) WHERE order_id IS NOT NULL AND state <> 'failed'` (one active transaction per order).
+- RPC `hubtel_cs_stats()` (service_role only, `SET search_path = public`): one row of counts (total, in_flight, needs_review, failed, fulfilled) and `commission_earned`, used by the admin page.
 
 `hubtel_cs_events` (audit trail per txn): `id, created_at, client_reference, direction check in (request,response,callback,status_check), http_status, ok, payload jsonb, error, source_ip`. 30-day retention purge in the status-check cron (same pattern as `hubtel_callback_logs`). Payload logging strips/masks nothing secret because credentials are never in payloads; destination numbers are stored (service-role only).
 
@@ -66,13 +68,13 @@ Immediate `0000` on POST (not documented for these endpoints) is treated as `ful
 - `lib/hubtel-cs/ledger.ts` — Supabase store (`insert`, `getByRef`, `update` with `WHERE state = <expected>` guards so concurrent callback/cron can't regress state), `listForAdmin`.
 - `lib/hubtel-cs/callback.ts` — HMAC sign/verify, payload parse, IP allow-list helper.
 - `lib/hubtel-cs/config.ts` — get/set `hubtel_cs_config` `{ enabled, mode, paused, pausedReason, pausedAt, services: Record<serviceKey, boolean> }` with validation (pattern from `lib/ussd-hubtel/config.ts`).
-- `lib/hubtel-cs/float.ts` — on 4075: set `paused=true` (reason, timestamp), notify admins through `lib/admin-actions/` notifier; `purchase()` refuses while paused with a typed `HubtelPausedError` (products map it to "temporarily unavailable"). Admin "Resume" clears it. A low-balance *threshold* alert is deferred until we confirm Hubtel exposes a balance endpoint (§9).
+- `lib/hubtel-cs/float.ts` — on 4075: set `paused=true` (reason, timestamp), notify admins through `lib/admin-actions/` notifier; `purchase()` refuses while paused with a typed `HubtelPausedError` (products map it to "temporarily unavailable"). Admin "Resume" clears it. The low-balance threshold alert uses the existing `fetchDisbursementBalance()` (relay `/balance`); the float is shared with Hubtel SMS.
 - `lib/hubtel-cs/adapters.ts` — `OrderAdapter { table; markFulfilled(orderId, tx); markFailed(orderId, tx); refundToWallet(orderId, tx, adminId) }` + registry. Phase 1 ships interface, registry and a fake adapter used in tests/test panel; real adapters arrive per product.
 - `app/api/hubtel-cs/callback/route.ts` — POST; verify sig (+ optional IP) → load row → `applyCallback` → store commission/IDs → `adapter.markFulfilled|markFailed` if linked → log event. Always 200 after auth to stop Hubtel retries; 401 on bad sig.
 - `app/api/cron/hubtel-cs-status-check/route.ts` (+ `vercel.json` every 2 min, `verifyCronAuth`, time budget like the USSD cron) — sweeps `created`, polls `pending` older than 5 min (mandatory per Hubtel), purges old events.
 - `app/api/admin/hubtel-cs/{config,transactions,check-status,resolve,test-purchase}/route.ts` — all behind `verifyAdminAccess`; `test-purchase` only works while `config.enabled` and caps amount at GHS 5.
 - `app/admin/hubtel-commission/page.tsx` — tabs **Settings | Transactions | Review Queue**, styled like the admin Utility Bills reference (light cards, pill tabs, row-list with status chips, stat cards: total, in flight, commission earned, failed/needs review). Settings: master enable, transport mode, per-service toggles, pause state + Resume, credential/relay readiness checklist (never shows secrets). Review Queue actions: **Check status**, **Mark resolved** (fulfilled/failed + note), and **Refund to wallet** (enabled only when a real adapter is registered for the row's `order_table`). Add to admin nav.
-- Relay change: `lib/ussd-hubtel/relay-handler.ts` gains `ALL /cs/<disbursement>/<serviceId>` passthrough — path must match `^/cs/\d+/[a-f0-9]{32}$`, method POST|GET, query string forwarded only for GET (`destination`, `mobile`), body size-capped, creds from droplet env `HUBTEL_CS_BASIC_AUTH` + `HUBTEL_DISBURSEMENT_ACCOUNT`, same bearer auth and 8 s timeout. `scripts/hubtel-relay/server.ts` env check extended only when CS is used. Droplet must be redeployed (runbook update in `docs/hubtel-ussd-runbook.md`).
+- Relay change: `lib/ussd-hubtel/relay-handler.ts` gains `ALL /cs/<disbursement>/<serviceId>` passthrough — path must match `^/cs/[a-f0-9]{32}$` (the relay env supplies the Disbursement account; this passthrough is an optional fallback, the default transport is `direct`), method POST|GET, query string forwarded only for GET (`destination`, `mobile`), body size-capped, creds from droplet env `HUBTEL_CS_BASIC_AUTH` + `HUBTEL_DISBURSEMENT_ACCOUNT`, same bearer auth and 8 s timeout. `scripts/hubtel-relay/server.ts` env check extended only when CS is used. Droplet must be redeployed (runbook update in `docs/hubtel-ussd-runbook.md`).
 
 ## 7. Environment
 
@@ -93,9 +95,18 @@ Vercel: `HUBTEL_CS_CALLBACK_SECRET` (new), `HUBTEL_CS_ENFORCE_CALLBACK_IP` (opti
 Answered by the user:
 1. **Transport:** `cs.hubtel.com` works **direct from Vercel** -> default `mode = direct`. The relay `/cs` passthrough stays as an optional fallback (small, tested) but is not the default. **Status checks still go through the existing relay**: Hubtel's docs say the status-check endpoint is IP-whitelisted (max 4 IPs) and uses the Collection account.
 2. **Credentials:** the docs specify Basic auth + Disbursement Account Number in the URL (commission calls) and the Collection Account Number (status check); they do not say the Basic-auth pair is shared. Design: commission calls use `HUBTEL_CS_BASIC_AUTH` + `HUBTEL_DISBURSEMENT_ACCOUNT` (the keys issued for Commission Services); status check keeps the existing `HUBTEL_STATUS_BASIC_AUTH` + `HUBTEL_COLLECTION_ACCOUNT` on the relay. Admin page shows a readiness checklist for each.
-3. **Float balance:** Hubtel DOES expose a balance endpoint -> **user to send its docs.** Phase 1 includes `float.ts` with a `getBalance()` hook and the low-balance threshold alert (config `lowBalanceThreshold`, cron check); the implementation of `getBalance()` is blocked on those docs. Until then the 4075 pause + alert is the safety net.
+3. **Float balance:** resolved. `float.ts` uses the existing `fetchDisbursementBalance()` (relay `/balance`) for the low-balance threshold alert (config `lowBalanceThreshold`, cron check). The float is shared with Hubtel SMS; the 4075 pause + alert remains the safety net.
 4. **Spec approved** -> next is the implementation plan.
 
 Still open (defaults apply, revisit if Hubtel says otherwise):
 - Hubtel de-duplication of a repeated `ClientReference`: unknown, so v1 never resends an unknown POST.
 - Callback retry policy: unknown, so the callback route answers 200 after authentication and the status-check cron is the backstop.
+
+## 10. Later design decisions (made during the build)
+
+- **Refund claim:** refunds are manual. An atomic claim (`refund_claimed_at` / `refund_claimed_by`, set with a conditional update on `state='failed' AND refund_claimed_at IS NULL`) prevents double refunds. If an order adapter throws, the claim is deliberately kept because the wallet may already have been credited; an admin clears it by SQL only after verifying the wallet. Rows an admin resolved to `failed` need `force` to refund. A refunded or claimed row cannot be marked fulfilled.
+- **`HubtelOutcomeUnknownError`:** thrown when the POST may have been sent but the outcome could not be recorded. Callers must never retry; the admin finds the row by reference in Transactions.
+- **Per-order unique index:** `hubtel_cs_tx_order_active_uidx` allows one non-failed transaction per `(order_table, order_id)`. A `needs_review` order therefore blocks re-purchase until resolved to `failed` (`HubtelDuplicateOrderError`).
+- **Destination normalisation:** airtime and data destinations are normalised to and stored as `233XXXXXXXXX`; admin search accepts 0-prefixed numbers. Bill account numbers pass through untouched and their formats are unverified.
+- **Callback auth:** the callback URL carries an HMAC signature in its query string (`HUBTEL_CS_CALLBACK_SECRET`).
+- **4075 alert debounce:** the first 4075 after a Resume always alerts; repeats are debounced for 1 hour.
