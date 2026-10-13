@@ -178,7 +178,6 @@ export default function UtilityBillsPage() {
   const [q, setQ] = useState("")
   const [status, setStatus] = useState("all")
   const [biller, setBiller] = useState("all")
-  const [source, setSource] = useState("all")
   const [paidOnly, setPaidOnly] = useState("paid")
   const [from, setFrom] = useState("")
   const [to, setTo] = useState("")
@@ -201,7 +200,7 @@ export default function UtilityBillsPage() {
     } catch (e) { setConfigError(errMsg(e)); toast.error(`Settings: ${errMsg(e)}`) }
   }, [])
 
-  const loadOrders = useCallback(async (scope: "orders" | "queue" | "refunded", offset: number): Promise<void> => {
+  const loadOrders = useCallback(async (scope: "orders" | "queue" | "refunded", offset: number, withStats = false): Promise<void> => {
     const id = ++seq.current[scope]
     const p = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset) })
     if (scope === "orders") {
@@ -211,15 +210,16 @@ export default function UtilityBillsPage() {
       if (paidOnly === "paid") p.set("paidOnly", "true")
       if (from) p.set("from", from)
       if (to) p.set("to", to)
+      if (withStats) p.set("stats", "1")
     } else p.set("view", scope === "queue" ? "refund" : "refunded")
     try {
       const j = await authed(`/api/admin/utility-bills/orders?${p}`)
       if (id !== seq.current[scope]) return
       const total: number = j.total ?? 0
       const maxOffset = total > 0 ? Math.floor((total - 1) / PAGE_SIZE) * PAGE_SIZE : 0
-      if (offset > maxOffset) { await loadOrders(scope, maxOffset); return }
+      if (offset > maxOffset) { await loadOrders(scope, maxOffset, withStats); return }
       const next: Listing = { rows: j.rows ?? [], total, offset }
-      if (scope === "orders") { setOrders(next); setStats(j.stats ?? null) } else if (scope === "queue") setQueue(next); else setRefunded(next)
+      if (scope === "orders") { setOrders(next); if (j.stats !== undefined) setStats(j.stats) } else if (scope === "queue") setQueue(next); else setRefunded(next)
     } catch (e) {
       if (id === seq.current[scope]) toast.error(`${scope === "orders" ? "Orders" : "Refund queue"}: ${errMsg(e)}`)
     }
@@ -227,16 +227,16 @@ export default function UtilityBillsPage() {
 
   const reloadLists = useCallback(async () => {
     setLoading(true)
-    try { await Promise.all([loadOrders("orders", 0), loadOrders("queue", 0), loadOrders("refunded", 0)]) } finally { setLoading(false) }
+    try { await Promise.all([loadOrders("orders", 0, true), loadOrders("queue", 0), loadOrders("refunded", 0)]) } finally { setLoading(false) }
   }, [loadOrders])
   const reloadAll = useCallback(async () => {
     setLoading(true)
-    try { await Promise.all([loadConfig(), loadOrders("orders", 0), loadOrders("queue", 0), loadOrders("refunded", 0)]) } finally { setLoading(false) }
+    try { await Promise.all([loadConfig(), loadOrders("orders", 0, true), loadOrders("queue", 0), loadOrders("refunded", 0)]) } finally { setLoading(false) }
   }, [loadConfig, loadOrders])
   useEffect(() => { void loadConfig() }, [loadConfig])
   useEffect(() => { void reloadLists() }, [reloadLists])
 
-  const refreshLists = () => Promise.all([loadOrders("orders", orders.offset), loadOrders("queue", queue.offset), loadOrders("refunded", refunded.offset)])
+  const refreshLists = () => Promise.all([loadOrders("orders", orders.offset, true), loadOrders("queue", queue.offset), loadOrders("refunded", refunded.offset)])
 
   /** One mutating action at a time across the whole page. */
   async function guarded(key: string, fn: () => Promise<void>) {
@@ -364,7 +364,7 @@ export default function UtilityBillsPage() {
 
             <Card>
               <CardContent className="space-y-3 p-4">
-                <div className="grid gap-3 lg:grid-cols-[1fr_auto_auto_auto_auto]">
+                <div className="grid gap-3 lg:grid-cols-[1fr_auto_auto_auto]">
                   <div className="relative">
                     <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                     <Input className="pl-9" placeholder="Search reference, account number, or name…" value={qInput} onChange={e => setQInput(e.target.value)} maxLength={100} />
@@ -381,13 +381,6 @@ export default function UtilityBillsPage() {
                     <SelectContent>
                       <SelectItem value="all">All billers</SelectItem>
                       {BILLER_KEYS.map(k => <SelectItem key={k} value={k}>{BILLERS[k].label}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                  <Select value={source} onValueChange={setSource}>
-                    <SelectTrigger className="lg:w-40" aria-label="Source"><SelectValue placeholder="All sources" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All sources</SelectItem>
-                      <SelectItem value="dashboard">Dashboard</SelectItem>
                     </SelectContent>
                   </Select>
                   <Select value={paidOnly} onValueChange={setPaidOnly}>

@@ -7,6 +7,10 @@ import { getHubtelCsRuntime } from "@/lib/hubtel-cs/runtime"
 
 export const dynamic = "force-dynamic"
 
+// Never select verify_token_hash or session_id.
+const COLUMNS =
+  "id, reference_code, user_id, channel, biller, account_number, phone, email, broadband_account, customer_name, verified, amount, status, payment_status, hubtel_client_reference, commission, failure_reason, notes, created_at, updated_at"
+
 export async function GET(request: NextRequest) {
   const auth = await requireAdmin(request)
   if (!auth.ok) return auth.response
@@ -16,12 +20,21 @@ export async function GET(request: NextRequest) {
   const { limit, offset } = clampPage(sp)
   try {
     const { db } = getHubtelCsRuntime()
-    const base = db.from(BILL_ORDERS_TABLE).select("*", { count: "exact" })
-    const [page, stats] = await Promise.all([
-      applyOrderFilters(base, f, qAlt).order("created_at", { ascending: false }).order("id", { ascending: true }).range(offset, offset + limit - 1),
-      fetchStats(db, f, qAlt),
-    ])
+    const base = db.from(BILL_ORDERS_TABLE).select(COLUMNS, { count: "exact" })
+    // Stats only on request and only for the Orders view; a stats failure must not break the list.
+    const wantStats = sp.get("stats") === "1" && f.view === "all"
+    const statsP = wantStats ? fetchStats(db, f, qAlt).catch((e): null => { console.error("[utility-bills] stats failed:", e?.message ?? e); return null }) : Promise.resolve(undefined)
+    let page = await applyOrderFilters(base, f, qAlt).order("created_at", { ascending: false }).order("id", { ascending: true }).range(offset, offset + limit - 1)
+    let rangeMiss = false
+    if (page.error && ((page.error as any).code === "PGRST103" || (page as any).status === 416)) {
+      // Offset beyond the end: report the real total with no rows instead of a 500.
+      rangeMiss = true
+      const c = await applyOrderFilters(db.from(BILL_ORDERS_TABLE).select("id", { count: "exact", head: true }), f, qAlt)
+      if (c.error) throw c.error
+      page = { ...page, data: [], error: null, count: c.count } as unknown as typeof page
+    }
     if (page.error) throw page.error
+    const stats = await statsP
     const orders = (page.data ?? []) as any[]
 
     // hubtel_bill_orders.user_id has no FK to users, so purchasers are looked up by id (users.email, as the airtime list shows).
@@ -53,7 +66,7 @@ export async function GET(request: NextRequest) {
         refund: decision,
       }
     })
-    return NextResponse.json({ rows, total: page.count ?? 0, stats })
+    return NextResponse.json({ rows, total: page.count ?? 0, ...(stats !== undefined ? { stats } : {}), ...(rangeMiss ? { rangeMiss: true } : {}) })
   } catch (e) {
     return errorJson(e)
   }

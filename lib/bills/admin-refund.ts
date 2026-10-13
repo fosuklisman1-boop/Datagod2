@@ -7,6 +7,8 @@ export interface BillRefundDeps {
   getLedger(orderId: string): Promise<LedgerFact[]>
   /** Guarded update pending -> failed; returns rows changed. */
   markFailed(orderId: string, note: string): Promise<number>
+  /** Guarded failed -> processing (sets hubtel_client_reference when known); returns rows changed. Undoes markFailed. */
+  revertToProcessing(orderId: string, ref: string | null): Promise<number>
   /** Phase 1 adminRefund (claims the ledger row first). */
   refundViaLedger(ref: string, force: boolean): Promise<{ ok: boolean; message: string }>
   /** Bill adapter refundToWallet with an idempotent credit reference. Throws on outcome-unknown errors. */
@@ -40,11 +42,19 @@ export async function executeBillRefund(d: BillRefundDeps, orderId: string, note
   if (decision.markFailedFirst) {
     const n = await d.markFailed(orderId, `Admin refund: never sent to Hubtel. ${note}`)
     if (n === 0) return { ok: false, status: 409, message: "The order changed while refunding; reload and retry" }
-    let after: LedgerFact[]
-    try { after = await d.getLedger(orderId) } catch { after = [{ client_reference: "unknown", state: "needs_review", refund_claimed_at: null, resolved_by: null, created_at: new Date(d.now()).toISOString() }] }
-    if (after.length > 0) {
-      await safe(d, `Bill order ${order.reference_code}: a Hubtel transaction appeared while an admin refund was starting. Refund aborted; reconcile manually.`)
-      return { ok: false, status: 409, message: "A Hubtel transaction appeared for this order while refunding. The refund was aborted; check Hubtel Commission." }
+    let after: LedgerFact[] | null = null
+    try { after = await d.getLedger(orderId) } catch { after = null }
+    if (after === null || after.length > 0) {
+      // Do not leave the order wedged in failed: hand it back to Hubtel's lifecycle.
+      const ref = after?.find(l => l.state !== "failed")?.client_reference ?? after?.[0]?.client_reference ?? null
+      let reverted = 0
+      try { reverted = await d.revertToProcessing(orderId, ref) } catch { reverted = 0 }
+      if (reverted === 0) {
+        await safe(d, `URGENT: bill order ${order.reference_code} (${orderId}) was flipped to failed for a refund, a Hubtel transaction${ref ? ` (${ref})` : " may have"} appeared, and the order could NOT be restored to processing. Fix by hand; do not refund.`)
+        return { ok: false, status: 500, message: "A Hubtel transaction appeared while refunding and the order could not be restored to processing. Admins were alerted; do not refund." }
+      }
+      await safe(d, `Bill order ${order.reference_code}: a Hubtel transaction${ref ? ` (${ref})` : ""} appeared (or the ledger could not be read) while an admin refund was starting. Refund aborted; order restored to processing.`)
+      return { ok: false, status: 409, message: "A Hubtel transaction appeared for this order while refunding (or the ledger could not be read). The refund was aborted and the order restored to processing; check Hubtel Commission." }
     }
   }
   const fresh = await d.getOrder(orderId)

@@ -185,6 +185,44 @@ describe("payBill", () => {
   })
 })
 
+describe("dispatch claim", () => {
+  it("claims pending -> processing BEFORE purchase", async () => {
+    const m = make(); m.setCfg(c => { c.autoFulfil = false }); const t = await token(m)
+    await payBill(m.d, "u1", t, 10)
+    let seen = ""
+    const d = { ...m.d, purchase: async (i: any) => { seen = m.orders[0].status + "/" + m.orders[0].notes; return { client_reference: "CR9", state: "pending" } as HubtelCsTx } }
+    expect(await dispatchBillOrder(d, m.orders[0])).toBe("processing")
+    expect(seen).toBe("processing/Dispatching…")
+    expect(m.orders[0]).toMatchObject({ status: "processing", hubtel_client_reference: "CR9", notes: null })
+  })
+  it("a second concurrent dispatch loses the claim and never calls purchase", async () => {
+    const m = make(); m.setCfg(c => { c.autoFulfil = false }); const t = await token(m)
+    await payBill(m.d, "u1", t, 10)
+    const snap = { ...m.orders[0] }
+    let release!: () => void
+    const gate = new Promise<void>(r => { release = r })
+    let n = 0
+    const d = { ...m.d, purchase: async () => { n++; await gate; return { client_reference: "CR1", state: "pending" } as HubtelCsTx } }
+    const first = dispatchBillOrder(d, snap)
+    await new Promise(r => setTimeout(r, 0))
+    // Second caller holds a stale pending snapshot and a getOrder that still reports pending: only the claim stops it.
+    const d2 = { ...d, getOrder: async () => ({ ...snap }) }
+    expect(await dispatchBillOrder(d2, snap)).toBe("pending")
+    expect(n).toBe(1)
+    release()
+    expect(await first).toBe("processing")
+  })
+  it("Not-sent error releases the claim back to pending with the reason", async () => {
+    const m = make(); m.setCfg(c => { c.autoFulfil = false }); const t = await token(m)
+    await payBill(m.d, "u1", t, 10)
+    const d = { ...m.d, purchase: async () => { throw new HubtelPausedError(null) } }
+    expect(await dispatchBillOrder(d, m.orders[0])).toBe("pending")
+    expect(m.orders[0]).toMatchObject({ status: "pending" })
+    expect(m.orders[0].notes).toMatch(/^Not sent/)
+    expect(m.calls.alerts.length).toBe(1)
+  })
+})
+
 describe("review fixes", () => {
   it("debitOrder throws but DB says paid => continues as paid and dispatches", async () => {
     const m = make(); m.setWallet("throw_paid"); const t = await token(m)
@@ -218,7 +256,7 @@ describe("review fixes", () => {
     const d: BillsDeps = {
       ...m.d,
       purchase: async () => { throw new HubtelPausedError(null) },
-      updateOrder: async (id, patch, only) => { if ((patch as any).notes && only?.includes("pending")) { m.orders[0].status = "failed"; return 0 } return m.d.updateOrder(id, patch, only) },
+      updateOrder: async (id, patch, only) => { if ((patch as any).notes && only?.includes("processing") && (patch as any).status === "pending") { m.orders[0].status = "failed"; return 0 } return m.d.updateOrder(id, patch, only) },
     }
     const t = await token(m)
     await payBill(d, "u1", t, 10)
@@ -229,7 +267,8 @@ describe("review fixes", () => {
     const d = { ...m.d, purchase: async () => { throw new HubtelDuplicateOrderError("hubtel_bill_orders", "o1") } }
     const t = await token(m)
     const r = await payBill(d, "u1", t, 10)
-    expect(r.ok && r.order.status).toBe("pending")
+    expect(r.ok && r.order.status).toBe("processing")
+    expect(m.orders[0].notes).toMatch(/do not resend/)
     expect(m.calls.alerts.join()).toMatch(/do not resend/)
   })
   it("stale snapshot (fresh row failed) => no purchase", async () => {

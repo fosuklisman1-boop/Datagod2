@@ -87,3 +87,33 @@ $$;
 
 REVOKE ALL ON FUNCTION bill_order_debit(uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION bill_order_debit(uuid) TO service_role;
+
+-- Admin Orders-tab aggregate over the filtered window (same semantics as lib/bills/admin.ts computeStats).
+-- NULL parameters mean "no filter". p_q is sanitised in TypeScript before it is passed.
+CREATE OR REPLACE FUNCTION hubtel_bill_orders_stats(
+  p_from timestamptz, p_to timestamptz, p_biller text, p_status text, p_q text, p_paid_only boolean
+)
+RETURNS TABLE(total_sales numeric, orders bigint, completed bigint, in_flight bigint, commission numeric, failed bigint, refunded bigint)
+LANGUAGE sql
+STABLE
+SET search_path = public
+AS $$
+  SELECT
+    COALESCE(sum(amount) FILTER (WHERE payment_status = 'paid' AND status IN ('completed','pending','processing')), 0)::numeric,
+    count(*),
+    count(*) FILTER (WHERE status = 'completed'),
+    count(*) FILTER (WHERE payment_status = 'paid' AND status IN ('pending','processing')),
+    COALESCE(sum(commission) FILTER (WHERE status = 'completed'), 0)::numeric,
+    count(*) FILTER (WHERE status = 'failed'),
+    count(*) FILTER (WHERE status = 'refunded')
+  FROM hubtel_bill_orders
+  WHERE (p_from IS NULL OR created_at >= p_from)
+    AND (p_to IS NULL OR created_at <= p_to)
+    AND (p_biller IS NULL OR biller = p_biller)
+    AND (p_status IS NULL OR status = p_status)
+    AND (p_paid_only IS NOT TRUE OR payment_status = 'paid')
+    AND (p_q IS NULL OR reference_code ILIKE '%' || p_q || '%' OR account_number ILIKE '%' || p_q || '%' OR customer_name ILIKE '%' || p_q || '%' OR hubtel_client_reference ILIKE '%' || p_q || '%' OR phone ILIKE '%' || p_q || '%');
+$$;
+
+REVOKE ALL ON FUNCTION hubtel_bill_orders_stats(timestamptz, timestamptz, text, text, text, boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION hubtel_bill_orders_stats(timestamptz, timestamptz, text, text, text, boolean) TO service_role;

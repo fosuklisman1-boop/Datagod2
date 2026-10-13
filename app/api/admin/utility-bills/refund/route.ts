@@ -42,6 +42,13 @@ export async function POST(request: NextRequest) {
         if (error) throw error
         return data?.length ?? 0
       },
+      async revertToProcessing(orderId, ref) {
+        const { data, error } = await db.from(BILL_ORDERS_TABLE)
+          .update({ status: "processing", failure_reason: null, ...(ref ? { hubtel_client_reference: ref } : {}), notes: "Refund aborted: a Hubtel transaction exists. Do not resend.", updated_at: new Date().toISOString() })
+          .eq("id", orderId).in("status", ["failed"]).select("id")
+        if (error) throw error
+        return data?.length ?? 0
+      },
       async refundViaLedger(ref, f) {
         const out = await adminRefund(rt.adminDeps, ref, adminId, { force: f })
         return { ok: out.ok, message: out.message }

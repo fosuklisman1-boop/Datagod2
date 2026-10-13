@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { canDispatch, computeStats, parseOrderFilters, purchaserLabel, refundDecision, UNSENT_GRACE_MS, type LedgerFact } from "./admin"
+import { canDispatch, computeStats, statsFromRpc, statsRpcArgs, parseOrderFilters, purchaserLabel, refundDecision, UNSENT_GRACE_MS, type LedgerFact } from "./admin"
 import { executeBillRefund, type BillRefundDeps, type RefundOrder } from "./admin-refund"
 
 const NOW = Date.parse("2026-10-13T12:00:00Z")
@@ -44,6 +44,20 @@ describe("computeStats", () => {
     const rows = Array.from({ length: 2500 }, () => ({ amount: 1, status: "completed", payment_status: "paid", commission: 0.01 }))
     const s = computeStats(rows)
     expect(s.orders).toBe(2500); expect(s.totalSales).toBe(2500); expect(s.commission).toBe(25)
+  })
+})
+
+describe("stats RPC helpers", () => {
+  it("maps filters to RPC args (nulls = no filter)", () => {
+    expect(statsRpcArgs(parseOrderFilters(new URLSearchParams("")))).toEqual({ p_from: null, p_to: null, p_biller: null, p_status: null, p_q: null, p_paid_only: false })
+    const a = statsRpcArgs(parseOrderFilters(new URLSearchParams("q=ab&biller=dstv&status=failed&from=2026-10-01&to=2026-10-02&paidOnly=true")))
+    expect(a).toEqual({ p_from: "2026-10-01T00:00:00.000Z", p_to: "2026-10-02T23:59:59.999Z", p_biller: "dstv", p_status: "failed", p_q: "ab", p_paid_only: true })
+    expect(statsRpcArgs(parseOrderFilters(new URLSearchParams("q=0244000000")), "233244000000").p_q).toBe("233244000000")
+  })
+  it("parses string bigint/numeric rows and tolerates empties", () => {
+    expect(statsFromRpc({ total_sales: "26.10", orders: "6", completed: "2", in_flight: "1", commission: "0.4415", failed: "1", refunded: "1" }))
+      .toEqual({ totalSales: 26.1, orders: 6, completed: 2, inFlight: 1, commission: 0.4415, failed: 1, refunded: 1 })
+    expect(statsFromRpc(undefined).orders).toBe(0)
   })
 })
 
@@ -93,8 +107,8 @@ describe("refundDecision", () => {
   it("handles orders that never reached Hubtel", () => {
     expect(refundDecision(order({ status: "failed" }), [], NOW)).toEqual({ action: "direct", markFailedFirst: false })
     expect(refundDecision(order({ status: "pending" }), [], NOW)).toEqual({ action: "direct", markFailedFirst: true })
-    expect(refundDecision(order({ status: "pending", notes: "Not sent: x", updated_at: new Date(NOW - 1000).toISOString() }), [], NOW))
-      .toEqual({ action: "direct", markFailedFirst: true })
+    // "Not sent" notes do not bypass the grace period.
+    expect(refundDecision(order({ status: "pending", notes: "Not sent: x", updated_at: new Date(NOW - 1000).toISOString() }), [], NOW).action).toBe("blocked")
     expect(refundDecision(order({ status: "pending", updated_at: new Date(NOW - UNSENT_GRACE_MS + 5000).toISOString() }), [], NOW).action).toBe("blocked")
   })
 })
@@ -107,6 +121,7 @@ function fakeDeps(o: Partial<BillRefundDeps> & { order?: RefundOrder | null; led
     markFailed: async () => { calls.push("markFailed"); return 1 },
     refundViaLedger: async ref => { calls.push(`ledger:${ref}`); return { ok: true, message: "done" } },
     refundDirect: async () => { calls.push("direct"); return { refunded: true, message: "credited" } },
+    revertToProcessing: async (_id, ref) => { calls.push("revert:" + ref); return 1 },
     alert: async () => { calls.push("alert") },
     now: () => NOW,
     ...o,
@@ -149,11 +164,22 @@ describe("executeBillRefund", () => {
     expect((await executeBillRefund(deps, "o1", "n", false)).status).toBe(409)
     expect(calls).toEqual([])
   })
-  it("aborts if a ledger row appears after the flip", async () => {
+  it("aborts and reverts the flip if a ledger row appears after it", async () => {
     let n = 0
-    const { deps, calls } = fakeDeps({ order: order({ status: "pending", notes: "Not sent: x" }), getLedger: async () => (n++ === 0 ? [] : [led({ state: "pending" })]) })
+    const { deps, calls } = fakeDeps({ order: order({ status: "pending", updated_at: old }), getLedger: async () => (n++ === 0 ? [] : [led({ state: "pending", client_reference: "RX" })]) })
     const r = await executeBillRefund(deps, "o1", "n", false)
-    expect(r.ok).toBe(false); expect(calls).toEqual(["markFailed", "alert"])
+    expect(r.ok).toBe(false); expect(calls).toEqual(["markFailed", "revert:RX", "alert"])
+  })
+  it("reverts (no ref) and aborts when the post-flip ledger read fails; alerts loudly if the revert fails", async () => {
+    let n = 0
+    const a = fakeDeps({ order: order({ status: "pending" }), getLedger: async () => { if (n++ === 0) return []; throw new Error("db") } })
+    expect((await executeBillRefund(a.deps, "o1", "n", false)).ok).toBe(false)
+    expect(a.calls).toEqual(["markFailed", "revert:null", "alert"])
+    let k = 0
+    const b = fakeDeps({ order: order({ status: "pending" }), getLedger: async () => (k++ === 0 ? [] : [led({ state: "pending" })]), revertToProcessing: async () => 0 })
+    const r = await executeBillRefund(b.deps, "o1", "n", false)
+    expect(r.ok).toBe(false); expect(r.message).toMatch(/could not be restored/i)
+    expect(b.calls).toEqual(["markFailed", "alert"])
   })
   it("reports an unknown outcome when the direct refund throws", async () => {
     const { deps } = fakeDeps({ refundDirect: async () => { throw new Error("net") } })

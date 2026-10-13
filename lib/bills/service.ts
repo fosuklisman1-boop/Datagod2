@@ -170,6 +170,8 @@ export async function payBill(d: BillsDeps, userId: string, token: string, amoun
   return { ok: true, order }
 }
 
+const DISPATCHING = "Dispatching…"
+
 async function dispatchInternal(d: BillsDeps, order: BillOrderRow): Promise<{ status: BillOrderRow["status"]; patch: Partial<BillOrderRow> }> {
   if (order.status !== "pending" || order.payment_status !== "paid") return { status: order.status, patch: {} }
   const ref = order.reference_code
@@ -180,9 +182,10 @@ async function dispatchInternal(d: BillsDeps, order: BillOrderRow): Promise<{ st
   } catch {
     return { status: order.status, patch: {} }
   }
-  const guarded = async (patch: Partial<BillOrderRow>) => {
-    try { return await d.updateOrder(order.id, patch, ["pending"]) } catch { return 0 }
+  const guarded = async (patch: Partial<BillOrderRow>, from: BillOrderRow["status"][]) => {
+    try { return await d.updateOrder(order.id, patch, from) } catch { return 0 }
   }
+  let claimed = false
   try {
     const pf = purchaseFields(order.biller, {
       account: order.account_number, phone: order.phone, email: order.email,
@@ -193,46 +196,54 @@ async function dispatchInternal(d: BillsDeps, order: BillOrderRow): Promise<{ st
       ...(pf.bundle !== undefined ? { bundle: pf.bundle } : {}), ...(pf.extra ? { extra: pf.extra } : {}),
       orderTable: "hubtel_bill_orders", orderId: order.id,
     }
+    // Atomic claim BEFORE purchase: whoever flips pending -> processing owns the send. A concurrent dispatch or an
+    // admin refund (which needs status pending) loses here instead of racing the Hubtel call.
+    const claimPatch: Partial<BillOrderRow> = { status: "processing", notes: DISPATCHING }
+    if ((await guarded(claimPatch, ["pending"])) === 0) return { status: order.status, patch: {} }
+    claimed = true
+
     let tx: HubtelCsTx
     try {
       tx = await d.purchase(input)
     } catch (e) {
       if (e instanceof HubtelDuplicateOrderError) {
-        await safeAlert(d, `Bill order ${ref}: a live Hubtel transaction exists but the order is not marked processing — check the Hubtel review queue; do not resend.`)
-        return { status: order.status, patch: {} }
+        const patch: Partial<BillOrderRow> = { notes: "A live Hubtel transaction already exists for this order; do not resend." }
+        await guarded(patch, ["processing"])
+        await safeAlert(d, `Bill order ${ref}: a live Hubtel transaction exists but the order has no reference — check the Hubtel review queue; do not resend.`)
+        return { status: "processing", patch }
       }
       if (e instanceof HubtelOutcomeUnknownError) {
         const patch: Partial<BillOrderRow> = {
-          status: "processing", hubtel_client_reference: e.clientReference,
+          hubtel_client_reference: e.clientReference,
           notes: `Outcome unknown, do not resend. Hubtel ref ${e.clientReference}`,
         }
-        const n = await guarded(patch)
-        await safeAlert(d, `Bill order ${ref}: Hubtel outcome unknown (ref ${e.clientReference}), do not resend.${n === 0 ? " Order could not be marked processing." : ""}`)
-        return { status: n === 0 ? order.status : "processing", patch: n === 0 ? {} : patch }
+        const n = await guarded(patch, ["processing"])
+        await safeAlert(d, `Bill order ${ref}: Hubtel outcome unknown (ref ${e.clientReference}), do not resend.${n === 0 ? " The order record could not be updated." : ""}`)
+        return { status: "processing", patch: n === 0 ? {} : patch }
       }
-      // Raised before the POST: nothing was sent. Leave pending+paid for an admin.
-      const patch: Partial<BillOrderRow> = { notes: `Not sent: ${msg(e)}` }
-      const n = await guarded(patch)
+      // Raised before the POST: nothing was sent. Release the claim back to pending for an admin.
+      const patch: Partial<BillOrderRow> = { status: "pending", notes: `Not sent: ${msg(e)}` }
+      const n = await guarded(patch, ["processing"])
       if (n === 0) return { status: order.status, patch: {} }
       await safeAlert(d, `Bill order ${ref} was paid but NOT sent to Hubtel: ${msg(e)}`)
-      return { status: order.status, patch }
+      return { status: "pending", patch }
     }
     if (tx.state === "fulfilled") return { status: "completed", patch: {} }
     if (tx.state === "failed") return { status: "failed", patch: {} }
-    const patch: Partial<BillOrderRow> = { status: "processing", hubtel_client_reference: tx.client_reference }
+    const patch: Partial<BillOrderRow> = { hubtel_client_reference: tx.client_reference, notes: null }
     if (tx.state === "needs_review") {
       patch.notes = `Outcome unknown, do not resend. Hubtel ref ${tx.client_reference}`
       await safeAlert(d, `Bill order ${ref}: Hubtel outcome unknown (ref ${tx.client_reference}), do not resend.`)
     }
-    const n = await guarded(patch)
+    const n = await guarded(patch, ["processing"])
     if (n === 0) {
-      await safeAlert(d, `Bill order ${ref}: Hubtel has the transaction (ref ${tx.client_reference}) but the order could not be marked processing. Reconcile manually; do not resend.`)
+      await safeAlert(d, `Bill order ${ref}: Hubtel has the transaction (ref ${tx.client_reference}) but the order could not be updated. Reconcile manually; do not resend.`)
       return { status: order.status, patch: {} }
     }
     return { status: "processing", patch }
   } catch (e) {
-    await safeAlert(d, `Bill order ${ref}: dispatch error ${msg(e)}`)
-    return { status: order.status, patch: {} }
+    await safeAlert(d, `Bill order ${ref}: dispatch error ${msg(e)}${claimed ? " (order left processing; reconcile manually)" : ""}`)
+    return { status: claimed ? "processing" : order.status, patch: {} }
   }
 }
 

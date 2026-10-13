@@ -24,6 +24,7 @@ export async function POST(request: NextRequest) {
     if (!canDispatch(order)) {
       return NextResponse.json({ error: "Only paid, pending orders that were never sent can be dispatched" }, { status: 409 })
     }
+    auditLog(db, { adminId: auth.userId, action: "utility_bills_dispatch_intent", newValue: { orderId: order.id, reference: order.reference_code } })
     const status = await dispatchBillOrder(deps, order)
     const fresh = await deps.getOrder(body.orderId).catch(() => null)
     auditLog(db, { adminId: auth.userId, action: "utility_bills_dispatch", newValue: { orderId: order.id, reference: order.reference_code, status } })

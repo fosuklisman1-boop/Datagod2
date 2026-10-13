@@ -5,9 +5,7 @@ import { isBillerKey } from "./billers"
 export const BILL_ORDERS_TABLE = "hubtel_bill_orders"
 export const ORDER_STATUSES = ["pending", "processing", "completed", "failed", "refunded"] as const
 /** A pending+paid order younger than this may still be mid-dispatch, so it cannot be refunded as "never sent". */
-export const UNSENT_GRACE_MS = 2 * 60_000
-const STATS_PAGE = 1000
-const STATS_MAX_ROWS = 100_000
+export const UNSENT_GRACE_MS = 60_000
 
 export interface OrderFilters {
   q?: string
@@ -82,19 +80,32 @@ export function computeStats(rows: StatRow[]): OrderStats {
   return s
 }
 
-/** Pages through the WHOLE filtered window (never one 1000-row page). Throws on DB error or an absurdly large window. */
-export async function fetchStats(db: SupabaseClient, f: OrderFilters, qAlt?: string): Promise<OrderStats> {
-  const all: StatRow[] = []
-  for (let offset = 0; offset < STATS_MAX_ROWS; offset += STATS_PAGE) {
-    const base = db.from(BILL_ORDERS_TABLE).select("amount, status, payment_status, commission")
-    const { data, error } = await applyOrderFilters(base, f, qAlt)
-      .order("created_at", { ascending: false }).order("id", { ascending: true }).range(offset, offset + STATS_PAGE - 1)
-    if (error) throw error
-    const page = (data ?? []) as unknown as StatRow[]
-    all.push(...page)
-    if (page.length < STATS_PAGE) return computeStats(all)
+/** Arguments for the hubtel_bill_orders_stats RPC. A phone-style search is sent in its stored 233 form. */
+export function statsRpcArgs(f: OrderFilters, qAlt?: string) {
+  return {
+    p_from: f.from ? `${f.from}T00:00:00.000Z` : null,
+    p_to: f.to ? `${f.to}T23:59:59.999Z` : null,
+    p_biller: f.biller ?? null,
+    p_status: f.status ?? null,
+    p_q: qAlt ?? f.q ?? null,
+    p_paid_only: f.paidOnly,
   }
-  throw new Error("Stats window too large; narrow the date range")
+}
+
+/** RPC row (snake_case, bigint/numeric may arrive as strings) -> OrderStats. */
+export function statsFromRpc(r: any): OrderStats {
+  const n = (v: unknown) => { const x = Number(v ?? 0); return Number.isFinite(x) ? x : 0 }
+  return {
+    totalSales: n(r?.total_sales), orders: n(r?.orders), completed: n(r?.completed), inFlight: n(r?.in_flight),
+    commission: n(r?.commission), failed: n(r?.failed), refunded: n(r?.refunded),
+  }
+}
+
+/** One aggregate query over the whole filtered window. Throws on error (callers degrade to stats: null). */
+export async function fetchStats(db: SupabaseClient, f: OrderFilters, qAlt?: string): Promise<OrderStats> {
+  const { data, error } = await db.rpc("hubtel_bill_orders_stats", statsRpcArgs(f, qAlt))
+  if (error) throw error
+  return statsFromRpc(Array.isArray(data) ? data[0] : data)
 }
 
 /** Purchaser display, same source as the airtime admin list (users.email), plus a name when present. */
@@ -150,8 +161,7 @@ export function refundDecision(order: RefundOrderFacts, ledger: LedgerFact[], no
   if (order.status === "failed") return { action: "direct", markFailedFirst: false }
   if (order.status === "pending") {
     const age = now - Date.parse(order.updated_at)
-    const flaggedUnsent = (order.notes ?? "").startsWith("Not sent")
-    if (!flaggedUnsent && !(age >= UNSENT_GRACE_MS)) return blocked("This order was paid moments ago and may still be dispatching; try again in a couple of minutes")
+    if (!(age >= UNSENT_GRACE_MS)) return blocked("This order was updated moments ago and may still be dispatching; try again in a minute")
     return { action: "direct", markFailedFirst: true }
   }
   return blocked("This order cannot be refunded")
