@@ -21,6 +21,7 @@ export default function AirtimeSettingsPage() {
   const [msg, setMsg]             = useState<{ text: string; type: "success" | "error" } | null>(null)
   const [token, setToken]         = useState<string | null>(null)
   const [digiwapyConfigured, setDigiwapyConfigured] = useState(false)
+  const [hubtel, setHubtel] = useState<null | { enabled: boolean; ready: boolean; paused: boolean; services: Record<string, boolean> }>(null)
 
   const getToken = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession()
@@ -40,6 +41,7 @@ export default function AirtimeSettingsPage() {
     if (res.ok) {
       setSettings(data.settings || {})
       setDigiwapyConfigured(data.digiwapy_configured === true)
+      setHubtel(data.hubtel ?? null)
     } else {
       console.error("[AIRTIME-SETTINGS] Fetch error:", res.status, data.error)
       setMsg({ text: data.error || "Failed to load settings", type: "error" })
@@ -145,6 +147,48 @@ export default function AirtimeSettingsPage() {
                     >
                       <span className={`inline-block h-4 w-4 transform rounded-full bg-card transition-transform ${isEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
                     </button>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Fulfilment provider */}
+          <div className="bg-card rounded-2xl border border-white/60 dark:border-white/5 overflow-hidden clay md:col-span-2">
+            <div className="p-6 border-b border-border">
+              <h2 className="text-lg font-bold text-foreground">Fulfilment provider</h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                Choose who delivers paid airtime on each network. Hubtel sends at most GHS 100 per order; larger orders go to manual.
+                No automatic fallback between providers.
+              </p>
+              {hubtel && (!hubtel.enabled || !hubtel.ready || hubtel.paused) && (
+                <p className="text-xs text-amber-600 mt-2">
+                  Hubtel is {hubtel.paused ? "paused (float empty)" : !hubtel.enabled ? "switched off" : "not configured"} — orders routed to Hubtel will wait for manual fulfilment.
+                </p>
+              )}
+            </div>
+            <div className="p-6 space-y-3">
+              {NETWORKS.map(net => {
+                const key = `airtime_provider_${net.id}`
+                const current: string | undefined = settings[key]?.provider
+                return (
+                  <div key={net.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 bg-muted/40 rounded-xl">
+                    <div>
+                      <span className="font-semibold text-foreground">{net.name}</span>
+                      <span className="ml-2 text-xs text-muted-foreground">{current ? "" : "Default (Digiwapy toggle)"}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {(["digiwapy", "hubtel", "manual"] as const).map(p => (
+                        <button
+                          key={p}
+                          onClick={() => handleUpdateSetting(key, { provider: p })}
+                          aria-pressed={current === p}
+                          className={`px-3 py-1.5 rounded-lg text-sm font-medium border ${current === p ? "bg-primary text-primary-foreground border-primary" : "bg-card text-foreground border-border"}`}
+                        >
+                          {p === "digiwapy" ? "Digiwapy" : p === "hubtel" ? "Hubtel" : "Manual"}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )
               })}

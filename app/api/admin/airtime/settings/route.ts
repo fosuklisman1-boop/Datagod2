@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
+import { AIRTIME_PROVIDER_KEYS, parseAirtimeProvider } from "@/lib/airtime-provider"
+import { getHubtelCsRuntime } from "@/lib/hubtel-cs/runtime"
+import { hubtelCsEnvReady } from "@/lib/hubtel-cs/config"
 
 // Supabase client will be initialized inside handlers
 
@@ -23,6 +26,8 @@ const AIRTIME_SETTING_KEYS = [
   "airtime_digiwapy_enabled_mtn",
   "airtime_digiwapy_enabled_telecel",
   "airtime_digiwapy_enabled_at",
+  // Fulfilment provider per network (digiwapy | hubtel | manual)
+  ...AIRTIME_PROVIDER_KEYS,
 ]
 
 export async function GET(request: NextRequest) {
@@ -47,11 +52,23 @@ export async function GET(request: NextRequest) {
       return acc
     }, {})
 
+    let hubtel: { enabled: boolean; ready: boolean; paused: boolean; services: Record<string, boolean> } | null = null
+    try {
+      const cfg = await getHubtelCsRuntime().getConfig()
+      hubtel = {
+        enabled: cfg.enabled,
+        ready: hubtelCsEnvReady(cfg.mode).ready,
+        paused: cfg.paused,
+        services: { mtn: !!cfg.services.airtime_mtn, telecel: !!cfg.services.airtime_telecel, at: !!cfg.services.airtime_at },
+      }
+    } catch { hubtel = null }
+
     return NextResponse.json({
       settings,
       digiwapy_configured: !!(
         process.env.DIGIWAPY_API_KEY && process.env.DIGIWAPY_PARTNER_CODE
       ),
+      hubtel,
     })
   } catch (error) {
     console.error("[AIRTIME-SETTINGS-GET] Error:", error)
@@ -70,6 +87,12 @@ export async function PUT(request: NextRequest) {
   try {
     const { settings } = await request.json()
     if (!settings) return NextResponse.json({ error: "No settings provided" }, { status: 400 })
+
+    for (const [key, value] of Object.entries(settings)) {
+      if (AIRTIME_PROVIDER_KEYS.includes(key) && !parseAirtimeProvider(value)) {
+        return NextResponse.json({ error: `Invalid provider for ${key}. Use {"provider":"digiwapy"|"hubtel"|"manual"}` }, { status: 400 })
+      }
+    }
 
     const promises = Object.entries(settings).map(([key, value]) => {
       if (!AIRTIME_SETTING_KEYS.includes(key)) return Promise.resolve()
