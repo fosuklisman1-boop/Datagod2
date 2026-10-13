@@ -23,6 +23,10 @@ export interface AirtimeHubtelDeps {
   markOrder(orderId: string, patch: { status?: string; notes: string }, onlyFromStatuses?: string[]): Promise<void>
   /** kind "review" = Hubtel outcome unknown / in review; "manual" (default) = not sent, fulfil manually. */
   alert(message: string, kind?: "manual" | "review"): Promise<void>
+  /** Re-read the ledger row (null if missing). Used to catch a terminal callback that raced the processing write. */
+  refreshTx(clientReference: string): Promise<HubtelCsTx | null>
+  /** Re-apply a terminal ledger row to the order (the idempotent order hook). */
+  settle(tx: HubtelCsTx): Promise<void>
 }
 
 const quiet = async (p: Promise<void>, what: string) => {
@@ -61,6 +65,12 @@ export async function fulfillAirtimeViaHubtel(order: AirtimeOrderMinimal, deps: 
     }
     if (tx.state === "pending" || tx.state === "created") {
       await quiet(deps.markOrder(order.id, { status: "processing", notes: `Sent via Hubtel [hcsRef:${tx.client_reference}]` }, ["pending"]), "markOrder")
+      // A fast terminal callback may have been applied before the processing write above (which would then
+      // have overwritten it); re-apply it. The adapter only writes from pending/processing, so this is safe.
+      try {
+        const fresh = await deps.refreshTx(tx.client_reference)
+        if (fresh && (fresh.state === "fulfilled" || fresh.state === "failed")) await deps.settle(fresh)
+      } catch (e: any) { console.error("[AIRTIME-HUBTEL] post-write settle check failed:", e?.message ?? e) }
     }
     // fulfilled / failed were already applied to the order by the adapter hook.
     return tx.state !== "failed"

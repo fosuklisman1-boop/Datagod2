@@ -4,7 +4,7 @@ import { HubtelDuplicateOrderError, HubtelOutcomeUnknownError, HubtelPausedError
 import { makeTx } from "./hubtel-cs/testing/fixtures"
 
 const order = (over: any = {}) => ({ id: "o1", reference_code: "AIR-1", network: "MTN", beneficiary_phone: "0241234567", airtime_amount: 5, ...over })
-const deps = (purchase: any) => ({ purchase: vi.fn(purchase), markOrder: vi.fn(async () => {}), alert: vi.fn(async () => {}) }) as any
+const deps = (purchase: any) => ({ purchase: vi.fn(purchase), markOrder: vi.fn(async () => {}), alert: vi.fn(async () => {}), refreshTx: vi.fn(async () => null), settle: vi.fn(async () => {}) }) as any
 
 describe("fulfillAirtimeViaHubtel", () => {
   it("sends the right purchase and marks the order processing on pending", async () => {
@@ -56,19 +56,41 @@ describe("fulfillAirtimeViaHubtel", () => {
     expect(await fulfillAirtimeViaHubtel(order({ network: "Glo" }), d)).toBe(false)
     expect(d.purchase).not.toHaveBeenCalled()
   })
-  it("processing write is guarded to pending-only (fast failure callback is not overwritten)", async () => {
-    const row = { status: "pending", notes: "Hubtel failed: x [hcsRef:H]. Fulfil manually; not resent." }
-    const d: any = deps(async () => makeTx({ state: "pending", client_reference: "HCS-race" }))
+  it("pending POST on an order with NULL notes writes processing (status guard only)", async () => {
+    const row: any = { status: "pending", notes: null }
+    const d: any = deps(async () => makeTx({ state: "pending", client_reference: "HCS-n" }))
     d.markOrder = vi.fn(async (_id: string, patch: any, only?: string[]) => {
-      // fake honouring the real guard: only from allowed statuses and never over a Hubtel failure note
       if (only && !only.includes(row.status)) return
-      if (patch.status === "processing" && /Hubtel failed/.test(row.notes)) return
       Object.assign(row, patch)
     })
     expect(await fulfillAirtimeViaHubtel(order(), d)).toBe(true)
     expect(d.markOrder).toHaveBeenCalledWith("o1", expect.objectContaining({ status: "processing" }), ["pending"])
-    expect(row.status).toBe("pending")
-    expect(row.notes).toMatch(/Hubtel failed/)
+    expect(row.status).toBe("processing")
+  })
+  it("race: ledger already failed after the processing write -> settle called once with it", async () => {
+    const d: any = deps(async () => makeTx({ state: "pending", client_reference: "HCS-r" }))
+    const failed = makeTx({ state: "failed", client_reference: "HCS-r" })
+    d.refreshTx = vi.fn(async () => failed); d.settle = vi.fn(async () => {})
+    expect(await fulfillAirtimeViaHubtel(order(), d)).toBe(true)
+    expect(d.refreshTx).toHaveBeenCalledWith("HCS-r")
+    expect(d.settle).toHaveBeenCalledTimes(1)
+    expect(d.settle).toHaveBeenCalledWith(failed)
+  })
+  it("race: ledger fulfilled -> settle called; still pending -> not called", async () => {
+    const d: any = deps(async () => makeTx({ state: "pending" }))
+    d.refreshTx = vi.fn(async () => makeTx({ state: "fulfilled" })); d.settle = vi.fn(async () => {})
+    await fulfillAirtimeViaHubtel(order(), d)
+    expect(d.settle).toHaveBeenCalledTimes(1)
+    const p: any = deps(async () => makeTx({ state: "pending" }))
+    p.refreshTx = vi.fn(async () => makeTx({ state: "pending" })); p.settle = vi.fn(async () => {})
+    await fulfillAirtimeViaHubtel(order(), p)
+    expect(p.settle).not.toHaveBeenCalled()
+  })
+  it("refreshTx throwing still returns true and never throws", async () => {
+    const d: any = deps(async () => makeTx({ state: "pending" }))
+    d.refreshTx = vi.fn(async () => { throw new Error("db") }); d.settle = vi.fn(async () => {})
+    await expect(fulfillAirtimeViaHubtel(order(), d)).resolves.toBe(true)
+    expect(d.settle).not.toHaveBeenCalled()
   })
   it("uses the review alert kind for unknown outcomes and no kind (manual) for not-sent", async () => {
     const u = deps(async () => { throw new HubtelOutcomeUnknownError("HCS-u", new Error("db")) })

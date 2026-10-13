@@ -101,14 +101,17 @@ export async function triggerAirtimeFulfillment(order: AirtimeOrderMinimal): Pro
             .update({ ...patch, updated_at: new Date().toISOString() }).eq("id", orderId)
           if (onlyFromStatuses) {
             q = q.in("status", onlyFromStatuses)
-            // A fast failure callback may already have put the order back to pending with a failure note.
-            if (patch.status === "processing") q = q.not("notes", "ilike", "%Hubtel failed%")
           } else {
             q = q.neq("status", "completed")
           }
-          const { error } = await q
+          const { data, error } = await q.select("id")
           if (error) throw error
+          if (onlyFromStatuses && (data?.length ?? 0) === 0) {
+            console.warn(`[AIRTIME-SVC] guarded write (${patch.status ?? "notes"}) matched 0 rows for order ${orderId}`)
+          }
         },
+        refreshTx: ref => rt.store.getByRef(ref),
+        settle: async tx => { await rt.onTransition(tx) },
         alert: async (message, kind) => {
           await notifyAdmins(message, kind === "review" ? "airtime_hubtel_review" : "airtime_manual_needed", order.id, true)
         },
