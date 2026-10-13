@@ -169,7 +169,12 @@ export async function hubtelSendBatchPersonalized(cfg: HubtelConfig, m: { from: 
   return toSendResult(r.status, r.body, r.failure)
 }
 
-export interface HubtelStatusEntry { messageId: string; state: HubtelDeliveryState; rawStatus: string; rate?: number; updateTime?: string }
+export interface HubtelStatusEntry {
+  messageId: string; state: HubtelDeliveryState; rawStatus: string; rate?: number; updateTime?: string
+  /** Recipient MSISDN as Hubtel reports it. Batch status replies carry message ids that differ from
+   *  the send-time ids, so batch reports are matched on (batch id, recipient) instead. */
+  to?: string
+}
 export interface HubtelStatusResult { ok: boolean; error?: string; messages: HubtelStatusEntry[] }
 
 /** First present value among `keys`, matched case-insensitively (Hubtel uses both camelCase and PascalCase). */
@@ -190,10 +195,12 @@ function toEntry(d: Record<string, unknown>, fallbackId?: string): HubtelStatusE
   const raw = typeof statusRaw === "string" ? statusRaw : ""
   const rate = pick(d, ["rate"])
   const upd = pick(d, ["updateTime", "updatedAt", "dateUpdated"])
+  const to = pick(d, ["to", "recipient"])
   return {
     messageId: id, state: mapHubtelStatus(raw), rawStatus: raw,
     rate: typeof rate === "number" ? rate : typeof rate === "string" && rate.trim() !== "" && Number.isFinite(Number(rate)) ? Number(rate) : undefined,
     updateTime: typeof upd === "string" ? upd : undefined,
+    to: typeof to === "string" && to.trim() !== "" ? to.trim() : typeof to === "number" && Number.isSafeInteger(to) && to > 0 ? String(to) : undefined,
   }
 }
 

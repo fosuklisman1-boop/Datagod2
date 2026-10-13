@@ -41,13 +41,22 @@ vi.mock("./providers/hubtel", () => ({
 import { toDeliveryReports, summarizeApplied, DLR_GIVE_UP_MS, pollHubtelDeliveries } from "./delivery-poll"
 
 describe("toDeliveryReports", () => {
-  it("maps status entries to RPC rows", () => {
+  it("maps status entries to RPC rows (no batch: bid/to null)", () => {
     expect(toDeliveryReports([
       { messageId: "m1", state: "delivered", rawStatus: "Delivered", rate: 0.03, updateTime: "2026-10-10T10:00:00" },
-      { messageId: "m2", state: "pending", rawStatus: "Sent" },
+      { messageId: "m2", state: "pending", rawStatus: "Sent", to: "233201234567" },
     ])).toEqual([
-      { mid: "m1", state: "delivered", rate: 0.03, at: "2026-10-10T10:00:00Z" },
-      { mid: "m2", state: "pending", rate: null, at: null },
+      { mid: "m1", state: "delivered", rate: 0.03, at: "2026-10-10T10:00:00Z", bid: null, to: null },
+      { mid: "m2", state: "pending", rate: null, at: null, bid: null, to: null },
+    ])
+  })
+  it("batch reports carry the batch id and each entry's recipient (for batch+phone matching)", () => {
+    expect(toDeliveryReports([
+      { messageId: "m1", state: "delivered", rawStatus: "Delivered", to: "233544104440" },
+      { messageId: "m2", state: "pending", rawStatus: "Sent" },
+    ], "b1")).toEqual([
+      { mid: "m1", state: "delivered", rate: null, at: null, bid: "b1", to: "233544104440" },
+      { mid: "m2", state: "pending", rate: null, at: null, bid: "b1", to: null },
     ])
   })
   it("keeps an explicit zone untouched", () => {
@@ -108,7 +117,7 @@ describe("pollHubtelDeliveries", () => {
 
   it("applies batch reports, uses a short status timeout, and recomputes touched send logs", async () => {
     picks([{ provider_batch_id: "b1" }])
-    h.batchStatus.mockResolvedValue({ ok: true, messages: [{ messageId: "m1", state: "failed", rawStatus: "Rejected" }] })
+    h.batchStatus.mockResolvedValue({ ok: true, messages: [{ messageId: "m1", state: "failed", rawStatus: "Rejected", to: "233544104440" }] })
     const base = h.rpcImpl
     h.rpcImpl = (name, a) => name === "apply_sms_delivery_reports"
       ? { data: [{ out_message_id: "u1", out_send_log_id: 7, out_outcome: "failed", out_refunded: true }], error: null }
@@ -116,7 +125,7 @@ describe("pollHubtelDeliveries", () => {
     const s = await pollHubtelDeliveries({ now: NOW })
     expect(h.batchStatus).toHaveBeenCalledWith(expect.objectContaining({ timeoutMs: 8000 }), "b1")
     expect(s).toMatchObject({ batches: 1, failed: 1, refunded: 1, errors: 0 })
-    expect(rpcs("apply_sms_delivery_reports")[0].args).toEqual({ p_rows: [{ mid: "m1", state: "failed", rate: null, at: null }] })
+    expect(rpcs("apply_sms_delivery_reports")[0].args).toEqual({ p_rows: [{ mid: "m1", state: "failed", rate: null, at: null, bid: "b1", to: "233544104440" }] })
     expect(rpcs("recompute_sms_send_result")).toEqual([{ name: "recompute_sms_send_result", args: { p_send_log_id: 7, max_attempts: 3 } }])
   })
 
@@ -136,10 +145,12 @@ describe("pollHubtelDeliveries", () => {
 
   it("polls drain-sent singles by message id and marks them checked", async () => {
     picks([], [{ provider_message_id: "hm1" }])
-    h.messageStatus.mockResolvedValue({ ok: true, messages: [{ messageId: "hm1", state: "pending", rawStatus: "Sent" }] })
+    h.messageStatus.mockResolvedValue({ ok: true, messages: [{ messageId: "hm1", state: "pending", rawStatus: "Sent", to: "233544104440" }] })
     const s = await pollHubtelDeliveries({ now: NOW })
     expect(h.messageStatus).toHaveBeenCalledWith(expect.objectContaining({ timeoutMs: 8000 }), "hm1")
     expect(s.singles).toBe(1)
+    // Singles match by message id only: never by batch+phone.
+    expect(rpcs("apply_sms_delivery_reports")[0].args).toEqual({ p_rows: [{ mid: "hm1", state: "pending", rate: null, at: null, bid: null, to: null }] })
     expect(rpcs("mark_sms_dlr_checked")[0].args).toEqual({ p_batch_ids: [], p_message_ids: ["hm1"] })
   })
 

@@ -12,14 +12,25 @@ const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, proces
 export const DLR_GIVE_UP_MS = 72 * 3_600_000
 const MIN_AGE_MS = 60_000 // give the telco a minute before the first check
 
-export interface DeliveryReportRow { mid: string; state: "delivered" | "failed" | "pending"; rate: number | null; at: string | null }
-export function toDeliveryReports(entries: HubtelStatusEntry[]): DeliveryReportRow[] {
+/**
+ * One RPC row. `bid` + `to` are set only for batch-status reports: Hubtel's batch status reply
+ * uses message ids that differ from the ids its send reply gave us, so apply_sms_delivery_reports
+ * falls back to matching (provider_batch_id, recipient), one report to at most one message.
+ * Singles carry null for both and match by message id only.
+ */
+export interface DeliveryReportRow {
+  mid: string; state: "delivered" | "failed" | "pending"; rate: number | null; at: string | null
+  bid: string | null; to: string | null
+}
+export function toDeliveryReports(entries: HubtelStatusEntry[], batchId?: string): DeliveryReportRow[] {
   return entries.map((e) => ({
     mid: e.messageId,
     state: e.state,
     rate: e.rate ?? null,
     // Hubtel's updateTime has no zone ("2023-03-21T12:54:43"); Ghana is UTC+0.
     at: e.updateTime ? (/[zZ]|[+-]\d\d:?\d\d$/.test(e.updateTime) ? e.updateTime : `${e.updateTime}Z`) : null,
+    bid: batchId ?? null,
+    to: batchId ? e.to ?? null : null,
   }))
 }
 
@@ -100,7 +111,7 @@ export async function pollHubtelDeliveries(opts: { maxBatches?: number; maxSingl
           const res = await hubtelGetBatchStatus(cfg, batchId)
           sum.batches++
           if (!res.ok) { sum.errors++; console.error("[SMS-DLR] batch status failed:", batchId, res.error); continue }
-          await apply(toDeliveryReports(res.messages), touched, sum)
+          await apply(toDeliveryReports(res.messages, batchId), touched, sum)
         }
       } finally {
         await markChecked(checked, [])
