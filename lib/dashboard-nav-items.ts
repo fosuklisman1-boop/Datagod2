@@ -12,7 +12,7 @@ export interface NavItem {
   icon: LucideIcon
   roles: string[]
   /** Hidden unless /api/bills/availability reports this feature enabled (filtered where the sidebar renders). */
-  feature?: "bills" | "broadband"
+  feature?: "bills" | "broadband" | "standard-bundles"
 }
 
 /** Sidebar active state: exact match, plus the SMS section's sub-routes keep "SMS" highlighted. */
@@ -34,6 +34,7 @@ export const menuItems: NavItem[] = [
   { href: "/dashboard/profile", label: "Profile", icon: User, roles: ["user", "admin", "sub_agent", "dealer"] },
   { href: "/dashboard/bills", label: "Utility Bills", icon: Lightbulb, roles: ["user", "admin", "dealer", "sub_agent"], feature: "bills" },
   { href: "/dashboard/broadband", label: "Telecel Broadband", icon: Wifi, roles: ["user", "admin", "dealer", "sub_agent"], feature: "broadband" },
+  { href: "/dashboard/standard-bundles", label: "Standard Bundles", icon: Package, roles: ["user", "admin", "dealer", "sub_agent"], feature: "standard-bundles" },
   { href: "/dashboard/developer", label: "Developer / API", icon: Code2, roles: ["user", "admin", "sub_agent", "dealer"] },
   { href: "/dashboard/complaints", label: "My Complaints", icon: AlertCircle, roles: ["user", "admin", "dealer"] },
   { href: "/dashboard/upgrade", label: "Upgrade to Dealer", icon: Sparkles, roles: ["user", "admin", "dealer"] },

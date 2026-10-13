@@ -48,6 +48,7 @@ import { Badge } from "@/components/ui/badge"
 import { NewTag } from "./new-tag"
 import { useNavNew } from "./use-nav-new"
 import { useBillsAvailability, featureAvailable } from "@/components/bills/use-bills-availability"
+import { useBundlesAvailability } from "@/components/standard-bundles/use-bundles-availability"
 
 // Format large numbers with K/M suffix
 const formatCount = (num: number): string => {
@@ -88,6 +89,7 @@ export function Sidebar() {
   const { isNew, markClicked } = useNavNew(user?.id)
   // Utility Bills / Broadband links show only when the feature is enabled.
   const billsAvailability = useBillsAvailability()
+  const bundlesAvailability = useBundlesAvailability()
 
   const handleLogout = async () => {
     await logout()
@@ -331,7 +333,9 @@ export function Sidebar() {
           ) : (
             menuItems.filter(item => {
             if (!userRole || !item.roles.includes(userRole)) return false
-            if (item.feature && !featureAvailable(billsAvailability, item.feature)) return false
+            if (item.feature === "standard-bundles") {
+              if (!bundlesAvailability?.enabled) return false
+            } else if (item.feature && !featureAvailable(billsAvailability, item.feature)) return false
             if (item.href === '/dashboard' && isPageHidden('dashboard_home', domainBranding.hiddenPages)) return false
             // Hide upgrade page for dealers with no subscription end-date (permanent dealers)
             if (item.href === '/dashboard/upgrade' && userRole === 'dealer' && !dealerHasSubscription) return false
