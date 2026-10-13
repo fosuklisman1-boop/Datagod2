@@ -60,3 +60,27 @@ The page's test purchase sends a REAL purchase. It requires `confirm` (the UI se
 - Make the 4075 pause atomic (a `jsonb_set` RPC) before any customer traffic.
 - Decide how to classify a 5xx response carrying code 0000/0001.
 - Verify bill account number formats against the relay `CS_QUERY_VALUE` charset (Phase 3).
+
+## Phase 2a — airtime provider switch (rollout)
+
+1. Apply `migrations/0115_hubtel_cs_config_patch.sql` and `migrations/0116_hubtel_cs_order_synced.sql` to production
+   BEFORE merging (the runtime calls the new RPC and the cron reads the new column). Verify:
+   `select to_regprocedure('hubtel_cs_config_patch(jsonb)')` is not null and
+   `select column_name from information_schema.columns where table_name='hubtel_cs_transactions' and column_name='order_synced_at'` returns a row.
+2. Merge + deploy. Nothing changes until an admin picks a provider: with no `airtime_provider_<net>` setting the legacy
+   Digiwapy toggle still decides.
+3. Hubtel must be enabled and ready on `/admin/hubtel-commission` (credential + account are set in Vercel since 2026-10-13).
+4. On `/admin/airtime/settings` -> "Fulfilment provider", set ONE network to Hubtel. Buy GHS 0.50 airtime to your own number
+   on that network from the dashboard. Expect: order `processing` with `[hcsRef:HCS-...]`, then `completed` within ~1 min;
+   the ledger row on `/admin/hubtel-commission` shows `fulfilled` and a commission.
+5. Roll back any time by choosing Digiwapy or Manual for that network. In-flight Hubtel orders still settle (cron runs regardless).
+
+Behaviour to know:
+- Orders over GHS 100 on a Hubtel network are NOT split: they stay `pending` with an admin alert for manual fulfilment.
+- Hubtel off / paused / not configured => orders stay `pending` + alert; no silent switch to Digiwapy. "Nothing sent" alerts use SMS type `airtime_manual_needed`.
+- A definite Hubtel failure returns the order to `pending` (same as Digiwapy failures) for an admin; never auto-resent. This
+  applies only when the order is currently `pending` or `processing`: an order the admin already marked `failed`/refunded is
+  left untouched. If Hubtel later delivers such an order, admins get a "possible double value" alert (check for double value).
+- Outcome unknown / `needs_review` => order `processing`, alert (SMS type `airtime_hubtel_review`), the Hubtel review queue owns it. Do not resend. Airtime refunds use `/admin/refunds`.
+- Admins get one "transaction needs review" alert per 15 min when rows enter the review queue.
+- If an order hook fails, the 2-minute cron re-runs it (rows with `order_synced_at` null).
