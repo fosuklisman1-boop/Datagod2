@@ -7,7 +7,7 @@ import {
 const NOW = Date.parse("2026-10-13T12:00:00Z")
 const ago = (ms: number) => new Date(NOW - ms).toISOString()
 const facts = (o: Partial<RefundOrder> = {}): RefundOrder => ({
-  id: "o1", reference_code: "BND-1", user_id: "u1", amount: 5, network: "MTN", bundle_display: "1GB",
+  id: "o1", reference_code: "BND-1", user_id: "u1", amount: 5, network: "MTN", bundle_display: "1GB", beneficiary_phone: "233240000000",
   status: "pending", payment_status: "paid", hubtel_client_reference: null, notes: null, updated_at: ago(10 * 60_000), ...o,
 })
 
@@ -78,7 +78,9 @@ function deps(over: Partial<BundleRefundDeps> & { order?: RefundOrder; ledger?: 
     ledgerCount: async () => ledger.length > 1 ? ledger.shift()! : ledger[0],
     releaseStuckClaim: async () => { log.push("release"); return 1 },
     claimForRefund: async () => { log.push("claim"); return 1 },
-    revertToProcessing: async () => { log.push("revert"); return 1 },
+    revertToProcessing: async (_id, ref) => { log.push(`revert:${ref}`); return 1 },
+    ledgerRef: async () => "HCS-REF",
+    notifyRefunded: async () => { log.push("notify") },
     creditWallet: async () => { log.push("credit") },
     markRefunded: async () => { log.push("refunded"); return 1 },
     alert: async () => { log.push("alert") },
@@ -93,13 +95,25 @@ describe("executeBundleRefund", () => {
     const d = deps()
     const r = await executeBundleRefund(d, "o1", "n")
     expect(r).toMatchObject({ ok: true, status: 200 })
-    expect(d.log).toEqual(["claim", "credit", "refunded"])
+    expect(d.log).toEqual(["claim", "credit", "refunded", "notify"])
   })
-  it("never credits when a ledger row appears after the claim", async () => {
+  it("never credits when a ledger row appears after the claim; reverts with the Hubtel ref", async () => {
     const d = deps({ ledger: [0, 1] })
     const r = await executeBundleRefund(d, "o1", "n")
     expect(r.ok).toBe(false)
-    expect(d.log).toEqual(["claim", "revert", "alert"])
+    expect(d.log).toEqual(["claim", "revert:HCS-REF", "alert"])
+  })
+  it("leaves the order failed (no revert, no credit), 503 + urgent alert, when the post-fence ledger read fails", async () => {
+    let calls = 0
+    const alerts: boolean[] = []
+    const d = deps({
+      ledgerCount: async () => { if (++calls === 1) return 0; throw new Error("blip") },
+      alert: async (_m, urgent) => { alerts.push(!!urgent) },
+    })
+    const r = await executeBundleRefund(d, "o1", "n")
+    expect(r.status).toBe(503)
+    expect(alerts).toEqual([true])
+    expect(d.log).toEqual(["claim"])
   })
   it("raises an urgent alert when the revert fails", async () => {
     const d = deps({ ledger: [0, 1], revertToProcessing: async () => 0 })
@@ -128,12 +142,12 @@ describe("executeBundleRefund", () => {
   it("releases a stuck claim before fencing", async () => {
     const d = deps({ order: facts({ status: "processing", notes: "Dispatching…", updated_at: ago(STUCK_CLAIM_MS + 5000) }) })
     expect((await executeBundleRefund(d, "o1", "n")).released).toBe(true)
-    expect(d.log).toEqual(["release", "claim", "credit", "refunded"])
+    expect(d.log).toEqual(["release", "claim", "credit", "refunded", "notify"])
   })
   it("a failed order retry skips the claim and credits idempotently", async () => {
     const d = deps({ order: facts({ status: "failed" }) })
     expect((await executeBundleRefund(d, "o1", "n")).ok).toBe(true)
-    expect(d.log).toEqual(["credit", "refunded"])
+    expect(d.log).toEqual(["credit", "refunded", "notify"])
   })
   it("reports an unknown outcome when the credit throws", async () => {
     const r = await executeBundleRefund(deps({ creditWallet: async () => { throw new Error("boom") } }), "o1", "n")

@@ -110,7 +110,7 @@ export async function releaseStuckClaimRow(db: SupabaseClient, orderId: string, 
 // Never-sent refund flow (all IO injected)
 // ---------------------------------------------------------------------------------------------
 
-export interface RefundOrder extends RefundFacts { id: string; reference_code: string; user_id: string; amount: number; network: string; bundle_display: string }
+export interface RefundOrder extends RefundFacts { id: string; reference_code: string; user_id: string; amount: number; network: string; bundle_display: string; beneficiary_phone: string }
 
 export interface BundleRefundDeps {
   getOrder(id: string): Promise<RefundOrder | null>
@@ -121,10 +121,14 @@ export interface BundleRefundDeps {
   /** Guarded pending+paid -> failed; this fences the dispatcher out. Returns rows changed. */
   claimForRefund(orderId: string, note: string): Promise<number>
   /** Guarded failed -> processing, used when a ledger row appeared mid-refund. Returns rows changed. */
-  revertToProcessing(orderId: string): Promise<number>
+  revertToProcessing(orderId: string, ref: string | null): Promise<number>
+  /** Client reference of the newest ledger row for the order (null if none). */
+  ledgerRef(orderId: string): Promise<string | null>
+  /** Best-effort customer in-app notification + push after a successful refund. */
+  notifyRefunded(order: RefundOrder): Promise<void>
   /** Idempotent credit (reference `data-refund-<id>`, shared with the adapter). Throws on error. */
   creditWallet(order: RefundOrder): Promise<void>
-  /** Guarded <failed|pending>+paid -> refunded/refunded; returns rows changed. */
+  /** Guarded failed+paid -> refunded/refunded; returns rows changed. */
   markRefunded(orderId: string): Promise<number>
   alert(message: string, urgent?: boolean): Promise<void>
   now(): number
@@ -154,15 +158,21 @@ export async function executeBundleRefund(d: BundleRefundDeps, orderId: string, 
     if (n === 0) return { ok: false, status: 409, message: "The order changed while refunding; reload and retry", released }
   }
   const after = await d.ledgerCount(orderId).catch(() => null)
-  if (after === null || after > 0) {
+  if (after === null) {
+    // Cannot confirm either way: leave the order fenced in `failed` (no dispatcher can claim it); a retry re-checks the ledger.
+    await safe(d, `URGENT: standard bundle order ${order.reference_code} (${orderId}) was fenced for an admin refund but the Hubtel ledger could not be re-read. It is left in failed (paid). Retry the refund.`, true)
+    return { ok: false, status: 503, message: "Could not confirm the Hubtel ledger - retry. The order is held safely in failed.", released }
+  }
+  if (after > 0) {
+    const ref = await d.ledgerRef(orderId).catch(() => null)
     let reverted = 0
-    try { reverted = await d.revertToProcessing(orderId) } catch { reverted = 0 }
+    try { reverted = await d.revertToProcessing(orderId, ref) } catch { reverted = 0 }
     if (reverted === 0) {
-      await safe(d, `URGENT: standard bundle order ${order.reference_code} (${orderId}) was moved for a refund, a Hubtel transaction may have appeared, and the order could NOT be restored to processing. Fix by hand; do not refund.`, true)
-      return { ok: false, status: 500, message: "A Hubtel transaction may have appeared while refunding and the order could not be restored to processing. Admins were alerted; do not refund.", released }
+      await safe(d, `URGENT: standard bundle order ${order.reference_code} (${orderId}) was moved for a refund, a Hubtel transaction appeared, and the order could NOT be restored to processing. Fix by hand; do not refund.`, true)
+      return { ok: false, status: 500, message: "A Hubtel transaction appeared while refunding and the order could not be restored to processing. Admins were alerted; do not refund.", released }
     }
-    await safe(d, `Standard bundle order ${order.reference_code}: a Hubtel transaction appeared (or the ledger could not be read) while an admin refund was starting. Refund aborted; order restored to processing.`)
-    return { ok: false, status: 409, message: "A Hubtel transaction appeared for this order while refunding (or the ledger could not be read). The refund was aborted; check Hubtel Commission.", released }
+    await safe(d, `Standard bundle order ${order.reference_code}: a Hubtel transaction appeared while an admin refund was starting. Refund aborted; order restored to processing.`)
+    return { ok: false, status: 409, message: "A Hubtel transaction appeared for this order while refunding. The refund was aborted; check Hubtel Commission.", released }
   }
   const fresh = await d.getOrder(orderId)
   if (!fresh) return { ok: false, status: 404, message: "Order not found" }
@@ -172,6 +182,7 @@ export async function executeBundleRefund(d: BundleRefundDeps, orderId: string, 
     return { ok: false, status: 502, message: `Refund outcome UNKNOWN (${e?.message ?? e}). Check the customer's wallet before any retry; the credit is idempotent, so retrying is safe.`, released }
   }
   const n = await d.markRefunded(orderId)
+  if (n > 0) { try { await d.notifyRefunded(fresh) } catch { /* best-effort */ } }
   return {
     ok: true, status: 200, released,
     message: n > 0 ? "Refunded to the customer's wallet" : "Refunded to the customer's wallet (order status update was skipped: the order was no longer in the expected state)",
