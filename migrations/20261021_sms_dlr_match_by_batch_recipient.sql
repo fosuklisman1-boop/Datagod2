@@ -60,7 +60,7 @@ BEGIN
       WHEN jsonb_typeof(e->'rate') = 'number' THEN (e->>'rate')::numeric
       WHEN jsonb_typeof(e->'rate') = 'string' AND (e->>'rate') ~ '^\s*\d+(\.\d+)?\s*$' THEN trim(e->>'rate')::numeric
     END;
-    IF v_rate IS NOT NULL AND (v_rate < 0 OR v_rate >= 10000) THEN v_rate := NULL; END IF; -- cost_ghs is NUMERIC(8,4)
+    IF v_rate IS NOT NULL AND (v_rate < 0 OR v_rate >= 9999.9999) THEN v_rate := NULL; END IF; -- cost_ghs is NUMERIC(8,4)
 
     v_at := NULL;
     IF jsonb_typeof(e->'at') = 'string' THEN
