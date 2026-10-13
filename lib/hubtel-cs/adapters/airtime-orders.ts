@@ -13,6 +13,8 @@ export interface AirtimeOrdersAdapterDeps {
    * Returns the number of rows changed (0 = guard did not match). Throws on DB error (the sweep retries).
    */
   update(orderId: string, patch: { status: string; notes: string }, onlyFromStatuses: string[]): Promise<number>
+  /** Current status + notes (null if the order is missing). Throws on DB error. */
+  get(orderId: string): Promise<{ status: string; notes: string | null } | null>
   getStatus(orderId: string): Promise<string | null>
   alert(message: string): Promise<void>
 }
@@ -34,10 +36,20 @@ export function createAirtimeOrdersAdapter(deps: AirtimeOrdersAdapterDeps): Orde
     },
     async onFailed(tx: HubtelCsTx) {
       // Same convention as the Digiwapy webhook: a provider failure returns the order to pending for an admin.
+      // A replayed onFailed must not clobber an order another provider/admin now owns (e.g. a manual Digiwapy retry).
+      const cur = await deps.get(tx.order_id!)
+      if (!cur || !LIVE_STATUSES.includes(cur.status)) {
+        console.info(`[hubtel-cs] airtime order ${tx.order_id} already settled/failed; Hubtel failure not applied`)
+        return
+      }
+      if (cur.status === "processing" && !(cur.notes ?? "").includes(`hcsRef:${tx.client_reference}`)) {
+        console.info(`[hubtel-cs] airtime order ${tx.order_id} is processing under another provider; Hubtel failure not applied`)
+        return
+      }
       const n = await deps.update(tx.order_id!, {
         status: "pending",
         notes: `Hubtel failed: ${tx.failure_reason ?? tx.response_code ?? "unknown reason"} [hcsRef:${tx.client_reference}]. Fulfil manually; not resent.`,
-      }, LIVE_STATUSES)
+      }, [cur.status])
       if (n === 0) {
         console.info(`[hubtel-cs] airtime order ${tx.order_id} already settled/failed; Hubtel failure not applied`)
         return
@@ -55,6 +67,11 @@ export function airtimeOrdersAdapterFor(db: SupabaseClient): OrderAdapter {
         .eq("id", orderId).in("status", onlyFromStatuses).select("id")
       if (error) throw error
       return data?.length ?? 0
+    },
+    async get(orderId) {
+      const { data, error } = await db.from(AIRTIME_ORDERS_TABLE).select("status, notes").eq("id", orderId).maybeSingle()
+      if (error) throw error
+      return data ? { status: data.status as string, notes: (data.notes as string | null) ?? null } : null
     },
     async getStatus(orderId) {
       const { data, error } = await db.from(AIRTIME_ORDERS_TABLE).select("status").eq("id", orderId).maybeSingle()

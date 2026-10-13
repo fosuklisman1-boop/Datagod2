@@ -107,4 +107,33 @@ describe("fulfillAirtimeViaHubtel", () => {
     const d = { purchase: vi.fn(async () => { throw new HubtelPausedError(null) }), markOrder: vi.fn(async () => { throw new Error("db") }), alert: vi.fn(async () => { throw new Error("sms") }) } as any
     await expect(fulfillAirtimeViaHubtel(order(), d)).resolves.toBe(false)
   })
+  describe("processing write failure after Hubtel accepted the order", () => {
+    it("markOrder throws -> review alert 'do NOT resend', still returns true", async () => {
+      const d = deps(async () => makeTx({ state: "pending", client_reference: "HCS-x" }))
+      d.markOrder = vi.fn(async () => { throw new Error("db") })
+      expect(await fulfillAirtimeViaHubtel(order(), d)).toBe(true)
+      expect(d.alert).toHaveBeenCalledWith(expect.stringMatching(/could not be marked processing.*do NOT resend/), "review")
+      expect(d.alert).toHaveBeenCalledWith(expect.stringContaining("HCS-x"), "review")
+    })
+    it("markOrder reports 0 rows and no terminal ledger -> review alert", async () => {
+      const d = deps(async () => makeTx({ state: "created", client_reference: "HCS-y" }))
+      d.markOrder = vi.fn(async () => 0)
+      expect(await fulfillAirtimeViaHubtel(order(), d)).toBe(true)
+      expect(d.alert).toHaveBeenCalledWith(expect.stringMatching(/do NOT resend/), "review")
+    })
+    it("0 rows because a terminal callback already settled the order -> settle, no alert", async () => {
+      const d = deps(async () => makeTx({ state: "pending", client_reference: "HCS-z" }))
+      d.markOrder = vi.fn(async () => 0)
+      d.refreshTx = vi.fn(async () => makeTx({ state: "fulfilled", client_reference: "HCS-z" }))
+      await fulfillAirtimeViaHubtel(order(), d)
+      expect(d.settle).toHaveBeenCalledTimes(1)
+      expect(d.alert).not.toHaveBeenCalled()
+    })
+    it("1 row updated -> no alert", async () => {
+      const d = deps(async () => makeTx({ state: "pending" }))
+      d.markOrder = vi.fn(async () => 1)
+      await fulfillAirtimeViaHubtel(order(), d)
+      expect(d.alert).not.toHaveBeenCalled()
+    })
+  })
 })

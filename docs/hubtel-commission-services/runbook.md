@@ -67,11 +67,20 @@ The page's test purchase sends a REAL purchase. It requires `confirm` (the UI se
    BEFORE merging (the runtime calls the new RPC and the cron reads the new column). Verify:
    `select to_regprocedure('hubtel_cs_config_patch(jsonb)')` is not null and
    `select column_name from information_schema.columns where table_name='hubtel_cs_transactions' and column_name='order_synced_at'` returns a row.
+   - RPC smoke test: note the current value of `select value from admin_settings where key='hubtel_cs_config'`, run
+     `select hubtel_cs_config_patch('{}'::jsonb);` then `select hubtel_cs_config_patch('{"services":{"airtime_mtn":true}}'::jsonb);`
+     and confirm `paused` and every other key survive (compare the value before/after; only `services.airtime_mtn` may differ). Set it back afterwards if you do not want it on yet.
+   - BEFORE applying 0116 run `select count(*) from hubtel_cs_transactions where order_table is not null and state in ('fulfilled','failed')`. Expected 0. Phase 1 smoke rows with an `order_table` but no adapter would otherwise be retried forever by the re-notify sweep.
 2. Merge + deploy. Nothing changes until an admin picks a provider: with no `airtime_provider_<net>` setting the legacy
    Digiwapy toggle still decides.
-3. Hubtel must be enabled and ready on `/admin/hubtel-commission` (credential + account are set in Vercel since 2026-10-13).
-4. On `/admin/airtime/settings` -> "Fulfilment provider", set ONE network to Hubtel. Buy GHS 0.50 airtime to your own number
-   on that network from the dashboard. Expect: order `processing` with `[hcsRef:HCS-...]`, then `completed` within ~1 min;
+3. Hubtel must be enabled and ready on `/admin/hubtel-commission` (credential + account are set in Vercel since 2026-10-13). Readiness checklist:
+   - `HUBTEL_CS_CALLBACK_SECRET` is at least 32 characters;
+   - `NEXT_PUBLIC_APP_URL` is set (canonical https://www host);
+   - relay env (`HUBTEL_RELAY_URL`, `HUBTEL_RELAY_SECRET`) is set;
+   - the Hubtel master switch is ON;
+   - the per-service switch `airtime_<net>` (e.g. `airtime_mtn`) for the canary network is ON.
+4. On `/admin/airtime/settings` -> "Fulfilment provider", set ONE network to Hubtel and press the page's **Save Changes** (the provider buttons only change local page state until saved). Buy GHS 0.50 airtime to your own number
+   on that network from the dashboard. Expect: order `processing` with `[hcsRef:HCS-...]`, then `completed`, normally within ~1 min. With no callback it can take up to about 7 minutes (the cron only checks pending rows after 5 minutes, and runs every 2). Do NOT resend during that time.
    the ledger row on `/admin/hubtel-commission` shows `fulfilled` and a commission.
 5. Roll back any time by choosing Digiwapy or Manual for that network. In-flight Hubtel orders still settle (cron runs regardless).
 
@@ -81,6 +90,9 @@ Behaviour to know:
 - A definite Hubtel failure returns the order to `pending` (same as Digiwapy failures) for an admin; never auto-resent. This
   applies only when the order is currently `pending` or `processing`: an order the admin already marked `failed`/refunded is
   left untouched. If Hubtel later delivers such an order, admins get a "possible double value" alert (check for double value).
-- Outcome unknown / `needs_review` => order `processing`, alert (SMS type `airtime_hubtel_review`), the Hubtel review queue owns it. Do not resend. Airtime refunds use `/admin/refunds`.
+- Outcome unknown / `needs_review` => order `processing`, alert (SMS type `airtime_hubtel_review`), the Hubtel review queue owns it. Do not resend.
+- Airtime refunds are NOT in `/admin/refunds` (that page has no airtime support). The real path is `/admin/airtime` -> **Mark failed**, which refunds the wallet immediately and does NOT check the Hubtel ledger. RULE: resolve the Hubtel review row first (Mark failed in the Hubtel review queue returns the order to `pending`), and NEVER refund an airtime order whose Hubtel ledger row is `pending` or `needs_review` (Hubtel may still deliver, giving double value).
 - Admins get one "transaction needs review" alert per 15 min when rows enter the review queue.
 - If an order hook fails, the 2-minute cron re-runs it (rows with `order_synced_at` null).
+- Choosing "Digiwapy" explicitly for a network bypasses the legacy per-network Auto Fulfillment toggle (it auto-sends even if that toggle was off). There is no "unset" option in the UI; to revert to the legacy behaviour, delete the `airtime_provider_<net>` row.
+- Hubtel deliveries currently send no customer in-app/push notification (the Digiwapy cron does). Follow-up: add it before enabling beyond a one-network canary.

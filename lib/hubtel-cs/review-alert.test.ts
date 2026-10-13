@@ -13,4 +13,13 @@ describe("review alert", () => {
     expect(t.message).toContain("No response from Hubtel")
     expect(t.message).toContain("/admin/hubtel-commission")
   })
+  it("includes the order and destination when present", () => {
+    const t = reviewAlertText(makeTx({ destination: "0241234567", order_table: "airtime_orders", order_id: "ord-9" }))
+    expect(t.message).toContain("0241234567")
+    expect(t.message).toContain("airtime_orders/ord-9")
+  })
+  it("omits the order part when there is no linked order", () => {
+    const t = reviewAlertText(makeTx({ order_table: null, order_id: null }))
+    expect(t.message).not.toMatch(/order /)
+  })
 })

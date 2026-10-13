@@ -109,6 +109,7 @@ export async function triggerAirtimeFulfillment(order: AirtimeOrderMinimal): Pro
           if (onlyFromStatuses && (data?.length ?? 0) === 0) {
             console.warn(`[AIRTIME-SVC] guarded write (${patch.status ?? "notes"}) matched 0 rows for order ${orderId}`)
           }
+          return data?.length ?? 0
         },
         refreshTx: ref => rt.store.getByRef(ref),
         settle: async tx => { await rt.onTransition(tx) },
