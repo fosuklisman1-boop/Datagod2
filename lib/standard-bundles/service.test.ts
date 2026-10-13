@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import {
-  buyBundle, isValidIdempotencyKey, sameAmount, NOT_AVAILABLE_FOR_NUMBER,
+  buyBundle, isValidIdempotencyKey, sameAmount, NOT_AVAILABLE_FOR_NUMBER, PRICES_REFRESHED,
   type BundlesDeps, type DataOrderRow,
 } from "./service"
 import { signBundleToken, type VerifiedBundle } from "./token"
@@ -235,11 +235,93 @@ describe("Review Focus 2: double-click / retry => exactly one debit and one Hubt
     expect(await buy(m, "MTN", {}, { ...m.d, findOrderByIdempotencyKey: async () => { throw new Error("db") } })).toMatchObject({ ok: false, status: 503 })
     expect(m.writes()).toBe(0)
   })
-  it("unique violation with no row found (e.g. reference collision) => 500", async () => {
+  it("unique violation with no row found (e.g. reference collision) => 503 not charged, no debit", async () => {
     const m = make()
     const d = { ...m.d, insertOrder: async () => { throw Object.assign(new Error("dup"), { code: "23505" }) } }
-    expect(await buy(m, "MTN", {}, d)).toMatchObject({ ok: false, status: 500 })
+    expect(await buy(m, "MTN", {}, d)).toMatchObject({ ok: false, status: 503, error: expect.stringMatching(/not charged/) })
     expect(m.calls.debit).toBe(0)
+  })
+  it("M6b: a non-23505 insert error => 503 (pre-payment), no debit, no purchase", async () => {
+    const m = make()
+    const d = { ...m.d, insertOrder: async () => { throw Object.assign(new Error("timeout"), { code: "57014" }) } }
+    const r = await buy(m, "MTN", {}, d)
+    expect(r).toMatchObject({ ok: false, status: 503 })
+    expect(!r.ok && r.order).toBeFalsy()
+    expect([m.calls.debit, m.calls.purchase]).toEqual([0, 0])
+  })
+})
+
+describe("I1: replay with the same key", () => {
+  it("pending + unpaid (debit rolled back) => RESUMES: debits once more, claims and dispatches", async () => {
+    const m = make(); m.setWallet("throw_unpaid")
+    expect(await buy(m)).toMatchObject({ ok: false, status: 500 })
+    expect(m.orders[0]).toMatchObject({ status: "pending", payment_status: "unpaid" })
+    m.setWallet("ok")
+    // The retry carries the same key; the token may even have expired by now.
+    const r = await buy(m, "MTN", { token: "garbage" })
+    expect(r.ok && r.order).toMatchObject({ id: "o1", status: "processing", payment_status: "paid", hubtel_client_reference: "CR1" })
+    expect([m.orders.length, m.calls.insert, m.calls.debit, m.calls.purchase]).toEqual([1, 1, 2, 1])
+    expect(m.calls.query).toBe(1) // no re-query on resume
+  })
+  it("pending + unpaid resume with insufficient balance => 402, order failed, no purchase", async () => {
+    const m = make(); m.setWallet("throw_unpaid")
+    await buy(m)
+    m.setWallet("insufficient")
+    expect(await buy(m)).toMatchObject({ ok: false, status: 402, error: "Insufficient wallet balance", order: { status: "failed", payment_status: "unpaid" } })
+    expect(m.orders[0]).toMatchObject({ status: "failed", failure_reason: "Insufficient wallet balance" })
+    expect(m.calls.purchase).toBe(0)
+  })
+  it("pending + unpaid resume whose debit throws again (DB still unpaid) => 500 unconfirmed again, no purchase", async () => {
+    const m = make(); m.setWallet("throw_unpaid")
+    await buy(m)
+    expect(await buy(m)).toMatchObject({ ok: false, status: 500, order: { id: "o1" } })
+    expect([m.calls.debit, m.calls.purchase]).toEqual([2, 0])
+  })
+  it("pending + unpaid resume is refused (503, no debit) while Hubtel is paused / service off / bundles off", async () => {
+    const m = make(); m.setWallet("throw_unpaid")
+    await buy(m)
+    m.setWallet("ok")
+    m.hub.paused = true
+    expect(await buy(m)).toMatchObject({ ok: false, status: 503 })
+    m.hub.paused = false; m.hub.services.data_mtn = false
+    expect(await buy(m)).toMatchObject({ ok: false, status: 503 })
+    m.hub.services.data_mtn = true; m.cfg.networks.MTN.enabled = false
+    expect(await buy(m)).toMatchObject({ ok: false, status: 503 })
+    m.cfg.networks.MTN.enabled = true
+    expect(await buy(m, "MTN", {}, { ...m.d, getHubtelConfig: async () => { throw new Error("db") } })).toMatchObject({ ok: false, status: 503 })
+    expect(m.calls.debit).toBe(1)
+    expect(m.orders[0]).toMatchObject({ status: "pending", payment_status: "unpaid" })
+    expect((await buy(m)).ok).toBe(true)
+    expect([m.calls.debit, m.calls.purchase]).toEqual([2, 1])
+  })
+  it("failed + unpaid (insufficient earlier) => 402 'Insufficient wallet balance' with the order, no debit", async () => {
+    const m = make(); m.setWallet("insufficient")
+    await buy(m)
+    m.setWallet("ok")
+    const r = await buy(m)
+    expect(r).toMatchObject({ ok: false, status: 402, error: "Insufficient wallet balance", order: { id: "o1", status: "failed", payment_status: "unpaid" } })
+    expect([m.calls.debit, m.calls.purchase]).toEqual([1, 0])
+  })
+  it("paid orders (any status) are returned as they are, never re-debited", async () => {
+    const m = make()
+    await buy(m)
+    for (const s of ["processing", "completed", "failed", "pending"] as const) {
+      m.orders[0].status = s
+      const r = await buy(m)
+      expect(r.ok && r.order).toMatchObject({ id: "o1", status: s, payment_status: "paid" })
+    }
+    expect([m.calls.debit, m.calls.purchase]).toEqual([1, 1])
+  })
+  it("a resume that loses the debit race (not_found, row already paid) returns the paid order without dispatching", async () => {
+    const m = make(); m.setWallet("throw_unpaid")
+    await buy(m)
+    const d: BundlesDeps = {
+      ...m.d,
+      debitOrder: async () => { m.calls.debit++; m.orders[0].payment_status = "paid"; m.orders[0].status = "processing"; return "not_found" },
+    }
+    const r = await buy(m, "MTN", {}, d)
+    expect(r.ok && r.order).toMatchObject({ id: "o1", payment_status: "paid", status: "processing" })
+    expect(m.calls.purchase).toBe(0)
   })
 })
 
@@ -316,14 +398,14 @@ describe("pre-checks before any write", () => {
     expect(await buy(m)).toMatchObject({ ok: false, status: 403 })
     expect(m.writes() + m.calls.query).toBe(0)
   })
-  it("empty secret => 503; bad / expired / foreign tokens => 400", async () => {
+  it("empty secret => 503; bad / expired / foreign tokens => 409 'Prices refreshed' (the UI reloads the catalog)", async () => {
     const m = make()
     expect(await buy(m, "MTN", {}, { ...m.d, secret: "" })).toMatchObject({ ok: false, status: 503 })
     const t = tok()
     for (const bad of [t + "x", "garbage", signBundleToken({ network: "MTN", ...BUNDLES.MTN, issuedAt: T0 }, "other-secret")]) {
-      expect(await buy(m, "MTN", { token: bad })).toMatchObject({ ok: false, status: 400 })
+      expect(await buy(m, "MTN", { token: bad })).toEqual({ ok: false, status: 409, error: PRICES_REFRESHED })
     }
-    expect(await buy(m, "MTN", {}, { ...m.d, now: () => T0 + 11 * 60_000 })).toMatchObject({ ok: false, status: 400 })
+    expect(await buy(m, "MTN", {}, { ...m.d, now: () => T0 + 11 * 60_000 })).toEqual({ ok: false, status: 409, error: PRICES_REFRESHED })
     expect(m.writes() + m.calls.query).toBe(0)
   })
   it("invalid phone => 400", async () => {
@@ -375,6 +457,20 @@ describe("debit outcomes", () => {
     expect(m.orders[0]).toMatchObject({ status: "pending", payment_status: "unpaid" })
     expect(m.calls.alerts.join()).toMatch(/debit outcome uncertain/)
     expect(m.calls.urgent).toContain(true)
+    expect(m.calls.purchase).toBe(0)
+  })
+  it("M6a: debit throws AND the re-read throws => urgent alert + 500 with the order, no purchase", async () => {
+    const m = make(); m.setWallet("throw_unpaid")
+    const r = await buy(m, "MTN", {}, { ...m.d, getOrder: async () => { throw new Error("db") } })
+    expect(r).toMatchObject({ ok: false, status: 500, order: { id: "o1" } })
+    expect(m.calls.alerts.join()).toMatch(/debit outcome uncertain/)
+    expect(m.calls.urgent).toContain(true)
+    expect(m.calls.purchase).toBe(0)
+  })
+  it("M6c: marking the order failed after insufficient rejects => swallowed, still 402, no purchase", async () => {
+    const m = make(); m.setWallet("insufficient")
+    const d: BundlesDeps = { ...m.d, updateOrder: async () => { throw new Error("db") } }
+    expect(await buy(m, "MTN", {}, d)).toMatchObject({ ok: false, status: 402, error: "Insufficient wallet balance", order: { status: "failed" } })
     expect(m.calls.purchase).toBe(0)
   })
 })

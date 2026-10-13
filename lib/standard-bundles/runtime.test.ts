@@ -74,22 +74,33 @@ describe("order store wiring", () => {
 })
 
 describe("getBundlesAvailability", () => {
+  const hubOn = (over: Partial<{ enabled: boolean; paused: boolean; services: Record<string, boolean> }> = {}) =>
+    async () => ({ enabled: true, paused: false, services: { data_mtn: true, data_telecel: true, data_at: true }, ...over })
   it("returns only enabled networks with labels when master is on", async () => {
     const { db } = fakeDb({}, { enabled: true, networks: { MTN: { enabled: true }, TELECEL: { enabled: false }, AT: { enabled: true } } })
-    expect(await getBundlesAvailability(db)).toEqual({
+    expect(await getBundlesAvailability(db, hubOn())).toEqual({
       enabled: true, networks: [{ network: "MTN", label: "MTN" }, { network: "AT", label: "AT" }],
     })
   })
   it("labels Telecel", async () => {
     const { db } = fakeDb({}, { enabled: true, networks: { TELECEL: { enabled: true } } })
-    const a = await getBundlesAvailability(db)
+    const a = await getBundlesAvailability(db, hubOn())
     expect(a.networks.find(n => n.network === "TELECEL")?.label).toBe("Telecel")
   })
   it("is disabled when master is off, and never throws on a read error", async () => {
     const { db } = fakeDb({}, { enabled: false, networks: { MTN: { enabled: true } } })
-    expect(await getBundlesAvailability(db)).toEqual({ enabled: false, networks: [] })
+    expect(await getBundlesAvailability(db, hubOn())).toEqual({ enabled: false, networks: [] })
     const bad: any = { from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: new Error("boom") }) }) }) }) }
-    expect(await getBundlesAvailability(bad)).toEqual({ enabled: false, networks: [] })
+    expect(await getBundlesAvailability(bad, hubOn())).toEqual({ enabled: false, networks: [] })
+  })
+  it("M4: requires Hubtel enabled and the network's data_* service on; a pause does not hide it; never throws", async () => {
+    const cfg = { enabled: true, networks: { MTN: { enabled: true }, TELECEL: { enabled: true }, AT: { enabled: true } } }
+    expect(await getBundlesAvailability(fakeDb({}, cfg).db, hubOn({ enabled: false }))).toEqual({ enabled: false, networks: [] })
+    expect(await getBundlesAvailability(fakeDb({}, cfg).db, hubOn({ services: { data_mtn: true, data_telecel: false } })))
+      .toEqual({ enabled: true, networks: [{ network: "MTN", label: "MTN" }] })
+    expect(await getBundlesAvailability(fakeDb({}, cfg).db, hubOn({ services: {} }))).toEqual({ enabled: false, networks: [] })
+    expect((await getBundlesAvailability(fakeDb({}, cfg).db, hubOn({ paused: true }))).networks).toHaveLength(3)
+    expect(await getBundlesAvailability(fakeDb({}, cfg).db, async () => { throw new Error("db") })).toEqual({ enabled: false, networks: [] })
   })
 })
 

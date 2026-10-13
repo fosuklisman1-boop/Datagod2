@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import { getHubtelCsRuntime } from "@/lib/hubtel-cs/runtime"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import type { DataOrderRow, BundlesDeps } from "./service"
-import { BUNDLE_NETWORKS, type BundleNetwork } from "./categories"
+import { BUNDLE_NETWORKS, NETWORK_SERVICE, type BundleNetwork } from "./categories"
 import { getBundlesConfig } from "./config"
 
 const TABLE = "hubtel_data_orders"
@@ -80,15 +80,26 @@ export interface BundlesAvailability {
   networks: { network: BundleNetwork; label: string }[]
 }
 
-/** Never throws: any failure reads as "not available". */
-export async function getBundlesAvailability(db: SupabaseClient): Promise<BundlesAvailability> {
+/**
+ * Never throws: any failure reads as "not available". Mirrors the catalog gate: bundles master + network switch, AND
+ * Hubtel enabled AND the network's `data_*` service on. A pause does not hide the page (browsing is allowed while paused).
+ */
+export async function getBundlesAvailability(
+  db: SupabaseClient,
+  getHubtelConfig: BundlesDeps["getHubtelConfig"],
+): Promise<BundlesAvailability> {
+  const NONE: BundlesAvailability = { enabled: false, networks: [] }
   try {
     const cfg = await getBundlesConfig(db)
-    if (!cfg.enabled) return { enabled: false, networks: [] }
-    const networks = BUNDLE_NETWORKS.filter(n => cfg.networks[n].enabled).map(n => ({ network: n, label: LABELS[n] }))
-    return { enabled: true, networks }
+    if (!cfg.enabled) return NONE
+    const h = await getHubtelConfig()
+    if (!h?.enabled) return NONE
+    const networks = BUNDLE_NETWORKS
+      .filter(n => cfg.networks[n]?.enabled && h.services?.[NETWORK_SERVICE[n]] === true)
+      .map(n => ({ network: n, label: LABELS[n] }))
+    return networks.length > 0 ? { enabled: true, networks } : NONE
   } catch {
-    return { enabled: false, networks: [] }
+    return NONE
   }
 }
 

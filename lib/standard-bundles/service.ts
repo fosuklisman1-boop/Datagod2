@@ -47,6 +47,9 @@ export const sameAmount = (a: number, b: number): boolean =>
   Number.isFinite(a) && Number.isFinite(b) && Math.round(a * 100) === Math.round(b * 100)
 
 export const NOT_AVAILABLE_FOR_NUMBER = "This bundle isn't available for that number right now — refresh"
+/** Invalid or expired catalog token: same "reload and re-pick" situation as a changed bundle, so it is a 409. */
+export const PRICES_REFRESHED = "Prices refreshed — pick the bundle again"
+export const INSUFFICIENT = "Insufficient wallet balance"
 const UNAVAILABLE = "Bundles unavailable right now"
 
 const fail = (status: number, error: string): { ok: false; status: number; error: string } => ({ ok: false, status, error })
@@ -55,17 +58,18 @@ const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 export async function buyBundle(d: BundlesDeps, userId: string, input: BuyInput): Promise<BuyResult> {
   if (!isValidIdempotencyKey(input?.idempotencyKey)) return fail(400, "Invalid request, please try again")
-  // Repeat submit (double-click / network retry): return the original order, never debit twice.
+  // Repeat submit (double-click / network retry) with the same key: never a second order, never a second debit.
+  let existing: DataOrderRow | null
   try {
-    const existing = await d.findOrderByIdempotencyKey(userId, input.idempotencyKey)
-    if (existing) return { ok: true, order: existing }
+    existing = await d.findOrderByIdempotencyKey(userId, input.idempotencyKey)
   } catch {
     return fail(503, "Temporarily unavailable")
   }
+  if (existing) return replayExisting(d, userId, existing)
 
   if (!d.secret) return fail(503, UNAVAILABLE)
   const v = verifyBundleToken(input.token, d.secret, d.now())
-  if (!v) return fail(400, "This bundle list has expired — refresh and try again")
+  if (!v) return fail(409, PRICES_REFRESHED)
 
   const phone = typeof input.phone === "string" ? input.phone : ""
   if (!isValidGhanaMobile(phone)) return fail(400, "Enter a valid Ghana mobile number")
@@ -117,9 +121,43 @@ export async function buyBundle(d: BundlesDeps, userId: string, input: BuyInput)
       try { existing = await d.findOrderByIdempotencyKey(userId, input.idempotencyKey) } catch { existing = null }
       if (existing) return { ok: true, order: existing }
     }
-    return fail(500, "Could not create the order")
+    // Nothing was debited (the debit needs the inserted row), so this is a retryable pre-payment failure. A retry with the
+    // same key finds the row if the insert did commit, and resumes it.
+    return fail(503, "Could not create the order. You were not charged — please try again.")
   }
 
+  return debitAndDispatch(d, userId, order)
+}
+
+/**
+ * Same idempotency key as an earlier request.
+ * - pending + unpaid: the earlier debit never happened (or rolled back), so RESUME it through the normal debit path.
+ *   `data_order_debit` only acts on pending+unpaid rows, so a concurrent resume cannot debit twice.
+ * - failed + unpaid: never charged (insufficient balance) - say so, so the client rotates the key.
+ * - anything paid: hand back the order as it is.
+ */
+async function replayExisting(d: BundlesDeps, userId: string, existing: DataOrderRow): Promise<BuyResult> {
+  if (existing.payment_status === "unpaid" && existing.status === "failed") {
+    return { ok: false, status: 402, error: INSUFFICIENT, order: existing }
+  }
+  if (existing.payment_status !== "unpaid" || existing.status !== "pending") return { ok: true, order: existing }
+  // Resume: re-check the switches that would have stopped a fresh buy before the debit (the token/price checks were
+  // done when the order was created). Refused => 503, the order stays "not charged" and the key stays usable.
+  try {
+    const cfg = await d.getBundlesConfig()
+    const net = cfg.networks?.[existing.network]
+    if (!cfg.enabled || !net?.enabled) return fail(503, UNAVAILABLE)
+    const h = await d.getHubtelConfig()
+    if (!h.enabled || h.services?.[NETWORK_SERVICE[existing.network]] !== true || h.paused) return fail(503, UNAVAILABLE)
+  } catch {
+    return fail(503, UNAVAILABLE)
+  }
+  return debitAndDispatch(d, userId, existing)
+}
+
+/** Debit a pending+unpaid order, then claim and dispatch it. Shared by a fresh buy and a resumed replay. */
+async function debitAndDispatch(d: BundlesDeps, userId: string, order: DataOrderRow): Promise<BuyResult> {
+  const amount = order.amount
   let debit: "ok" | "insufficient" | "not_found" | null = null
   try {
     debit = await d.debitOrder(order.id)
@@ -134,11 +172,18 @@ export async function buyBundle(d: BundlesDeps, userId: string, input: BuyInput)
       return { ok: false, status: 500, error: "We could not confirm your payment. Please check your wallet before retrying.", order }
     }
   }
-  if (debit === "not_found") return { ok: false, status: 409, error: "This order can no longer be paid", order }
+  if (debit === "not_found") {
+    // The row is no longer pending+unpaid: typically a concurrent request with the same key paid it first.
+    let fresh: DataOrderRow | null = null
+    try { fresh = await d.getOrder(order.id) } catch { fresh = null }
+    if (fresh && fresh.payment_status !== "unpaid") return { ok: true, order: fresh }
+    if (fresh && fresh.status === "failed") return { ok: false, status: 402, error: INSUFFICIENT, order: fresh }
+    return { ok: false, status: 409, error: "This order can no longer be paid", order: fresh ?? order }
+  }
   if (debit === "insufficient") {
-    const patch = { status: "failed" as const, failure_reason: "Insufficient wallet balance" }
+    const patch = { status: "failed" as const, failure_reason: INSUFFICIENT }
     await d.updateOrder(order.id, patch, ["pending"]).catch(() => 0)
-    return { ok: false, status: 402, error: "Insufficient wallet balance", order: { ...order, ...patch } }
+    return { ok: false, status: 402, error: INSUFFICIENT, order: { ...order, ...patch } }
   }
   order = { ...order, payment_status: "paid" }
   const r = await dispatchInternal(d, order)
