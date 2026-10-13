@@ -29,7 +29,8 @@ export interface BillsDeps {
   updateOrder(id: string, patch: Partial<BillOrderRow>, onlyFromStatuses?: BillOrderRow["status"][]): Promise<number>
   /** Atomic: lock order, deduct wallet, mark paid, write history. Throws on RPC error (outcome unknown). */
   debitOrder(orderId: string): Promise<"ok" | "insufficient" | "not_found">
-  alert(message: string): Promise<void>
+  /** `urgent` alerts keep the email fallback when SMS cannot be sent. */
+  alert(message: string, urgent?: boolean): Promise<void>
   newReference(): string
   secret: string
   now(): number
@@ -41,7 +42,7 @@ export type VerifyResult =
   | { ok: false; status: number; error: string }
 
 const fail = (status: number, error: string): { ok: false; status: number; error: string } => ({ ok: false, status, error })
-const safeAlert = async (d: BillsDeps, m: string) => { try { await d.alert(m) } catch { /* alerting must never break the flow */ } }
+const safeAlert = async (d: BillsDeps, m: string, urgent = false) => { try { await d.alert(m, urgent) } catch { /* alerting must never break the flow */ } }
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 /** Reads both configs; null on any failure => callers fail closed. */
@@ -152,7 +153,7 @@ export async function payBill(d: BillsDeps, userId: string, token: string, amoun
     if (fresh && fresh.payment_status === "paid") {
       debit = "ok"
     } else {
-      await safeAlert(d, `Bill debit outcome uncertain: order ${order.reference_code}, user ${userId}, GHS ${pay} — check wallet`)
+      await safeAlert(d, `Bill debit outcome uncertain: order ${order.reference_code}, user ${userId}, GHS ${pay} — check wallet`, true)
       return { ok: false, status: 500, error: "We could not confirm your payment. Please check your wallet before retrying.", order }
     }
   }
@@ -179,7 +180,8 @@ async function dispatchInternal(d: BillsDeps, order: BillOrderRow): Promise<{ st
     const fresh = await d.getOrder(order.id)
     if (!fresh || fresh.status !== "pending" || fresh.payment_status !== "paid") return { status: fresh?.status ?? order.status, patch: {} }
     order = fresh
-  } catch {
+  } catch (e) {
+    await safeAlert(d, `Bill order ${ref}: could not re-read the order before dispatch (${msg(e)}). It was paid and not sent; check it in Utility Bills.`)
     return { status: order.status, patch: {} }
   }
   const guarded = async (patch: Partial<BillOrderRow>, from: BillOrderRow["status"][]) => {
@@ -237,8 +239,12 @@ async function dispatchInternal(d: BillsDeps, order: BillOrderRow): Promise<{ st
     }
     const n = await guarded(patch, ["processing"])
     if (n === 0) {
+      // A fast callback may already have settled the order: believe the database, not the failed write.
+      let cur: BillOrderRow | null = null
+      try { cur = await d.getOrder(order.id) } catch { cur = null }
+      if (cur && !(cur.status === "processing" && !cur.hubtel_client_reference)) return { status: cur.status, patch: {} }
       await safeAlert(d, `Bill order ${ref}: Hubtel has the transaction (ref ${tx.client_reference}) but the order could not be updated. Reconcile manually; do not resend.`)
-      return { status: order.status, patch: {} }
+      return { status: cur?.status ?? order.status, patch: {} }
     }
     return { status: "processing", patch }
   } catch (e) {

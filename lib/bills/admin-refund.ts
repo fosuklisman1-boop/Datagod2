@@ -15,13 +15,13 @@ export interface BillRefundDeps {
   refundViaLedger(ref: string, force: boolean): Promise<{ ok: boolean; message: string }>
   /** Bill adapter refundToWallet with an idempotent credit reference. Throws on outcome-unknown errors. */
   refundDirect(order: RefundOrder): Promise<{ refunded: boolean; message: string }>
-  alert(message: string): Promise<void>
+  alert(message: string, urgent?: boolean): Promise<void>
   now(): number
 }
 
 export interface BillRefundResult { ok: boolean; status: number; message: string; mode?: "ledger" | "direct"; released?: boolean }
 
-const safe = async (d: BillRefundDeps, m: string) => { try { await d.alert(m) } catch { /* never break the flow */ } }
+const safe = async (d: BillRefundDeps, m: string, urgent = false) => { try { await d.alert(m, urgent) } catch { /* never break the flow */ } }
 
 /** The refund route's decision flow, with all IO injected. */
 export async function executeBillRefund(d: BillRefundDeps, orderId: string, note: string, force: boolean): Promise<BillRefundResult> {
@@ -70,7 +70,7 @@ async function abort(d: BillRefundDeps, order: RefundOrder, orderId: string, row
   let reverted = 0
   try { reverted = await d.revertToProcessing(orderId, ref, from) } catch { reverted = 0 }
   if (reverted === 0) {
-    await safe(d, `URGENT: bill order ${order.reference_code} (${orderId}) was moved for a refund, a Hubtel transaction${ref ? ` (${ref})` : " may have"} appeared, and the order could NOT be restored to processing. Fix by hand; do not refund.`)
+    await safe(d, `URGENT: bill order ${order.reference_code} (${orderId}) was moved for a refund, a Hubtel transaction${ref ? ` (${ref})` : " may have"} appeared, and the order could NOT be restored to processing. Fix by hand; do not refund.`, true)
     return { ok: false, status: 500, message: "A Hubtel transaction appeared while refunding and the order could not be restored to processing. Admins were alerted; do not refund." }
   }
   await safe(d, `Bill order ${order.reference_code}: a Hubtel transaction${ref ? ` (${ref})` : ""} appeared (or the ledger could not be read) while an admin refund was starting. Refund aborted; order restored to processing.`)

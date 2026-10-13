@@ -5,6 +5,9 @@ import { getBillsRuntime } from "@/lib/bills/runtime"
 import { payBill } from "@/lib/bills/service"
 import { authenticate, readJson } from "@/lib/bills/route-auth"
 
+// A request must always die well before the 5-minute stuck-claim threshold.
+export const maxDuration = 60
+
 export async function POST(request: NextRequest) {
   try {
     const auth = await authenticate(request)

@@ -61,9 +61,9 @@ export async function POST(request: NextRequest) {
         const stub = { order_id: order.id, order_table: BILL_ORDERS_TABLE, client_reference: order.reference_code } as unknown as HubtelCsTx
         return adapter.refundToWallet(stub, adminId)
       },
-      async alert(message) {
+      async alert(message, urgent) {
         const { notifyAdmins } = await import("@/lib/sms-service")
-        await notifyAdmins(message, "bills_review", undefined, true)
+        await notifyAdmins(message, "bills_review", undefined, !urgent)
       },
       now: Date.now,
     }

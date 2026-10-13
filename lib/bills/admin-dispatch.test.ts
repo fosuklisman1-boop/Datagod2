@@ -64,6 +64,34 @@ describe("executeBillDispatch", () => {
   })
 })
 
+describe("Ghana Water expiry", () => {
+  const water = (ageMin: number, o: Partial<DispatchOrder> = {}) => ord({ biller: "ghana_water", created_at: new Date(NOW - ageMin * 60_000).toISOString(), ...o })
+  it("refuses a ghana_water order older than 10 minutes", async () => {
+    const { d, calls } = make({ order: water(11) })
+    expect(await executeBillDispatch(d, "o1")).toMatchObject({ ok: false, status: 409, message: "Ghana Water verification expired — refund instead" })
+    expect(calls).toEqual([])
+  })
+  it("refuses an old stuck ghana_water claim before releasing it", async () => {
+    const { d, calls } = make({ order: water(30, stuck()) })
+    expect((await executeBillDispatch(d, "o1")).status).toBe(409)
+    expect(calls).toEqual([])
+  })
+  it("allows a fresh ghana_water order and old orders of other billers", async () => {
+    expect((await executeBillDispatch(make({ order: water(5) }).d, "o1")).ok).toBe(true)
+    expect((await executeBillDispatch(make({ order: ord({ biller: "dstv", created_at: new Date(NOW - 99 * 60_000).toISOString() }) }).d, "o1")).ok).toBe(true)
+  })
+})
+
+describe("urgent alerts", () => {
+  it("flags the could-not-restore alert as urgent", async () => {
+    const flags: (boolean | undefined)[] = []
+    let n = 0
+    const { d } = make({ order: stuck(), ledger: async () => (n++ === 0 ? [] : [row()]) })
+    await executeBillDispatch({ ...d, restoreProcessing: async () => 0, alert: async (_m, u) => { flags.push(u) } }, "o1")
+    expect(flags).toEqual([true])
+  })
+})
+
 describe("executeBillDispatch release guards", () => {
   it("0-row release aborts without dispatching", async () => {
     const { d, calls } = make({ order: stuck() })

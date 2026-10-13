@@ -99,14 +99,17 @@ Behaviour to know:
 
 ## Phase 3a — Utility Bills
 
-Wallet-paid bill payments (ECG, Ghana Water, DSTV, GOtv, StarTimes, Telecel Broadband) over Hubtel. Everything ships OFF.
+Wallet-paid bill payments (ECG, Ghana Water, DSTV, GOtv, StarTimes, Telecel Broadband) over Hubtel. The bills master switch and every biller ship OFF; the Hubtel `bill_*` service switches default ON (see step 2.1).
 
 1. Apply `migrations/0117_hubtel_bill_orders.sql` BEFORE merging/deploying. It creates `hubtel_bill_orders` (including `verify_token_hash` UNIQUE, `session_id`, `broadband_account`) and three RPCs: `utility_bills_config_patch`, `bill_order_debit`, `hubtel_bill_orders_stats`.
    - Pre-check: `select to_regclass('public.hubtel_bill_orders');` must be null.
    - Post-check: the table exists with RLS on (`select relrowsecurity from pg_class where oid='public.hubtel_bill_orders'::regclass;` is true; anon/authenticated have no grants). The three functions exist and only `service_role` can EXECUTE them (check `has_function_privilege` for anon, authenticated, service_role).
    - Smoke: `select utility_bills_config_patch('{}'::jsonb);` returns the config without error (creates the `utility_bills_config` admin_settings row if absent).
-2. Enable order (all switches default OFF):
-   1. `/admin/hubtel-commission`: Hubtel must be enabled and ready (see Phase 2 readiness checklist) and the Hubtel `bill_*` service switches you want (`bill_ecg`, `bill_ghana_water`, `bill_dstv`, `bill_gotv`, `bill_startimes`, `bill_telecel_broadband`) must be ON. A biller whose Hubtel switch is off is unavailable even if enabled below.
+   - Smoke: `select bill_order_debit(gen_random_uuid());` returns `'not_found'`.
+   - Smoke: `select * from hubtel_bill_orders_stats(null,null,null,null,null,false);` returns exactly one row of zeros.
+   - Verified 2026-10-13: `transactions` has no CHECK constraint on `type`/`source`, so the `utility_bill` history rows are accepted. The unique constraint `unique_transaction_reference` on `(user_id, reference_id, type)` exists, which makes concurrent refunds safe (the second credit with the same `bill-refund-<order id>` reference is rejected).
+2. Enable order (the bills config is the real gate):
+   1. `/admin/hubtel-commission`: Hubtel must be enabled and ready (see Phase 2 readiness checklist) and the Hubtel `bill_*` service switches you want (`bill_ecg`, `bill_ghana_water`, `bill_dstv`, `bill_gotv`, `bill_startimes`, `bill_telecel_broadband`) must be ON. These Hubtel switches default ON (`defaultEnabled: true` in `lib/hubtel-cs/services.ts` for 5 of 6; `bill_telecel_broadband` defaults OFF), so do not rely on them to keep bills dark: the bills config (master switch + per-biller switches on `/admin/utility-bills`, default OFF) is the real gate. A biller whose Hubtel switch is off is unavailable even if enabled below.
    2. `/admin/utility-bills` -> Settings: turn on the master switch and ONE biller (and decide auto-fulfil).
    3. Pay the minimum to a known account. Check the order goes `completed` with a commission, the Hubtel ledger row is `fulfilled`, and the wallet history has a `transactions` row with reason `utility_bill`.
    4. Then enable the remaining billers.
@@ -117,7 +120,7 @@ Wallet-paid bill payments (ECG, Ghana Water, DSTV, GOtv, StarTimes, Telecel Broa
    - Refund Queue rules: never refund while the Hubtel row is `pending` or `needs_review` (or `created`); Hubtel-fulfilled and completed orders cannot be refunded. Orders that never reached Hubtel (no ledger row) are refundable once not updated for 60 seconds. Failed Hubtel rows refund through the Phase 1 ledger path (an admin-overridden row needs the force confirmation). Refunds are idempotent with credit reference `bill-refund-<order id>`; if the outcome is reported unknown, check the wallet, then retrying is safe.
 5. Biller specifics:
    - ECG: the customer enters their mobile number; "add meter" links that phone to the meter on Hubtel (the customer must tick the consent box). Without it, verification lists the meters already linked to the phone.
-   - Ghana Water: needs mobile + email + meter number; verification returns a session id that is required for the payment, so the payment must happen within 10 minutes of a fresh verification (verify again after that).
+   - Ghana Water: needs mobile + email + meter number; verification returns a session id that is required for the payment, so the payment must happen within 10 minutes of a fresh verification (verify again after that). Because the session id is per-lookup, admin Dispatch refuses a Ghana Water order created more than 10 minutes ago with "Ghana Water verification expired — refund instead"; refund it from the Refund Queue.
    - Telecel Broadband: needs the 10-digit landline AND the broadband account number (e.g. P0444101).
    - DSTV / GOtv: smartcard number. StarTimes: account number.
 6. Known follow-ups:

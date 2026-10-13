@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase"
 import { BillPayFlow, BillLogo } from "./BillPayFlow"
 import { useBillsAvailability } from "./use-bills-availability"
 import { BILLERS, isBillerKey } from "@/lib/bills/billers"
+import { billStatusLabel } from "@/lib/bills/ui-helpers"
 
 interface BillOrder {
   id: string
@@ -185,7 +186,10 @@ export function BillsPage({ page }: { page: "bills" | "broadband" }) {
                         </div>
                         <div className="shrink-0 text-right">
                           <p className="text-sm font-bold text-foreground">GHS {Number(o.amount).toFixed(2)}</p>
-                          <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_CLASSES[o.status] || "bg-muted text-muted-foreground"}`}>{o.status}</span>
+                          {(() => {
+                            const s = billStatusLabel(o.status, o.payment_status)
+                            return <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_CLASSES[s.tone] || "bg-muted text-muted-foreground"}`}>{s.label}</span>
+                          })()}
                         </div>
                       </div>
                     )

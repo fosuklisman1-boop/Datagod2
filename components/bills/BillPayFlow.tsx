@@ -3,6 +3,7 @@
 import { useRef, useState } from "react"
 import { ArrowRight, CheckCircle2, Clock, Loader2, Phone, XCircle } from "lucide-react"
 import { isValidAmountInput } from "@/lib/bills/billers"
+import { classifyPayResponse } from "@/lib/bills/ui-helpers"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import { supabase } from "@/lib/supabase"
 import type { AvailabilityBiller } from "./use-bills-availability"
@@ -190,22 +191,19 @@ function PaySheet({
     setError("")
     const { status, json } = await authedPost("/api/bills/pay", { token: picked.token, amount: numAmount })
     setBusy(false)
-    if (status === 200 && json?.success) {
-      setReference(String(json.order?.reference_code ?? ""))
-      setDoneStatus(String(json.order?.status ?? "processing"))
+    const outcome = classifyPayResponse(status, json)
+    if (outcome.kind === "done") {
+      setReference(outcome.reference)
+      setDoneStatus(outcome.status)
       setStep("done")
       onPaid()
       return // payingRef stays true: this verification is spent
     }
     payingRef.current = false
-    const apiMsg = String(json?.error ?? "")
     // 503/429 fail before an order is inserted, so the token is still good. Everything else
-    // (incl. network errors, status 0) may have reached the server: never re-send the token.
-    if (status === 503 || status === 429) { setError(apiMsg || "Temporarily unavailable. Please try again shortly."); return }
-    if (status === 500) { backToInput("We could not confirm your payment. Please check your wallet and recent payments before trying again."); return }
-    if (status === 0) { backToInput("We could not confirm your payment. Please check your wallet and recent payments before trying again."); return }
-    if (status === 402) { backToInput(apiMsg || "Insufficient wallet balance. Top up your wallet and try again."); return }
-    backToInput(apiMsg || "Payment failed. Please verify the account and try again.")
+    // (timeouts, crashes, network errors) may have reached the server: never re-send the token.
+    if (outcome.kind === "retry") { setError(outcome.message); return }
+    backToInput(outcome.message)
   }
 
   const inputReady = isEcg

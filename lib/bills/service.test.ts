@@ -299,3 +299,47 @@ describe("review fixes", () => {
     expect(await verifyBill(m.d, "u1", "ecg", { phone: "0244000000", addMeter: true })).toMatchObject({ ok: false, status: 400, error: "Enter the meter or account number" })
   })
 })
+
+describe("final review fixes", () => {
+  const setup = async (over: Partial<BillsDeps> = {}) => {
+    const m = make(over)
+    m.setCfg(c => { c.autoFulfil = false })
+    return m
+  }
+  it("uncertain debit alert is urgent", async () => {
+    const flags: any[] = []
+    const m = make({ alert: async (_msg, u) => { flags.push(u) } })
+    m.setWallet("throw_unpaid")
+    const v = await verifyBill(m.d, "u1", "dstv", { account: "ABCD1234" } as any)
+    await payBill(m.d, "u1", (v as any).token, 10)
+    expect(flags).toContain(true)
+  })
+  it("getOrder throwing in dispatch alerts", async () => {
+    const m = await setup()
+    const v = await verifyBill(m.d, "u1", "dstv", { account: "ABCD1234" } as any)
+    const r = await payBill(m.d, "u1", (v as any).token, 10)
+    m.calls.alerts.length = 0
+    await dispatchBillOrder({ ...m.d, getOrder: async () => { throw new Error("db") } }, (r as any).order)
+    expect(m.calls.alerts.length).toBe(1)
+    expect(m.calls.purchase).toBe(0)
+  })
+  it("0-row processing write: returns the real status, no alert when a callback settled it", async () => {
+    const m = make()
+    const v = await verifyBill(m.d, "u1", "dstv", { account: "ABCD1234" } as any)
+    const d2: BillsDeps = {
+      ...m.d,
+      purchase: async () => { m.orders[0].status = "completed"; return { client_reference: "CR1", state: "pending" } as HubtelCsTx },
+    }
+    const r = await payBill(d2, "u1", (v as any).token, 10)
+    expect((r as any).order.status).toBe("completed")
+    expect(m.calls.alerts).toEqual([])
+  })
+  it("0-row processing write alerts when still processing without a ref", async () => {
+    const m = make()
+    const v = await verifyBill(m.d, "u1", "dstv", { account: "ABCD1234" } as any)
+    const d2: BillsDeps = { ...m.d, updateOrder: async (id, p, only) => (p.hubtel_client_reference ? 0 : m.d.updateOrder(id, p, only)) }
+    const r = await payBill(d2, "u1", (v as any).token, 10)
+    expect((r as any).order.status).toBe("processing")
+    expect(m.calls.alerts.some(a => a.includes("could not be updated"))).toBe(true)
+  })
+})

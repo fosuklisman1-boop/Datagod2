@@ -15,7 +15,7 @@ interface RuntimeParts {
 }
 
 /** Pure wiring of BillsDeps onto a db + hubtel-cs client (separate from getBillsRuntime so tests can pass fakes). */
-export function buildBillsDeps(rt: RuntimeParts, secret: string, alert: (m: string) => Promise<void>): BillsDeps {
+export function buildBillsDeps(rt: RuntimeParts, secret: string, alert: (m: string, urgent?: boolean) => Promise<void>): BillsDeps {
   const { db } = rt
   return {
     getBillsConfig: () => getBillsConfig(db),
@@ -54,9 +54,10 @@ export function buildBillsDeps(rt: RuntimeParts, secret: string, alert: (m: stri
 
 export function getBillsRuntime(): { deps: BillsDeps; db: SupabaseClient } {
   const rt = getHubtelCsRuntime()
-  const deps = buildBillsDeps(rt, process.env.HUBTEL_CS_CALLBACK_SECRET ?? "", async message => {
+  const deps = buildBillsDeps(rt, process.env.HUBTEL_CS_CALLBACK_SECRET ?? "", async (message, urgent) => {
     const { notifyAdmins } = await import("@/lib/sms-service")
-    await notifyAdmins(message, "bills_review", undefined, true)
+    // Urgent alerts keep the email fallback (4th arg false) so they still arrive when SMS credit is out.
+    await notifyAdmins(message, "bills_review", undefined, !urgent)
   })
   return { deps, db: rt.db }
 }
