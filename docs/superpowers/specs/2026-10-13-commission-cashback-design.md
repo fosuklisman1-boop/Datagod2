@@ -102,8 +102,18 @@ confirmed, Digiwapy rows show "expected" figures only (feedback: verify external
 
 ## 8. Surfaces
 
-- **Dashboard** (airtime, Utility Bills, Standard Bundles): checkout shows face, "Cashback −GHS x", "You pay GHS y";
-  wallet is debited `payAmount`; provider gets face.
+**Checkout display (user reference: `docs/hubtel-commission-services/ref/cashback-checkout-reference.png`).** Every
+checkout shows, before paying:
+- in the option/picker label: the discounted price with the face price struck through or "(was GHS 3.00)", e.g.
+  "8.48 GB — GHS 2.90 (was GHS 3.00)";
+- a summary block: **You pay** GHS 2.90 (bold, right-aligned) and **You receive** "<what is delivered>" (e.g. "Midnight
+  Bundles · 8.48 GB", "GHS 10.00 MTN airtime", "ECG credit GHS 50.00 to meter …");
+- wallet balance with the shortfall in red when the balance is below `payAmount` ("Balance GHS 0.90 — GHS 2.00 short").
+When cashback is not applied the "(was …)" part is omitted. Bots show the same facts in text ("Pay GHS 2.90 (was GHS
+3.00) · You receive 8.48 GB"). Currency label follows the app convention (GHS).
+
+- **Dashboard** (airtime, Utility Bills, Standard Bundles): checkout as above; wallet is debited `payAmount`; provider
+  gets face.
 - **USSD + WhatsApp (main + shop bots):** the confirm screen shows "Pay GHS y (GHS x cashback)"; the MoMo/Hubtel
   charge is `payAmount`. Shop bots use storefront shares and credit the shop share.
 - **Storefronts:** markup fields for commission services are hidden/ignored; customer pays `payAmount`; shop share is
