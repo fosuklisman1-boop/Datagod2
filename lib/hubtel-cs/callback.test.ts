@@ -147,4 +147,35 @@ describe("processCallback", () => {
     await call()
     expect(store.events.some(e => e.direction === "callback" && e.client_reference === REF)).toBe(true)
   })
+  describe("onFloat", () => {
+    const f4075 = () => body({ ResponseCode: "4075", Data: { Description: "Insufficient" } })
+    it("fires once on a 4075 callback and not again on a duplicate", async () => {
+      const { call } = setup()
+      const onFloat = vi.fn(async () => {})
+      const store = createMemoryStore()
+      store.seed(makeTx({ state: "pending", client_reference: REF }))
+      const deps = { store, secret: SECRET, enforceIp: false, onTransition: async () => {}, onFloat, now: () => T0 }
+      const inp = { ref: REF, sig: signRef(REF, SECRET), ip: null, rawBody: f4075() }
+      expect((await processCallback(deps, inp)).status).toBe(200)
+      expect(onFloat).toHaveBeenCalledTimes(1)
+      await processCallback(deps, inp)
+      expect(onFloat).toHaveBeenCalledTimes(1)
+      void call
+    })
+    it("a throwing onFloat still yields the normal 200", async () => {
+      const store = createMemoryStore()
+      store.seed(makeTx({ state: "pending", client_reference: REF }))
+      const deps = { store, secret: SECRET, enforceIp: false, onTransition: async () => {}, onFloat: async () => { throw new Error("boom") }, now: () => T0 }
+      const out = await processCallback(deps, { ref: REF, sig: signRef(REF, SECRET), ip: null, rawBody: f4075() })
+      expect(out).toEqual({ status: 200, body: { ok: true, state: "failed" } })
+    })
+    it("a non-4075 failure does not call onFloat", async () => {
+      const store = createMemoryStore()
+      store.seed(makeTx({ state: "pending", client_reference: REF }))
+      const onFloat = vi.fn(async () => {})
+      const deps = { store, secret: SECRET, enforceIp: false, onTransition: async () => {}, onFloat, now: () => T0 }
+      await processCallback(deps, { ref: REF, sig: signRef(REF, SECRET), ip: null, rawBody: body({ ResponseCode: "2001" }) })
+      expect(onFloat).not.toHaveBeenCalled()
+    })
+  })
 })

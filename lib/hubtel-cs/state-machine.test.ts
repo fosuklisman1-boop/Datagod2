@@ -26,6 +26,8 @@ describe("classifyCode / parseCommission", () => {
     expect(parseCommission(" 0.35 ")).toBe(0.35)
     expect(parseCommission("0.0000")).toBe(0)
     expect(parseCommission(null)).toBeNull()
+    expect(parseCommission("")).toBeNull()
+    expect(parseCommission("   ")).toBeNull()
     expect(parseCommission("abc")).toBeNull()
     expect(parseCommission("-1")).toBeNull()
   })
@@ -83,6 +85,10 @@ describe("applyCallback", () => {
     expect(t.patch.external_transaction_id).toBe("ext-1")
     expect(t.patch.commission).toBe(0.0198)
     expect(t.patch.callback_received_at).toBe(T0.toISOString())
+  })
+  it("a blank Meta.Commission callback preserves the stored commission", () => {
+    const t = next(applyCallback(makeTx({ state: "pending", commission: 0.5 }), cb({ commission: parseCommission("  ") }), T0))
+    expect(t.patch.commission).toBe(0.5)
   })
   it("non-0000 -> failed with the Description as reason", () => {
     const t = next(applyCallback(makeTx({ state: "pending" }), cb({ responseCode: "2001", description: "The receiving user is not registered" }), T0))

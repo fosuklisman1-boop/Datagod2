@@ -55,6 +55,8 @@ export interface CallbackDeps {
   secret: string
   enforceIp: boolean
   onTransition: (tx: HubtelCsTx) => Promise<void>
+  /** Called once when a 4075 (insufficient Hubtel float) callback newly fails a row. Never throws into the response. */
+  onFloat?: (reason: string) => Promise<void>
   now?: () => Date
 }
 
@@ -93,6 +95,11 @@ export async function processCallback(
 
   const transition = applyCallback(tx, cb, now())
   const result = await applyAndCommit(deps.store, tx, transition, deps.onTransition)
+  if (deps.onFloat && !("ignored" in transition) && "float" in transition && transition.float && result.changed) {
+    try { await deps.onFloat(result.tx.failure_reason ?? "Hubtel 4075 insufficient prepaid balance") } catch (e) {
+      console.warn("[hubtel-cs] onFloat hook failed:", e instanceof Error ? e.message : "error")
+    }
+  }
   const ignored = "ignored" in transition ? transition.ignored : null
   await deps.store.logEvent({ client_reference: ref, direction: "callback", ok: true, payload: parsedJson, error: ignored, source_ip: input.ip })
   return { status: 200, body: ignored ? { ok: true, ignored } : { ok: true, state: result.tx.state } }

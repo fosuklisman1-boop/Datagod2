@@ -30,6 +30,7 @@ export function classifyCode(code: unknown, httpStatus?: number): CodeClass {
 /** Hubtel returns commission as a string with 4 decimals ("0.0198"). */
 export function parseCommission(v: unknown): number | null {
   if (v === null || v === undefined) return null
+  if (typeof v === "string" && !v.trim()) return null
   const n = typeof v === "number" ? v : Number(String(v).trim())
   return Number.isFinite(n) && n >= 0 ? n : null
 }
