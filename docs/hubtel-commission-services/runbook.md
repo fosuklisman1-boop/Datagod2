@@ -150,3 +150,25 @@ Wallet-paid Hubtel data bundles at Hubtel's exact price (no markup; income = Hub
    - Categories come from Hubtel's value/display naming (`lib/standard-bundles/categories.ts`, verified against all 94 live bundles on 2026-10-13). If Hubtel renames or adds bundles they land in "Other" — re-check the mapping.
    - The admin category chips list the known categories + "Other", not the live catalog.
    - Phase 2c adds storefront and public-API sales.
+
+## Commission Cashback — Part 1 (dashboard)
+
+Buyers pay face − (provider rate × share) on dashboard airtime, Utility Bills and Standard Bundles; the provider still receives face. Spec `docs/superpowers/specs/2026-10-13-commission-cashback-design.md`. Everything ships OFF (`commission_cashback_config` absent = all off, rates/shares 0).
+
+1. Apply `migrations/0119_commission_cashback.sql` BEFORE merging/deploying — **required even with cashback off**: the bills and bundles code now inserts `paid_amount`, so without the column every bill and bundle purchase fails.
+   - Pre-check: `select column_name from information_schema.columns where table_name='airtime_orders' and column_name='cashback_amount';` returns no row.
+   - Post-check: the columns exist on `airtime_orders`, `hubtel_bill_orders`, `hubtel_data_orders` (+ `paid_amount` on the last two); `commission_cashback_config_patch`, `bill_order_debit`, `data_order_debit`, `cashback_margin_report` exist and only `service_role` can EXECUTE them.
+   - Smoke: `select bill_order_debit(gen_random_uuid());` and `select data_order_debit(gen_random_uuid());` return `'not_found'`; `select * from cashback_margin_report(now() - interval '7 days', now());` runs; `select commission_cashback_config_patch('{}'::jsonb);` returns `{}`.
+   - The two debit functions are replaced; with `paid_amount` NULL (every existing order and every order while cashback is off) they behave exactly as before.
+2. Enable (`/admin/hubtel-commission` → Cashback):
+   1. Rates: `airtime_mtn/telecel/at : hubtel` = 3.96, `bill_ecg : hubtel` = 1.708. Others: after their first live sales, the margin report shows the actual rate — click "Use actual", then Save. Digiwapy airtime: enter its rate once known (its actual commission is not yet verified — rows say "expected").
+   2. Shares (% of the commission): customer, dealer (dealer = dealer or sub_agent role). Storefront shares are stored but inactive until Part 3.
+   3. Master switch + **Dashboard** surface. Bots / storefront / API stay off (Parts 2–3).
+   4. Buy GHS 1 airtime to your own number: order `airtime_amount` = 1.00 (face, sent to the provider), `total_paid` = pay, `fee_amount` = 0, `cashback_*` filled; wallet history = pay. Then one bill and one bundle: order `amount` = face, `paid_amount` = pay, Hubtel ledger amount = face.
+3. Pricing rules:
+   - Cashback = floor to the pesewa of face × rate% × share%. Shares are capped so a sale can never lose money.
+   - With cashback on, dashboard airtime has no fee and no "pay fee separately" toggle. Where cashback does not apply (switch off, provider manual, Hubtel airtime above GHS 100, shop orders, API) today's fee pricing is unchanged.
+   - The page sends the price it showed; any difference (rate edited, switch flipped, provider changed) returns 409 "Price updated" and charges nothing until the buyer confirms again.
+4. Refunds return what the customer paid (`paid_amount`, or `total_paid` for airtime), never face.
+5. Admin numbers: Utility Bills "Sales (face value)" sums face; order lists show "Paid GHS x" under the amount for cashback orders. The margin report shows set vs actual rate (✓ within 0.05 points), commission earned, cashback given, Datagod kept.
+6. Not in Part 1: USSD/WhatsApp bots (Part 2), storefronts with shop share + markup removal, and the public API (Part 3).
