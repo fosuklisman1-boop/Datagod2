@@ -18,6 +18,7 @@ import {
   CATEGORY_HINTS,
   type SmsCategory,
   type CategoryProvider,
+  resolveGlobalHint,
 } from "@/lib/sms/categories"
 
 type CategoryProviders = Record<SmsCategory, CategoryProvider>
@@ -322,7 +323,7 @@ export default function ProvidersTab() {
           <CardTitle className="text-base">Provider routing by SMS type</CardTitle>
           <CardDescription>
             Each type of SMS can be sent through Moolre or Hubtel. &quot;Global&quot; follows the primary and fallbacks
-            above. OTP messages are unaffected by the failover breaker: if it is open, they still go to the fallback provider.
+            above. The OTP failover breaker overrides this: while it is open, OTPs go to the fallback provider.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -353,7 +354,7 @@ export default function ProvidersTab() {
                     </SelectContent>
                   </Select>
                   {categoryProviders[c] === "global" && (
-                    <span className="text-xs capitalize text-muted-foreground">→ {routing.primary}</span>
+                    <span className="text-xs capitalize text-muted-foreground">→ {resolveGlobalHint(c, { primary: routing.primary, categoryProviders })}</span>
                   )}
                 </div>
               </div>

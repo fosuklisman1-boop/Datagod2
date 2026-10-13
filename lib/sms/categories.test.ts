@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { categoryOf, CATEGORY_DEFAULTS, CATEGORY_LABELS, SMS_CATEGORIES } from "./categories"
+import { categoryOf, CATEGORY_DEFAULTS, CATEGORY_LABELS, SMS_CATEGORIES, resolveGlobalHint } from "./categories"
 
 describe("categoryOf", () => {
   it.each([
@@ -42,5 +42,21 @@ describe("categoryOf", () => {
   it("has a non-empty label for every category", () => {
     for (const c of SMS_CATEGORIES) expect(CATEGORY_LABELS[c].length).toBeGreaterThan(0)
     expect(CATEGORY_LABELS.otp).toBe("One-time passcodes (OTP)")
+  })
+})
+
+describe("resolveGlobalHint", () => {
+  const r = (bulk?: "global" | "moolre" | "hubtel") => ({ primary: "hubtel", categoryProviders: bulk ? { customer_bulk: bulk } : {} })
+  it("plain categories follow the primary", () => {
+    expect(resolveGlobalHint("payments_wallet", r("moolre"))).toBe("hubtel")
+    expect(resolveGlobalHint("customer_bulk", r())).toBe("hubtel")
+  })
+  it("OTP notes a dedicated provider may be used", () => {
+    expect(resolveGlobalHint("otp", r())).toBe("hubtel (OTP may use a dedicated provider)")
+  })
+  it("own-sender confirmations follow customer_bulk when it is not Global, else the primary", () => {
+    expect(resolveGlobalHint("order_confirmation_own_sender", r("moolre"))).toBe("moolre")
+    expect(resolveGlobalHint("order_confirmation_own_sender", r("global"))).toBe("hubtel")
+    expect(resolveGlobalHint("order_confirmation_own_sender", r())).toBe("hubtel")
   })
 })

@@ -54,11 +54,11 @@ export const CATEGORY_LABELS: Record<SmsCategory, string> = {
 }
 
 export const CATEGORY_HINTS: Record<SmsCategory, string> = {
-  otp: "Phone codes, login codes, password reset links",
+  otp: "One-time codes, USSD payment OTP prompts, password-reset links",
   order_confirmation_platform: "Order status messages sent from the Datagod sender",
   order_confirmation_own_sender: "Order status messages sent from a shop's own sender ID",
   payments_wallet: "Top-ups, purchases, refunds, vouchers, airtime, subscriptions, SMS bundles",
-  admin_action_outcomes: "Approvals and rejections for withdrawals, shops, AFA, sender IDs, complaints",
+  admin_action_outcomes: "Approvals and rejections for withdrawals, shops, AFA, sender IDs, complaints; account suspensions and restorations, dealer upgrades, sub-agent invites, MTN registration holds",
   security_alerts: "Security and fraud alerts, password changes",
   system: "Anything not listed elsewhere",
   admin_broadcast: "Admin broadcast messages",
@@ -97,4 +97,21 @@ export function categoryOf(type: string): SmsCategory {
   if (CUSTOMER_BULK.has(t)) return "customer_bulk" // before the shop_ prefix rule
   if (ADMIN_OUTCOMES.has(t) || ADMIN_OUTCOME_PREFIX.test(t)) return "admin_action_outcomes"
   return "system"
+}
+
+/**
+ * What "Global" resolves to for a category, for the admin hint beside the selector.
+ * OTP: SMS_OTP_PROVIDER (env) when set, else the primary. Own-sender confirmations: follow
+ * customer_bulk when that is not Global, else the primary. Everything else: the primary.
+ */
+export function resolveGlobalHint(
+  category: SmsCategory,
+  routing: { primary: string; categoryProviders?: Partial<Record<SmsCategory, CategoryProvider>> },
+): string {
+  if (category === "otp") return `${routing.primary} (OTP may use a dedicated provider)`
+  if (category === "order_confirmation_own_sender") {
+    const bulk = routing.categoryProviders?.customer_bulk
+    if (bulk && bulk !== "global") return bulk
+  }
+  return routing.primary
 }
