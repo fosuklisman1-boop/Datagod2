@@ -4,7 +4,7 @@ import { verifyAdminAccess } from "@/lib/admin-auth"
 import { enqueueRecipients, drainBroadcasts } from "@/lib/broadcast-drain"
 import { resolveRecipients } from "@/lib/sms/recipients"
 import { personalize } from "@/lib/sms/personalize"
-import { parseSmsProvider } from "@/lib/sms/provider-pick"
+import { parseSmsProvider, providerColumnMissingMessage } from "@/lib/sms/provider-pick"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -172,7 +172,11 @@ export async function POST(req: NextRequest) {
                 .select()
                 .single()
 
-            if (logError) throw logError
+            if (logError) {
+                const missing = providerColumnMissingMessage(logError, smsProvider)
+                if (missing) return NextResponse.json({ error: missing }, { status: 409 })
+                throw logError
+            }
 
             const broadcastId = broadcastLog.id
 

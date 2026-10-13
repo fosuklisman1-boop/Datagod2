@@ -76,7 +76,7 @@ describe("enqueueRecipients — per-recipient rendered_message", () => {
 // ── SMS provider override ────────────────────────────────────────────────────
 import { drainBroadcasts } from "./broadcast-drain"
 import { sendSMS } from "@/lib/sms-service"
-import { parseSmsProvider } from "./sms/provider-pick"
+import { parseSmsProvider, providerColumnMissingMessage } from "./sms/provider-pick"
 
 function drainFake(providerResult: { data?: unknown; error?: { code?: string; message: string } | null }) {
   const bc = { id: "b1", channels: ["sms"], subject: null, message: "hello" }
@@ -140,5 +140,17 @@ describe("parseSmsProvider", () => {
     expect(parseSmsProvider("")).toBeUndefined()
     expect(parseSmsProvider("mnotify")).toBe("invalid")
     expect(parseSmsProvider(5)).toBe("invalid")
+  })
+})
+
+describe("providerColumnMissingMessage", () => {
+  const miss = { code: "PGRST204", message: "Could not find the 'sms_provider' column of 'broadcast_logs'" }
+  it("readable message only for an explicit pick + missing-column error", () => {
+    expect(providerColumnMissingMessage(miss, "hubtel")).toMatch(/Apply migration 20261020/)
+    expect(providerColumnMissingMessage({ code: "42703", message: "x" }, "moolre")).toMatch(/Apply migration 20261020/)
+    expect(providerColumnMissingMessage(miss, "global")).toBeNull()
+    expect(providerColumnMissingMessage(miss, undefined)).toBeNull()
+    expect(providerColumnMissingMessage({ code: "23505", message: "dup" }, "hubtel")).toBeNull()
+    expect(providerColumnMissingMessage(null, "hubtel")).toBeNull()
   })
 })

@@ -11,6 +11,9 @@ const h = vi.hoisted(() => {
     debitError: null as null | string,  // if set, rpc("debit_sms_for_send") returns this error
     insertLogId: "log-1",               // id returned from sms_send_logs insert
     insertLogError: null as null | string,
+    // Per-row failure: returns an error object (or null) given the row being inserted.
+    insertLogErrorFn: null as null | ((row: any) => { message: string; code?: string } | null),
+    lastLogRow: null as any,
     insertMsgError: null as null | string,
     // Drives the mocked ./policy-context sender resolver: null → no row; only
     // local_status === "active" resolves.
@@ -78,6 +81,8 @@ const h = vi.hoisted(() => {
         select: () => ({
           single: () => {
             if (table === "sms_send_logs") {
+              const fnErr = state.insertLogErrorFn?.(state.lastLogRow) ?? null
+              if (fnErr) return Promise.resolve({ data: null, error: fnErr })
               if (state.insertLogError) {
                 return Promise.resolve({ data: null, error: { message: state.insertLogError } })
               }
@@ -91,7 +96,7 @@ const h = vi.hoisted(() => {
       return {
         insert: (rows: any) => {
           state.calls.push({ fn: "insert", table, args: rows })
-          if (table === "sms_send_logs") return insertChain
+          if (table === "sms_send_logs") { state.lastLogRow = Array.isArray(rows) ? rows[0] : rows; return insertChain }
           // sms_messages: .insert(rows).select("id, phone") → return generated ids.
           if (table === "sms_messages") {
             return {
@@ -214,6 +219,7 @@ beforeEach(() => {
   h.state.debitError = null
   h.state.insertLogId = "log-1"
   h.state.insertLogError = null
+  h.state.insertLogErrorFn = null
   h.state.insertMsgError = null
   h.state.senderRow = { local_status: "active" }
   h.state.bulkOk = true
@@ -1291,5 +1297,43 @@ describe("per-send provider override reaches every chunk", () => {
     const r = await enqueueSendBatched("u1", "acc1", "Hello world", manyRecips)
     expect(r).toMatchObject({ ok: true, batches: 2 })
     for (const l of logs()) expect(l).not.toHaveProperty("provider_override")
+  })
+})
+
+describe("provider_override column missing (migration not applied)", () => {
+  const logRows = () => inserts("sms_send_logs").map((x: any) => (Array.isArray(x.args) ? x.args[0] : x.args))
+  const missingCol = (row: any) => (row && "provider_override" in row ? { message: 'column "provider_override" of relation "sms_send_logs" does not exist', code: "42703" } : null)
+
+  it("retries the insert once without provider_override, no refund, send succeeds", async () => {
+    h.state.insertLogErrorFn = missingCol
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const r = await enqueueSend("u1", "acc1", "Hello world", ["0241234567"], undefined, undefined, undefined, undefined, { provider: "hubtel" })
+    expect(r.ok).toBe(true)
+    const rows = logRows()
+    expect(rows).toHaveLength(2)
+    expect(rows[0].provider_override).toBe("hubtel")
+    expect(rows[1]).not.toHaveProperty("provider_override")
+    expect(rpcs().find((c) => c.fn === "adjust_sms_units")).toBeUndefined()
+    expect(spy.mock.calls.some((c) => String(c[0]).includes("provider_override column missing"))).toBe(true)
+    spy.mockRestore()
+  })
+
+  it("a different insert error is not retried and still refunds", async () => {
+    h.state.insertLogErrorFn = () => ({ message: "deadlock detected", code: "40P01" })
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const r = await enqueueSend("u1", "acc1", "Hello world", ["0241234567"], undefined, undefined, undefined, undefined, { provider: "hubtel" })
+    expect(r.ok).toBe(false)
+    expect(logRows()).toHaveLength(1)
+    expect(rpcs().find((c) => c.fn === "adjust_sms_units")).toBeTruthy()
+    spy.mockRestore()
+  })
+
+  it("no override set: a missing-column style error is not retried", async () => {
+    h.state.insertLogErrorFn = () => ({ message: 'column "x" does not exist', code: "42703" })
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const r = await enqueueSend("u1", "acc1", "Hello world", ["0241234567"])
+    expect(r.ok).toBe(false)
+    expect(logRows()).toHaveLength(1)
+    spy.mockRestore()
   })
 })

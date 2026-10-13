@@ -3,7 +3,7 @@ export class ProviderOverrideLookupError extends Error {
   constructor(message: string) { super(message); this.name = "ProviderOverrideLookupError" }
 }
 
-function isMissingColumn(e: { code?: string; message?: string }): boolean {
+export function isMissingColumn(e: { code?: string; message?: string }): boolean {
   return e.code === "42703" || e.code === "PGRST204" || /column.*does not exist|could not find.*column/i.test(e.message ?? "")
 }
 

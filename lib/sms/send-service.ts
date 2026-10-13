@@ -5,6 +5,7 @@ import { calculateSegments } from "./segments"
 import { resolveCampaignSender, shadowPolicyWithin, type PolicyShadow } from "./policy-context"
 import { isSmsEnabled } from "./kill-switch"
 import { dispatchCampaign, type SentRow } from "./campaign-dispatch"
+import { isMissingColumn } from "./provider-override"
 import {
   evaluateForEnforcement, isPolicyEnforced, recordFlags, releaseSendLock, trySendLock,
   POLICY_UNAVAILABLE_REASON, SEND_IN_PROGRESS_MESSAGE, type EnforcementCode,
@@ -227,7 +228,7 @@ export async function enqueueSend(
   let claimedAtMs = Date.now()
   try {
     const { mode, shadow } = await shadowPromise // never rejects (shadowPolicyWithin catches)
-    const { data: logData, error: logError } = await supabaseAdmin
+    const insertLog = (extra: Record<string, string>) => supabaseAdmin
       .from("sms_send_logs")
       .insert({
         sms_account_id: accountId,
@@ -244,10 +245,19 @@ export async function enqueueSend(
         flag_reason: filterResult.flagged ? (filterResult.reason ?? null) : null,
         mode,
         policy_shadow: shadow,
-        ...extraLogCols,
+        ...extra,
       })
       .select("id")
       .single()
+    let { data: logData, error: logError } = await insertLog(extraLogCols)
+    if (logError && extraLogCols.provider_override && isMissingColumn(logError)) {
+      // Migration 20261020 not applied yet. The credits are already debited: do NOT fail (and refund)
+      // the send. Retry once without the column; the instant dispatch below still honours the pick,
+      // only later drain retries fall back to category routing.
+      console.error("[SMS-SEND] provider_override column missing - apply migration 20261020; retrying without it")
+      const { provider_override: _drop, ...withoutOverride } = extraLogCols
+      ;({ data: logData, error: logError } = await insertLog(withoutOverride))
+    }
     if (logError || !logData) throw logError ?? new Error("Failed to insert sms_send_logs row")
 
     sendLogId = logData.id
