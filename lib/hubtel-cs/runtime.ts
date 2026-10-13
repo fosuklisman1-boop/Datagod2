@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { checkTransactionStatus, fetchDisbursementBalance } from "@/lib/ussd-hubtel/relay"
-import { notifyAdapter } from "./adapters"
+import { notifyAdapter, registerOrderAdapter } from "./adapters"
+import { airtimeOrdersAdapterFor } from "./adapters/airtime-orders"
 import { makeOrderHook } from "./order-hook"
 import type { AdminDeps } from "./admin-actions"
 import { createHubtelCsClient } from "./client"
@@ -26,6 +27,8 @@ function serviceRoleClient() {
 /** Single place that wires the pure hubtel-cs modules to Supabase, env and the relay. Call per request, not at import. */
 export function getHubtelCsRuntime() {
   const db = serviceRoleClient()
+  // Static registration (every entry point builds the runtime, so every entry point has the adapters).
+  registerOrderAdapter(airtimeOrdersAdapterFor(db))
   const store = createSupabaseHubtelCsStore(db)
   const getConfig = () => getHubtelCsConfig(db)
   const orderHook = makeOrderHook({

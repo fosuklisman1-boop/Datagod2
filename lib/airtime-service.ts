@@ -1,6 +1,8 @@
 import { createClient } from "@supabase/supabase-js"
-import { isDigiWapyEnabledForNetwork, sendAirtimeViaDigiwapy } from "@/lib/digiwapy-provider"
+import { isDigiWapyConfigured, isDigiWapyEnabledForNetwork, sendAirtimeViaDigiwapy } from "@/lib/digiwapy-provider"
 import { notifyAdmins, SMSTemplates } from "@/lib/sms-service"
+import { type AirtimeOrderMinimal, fulfillAirtimeViaHubtel } from "@/lib/airtime-hubtel"
+import { getAirtimeProvider } from "@/lib/airtime-provider"
 import { secureReference } from "@/lib/secure-random"
 import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
@@ -10,39 +12,28 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-interface AirtimeOrderMinimal {
-  id: string
-  reference_code: string
-  network: string
-  beneficiary_phone: string
-  airtime_amount: number
+/** Manual path: nobody sends this order; alert the admins. Always returns false. */
+async function alertManualAirtime(order: AirtimeOrderMinimal): Promise<boolean> {
+  notifyAdmins(
+    SMSTemplates.adminAirtimeManualRequired(
+      order.reference_code,
+      order.network,
+      order.beneficiary_phone,
+      String(order.airtime_amount)
+    ),
+    "airtime_manual_needed",
+    order.id,
+    true
+  ).catch(() => {})
+  return false
 }
 
-/**
- * Attempt Digiwapy auto-fulfillment for a paid airtime order.
- * Safe to call from any payment path (webhook or wallet).
- * Returns true when Digiwapy accepted the request, false otherwise.
- */
-export async function triggerDigiwapyFulfillment(order: AirtimeOrderMinimal): Promise<boolean> {
-  try {
-    const digiWapyEnabled = await isDigiWapyEnabledForNetwork(order.network)
-    console.log(`[AIRTIME-SVC] Digiwapy enabled for ${order.network}: ${digiWapyEnabled}`)
+/** Digiwapy path. Returns true when Digiwapy accepted the request, false otherwise. */
+async function fulfillViaDigiwapy(order: AirtimeOrderMinimal): Promise<boolean> {
+  // An explicit "digiwapy" setting skips the legacy per-network toggle but still needs the env.
+  if (!isDigiWapyConfigured()) return alertManualAirtime(order)
 
-    if (!digiWapyEnabled) {
-      notifyAdmins(
-        SMSTemplates.adminAirtimeManualRequired(
-          order.reference_code,
-          order.network,
-          order.beneficiary_phone,
-          String(order.airtime_amount)
-        ),
-        "airtime_manual_needed",
-        order.id,
-        true
-      ).catch(() => {})
-      return false
-    }
-
+  {
     const result = await sendAirtimeViaDigiwapy({
       network: order.network,
       recipient: order.beneficiary_phone,
@@ -80,11 +71,41 @@ export async function triggerDigiwapyFulfillment(order: AirtimeOrderMinimal): Pr
       ).catch(() => {})
       return false
     }
+  }
+}
+
+/**
+ * Single fulfilment chokepoint for every airtime surface (wallet, storefront Paystack, API v1, USSD).
+ * Provider per network: explicit admin setting, else the legacy Digiwapy toggle. Never falls back
+ * between providers automatically.
+ */
+export async function triggerAirtimeFulfillment(order: AirtimeOrderMinimal): Promise<boolean> {
+  try {
+    const provider = await getAirtimeProvider(supabase, order.network, isDigiWapyEnabledForNetwork)
+    console.log(`[AIRTIME-SVC] provider for ${order.network}: ${provider}`)
+    if (provider === "digiwapy") return await fulfillViaDigiwapy(order)
+    if (provider === "hubtel") {
+      const { getHubtelCsRuntime } = await import("@/lib/hubtel-cs/runtime")
+      const rt = getHubtelCsRuntime()
+      return await fulfillAirtimeViaHubtel(order, {
+        purchase: input => rt.client.purchase(input),
+        markOrder: async (orderId, patch) => {
+          const { error } = await supabase.from("airtime_orders")
+            .update({ ...patch, updated_at: new Date().toISOString() }).eq("id", orderId).neq("status", "completed")
+          if (error) throw error
+        },
+        alert: async message => { await notifyAdmins(message, "airtime_manual_needed", order.id, true) },
+      })
+    }
+    return await alertManualAirtime(order)
   } catch (err: any) {
-    console.error(`[AIRTIME-SVC] Digiwapy block threw for order ${order.id}:`, err?.message ?? err)
+    console.error(`[AIRTIME-SVC] fulfilment dispatch threw for order ${order.id}:`, err?.message ?? err)
     return false
   }
 }
+
+/** @deprecated use triggerAirtimeFulfillment */
+export const triggerDigiwapyFulfillment = triggerAirtimeFulfillment
 
 /**
  * Marks a Paystack-paid airtime order as paid and triggers Digiwapy fulfillment.
@@ -151,7 +172,7 @@ export async function markAirtimeOrderPaid(
     }
   }
 
-  await triggerDigiwapyFulfillment({
+  await triggerAirtimeFulfillment({
     id: airtimeData.id,
     reference_code: airtimeData.reference_code,
     network: airtimeData.network,
@@ -371,7 +392,7 @@ export async function purchaseAirtime(params: PurchaseAirtimeParams): Promise<Pu
     read: false,
   }])
 
-  await triggerDigiwapyFulfillment({
+  await triggerAirtimeFulfillment({
     id: order.id,
     reference_code: referenceCode,
     network,

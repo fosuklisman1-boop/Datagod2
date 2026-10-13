@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest"
 import { AIRTIME_PROVIDER_KEYS, airtimeNetId, airtimeProviderKey, getAirtimeProvider, parseAirtimeProvider } from "./airtime-provider"
 
+const eqArgs: unknown[][] = []
 const dbWith = (value: unknown, error: unknown = null) => ({
-  from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: value === undefined ? null : { value }, error }) }) }) }),
+  from: () => ({ select: () => ({ eq: (...a: unknown[]) => { eqArgs.push(a); return { maybeSingle: async () => ({ data: value === undefined ? null : { value }, error }) } } }) }),
 }) as any
 
 describe("airtime provider setting", () => {
@@ -32,6 +33,21 @@ describe("airtime provider setting", () => {
     expect(await getAirtimeProvider(dbWith(undefined), "MTN", async () => false)).toBe("manual")
     expect(await getAirtimeProvider(dbWith({ provider: "x" }), "MTN", async () => true)).toBe("digiwapy")
     expect(await getAirtimeProvider(dbWith(null, { message: "db down" }), "MTN", async () => true)).toBe("digiwapy")
+  })
+  it("queries the per-network admin_settings key", async () => {
+    eqArgs.length = 0
+    await getAirtimeProvider(dbWith({ provider: "hubtel" }), "MTN", async () => true)
+    expect(eqArgs[0]).toEqual(["key", "airtime_provider_mtn"])
+  })
+  it("a throwing read falls back to the legacy toggle", async () => {
+    const boom = { from: () => { throw new Error("boom") } } as any
+    expect(await getAirtimeProvider(boom, "MTN", async () => true)).toBe("digiwapy")
+    expect(await getAirtimeProvider(boom, "MTN", async () => false)).toBe("manual")
+  })
+  it("normalizes Vodafone and whitespace/hyphen variants", () => {
+    expect(airtimeNetId("Vodafone")).toBe("telecel")
+    expect(airtimeNetId(" Airtel-Tigo ")).toBe("at")
+    expect(airtimeNetId("Airtel Tigo")).toBe("at")
   })
   it("unknown network is manual", async () => {
     expect(await getAirtimeProvider(dbWith({ provider: "hubtel" }), "Glo", async () => true)).toBe("manual")

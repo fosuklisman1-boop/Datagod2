@@ -105,6 +105,7 @@ vi.mock("@supabase/supabase-js", () => ({ createClient: () => h.fake }))
 // "@/lib/airtime-service" would NOT intercept that internal call. Mock its
 // real dependencies (a genuine module boundary) instead.
 vi.mock("@/lib/digiwapy-provider", () => ({
+  isDigiWapyConfigured: vi.fn(() => true),
   isDigiWapyEnabledForNetwork: vi.fn(async () => true),
   sendAirtimeViaDigiwapy: vi.fn(async () => ({ success: true, digiwapyRef: "dgw-1" })),
 }))
