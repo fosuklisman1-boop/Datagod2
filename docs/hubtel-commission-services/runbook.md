@@ -127,3 +127,26 @@ Wallet-paid bill payments (ECG, Ghana Water, DSTV, GOtv, StarTimes, Telecel Broa
    - StarTimes and Telecel logos (`public/billers/*.png`) are small app icons, not official logos (see `public/billers/SOURCES.md`); replace with official assets (128x128, <= 30 KB).
    - Input validation accepts only letters, digits and `-` (4-30 chars) for account/meter/smartcard numbers. A biller format containing `.` or `/` would be rejected; verify on the first live payments of each biller.
    - Phase 3b adds the storefront, the partner split and Commission Wallets.
+
+## Phase 2b — Standard Bundles
+
+Wallet-paid Hubtel data bundles at Hubtel's exact price (no markup; income = Hubtel commission) on `/dashboard/standard-bundles`. The Standard Bundles master switch and every network ship OFF; the Hubtel `data_mtn` / `data_telecel` / `data_at` service switches default ON, so the Standard Bundles config is the real gate.
+
+1. Apply `migrations/0118_hubtel_data_orders.sql` BEFORE merging/deploying. It creates `hubtel_data_orders` (UNIQUE `(user_id, idempotency_key)`) and two RPCs: `standard_bundles_config_patch`, `data_order_debit`.
+   - Pre-check: `select to_regclass('public.hubtel_data_orders');` must be null.
+   - Post-check: RLS on (`select relrowsecurity from pg_class where oid='public.hubtel_data_orders'::regclass;` is true), anon/authenticated have no grants, and only `service_role` can EXECUTE both functions.
+   - Smoke: `select standard_bundles_config_patch('{}'::jsonb);` returns the config (creates the `standard_bundles_config` admin_settings row if absent).
+   - Smoke: `select data_order_debit(gen_random_uuid());` returns `'not_found'`.
+2. Enable order:
+   1. `/admin/hubtel-commission`: Hubtel enabled and ready; the `data_*` service for the network ON.
+   2. Same page → Standard Bundles card: turn on the master switch and ONE network. Optionally hide categories, or change the catalog reference number (any valid number on that network; bundle lists were identical across numbers when tested).
+   3. Buy the cheapest bundle to your own number. Check the order goes `completed` with a commission, the Hubtel ledger row is `fulfilled`, and the wallet history has a `transactions` row with source `standard_bundle`.
+   4. Then enable the other networks.
+3. How buying works: the catalog is cached 10 minutes per network and each bundle carries a signed price stamp (10 minutes). At Buy, every pre-check runs before any write, then Hubtel is re-queried for the buyer's own number and the exact bundle value + price must still be offered, otherwise 409 "refresh" and nothing is charged. The page sends an idempotency key per buy; a repeat (double-click, retry after a timeout) returns the first order and never charges twice. Debit + paid + wallet-history row happen in one DB function (`data_order_debit`); the order is claimed (`processing`, "Dispatching…") before the single Hubtel call. Bundle values are sent to Hubtel exactly as Hubtel returned them (no trimming).
+4. Refunds (manual only, credit reference `data-refund-<order id>` shared by both paths so it can never credit twice):
+   - Order has a Hubtel ledger row → refund through the Hubtel review queue on `/admin/hubtel-commission` (never while the row is pending/needs_review).
+   - Never sent (pending + paid, not updated for 60 s) or a stuck "Dispatching…" claim (processing ≥ 5 min, no ledger row) → Standard Bundles orders tab → Refund (note required). If the ledger cannot be read during the refund, the order stays `failed`, an urgent alert fires and the refund returns 503 — retry.
+5. Known follow-ups:
+   - Categories come from Hubtel's value/display naming (`lib/standard-bundles/categories.ts`, verified against all 94 live bundles on 2026-10-13). If Hubtel renames or adds bundles they land in "Other" — re-check the mapping.
+   - The admin category chips list the known categories + "Other", not the live catalog.
+   - Phase 2c adds storefront and public-API sales.
