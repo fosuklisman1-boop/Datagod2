@@ -41,6 +41,9 @@ CREATE INDEX IF NOT EXISTS hubtel_cs_tx_open_idx
   ON hubtel_cs_transactions (state, created_at) WHERE state IN ('created','pending','needs_review');
 CREATE INDEX IF NOT EXISTS hubtel_cs_tx_order_idx
   ON hubtel_cs_transactions (order_table, order_id);
+CREATE UNIQUE INDEX IF NOT EXISTS hubtel_cs_tx_order_active_uidx
+  ON hubtel_cs_transactions (order_table, order_id)
+  WHERE order_id IS NOT NULL AND state <> 'failed';
 CREATE INDEX IF NOT EXISTS hubtel_cs_tx_created_idx
   ON hubtel_cs_transactions (created_at DESC);
 

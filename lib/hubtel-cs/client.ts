@@ -3,8 +3,9 @@ import { applyAndCommit } from "./apply"
 import { buildCallbackUrl } from "./callback"
 import type { HubtelCsConfig, HubtelCsMode } from "./config"
 import {
-  HubtelDisabledError, HubtelNotConfiguredError, HubtelPausedError, HubtelServiceDisabledError, HubtelValidationError,
+  HubtelDisabledError, HubtelDuplicateOrderError, HubtelNotConfiguredError, HubtelOutcomeUnknownError, HubtelPausedError, HubtelServiceDisabledError, HubtelValidationError,
 } from "./errors"
+import { ghanaSignificant, isValidGhanaMobile } from "../phone-format"
 import { getService, type HubtelCsServiceKey } from "./services"
 import { applyPostResponse, classifyCode, type PostResult } from "./state-machine"
 import type { HubtelCsStore } from "./store"
@@ -23,11 +24,23 @@ export interface PurchaseInput {
 }
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+/** Airtime/data destinations must be 233XXXXXXXXX (Hubtel docs). Bill account numbers pass through untouched. */
+function normalizeDestination(input: PurchaseInput): string {
+  const kind = getService(input.serviceKey).kind
+  const raw = input.destination.trim()
+  if (kind === "airtime" || kind === "data") return "233" + ghanaSignificant(raw)!
+  return raw
+}
+const isDuplicateInsert = (e: any) =>
+  e?.code === "23505" || (e instanceof Error && /duplicate key value violates unique constraint/i.test(e.message) && /order_active/.test(e.message))
 const hasTwoDecimals = (n: number) => Math.abs(n * 100 - Math.round(n * 100)) < 1e-6
 
 export function validatePurchase(input: PurchaseInput): void {
   const svc = getService(input.serviceKey)
   if (!input.destination || !input.destination.trim()) throw new HubtelValidationError("destination is required")
+  if ((svc.kind === "airtime" || svc.kind === "data") && !isValidGhanaMobile(input.destination)) {
+    throw new HubtelValidationError(`${svc.label} destination must be a valid Ghana mobile number`)
+  }
   const a = input.amount
   if (typeof a !== "number" || !Number.isFinite(a) || a <= 0) throw new HubtelValidationError("amount must be a positive number")
   if (!hasTwoDecimals(a)) throw new HubtelValidationError("amount may have at most 2 decimal places")
@@ -44,7 +57,7 @@ export function validatePurchase(input: PurchaseInput): void {
 export function buildPurchaseBody(input: PurchaseInput, callbackUrl: string, ref: string): Record<string, unknown> {
   const svc = getService(input.serviceKey)
   const body: Record<string, unknown> = {
-    Destination: input.destination.trim(),
+    Destination: normalizeDestination(input),
     Amount: Number(input.amount.toFixed(2)),
     CallbackUrl: callbackUrl,
     ClientReference: ref,
@@ -103,37 +116,54 @@ export function createHubtelCsClient(deps: ClientDeps) {
       const transport = deps.getTransport(cfg.mode) // may throw HubtelNotConfiguredError BEFORE any row exists
 
       const ref = newRef(input.serviceKey)
-      const body = buildPurchaseBody(input, buildCallbackUrl(deps.callbackBaseUrl, ref, deps.callbackSecret), ref)
-      const row = await deps.store.insert({
-        client_reference: ref, service_key: input.serviceKey, kind: svc.kind, destination: input.destination.trim(),
-        amount: Number(input.amount.toFixed(2)), bundle: input.bundle ?? null,
-        extra: input.extra ? { email: input.extra.email ?? null, sessionId: input.extra.sessionId ?? null } : null,
-        order_table: input.orderTable ?? null, order_id: input.orderId ?? null,
-      })
+      const callbackUrl = buildCallbackUrl(deps.callbackBaseUrl, ref, deps.callbackSecret)
+      const body = buildPurchaseBody(input, callbackUrl, ref)
+      let row: HubtelCsTx
+      try {
+        row = await deps.store.insert({
+          client_reference: ref, service_key: input.serviceKey, kind: svc.kind, destination: normalizeDestination(input),
+          amount: Number(input.amount.toFixed(2)), bundle: input.bundle ?? null,
+          extra: input.extra ? { email: input.extra.email ?? null, sessionId: input.extra.sessionId ?? null } : null,
+          order_table: input.orderTable ?? null, order_id: input.orderId ?? null,
+        })
+      } catch (e) {
+        if (isDuplicateInsert(e)) throw new HubtelDuplicateOrderError(input.orderTable ?? null, input.orderId ?? null)
+        throw e
+      }
 
       // The signature is never logged: it alone would let someone forge a callback for this reference.
-      const loggedBody = { ...body, CallbackUrl: `${deps.callbackBaseUrl.replace(/\/$/, "")}/api/hubtel-cs/callback?ref=${ref}` }
-      await deps.store.logEvent({ client_reference: ref, direction: "request", payload: { serviceKey: input.serviceKey, body: loggedBody } })
-
-      let res: PostResult
       try {
-        res = await transport.call({ method: "POST", serviceId: svc.serviceId, body })
+        const logged = new URL(callbackUrl)
+        logged.searchParams.delete("sig")
+        await deps.store.logEvent({ client_reference: ref, direction: "request", payload: { serviceKey: input.serviceKey, body: { ...body, CallbackUrl: logged.toString() } } })
       } catch (e: any) {
-        res = { error: String(e?.message ?? e) }
+        console.warn("[hubtel-cs] request event log failed:", e?.message ?? "error")
       }
-      await deps.store.logEvent({
-        client_reference: ref, direction: "response",
-        http_status: "httpStatus" in res ? res.httpStatus : null, ok: !("error" in res),
-        payload: "body" in res ? res.body : null, error: "error" in res ? res.error : null,
-      })
 
-      const transition = applyPostResponse(row, res, now())
-      const { tx } = await applyAndCommit(deps.store, row, transition, onTransition)
-      if ("float" in transition && transition.float) {
-        await deps.onFloat("Hubtel returned 4075: insufficient prepaid (Disbursement) balance").catch(e =>
-          console.error("[hubtel-cs] onFloat failed:", e))
+      // From here on the POST may have been sent: any failure is "outcome unknown", never a plain error.
+      try {
+        let res: PostResult
+        try {
+          res = await transport.call({ method: "POST", serviceId: svc.serviceId, body })
+        } catch (e: any) {
+          res = { error: String(e?.message ?? e) }
+        }
+        await deps.store.logEvent({
+          client_reference: ref, direction: "response",
+          http_status: "httpStatus" in res ? res.httpStatus : null, ok: !("error" in res),
+          payload: "body" in res ? res.body : null, error: "error" in res ? res.error : null,
+        })
+
+        const transition = applyPostResponse(row, res, now())
+        const result = await applyAndCommit(deps.store, row, transition, onTransition)
+        if ("float" in transition && transition.float && result.changed) {
+          await deps.onFloat("Hubtel returned 4075: insufficient prepaid (Disbursement) balance").catch(e =>
+            console.error("[hubtel-cs] onFloat failed:", e))
+        }
+        return result.tx
+      } catch (e) {
+        throw new HubtelOutcomeUnknownError(ref, e)
       }
-      return tx
     },
 
     /** Read-only lookup (bundle list / account or meter details). Not recorded in the ledger. */

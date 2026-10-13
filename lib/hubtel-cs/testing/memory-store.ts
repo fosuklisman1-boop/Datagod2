@@ -12,6 +12,9 @@ export function createMemoryStore(): HubtelCsStore & { rows: HubtelCsTx[]; event
     seed(tx) { rows.push({ ...tx }); return tx },
     async insert(row: NewHubtelCsTx) {
       if (rows.some(r => r.client_reference === row.client_reference)) throw new Error("duplicate key value violates unique constraint (client_reference)")
+      if (row.order_id && rows.some(r => r.order_table === (row.order_table ?? null) && r.order_id === row.order_id && r.state !== "failed")) {
+        throw new Error("duplicate key value violates unique constraint hubtel_cs_tx_order_active_uidx")
+      }
       const tx = makeTx({ ...row, id: randomUUID(), state: "created", bundle: row.bundle ?? null, extra: row.extra ?? null, order_table: row.order_table ?? null, order_id: row.order_id ?? null, created_at: nowIso(), updated_at: nowIso() })
       rows.push(tx)
       return { ...tx }
