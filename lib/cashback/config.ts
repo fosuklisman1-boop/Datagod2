@@ -220,8 +220,13 @@ export async function getCashbackConfig(db: SupabaseClient): Promise<CashbackCon
   return resolveCashbackConfig(data?.value)
 }
 
-export async function setCashbackConfig(db: SupabaseClient, patch: CashbackPatch): Promise<CashbackConfig> {
-  const { data, error } = await db.rpc("commission_cashback_config_patch", { p_patch: patch })
+/**
+ * The RPC replaces `shares` sub-objects wholesale, so a shares patch is sent as the fully merged `shares`
+ * (current ⊕ patch, the same merge the validator checked) — a partial group or override can never wipe stored values.
+ */
+export async function setCashbackConfig(db: SupabaseClient, patch: CashbackPatch, current: CashbackConfig): Promise<CashbackConfig> {
+  const toSend: CashbackPatch = patch.shares ? { ...patch, shares: mergeCashbackPatch(current, patch).shares } : patch
+  const { data, error } = await db.rpc("commission_cashback_config_patch", { p_patch: toSend })
   if (error) throw error
   return resolveCashbackConfig(data)
 }

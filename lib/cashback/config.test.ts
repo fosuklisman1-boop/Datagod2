@@ -116,9 +116,20 @@ describe("db helpers", () => {
       rpc: vi.fn().mockResolvedValue({ data: { enabled: true, rates: { "bill_ecg:hubtel": 1.7 } }, error: null }),
     }
     expect((await getCashbackConfig(db)).enabled).toBe(true)
-    const out = await setCashbackConfig(db, { enabled: true })
+    const out = await setCashbackConfig(db, { enabled: true }, resolveCashbackConfig({}))
     expect(db.rpc).toHaveBeenCalledWith("commission_cashback_config_patch", { p_patch: { enabled: true } })
     expect(out.rates["bill_ecg:hubtel"]).toBe(1.7)
+  })
+  it("set sends fully merged shares so an override patch never wipes other overrides or groups", async () => {
+    const db: any = { rpc: vi.fn().mockResolvedValue({ data: {}, error: null }) }
+    const current = resolveCashbackConfig({ shares: {
+      airtime: { customer: 25, dealer: 50, storefrontCustomer: 20, storefrontShop: 40 },
+      overrides: { bill_ecg: { customer: 10 }, airtime_mtn: { dealer: 60 } },
+    } })
+    await setCashbackConfig(db, { shares: { overrides: { bill_ecg: { dealer: 15 } } } } as any, current)
+    const sent = db.rpc.mock.calls[0][1].p_patch
+    expect(sent.shares.overrides).toEqual({ bill_ecg: { customer: 10, dealer: 15 }, airtime_mtn: { dealer: 60 } })
+    expect(sent.shares.airtime).toEqual({ customer: 25, dealer: 50, storefrontCustomer: 20, storefrontShop: 40 })
   })
   it("get throws on error", async () => {
     const db: any = { from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: new Error("x") }) }) }) }) }
