@@ -25,6 +25,7 @@ const h = vi.hoisted(() => {
           select: () => ({
             eq: (_col: string, key: string) => ({
               single: () => Promise.resolve({ data: { value: state.settings[key] ?? null }, error: null }),
+              maybeSingle: () => Promise.resolve({ data: null, error: null }),
             }),
             in: (_col: string, keys: string[]) => Promise.resolve({
               data: keys.map((k) => ({ key: k, value: state.settings[k] ?? null })),

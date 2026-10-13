@@ -19,8 +19,10 @@ export const HUBTEL_AIRTIME_MAX = 100
 
 export interface AirtimeHubtelDeps {
   purchase(input: PurchaseInput): Promise<HubtelCsTx>
-  markOrder(orderId: string, patch: { status?: string; notes: string }): Promise<void>
-  alert(message: string): Promise<void>
+  /** When onlyFromStatuses is given the write MUST only apply to an order currently in one of those statuses. */
+  markOrder(orderId: string, patch: { status?: string; notes: string }, onlyFromStatuses?: string[]): Promise<void>
+  /** kind "review" = Hubtel outcome unknown / in review; "manual" (default) = not sent, fulfil manually. */
+  alert(message: string, kind?: "manual" | "review"): Promise<void>
 }
 
 const quiet = async (p: Promise<void>, what: string) => {
@@ -53,20 +55,20 @@ export async function fulfillAirtimeViaHubtel(order: AirtimeOrderMinimal, deps: 
       orderId: order.id,
     })
     if (tx.state === "needs_review") {
-      await quiet(deps.markOrder(order.id, { status: "processing", notes: `Hubtel: outcome unknown, in review [hcsRef:${tx.client_reference}]. Do not resend.` }), "markOrder")
-      await quiet(deps.alert(`Airtime ${tag}: Hubtel outcome unknown (ref ${tx.client_reference}) - check the Hubtel review queue, do not resend`), "alert")
+      await quiet(deps.markOrder(order.id, { status: "processing", notes: `Hubtel: outcome unknown, in review [hcsRef:${tx.client_reference}]. Do not resend.` }, ["pending"]), "markOrder")
+      await quiet(deps.alert(`Airtime ${tag}: Hubtel outcome unknown (ref ${tx.client_reference}) - check the Hubtel review queue, do not resend`, "review"), "alert")
       return true
     }
     if (tx.state === "pending" || tx.state === "created") {
-      await quiet(deps.markOrder(order.id, { status: "processing", notes: `Sent via Hubtel [hcsRef:${tx.client_reference}]` }), "markOrder")
+      await quiet(deps.markOrder(order.id, { status: "processing", notes: `Sent via Hubtel [hcsRef:${tx.client_reference}]` }, ["pending"]), "markOrder")
     }
     // fulfilled / failed were already applied to the order by the adapter hook.
     return tx.state !== "failed"
   } catch (e: any) {
     if (e instanceof HubtelDuplicateOrderError) return true
     if (e instanceof HubtelOutcomeUnknownError) {
-      await quiet(deps.markOrder(order.id, { status: "processing", notes: `Hubtel: outcome unknown [hcsRef:${e.clientReference}]. Do not resend.` }), "markOrder")
-      await quiet(deps.alert(`Airtime ${tag}: Hubtel POST may have been sent (ref ${e.clientReference}) - check the Hubtel review queue, do not resend`), "alert")
+      await quiet(deps.markOrder(order.id, { status: "processing", notes: `Hubtel: outcome unknown [hcsRef:${e.clientReference}]. Do not resend.` }, ["pending"]), "markOrder")
+      await quiet(deps.alert(`Airtime ${tag}: Hubtel POST may have been sent (ref ${e.clientReference}) - check the Hubtel review queue, do not resend`, "review"), "alert")
       return true
     }
     // Every other error is raised before the POST (disabled, paused, not configured, validation, insert failure).

@@ -85,16 +85,33 @@ export async function triggerAirtimeFulfillment(order: AirtimeOrderMinimal): Pro
     console.log(`[AIRTIME-SVC] provider for ${order.network}: ${provider}`)
     if (provider === "digiwapy") return await fulfillViaDigiwapy(order)
     if (provider === "hubtel") {
-      const { getHubtelCsRuntime } = await import("@/lib/hubtel-cs/runtime")
-      const rt = getHubtelCsRuntime()
+      let rt: ReturnType<(typeof import("@/lib/hubtel-cs/runtime"))["getHubtelCsRuntime"]>
+      try {
+        const { getHubtelCsRuntime } = await import("@/lib/hubtel-cs/runtime")
+        rt = getHubtelCsRuntime()
+      } catch (e: any) {
+        // Nothing was sent: hand to a human, never to another provider.
+        console.error(`[AIRTIME-SVC] Hubtel runtime unavailable for order ${order.id}:`, e?.message ?? e)
+        return await alertManualAirtime(order)
+      }
       return await fulfillAirtimeViaHubtel(order, {
         purchase: input => rt.client.purchase(input),
-        markOrder: async (orderId, patch) => {
-          const { error } = await supabase.from("airtime_orders")
-            .update({ ...patch, updated_at: new Date().toISOString() }).eq("id", orderId).neq("status", "completed")
+        markOrder: async (orderId, patch, onlyFromStatuses) => {
+          let q = supabase.from("airtime_orders")
+            .update({ ...patch, updated_at: new Date().toISOString() }).eq("id", orderId)
+          if (onlyFromStatuses) {
+            q = q.in("status", onlyFromStatuses)
+            // A fast failure callback may already have put the order back to pending with a failure note.
+            if (patch.status === "processing") q = q.not("notes", "ilike", "%Hubtel failed%")
+          } else {
+            q = q.neq("status", "completed")
+          }
+          const { error } = await q
           if (error) throw error
         },
-        alert: async message => { await notifyAdmins(message, "airtime_manual_needed", order.id, true) },
+        alert: async (message, kind) => {
+          await notifyAdmins(message, kind === "review" ? "airtime_hubtel_review" : "airtime_manual_needed", order.id, true)
+        },
       })
     }
     return await alertManualAirtime(order)
