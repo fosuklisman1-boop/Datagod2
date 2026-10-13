@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { HubtelCsEvent, HubtelCsPatch, HubtelCsState, HubtelCsTx, NewHubtelCsTx } from "./types"
 
-export interface ListOpts { state?: HubtelCsState | "attention"; q?: string; limit: number; offset: number }
+export interface ListOpts { state?: HubtelCsState | "attention"; q?: string; qAlt?: string; limit: number; offset: number }
 export interface HubtelCsStats { total: number; in_flight: number; needs_review: number; failed: number; fulfilled: number; commission_earned: number }
 
 export interface HubtelCsStore {
@@ -67,7 +67,12 @@ export function createSupabaseHubtelCsStore(db: SupabaseClient): HubtelCsStore {
       if (o.state === "attention") q = q.in("state", ["needs_review", "failed"])
       else if (o.state) q = q.eq("state", o.state)
       const term = o.q ? safeSearch(o.q) : ""
-      if (term) q = q.or(`client_reference.ilike.%${term}%,destination.ilike.%${term}%,hubtel_transaction_id.ilike.%${term}%`)
+      const alt = o.qAlt ? safeSearch(o.qAlt) : ""
+      if (term) {
+        const parts = [`client_reference.ilike.%${term}%`, `destination.ilike.%${term}%`, `hubtel_transaction_id.ilike.%${term}%`]
+        if (alt && alt !== term) parts.push(`destination.ilike.%${alt}%`)
+        q = q.or(parts.join(","))
+      }
       const { data, error, count } = await q.order("created_at", { ascending: false }).range(o.offset, o.offset + o.limit - 1)
       if (error) throw error
       return { rows: (data ?? []) as HubtelCsTx[], total: count ?? 0 }
