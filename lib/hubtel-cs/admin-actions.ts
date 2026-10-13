@@ -10,12 +10,19 @@ export interface AdminDeps {
   onTransition(tx: HubtelCsTx): Promise<void>
   now?: () => Date
 }
-type Out = { ok: boolean; message: string; tx: HubtelCsTx | null }
+type Out = { ok: boolean; message: string; tx: HubtelCsTx | null; provenance?: { resolved_by: string | null; resolution_note: string | null } }
 
 export async function adminCheckStatus(deps: AdminDeps, ref: string): Promise<Out> {
   const tx = await deps.store.getByRef(ref)
   if (!tx) return { ok: false, message: "Unknown reference", tx: null }
-  const res = await deps.checkStatus(ref)
+  let res: Awaited<ReturnType<AdminDeps["checkStatus"]>>
+  try {
+    res = await deps.checkStatus(ref)
+  } catch (e: any) {
+    const error = e?.message ?? String(e)
+    await deps.store.logEvent({ client_reference: ref, direction: "status_check", ok: false, payload: null, error }).catch(() => {})
+    return { ok: false, message: `Status check failed: ${error}`, tx }
+  }
   const data = res.data ?? {}
   await deps.store.logEvent({ client_reference: ref, direction: "status_check", ok: res.ok, payload: res.data ?? null, error: res.error ?? null })
   const transition = applyStatusCheck(tx, { ok: res.ok, status: res.status ?? data.status, isFulfilled: data.isFulfilled }, (deps.now ?? (() => new Date()))())
@@ -28,23 +35,37 @@ export async function adminResolve(deps: AdminDeps, ref: string, outcome: "fulfi
   if (!note || !note.trim()) return { ok: false, message: "A note is required", tx: null }
   const tx = await deps.store.getByRef(ref)
   if (!tx) return { ok: false, message: "Unknown reference", tx: null }
+  if (outcome === "fulfilled" && tx.refund_claimed_at) return { ok: false, message: "A refund has been issued or claimed for this order; it cannot be marked fulfilled", tx }
   const transition = applyResolve(tx, outcome, note.trim(), adminId, (deps.now ?? (() => new Date()))())
   if ("ignored" in transition) return { ok: false, message: transition.ignored, tx }
   const out = await applyAndCommit(deps.store, tx, transition, deps.onTransition)
   return out.changed ? { ok: true, message: `Marked ${outcome}`, tx: out.tx } : { ok: false, message: "The row changed while resolving; reload and retry", tx: out.tx }
 }
 
-/** Manual refund only. Never invoked automatically; delegates to the registered OrderAdapter. */
-export async function adminRefund(deps: AdminDeps, ref: string, adminId: string): Promise<Out> {
+/**
+ * Manual refund only. Never invoked automatically. The ledger row is atomically claimed BEFORE the
+ * adapter runs, so concurrent/repeat calls cannot double-refund. A thrown adapter error keeps the claim.
+ */
+export async function adminRefund(deps: AdminDeps, ref: string, adminId: string, opts: { force?: boolean } = {}): Promise<Out> {
   const tx = await deps.store.getByRef(ref)
   if (!tx) return { ok: false, message: "Unknown reference", tx: null }
-  if (tx.state !== "failed") return { ok: false, message: "Only failed transactions can be refunded", tx }
+  const provenance = { resolved_by: tx.resolved_by, resolution_note: tx.resolution_note }
+  if (tx.state !== "failed") return { ok: false, message: "Only failed transactions can be refunded", tx, provenance }
   const adapter = getOrderAdapter(tx.order_table)
-  if (!adapter?.refundToWallet || !tx.order_id) return { ok: false, message: "No refund handler is registered for this order type", tx }
+  if (!adapter?.refundToWallet || !tx.order_id) return { ok: false, message: "No refund handler is registered for this order type", tx, provenance }
+  if (tx.resolved_by && !opts.force) {
+    return { ok: false, message: `This row was marked failed by an admin override (${tx.resolved_by}: ${tx.resolution_note ?? "no note"}), not by Hubtel. Pass force to refund anyway.`, tx, provenance }
+  }
+  const claimed = await deps.store.claimRefund(tx.id, adminId)
+  if (!claimed) return { ok: false, message: "Refund already claimed or row not failed", tx: (await deps.store.getByRef(ref)) ?? tx, provenance }
   try {
-    const r = await adapter.refundToWallet(tx, adminId)
-    return { ok: r.refunded, message: r.message, tx }
+    const r = await adapter.refundToWallet(claimed, adminId)
+    if (!r.refunded) {
+      await deps.store.releaseRefundClaim(tx.id)
+      return { ok: false, message: r.message, tx: (await deps.store.getByRef(ref)) ?? tx, provenance }
+    }
+    return { ok: true, message: r.message, tx: (await deps.store.getByRef(ref)) ?? claimed, provenance }
   } catch (e: any) {
-    return { ok: false, message: `Refund failed: ${e?.message ?? e}`, tx }
+    return { ok: false, message: `Refund outcome UNKNOWN (${e?.message ?? e}). The claim was kept; check the wallet before any retry.`, tx: (await deps.store.getByRef(ref)) ?? claimed, provenance }
   }
 }

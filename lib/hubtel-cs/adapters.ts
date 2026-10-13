@@ -7,7 +7,12 @@ export interface OrderAdapter {
   onFulfilled(tx: HubtelCsTx): Promise<void>
   /** Called when a linked ledger row enters `failed`. MUST be idempotent. Never auto-refunds. */
   onFailed(tx: HubtelCsTx): Promise<void>
-  /** Manual refund, only invoked from the admin review queue. */
+  /**
+   * Manual refund, only invoked from the admin review queue after an atomic claim on the ledger row.
+   * MUST be idempotent per order (key it by tx.order_table + tx.order_id) because a thrown error keeps
+   * the claim and an admin may re-check the wallet and retry via other means. MUST return
+   * `refunded: false` ONLY when nothing was credited (that releases the claim); throw if unsure.
+   */
   refundToWallet?(tx: HubtelCsTx, adminId: string): Promise<{ refunded: boolean; message: string }>
 }
 

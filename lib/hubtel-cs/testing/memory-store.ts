@@ -26,6 +26,16 @@ export function createMemoryStore(): HubtelCsStore & { rows: HubtelCsTx[]; event
       Object.assign(r, patch, { updated_at: patch.updated_at ?? nowIso() })
       return { ...r }
     },
+    async claimRefund(id, adminId) {
+      const r = rows.find(x => x.id === id && x.state === "failed" && !x.refund_claimed_at)
+      if (!r) return null
+      Object.assign(r, { refund_claimed_at: nowIso(), refund_claimed_by: adminId, updated_at: nowIso() })
+      return { ...r }
+    },
+    async releaseRefundClaim(id) {
+      const r = rows.find(x => x.id === id)
+      if (r) Object.assign(r, { refund_claimed_at: null, refund_claimed_by: null, updated_at: nowIso() })
+    },
     async listByStates(states, o) {
       const out = rows
         .filter(r => states.includes(r.state) && (!o.olderThan || r.created_at <= o.olderThan))

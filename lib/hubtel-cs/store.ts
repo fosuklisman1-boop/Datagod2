@@ -12,6 +12,10 @@ export interface HubtelCsStore {
   listForAdmin(o: ListOpts): Promise<{ rows: HubtelCsTx[]; total: number }>
   stats(): Promise<HubtelCsStats>
   logEvent(ev: HubtelCsEvent): Promise<void>
+  /** Atomically claim a refund: only succeeds on a failed row with no prior claim. Null otherwise. */
+  claimRefund(id: string, adminId: string): Promise<HubtelCsTx | null>
+  /** Clear a claim; only when the adapter explicitly reports nothing was refunded. */
+  releaseRefundClaim(id: string): Promise<void>
   purgeEventsOlderThan(iso: string): Promise<void>
 }
 
@@ -39,6 +43,17 @@ export function createSupabaseHubtelCsStore(db: SupabaseClient): HubtelCsStore {
       const { data, error } = await db.from(T).update(withTs).eq("id", id).eq("state", expectedState).select().maybeSingle()
       if (error) throw error
       return (data as HubtelCsTx | null) ?? null
+    },
+    async claimRefund(id, adminId) {
+      const ts = new Date().toISOString()
+      const { data, error } = await db.from(T).update({ refund_claimed_at: ts, refund_claimed_by: adminId, updated_at: ts })
+        .eq("id", id).eq("state", "failed").is("refund_claimed_at", null).select().maybeSingle()
+      if (error) throw error
+      return (data as HubtelCsTx | null) ?? null
+    },
+    async releaseRefundClaim(id) {
+      const { error } = await db.from(T).update({ refund_claimed_at: null, refund_claimed_by: null, updated_at: new Date().toISOString() }).eq("id", id)
+      if (error) throw error
     },
     async listByStates(states, o) {
       let q = db.from(T).select("*").in("state", states)

@@ -33,6 +33,8 @@ CREATE TABLE IF NOT EXISTS hubtel_cs_transactions (
   resolved_by             uuid,
   resolved_at             timestamptz,
   resolution_note         text,
+  refund_claimed_at       timestamptz,
+  refund_claimed_by       uuid,
   created_at              timestamptz NOT NULL DEFAULT now(),
   updated_at              timestamptz NOT NULL DEFAULT now()
 );

@@ -93,3 +93,91 @@ describe("adminRefund", () => {
     expect(out.message).toMatch(/wallet locked/)
   })
 })
+
+describe("adminRefund atomic claim", () => {
+  const reg = (refundToWallet: any) => registerOrderAdapter({ table: "airtime_orders", onFulfilled: async () => {}, onFailed: async () => {}, refundToWallet })
+  const failedRow = { state: "failed", order_table: "airtime_orders", order_id: "o1" }
+  it("concurrent refunds call the adapter exactly once", async () => {
+    const refundToWallet = vi.fn(async () => ({ refunded: true, message: "done" })); reg(refundToWallet)
+    const { deps } = setup(failedRow)
+    const [a, b] = await Promise.all([adminRefund(deps, REF, "admin-1"), adminRefund(deps, REF, "admin-2")])
+    expect(refundToWallet).toHaveBeenCalledTimes(1)
+    expect([a.ok, b.ok].filter(Boolean)).toHaveLength(1)
+  })
+  it("sequential second refund is refused as already claimed", async () => {
+    const refundToWallet = vi.fn(async () => ({ refunded: true, message: "done" })); reg(refundToWallet)
+    const { deps } = setup(failedRow)
+    await adminRefund(deps, REF, "admin-1")
+    const again = await adminRefund(deps, REF, "admin-1")
+    expect(again.ok).toBe(false)
+    expect(again.message).toMatch(/already claimed/i)
+    expect(refundToWallet).toHaveBeenCalledTimes(1)
+  })
+  it("refunded:false releases the claim so a retry works", async () => {
+    const refundToWallet = vi.fn().mockResolvedValueOnce({ refunded: false, message: "nothing credited" }).mockResolvedValueOnce({ refunded: true, message: "done" })
+    reg(refundToWallet)
+    const { deps, store } = setup(failedRow)
+    const first = await adminRefund(deps, REF, "admin-1")
+    expect(first).toMatchObject({ ok: false, message: "nothing credited" })
+    expect((await store.getByRef(REF))!.refund_claimed_at).toBeNull()
+    expect((await adminRefund(deps, REF, "admin-1")).ok).toBe(true)
+    expect(refundToWallet).toHaveBeenCalledTimes(2)
+  })
+  it("a throwing adapter keeps the claim; second attempt does not call it", async () => {
+    const refundToWallet = vi.fn(async () => { throw new Error("wallet locked") }); reg(refundToWallet)
+    const { deps, store } = setup(failedRow)
+    const first = await adminRefund(deps, REF, "admin-1")
+    expect(first.ok).toBe(false)
+    expect(first.message).toMatch(/unknown/i)
+    expect(first.message).toMatch(/check the wallet/i)
+    expect((await store.getByRef(REF))!.refund_claimed_at).not.toBeNull()
+    await adminRefund(deps, REF, "admin-1")
+    expect(refundToWallet).toHaveBeenCalledTimes(1)
+  })
+  it("claim never succeeds on a non-failed row", async () => {
+    const { deps, store } = setup({ state: "fulfilled" })
+    const row = (await store.getByRef(REF))!
+    expect(await store.claimRefund(row.id, "a")).toBeNull()
+    void deps
+  })
+  it("admin-overridden rows need force and always expose provenance", async () => {
+    const refundToWallet = vi.fn(async () => ({ refunded: true, message: "done" })); reg(refundToWallet)
+    const { deps } = setup({ ...failedRow, resolved_by: "admin-9", resolved_at: T0.toISOString(), resolution_note: "never delivered" })
+    const blocked = await adminRefund(deps, REF, "admin-1")
+    expect(blocked.ok).toBe(false)
+    expect(blocked.message).toMatch(/force/i)
+    expect(blocked.provenance).toEqual({ resolved_by: "admin-9", resolution_note: "never delivered" })
+    expect(refundToWallet).not.toHaveBeenCalled()
+    const forced = await adminRefund(deps, REF, "admin-1", { force: true })
+    expect(forced.ok).toBe(true)
+    expect(forced.provenance).toEqual({ resolved_by: "admin-9", resolution_note: "never delivered" })
+  })
+  it("returns the fresh row after a successful refund", async () => {
+    reg(async () => ({ refunded: true, message: "done" }))
+    const { deps } = setup(failedRow)
+    const out = await adminRefund(deps, REF, "admin-1")
+    expect(out.tx!.refund_claimed_at).not.toBeNull()
+  })
+})
+
+describe("adminResolve vs refund", () => {
+  it("refuses to flip a refunded order to fulfilled", async () => {
+    const { deps, onTransition } = setup({ state: "failed", refund_claimed_at: T0.toISOString(), refund_claimed_by: "admin-1" })
+    const out = await adminResolve(deps, REF, "fulfilled", "actually delivered", "admin-2")
+    expect(out.ok).toBe(false)
+    expect(out.message).toMatch(/refund/i)
+    expect(onTransition).not.toHaveBeenCalled()
+  })
+})
+
+describe("adminCheckStatus throwing checkStatus", () => {
+  it("is reported, not thrown, and leaves the row untouched", async () => {
+    const { deps, store } = setup({}, async () => { throw new Error("socket hang up") })
+    const out = await adminCheckStatus(deps, REF)
+    expect(out.ok).toBe(false)
+    expect(out.message).toMatch(/socket hang up/)
+    const row = (await store.getByRef(REF))!
+    expect(row.state).toBe("pending")
+    expect(row.status_check_attempts).toBe(0)
+  })
+})
