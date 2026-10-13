@@ -23,20 +23,20 @@ Every SMS has a `type`. `lib/sms/categories.ts` maps the type to a category, and
 1. Admin > SMS Centre > Providers > **Provider routing by SMS type**.
 2. Pick Global / Moolre / Hubtel per row, then press **Save** (separate from "Save routing" above).
 3. Choosing Hubtel requires Hubtel credentials; otherwise the save is refused and the error is shown verbatim.
-4. Settings are cached about 5 minutes per instance and the save invalidates the cache.
+4. Settings are cached about 5 minutes per instance. The save clears the cache only on the instance that served it; other instances pick the change up within 5 minutes.
 
 OTP: the selector is honoured, but if the failover breaker is open the lead is still forced to the fallback provider.
 
 ## Per-send pickers
 
-- **Admin broadcast:** the broadcast compose screen has a provider picker (Moolre / Hubtel / category default). The choice is stored on `broadcast_logs.sms_provider` and reused by retries.
+- **Admin broadcast:** the broadcast compose screen has a provider picker (Moolre / Hubtel / "System default", which means the category routing applies). The choice is stored on `broadcast_logs.sms_provider` and reused by retries.
 - **Customer bulk SMS (dashboard, shop, `/api/v1/sms/send`):** a picker is shown/honoured only when "Let customers choose the provider when sending bulk SMS" is ticked in the card. Otherwise the `customer_bulk` category applies. Hubtel solvency/wholesale gates still apply.
 
 A per-send choice overrides the category.
 
 ## Deploy checklist
 
-1. **Apply `migrations/20261020_sms_provider_control.sql` to prod BEFORE deploying code.** Own-sender order confirmations default to Hubtel and write `provider_override`; sends with an explicit provider fail at insert without the new columns.
+1. **Apply `migrations/20261020_sms_provider_control.sql` to prod BEFORE merging to main** (merging auto-deploys). Own-sender order confirmations default to Hubtel and write `provider_override`. If the code ships first: the `sms_send_logs` insert retries once without `provider_override` and logs "provider_override column missing - apply migration 20261020" (the send still goes out, the instant dispatch honours the pick), but later drain retries fall back to category routing; a broadcast with an explicit provider is refused with "Apply migration 20261020 (sms_provider column) before choosing a provider".
 2. After deploy, watch the Moolre balance (system categories now lead with Moolre instead of Hubtel) and check distribution:
    ```sql
    select message_type, provider, count(*)
@@ -45,7 +45,7 @@ A per-send choice overrides the category.
    group by 1, 2;
    ```
 3. Do not enable tenant provider choice before the migration is applied.
-4. **Rollback:** set every category to Global in the card; behaviour returns to the global primary/fallbacks. Code rollback is safe once the migration is applied (columns are additive).
+4. **Rollback:** set every category to Global in the card; behaviour returns to the global primary/fallbacks, except OTP-category types (`otp_required`, `password_reset_link`, `phone_otp`), which keep OTP ordering and the failover breaker. Code rollback is safe once the migration is applied (columns are additive).
 
 ## Known limitations
 
@@ -53,3 +53,8 @@ A per-send choice overrides the category.
 - There is no separate admin compose screen beyond broadcast.
 - Granularity is per category, not per individual message type.
 - Own-sender vs platform order confirmations are decided by the calling code, not by the type string.
+- **Solvency caveat:** the wholesale/solvency gates (`lib/sms/wholesale.ts`) still check only the PRIMARY provider's balance. Do not move `customer_bulk` or own-sender confirmations away from the primary, or enable tenant provider choice, without checking the other provider's balance first.
+- **Global for own-sender** follows `customer_bulk` if that is set, else the primary.
+- **Custom sender IDs** are never sent via Moolre while Hubtel is configured: a forced or category Moolre lead is replaced by Hubtel (tenant sender IDs are approved locally and may not exist at Moolre).
+- The delivery-sync cron still treats only `phone_otp` as OTP (`app/api/cron/sms-delivery-sync/route.ts` lines 76 and 147).
+- If the routing read fails, routing falls back to the built-in category defaults (Moolre-first for system categories), not to Global.
