@@ -1,6 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { OrderAdapter } from "../adapters"
 import type { HubtelCsTx } from "../types"
+import { BILLERS, isBillerKey } from "@/lib/bills/billers"
+
+/** Display label for messages; unknown keys fall back to the raw value. */
+const labelOf = (biller: string) => (isBillerKey(biller) ? BILLERS[biller].label : biller)
 
 export const BILL_ORDERS_TABLE = "hubtel_bill_orders"
 
@@ -33,7 +37,7 @@ export function createBillOrdersAdapter(deps: BillOrdersAdapterDeps): OrderAdapt
   const quiet = async (label: string, fn: () => Promise<void>) => {
     try { await fn() } catch (e: any) { console.error(`[hubtel-cs] bill ${label} error:`, e?.message ?? e) }
   }
-  const summary = (o: BillOrderRow) => `${o.biller} GHS ${Number(o.amount).toFixed(2)} to ${o.account_number}`
+  const summary = (o: BillOrderRow) => `${labelOf(o.biller)} GHS ${Number(o.amount).toFixed(2)} to ${o.account_number}`
   /** Reads the order for the message; any failure is swallowed (notifications are best-effort). */
   const notifyCustomer = async (orderId: string, title: string, text: (o: BillOrderRow) => string) => {
     await quiet(`notify "${title}"`, async () => {
@@ -84,9 +88,9 @@ export function createBillOrdersAdapter(deps: BillOrdersAdapterDeps): OrderAdapt
         return { refunded: false, message: "Order is not a paid failed order" }
       }
       // Credit first (idempotent by reference), then flip the status.
-      await deps.creditWallet(o.user_id, Number(o.amount), `bill-refund-${id}`, `Refund: ${o.biller} bill ${tx.client_reference}`)
+      await deps.creditWallet(o.user_id, Number(o.amount), `bill-refund-${id}`, `Refund: ${labelOf(o.biller)} bill ${tx.client_reference}`)
       const n = await deps.update(id, { status: "refunded", payment_status: "refunded" }, ["failed"])
-      await notifyCustomer(id, "Bill refunded", x => `GHS ${Number(x.amount).toFixed(2)} for ${x.biller} to ${x.account_number} was refunded to your wallet.`)
+      await notifyCustomer(id, "Bill refunded", x => `GHS ${Number(x.amount).toFixed(2)} for ${labelOf(x.biller)} to ${x.account_number} was refunded to your wallet.`)
       return {
         refunded: true,
         message: n > 0

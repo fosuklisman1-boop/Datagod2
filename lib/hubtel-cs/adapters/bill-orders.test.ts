@@ -4,7 +4,7 @@ import { makeTx } from "../testing/fixtures"
 
 const LIVE = ["pending", "processing"]
 const order = (o: Partial<{ status: string; payment_status: string }> = {}) => ({
-  status: "failed", payment_status: "paid", user_id: "u1", biller: "ECG", amount: 50, account_number: "123456", ...o,
+  status: "failed", payment_status: "paid", user_id: "u1", biller: "ecg", amount: 50, account_number: "123456", ...o,
 })
 const base = () => ({
   get: async () => order({ status: "processing" }) as ReturnType<typeof order> | null,
@@ -24,7 +24,7 @@ describe("hubtel_bill_orders adapter", () => {
       .onFulfilled(makeTx({ order_id: "o1", client_reference: "HCS-1", commission: 0.5 }))
     expect(update).toHaveBeenCalledWith("o1", { status: "completed", commission: 0.5, notes: expect.stringContaining("hcsRef:HCS-1") }, LIVE)
     expect(notify).toHaveBeenCalledTimes(1)
-    expect(notify).toHaveBeenCalledWith("u1", "Bill paid", expect.stringContaining("ECG GHS 50.00 to 123456 was delivered"), "o1")
+    expect(notify).toHaveBeenCalledWith("u1", "Bill paid", expect.stringContaining("ECG Prepaid & Postpaid GHS 50.00 to 123456 was delivered"), "o1")
   })
   it("fulfilled on refunded order: 0 rows, no notify, admin double-value alert, order untouched", async () => {
     const notify = vi.fn(async () => {}), alertAdmin = vi.fn(async () => {}), update = vi.fn(async () => 0)
