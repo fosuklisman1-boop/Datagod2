@@ -153,7 +153,16 @@ airtime dispatcher for each provider + >100 cap + disabled/paused, adapters idem
 contract, 5xx classification change, review-alert debounce. Real `next build` before any push. Live: one GHS 0.50 airtime per
 network and one cheapest data bundle per network after the credential is set (runbook).
 
-## 11. Rollout
+## 11. Carried forward to Phase 3 (bills) — not built here
+
+- **ECG side effect:** Hubtel's ECG top-up "will link the phone number to the meter if that has not already been done".
+  The Phase 3 ECG page must tell the customer this before they pay, and require them to confirm. For POSTPAID meters the
+  account number (not meter number) goes in `Extradata.bundle`.
+- Telecel Broadband gets its own sidebar link and page (user decision, 2026-10-13).
+- Bill query `Display` keys vary by service (`name`/`amountDue`/`account` vs StarTimes `Name`/`Account Number`/`Bouquet`);
+  GOtv `amountDue` and ECG `Amount` can be negative; Ghana Water needs the per-query `sessionId` in the POST.
+
+## 12. Rollout
 
 Each part ships dark: airtime networks default to their current provider; Standard Bundles networks default disabled; the
 sidebar link hides when none is enabled. Migrations applied before merge (cron/route depend on them), as in Phase 1.
