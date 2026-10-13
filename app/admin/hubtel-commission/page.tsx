@@ -18,6 +18,7 @@ import { RefreshCw, Search } from "lucide-react"
 import { HUBTEL_CS_SERVICES, isServiceKey, type HubtelCsServiceKey } from "@/lib/hubtel-cs/services"
 import type { HubtelCsConfig } from "@/lib/hubtel-cs/config"
 import type { HubtelCsTx } from "@/lib/hubtel-cs/types"
+import { BundlesOrdersTab, BundlesSettingsCard } from "./standard-bundles"
 
 type Row = HubtelCsTx & { refundable: boolean }
 type Stats = { total: number; in_flight: number; needs_review: number; failed: number; fulfilled: number; commission_earned: number }
@@ -176,6 +177,7 @@ export default function HubtelCommissionPage() {
   const [refunding, setRefunding] = useState<Row | null>(null)
   const [refundAck, setRefundAck] = useState(false)
   const [banner, setBanner] = useState<{ ok: boolean; text: string } | null>(null)
+  const [tab, setTab] = useState("settings")
   const seq = useRef({ transactions: 0, review: 0 })
 
   const loadConfig = useCallback(async (opts?: { keepThreshold?: boolean }) => {
@@ -377,12 +379,17 @@ export default function HubtelCommissionPage() {
           <Stat label="Failed / needs review" value={stats ? String(stats.needs_review + stats.failed) : "—"} hint={stats ? `${stats.needs_review} review · ${stats.failed} failed` : undefined} />
         </div>
 
-        <Tabs defaultValue="settings">
+        <Tabs value={tab} onValueChange={setTab}>
           <TabsList className="h-auto flex-wrap justify-start">
             <TabsTrigger value="settings">Settings</TabsTrigger>
             <TabsTrigger value="transactions">Transactions</TabsTrigger>
             <TabsTrigger value="review">Review Queue{reviewList.total ? ` (${reviewList.total})` : ""}</TabsTrigger>
+            <TabsTrigger value="bundles">Standard Bundles</TabsTrigger>
           </TabsList>
+
+          <TabsContent value="bundles" className="mt-4">
+            <BundlesOrdersTab authed={authed} onReviewQueue={() => setTab("review")} />
+          </TabsContent>
 
           <TabsContent value="settings" className="mt-4">
             {configError && !config && (
@@ -497,6 +504,7 @@ export default function HubtelCommissionPage() {
                     )}
                   </CardContent>
                 </Card>
+                <BundlesSettingsCard authed={authed} />
               </div>
             )}
           </TabsContent>

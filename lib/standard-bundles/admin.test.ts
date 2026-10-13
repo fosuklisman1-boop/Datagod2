@@ -1,0 +1,143 @@
+import { describe, it, expect, vi } from "vitest"
+import {
+  bundleRefundDecision, executeBundleRefund, isStuckClaim, parseOrderFilters, releaseStuckClaimRow, STUCK_CLAIM_MS, UNSENT_GRACE_MS,
+  type BundleRefundDeps, type RefundOrder,
+} from "./admin"
+
+const NOW = Date.parse("2026-10-13T12:00:00Z")
+const ago = (ms: number) => new Date(NOW - ms).toISOString()
+const facts = (o: Partial<RefundOrder> = {}): RefundOrder => ({
+  id: "o1", reference_code: "BND-1", user_id: "u1", amount: 5, network: "MTN", bundle_display: "1GB",
+  status: "pending", payment_status: "paid", hubtel_client_reference: null, notes: null, updated_at: ago(10 * 60_000), ...o,
+})
+
+describe("parseOrderFilters", () => {
+  it("drops unknown values and strips or() syntax", () => {
+    const f = parseOrderFilters(new URLSearchParams("q=a,b(c)&status=bogus&network=VODA&from=2026-13-45&to=2026-10-02"))
+    expect(f).toEqual({ q: "a b c", status: undefined, network: undefined, from: undefined, to: "2026-10-02" })
+  })
+  it("accepts valid status and network", () => {
+    expect(parseOrderFilters(new URLSearchParams("status=failed&network=AT"))).toMatchObject({ status: "failed", network: "AT" })
+  })
+})
+
+describe("bundleRefundDecision", () => {
+  it("allows an old pending+paid order with no ledger row", () => {
+    expect(bundleRefundDecision(facts(), 0, NOW)).toEqual({ action: "direct", releaseStuck: false })
+  })
+  it("blocks a pending order inside the 60 s grace", () => {
+    expect(bundleRefundDecision(facts({ updated_at: ago(UNSENT_GRACE_MS - 1000) }), 0, NOW).action).toBe("blocked")
+  })
+  it("blocks any order with a ledger row and points at the review queue", () => {
+    const d = bundleRefundDecision(facts({ status: "failed" }), 1, NOW)
+    expect(d).toMatchObject({ action: "blocked", reviewQueue: true })
+  })
+  it("blocks unpaid, completed, refunded", () => {
+    expect(bundleRefundDecision(facts({ payment_status: "unpaid" }), 0, NOW).action).toBe("blocked")
+    expect(bundleRefundDecision(facts({ status: "completed" }), 0, NOW).action).toBe("blocked")
+    expect(bundleRefundDecision(facts({ status: "refunded", payment_status: "refunded" }), 0, NOW).action).toBe("blocked")
+  })
+  it("blocks a hubtel reference without a ledger row", () => {
+    expect(bundleRefundDecision(facts({ hubtel_client_reference: "x" }), 0, NOW).action).toBe("blocked")
+  })
+  it("releases a stuck claim only after 5 minutes", () => {
+    const stuck = facts({ status: "processing", notes: "Dispatching…", updated_at: ago(STUCK_CLAIM_MS + 1000) })
+    expect(bundleRefundDecision(stuck, 0, NOW)).toEqual({ action: "direct", releaseStuck: true })
+    const fresh = facts({ status: "processing", notes: "Dispatching…", updated_at: ago(60_000) })
+    expect(bundleRefundDecision(fresh, 0, NOW).action).toBe("blocked")
+    expect(isStuckClaim(fresh, NOW)).toBe(false)
+    expect(bundleRefundDecision(facts({ status: "processing", notes: "Outcome unknown" }), 0, NOW).action).toBe("blocked")
+  })
+})
+
+describe("releaseStuckClaimRow", () => {
+  it("applies every SQL guard", async () => {
+    const calls: string[] = []
+    const chain: any = {
+      update: (p: any) => { calls.push(`update:${p.status}`); return chain },
+      eq: (c: string, v: any) => { calls.push(`eq:${c}=${v}`); return chain },
+      is: (c: string, v: any) => { calls.push(`is:${c}=${v}`); return chain },
+      like: (c: string, v: any) => { calls.push(`like:${c}=${v}`); return chain },
+      lt: (c: string) => { calls.push(`lt:${c}`); return chain },
+      select: () => Promise.resolve({ data: [{ id: "o1" }], error: null }),
+    }
+    const n = await releaseStuckClaimRow({ from: () => chain } as any, "o1", "admin", NOW)
+    expect(n).toBe(1)
+    expect(calls).toEqual(expect.arrayContaining([
+      "update:pending", "eq:id=o1", "eq:status=processing", "eq:payment_status=paid", "is:hubtel_client_reference=null", "like:notes=Dispatching%", "lt:updated_at",
+    ]))
+  })
+})
+
+function deps(over: Partial<BundleRefundDeps> & { order?: RefundOrder; ledger?: number[] } = {}): BundleRefundDeps & { log: string[] } {
+  const log: string[] = []
+  const ledger = [...(over.ledger ?? [0, 0])]
+  const order = over.order ?? facts()
+  const d: BundleRefundDeps = {
+    getOrder: async () => order,
+    ledgerCount: async () => ledger.length > 1 ? ledger.shift()! : ledger[0],
+    releaseStuckClaim: async () => { log.push("release"); return 1 },
+    claimForRefund: async () => { log.push("claim"); return 1 },
+    revertToProcessing: async () => { log.push("revert"); return 1 },
+    creditWallet: async () => { log.push("credit") },
+    markRefunded: async () => { log.push("refunded"); return 1 },
+    alert: async () => { log.push("alert") },
+    now: () => NOW,
+    ...over,
+  }
+  return Object.assign(d, { log })
+}
+
+describe("executeBundleRefund", () => {
+  it("claims, rechecks the ledger, credits, then marks refunded", async () => {
+    const d = deps()
+    const r = await executeBundleRefund(d, "o1", "n")
+    expect(r).toMatchObject({ ok: true, status: 200 })
+    expect(d.log).toEqual(["claim", "credit", "refunded"])
+  })
+  it("never credits when a ledger row appears after the claim", async () => {
+    const d = deps({ ledger: [0, 1] })
+    const r = await executeBundleRefund(d, "o1", "n")
+    expect(r.ok).toBe(false)
+    expect(d.log).toEqual(["claim", "revert", "alert"])
+  })
+  it("raises an urgent alert when the revert fails", async () => {
+    const d = deps({ ledger: [0, 1], revertToProcessing: async () => 0 })
+    const r = await executeBundleRefund(d, "o1", "n")
+    expect(r.status).toBe(500)
+    expect(d.log).toContain("alert")
+    expect(d.log).not.toContain("credit")
+  })
+  it("a lost double-submit claim does not credit", async () => {
+    const d = deps({ claimForRefund: async () => 0 })
+    const r = await executeBundleRefund(d, "o1", "n")
+    expect(r.status).toBe(409)
+    expect(d.log).toEqual([])
+  })
+  it("fails closed when the ledger cannot be read", async () => {
+    const credit = vi.fn()
+    const r = await executeBundleRefund(deps({ ledgerCount: async () => { throw new Error("db") }, creditWallet: credit }), "o1", "n")
+    expect(r.status).toBe(503)
+    expect(credit).not.toHaveBeenCalled()
+  })
+  it("refuses orders that reached Hubtel", async () => {
+    const d = deps({ ledger: [1] })
+    expect((await executeBundleRefund(d, "o1", "n")).status).toBe(409)
+    expect(d.log).toEqual([])
+  })
+  it("releases a stuck claim before fencing", async () => {
+    const d = deps({ order: facts({ status: "processing", notes: "Dispatching…", updated_at: ago(STUCK_CLAIM_MS + 5000) }) })
+    expect((await executeBundleRefund(d, "o1", "n")).released).toBe(true)
+    expect(d.log).toEqual(["release", "claim", "credit", "refunded"])
+  })
+  it("a failed order retry skips the claim and credits idempotently", async () => {
+    const d = deps({ order: facts({ status: "failed" }) })
+    expect((await executeBundleRefund(d, "o1", "n")).ok).toBe(true)
+    expect(d.log).toEqual(["credit", "refunded"])
+  })
+  it("reports an unknown outcome when the credit throws", async () => {
+    const r = await executeBundleRefund(deps({ creditWallet: async () => { throw new Error("boom") } }), "o1", "n")
+    expect(r.status).toBe(502)
+    expect(r.message).toContain("UNKNOWN")
+  })
+})
