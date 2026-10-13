@@ -144,7 +144,28 @@ describe("validateSection", () => {
         { key: "sms_hubtel_manual_balance", value: { amountGhs: null, setAt: "2026-10-12T09:30:00.000Z", setBy: "admin-9" } },
       ])
     })
+    it("preferManual alone writes only the flag (the amount is not re-stamped)", () => {
+      expect(rows(validateSection("hubtel_manual_balance", { preferManual: true }, ctx))).toEqual([
+        { key: "sms_hubtel_prefer_manual_balance", value: true },
+      ])
+      expect(rows(validateSection("hubtel_manual_balance", { preferManual: false }, ctx))).toEqual([
+        { key: "sms_hubtel_prefer_manual_balance", value: false },
+      ])
+    })
+    it("amount and preferManual together write both rows", () => {
+      expect(rows(validateSection("hubtel_manual_balance", { amountGhs: 50, preferManual: true }, ctx))).toEqual([
+        { key: "sms_hubtel_manual_balance", value: { amountGhs: 50, setAt: "2026-10-12T09:30:00.000Z", setBy: "admin-9" } },
+        { key: "sms_hubtel_prefer_manual_balance", value: true },
+      ])
+    })
+    it.each([["yes"], [1], [null], [undefined]])("preferManual must be a real boolean (%s rejected)", (preferManual) => {
+      expect(validateSection("hubtel_manual_balance", { preferManual }, ctx).ok).toBe(false)
+    })
+    it("an empty save is rejected", () => {
+      expect(validateSection("hubtel_manual_balance", {}, ctx).ok).toBe(false)
+    })
     it("requires a real admin id", () => {
+      expect(validateSection("hubtel_manual_balance", { preferManual: true }).ok).toBe(false)
       expect(validateSection("hubtel_manual_balance", { amountGhs: 5 }).ok).toBe(false)
       expect(validateSection("hubtel_manual_balance", { amountGhs: 5 }, { adminId: "" }).ok).toBe(false)
     })
@@ -200,6 +221,16 @@ describe("saveSection", () => {
     expect(h.audit).toHaveBeenCalledWith("admin1", "sms_settings_update", null,
       { section: "hubtel_manual_balance", values: { sms_hubtel_manual_balance: old } },
       { section: "hubtel_manual_balance", values: { sms_hubtel_manual_balance: written } })
+    expect(h.invalidate).toHaveBeenCalledOnce()
+  })
+  it("hubtel_manual_balance preferManual: audits old/new flag, invalidates the cache", async () => {
+    h.oldRows = [{ key: "sms_hubtel_prefer_manual_balance", value: false }]
+    const r = await saveSection("admin1", "hubtel_manual_balance", { preferManual: true })
+    expect(r).toEqual({ ok: true, updated: ["sms_hubtel_prefer_manual_balance"] })
+    expect(h.upserts[0]).toEqual([{ key: "sms_hubtel_prefer_manual_balance", value: true }])
+    expect(h.audit).toHaveBeenCalledWith("admin1", "sms_settings_update", null,
+      { section: "hubtel_manual_balance", values: { sms_hubtel_prefer_manual_balance: false } },
+      { section: "hubtel_manual_balance", values: { sms_hubtel_prefer_manual_balance: true } })
     expect(h.invalidate).toHaveBeenCalledOnce()
   })
   it("refuses a missing admin id", async () => {

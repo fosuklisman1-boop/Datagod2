@@ -169,17 +169,60 @@ export async function hubtelSendBatchPersonalized(cfg: HubtelConfig, m: { from: 
   return toSendResult(r.status, r.body, r.failure)
 }
 
-export interface HubtelStatusEntry { messageId: string; state: HubtelDeliveryState; rawStatus: string; rate?: number; updateTime?: string }
+export interface HubtelStatusEntry {
+  messageId: string; state: HubtelDeliveryState; rawStatus: string; rate?: number; updateTime?: string
+  /** Recipient MSISDN as Hubtel reports it. Batch status replies carry message ids that differ from
+   *  the send-time ids, so batch reports are matched on (batch id, recipient) instead. */
+  to?: string
+}
 export interface HubtelStatusResult { ok: boolean; error?: string; messages: HubtelStatusEntry[] }
 
-function toEntry(d: Record<string, unknown>): HubtelStatusEntry | null {
-  if (typeof d.messageId !== "string") return null
-  const raw = typeof d.status === "string" ? d.status : ""
-  return {
-    messageId: d.messageId, state: mapHubtelStatus(raw), rawStatus: raw,
-    rate: typeof d.rate === "number" ? d.rate : undefined,
-    updateTime: typeof d.updateTime === "string" ? d.updateTime : undefined,
+/** First present value among `keys`, matched case-insensitively (Hubtel uses both camelCase and PascalCase). */
+function pick(d: Record<string, unknown>, keys: string[]): unknown {
+  const lower = new Map(Object.keys(d).map((k) => [k.toLowerCase(), k]))
+  for (const k of keys) {
+    const real = lower.get(k.toLowerCase())
+    if (real !== undefined && d[real] !== undefined && d[real] !== null) return d[real]
   }
+  return undefined
+}
+
+function toEntry(d: Record<string, unknown>, fallbackId?: string): HubtelStatusEntry | null {
+  const idRaw = pick(d, ["messageId", "id"])
+  const id = typeof idRaw === "string" && idRaw ? idRaw : fallbackId
+  if (!id) return null
+  const statusRaw = pick(d, ["status", "deliveryStatus", "messageStatus"])
+  const raw = typeof statusRaw === "string" ? statusRaw : ""
+  const rate = pick(d, ["rate"])
+  const upd = pick(d, ["updateTime", "updatedAt", "dateUpdated"])
+  const to = pick(d, ["to", "recipient"])
+  return {
+    messageId: id, state: mapHubtelStatus(raw), rawStatus: raw,
+    rate: typeof rate === "number" ? rate : typeof rate === "string" && rate.trim() !== "" && Number.isFinite(Number(rate)) ? Number(rate) : undefined,
+    updateTime: typeof upd === "string" ? upd : undefined,
+    to: typeof to === "string" && to.trim() !== "" ? to.trim() : typeof to === "number" && Number.isSafeInteger(to) && to > 0 ? String(to) : undefined,
+  }
+}
+
+/**
+ * The per-message objects in a status reply, whatever the envelope: a bare object, `data` /
+ * `Data` holding an object or an array, or a bare array.
+ */
+function statusObjects(body: unknown): Record<string, unknown>[] {
+  if (Array.isArray(body)) return body.filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
+  if (!body || typeof body !== "object") return []
+  const b = body as Record<string, unknown>
+  const data = pick(b, ["data", "messages"])
+  if (Array.isArray(data)) return data.filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
+  if (data && typeof data === "object") return [data as Record<string, unknown>]
+  return [b]
+}
+
+/** Keys of a reply that yielded no entries, for the "could not read Hubtel status" log (no values: they hold phone numbers). */
+function shapeOf(body: unknown): string {
+  if (Array.isArray(body)) return `array(${body.length})`
+  if (!body || typeof body !== "object") return typeof body
+  return Object.keys(body as Record<string, unknown>).join(",")
 }
 
 function statusError(r: { status: number; failure: HubtelFailure }): string | null {
@@ -192,15 +235,17 @@ export async function hubtelGetBatchStatus(cfg: HubtelConfig, batchId: string): 
   const r = await call(cfg, "GET", `/v1/messages/batch/${encodeURIComponent(batchId)}`)
   const err = statusError(r)
   if (err) return { ok: false, error: err, messages: [] }
-  const b = (r.body && typeof r.body === "object" ? r.body : {}) as Record<string, unknown>
-  const data = Array.isArray(b.data) ? (b.data as Record<string, unknown>[]) : []
-  return { ok: true, messages: data.map(toEntry).filter((e): e is HubtelStatusEntry => e !== null) }
+  const messages = statusObjects(r.body).map((d) => toEntry(d)).filter((e): e is HubtelStatusEntry => e !== null)
+  if (messages.length === 0) return { ok: false, error: `Hubtel batch status reply had no readable messages (keys: ${shapeOf(r.body)})`, messages: [] }
+  return { ok: true, messages }
 }
 
 export async function hubtelGetMessageStatus(cfg: HubtelConfig, messageId: string): Promise<HubtelStatusResult> {
   const r = await call(cfg, "GET", `/v1/messages/${encodeURIComponent(messageId)}`)
   const err = statusError(r)
   if (err) return { ok: false, error: err, messages: [] }
-  const e = toEntry((r.body && typeof r.body === "object" ? r.body : {}) as Record<string, unknown>)
-  return { ok: true, messages: e ? [e] : [] }
+  // A single-message reply may omit the id; it can only be about the message we asked for.
+  const e = statusObjects(r.body).map((d) => toEntry(d, messageId)).find((x): x is HubtelStatusEntry => x !== null)
+  if (!e || !e.rawStatus) return { ok: false, error: `Hubtel message status reply had no readable status (keys: ${shapeOf(r.body)})`, messages: [] }
+  return { ok: true, messages: [e] }
 }

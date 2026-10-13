@@ -60,8 +60,8 @@ export async function processFulfillment(
     paid_at: new Date().toISOString(),
   }
   const needsReview = async (reason?: string) => {
-    // Callback is still due; dispatchCallback reports it to Hubtel as "failed" (not delivered).
-    // The order is resolved manually from the admin page.
+    // Callback is still due and is reported to Hubtel as "success" (always-success policy);
+    // the order is resolved manually from the admin page.
     await store.update(sid, { ...base, state: "needs_review", callback_status: "pending" })
     if (reason) await recordReviewReason(store, sid, reason)
     return "needs_review" as const

@@ -9,34 +9,45 @@ import { Input } from "@/components/ui/input"
 import { api, type SettingsData } from "../_lib/api"
 import { useLoad } from "../_lib/useLoad"
 import { formatGhs, formatGmt, toneClass } from "../_lib/view"
-import { balanceSourceSummary, MANUAL_BALANCE_NOTES, parseManualBalanceInput, SET_BALANCE_CONFIRM_NOTE, type HubtelBalanceData } from "../_lib/hubtel-balance-view"
+import { Switch } from "@/components/ui/switch"
+import {
+  balanceSourceSummary, MANUAL_AMOUNT_LABEL, MANUAL_BALANCE_NOTES, parseManualBalanceInput, PREFER_MANUAL_CONFIRM, PREFER_MANUAL_HELP, PREFER_MANUAL_LABEL,
+  preferOffConfirmText, relayInfoText, SET_BALANCE_CONFIRM_NOTE, setBalanceUsageText, type HubtelBalanceData,
+} from "../_lib/hubtel-balance-view"
 import { ConfirmDialog, ErrorBox } from "./ui-bits"
 
 type Saved = (data: SettingsData | null) => void | Promise<void>
 
 /**
- * Settings → "Hubtel balance (manual fallback)". While the relay /balance is blocked, the admin enters
- * the Disbursement balance shown in the Hubtel dashboard; the server stamps when/who and the solvency
- * gate uses amount − Hubtel spend recorded since then. The live relay balance always wins when it works.
+ * Settings → "Hubtel balance (manual fallback)". The admin enters the Hubtel SMS balance; the server
+ * stamps when/who and the solvency gate uses amount − Hubtel spend recorded since then — as a fallback
+ * when the relay /balance fails, or always when "prefer manual" is on (the relay reads the Disbursement
+ * wallet, not the SMS wallet; its reading is then shown for information only).
  */
 export function HubtelBalanceSection({ onSaved }: { onSaved: Saved }) {
   const { data, error, loading, reload } = useLoad<HubtelBalanceData>(
     () => api<HubtelBalanceData>("/api/admin/sms-platform/hubtel-balance"), [])
   const [input, setInput] = useState("")
-  const [dialog, setDialog] = useState<null | "set" | "clear">(null)
+  const [dialog, setDialog] = useState<null | "set" | "clear" | "prefer-on" | "prefer-off">(null)
   const [busy, setBusy] = useState(false)
   const parsed = parseManualBalanceInput(input)
 
-  async function save(amountGhs: number | null) {
+  const save = (amountGhs: number | null) =>
+    patch({ amountGhs }, amountGhs === null ? "Manual balance cleared" : "Manual balance set", true)
+  const setPrefer = (preferManual: boolean) =>
+    patch({ preferManual }, preferManual ? "Manual balance now used instead of the relay" : "Relay balance used again (manual balance only as fallback)", false)
+
+  async function patch(values: Record<string, unknown>, okText: string, clearInput: boolean) {
     if (busy) return
     setBusy(true)
     try {
       const res = await api<SettingsData | null>("/api/admin/sms-platform/settings", {
-        method: "PATCH", body: JSON.stringify({ section: "hubtel_manual_balance", values: { amountGhs } }),
+        method: "PATCH", body: JSON.stringify({ section: "hubtel_manual_balance", values }),
       })
       if (res.success) {
-        toast.success(amountGhs === null ? "Manual balance cleared" : "Manual balance set")
-        setDialog(null); setInput("")
+        toast.success(okText)
+        setDialog(null)
+        if (clearInput) setInput("")
         await onSaved(res.data ?? null)
       } else toast.error(res.error ?? "Could not save")
     } catch (e) {
@@ -49,14 +60,15 @@ export function HubtelBalanceSection({ onSaved }: { onSaved: Saved }) {
   const cur = data?.current
   const summary = cur ? balanceSourceSummary(cur) : null
   const manual = data?.manual ?? null
+  const prefer = data?.preferManual === true
 
   return (
     <Card className="clay min-w-0 border-0 py-0">
       <CardHeader className="pb-2 pt-4">
         <CardTitle className="text-base">Hubtel balance (manual fallback)</CardTitle>
         <CardDescription>
-          Used only while the live Hubtel balance check (relay /balance) is failing. Enter the Disbursement balance shown in
-          the Hubtel dashboard; the app subtracts the Hubtel SMS it records from then on. The live balance always wins when it works.
+          Enter the Hubtel SMS balance shown in the Hubtel dashboard; the app subtracts the Hubtel SMS it records from then on.
+          By default it is used only while the relay balance check is failing; switch on the option below to use it instead of the relay.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 pb-4">
@@ -83,12 +95,26 @@ export function HubtelBalanceSection({ onSaved }: { onSaved: Saved }) {
               ) : (
                 <p className="text-muted-foreground">No manual balance set.</p>
               )}
+              {data?.relay && (
+                <p className="text-muted-foreground">
+                  {relayInfoText(data.relay)}{prefer && data.relay.ok && <> (information only — not used)</>}
+                </p>
+              )}
             </>
           )}
         </div>
 
+        <div className="flex items-start gap-3">
+          <Switch id="hubtel-prefer-manual" checked={prefer} disabled={busy || !data}
+            onCheckedChange={(on) => setDialog(on ? "prefer-on" : "prefer-off")} className="mt-0.5" />
+          <label htmlFor="hubtel-prefer-manual" className="min-w-0 space-y-1">
+            <span className="block text-sm font-medium">{PREFER_MANUAL_LABEL}</span>
+            <span className="block text-xs text-muted-foreground">{PREFER_MANUAL_HELP}</span>
+          </label>
+        </div>
+
         <label className="block min-w-0 space-y-1">
-          <span className="text-sm font-medium">Current Hubtel Disbursement balance (GH₵)</span>
+          <span className="text-sm font-medium">{MANUAL_AMOUNT_LABEL}</span>
           <Input inputMode="decimal" placeholder="e.g. 250.00" value={input} onChange={(e) => setInput(e.target.value)} />
           {input.trim() !== "" && !parsed.ok && <span className="block text-xs text-red-600">{parsed.error}</span>}
         </label>
@@ -104,9 +130,19 @@ export function HubtelBalanceSection({ onSaved }: { onSaved: Saved }) {
       </CardContent>
 
       <ConfirmDialog open={dialog === "set"} onOpenChange={(o) => !o && setDialog(null)} busy={busy}
-        title="Set the Hubtel balance" confirmLabel="Set balance now"
-        description={<>Credit sales will be backed by <b>{parsed.ok ? formatGhs(parsed.value) : "—"}</b> minus the Hubtel SMS sent from now on, until the live balance check works again.<br /><br />{SET_BALANCE_CONFIRM_NOTE}</>}
+        title="Set the Hubtel SMS balance" confirmLabel="Set balance now"
+        description={<>New manual balance: <b>{parsed.ok ? formatGhs(parsed.value) : "—"}</b>. {setBalanceUsageText(prefer)}<br /><br />{SET_BALANCE_CONFIRM_NOTE}</>}
         onConfirm={() => { if (parsed.ok) return save(parsed.value) }} />
+      <ConfirmDialog open={dialog === "prefer-on"} onOpenChange={(o) => !o && setDialog(null)} busy={busy}
+        title="Use the manual balance instead of the relay?" confirmLabel="Use manual balance"
+        description={<>{PREFER_MANUAL_CONFIRM}{data?.relay && <><br /><br />{relayInfoText(data.relay)}.</>}{manual
+          ? <> Your manual balance: <b>{formatGhs(manual.amountGhs)}</b>, set {formatGmt(manual.setAt)}{!manual.fresh && " — older than 30 days, so sales would pause until you set it again"}.</>
+          : <> No manual balance is set yet, so sales would pause until you set one.</>}</>}
+        onConfirm={() => setPrefer(true)} />
+      <ConfirmDialog open={dialog === "prefer-off"} onOpenChange={(o) => !o && setDialog(null)} busy={busy} destructive
+        title="Turn off manual balance?" confirmLabel="Turn off"
+        description={data?.relay ? preferOffConfirmText(data.relay) : preferOffConfirmText({ ok: false, error: "not loaded" })}
+        onConfirm={() => setPrefer(false)} />
       <ConfirmDialog open={dialog === "clear"} onOpenChange={(o) => !o && setDialog(null)} busy={busy} destructive
         title="Clear the manual balance" confirmLabel="Clear"
         description="Without a manual balance, SMS credit sales pause whenever the live Hubtel balance check fails."

@@ -11,14 +11,21 @@ const h = vi.hoisted(() => ({
   manual: null as null | { amountGhs: number; setAt: string; setBy: string },
   spend: 0 as unknown, spendError: null as unknown,
   failRateQueryNo: null as number | null,
+  prefer: false, relayCalls: 0,
+  settingsError: null as unknown, settingsReads: 0,
 }))
 vi.mock("./routing", () => ({
   getRoutingConfig: () => (h.routingThrows ? Promise.reject(new Error("db down")) : Promise.resolve({ primary: h.primary, fallbacks: [] })),
 }))
 vi.mock("./providers/hubtel", () => ({ hubtelConfigFromEnv: () => h.hubtelCfg }))
-vi.mock("@/lib/ussd-hubtel/relay", () => ({ fetchDisbursementBalance: () => Promise.resolve(h.balance) }))
+vi.mock("@/lib/ussd-hubtel/relay", () => ({ fetchDisbursementBalance: () => { h.relayCalls++; return Promise.resolve(h.balance) } }))
 vi.mock("@/lib/sms-service", () => ({ queryMoolreSmsBalance: () => Promise.resolve(h.moolre) }))
-vi.mock("./platform-settings", () => ({ loadSmsSettings: () => Promise.resolve({ hubtelCostPerSms: 0.035, hubtelLowBalanceGhs: h.lowThreshold, hubtelManualBalance: h.manual }) }))
+// loadSmsSettings (cached, tolerant) is stubbed; loadHubtelBalanceSettings is the REAL strict loader,
+// reading tenant_global_settings through the Supabase mock below (h.prefer / h.manual / h.settingsError).
+vi.mock("./platform-settings", async (orig) => ({
+  ...(await orig<typeof import("./platform-settings")>()),
+  loadSmsSettings: () => Promise.resolve({ hubtelCostPerSms: 0.035, hubtelLowBalanceGhs: h.lowThreshold, hubtelManualBalance: null, hubtelPreferManualBalance: false }),
+}))
 vi.mock("./notify", () => ({
   notifyAdminsThrottled: (type: string, _t: string, message: string) => { h.alerts.push({ type, message }); return Promise.resolve() },
 }))
@@ -32,7 +39,16 @@ vi.mock("@supabase/supabase-js", () => ({
       h.calls.push({ m: "rpc", args: [name] })
       return Promise.resolve({ data: h.backlog, error: h.backlogError })
     },
-    from: () => {
+    from: (table: string) => {
+      if (table === "tenant_global_settings") {
+        h.settingsReads++
+        const rows = [
+          { key: "sms_hubtel_prefer_manual_balance", value: h.prefer },
+          ...(h.manual ? [{ key: "sms_hubtel_manual_balance", value: h.manual }] : []),
+          { key: "sms_hubtel_cost_per_sms", value: 0.035 },
+        ]
+        return { select: () => ({ in: () => Promise.resolve(h.settingsError ? { data: null, error: h.settingsError } : { data: rows, error: null }) }) }
+      }
       h.queries++
       const rec = (m: string, q: any) => (...args: unknown[]) => { h.calls.push({ m, args }); return q }
       const q: any = {}
@@ -56,7 +72,8 @@ beforeEach(() => {
   h.primary = "hubtel"; h.hubtelCfg = {}; h.balance = { ok: true, amountGhs: 35 }; h.observed = null
   h.observedError = null; h.routingThrows = false; h.alerts = []; h.backlog = 0; h.backlogError = null
   h.calls = []; h.queries = 0; h.lowThreshold = 50
-  h.manual = null; h.spend = 0; h.spendError = null; h.failRateQueryNo = null
+  h.manual = null; h.spend = 0; h.spendError = null; h.failRateQueryNo = null; h.prefer = false; h.relayCalls = 0
+  h.settingsError = null; h.settingsReads = 0
   resetObservedRateCache()
   vi.spyOn(console, "error").mockImplementation(() => {})
 })
@@ -325,7 +342,11 @@ describe("getWholesaleCredits with a manual balance", () => {
     h.balance = { ok: false, error: "403" }
     h.manual = { amountGhs: 10, setAt: hoursAgo(2), setBy: "a" }
     await getWholesaleCredits()
-    expect(h.alerts.find(a => a.type === "sms_hubtel_low_balance")?.message).toMatch(/estimate/i)
+    const m = h.alerts.find(a => a.type === "sms_hubtel_low_balance")?.message ?? ""
+    expect(m).toMatch(/estimate/i)
+    expect(m).toMatch(/Hubtel SMS balance/)
+    expect(m).toMatch(/Top up the Hubtel SMS wallet/)
+    expect(m).not.toMatch(/Disbursement/)
   })
 })
 
@@ -349,6 +370,22 @@ describe("getWholesaleSnapshot with a manual balance", () => {
     expect(s).toMatchObject({ provider: "hubtel", backedCredits: 0, balanceGhs: 35, balanceSource: "manual", manualSetAt: setAt })
     expect(s.error).toContain("Rate lookup failed")
   })
+  it("prefer=true: snapshot uses the manual estimate (marked preferred) even though the relay works", async () => {
+    h.prefer = true; h.balance = { ok: true, amountGhs: 0 }
+    const setAt = hoursAgo(2)
+    h.manual = { amountGhs: 40, setAt, setBy: "a" }; h.spend = 5
+    expect(await getWholesaleSnapshot()).toEqual({
+      provider: "hubtel", backedCredits: 1000, balanceGhs: 35, ratePerSms: 0.035, queuedUnsent: 0,
+      balanceSource: "manual", manualSetAt: setAt, manualPreferred: true,
+    })
+  })
+  it("prefer=true + stale manual: snapshot is 0 with the 'preferred but missing' error, never the relay figure", async () => {
+    h.prefer = true; h.balance = { ok: true, amountGhs: 500 }
+    h.manual = { amountGhs: 40, setAt: daysAgo(31), setBy: "a" }
+    const s = await getWholesaleSnapshot()
+    expect(s).toMatchObject({ backedCredits: 0, balanceGhs: null })
+    expect(s.error).toMatch(/manual balance preferred but missing or older than 30 days/)
+  })
   it("relay down + spend failure → 0 with an error, no balanceSource", async () => {
     h.balance = { ok: false, error: "403" }
     h.manual = { amountGhs: 40, setAt: hoursAgo(2), setBy: "a" }; h.spendError = { message: "boom" }
@@ -356,5 +393,99 @@ describe("getWholesaleSnapshot with a manual balance", () => {
     expect(s.backedCredits).toBe(0)
     expect(s.error).toContain("boom")
     expect(s.balanceSource).toBeUndefined()
+  })
+})
+
+describe("prefer the manual balance (relay reads the wrong wallet)", () => {
+  it("prefer + fresh manual → manual estimate, relay NOT called", async () => {
+    h.prefer = true
+    const setAt = hoursAgo(3)
+    h.manual = { amountGhs: 100, setAt, setBy: "a" }; h.spend = 12.5
+    expect(await resolveHubtelBalance()).toEqual({ ok: true, amountGhs: 87.5, source: "manual", manualSetAt: setAt, preferred: true })
+    expect(h.relayCalls).toBe(0)
+  })
+  it("prefer + relay healthy but reading 0 → ignored; credits come from the manual estimate", async () => {
+    h.prefer = true; h.balance = { ok: true, amountGhs: 0 }; h.lowThreshold = 0
+    h.manual = { amountGhs: 40, setAt: hoursAgo(2), setBy: "a" }; h.spend = 5; h.backlog = 100
+    expect(await getWholesaleCredits()).toBe(900)
+    expect(h.relayCalls).toBe(0)
+  })
+  it("prefer + stale manual → unavailable with a clear error; the relay figure is never used", async () => {
+    h.prefer = true; h.balance = { ok: true, amountGhs: 500 }
+    h.manual = { amountGhs: 100, setAt: daysAgo(31), setBy: "a" }
+    expect(await resolveHubtelBalance()).toEqual({ ok: false, error: expect.stringMatching(/^manual balance preferred but missing or older than 30 days/) })
+    expect(h.relayCalls).toBe(0)
+    expect(await getWholesaleCredits()).toBe(0)
+  })
+  it("prefer + stale manual: the alert points at the manual balance, not the relay", async () => {
+    h.prefer = true
+    h.manual = { amountGhs: 100, setAt: daysAgo(31), setBy: "a" }
+    await getWholesaleCredits()
+    const a = h.alerts.find(x => x.type === "sms_hubtel_balance_unavailable")?.message ?? ""
+    expect(a).toMatch(/manual balance preferred/)
+    expect(a).toMatch(/Hubtel balance \(manual fallback\)/)
+    expect(a).not.toMatch(/IP whitelist/)
+  })
+  it("prefer + no manual balance → unavailable", async () => {
+    h.prefer = true; h.balance = { ok: true, amountGhs: 500 }
+    const r = await resolveHubtelBalance()
+    expect(r.ok).toBe(false)
+    expect(!r.ok && r.error).toMatch(/manual balance preferred but missing or older than 30 days/)
+  })
+  it("prefer + spend query fails → unavailable (fail closed), relay not used", async () => {
+    h.prefer = true; h.balance = { ok: true, amountGhs: 500 }
+    h.manual = { amountGhs: 100, setAt: hoursAgo(1), setBy: "a" }; h.spendError = { message: "boom" }
+    const r = await resolveHubtelBalance()
+    expect(r.ok).toBe(false)
+    expect(!r.ok && r.error).toMatch(/manual balance preferred but its estimate is unavailable: .*boom/)
+    expect(h.relayCalls).toBe(0)
+  })
+  it("prefer + rate lookup fails → unavailable", async () => {
+    h.prefer = true; h.observedError = { message: "timeout" }
+    h.manual = { amountGhs: 100, setAt: hoursAgo(1), setBy: "a" }
+    expect((await resolveHubtelBalance()).ok).toBe(false)
+  })
+  it("settings read error (fresh instance, no cache) → unavailable, even though the relay works", async () => {
+    h.settingsError = { message: "connection reset" }
+    h.balance = { ok: true, amountGhs: 35 }
+    const r = await resolveHubtelBalance()
+    expect(r.ok).toBe(false)
+    expect(!r.ok && r.error).toMatch(/connection reset/)
+    expect(h.relayCalls).toBe(0)
+    expect(await getWholesaleCredits()).toBe(0)
+  })
+  it("settings read error → snapshot backs 0 with the reason", async () => {
+    h.settingsError = { message: "connection reset" }
+    const s = await getWholesaleSnapshot()
+    expect(s.backedCredits).toBe(0)
+    expect(s.error).toMatch(/connection reset/)
+  })
+  it("an unreadable prefer flag → unavailable (never treated as off)", async () => {
+    h.prefer = "yes" as any; h.manual = { amountGhs: 100, setAt: hoursAgo(1), setBy: "a" }
+    expect((await resolveHubtelBalance()).ok).toBe(false)
+    expect(h.relayCalls).toBe(0)
+  })
+  it("the strict settings are re-read on every check (no cache): toggling takes effect immediately", async () => {
+    h.manual = { amountGhs: 100, setAt: hoursAgo(1), setBy: "a" }; h.spend = 0
+    expect((await resolveHubtelBalance()).ok && (await resolveHubtelBalance() as any).source).toBe("relay")
+    h.prefer = true
+    expect(await resolveHubtelBalance()).toMatchObject({ ok: true, source: "manual", preferred: true })
+  })
+  it("Moolre primary never reads the strict Hubtel settings", async () => {
+    h.primary = "moolre"; h.settingsError = { message: "down" }
+    expect(await getWholesaleCredits()).toBe(900)
+    expect((await getWholesaleSnapshot()).backedCredits).toBe(900)
+    expect(h.settingsReads).toBe(0)
+  })
+  it("prefer=false is unchanged: relay wins over a fresh manual balance", async () => {
+    h.manual = { amountGhs: 1, setAt: hoursAgo(1), setBy: "a" }
+    expect(await resolveHubtelBalance()).toEqual({ ok: true, amountGhs: 35, source: "relay" })
+    expect(h.relayCalls).toBe(1)
+  })
+  it("prefer=false + relay down → manual fallback result has no 'preferred' marker", async () => {
+    h.balance = { ok: false, error: "403" }
+    const setAt = hoursAgo(1)
+    h.manual = { amountGhs: 10, setAt, setBy: "a" }
+    expect(await resolveHubtelBalance()).toEqual({ ok: true, amountGhs: 10, source: "manual", manualSetAt: setAt })
   })
 })

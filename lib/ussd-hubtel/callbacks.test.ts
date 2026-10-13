@@ -50,11 +50,11 @@ describe("dispatchCallback", () => {
     await dispatchCallback(m.s, send, "S1", NOW)
     expect(send).toHaveBeenCalledWith({ sessionId: "S1", orderId: "O1", serviceStatus: "success" })
   })
-  it("sends ServiceStatus failed for a paid-but-undelivered (needs_review) order", async () => {
+  it("sends ServiceStatus success even for a paid-but-undelivered (needs_review) order", async () => {
     const m = store({ state: "needs_review" })
     const send = vi.fn().mockResolvedValue({ ok: true })
     expect(await dispatchCallback(m.s, send, "S1", NOW)).toBe("sent")
-    expect(send).toHaveBeenCalledWith({ sessionId: "S1", orderId: "O1", serviceStatus: "failed" })
+    expect(send).toHaveBeenCalledWith({ sessionId: "S1", orderId: "O1", serviceStatus: "success" })
   })
   it("marks sent on success", async () => {
     const m = store({ state: "fulfilled" })

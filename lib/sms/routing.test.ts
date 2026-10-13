@@ -20,7 +20,14 @@ const mockSettings = vi.hoisted(() => ({
 
 vi.mock("@supabase/supabase-js", () => ({
   createClient: vi.fn(() => ({
-    from: (_: string) => ({
+    from: (table: string) => table === "tenant_global_settings" ? {
+      // The REAL strict loadHubtelBalanceSettings reads through here.
+      select: () => ({
+        in: () => Promise.resolve(hub.settingsError
+          ? { data: null, error: hub.settingsError }
+          : { data: [{ key: "sms_hubtel_prefer_manual_balance", value: hub.prefer }], error: null }),
+      }),
+    } : ({
       select: () => ({
         in: (_col: string, keys: string[]) => ({
           data: keys
@@ -52,6 +59,8 @@ const hub = vi.hoisted(() => ({
   resolved: { ok: false, error: "relay down" } as any,
   resolveThrows: false,
   resolveCalls: 0,
+  prefer: false as unknown,
+  settingsError: null as unknown,
 }))
 vi.mock("./wholesale", () => ({
   resolveHubtelBalance: () => {
@@ -168,6 +177,53 @@ describe("setRoutingConfig hubtel guard", () => {
     hub.resolved = { ok: false, error: "relay down" }
     hub.resolveThrows = false
     hub.resolveCalls = 0
+    hub.prefer = false
+    hub.settingsError = null
+  })
+
+  describe("prefer-manual on (relay reads a different wallet)", () => {
+    it("relay healthy but manual estimate NOT computable → refused with the manual reason", async () => {
+      hub.prefer = true
+      hub.balance = { ok: true, amountGhs: 0 }
+      hub.resolved = { ok: false, error: "manual balance preferred but missing or older than 30 days" }
+      const res = await setRoutingConfig({ primary: "hubtel" })
+      expect(res.ok).toBe(false)
+      expect((res as { error: string }).error).toMatch(/manual balance preferred but missing or older than 30 days/)
+      expect(mockSettings.updates).toHaveLength(0)
+      expect(hub.balanceCalls).toBe(0)
+    })
+    it("manual estimate computable → accepted without consulting the relay", async () => {
+      hub.prefer = true
+      hub.balance = { ok: false, error: "relay down" }
+      hub.resolved = { ok: true, amountGhs: 80, source: "manual", manualSetAt: new Date().toISOString(), preferred: true }
+      expect((await setRoutingConfig({ primary: "hubtel" })).ok).toBe(true)
+      expect(hub.balanceCalls).toBe(0)
+    })
+    it("resolver throws → refused", async () => {
+      hub.prefer = true
+      hub.resolveThrows = true
+      expect((await setRoutingConfig({ primary: "hubtel" })).ok).toBe(false)
+    })
+  })
+
+  it("settings select returns an error (fresh instance) → refused even though the relay works", async () => {
+    hub.settingsError = { message: "connection reset" }
+    const res = await setRoutingConfig({ primary: "hubtel" })
+    expect(res.ok).toBe(false)
+    expect((res as { error: string }).error).toMatch(/connection reset/)
+    expect(mockSettings.updates).toHaveLength(0)
+    expect(hub.balanceCalls).toBe(0)
+  })
+
+  it("an unreadable prefer flag → refused (never treated as off)", async () => {
+    hub.prefer = "yes"
+    expect((await setRoutingConfig({ primary: "hubtel" })).ok).toBe(false)
+    expect(mockSettings.updates).toHaveLength(0)
+  })
+
+  it("fallback-only Hubtel never reads the strict settings", async () => {
+    hub.settingsError = { message: "down" }
+    expect((await setRoutingConfig({ primary: "moolre", fallbacks: ["hubtel"] })).ok).toBe(true)
   })
 
   it("relay works → accepted without computing a manual estimate", async () => {

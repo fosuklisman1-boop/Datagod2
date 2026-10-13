@@ -37,10 +37,9 @@ export async function dispatchCallback(
     await store.update(sessionId, { callback_attempts: row.callback_attempts + 1, callback_last_error: "no Hubtel order id on record" })
     return "retry"
   }
-  // Paid and delivered -> success. Paid but NOT delivered (handler failed, underpaid, late
-  // success parked for review) -> failed, so Hubtel does not treat an undelivered order as fulfilled.
-  const serviceStatus = row.state === "fulfilled" ? "success" : "failed"
-  const result = await send({ sessionId, orderId: row.hubtel_order_id, serviceStatus })
+  // Always "success" (business decision): a paid-but-undelivered order (needs_review) is resolved
+  // from our admin page / refunds, never reported to Hubtel as failed.
+  const result = await send({ sessionId, orderId: row.hubtel_order_id, serviceStatus: "success" })
   if (result.ok) {
     await store.update(sessionId, {
       callback_status: "sent", callback_attempts: row.callback_attempts + 1,

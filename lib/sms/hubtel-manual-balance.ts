@@ -1,6 +1,7 @@
 /**
  * Manual Hubtel balance (design 2026-10-12 §B): a stop-gap while the relay /balance is blocked.
- * The admin types the Disbursement balance shown in the Hubtel dashboard; the app then estimates
+ * The admin types the Hubtel SMS wallet balance (NOT the Disbursement wallet the relay reads) shown in
+ * the Hubtel dashboard; the app then estimates
  * the live balance as amount − (Hubtel SMS spend recorded since). Pure helpers only — no I/O here,
  * so routing.ts and platform-settings.ts can import it without cycles.
  *
@@ -18,6 +19,8 @@ export interface HubtelManualBalance {
 }
 
 export const HUBTEL_MANUAL_BALANCE_KEY = "sms_hubtel_manual_balance"
+/** Boolean: use the manual balance even when the relay works (the relay reads a different Hubtel wallet). */
+export const HUBTEL_PREFER_MANUAL_KEY = "sms_hubtel_prefer_manual_balance"
 export const MANUAL_BALANCE_MAX_GHS = 1_000_000
 /** A manual balance older than this is ignored everywhere (solvency gate, snapshot, primary switch). */
 export const MANUAL_BALANCE_MAX_AGE_MS = 30 * 86_400_000

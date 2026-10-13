@@ -31,6 +31,11 @@ export interface SmsPlatformSettings {
   platformDefaultSender: string | null
   /** Manual Hubtel balance fallback (used only while the relay /balance fails); null = none. */
   hubtelManualBalance: HubtelManualBalance | null
+  /**
+   * Use the manual balance even when the relay /balance works (the relay reads the Disbursement
+   * wallet, not the SMS-API wallet Hubtel SMS is paid from). Default false.
+   */
+  hubtelPreferManualBalance: boolean
 }
 
 export const DEFAULT_SMS_SETTINGS: SmsPlatformSettings = {
@@ -62,6 +67,7 @@ export const DEFAULT_SMS_SETTINGS: SmsPlatformSettings = {
   platformSenders: [],
   platformDefaultSender: null,
   hubtelManualBalance: null,
+  hubtelPreferManualBalance: false,
 }
 
 export const SMS_SETTING_KEYS = [
@@ -70,7 +76,7 @@ export const SMS_SETTING_KEYS = [
   "sms_business_allowed_domains", "sms_auto_suspend_flags", "sms_flag_review_threshold",
   "sms_api_rate_limit_default", "sms_protected_sender_names", "sms_hubtel_cost_per_sms",
   "sms_hubtel_low_balance_ghs", "sms_platform_senders", "sms_platform_default_sender",
-  "sms_hubtel_manual_balance",
+  "sms_hubtel_manual_balance", "sms_hubtel_prefer_manual_balance",
 ] as const
 
 /** Older admin screens wrapped values as {enabled}/{value}/{amount}; read only the keys that make sense for the target type. */
@@ -156,6 +162,7 @@ export function parseSmsSettings(rows: { key: string; value: unknown }[]): SmsPl
     platformSenders: list(m.get("sms_platform_senders"), d.platformSenders).map((s) => s.toUpperCase()),
     platformDefaultSender: optName(m.get("sms_platform_default_sender")),
     hubtelManualBalance: parseHubtelManualBalance(m.get("sms_hubtel_manual_balance")),
+    hubtelPreferManualBalance: bool(m.get("sms_hubtel_prefer_manual_balance"), d.hubtelPreferManualBalance),
   }
 }
 
@@ -184,6 +191,36 @@ export async function loadSmsSettings(): Promise<SmsPlatformSettings> {
   const value = parseSmsSettings((data ?? []) as { key: string; value: unknown }[])
   cache = { at: Date.now(), value }
   return value
+}
+
+export interface HubtelBalanceSettings {
+  preferManual: boolean
+  manual: HubtelManualBalance | null
+  hubtelCostPerSms: number
+}
+
+const HUBTEL_BALANCE_KEYS = ["sms_hubtel_prefer_manual_balance", "sms_hubtel_manual_balance", "sms_hubtel_cost_per_sms"] as const
+
+/**
+ * STRICT, UNCACHED read of the settings that decide which Hubtel balance backs credit sales (money
+ * path, Hubtel-primary only). Unlike loadSmsSettings — which falls back to cached values or defaults —
+ * this THROWS on any DB error, a missing payload, or a prefer flag it can't read, so callers fail
+ * closed instead of silently using the relay (Disbursement wallet) figure. No cache, so a toggle on
+ * one instance is seen by every instance on the next check.
+ */
+export async function loadHubtelBalanceSettings(): Promise<HubtelBalanceSettings> {
+  const { data, error } = await supabaseAdmin
+    .from("tenant_global_settings").select("key, value").in("key", [...HUBTEL_BALANCE_KEYS])
+  if (error) throw new Error(`Hubtel balance settings read failed: ${error.message}`)
+  if (!Array.isArray(data)) throw new Error("Hubtel balance settings read returned no data")
+  const rows = data as { key: string; value: unknown }[]
+  const preferRow = rows.find((r) => r.key === "sms_hubtel_prefer_manual_balance")
+  if (preferRow) {
+    const u = unwrap(preferRow.value, ["enabled", "value"])
+    if (typeof u !== "boolean") throw new Error(`unreadable sms_hubtel_prefer_manual_balance value: ${JSON.stringify(preferRow.value)}`)
+  }
+  const s = parseSmsSettings(rows)
+  return { preferManual: s.hubtelPreferManualBalance, manual: s.hubtelManualBalance, hubtelCostPerSms: s.hubtelCostPerSms }
 }
 
 export function invalidateSmsSettingsCache(): void {

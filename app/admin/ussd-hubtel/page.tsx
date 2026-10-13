@@ -463,11 +463,6 @@ export default function AdminUssdHubtelPage() {
                     offered in shop mode. Calls already in progress keep the mode they started with.
                   </p>
                 )}
-                {env && env.redis === false && (
-                  <p className="text-xs text-amber-600">
-                    Redis (UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN) is not configured: shop mode cannot be selected in production.
-                  </p>
-                )}
                 <div className="divide-y rounded-lg border">
                   {SERVICES.map(s => {
                     // The shop menu has no AFA: its toggle does nothing in shop mode.
@@ -616,8 +611,8 @@ export default function AdminUssdHubtelPage() {
               <Badge key={k} variant={ok ? "default" : "destructive"}>{k}: {ok ? "set" : "missing"}</Badge>
             ))}
             {env && env.redis !== undefined && (
-              <Badge variant={env.redis ? "default" : "destructive"} title="Needed for shop mode (token billing guard) and the USSD session store">
-                UPSTASH_REDIS (shop mode): {env.redis ? "set" : "missing"}
+              <Badge variant={env.redis ? "default" : "destructive"} title="USSD session store (falls back to per-instance memory without it)">
+                UPSTASH_REDIS (sessions): {env.redis ? "set" : "missing"}
               </Badge>
             )}
           </CardContent>

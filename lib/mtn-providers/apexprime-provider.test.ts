@@ -1,4 +1,4 @@
-import { mapNetworkToApex, normalizeApexStatus, findMatchingProduct, parseTrackingId } from "@/lib/mtn-providers/apexprime-provider"
+import { apexMessageFailed, apexMessageInFlight, mapNetworkToApex, normalizeApexStatus, findMatchingProduct, parseTrackingId } from "@/lib/mtn-providers/apexprime-provider"
 
 describe("mapNetworkToApex", () => {
   it("maps MTN to MTN", () => expect(mapNetworkToApex("MTN")).toBe("MTN"))
@@ -7,6 +7,36 @@ describe("mapNetworkToApex", () => {
 })
 
 describe("normalizeApexStatus", () => {
+  it("a 'completed' status whose latest step is a failure is failed (live messages)", () => {
+    expect(normalizeApexStatus("completed", "Supplier Error: Insufficient balance")).toBe("failed")
+    expect(normalizeApexStatus("completed", "Requested function was not found")).toBe("failed")
+    expect(normalizeApexStatus("completed", "not enabled on MTN yet \u2014 you can place this order after 24 hours")).toBe("failed")
+    expect(normalizeApexStatus("completed", "Sent to Supplier 5. Order ID: txn_1 | AutoSync 2026-09-06 09:07:42: supplier=failed")).toBe("failed")
+  })
+  it("'Pending dispatch (Insufficient wallet balance)' is still queued, not failed", () => {
+    expect(normalizeApexStatus("completed", "API Offline - Pending dispatch (Insufficient wallet balance.)")).toBe("processing")
+  })
+  it("AutoSync supplier=processing / initiated stays processing (live messages)", () => {
+    expect(normalizeApexStatus("completed", "Sent to NITGHT. Order ID: 16539 | AutoSync 2026-09-08 13:55:47: supplier=processing")).toBe("processing")
+    expect(normalizeApexStatus("completed", "Sent to Supplier 5. Order ID: txn_8efeab57 | AutoSync 2026-09-06 09:07:42: supplier=initiated")).toBe("processing")
+  })
+  it("live delivered chains stay completed", () => {
+    expect(normalizeApexStatus("completed", "Sent to NITGHT. Order ID: 16543 | AutoSync 2026-09-08 13:55:47: supplier=processing | AutoSync 2026-09-08 16:50:24: supplier=completed")).toBe("completed")
+    expect(normalizeApexStatus("completed", "Rerouted from NITGHT (Awaiting Approval) to MTNUP2U PORTAL. Order ID: REF-1789477455210-6GW8CW | AutoSync 2026-09-15 13:16:09: supplier=completed")).toBe("completed")
+    expect(normalizeApexStatus("completed", "Night API validating. Re-routed to Supplier 5 (Priority #2). Order ID: txn_2 | AutoSync 2026-09-08 10:35:16: supplier=initiated | AutoSync 2026-09-09 04:52:38: supplier=completed")).toBe("completed")
+  })
+  it("a 'completed' status whose message is still in flight stays processing", () => {
+    expect(normalizeApexStatus("completed", "Sent to NITGHT. Order ID: 18047")).toBe("processing")
+    expect(normalizeApexStatus("completed", "Routed from NITGHT (awaiting approval)")).toBe("processing")
+    expect(normalizeApexStatus("Success", "Order queued")).toBe("processing")
+    expect(normalizeApexStatus("completed", "Order queued | Sent to NITGHT. Order ID: 18047")).toBe("processing")
+  })
+  it("a 'completed' status with a delivered / plain message is completed", () => {
+    expect(normalizeApexStatus("completed")).toBe("completed")
+    expect(normalizeApexStatus("completed", "Order completed")).toBe("completed")
+    expect(normalizeApexStatus("completed", "Sent to NITGHT. Order ID: 18047 | Delivered")).toBe("completed")
+    expect(normalizeApexStatus("completed", "Bundle delivered successfully")).toBe("completed")
+  })
   it("maps completed variants to completed", () => {
     expect(normalizeApexStatus("completed")).toBe("completed")
     expect(normalizeApexStatus("Success")).toBe("completed")
@@ -91,5 +121,25 @@ describe("parseTrackingId", () => {
   })
   it("does not strip a trailing segment from a bundle-prefixed id", () => {
     expect(parseTrackingId("bundle:10839:extra")).toEqual({ kind: "bundle", rawId: "10839:extra" })
+  })
+})
+
+describe("apexMessageInFlight", () => {
+  it("judges only the latest step of the chain", () => {
+    expect(apexMessageInFlight("Sent to NITGHT. Order ID: 18047")).toBe(true)
+    expect(apexMessageInFlight("Routed from NITGHT (awaiting approval)")).toBe(true)
+    expect(apexMessageInFlight("Sent to Supplier 1. Order ID: APEX_1 | AutoSync 2026-09-14 20:07:37: supplier=completed")).toBe(false)
+    expect(apexMessageInFlight("Completed | ")).toBe(false)
+    expect(apexMessageInFlight("")).toBe(false)
+    expect(apexMessageInFlight(undefined)).toBe(false)
+  })
+})
+
+describe("apexMessageFailed", () => {
+  it("judges only the latest step; a completion wins", () => {
+    expect(apexMessageFailed("Supplier Error: Insufficient balance")).toBe(true)
+    expect(apexMessageFailed("Supplier Error: x | AutoSync: supplier=completed")).toBe(false)
+    expect(apexMessageFailed("Delivered")).toBe(false)
+    expect(apexMessageFailed(undefined)).toBe(false)
   })
 })

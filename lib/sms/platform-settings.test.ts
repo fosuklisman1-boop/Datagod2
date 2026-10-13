@@ -7,7 +7,7 @@ vi.mock("@supabase/supabase-js", () => ({
 }))
 
 import {
-  parseSmsSettings, DEFAULT_SMS_SETTINGS, apiRateLimitFor, loadSmsSettings, invalidateSmsSettingsCache,
+  parseSmsSettings, DEFAULT_SMS_SETTINGS, apiRateLimitFor, loadSmsSettings, invalidateSmsSettingsCache, loadHubtelBalanceSettings,
 } from "./platform-settings"
 
 describe("parseSmsSettings", () => {
@@ -34,6 +34,13 @@ describe("parseSmsSettings", () => {
     expect(parseSmsSettings([{ key: "sms_hubtel_manual_balance", value: { amountGhs: -5, setAt: mb.setAt, setBy: "a" } }]).hubtelManualBalance).toBeNull()
     expect(parseSmsSettings([{ key: "sms_hubtel_manual_balance", value: { amountGhs: null, setAt: mb.setAt, setBy: "a" } }]).hubtelManualBalance).toBeNull()
     expect(parseSmsSettings([{ key: "sms_hubtel_manual_balance", value: 200 }]).hubtelManualBalance).toBeNull()
+  })
+  it("hubtel prefer-manual flag: false by default; booleans (and legacy wrappers) parsed; junk ignored", () => {
+    expect(parseSmsSettings([]).hubtelPreferManualBalance).toBe(false)
+    expect(parseSmsSettings([{ key: "sms_hubtel_prefer_manual_balance", value: true }]).hubtelPreferManualBalance).toBe(true)
+    expect(parseSmsSettings([{ key: "sms_hubtel_prefer_manual_balance", value: { enabled: true } }]).hubtelPreferManualBalance).toBe(true)
+    expect(parseSmsSettings([{ key: "sms_hubtel_prefer_manual_balance", value: "yes" }]).hubtelPreferManualBalance).toBe(false)
+    expect(parseSmsSettings([{ key: "sms_hubtel_prefer_manual_balance", value: 1 }]).hubtelPreferManualBalance).toBe(false)
   })
   it("returns defaults for no rows", () => expect(parseSmsSettings([])).toEqual(DEFAULT_SMS_SETTINGS))
   it("reads scalars, arrays and caps", () => {
@@ -170,5 +177,49 @@ describe("loadSmsSettings", () => {
     inMock.mockResolvedValueOnce(ok(7))
     expect((await loadSmsSettings()).apiRateLimitDefault).toBe(7)
     expect(inMock).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe("loadHubtelBalanceSettings (strict, uncached — money path)", () => {
+  beforeEach(() => { inMock.mockReset() })
+  const mb = { amountGhs: 120, setAt: "2026-10-12T10:00:00.000Z", setBy: "admin-1" }
+
+  it("reads only the three Hubtel balance keys and parses them", async () => {
+    inMock.mockResolvedValueOnce({ data: [
+      { key: "sms_hubtel_prefer_manual_balance", value: true },
+      { key: "sms_hubtel_manual_balance", value: mb },
+      { key: "sms_hubtel_cost_per_sms", value: 0.04 },
+    ], error: null })
+    expect(await loadHubtelBalanceSettings()).toEqual({ preferManual: true, manual: mb, hubtelCostPerSms: 0.04 })
+    expect(inMock).toHaveBeenCalledWith("key", ["sms_hubtel_prefer_manual_balance", "sms_hubtel_manual_balance", "sms_hubtel_cost_per_sms"])
+  })
+  it("no rows at all → genuine defaults (never configured)", async () => {
+    inMock.mockResolvedValueOnce({ data: [], error: null })
+    expect(await loadHubtelBalanceSettings()).toEqual({ preferManual: false, manual: null, hubtelCostPerSms: 0.035 })
+  })
+  it("a DB error THROWS (never defaults)", async () => {
+    inMock.mockResolvedValueOnce({ data: null, error: { message: "boom" } })
+    await expect(loadHubtelBalanceSettings()).rejects.toThrow(/boom/)
+  })
+  it("a null data payload throws", async () => {
+    inMock.mockResolvedValueOnce({ data: null, error: null })
+    await expect(loadHubtelBalanceSettings()).rejects.toThrow()
+  })
+  it("an unreadable prefer flag throws instead of reading as false", async () => {
+    inMock.mockResolvedValueOnce({ data: [{ key: "sms_hubtel_prefer_manual_balance", value: "yes" }], error: null })
+    await expect(loadHubtelBalanceSettings()).rejects.toThrow(/prefer/)
+  })
+  it("is NOT cached: a toggle is seen on the next call", async () => {
+    inMock.mockResolvedValueOnce({ data: [{ key: "sms_hubtel_prefer_manual_balance", value: false }], error: null })
+    inMock.mockResolvedValueOnce({ data: [{ key: "sms_hubtel_prefer_manual_balance", value: true }], error: null })
+    expect((await loadHubtelBalanceSettings()).preferManual).toBe(false)
+    expect((await loadHubtelBalanceSettings()).preferManual).toBe(true)
+  })
+  it("does not touch the loadSmsSettings cache on failure", async () => {
+    invalidateSmsSettingsCache()
+    inMock.mockResolvedValueOnce({ data: null, error: { message: "boom" } })
+    await expect(loadHubtelBalanceSettings()).rejects.toThrow()
+    inMock.mockResolvedValueOnce({ data: [{ key: "sms_api_rate_limit_default", value: 9 }], error: null })
+    expect((await loadSmsSettings()).apiRateLimitDefault).toBe(9)
   })
 })

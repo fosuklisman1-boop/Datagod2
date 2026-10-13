@@ -13,6 +13,7 @@ import { createClient } from "@supabase/supabase-js"
 import { hubtelConfigFromEnv } from "./providers/hubtel"
 import { fetchDisbursementBalance } from "@/lib/ussd-hubtel/relay"
 import { CATEGORY_DEFAULTS, SMS_CATEGORIES, type CategoryProvider, type SmsCategory } from "./categories"
+import { loadHubtelBalanceSettings } from "./platform-settings"
 const VALID_PROVIDERS = ["moolre", "mnotify", "brevo", "hubtel"] as const
 type Provider = (typeof VALID_PROVIDERS)[number]
 
@@ -183,6 +184,33 @@ async function resolvedHubtelBalance(): Promise<{ ok: true } | { ok: false; erro
   }
 }
 
+/**
+ * Why Hubtel can't be made primary right now (null = OK):
+ *   prefer-manual ON  → the manual estimate must be computable (the relay reads another wallet; not consulted);
+ *   prefer-manual OFF → the relay /balance works, else the manual estimate must be computable.
+ * Unreadable settings ⇒ blocked (fail closed).
+ */
+async function hubtelPrimaryBalanceBlocker(): Promise<string | null> {
+  let preferManual: boolean
+  try {
+    // Strict + uncached: a read failure must block, never default to "prefer off".
+    preferManual = (await loadHubtelBalanceSettings()).preferManual
+  } catch (e) {
+    return `Could not read the SMS settings to check the Hubtel balance: ${e instanceof Error ? e.message : String(e)}`
+  }
+  if (preferManual) {
+    const est = await resolvedHubtelBalance()
+    return est.ok ? null : `Hubtel balance unavailable: ${est.error}. Set the manual Hubtel balance (SMS Platform → Settings → "Hubtel balance (manual fallback)") first.`
+  }
+  const bal = await fetchDisbursementBalance()
+  if (bal.ok) return null
+  const est = await resolvedHubtelBalance()
+  if (est.ok) return null
+  // est.error normally starts with the relay error; don't repeat it.
+  const extra = est.error.startsWith(bal.error) ? est.error.slice(bal.error.length) : `; ${est.error}`
+  return `Hubtel balance check via the relay failed: ${bal.error}${extra} — redeploy the relay with /balance and set HUBTEL_DISBURSEMENT_ACCOUNT first, or set a manual Hubtel balance (SMS Platform → Settings → "Hubtel balance (manual fallback)").`
+}
+
 /** True if `p` is one of the providers we know how to route to. */
 export function isValidProvider(p: unknown): p is Provider {
   return typeof p === "string" && (VALID_PROVIDERS as readonly string[]).includes(p)
@@ -263,8 +291,8 @@ export async function setRoutingConfig(patch: {
 
   if (writes.length === 0) return { ok: false, error: "No routing fields to update" }
 
-  // Hubtel guard: credentials are needed for any role; as PRIMARY the relay balance check must pass,
-  // OR a manual Hubtel balance must have been set within the last 30 days (design 2026-10-12 §B).
+  // Hubtel guard: credentials are needed for any role; as PRIMARY a usable balance must exist
+  // (see hubtelPrimaryBalanceBlocker — relay, or a computable manual estimate; design 2026-10-12 §B).
   const hubtelAsPrimary = patch.primary === "hubtel"
   const hubtelAsFallback = (patch.fallbacks ?? []).includes("hubtel")
   if (hubtelAsPrimary || hubtelAsFallback) {
@@ -272,18 +300,8 @@ export async function setRoutingConfig(patch: {
       return { ok: false, error: "Hubtel credentials are not set in Vercel (HUBTEL_SMS_CLIENT_ID / HUBTEL_SMS_CLIENT_SECRET)." }
     }
     if (hubtelAsPrimary) {
-      const bal = await fetchDisbursementBalance()
-      if (!bal.ok) {
-        const est = await resolvedHubtelBalance()
-        if (!est.ok) {
-          // est.error normally starts with the relay error; don't repeat it.
-          const extra = est.error.startsWith(bal.error) ? est.error.slice(bal.error.length) : `; ${est.error}`
-          return {
-            ok: false,
-            error: `Hubtel balance check via the relay failed: ${bal.error}${extra} — redeploy the relay with /balance and set HUBTEL_DISBURSEMENT_ACCOUNT first, or set a manual Hubtel balance (SMS Platform → Settings → "Hubtel balance (manual fallback)").`,
-          }
-        }
-      }
+      const blocked = await hubtelPrimaryBalanceBlocker()
+      if (blocked) return { ok: false, error: blocked }
     }
   }
 

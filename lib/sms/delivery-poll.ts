@@ -12,14 +12,25 @@ const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, proces
 export const DLR_GIVE_UP_MS = 72 * 3_600_000
 const MIN_AGE_MS = 60_000 // give the telco a minute before the first check
 
-export interface DeliveryReportRow { mid: string; state: "delivered" | "failed" | "pending"; rate: number | null; at: string | null }
-export function toDeliveryReports(entries: HubtelStatusEntry[]): DeliveryReportRow[] {
+/**
+ * One RPC row. `bid` + `to` are set only for batch-status reports: Hubtel's batch status reply
+ * uses message ids that differ from the ids its send reply gave us, so apply_sms_delivery_reports
+ * falls back to matching (provider_batch_id, recipient), one report to at most one message.
+ * Singles carry null for both and match by message id only.
+ */
+export interface DeliveryReportRow {
+  mid: string; state: "delivered" | "failed" | "pending"; rate: number | null; at: string | null
+  bid: string | null; to: string | null
+}
+export function toDeliveryReports(entries: HubtelStatusEntry[], batchId?: string): DeliveryReportRow[] {
   return entries.map((e) => ({
     mid: e.messageId,
     state: e.state,
     rate: e.rate ?? null,
     // Hubtel's updateTime has no zone ("2023-03-21T12:54:43"); Ghana is UTC+0.
     at: e.updateTime ? (/[zZ]|[+-]\d\d:?\d\d$/.test(e.updateTime) ? e.updateTime : `${e.updateTime}Z`) : null,
+    bid: batchId ?? null,
+    to: batchId ? e.to ?? null : null,
   }))
 }
 
@@ -33,7 +44,14 @@ export function summarizeApplied(rows: AppliedRow[]) {
   }
 }
 
-export interface PollSummary { batches: number; singles: number; delivered: number; failed: number; refunded: number; closed: number; errors: number }
+export interface PollSummary {
+  batches: number; singles: number; delivered: number; failed: number; refunded: number; closed: number; errors: number
+  /** Platform SMS (OTPs, receipts, notifications) logged in sms_logs and sent through Hubtel. */
+  logsChecked: number; logsDelivered: number; logsFailed: number
+}
+
+/** sms_logs rows sent via Hubtel are checked for this long (newest first), then left as 'sent'. */
+export const LOG_DLR_WINDOW_MS = 24 * 3_600_000
 
 async function apply(rows: DeliveryReportRow[], touched: Set<number>, sum: PollSummary) {
   if (rows.length === 0) return
@@ -44,10 +62,13 @@ async function apply(rows: DeliveryReportRow[], touched: Set<number>, sum: PollS
   s.sendLogIds.forEach((id) => touched.add(id))
 }
 
-export async function pollHubtelDeliveries(opts: { maxBatches?: number; maxSingles?: number; now?: number; deadlineMs?: number } = {}): Promise<PollSummary> {
-  const sum: PollSummary = { batches: 0, singles: 0, delivered: 0, failed: 0, refunded: 0, closed: 0, errors: 0 }
+export async function pollHubtelDeliveries(opts: { maxBatches?: number; maxSingles?: number; maxLogs?: number; now?: number; deadlineMs?: number } = {}): Promise<PollSummary> {
+  const sum: PollSummary = { batches: 0, singles: 0, delivered: 0, failed: 0, refunded: 0, closed: 0, errors: 0, logsChecked: 0, logsDelivered: 0, logsFailed: 0 }
   const baseCfg = hubtelConfigFromEnv()
-  if (!baseCfg) return sum
+  if (!baseCfg) {
+    console.warn("[SMS-DLR] Hubtel credentials not set (HUBTEL_SMS_CLIENT_ID / HUBTEL_SMS_CLIENT_SECRET): nothing polled")
+    return sum
+  }
   const cfg = { ...baseCfg, timeoutMs: 8000 } // status GETs: fail fast so one slow call can't eat the budget
   const now = opts.now ?? Date.now()
   const readyBefore = new Date(now - MIN_AGE_MS).toISOString()
@@ -90,7 +111,7 @@ export async function pollHubtelDeliveries(opts: { maxBatches?: number; maxSingl
           const res = await hubtelGetBatchStatus(cfg, batchId)
           sum.batches++
           if (!res.ok) { sum.errors++; console.error("[SMS-DLR] batch status failed:", batchId, res.error); continue }
-          await apply(toDeliveryReports(res.messages), touched, sum)
+          await apply(toDeliveryReports(res.messages, batchId), touched, sum)
         }
       } finally {
         await markChecked(checked, [])
@@ -116,6 +137,40 @@ export async function pollHubtelDeliveries(opts: { maxBatches?: number; maxSingl
         }
       } finally {
         await markChecked([], checked)
+      }
+    }
+
+    // 3. Platform SMS (sms_logs: OTPs, receipts, notifications) sent through Hubtel. The provider
+    // message id is stored in moolre_message_id (shared column). No refunds here: these are not
+    // billed to a customer's SMS balance. Newest first, so a few never-final rows can't starve
+    // fresh ones; anything older than LOG_DLR_WINDOW_MS stays 'sent'.
+    if (!timeUp()) {
+      const { data: logs, error: logsErr } = await supabaseAdmin
+        .from("sms_logs")
+        .select("id, moolre_message_id")
+        .eq("provider", "hubtel")
+        .eq("status", "sent")
+        .not("moolre_message_id", "is", null)
+        .lte("created_at", readyBefore)
+        .gte("created_at", new Date(now - LOG_DLR_WINDOW_MS).toISOString())
+        .order("created_at", { ascending: false })
+        .limit(opts.maxLogs ?? 60)
+      if (logsErr) { sum.errors++; console.error("[SMS-DLR] sms_logs discovery failed:", logsErr.message) }
+      for (const row of (logs ?? []) as { id: string; moolre_message_id: string }[]) {
+        if (timeUp()) break
+        const res = await hubtelGetMessageStatus(cfg, row.moolre_message_id)
+        sum.logsChecked++
+        if (!res.ok) { sum.errors++; console.error("[SMS-DLR] sms_logs status failed:", row.moolre_message_id, res.error); continue }
+        const entry = res.messages[0]
+        if (!entry || entry.state === "pending") continue
+        const patch = entry.state === "delivered"
+          ? { status: "delivered", delivered_at: toDeliveryReports([entry])[0].at ?? new Date().toISOString() }
+          : { status: "failed", error_message: `Hubtel: ${entry.rawStatus || "undelivered"}` }
+        // Guarded on status='sent' so a concurrent update is never overwritten.
+        const { error: upErr } = await supabaseAdmin.from("sms_logs").update(patch).eq("id", row.id).eq("status", "sent")
+        if (upErr) { sum.errors++; console.error("[SMS-DLR] sms_logs update failed:", row.id, upErr.message); continue }
+        if (entry.state === "delivered") sum.logsDelivered++
+        else sum.logsFailed++
       }
     }
   } finally {
