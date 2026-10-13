@@ -18,6 +18,8 @@
  */
 export const NEW_NAV_ITEMS: Readonly<Record<string, { since: string }>> = Object.freeze({
   "/dashboard/sms": { since: "2026-10-13" },
+  "/dashboard/bills": { since: "2026-10-13" },
+  "/dashboard/broadband": { since: "2026-10-13" },
   "/admin/sms": { since: "2026-10-13" },
   "/admin/hubtel-commission": { since: "2026-10-13" },
 })
