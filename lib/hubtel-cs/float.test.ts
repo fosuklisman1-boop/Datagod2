@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { checkLowBalance, pauseForFloat } from "./float"
+import { sendFloatAlert } from "./float-alert"
 import { shouldSendAlert } from "./float-alert"
 
 describe("pauseForFloat", () => {
@@ -59,5 +60,80 @@ describe("shouldSendAlert (1h debounce)", () => {
   it("suppresses within an hour, sends after", () => {
     expect(shouldSendAlert("2026-10-13T11:30:00.000Z", now)).toBe(false)
     expect(shouldSendAlert("2026-10-13T10:59:59.000Z", now)).toBe(true)
+  })
+})
+
+describe("pauseForFloat force flag", () => {
+  const mk = (wasPaused?: () => Promise<boolean>) => {
+    const alert = vi.fn(async () => {})
+    return { alert, run: () => pauseForFloat({ setPaused: async () => {}, alert, wasPaused }, "r") }
+  }
+  it("forces the alert when transitioning from not-paused", async () => {
+    const { alert, run } = mk(async () => false); await run()
+    expect((alert.mock.calls[0] as any)[3]).toEqual({ force: true })
+  })
+  it("does not force when already paused", async () => {
+    const { alert, run } = mk(async () => true); await run()
+    expect((alert.mock.calls[0] as any)[3]).toEqual({ force: false })
+  })
+  it("forces when the prior state is unknown", async () => {
+    const { alert, run } = mk(async () => { throw new Error("x") }); await run()
+    expect((alert.mock.calls[0] as any)[3]).toEqual({ force: true })
+  })
+})
+
+function fakeDb(initial: any) {
+  const state: { value: any; upserts: any[]; deleted: number } = { value: initial, upserts: [], deleted: 0 }
+  const db: any = {
+    from: () => ({
+      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: state.value ? { value: state.value } : null }) }) }),
+      upsert: async (row: any) => { state.upserts.push(row); state.value = row.value; return { error: null } },
+      delete: () => ({ eq: async () => { state.deleted++; state.value = null; return { error: null } } }),
+    }),
+  }
+  return { db, state }
+}
+const NOW = new Date("2026-10-13T12:00:00.000Z")
+
+describe("sendFloatAlert", () => {
+  it("keeps the stamp when at least one channel delivers", async () => {
+    const { db, state } = fakeDb(null)
+    await sendFloatAlert(db, "paused", "s", "m", { now: () => NOW, senders: { sms: async () => { throw new Error("x") }, email: async () => {} } })
+    expect(state.value).toEqual({ timestamp: NOW.toISOString() })
+  })
+  it("restores a previous stamp when both channels fail", async () => {
+    const prev = { timestamp: "2026-10-13T10:00:00.000Z" }
+    const { db, state } = fakeDb(prev)
+    await sendFloatAlert(db, "paused", "s", "m", { now: () => NOW, senders: { sms: async () => { throw new Error("x") }, email: async () => { throw new Error("y") } } })
+    expect(state.value).toEqual(prev)
+  })
+  it("clears the stamp when both fail and there was none", async () => {
+    const { db, state } = fakeDb(null)
+    await sendFloatAlert(db, "paused", "s", "m", { now: () => NOW, senders: { sms: async () => { throw new Error("x") }, email: async () => { throw new Error("y") } } })
+    expect(state.value).toBeNull()
+    expect(state.deleted).toBe(1)
+  })
+  it("debounces within the hour but force bypasses it", async () => {
+    const recent = { timestamp: "2026-10-13T11:30:00.000Z" }
+    const sms = vi.fn(async () => {})
+    const a = fakeDb(recent)
+    await sendFloatAlert(a.db, "paused", "s", "m", { now: () => NOW, senders: { sms, email: async () => {} } })
+    expect(sms).not.toHaveBeenCalled()
+    const b = fakeDb(recent)
+    await sendFloatAlert(b.db, "paused", "s", "m", { force: true, now: () => NOW, senders: { sms, email: async () => {} } })
+    expect(sms).toHaveBeenCalledTimes(1)
+  })
+  it("HTML-escapes subject and message in the email", async () => {
+    const { db } = fakeDb(null)
+    const email = vi.fn(async (_s: string, _h: string) => {})
+    await sendFloatAlert(db, "paused", "<b>s</b>", "x <script>&", { now: () => NOW, senders: { sms: async () => {}, email } })
+    const html = email.mock.calls[0][1]
+    expect(html).not.toContain("<script>")
+    expect(html).toContain("&lt;script&gt;&amp;")
+    expect(html).toContain("&lt;b&gt;s&lt;/b&gt;")
+  })
+  it("never throws even when the db throws", async () => {
+    const db: any = { from: () => { throw new Error("db") } }
+    await expect(sendFloatAlert(db, "paused", "s", "m")).resolves.toBeUndefined()
   })
 })

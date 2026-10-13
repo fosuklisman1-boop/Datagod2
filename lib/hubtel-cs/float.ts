@@ -1,15 +1,22 @@
 export interface FloatDeps {
   setPaused(reason: string): Promise<unknown>
-  alert(kind: "paused" | "low_balance", subject: string, message: string): Promise<void>
+  alert(kind: "paused" | "low_balance", subject: string, message: string, opts?: { force?: boolean }): Promise<void>
+  /** Was the service already paused before this 4075? If it was not (or this is unknown), the alert bypasses the debounce. */
+  wasPaused?(): Promise<boolean>
 }
 
 const SHARED = "The Hubtel Disbursement (prepaid) balance is shared with Hubtel SMS, so SMS credit sales can stall too. Top up the Disbursement account."
 
 /** 4075 handler: stop taking new Hubtel orders and tell the admins. Pending rows keep reconciling. Never throws. */
 export async function pauseForFloat(deps: FloatDeps, reason: string): Promise<void> {
+  // Only the first 4075 after a resume is forced through the alert debounce.
+  let force = true
+  if (deps.wasPaused) {
+    try { force = !(await deps.wasPaused()) } catch { force = true }
+  }
   try { await deps.setPaused(reason) } catch (e: any) { console.error("[hubtel-cs] could not set pause:", e?.message ?? e) }
   try {
-    await deps.alert("paused", "Hubtel Commission Services paused - prepaid balance exhausted", `${reason}. New Hubtel orders are blocked until an admin resumes the service. ${SHARED}`)
+    await deps.alert("paused", "Hubtel Commission Services paused - prepaid balance exhausted", `${reason}. New Hubtel orders are blocked until an admin resumes the service. ${SHARED}`, { force })
   } catch (e: any) { console.error("[hubtel-cs] pause alert failed:", e?.message ?? e) }
 }
 
