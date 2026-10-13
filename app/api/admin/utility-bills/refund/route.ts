@@ -42,10 +42,17 @@ export async function POST(request: NextRequest) {
         if (error) throw error
         return data?.length ?? 0
       },
-      async revertToProcessing(orderId, ref) {
+      async revertToProcessing(orderId, ref, from) {
         const { data, error } = await db.from(BILL_ORDERS_TABLE)
           .update({ status: "processing", failure_reason: null, ...(ref ? { hubtel_client_reference: ref } : {}), notes: "Refund aborted: a Hubtel transaction exists. Do not resend.", updated_at: new Date().toISOString() })
-          .eq("id", orderId).in("status", ["failed"]).select("id")
+          .eq("id", orderId).in("status", [from]).select("id")
+        if (error) throw error
+        return data?.length ?? 0
+      },
+      async releaseStuckClaim(orderId) {
+        const { data, error } = await db.from(BILL_ORDERS_TABLE)
+          .update({ status: "pending", notes: `Released stuck dispatch claim by admin ${adminId}`, updated_at: new Date().toISOString() })
+          .eq("id", orderId).in("status", ["processing"]).eq("payment_status", "paid").select("id")
         if (error) throw error
         return data?.length ?? 0
       },

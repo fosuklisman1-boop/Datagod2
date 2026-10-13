@@ -6,6 +6,9 @@ export const BILL_ORDERS_TABLE = "hubtel_bill_orders"
 export const ORDER_STATUSES = ["pending", "processing", "completed", "failed", "refunded"] as const
 /** A pending+paid order younger than this may still be mid-dispatch, so it cannot be refunded as "never sent". */
 export const UNSENT_GRACE_MS = 60_000
+/** A dispatch claim older than this with no Hubtel ledger row never reached Hubtel (the ledger row is written before the POST). */
+export const STUCK_CLAIM_MS = 300_000
+export const STUCK_REASON = "Stuck dispatch (never reached Hubtel)"
 
 export interface OrderFilters {
   q?: string
@@ -39,7 +42,9 @@ export function parseOrderFilters(sp: URLSearchParams): OrderFilters {
 /** Builds the shared filter onto a select query (used by the page query and the stats query alike). */
 export function applyOrderFilters<T>(query: T, f: OrderFilters, qAlt?: string): T {
   let q: any = query
-  if (f.view === "refund") q = q.eq("payment_status", "paid").in("status", ["failed", "pending"])
+  if (f.view === "refund") {
+    q = q.eq("payment_status", "paid").or("status.in.(failed,pending),and(status.eq.processing,notes.ilike.Dispatching%,hubtel_client_reference.is.null)")
+  }
   else if (f.view === "refunded") q = q.eq("status", "refunded")
   if (f.status) q = q.eq("status", f.status)
   if (f.biller) q = q.eq("biller", f.biller)
@@ -136,7 +141,13 @@ export interface RefundOrderFacts {
 export type RefundDecision =
   | { action: "blocked"; reason: string }
   | { action: "ledger"; ref: string; needsForce: boolean }
-  | { action: "direct"; markFailedFirst: boolean }
+  | { action: "direct"; markFailedFirst: boolean; releaseStuck?: boolean }
+
+/** processing + paid + no ref + no ledger rows + a "Dispatching" note older than 5 minutes. */
+export function isStuckClaim(order: RefundOrderFacts, ledgerRows: LedgerFact[], now: number = Date.now()): boolean {
+  return order.status === "processing" && order.payment_status === "paid" && !order.hubtel_client_reference &&
+    ledgerRows.length === 0 && (order.notes ?? "").startsWith("Dispatching") && now - Date.parse(order.updated_at) >= STUCK_CLAIM_MS
+}
 
 export function refundDecision(order: RefundOrderFacts, ledger: LedgerFact[], now: number = Date.now()): RefundDecision {
   const blocked = (reason: string): RefundDecision => ({ action: "blocked", reason })
@@ -149,7 +160,12 @@ export function refundDecision(order: RefundOrderFacts, ledger: LedgerFact[], no
   if (order.hubtel_client_reference && !ledger.some(l => l.client_reference === order.hubtel_client_reference)) {
     return blocked("The Hubtel ledger row for this order could not be found; check Hubtel Commission before refunding")
   }
-  if (order.status === "processing") return blocked("Still processing; use Sync first")
+  if (isStuckClaim(order, ledger, now)) return { action: "direct", markFailedFirst: true, releaseStuck: true }
+  if (order.status === "processing") {
+    return blocked((order.notes ?? "").startsWith("Dispatching") && !order.hubtel_client_reference
+      ? "A dispatch is in progress; if it never finishes it can be released after 5 minutes"
+      : "Still processing; use Sync first")
+  }
   if (ledger.length > 0) {
     // All remaining rows are failed. Newest first.
     const latest = [...ledger].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0]
@@ -168,8 +184,8 @@ export function refundDecision(order: RefundOrderFacts, ledger: LedgerFact[], no
 }
 
 /** Dispatch is only for debited-but-unsent orders. */
-export const canDispatch = (o: { status: string; payment_status: string; hubtel_client_reference: string | null }): boolean =>
-  o.status === "pending" && o.payment_status === "paid" && !o.hubtel_client_reference
+export const canDispatch = (o: { status: string; payment_status: string; hubtel_client_reference: string | null }, stuck = false): boolean =>
+  stuck || (o.status === "pending" && o.payment_status === "paid" && !o.hubtel_client_reference)
 
 /** Ledger rows per bill order (newest first). Throws on DB error: callers must fail closed. */
 export async function fetchLedgerByOrders(db: SupabaseClient, orderIds: string[]): Promise<Map<string, LedgerFact[]>> {

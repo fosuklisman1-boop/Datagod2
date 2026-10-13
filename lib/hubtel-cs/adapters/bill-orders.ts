@@ -70,7 +70,7 @@ export function createBillOrdersAdapter(deps: BillOrdersAdapterDeps): OrderAdapt
 
     async onFailed(tx: HubtelCsTx) {
       const id = tx.order_id!
-      const n = await deps.update(id, { status: "failed", failure_reason: tx.failure_reason ?? tx.response_code ?? "unknown reason" }, LIVE_STATUSES)
+      const n = await deps.update(id, { status: "failed", failure_reason: tx.failure_reason ?? tx.response_code ?? "unknown reason", notes: `Failed via Hubtel [hcsRef:${tx.client_reference}]` }, LIVE_STATUSES)
       if (n > 0) {
         await notifyCustomer(id, "Bill payment failed", o => `${summary(o)} is under review; a refund follows if it was not delivered.`)
       }

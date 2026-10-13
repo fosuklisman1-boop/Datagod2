@@ -51,7 +51,7 @@ describe("hubtel_bill_orders adapter", () => {
     const update = vi.fn(async () => 1), notify = vi.fn(async () => {})
     await createBillOrdersAdapter({ ...base(), update, notify })
       .onFailed(makeTx({ order_id: "o1", failure_reason: "Invalid account" }))
-    expect(update).toHaveBeenCalledWith("o1", { status: "failed", failure_reason: "Invalid account" }, LIVE)
+    expect(update).toHaveBeenCalledWith("o1", { status: "failed", failure_reason: "Invalid account", notes: expect.stringMatching(/^Failed via Hubtel/) }, LIVE)
     expect(notify).toHaveBeenCalledWith("u1", "Bill payment failed", expect.stringContaining("under review"), "o1")
   })
   it("failed with 0 rows: no notify", async () => {

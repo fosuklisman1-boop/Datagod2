@@ -24,7 +24,7 @@ type Order = {
   status: "pending" | "processing" | "completed" | "failed" | "refunded"; payment_status: "unpaid" | "paid" | "refunded"
   hubtel_client_reference: string | null; commission: number | null; failure_reason: string | null; notes: string | null
   created_at: string; updated_at: string; purchaser: string; purchaser_email: string | null; source: string
-  can_dispatch: boolean; refund: Refund | null
+  can_dispatch: boolean; stuck_claim?: boolean; refund: Refund | null
 }
 type Stats = { totalSales: number; orders: number; completed: number; inFlight: number; commission: number; failed: number; refunded: number }
 type Listing = { rows: Order[]; total: number; offset: number }
@@ -124,6 +124,7 @@ function OrderRow({ o, busy, onDetails, onSync, onDispatch, onRefund, queue }: {
           <span className={`${PILL} ${PAY_STYLE[o.payment_status] ?? ""}`}>{cap(o.payment_status)}</span>
           <span className={`${PILL} ${STATUS_STYLE[o.status] ?? ""}`}>{o.status === "pending" && o.payment_status === "paid" ? "Pending" : cap(o.status)}</span>
         </div>
+        {o.stuck_claim && <div className="mt-1 text-xs font-medium text-amber-700">Stuck dispatch (never reached Hubtel)</div>}
         {(o.failure_reason || (o.notes && o.status !== "completed")) && (
           <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">{o.failure_reason ?? o.notes}</div>
         )}

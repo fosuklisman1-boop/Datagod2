@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import {
-  applyOrderFilters, BILL_ORDERS_TABLE, canDispatch, fetchLedgerByOrders, fetchStats, parseOrderFilters, purchaserLabel, refundDecision,
+  applyOrderFilters, BILL_ORDERS_TABLE, canDispatch, fetchLedgerByOrders, isStuckClaim, fetchStats, parseOrderFilters, purchaserLabel, refundDecision,
 } from "@/lib/bills/admin"
 import { clampPage, errorJson, requireAdmin, searchAlternate } from "@/lib/hubtel-cs/admin-route"
 import { getHubtelCsRuntime } from "@/lib/hubtel-cs/runtime"
@@ -46,7 +46,9 @@ export async function GET(request: NextRequest) {
       for (const u of data ?? []) users.set((u as any).id, u)
     }
     // Refund eligibility needs the ledger; fail closed (no refund offered) if it cannot be read.
-    const refundCandidates = orders.filter(o => o.payment_status === "paid" && (o.status === "failed" || o.status === "pending"))
+    const isCandidate = (o: any) => o.payment_status === "paid" &&
+      (o.status === "failed" || o.status === "pending" || (o.status === "processing" && !o.hubtel_client_reference && (o.notes ?? "").startsWith("Dispatching")))
+    const refundCandidates = orders.filter(isCandidate)
     let ledger = new Map<string, any[]>()
     let ledgerOk = true
     try { ledger = await fetchLedgerByOrders(db, refundCandidates.map(o => o.id)) } catch { ledgerOk = false }
@@ -54,7 +56,8 @@ export async function GET(request: NextRequest) {
     const now = Date.now()
     const rows = orders.map(o => {
       const { verify_token_hash: _omit, ...safe } = o
-      const decision = o.payment_status === "paid" && (o.status === "failed" || o.status === "pending")
+      const stuck = ledgerOk && isCandidate(o) && o.status === "processing" && isStuckClaim(o, ledger.get(o.id) ?? [], now)
+      const decision = isCandidate(o)
         ? (ledgerOk ? refundDecision(o, ledger.get(o.id) ?? [], now) : { action: "blocked" as const, reason: "Could not read the Hubtel ledger; try again" })
         : null
       return {
@@ -62,7 +65,8 @@ export async function GET(request: NextRequest) {
         purchaser: purchaserLabel(users.get(o.user_id)),
         purchaser_email: users.get(o.user_id)?.email ?? null,
         source: "dashboard",
-        can_dispatch: canDispatch(o),
+        can_dispatch: canDispatch(o, stuck),
+        stuck_claim: stuck,
         refund: decision,
       }
     })

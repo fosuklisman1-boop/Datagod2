@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { canDispatch, computeStats, statsFromRpc, statsRpcArgs, parseOrderFilters, purchaserLabel, refundDecision, UNSENT_GRACE_MS, type LedgerFact } from "./admin"
+import { canDispatch, isStuckClaim, STUCK_CLAIM_MS, computeStats, statsFromRpc, statsRpcArgs, parseOrderFilters, purchaserLabel, refundDecision, UNSENT_GRACE_MS, type LedgerFact } from "./admin"
 import { executeBillRefund, type BillRefundDeps, type RefundOrder } from "./admin-refund"
 
 const NOW = Date.parse("2026-10-13T12:00:00Z")
@@ -121,7 +121,8 @@ function fakeDeps(o: Partial<BillRefundDeps> & { order?: RefundOrder | null; led
     markFailed: async () => { calls.push("markFailed"); return 1 },
     refundViaLedger: async ref => { calls.push(`ledger:${ref}`); return { ok: true, message: "done" } },
     refundDirect: async () => { calls.push("direct"); return { refunded: true, message: "credited" } },
-    revertToProcessing: async (_id, ref) => { calls.push("revert:" + ref); return 1 },
+    revertToProcessing: async (_id, ref, from) => { calls.push("revert:" + ref + ":" + from); return 1 },
+    releaseStuckClaim: async () => { calls.push("release"); return 1 },
     alert: async () => { calls.push("alert") },
     now: () => NOW,
     ...o,
@@ -168,13 +169,13 @@ describe("executeBillRefund", () => {
     let n = 0
     const { deps, calls } = fakeDeps({ order: order({ status: "pending", updated_at: old }), getLedger: async () => (n++ === 0 ? [] : [led({ state: "pending", client_reference: "RX" })]) })
     const r = await executeBillRefund(deps, "o1", "n", false)
-    expect(r.ok).toBe(false); expect(calls).toEqual(["markFailed", "revert:RX", "alert"])
+    expect(r.ok).toBe(false); expect(calls).toEqual(["markFailed", "revert:RX:failed", "alert"])
   })
   it("reverts (no ref) and aborts when the post-flip ledger read fails; alerts loudly if the revert fails", async () => {
     let n = 0
     const a = fakeDeps({ order: order({ status: "pending" }), getLedger: async () => { if (n++ === 0) return []; throw new Error("db") } })
     expect((await executeBillRefund(a.deps, "o1", "n", false)).ok).toBe(false)
-    expect(a.calls).toEqual(["markFailed", "revert:null", "alert"])
+    expect(a.calls).toEqual(["markFailed", "revert:null:failed", "alert"])
     let k = 0
     const b = fakeDeps({ order: order({ status: "pending" }), getLedger: async () => (k++ === 0 ? [] : [led({ state: "pending" })]), revertToProcessing: async () => 0 })
     const r = await executeBillRefund(b.deps, "o1", "n", false)
@@ -185,5 +186,41 @@ describe("executeBillRefund", () => {
     const { deps } = fakeDeps({ refundDirect: async () => { throw new Error("net") } })
     const r = await executeBillRefund(deps, "o1", "n", false)
     expect(r.status).toBe(502); expect(r.message).toContain("UNKNOWN")
+  })
+})
+
+describe("isStuckClaim", () => {
+  const stuck = (o: Partial<RefundOrder> = {}) => order({ status: "processing", notes: "Dispatching…", updated_at: new Date(NOW - STUCK_CLAIM_MS).toISOString(), ...o })
+  it("boundaries: 4m59s false, 5m true", () => {
+    expect(isStuckClaim(stuck({ updated_at: new Date(NOW - (STUCK_CLAIM_MS - 1000)).toISOString() }), [], NOW)).toBe(false)
+    expect(isStuckClaim(stuck(), [], NOW)).toBe(true)
+  })
+  it("false with a ledger row, a ref, another note, unpaid or non-processing", () => {
+    expect(isStuckClaim(stuck(), [led()], NOW)).toBe(false)
+    expect(isStuckClaim(stuck({ hubtel_client_reference: "r" }), [], NOW)).toBe(false)
+    expect(isStuckClaim(stuck({ notes: "Outcome unknown" }), [], NOW)).toBe(false)
+    expect(isStuckClaim(stuck({ payment_status: "unpaid" }), [], NOW)).toBe(false)
+    expect(isStuckClaim(stuck({ status: "pending" }), [], NOW)).toBe(false)
+  })
+  it("refundDecision and canDispatch treat it as eligible; a young claim stays blocked", () => {
+    expect(refundDecision(stuck(), [], NOW)).toEqual({ action: "direct", markFailedFirst: true, releaseStuck: true })
+    expect(refundDecision(stuck({ updated_at: new Date(NOW - 1000).toISOString() }), [], NOW).action).toBe("blocked")
+    expect(canDispatch(stuck(), true)).toBe(true)
+    expect(canDispatch(stuck())).toBe(false)
+  })
+})
+
+describe("executeBillRefund with a stuck claim", () => {
+  const stuckOrder = () => order({ status: "processing", notes: "Dispatching…", updated_at: new Date(NOW - STUCK_CLAIM_MS - 1000).toISOString() })
+  it("releases, flips to failed, then refunds directly (no 60s grace)", async () => {
+    const { deps, calls } = fakeDeps({ order: stuckOrder() })
+    expect(await executeBillRefund(deps, "o1", "n", false)).toMatchObject({ ok: true, mode: "direct" })
+    expect(calls).toEqual(["release", "markFailed", "direct"])
+  })
+  it("aborts back to processing if a ledger row appears right after the release", async () => {
+    let n = 0
+    const { deps, calls } = fakeDeps({ order: stuckOrder(), getLedger: async () => (n++ === 0 ? [] : [led({ state: "pending", client_reference: "RZ" })]) })
+    const r = await executeBillRefund(deps, "o1", "n", false)
+    expect(r.ok).toBe(false); expect(calls).toEqual(["release", "revert:RZ:pending", "alert"])
   })
 })
