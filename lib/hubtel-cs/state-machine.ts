@@ -18,14 +18,15 @@ export const RECHECK_GAP_MS = 90_000
 export type CodeClass = "success" | "pending" | "unknown" | "float" | "failed"
 
 export function classifyCode(code: unknown, httpStatus?: number): CodeClass {
+  // A 5xx reply is never trusted, whatever code its body carries (Phase 2a ruling): state unknown.
+  if (httpStatus !== undefined && httpStatus >= 500) return "unknown"
   const c = typeof code === "string" ? code.trim() : ""
   if (c === "0000") return "success"
   if (c === "0001") return "pending"
   if (c === "" || c === "0005") return "unknown"
   if (c === "4075") return "float"
-  // A definite failure must be a well-formed 4-digit code on a non-5xx response; anything else is unknown.
+  // A definite failure must be a well-formed 4-digit code; anything else is unknown.
   if (!/^\d{4}$/.test(c)) return "unknown"
-  if (httpStatus !== undefined && httpStatus >= 500) return "unknown"
   return "failed"
 }
 

@@ -268,3 +268,22 @@ describe("applyStatusCheck Paid + isFulfilled=false", () => {
     expect(t.patch.status_check_attempts).toBe(1)
   })
 })
+
+describe("5xx replies are never trusted (phase 2a)", () => {
+  it("classifies a success or pending code on a 5xx as unknown", () => {
+    expect(classifyCode("0000", 502)).toBe("unknown")
+    expect(classifyCode("0001", 500)).toBe("unknown")
+    expect(classifyCode("4075", 503)).toBe("unknown")
+  })
+  it("still classifies normally below 500", () => {
+    expect(classifyCode("0000", 200)).toBe("success")
+    expect(classifyCode("0001", 200)).toBe("pending")
+    expect(classifyCode("2001", 400)).toBe("failed")
+  })
+  it("a 5xx POST reply with 0000 goes to needs_review", () => {
+    const tx = makeTx({ state: "created" })
+    const t = applyPostResponse(tx, { httpStatus: 503, body: { ResponseCode: "0000", Data: { TransactionId: "x" } } }, new Date())
+    expect("ignored" in t).toBe(false)
+    if (!("ignored" in t)) expect(t.next).toBe("needs_review")
+  })
+})
