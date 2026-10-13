@@ -29,6 +29,8 @@ function maskPhone(p?: string | null): string {
  * Also returns `sender_health` (per sender name, Hubtel only, with a computed `status`) from the
  * sms_sender_health() RPC (migrations/20261023_sms_sender_health.sql). If that RPC is missing or
  * errors, `sender_health` is null and `sender_health_error` explains why; the rest still loads.
+ * Each row carries `source` ('campaign' | 'platform', migrations/20261024_sms_logs_sender_id.sql);
+ * rows from the older RPC have none and are normalised to 'campaign'.
  */
 export async function GET(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)

@@ -41,8 +41,13 @@ export function senderHealthStatus(c: SenderHealthCounts): SenderHealthStatus {
   return "insufficient"
 }
 
+/** 'campaign' = customer/admin campaign sends (sms_messages); 'platform' = sendSMS() traffic (sms_logs). */
+export type SenderHealthSource = "campaign" | "platform"
+
 export interface SenderHealthRow extends SenderHealthCounts {
   sender: string
+  /** A name can appear once per source. Absent from the pre-20261024 RPC → 'campaign'. */
+  source: SenderHealthSource
   /** 0..1, null when there are no final outcomes yet. */
   delivery_rate: number | null
   last_delivered_at: string | null
@@ -71,6 +76,7 @@ export function normalizeSenderHealthRows(raw: unknown): SenderHealthRow[] {
       const rate = r.delivery_rate === null || r.delivery_rate === undefined ? null : Number(r.delivery_rate)
       return {
         sender: String(r.sender ?? "(platform default)"),
+        source: r.source === "platform" ? "platform" : "campaign",
         total: num(r.total),
         delivered: num(r.delivered),
         failed: num(r.failed),

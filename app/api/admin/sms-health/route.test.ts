@@ -70,6 +70,21 @@ describe("GET /api/admin/sms-health", () => {
     expect(d.sender_health_error).toBeUndefined()
   })
 
+  it("passes source through; rows from the old RPC (no source) default to 'campaign'", async () => {
+    h.rpc.sms_sender_health = async () => ({
+      data: [
+        { sender: "CLINGDTGOD", source: "platform", total: 20, delivered: 0, failed: 20, in_flight: 0 },
+        { sender: "CLINGDTGOD", total: 12, delivered: 10, failed: 2, in_flight: 0 },
+      ],
+      error: null,
+    })
+    const d = await (await GET(req()))!.json()
+    expect(d.sender_health.map((r: any) => [r.sender, r.source, r.status])).toEqual([
+      ["CLINGDTGOD", "platform", "not_delivering"],
+      ["CLINGDTGOD", "campaign", "healthy"],
+    ])
+  })
+
   it("invalid hours falls back to 24 for both RPCs", async () => {
     (await GET(req("?hours=5")))!
     expect(h.calls.map((c) => c.args)).toEqual([{ p_hours: 24 }, { p_hours: 24 }])

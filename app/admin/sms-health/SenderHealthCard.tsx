@@ -19,7 +19,11 @@ const HEALTH_TONE: Record<SenderHealthStatus, string> = {
   insufficient: "bg-muted text-muted-foreground border-border",
 }
 
+const PLATFORM_TAG = { label: "Platform", tone: "bg-primary/10 text-primary border-primary/30" }
+
 function registryBadge(r: SenderHealthRowWithStatus): { label: string; tone: string } {
+  // Platform names (sendSMS traffic) are env/config senders, not rows in sms_sender_ids.
+  if (r.source === "platform") return { label: "n/a", tone: "bg-muted text-muted-foreground border-border" }
   if (r.is_pool) return { label: "pool", tone: "bg-primary/10 text-primary border-primary/30" }
   switch (r.registry_status) {
     case "active": return { label: "active", tone: "bg-success/15 text-success border-success/30" }
@@ -52,6 +56,10 @@ export function SenderHealthCard({ rows, error }: { rows: SenderHealthRowWithSta
           <b>Not delivering</b> = 10+ sends and none delivered. Ask Hubtel to register the name with the carriers, or pause it in{" "}
           <Link href="/admin/sms?tab=sender-ids" className="text-primary underline underline-offset-2">Admin → SMS → Sender IDs</Link>.
         </p>
+        <p className="text-xs text-muted-foreground">
+          Rows tagged <Pill {...PLATFORM_TAG} /> are Datagod&apos;s own sends (OTPs, order confirmations, top-up notices, broadcasts).
+          They are counted from the day this panel started recording the sender name; older platform messages have no sender recorded.
+        </p>
 
         {error ? (
           <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
@@ -67,9 +75,10 @@ export function SenderHealthCard({ rows, error }: { rows: SenderHealthRowWithSta
               {sorted.map((r) => {
                 const reg = registryBadge(r)
                 return (
-                  <div key={r.sender} className="rounded-lg border border-border p-3 text-sm">
+                  <div key={`${r.source}:${r.sender}`} className="rounded-lg border border-border p-3 text-sm">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-mono font-semibold text-foreground break-all">{r.sender}</span>
+                      {r.source === "platform" && <Pill {...PLATFORM_TAG} />}
                       <Pill {...reg} />
                       <span className="ml-auto"><Pill label={HEALTH_LABELS[r.status]} tone={HEALTH_TONE[r.status]} /></span>
                     </div>
@@ -106,8 +115,13 @@ export function SenderHealthCard({ rows, error }: { rows: SenderHealthRowWithSta
                   {sorted.map((r) => {
                     const reg = registryBadge(r)
                     return (
-                      <tr key={r.sender} className="border-b border-border">
-                        <td className="py-2 font-mono font-medium text-foreground">{r.sender}</td>
+                      <tr key={`${r.source}:${r.sender}`} className="border-b border-border">
+                        <td className="py-2 font-mono font-medium text-foreground">
+                          <span className="inline-flex flex-wrap items-center gap-2">
+                            {r.sender}
+                            {r.source === "platform" && <span className="font-sans"><Pill {...PLATFORM_TAG} /></span>}
+                          </span>
+                        </td>
                         <td className="py-2"><Pill {...reg} /></td>
                         <td className="py-2 text-right text-foreground">{r.total}</td>
                         <td className="py-2 text-right text-success">{r.delivered}</td>

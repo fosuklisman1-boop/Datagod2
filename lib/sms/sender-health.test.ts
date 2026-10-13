@@ -98,6 +98,29 @@ describe("normalizeSenderHealthRows", () => {
   })
 })
 
+describe("source (campaign vs platform)", () => {
+  it("defaults to 'campaign' when absent (old RPC) or unknown; keeps 'platform'", () => {
+    const rows = normalizeSenderHealthRows([
+      { sender: "A", total: 1 },
+      { sender: "B", total: 1, source: "platform" },
+      { sender: "C", total: 1, source: "bogus" },
+    ])
+    expect(rows.map((r) => r.source)).toEqual(["campaign", "platform", "campaign"])
+  })
+  it("the same name in both sources stays two rows, each classified and sorted on its own", () => {
+    const rows = sortSenderHealth(withHealthStatus(normalizeSenderHealthRows([
+      { sender: "CLINGDTGOD", source: "campaign", total: 12, delivered: 3, failed: 9, in_flight: 0 },
+      { sender: "CLINGDTGOD", source: "platform", total: 20, delivered: 8, failed: 2, in_flight: 10 },
+      { sender: "OTPNAME", source: "platform", total: 15, delivered: 0, failed: 15, in_flight: 0 },
+    ])))
+    expect(rows.map((r) => [r.sender, r.source, r.status])).toEqual([
+      ["OTPNAME", "platform", "not_delivering"],
+      ["CLINGDTGOD", "campaign", "degraded"],
+      ["CLINGDTGOD", "platform", "healthy"],
+    ])
+  })
+})
+
 describe("withHealthStatus + sortSenderHealth", () => {
   it("adds status and sorts not-delivering first, then degraded, healthy, insufficient; ties by total desc", () => {
     const rows = withHealthStatus(normalizeSenderHealthRows([
