@@ -41,7 +41,9 @@ Remove every `tokenBalance` / `token_balance > 0` check and every token deductio
 | `lib/shop-commerce/token-deduction.ts` (+ test) | Delete it, and remove its three call sites in `app/api/webhooks/paystack/route.ts` (USSD shop data, airtime and results-checker branches of the WhatsApp shop sale). |
 | `lib/whatsapp-bot/shop-router.ts` | Remove `tokenBalance > 0` from the "remembered shop" check and the "no sessions left" branch. |
 | `lib/ai-tools.ts` | Remove the `buy_sessions` action and the token check in `resolve_shop_code`. Update the tool description. |
-| `lib/shop-commerce/shop-code.ts` | Stop selecting and returning `tokenBalance` once nothing reads it. |
+| `lib/shop-commerce/shop-code.ts` | Unchanged. `ResolvedShopCode.tokenBalance` stays as an unread field, because removing it would churn about 40 test fixtures for no behaviour change. Its doc comment says it is no longer used for gating. |
+| `lib/whatsapp-bot/shop-router.ts` CONFIRM steps | Remove the four `fetchShopCodeTokenBalance` re-checks (data, airtime, RC, results-check CONFIRM) and the helper itself. |
+| `app/api/webhooks/paystack/route.ts` | Remove all **four** WhatsApp per-order deductions (data, airtime, RC voucher, results-check request). |
 | `app/api/public/shop-ussd-code/route.ts` | `active = status === 'active'`. |
 
 ### 3.2 Removed outright
@@ -62,7 +64,7 @@ Remove every `tokenBalance` / `token_balance > 0` check and every token deductio
 ### 4.1 Migration (next free number at implementation time; 0119 is the latest on main and the cashback work may claim 0120)
 
 1. `ALTER TABLE ussd_shop_codes ADD COLUMN activation_fee_waived boolean NOT NULL DEFAULT false, ADD COLUMN whatsapp_activation_waived boolean NOT NULL DEFAULT false;` These are audit flags. They record whether a code was opened for free rather than paid for.
-2. Replace `auto_assign_ussd_shop_code()`. Same code generation as today, but the INSERT reads the singleton `app_settings` row (`key IS NULL`):
+2. Add a `BEFORE INSERT` trigger on `ussd_shop_codes` (`ussd_shop_code_apply_free_activation()`). `auto_assign_ussd_shop_code()` stays unchanged. A row trigger covers every insert path: the auto-assign trigger, the admin "New Shop Code" route, and the dealer activate route's fallback insert. It reads the singleton `app_settings` row (`key IS NULL`) and, only for a row being inserted as `inactive` and unpaid:
    - `COALESCE(ussd_shop_activation_fee, 0) = 0` → `status='active', activation_fee_paid=true, activation_paid_at=now(), activation_fee_waived=true`
    - otherwise `status='inactive'` (today's behaviour)
    - `COALESCE(whatsapp_shop_activation_fee, 0) = 0` → `whatsapp_activated=true, whatsapp_activated_at=now(), whatsapp_activation_waived=true`
