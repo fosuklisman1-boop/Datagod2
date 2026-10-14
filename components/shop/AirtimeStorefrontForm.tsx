@@ -313,7 +313,11 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
     try {
       setSubmitting(true)
 
-      const totalPrice = cbOn ? cbPay : calculateTotal()
+      // The exact price the page shows. Always sent as expectedPay (both paths) so the server never charges an
+      // amount the customer was not shown: a mismatch, or cashback the page did not know about, is a 409.
+      const totalPrice = priceChange
+        ? priceChange.payAmount
+        : cbOn ? cbPrice.pay : Math.round(calculateTotal() * 100) / 100
 
       const res = await fetch("/api/shop/airtime/initialize", {
         method: "POST",
@@ -329,7 +333,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
           amount: formData.amount,
           paySeparately: cbOn ? false : paySeparately,
           totalPrice: totalPrice,
-          ...(cbOn ? { expectedPay: totalPrice } : {}),
+          expectedPay: totalPrice,
           turnstileToken,
           website: honeypot,
         })
@@ -338,10 +342,12 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
       const data = await res.json()
       // The server priced it differently (rates changed, or the page was stale): nothing was created or charged.
       // Show the new price and wait for a second tap.
-      const change = cbOn ? parsePriceChange(res.status, data) : null
+      const change = parsePriceChange(res.status, data)
       if (change) {
         setPriceChange(change)
         setMomoModal(null)
+        // The page's pricing terms may be stale (e.g. cashback switched on): refresh them for the display.
+        loadConstraints()
         toast.error(`${change.message} New price: GHS ${change.payAmount.toFixed(2)}. Tap again to continue.`)
         // Turnstile tokens are single-use and this one was already spent.
         setTurnstileToken("")
@@ -563,7 +569,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
       {!cbOn && (
       <button
         type="button"
-        onClick={() => setPaySeparately(!paySeparately)}
+        onClick={() => { setPaySeparately(!paySeparately); setPriceChange(null) }}
         className={`flex w-full items-start gap-3 rounded-2xl border p-4 text-left transition ${
           paySeparately ? "border-[#75beab]/40 bg-[#e9f4f1]" : "border-border bg-card"
         }`}
@@ -623,7 +629,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
           )}
           <div className="flex justify-between border-t border-border pt-2 font-bold text-foreground">
             <span>You pay</span>
-            <span>GHS {calculateTotal().toFixed(2)}</span>
+            <span>GHS {(priceChange ? priceChange.payAmount : calculateTotal()).toFixed(2)}</span>
           </div>
         </div>
       )}

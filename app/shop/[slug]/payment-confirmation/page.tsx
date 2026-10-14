@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { useParams, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { CheckCircle2, AlertCircle, Loader2 } from "lucide-react"
+import { CheckCircle2, AlertCircle, Loader2, RotateCcw } from "lucide-react"
 import { shopService } from "@/lib/shop-service"
 import { useShopBasePath } from "@/lib/shop-url"
 import { isFinalView, orderView, type OrderView } from "@/lib/storefront-commission/ui-helpers"
@@ -80,6 +80,19 @@ export default function PaymentConfirmationPage() {
             <div>
               <h1 className="text-xl font-bold text-foreground">Delivered</h1>
               <p className="mt-1 text-sm text-muted-foreground">Your order has been delivered. Thank you!</p>
+            </div>
+          </>
+        ) : effective === "refunding" || effective === "refunded" ? (
+          <>
+            <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-muted"><RotateCcw className="h-9 w-9 text-foreground" /></div>
+            <div>
+              <h1 className="text-xl font-bold text-foreground">{effective === "refunded" ? "Refunded" : "Refund in progress"}</h1>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {effective === "refunded"
+                  ? "We could not complete this order, so your payment has been refunded."
+                  : "We could not complete this order. Your refund is being processed."}
+                {reference ? <> Payment reference: <span className="font-mono text-xs">{reference}</span></> : null}
+              </p>
             </div>
           </>
         ) : effective === "failed" ? (

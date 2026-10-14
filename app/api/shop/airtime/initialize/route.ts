@@ -240,8 +240,11 @@ export async function POST(request: NextRequest) {
     const amountToCharge = cashback ? cashback.payAmount : totalPrice
 
     // Price the page showed vs. what we'd charge now — on BOTH paths (e.g. cashback switched off after the
-    // page loaded). Before the flood-guard counters and the insert. Omitted by older clients => unchanged.
-    if (expectedPay !== undefined && expectedPay !== null && !samePrice(Number(expectedPay), amountToCharge)) {
+    // page loaded). Before the flood-guard counters and the insert. When cashback applies the page MUST have
+    // shown the price: a missing expectedPay (stale page / older client) is a 409 with the quote too, so the
+    // customer never pays an amount they were not shown. Legacy path without expectedPay => unchanged.
+    const expectedMissing = expectedPay === undefined || expectedPay === null
+    if ((expectedMissing && cashback) || (!expectedMissing && !samePrice(Number(expectedPay), amountToCharge))) {
       return NextResponse.json(
         {
           error: "Price updated — please review",

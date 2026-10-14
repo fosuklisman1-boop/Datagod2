@@ -180,7 +180,7 @@ describe("shop airtime initialize — cashback applied", () => {
   beforeEach(() => { h.state.settings.commission_cashback_config = CASHBACK_ON })
 
   it("face 10 on hubtel: pays 9.95 incl. 0.15 fee, shop share as merchant_commission, snapshot columns", async () => {
-    const res = await post({ airtimeAmount: 10, network: "MTN", paySeparately: true, customerName: "Ama" })
+    const res = await post({ airtimeAmount: 10, network: "MTN", paySeparately: true, customerName: "Ama", expectedPay: 9.95 })
     expect(res.status).toBe(200)
     expect(h.state.inserts[0]).toStrictEqual({
       reference_code: "AT-REF-1",
@@ -210,13 +210,13 @@ describe("shop airtime initialize — cashback applied", () => {
   })
 
   it("paySeparately=false is ignored on the applied path (face delivered in full)", async () => {
-    await post({ airtimeAmount: 10, network: "MTN", paySeparately: false })
+    await post({ airtimeAmount: 10, network: "MTN", paySeparately: false, expectedPay: 9.95 })
     expect(h.state.inserts[0]).toMatchObject({ airtime_amount: 10, total_paid: 9.95, pay_separately: false })
   })
 
   it("digiwapy (configured) on AT applies with its own rate", async () => {
     h.state.provider = "digiwapy"
-    await post({ airtimeAmount: 20, network: "AT" })
+    await post({ airtimeAmount: 20, network: "AT", expectedPay: 20 })
     // 2000p * 3% => commission 60p; customer floor(30)=0.30, shop 0.15; base 19.70; fee ceil(29.55)=0.30
     expect(h.state.inserts[0]).toMatchObject({
       airtime_amount: 20, fee_amount: 0, total_paid: 20, merchant_commission: 0.15,
@@ -314,6 +314,32 @@ describe("shop airtime initialize — expectedPay mismatch => 409", () => {
     })
     expect(h.state.inserts).toHaveLength(0)
     expect(h.state.rateLimitKeys).toStrictEqual(["shop_airtime_initialize"])
+  })
+
+  it("applied path with NO expectedPay (stale page / older client): 409 with the quote, nothing inserted", async () => {
+    h.state.settings.commission_cashback_config = CASHBACK_ON
+    for (const expectedPay of [undefined, null]) {
+      const res = await post({ airtimeAmount: 10, network: "MTN", ...(expectedPay === null ? { expectedPay } : {}) })
+      expect(res.status).toBe(409)
+      expect(await res.json()).toStrictEqual({
+        error: "Price updated — please review",
+        quote: { faceAmount: 10, payAmount: 9.95, customerCashback: 0.2, paymentFee: 0.15 },
+      })
+    }
+    expect(h.state.inserts).toHaveLength(0)
+  })
+
+  it("shop-only split (customer share 0) still requires expectedPay; face + fee proceeds", async () => {
+    h.state.settings.commission_cashback_config = {
+      ...CASHBACK_ON, shares: { airtime: { customer: 0, dealer: 0, storefrontCustomer: 0, storefrontShop: 25 } },
+    }
+    const missing = await post({ airtimeAmount: 10, network: "MTN" })
+    expect(missing.status).toBe(409)
+    const q = (await missing.json()).quote
+    expect(q.customerCashback).toBe(0)
+    const ok = await post({ airtimeAmount: 10, network: "MTN", expectedPay: q.payAmount })
+    expect(ok.status).toBe(200)
+    expect(h.state.inserts[0]).toMatchObject({ airtime_amount: 10, total_paid: q.payAmount, fee_amount: 0 })
   })
 
   it("non-numeric expectedPay is a mismatch", async () => {

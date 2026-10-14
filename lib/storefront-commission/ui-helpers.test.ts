@@ -36,6 +36,13 @@ describe("airtimeStorefrontPrice", () => {
     expect(airtimeStorefrontPrice(NaN, terms).applied).toBe(false)
     expect(airtimeStorefrontPrice(0, terms).applied).toBe(false)
   })
+  it("shop-only split (customer share 0) is applied: no discount, pay = face + fee", () => {
+    const p = airtimeStorefrontPrice(10, { ...terms, share: 0, feeRate: 1.5 })
+    expect(p).toMatchObject({ applied: true, face: 10, customerCashback: 0, paymentFee: 0.15, pay: 10.15 })
+    expect(airtimeStorefrontPrice(10, { ...terms, share: 0, feeRate: 0 })).toMatchObject({ applied: true, pay: 10 })
+    // tiny face: commission rounds to nothing, still applied (server keeps a shop-only split applied too)
+    expect(airtimeStorefrontPrice(0.1, { ...terms, share: 0 })).toMatchObject({ applied: true, pay: 0.1 })
+  })
 })
 
 describe("catalog + price parts", () => {
@@ -73,6 +80,15 @@ describe("orderView", () => {
     expect(isFinalView("delivered")).toBe(true)
     expect(isFinalView("failed")).toBe(true)
     expect(isFinalView("processing")).toBe(false)
+  })
+  it("refunding / refunded get their own views (no endless spinner)", () => {
+    expect(orderView("refunding", "paid")).toBe("refunding")
+    expect(orderView("refunded", "refunded")).toBe("refunded")
+    expect(orderView("refunded", "paid")).toBe("refunded")
+    expect(orderView("failed", "refunded")).toBe("refunded")
+    expect(orderView("reversed", "paid")).toBe("failed")
+    expect(isFinalView("refunding")).toBe(true)
+    expect(isFinalView("refunded")).toBe(true)
   })
 })
 

@@ -33,12 +33,15 @@ export function airtimeStorefrontPrice(face: number, terms: AirtimeTerms | null)
   if (!terms || !Number.isFinite(face) || face <= 0) return none
   if (terms.maxFace !== null && face > terms.maxFace) return none
   const s = terms.share
+  // The server said cashback applies (`terms.applied`). A shop-only split (customer share 0) is still applied there:
+  // a placeholder shop share keeps the quote applied here too. It never changes the customer's price (face + fee).
+  const shopPlaceholder = s > 0 ? 0 : 1
   const cfg: CashbackConfig = {
     enabled: true,
     surfaces: { dashboard: true, bots: true, storefront: true, api: true },
     rates: { [`${KEY}:hubtel`]: terms.rate },
     shares: {
-      airtime: { customer: s, dealer: s, storefrontCustomer: s, storefrontShop: 0 },
+      airtime: { customer: s, dealer: s, storefrontCustomer: s, storefrontShop: shopPlaceholder },
       bundles: { customer: 0, dealer: 0, storefrontCustomer: 0, storefrontShop: 0 },
       bills: { customer: 0, dealer: 0, storefrontCustomer: 0, storefrontShop: 0 },
       overrides: {},
@@ -110,17 +113,19 @@ export function validateBuyer(b: { email: string; phone: string }): string | nul
 
 // ───────────────────────── order status view ─────────────────────────
 
-export type OrderView = "awaiting_payment" | "processing" | "delivered" | "failed"
+export type OrderView = "awaiting_payment" | "processing" | "delivered" | "failed" | "refunding" | "refunded"
 
 /** What the confirmation page shows for a storefront order's { status, paymentStatus }. */
 export function orderView(status: string | undefined, paymentStatus: string | undefined): OrderView {
   if (status === "completed") return "delivered"
-  if (status === "failed" || status === "reversed" || status === "refunded") return "failed"
+  if (status === "refunded" || paymentStatus === "refunded") return "refunded"
+  if (status === "refunding") return "refunding"
+  if (status === "failed" || status === "reversed") return "failed"
   if (paymentStatus === "unpaid") return "awaiting_payment"
   return "processing"
 }
 
-export const isFinalView = (v: OrderView): boolean => v === "delivered" || v === "failed"
+export const isFinalView = (v: OrderView): boolean => v === "delivered" || v === "failed" || v === "refunding" || v === "refunded"
 
 // ───────────────────────── bills ─────────────────────────
 
