@@ -188,6 +188,17 @@ async function resolveShopCodeById(shopCodeId: string) {
   return resolveShopCode(data.code)
 }
 
+// CONFIRM-time shop STATUS re-check — not a session/billing check (customer sessions are free).
+// A WhatsApp session can sit up to 30 min (shop-session.ts TTL) between code entry and CONFIRM,
+// so a shop suspended, blocked, unapproved, deleted or with WhatsApp revoked in that window must
+// not take the payment.
+async function isShopStillOpen(shopCodeId: string): Promise<boolean> {
+  const shop = await resolveShopCodeById(shopCodeId)
+  return !!shop && shop.status === 'active' && shop.whatsappActivated
+}
+
+const SHOP_CLOSED_REPLY = 'This shop is currently unavailable. Please contact the seller.'
+
 // Data-bundle whitelist gate — mirrors lib/ussd-shop/handlers/shop.ts's
 // handleEnterShopCode (builds session.dataBlocked, gating the product menu) and
 // lib/ussd-shop/handlers/bundles.ts's handleSelectNetwork (a second check right
@@ -687,6 +698,12 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
           break
         }
 
+        if (!(await isShopStillOpen(session.shopCodeId!))) {
+          deleteAfter = true
+          reply = SHOP_CLOSED_REPLY
+          break
+        }
+
         // Re-fetch retail price from DB to prevent stale-session price tampering.
         const verified = await verifyBundlePrice(session.shopId!, session.bundleId!, session.parentShopId)
         if (!verified) {
@@ -925,6 +942,12 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
           break
         }
 
+        if (!(await isShopStillOpen(session.shopCodeId!))) {
+          deleteAfter = true
+          reply = SHOP_CLOSED_REPLY
+          break
+        }
+
         const network = session.airtimeNetwork!
         const amount = session.airtimeAmount!
 
@@ -1118,6 +1141,12 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         }
         if (input !== '1') {
           reply = shopRcConfirmMenu(shopName, session.rcBoard!, session.rcQty!, session.rcTotal!, session.paymentPhone!)
+          break
+        }
+
+        if (!(await isShopStillOpen(session.shopCodeId!))) {
+          deleteAfter = true
+          reply = SHOP_CLOSED_REPLY
           break
         }
 
@@ -1422,6 +1451,12 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
             session.rcCheckIndex!, session.rcCheckYear!, session.rcCheckDob!,
             session.rcCheckMode ?? 'own_voucher', session.rcCheckAmount ?? 0, session.paymentPhone!
           )
+          break
+        }
+
+        if (!(await isShopStillOpen(session.shopCodeId!))) {
+          deleteAfter = true
+          reply = SHOP_CLOSED_REPLY
           break
         }
 

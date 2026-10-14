@@ -434,8 +434,10 @@ export default function UssdShopPage() {
                   <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-white/80">
                     <MessageCircle className="h-3.5 w-3.5" /> WhatsApp Shop Bot
                   </p>
-                  {shopCode.whatsapp_activated ? (
+                  {shopCode.whatsapp_activated && shopCode.status === 'active' ? (
                     <span className="rounded-full bg-white/20 px-2.5 py-1 text-xs font-bold">Active</span>
+                  ) : shopCode.whatsapp_activated ? (
+                    <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs font-bold text-white/70">Paused</span>
                   ) : (
                     <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs font-bold text-white/70">Not Activated</span>
                   )}
@@ -468,6 +470,18 @@ export default function UssdShopPage() {
                   </p>
                 )}
               </div>
+
+              {/* The bot only serves shops whose code is active (it checks status on every order). */}
+              {shopCode.whatsapp_activated && shopCode.status !== 'active' && (
+                <div className="flex items-start gap-2 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-700">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>
+                    {shopCode.status === 'suspended'
+                      ? "Your shop code is suspended, so the WhatsApp bot can't take orders. Contact support."
+                      : "Activate your shop code on the USSD tab first. The WhatsApp bot starts taking orders once it's active."}
+                  </span>
+                </div>
+              )}
 
               {!shopCode.whatsapp_activated && (
                 <div className="space-y-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
