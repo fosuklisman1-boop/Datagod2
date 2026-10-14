@@ -173,6 +173,13 @@ export async function markAirtimeOrderPaid(
 
   if (flipErr) {
     console.error(`[AIRTIME-SVC] Failed to mark airtime order ${airtimeData.id} paid:`, flipErr)
+    // The customer has paid but the order could not be marked paid, so it is not sent. Make sure a human sees it.
+    notifyAdmins(
+      `Airtime order ${airtimeData.reference_code} was PAID (txn ${transactionId ?? "?"}) but could not be marked paid - not sent. Check and fulfil or refund.`,
+      "airtime_manual_needed",
+      airtimeData.id,
+      true
+    ).catch(() => {})
     return { success: false }
   }
   if (!flipped || flipped.length === 0) {
