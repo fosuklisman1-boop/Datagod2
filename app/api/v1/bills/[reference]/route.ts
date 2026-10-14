@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { authenticateApiKey, logApiRequest } from "@/lib/api-auth"
 import { applyRateLimit } from "@/lib/rate-limiter"
+import { classifyServiceError } from "@/lib/api-v1-errors"
 import { getSandboxOrder } from "@/lib/sandbox"
 import { ORDER_COLUMNS, orderBody } from "@/lib/api-v1/bills"
 
@@ -30,31 +31,40 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.json({ success: false, error: "Reference is required" }, { status: 400 })
   }
 
-  if (user.environment === "test") {
-    const order = await getSandboxOrder(user.id, reference)
-    if (!order || order.action !== "utility_bill") {
-      return NextResponse.json({ success: false, error: "Order not found" }, { status: 404 })
+  const respond = (statusCode: number, body: Record<string, unknown>, extra: Record<string, unknown> = {}) => {
+    const order = body.order as { status?: unknown } | undefined
+    logApiRequest({
+      userId: user.id, apiKeyId: user.api_key_id, method: "GET", endpoint: "/api/v1/bills/{reference}",
+      statusCode, request, durationMs: Date.now() - start,
+      requestPayload: { reference },
+      responsePayload: order ? { status: order.status, ...extra } : { error: body.error, ...extra },
+    }).catch(() => {})
+    return NextResponse.json(body, { status: statusCode })
+  }
+
+  try {
+    if (user.environment === "test") {
+      const order = await getSandboxOrder(user.id, reference)
+      if (!order || order.action !== "utility_bill") {
+        return respond(404, { success: false, error: "Order not found" }, { sandbox: true })
+      }
+      return respond(200, { success: true, order: { ...(order.response as Record<string, unknown>), status: order.status, sandbox: true } }, { sandbox: true })
     }
-    return NextResponse.json({ success: true, order: { ...(order.response as Record<string, unknown>), status: order.status, sandbox: true } })
+
+    const { data: order, error } = await supabase
+      .from("hubtel_bill_orders")
+      .select(ORDER_COLUMNS)
+      .eq("reference_code", reference)
+      .eq("user_id", user.id)
+      .maybeSingle()
+    // A database failure is a 500, never "not found".
+    if (error) throw error
+
+    if (!order) return respond(404, { success: false, error: "Order not found" })
+    return respond(200, { success: true, order: orderBody(order as any) })
+  } catch (e) {
+    const { status, publicMessage } = classifyServiceError(e, {}, "Failed to load order")
+    console.error("[V1-BILLS] status error:", e instanceof Error ? e.message : "error")
+    return respond(status, { success: false, error: publicMessage })
   }
-
-  const { data: order } = await supabase
-    .from("hubtel_bill_orders")
-    .select(ORDER_COLUMNS)
-    .eq("reference_code", reference)
-    .eq("user_id", user.id)
-    .maybeSingle()
-
-  const statusCode = order ? 200 : 404
-  logApiRequest({
-    userId: user.id, apiKeyId: user.api_key_id, method: "GET", endpoint: "/api/v1/bills/{reference}",
-    statusCode, request, durationMs: Date.now() - start,
-    requestPayload: { reference },
-    responsePayload: order ? { status: (order as any).status } : { error: "Order not found" },
-  }).catch(() => {})
-
-  if (!order) {
-    return NextResponse.json({ success: false, error: "Order not found" }, { status: 404 })
-  }
-  return NextResponse.json({ success: true, order: orderBody(order as any) })
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { authenticateApiKey, logApiRequest } from "@/lib/api-auth"
 import { applyRateLimit } from "@/lib/rate-limiter"
+import { classifyServiceError } from "@/lib/api-v1-errors"
 import { getBundlesRuntime } from "@/lib/standard-bundles/runtime"
 import { getSandboxOrder } from "@/lib/sandbox"
 import { ORDER_COLUMNS, mapOrder } from "@/lib/api-v1/bundles"
@@ -20,15 +21,25 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const { reference } = await params
   if (!reference) return NextResponse.json({ success: false, error: "Reference is required" }, { status: 400 })
 
-  if (user.environment === "test") {
-    const order = await getSandboxOrder(user.id, reference)
-    if (!order || order.action !== "standard_bundle") {
-      return NextResponse.json({ success: false, error: "Order not found" }, { status: 404 })
-    }
-    return NextResponse.json({ success: true, order: { ...(order.response as object), status: order.status, sandbox: true } })
+  const respond = (statusCode: number, body: Record<string, unknown>, extra: Record<string, unknown> = {}) => {
+    const order = body.order as { status?: unknown } | undefined
+    logApiRequest({
+      userId: user.id, apiKeyId: user.api_key_id, method: "GET", endpoint: "/api/v1/bundles/{reference}",
+      statusCode, request, durationMs: Date.now() - start, requestPayload: { reference },
+      responsePayload: order ? { status: order.status, ...extra } : { error: body.error, ...extra },
+    }).catch(() => {})
+    return NextResponse.json(body, { status: statusCode })
   }
 
   try {
+    if (user.environment === "test") {
+      const order = await getSandboxOrder(user.id, reference)
+      if (!order || order.action !== "standard_bundle") {
+        return respond(404, { success: false, error: "Order not found" }, { sandbox: true })
+      }
+      return respond(200, { success: true, order: { ...(order.response as object), status: order.status, sandbox: true } }, { sandbox: true })
+    }
+
     const { db } = getBundlesRuntime()
     const { data, error } = await db
       .from("hubtel_data_orders")
@@ -38,15 +49,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       .maybeSingle()
     if (error) throw error
 
-    logApiRequest({
-      userId: user.id, apiKeyId: user.api_key_id, method: "GET", endpoint: "/api/v1/bundles/{reference}",
-      statusCode: data ? 200 : 404, request, durationMs: Date.now() - start, requestPayload: { reference },
-    }).catch(() => {})
-
-    if (!data) return NextResponse.json({ success: false, error: "Order not found" }, { status: 404 })
-    return NextResponse.json({ success: true, order: mapOrder(data as any) })
+    if (!data) return respond(404, { success: false, error: "Order not found" })
+    return respond(200, { success: true, order: mapOrder(data as any) })
   } catch (e) {
+    const { status, publicMessage } = classifyServiceError(e, {}, "Failed to load order")
     console.error("[V1-BUNDLES] status error:", e instanceof Error ? e.message : "error")
-    return NextResponse.json({ success: false, error: "Failed to load order" }, { status: 500 })
+    return respond(status, { success: false, error: publicMessage })
   }
 }

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest"
 import {
   parseVerifyBody, parseAmount, parseExpectedPay, verifyResponse, payErrorBody, orderBody,
-  sandboxVerify, parseSandboxToken, ORDER_COLUMNS,
+  sandboxVerify, parseSandboxToken, ORDER_COLUMNS, sandboxBillReference, sandboxPriceChanged,
 } from "./bills"
 
 describe("api-v1 bills mapping", () => {
@@ -50,6 +50,26 @@ describe("sandbox", () => {
   it("rejects unknown biller and missing account", () => {
     expect(sandboxVerify("u", "nope", { account: "1", addMeter: false, consent: false })).toMatchObject({ ok: false, status: 400 })
     expect(sandboxVerify("u", "dstv", { addMeter: false, consent: false })).toMatchObject({ ok: false, status: 400 })
+  })
+  it("every verify issues a fresh token (a token pays one order)", () => {
+    const a = sandboxVerify("u1", "dstv", { account: "1234567", addMeter: false, consent: false })
+    const b = sandboxVerify("u1", "dstv", { account: "1234567", addMeter: false, consent: false })
+    const ta = (a as any).body.verify_token, tb = (b as any).body.verify_token
+    expect(ta).not.toBe(tb)
+    expect(parseSandboxToken("u1", tb)).toEqual({ biller: "dstv", account: "1234567" })
+  })
+  it("reference is deterministic per verify_token and differs between tokens", () => {
+    expect(sandboxBillReference("t1")).toBe(sandboxBillReference("t1"))
+    expect(sandboxBillReference("t1")).not.toBe(sandboxBillReference("t2"))
+    expect(sandboxBillReference("t1")).toMatch(/^SBX-BILL-[0-9A-F]{12}$/)
+  })
+  it("expected_pay: match/absent => null; mismatch => the live 409 price_changed body at face", () => {
+    expect(sandboxPriceChanged(50, undefined)).toBeNull()
+    expect(sandboxPriceChanged(50, 50)).toBeNull()
+    expect(sandboxPriceChanged(50, 49)).toEqual({
+      success: false, error: "price_changed", message: "Price updated — please review",
+      quote: { face_amount: 50, pay_amount: 50, customer_cashback: 0 },
+    })
   })
   it("ecg without add_meter lists meters", () => {
     const r = sandboxVerify("u", "ecg", { account: "55555", addMeter: false, consent: false })

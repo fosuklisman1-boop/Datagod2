@@ -77,6 +77,9 @@ describe("priceCatalog", () => {
     const out = priceCatalog("MTN", cats, { ...cfg, enabled: false }, "dealer")
     expect(out).toEqual([{ name: "Data", bundles: [{ bundle_token: "tok", display: "1GB", face_amount: 10, pay_amount: 10, customer_cashback: 0 }] }])
   })
+  it("no config (could not be read) => face price", () => {
+    expect(priceCatalog("MTN", cats, null, "dealer")[0].bundles[0]).toMatchObject({ face_amount: 10, pay_amount: 10, customer_cashback: 0 })
+  })
   it("never prices above face", () => {
     const b = priceCatalog("MTN", cats, cfg, "dealer")[0].bundles[0]
     expect(b.pay_amount).toBeLessThanOrEqual(b.face_amount)
@@ -99,6 +102,11 @@ describe("sandbox fixtures", () => {
   })
   it("reference is deterministic per idempotency key", () => {
     expect(sandboxReference("abc-12345678")).toBe(sandboxReference("abc-12345678"))
-    expect(sandboxReference("abc-12345678")).toMatch(/^SB-[A-Z0-9]+$/)
+    expect(sandboxReference("abc-12345678")).toMatch(/^SB-[0-9A-F]{16}$/)
+  })
+  it("reference hashes the FULL key: keys that only differ late or by punctuation never collide", () => {
+    expect(sandboxReference("reseller-order-2026-0000001")).not.toBe(sandboxReference("reseller-order-2026-0000002"))
+    expect(sandboxReference("abc-12345678")).not.toBe(sandboxReference("abc12345678"))
+    expect(sandboxReference("a".repeat(64))).not.toBe(sandboxReference("a".repeat(63) + "b"))
   })
 })

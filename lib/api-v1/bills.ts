@@ -6,6 +6,7 @@
 import { createHash, randomBytes } from "crypto"
 import { BILLERS, isBillerKey, type BillerKey } from "@/lib/bills/billers"
 import type { BillOrderRow, PriceQuote } from "@/lib/bills/service"
+import { samePrice } from "@/lib/cashback/quote"
 
 const asString = (v: unknown): string | undefined =>
   typeof v === "string" || typeof v === "number" ? String(v) : undefined
@@ -103,7 +104,8 @@ export function sandboxVerify(userId: string, biller: string, inputs: ParsedVeri
   const account = (inputs.account ?? inputs.broadbandAccount ?? inputs.phone ?? "").replace(/ /g, "")
   if (!account) return { ok: false, status: 400, error: "Enter the account or meter number" }
   const mk = (acct: string) => {
-    const payload = Buffer.from(JSON.stringify({ b: biller, a: acct })).toString("base64url")
+    // `n` makes every verify a fresh token (a token pays one order, so re-verifying must allow another payment).
+    const payload = Buffer.from(JSON.stringify({ b: biller, a: acct, n: randomBytes(6).toString("hex") })).toString("base64url")
     return `${SANDBOX_PREFIX}${payload}.${sig(payload, userId)}`
   }
   if (biller === "ecg" && !inputs.addMeter) {
@@ -131,5 +133,22 @@ export function parseSandboxToken(userId: string, token: string): { biller: Bill
   } catch { return null }
 }
 
-export const sandboxBillReference = () => `SBX-BILL-${randomBytes(5).toString("hex").toUpperCase()}`
-export const billerLabel = (b: BillerKey) => BILLERS[b].label
+/**
+ * Deterministic per verify_token (sandbox_orders is unique on (user_id, reference)): a sandbox token pays at most one
+ * order, and re-sending it finds that order, the same as a live token.
+ */
+export const sandboxBillReference = (verifyToken: string) =>
+  `SBX-BILL-${createHash("sha256").update(verifyToken).digest("hex").slice(0, 12).toUpperCase()}`
+/**
+ * Sandbox price check: sandbox charges face value (no cashback), so an `expected_pay` that differs from the amount gets
+ * the live 409 price_changed body. null => no mismatch.
+ */
+export function sandboxPriceChanged(price: number, expectedPay: number | undefined) {
+  if (expectedPay === undefined || samePrice(expectedPay, price)) return null
+  return payErrorBody({
+    status: 409, error: "Price updated — please review",
+    quote: { faceAmount: price, payAmount: price, customerCashback: 0 },
+  })
+}
+
+export const billerLabel =(b: BillerKey) => BILLERS[b].label

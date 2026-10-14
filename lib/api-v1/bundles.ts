@@ -1,12 +1,13 @@
 // Pure helpers for the v1 Standard Bundles endpoints (snake_case, wallet-paid, API-key auth).
 // Routes wire the runtime; everything here takes its dependencies as arguments so it is unit-testable.
 
+import { createHash } from "crypto"
 import { quoteCashback } from "@/lib/cashback/quote"
 import type { CashbackConfig } from "@/lib/cashback/config"
 import { NETWORK_SERVICE, BUNDLE_NETWORKS, type BundleNetwork } from "@/lib/standard-bundles/categories"
 import type { BuyResult, DataOrderRow, PriceQuote } from "@/lib/standard-bundles/service"
 
-export const NOT_AVAILABLE_BODY = { success: false, error: "not_available" } as const
+export { NOT_AVAILABLE_BODY, apiSurfaceOn } from "./surface"
 
 export function parseNetwork(raw: string | null): BundleNetwork | null {
   const n = (raw ?? "").trim().toUpperCase()
@@ -36,9 +37,6 @@ export function parsePostBody(body: any): PostBody {
 
 const money = (n: number) => Math.round(n * 100) / 100
 
-/** Whether API-channel cashback pricing (and with it the bundles endpoints) is switched on. */
-export const apiSurfaceOn = (cfg: CashbackConfig): boolean => !!cfg.enabled && !!cfg.surfaces.api
-
 export const toQuote = (q: PriceQuote) => ({
   face_amount: money(q.faceAmount), pay_amount: money(q.payAmount), customer_cashback: money(q.customerCashback),
 })
@@ -46,11 +44,14 @@ export const toQuote = (q: PriceQuote) => ({
 export interface PricedBundle { bundle_token: string; display: string; face_amount: number; pay_amount: number; customer_cashback: number }
 export interface PricedCategory { name: string; bundles: PricedBundle[] }
 
-/** Adds the key owner's price to each catalog bundle (api channel). Any quote failure => standard (face) price. */
+/**
+ * Adds the key owner's price to each catalog bundle (api channel). Any quote failure, or no config (`null`: it could
+ * not be read) => standard (face) price.
+ */
 export function priceCatalog(
   network: BundleNetwork,
   categories: { name: string; bundles: { token: string; display: string; amount: number }[] }[],
-  cfg: CashbackConfig,
+  cfg: CashbackConfig | null,
   buyer: "customer" | "dealer",
 ): PricedCategory[] {
   const serviceKey = NETWORK_SERVICE[network]
@@ -58,10 +59,12 @@ export function priceCatalog(
     name: c.name,
     bundles: c.bundles.map(b => {
       let pay = b.amount, cb = 0
-      try {
-        const q = quoteCashback({ serviceKey, provider: "hubtel", faceAmount: b.amount, buyer, channel: "api" }, cfg)
-        pay = q.payAmount; cb = q.customerCashback
-      } catch { /* standard price */ }
+      if (cfg) {
+        try {
+          const q = quoteCashback({ serviceKey, provider: "hubtel", faceAmount: b.amount, buyer, channel: "api" }, cfg)
+          pay = q.payAmount; cb = q.customerCashback
+        } catch { /* standard price */ }
+      }
       return { bundle_token: b.token, display: b.display, face_amount: money(b.amount), pay_amount: money(pay), customer_cashback: money(cb) }
     }),
   }))
@@ -130,9 +133,12 @@ export function findSandboxBundle(token: string): { network: BundleNetwork; disp
   return null
 }
 
-/** Deterministic reference per (idempotency key), so a retry maps to the same sandbox row. */
+/**
+ * Deterministic reference per idempotency key: a hash of the FULL key, so a retry maps to the same sandbox row and two
+ * different keys never share one. sandbox_orders is unique on (user_id, reference), so this is per (user, key).
+ */
 export function sandboxReference(idempotencyKey: string): string {
-  return "SB-" + idempotencyKey.replace(/[^A-Za-z0-9]/g, "").slice(0, 24).toUpperCase()
+  return "SB-" + createHash("sha256").update(idempotencyKey).digest("hex").slice(0, 16).toUpperCase()
 }
 
 export function sandboxOrderFields(b: { network: BundleNetwork; display: string; amount: number }, phone: string) {

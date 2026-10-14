@@ -11,15 +11,21 @@ const h = vi.hoisted(() => ({
   guard: vi.fn(),
   dbCalls: [] as any[],
   orderRow: null as any,
+  orderError: null as any,
+  cfgError: null as any,
+  log: vi.fn(async (..._a: any[]) => {}),
 }))
 
 vi.mock("@/lib/api-auth", () => ({
   authenticateApiKey: vi.fn(async () => h.user),
-  logApiRequest: vi.fn(async () => {}),
+  logApiRequest: (...a: any[]) => h.log(...a),
 }))
 vi.mock("@/lib/rate-limiter", () => ({ applyRateLimit: vi.fn(async () => ({ allowed: true })) }))
 vi.mock("@/lib/phone-verify-guard", () => ({ checkPhoneVerified: (...a: any[]) => h.guard(...a) }))
-vi.mock("@/lib/standard-bundles/service", () => ({ buyBundle: (...a: any[]) => h.buy(...a) }))
+vi.mock("@/lib/standard-bundles/service", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/standard-bundles/service")>()),
+  buyBundle: (...a: any[]) => h.buy(...a),
+}))
 vi.mock("@/lib/standard-bundles/catalog", () => ({ getCatalog: (...a: any[]) => h.catalog(...a) }))
 vi.mock("@/lib/sandbox", () => ({
   placeSandboxOrder: (...a: any[]) => h.place(...a),
@@ -35,8 +41,11 @@ vi.mock("@/lib/standard-bundles/runtime", () => {
   }
   return {
     getBundlesRuntime: () => ({
-      deps: { getCashbackConfig: async () => h.cfg, getBuyerTier: async () => "dealer" },
-      db: { from: () => chain(() => ({ data: h.orderRow, error: null })) },
+      deps: {
+        getCashbackConfig: async () => { if (h.cfgError) throw h.cfgError; return h.cfg },
+        getBuyerTier: async () => "dealer",
+      },
+      db: { from: () => chain(() => ({ data: h.orderError ? null : h.orderRow, error: h.orderError })) },
     }),
   }
 })
@@ -61,7 +70,11 @@ beforeEach(() => {
   h.guard.mockResolvedValue({ allowed: true })
   h.buy.mockResolvedValue({ ok: true, order: { ...ROW } })
   h.orderRow = { ...ROW }
+  h.orderError = null
+  h.cfgError = null
 })
+
+const loggedStatuses = () => h.log.mock.calls.map((c: any[]) => c[0].statusCode)
 
 describe("auth", () => {
   it("401 without a valid key", async () => {
@@ -96,6 +109,13 @@ describe("GET /api/v1/bundles", () => {
     const res = await get()
     expect(res.status).toBe(403)
     expect((await res.json()).error).toBe("not_available")
+  })
+  it("cashback config unreadable => 200 at standard (face) price instead of 500", async () => {
+    h.cfgError = new Error("db down")
+    h.catalog.mockResolvedValue({ ok: true, categories: [{ name: "Data", bundles: [{ token: "tok", display: "1GB", amount: 10 }] }] })
+    const res = await get()
+    expect(res.status).toBe(200)
+    expect((await res.json()).categories[0].bundles[0]).toMatchObject({ face_amount: 10, pay_amount: 10, customer_cashback: 0 })
   })
   it("sandbox key gets the static catalog and never touches the live engine", async () => {
     h.user.environment = "test"
@@ -156,13 +176,47 @@ describe("POST /api/v1/bundles", () => {
     expect(h.guard).not.toHaveBeenCalled()
     expect(h.place.mock.calls[0][0]).toMatchObject({ userId: "owner-1", price: 5, instant: true })
   })
-  it("sandbox replay of the same idempotency key returns the first order", async () => {
+  it("sandbox replay of the same idempotency key returns the first order with 201 (same as a live replay)", async () => {
     h.user.environment = "test"
     h.place.mockResolvedValue({ success: false, error: "Duplicate reference", status: 409 })
-    h.getSandbox.mockResolvedValue({ response: { reference: "SB-X", status: "completed" }, status: "completed" })
+    h.getSandbox.mockResolvedValue({ action: "standard_bundle", response: { reference: "SB-X", status: "completed" }, status: "completed" })
     const res = await post({ ...BODY, bundle_token: "sbx_mtn_1gb" })
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(201)
     expect((await res.json()).order.reference).toBe("SB-X")
+    expect(h.log).toHaveBeenCalled()
+  })
+  it("sandbox applies the live idempotency_key format (400, nothing placed)", async () => {
+    h.user.environment = "test"
+    for (const key of ["short", "has space 12345", "x".repeat(65), "under_score_123"]) {
+      const res = await post({ ...BODY, bundle_token: "sbx_mtn_1gb", idempotency_key: key })
+      expect(res.status).toBe(400)
+    }
+    expect(h.place).not.toHaveBeenCalled()
+  })
+  it("sandbox: different keys get different references", async () => {
+    h.user.environment = "test"
+    h.place.mockResolvedValue({ success: true, order: { reference: "x", status: "completed" }, newBalance: 95 })
+    await post({ ...BODY, bundle_token: "sbx_mtn_1gb", idempotency_key: "reseller-order-2026-0000001" })
+    await post({ ...BODY, bundle_token: "sbx_mtn_1gb", idempotency_key: "reseller-order-2026-0000002" })
+    const refs = h.place.mock.calls.map((c: any[]) => c[0].reference)
+    expect(refs[0]).not.toBe(refs[1])
+  })
+  it("logs 403s (surface off, phone unverified) and sandbox requests", async () => {
+    h.cfg.surfaces.api = false
+    await post(BODY)
+    h.cfg.surfaces.api = true
+    h.guard.mockResolvedValue({ allowed: false, error: "Verify your phone" })
+    await post(BODY)
+    expect(loggedStatuses()).toEqual([403, 403])
+    h.user.environment = "test"
+    await get()
+    expect(loggedStatuses()).toEqual([403, 403, 200])
+  })
+  it("cashback config unreadable => no 500: buys at standard price via the engine", async () => {
+    h.cfgError = new Error("db down")
+    const res = await post(BODY)
+    expect(res.status).toBe(201)
+    expect(h.buy).toHaveBeenCalled()
   })
   it("sandbox rejects an unknown token", async () => {
     h.user.environment = "test"
@@ -184,6 +238,12 @@ describe("GET /api/v1/bundles/{reference}", () => {
   it("404 when not the owner's order", async () => {
     h.orderRow = null
     expect((await one()).status).toBe(404)
+  })
+  it("a database error is a 500, not a 404", async () => {
+    h.orderError = { message: "pg down", code: "08006" }
+    const res = await one()
+    expect(res.status).toBe(500)
+    expect(JSON.stringify(await res.json())).not.toContain("pg down")
   })
   it("sandbox reads sandbox orders only", async () => {
     h.user.environment = "test"

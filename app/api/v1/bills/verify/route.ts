@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from "next/server"
 import { authenticateApiKey, logApiRequest } from "@/lib/api-auth"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { checkPhoneVerified } from "@/lib/phone-verify-guard"
+import { classifyServiceError } from "@/lib/api-v1-errors"
 import { getBillsRuntime } from "@/lib/bills/runtime"
 import { verifyBill } from "@/lib/bills/service"
+import { NOT_AVAILABLE_BODY, readApiSurface } from "@/lib/api-v1/surface"
 import { parseVerifyBody, sandboxVerify, verifyResponse } from "@/lib/api-v1/bills"
 
 /**
@@ -17,10 +19,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Invalid or missing API key" }, { status: 401 })
   }
 
+  // A POST that calls Hubtel: the POST limit, like the other v1 POST endpoints.
   const limit = user.rate_limit_per_min || 60
-  const rl = await applyRateLimit(request, "v1_bills_verify", limit, 60 * 1000, user.id)
+  const postLimit = Math.max(5, Math.floor(limit / 3))
+  const rl = await applyRateLimit(request, "v1_bills_verify", postLimit, 60 * 1000, user.id)
   if (!rl.allowed) {
-    return NextResponse.json({ success: false, error: "Rate limit exceeded." }, { status: 429 })
+    return NextResponse.json({ success: false, error: `Rate limit exceeded. Your current limit is ${postLimit} requests/minute.` }, { status: 429 })
   }
 
   let body: any
@@ -34,40 +38,37 @@ export async function POST(request: NextRequest) {
   }
 
   const { biller, inputs } = parseVerifyBody(body)
-  const log = (statusCode: number, responsePayload: Record<string, unknown>) =>
+  const respond = (statusCode: number, resBody: Record<string, unknown>, extra: Record<string, unknown> = {}) => {
     logApiRequest({
       userId: user.id, apiKeyId: user.api_key_id, method: "POST", endpoint: "/api/v1/bills/verify",
       statusCode, request, durationMs: Date.now() - start,
-      requestPayload: { biller }, responsePayload,
+      requestPayload: { biller },
+      // Never log the verify_token.
+      responsePayload: statusCode < 400 ? { biller, ...extra } : { error: resBody.error, ...extra },
     }).catch(() => {})
+    return NextResponse.json(resBody, { status: statusCode })
+  }
 
   try {
     if (user.environment === "test") {
       const r = sandboxVerify(user.id, biller, inputs)
-      if (!r.ok) {
-        log(r.status, { error: r.error })
-        return NextResponse.json({ success: false, error: r.error }, { status: r.status })
-      }
-      log(200, { sandbox: true })
-      return NextResponse.json({ ...r.body, sandbox: true })
+      if (!r.ok) return respond(r.status, { success: false, error: r.error }, { sandbox: true })
+      return respond(200, { ...r.body, sandbox: true }, { sandbox: true })
     }
 
     const { deps, db } = getBillsRuntime()
+    const surface = await readApiSurface(() => deps.getCashbackConfig())
+    if (!surface.open) return respond(403, NOT_AVAILABLE_BODY)
+
     const guard = await checkPhoneVerified(db, user.id)
-    if (!guard.allowed) {
-      return NextResponse.json({ success: false, error: guard.error }, { status: 403 })
-    }
+    if (!guard.allowed) return respond(403, { success: false, error: guard.error })
 
     const result = await verifyBill(deps, user.id, biller, inputs)
-    if (!result.ok) {
-      log(result.status, { error: result.error })
-      return NextResponse.json({ success: false, error: result.error }, { status: result.status })
-    }
-    log(200, { biller })
-    return NextResponse.json(verifyResponse(result))
+    if (!result.ok) return respond(result.status, { success: false, error: result.error })
+    return respond(200, verifyResponse(result))
   } catch (e) {
+    const { status, publicMessage } = classifyServiceError(e, {}, "Failed to verify account")
     console.error("[V1-BILLS] verify error:", e instanceof Error ? e.message : "error")
-    log(500, { error: "Failed to verify account" })
-    return NextResponse.json({ success: false, error: "Failed to verify account" }, { status: 500 })
+    return respond(status, { success: false, error: publicMessage })
   }
 }
