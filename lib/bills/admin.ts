@@ -18,7 +18,7 @@ export interface OrderFilters {
   from?: string
   to?: string
   view: "all" | "refund" | "refunded"
-  channel?: "dashboard" | "storefront" | "api"
+  channel?: "dashboard" | "storefront" | "api" | "bots"
 }
 
 /** Validates every query-string value; unknown values are dropped rather than passed to the database. */
@@ -37,7 +37,7 @@ export function parseOrderFilters(sp: URLSearchParams): OrderFilters {
     from: dateOk(sp.get("from")),
     to: dateOk(sp.get("to")),
     view: view === "refund" || view === "refunded" ? view : "all",
-    channel: sp.get("channel") === "dashboard" || sp.get("channel") === "storefront" || sp.get("channel") === "api" ? (sp.get("channel") as "dashboard" | "storefront" | "api") : undefined,
+    channel: ["dashboard", "storefront", "api", "bots"].includes(sp.get("channel") ?? "") ? (sp.get("channel") as "dashboard" | "storefront" | "api" | "bots") : undefined,
   }
 }
 

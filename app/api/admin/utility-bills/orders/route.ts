@@ -3,13 +3,14 @@ import {
   applyOrderFilters, BILL_ORDERS_TABLE, canDispatch, fetchLedgerByOrders, isStuckClaim, fetchStats, parseOrderFilters, purchaserLabel, refundDecision,
 } from "@/lib/bills/admin"
 import { clampPage, errorJson, requireAdmin, searchAlternate } from "@/lib/hubtel-cs/admin-route"
+import { botChannelLabel } from "@/lib/cashback/bot-labels"
 import { getHubtelCsRuntime } from "@/lib/hubtel-cs/runtime"
 
 export const dynamic = "force-dynamic"
 
 // Never select verify_token_hash or session_id.
 const COLUMNS =
-  "id, reference_code, user_id, channel, biller, account_number, phone, email, broadband_account, customer_name, verified, amount, paid_amount, status, payment_status, hubtel_client_reference, commission, failure_reason, notes, created_at, updated_at, shop_id, buyer_name, buyer_phone, buyer_email, payment_fee_amount"
+  "id, reference_code, user_id, channel, biller, account_number, phone, email, broadband_account, customer_name, verified, amount, paid_amount, status, payment_status, hubtel_client_reference, commission, failure_reason, notes, created_at, updated_at, shop_id, buyer_name, buyer_phone, buyer_email, payment_fee_amount, bot_surface"
 
 export async function GET(request: NextRequest) {
   const auth = await requireAdmin(request)
@@ -70,11 +71,12 @@ export async function GET(request: NextRequest) {
         : null
       return {
         ...safe,
-        purchaser: o.channel === "storefront"
-          ? (o.buyer_name || o.buyer_phone || "Storefront buyer")
+        purchaser: o.channel === "storefront" || o.channel === "bots"
+          ? (o.buyer_name || o.buyer_phone || (o.channel === "bots" ? "Bot buyer" : "Storefront buyer"))
           : purchaserLabel(users.get(o.user_id)),
-        purchaser_email: o.channel === "storefront" ? (o.buyer_email ?? null) : (users.get(o.user_id)?.email ?? null),
-        source: o.channel === "storefront" ? "storefront" : o.channel === "api" ? "api" : "dashboard",
+        purchaser_email: o.channel === "storefront" || o.channel === "bots" ? (o.buyer_email ?? null) : (users.get(o.user_id)?.email ?? null),
+        source: o.channel === "storefront" ? "storefront" : o.channel === "bots" ? "bots" : o.channel === "api" ? "api" : "dashboard",
+        channel_label: o.channel === "bots" ? botChannelLabel(o.bot_surface) : null,
         shop_name: o.shop_id ? (shops.get(o.shop_id) ?? "Unknown shop") : null,
         can_dispatch: canDispatch(o, stuck),
         stuck_claim: stuck,

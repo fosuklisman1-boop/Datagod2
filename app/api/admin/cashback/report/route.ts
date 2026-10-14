@@ -24,9 +24,9 @@ export async function GET(request: NextRequest) {
   try {
     const { db } = getHubtelCsRuntime()
     const ch = sp.get("channel")
-    if (ch && ch !== "all" && ch !== "dashboard" && ch !== "storefront" && ch !== "api") return NextResponse.json({ error: "Invalid channel" }, { status: 400 })
+    if (ch && ch !== "all" && ch !== "dashboard" && ch !== "storefront" && ch !== "api" && ch !== "bots") return NextResponse.json({ error: "Invalid channel" }, { status: 400 })
     const args: Record<string, string> = { p_from: from.toISOString(), p_to: to.toISOString() }
-    if (ch === "dashboard" || ch === "storefront" || ch === "api") args.p_channel = ch
+    if (ch === "dashboard" || ch === "storefront" || ch === "api" || ch === "bots") args.p_channel = ch
     const { data, error } = await db.rpc("cashback_margin_report", args)
     if (error) throw error
     const rows = ((data ?? []) as Record<string, unknown>[]).map(r => ({

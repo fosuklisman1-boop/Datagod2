@@ -8,10 +8,10 @@ import { Switch } from "@/components/ui/switch"
 import { toast } from "sonner"
 import { HUBTEL_CS_SERVICES, HUBTEL_CS_SERVICE_KEYS } from "@/lib/hubtel-cs/services"
 import {
-  CASHBACK_GROUPS, SHARE_FIELDS, groupOf,
-  type CashbackConfig, type CashbackGroup, type CashbackProvider, type GroupShares, type ShareField,
+  BOT_RAILS, CASHBACK_GROUPS, SHARE_FIELDS, groupOf,
+  type BotRail, type CashbackConfig, type CashbackGroup, type CashbackProvider, type GroupShares, type ShareField,
 } from "@/lib/cashback/config"
-import { quoteCashback, quoteStorefront } from "@/lib/cashback/quote"
+import { quoteBots, quoteCashback, quoteStorefront } from "@/lib/cashback/quote"
 
 export type Authed = (path: string, init?: RequestInit) => Promise<any>
 
@@ -21,6 +21,9 @@ const GROUP_LABEL: Record<CashbackGroup, string> = { airtime: "Airtime", bundles
 const FIELD_LABEL: Record<ShareField, string> = {
   customer: "Customer %", dealer: "Dealer %", storefrontCustomer: "Storefront customer %", storefrontShop: "Storefront shop %",
 }
+const BOT_GROUPS: CashbackGroup[] = ["airtime", "bundles", "bills"]
+const BOT_GROUP_LABEL: Record<CashbackGroup, string> = { airtime: "Airtime", bundles: "Network Plans", bills: "Pay Bills" }
+const BOT_RAIL_LABEL: Record<BotRail, string> = { paystack: "Paystack bots (USSD + WhatsApp)", hubtel: "Hubtel USSD" }
 const EXAMPLE_SERVICE: Record<CashbackGroup, string> = { airtime: "airtime_mtn", bundles: "data_mtn", bills: "bill_ecg" }
 const EXAMPLE_FACE = 10
 const MATCH_TOLERANCE = 0.05
@@ -74,6 +77,9 @@ export function CashbackSettingsCard({ authed, rateInputs }: {
   const [shares, setShares] = useState<Record<CashbackGroup, Record<ShareField, string>> | null>(null)
   const [overrides, setOverrides] = useState<Record<string, Record<ShareField, string>>>({})
   const [fees, setFees] = useState<Record<CashbackGroup, string>>({ airtime: "0", bundles: "0", bills: "0" })
+  const [botFees, setBotFees] = useState<Record<BotRail, Record<CashbackGroup, string>>>({
+    paystack: { airtime: "0", bundles: "0", bills: "0" }, hubtel: { airtime: "0", bundles: "0", bills: "0" },
+  })
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -83,6 +89,7 @@ export function CashbackSettingsCard({ authed, rateInputs }: {
     const s = toStrings(c)
     setCfg(c); setShares(s.shares); setOverrides(s.overrides); rateInputs.reset(s.rates)
     setFees(Object.fromEntries(CASHBACK_GROUPS.map(g => [g, String(c.paymentFee[g])])) as Record<CashbackGroup, string>)
+    setBotFees(Object.fromEntries(BOT_RAILS.map(r => [r, Object.fromEntries(CASHBACK_GROUPS.map(g => [g, String(c.botFees[r][g])]))])) as Record<BotRail, Record<CashbackGroup, string>>)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   const load = useCallback(async () => {
@@ -126,6 +133,20 @@ export function CashbackSettingsCard({ authed, rateInputs }: {
     void save({ paymentFee: { [g]: n } }, `${GROUP_LABEL[g]} payment fee saved`)
   }
 
+  /** Validates one rail's fees and sends complete per-group objects (setCashbackConfig merges per rail). */
+  function saveBotFees(rail: BotRail) {
+    const out: Partial<Record<CashbackGroup, number>> = {}
+    for (const g of BOT_GROUPS) {
+      const n = num(botFees[rail][g])
+      if (n === null || n < 0 || n > 10 || Math.round(n * 100) / 100 !== n) {
+        toast.error(`${BOT_RAIL_LABEL[rail]} / ${BOT_GROUP_LABEL[g]}: fee must be 0 to 10 with at most 2 decimals`)
+        return
+      }
+      out[g] = n
+    }
+    void save({ botFees: { [rail]: out } }, `${BOT_RAIL_LABEL[rail]} fees saved`)
+  }
+
   function saveOverride(key: string) {
     const o = overrides[key]
     if (!o) return
@@ -155,19 +176,21 @@ export function CashbackSettingsCard({ authed, rateInputs }: {
       paymentFee: Object.fromEntries(CASHBACK_GROUPS.map(g => [g, num(fees[g]) ?? 0])) as CashbackConfig["paymentFee"],
       storefrontGroups: { airtime: true, bundles: true, bills: true },
       botGroups: { airtime: true, bundles: true, bills: true },
-      botFees: cfg.botFees,
+      botFees: Object.fromEntries(BOT_RAILS.map(r => [r, Object.fromEntries(CASHBACK_GROUPS.map(g => [g, num(botFees[r][g]) ?? 0]))])) as CashbackConfig["botFees"],
     }
     return Object.fromEntries(CASHBACK_GROUPS.map(g => {
       const serviceKey = EXAMPLE_SERVICE[g]
+      const bot = (rail: BotRail, shop: boolean) => quoteBots({ serviceKey, provider: "hubtel", faceAmount: EXAMPLE_FACE, rail, shop }, draft)
       const q = (buyer: "customer" | "dealer", channel: "dashboard" | "storefront") =>
         quoteCashback({ serviceKey, provider: "hubtel", faceAmount: EXAMPLE_FACE, buyer, channel }, draft)
       const sf = (face: number) => quoteStorefront({ serviceKey, provider: "hubtel", faceAmount: face, buyer: "customer" }, draft)
       return [g, {
         serviceKey, customer: q("customer", "dashboard"), dealer: q("dealer", "dashboard"),
         storefront: [sf(EXAMPLE_FACE), ...(g === "bills" ? [sf(100)] : [])],
+        mainBot: bot("paystack", false), shopBot: bot("hubtel", true),
       }]
-    })) as Record<CashbackGroup, { serviceKey: string; customer: ReturnType<typeof quoteCashback>; dealer: ReturnType<typeof quoteCashback>; storefront: ReturnType<typeof quoteStorefront>[] }>
-  }, [cfg, shares, rateInputs.values, fees])
+    })) as Record<CashbackGroup, { serviceKey: string; customer: ReturnType<typeof quoteCashback>; dealer: ReturnType<typeof quoteCashback>; storefront: ReturnType<typeof quoteStorefront>[]; mainBot: ReturnType<typeof quoteBots>; shopBot: ReturnType<typeof quoteBots> }>
+  }, [cfg, shares, rateInputs.values, fees, botFees])
 
   if (error && !cfg) {
     return (
@@ -181,7 +204,7 @@ export function CashbackSettingsCard({ authed, rateInputs }: {
 
   const surfaces: { key: keyof CashbackConfig["surfaces"]; label: string; live: boolean; note?: string }[] = [
     { key: "dashboard", label: "Dashboard", live: true },
-    { key: "bots", label: "Bots", live: false, note: "Coming later" },
+    { key: "bots", label: "Bots", live: true, note: "Also needs \"Sell on bots\" per group below" },
     { key: "storefront", label: "Storefront", live: true, note: "Also needs 'Sell on storefronts' per group below" },
     { key: "api", label: "API", live: true, note: "Airtime, Standard Bundles and Utility Bills over /api/v1" },
   ]
@@ -237,6 +260,15 @@ export function CashbackSettingsCard({ authed, rateInputs }: {
                       {sq.applied && <span className="text-xs text-muted-foreground"> (commission {gh(sq.commission, 4)} minus customer and shop; Paystack cost is covered by the fee)</span>}
                     </div>
                   ))}
+                  {[
+                    { label: "Main bot (Paystack)", q: e.mainBot, shop: false },
+                    { label: "Shop bot (Hubtel)", q: e.shopBot, shop: true },
+                  ].map(({ label, q, shop }) => (
+                    <div key={label} className="mt-1">
+                      {label} GHS {EXAMPLE_FACE}: buyer pays {gh(q.payAmount)}{q.paymentFee > 0 ? ` (incl. ${gh(q.paymentFee)} fee)` : ""}
+                      {q.applied ? `${shop ? `, shop earns ${gh(q.shopShare)}` : ""}, Datagod keeps ${gh(q.datagodKeeps, 4)}` : ", no cashback"}
+                    </div>
+                  ))}
                   {e.customer.applied && <div className="text-xs text-muted-foreground">Commission {gh(e.customer.commission, 4)}; Datagod keeps {gh(e.customer.datagodKeeps, 4)} on a customer order.</div>}
                 </div>
               )
@@ -267,6 +299,31 @@ export function CashbackSettingsCard({ authed, rateInputs }: {
             ))}
           </div>
           <Button disabled={busy} onClick={saveRates}>Save rates</Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Bot payment fees</CardTitle>
+          <CardDescription>Added on top at bot checkout to cover the payment provider. 0 to 10 %, up to 2 decimals.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4 lg:grid-cols-2">
+          {BOT_RAILS.map(rail => (
+            <div key={rail} className="space-y-3 rounded-xl border p-3">
+              <div className="font-medium">{BOT_RAIL_LABEL[rail]}</div>
+              <div className="grid grid-cols-3 gap-2">
+                {BOT_GROUPS.map(g => (
+                  <label key={g} className="space-y-1 text-xs text-muted-foreground">
+                    {BOT_GROUP_LABEL[g]} fee %
+                    <Input aria-label={`${rail} ${BOT_GROUP_LABEL[g]} fee percent`} inputMode="decimal" value={botFees[rail][g]}
+                      onChange={e => setBotFees(s => ({ ...s, [rail]: { ...s[rail], [g]: e.target.value } }))} />
+                  </label>
+                ))}
+              </div>
+              <div className="text-xs text-muted-foreground">Added on top at bot checkout to cover the payment provider</div>
+              <Button size="sm" disabled={busy} onClick={() => saveBotFees(rail)}>Save {BOT_RAIL_LABEL[rail]} fees</Button>
+            </div>
+          ))}
         </CardContent>
       </Card>
 
@@ -305,6 +362,11 @@ export function CashbackSettingsCard({ authed, rateInputs }: {
                     </div>
                     <span className="block">Added on top at storefront checkout to cover Paystack (0 to 10).</span>
                   </label>
+                </div>
+                <div className="flex items-center justify-between gap-3 border-t pt-3">
+                  <span className="text-sm font-medium">Sell on bots ({BOT_GROUP_LABEL[g]})</span>
+                  <Switch aria-label={`${BOT_GROUP_LABEL[g]} sell on bots`} checked={cfg.botGroups[g]} disabled={busy}
+                    onCheckedChange={v => save({ botGroups: { [g]: v } }, `${BOT_GROUP_LABEL[g]} bots ${v ? "on" : "off"}`)} />
                 </div>
                 <div className="space-y-2 border-t pt-3">
                   <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Per-service overrides</div>
@@ -360,7 +422,7 @@ export function CashbackReportCard({ authed, currentRates, onUseActual }: {
 }) {
   const [from, setFrom] = useState(() => isoDay(new Date(Date.now() - 7 * 86400000)))
   const [to, setTo] = useState(() => isoDay(new Date()))
-  const [channel, setChannel] = useState<"all" | "dashboard" | "storefront" | "api">("all")
+  const [channel, setChannel] = useState<"all" | "dashboard" | "storefront" | "api" | "bots">("all")
   const [rows, setRows] = useState<ReportRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -404,6 +466,7 @@ export function CashbackReportCard({ authed, currentRates, onUseActual }: {
               <option value="dashboard">Dashboard (airtime: dashboard + API combined)</option>
               <option value="storefront">Storefront</option>
               <option value="api">API (bills and bundles only)</option>
+              <option value="bots">Bots (bills and bundles only for now)</option>
             </select>
           </label>
           <Button variant="outline" disabled={loading} onClick={() => { void load() }}>{loading ? "Loading..." : "Refresh"}</Button>

@@ -147,7 +147,7 @@ type OrderRow = {
   id: string; reference_code: string; network: BundleNetwork; bundle_display: string; bundle_category: string; beneficiary_phone: string
   amount: number; paid_amount?: number | null; status: string; payment_status: string; hubtel_client_reference: string | null; commission: number | null
   failure_reason: string | null; notes: string | null; created_at: string; updated_at: string
-  channel?: string; shop_name?: string | null; buyer_phone?: string | null
+  channel?: string; channel_label?: string | null; shop_name?: string | null; buyer_phone?: string | null
   purchaser: string; stuck_claim: boolean; has_ledger: boolean | null; refund: RefundInfo
 }
 
@@ -263,6 +263,7 @@ export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; on
               <SelectItem value="dashboard">Dashboard</SelectItem>
               <SelectItem value="storefront">Storefront</SelectItem>
               <SelectItem value="api">API</SelectItem>
+              <SelectItem value="bots">Bots</SelectItem>
             </SelectContent>
           </Select>
           <Input type="date" aria-label="From date" value={from} onChange={e => setFrom(e.target.value)} />
@@ -281,7 +282,7 @@ export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; on
       <div className="space-y-3">
         {rows.map(r => {
           // Storefront buyers have no wallet: their refunds go through /admin/refunds (the server refuses a wallet refund).
-          const storefront = r.channel === "storefront"
+          const storefront = r.channel === "storefront" || r.channel === "bots"
           const canRefund = !storefront && r.refund?.action === "direct"
           const toReview = !storefront && r.refund?.action === "blocked" && r.refund.reviewQueue
           const storefrontRefund = storefront && r.status !== "refunded" && (r.refund?.action === "direct" || (r.refund?.action === "blocked" && r.refund.reviewQueue))
@@ -291,7 +292,7 @@ export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; on
                 <div className="font-medium">{NETWORK_LABEL[r.network]} {r.bundle_display}</div>
                 <div className="text-xs text-muted-foreground">{r.bundle_category} · {r.purchaser}</div>
                 <div className="text-xs text-muted-foreground">
-                  {r.channel === "storefront" ? `Storefront · ${r.shop_name ?? "Unknown shop"}${r.buyer_phone ? ` · ${r.buyer_phone}` : ""}` : r.channel === "api" ? "API" : "Dashboard"}
+                  {r.channel === "storefront" ? `Storefront · ${r.shop_name ?? "Unknown shop"}${r.buyer_phone ? ` · ${r.buyer_phone}` : ""}` : r.channel === "bots" ? (r.channel_label ?? "Bot") : r.channel === "api" ? "API" : "Dashboard"}
                 </div>
                 <div className="font-mono text-xs text-muted-foreground">{r.reference_code}</div>
               </div>
@@ -318,7 +319,7 @@ export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; on
                 {canRefund && <Button size="sm" disabled={anyBusy} onClick={() => { setNote(""); setRefunding(r) }}>Refund (never sent)</Button>}
                 {toReview && <Button size="sm" variant="outline" onClick={onReviewQueue}>Open Hubtel review queue</Button>}
                 {storefrontRefund && (
-                  <Link href="/admin/refunds" className="text-xs font-medium text-primary underline-offset-2 hover:underline">Storefront order — refund from Refunds</Link>
+                  <Link href="/admin/refunds" className="text-xs font-medium text-primary underline-offset-2 hover:underline">Storefront / bot order — refund from Refunds</Link>
                 )}
                 {r.refund?.action === "blocked" && !r.refund.reviewQueue && r.status !== "refunded" && <div className="text-xs text-muted-foreground">{r.refund.reason}</div>}
               </div>

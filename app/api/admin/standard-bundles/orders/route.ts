@@ -3,13 +3,14 @@ import {
   applyOrderFilters, bundleRefundDecision, DATA_ORDERS_TABLE, fetchLedgerOrderIds, isStuckClaim, ORDER_STATUSES, parseOrderFilters,
 } from "@/lib/standard-bundles/admin"
 import { clampPage, errorJson, requireAdmin, searchAlternate } from "@/lib/hubtel-cs/admin-route"
+import { botChannelLabel } from "@/lib/cashback/bot-labels"
 import { getHubtelCsRuntime } from "@/lib/hubtel-cs/runtime"
 
 export const dynamic = "force-dynamic"
 
 // Explicit columns; never select idempotency_key.
 const COLUMNS =
-  "id, reference_code, user_id, channel, network, service_key, beneficiary_phone, bundle_value, bundle_display, bundle_category, amount, paid_amount, status, payment_status, hubtel_client_reference, commission, failure_reason, notes, created_at, updated_at, shop_id, buyer_name, buyer_phone, buyer_email, payment_fee_amount"
+  "id, reference_code, user_id, channel, network, service_key, beneficiary_phone, bundle_value, bundle_display, bundle_category, amount, paid_amount, status, payment_status, hubtel_client_reference, commission, failure_reason, notes, created_at, updated_at, shop_id, buyer_name, buyer_phone, buyer_email, payment_fee_amount, bot_surface"
 
 export async function GET(request: NextRequest) {
   const auth = await requireAdmin(request)
@@ -75,9 +76,10 @@ export async function GET(request: NextRequest) {
       const u = users.get(o.user_id)
       return {
         ...o,
-        purchaser: o.channel === "storefront"
-          ? (o.buyer_name || o.buyer_phone || "Storefront buyer")
+        purchaser: o.channel === "storefront" || o.channel === "bots"
+          ? (o.buyer_name || o.buyer_phone || (o.channel === "bots" ? "Bot buyer" : "Storefront buyer"))
           : ([u?.first_name, u?.last_name].filter(Boolean).join(" ").trim() || u?.email || "Unknown"),
+        channel_label: o.channel === "bots" ? botChannelLabel(o.bot_surface) : null,
         shop_name: o.shop_id ? (shops.get(o.shop_id) ?? "Unknown shop") : null,
         stuck_claim: ledgerOk && isCandidate && !ledger.has(o.id) && isStuckClaim(o, now),
         has_ledger: ledgerOk && isCandidate ? ledger.has(o.id) : null,
