@@ -9,7 +9,6 @@ import type { HubtelUssdConfig } from "./config"
 import type { AfaServices, AirtimeServices, DialerInfo, RcServices } from "./services"
 import type { HubtelSessionStore } from "./session"
 import type { ShopServices } from "./shop-services"
-import type { ShopBillingGuard } from "./billing-guard"
 import type { CallerContext } from "./catalog"
 import { resolveMainMenu, mainMenuText, type MainMenuKey } from "./menus"
 import { ORDER_TABLES, cartItemNameFor, isHubtelOrderTable, type HubtelOrderTable } from "./order-tables"
@@ -31,7 +30,6 @@ export interface RouterDeps {
   rc: RcServices
   afa: AfaServices
   shop: ShopServices
-  shopBilling: ShopBillingGuard
 }
 
 export interface FlowCtx {

@@ -13,7 +13,7 @@ vi.mock("@/lib/airtime-pricing", async importOriginal => ({
 vi.mock("@/lib/push-service", () => ({ sendPushToUser: (...a: any[]) => h.push(...a) }))
 
 import {
-  capShopAirtimeMarkup, defaultShopServices, notifyLowTokens, shopAirtimeFeeRate, shopAirtimeQuote,
+  capShopAirtimeMarkup, defaultShopServices, shopAirtimeFeeRate, shopAirtimeQuote,
 } from "./shop-services"
 
 /** select/eq chains resolve to `row`; records the column list asked for. */
@@ -78,44 +78,10 @@ describe("shopAirtimeFeeRate", () => {
   })
 })
 
-describe("deductToken (deduct_ussd_shop_token)", () => {
-  it("true only when the RPC says a token was taken", async () => {
-    const ok = fakeDb(null, { data: true, error: null })
-    expect(await defaultShopServices(ok.client).deductToken("code-1")).toBe(true)
-    expect(ok.rpcCalls[0]).toEqual(["deduct_ussd_shop_token", { p_shop_code_id: "code-1" }])
-    const none = fakeDb(null, { data: false, error: null })
-    expect(await defaultShopServices(none.client).deductToken("code-1")).toBe(false)
-  })
-  it("rethrows an RPC error (never swallowed into false, so callers can tell 'error' from 'false'); the thrown message is generic and the original is logged safely", async () => {
-    const err = vi.spyOn(console, "error").mockImplementation(() => {})
-    const bad = fakeDb(null, { data: null, error: { message: "boom: Key (code)=(1234) gateway 504" } })
-    const p = defaultShopServices(bad.client).deductToken("code-1")
-    await expect(p).rejects.toThrow("deduct_ussd_shop_token failed")
-    await p.catch(e => expect((e as Error).message).not.toMatch(/boom|gateway/))
-    expect(err).toHaveBeenCalled()
-    expect(JSON.stringify(err.mock.calls)).not.toContain("1234")
-    err.mockRestore()
-  })
-  it("a non-true, non-error payload is false (only a definite false)", async () => {
-    const nul = fakeDb(null, { data: null, error: null })
-    expect(await defaultShopServices(nul.client).deductToken("code-1")).toBe(false)
-  })
-})
-
-describe("notifyLowTokens", () => {
-  it("pushes Uzo's low-session warning to the shop owner", async () => {
-    const { client } = fakeDb({ user_id: "owner-9" })
-    await notifyLowTokens(client, "shop-1", "Ama Data Hub")
-    expect(h.push).toHaveBeenCalledWith("owner-9", {
-      title: "Low Sessions Warning",
-      body: 'Your USSD shop "Ama Data Hub" has only 10 sessions remaining. Top up to avoid service interruption.',
-      data: { url: "/dashboard/ussd-shop" },
-    })
-  })
-  it("no owner: no push; a failing push never throws", async () => {
-    await notifyLowTokens(fakeDb(null).client, "shop-1", "X")
-    expect(h.push).not.toHaveBeenCalled()
-    h.push.mockRejectedValue(new Error("push down"))
-    await expect(notifyLowTokens(fakeDb({ user_id: "o" }).client, "shop-1", "X")).resolves.toBeUndefined()
+describe("defaultShopServices: session tokens retired (spec 2026-10-14)", () => {
+  it("exposes no token deduction or low-session push", () => {
+    const svc = defaultShopServices(fakeDb(null).client) as unknown as Record<string, unknown>
+    expect(svc.deductToken).toBeUndefined()
+    expect(svc.notifyLowTokens).toBeUndefined()
   })
 })

@@ -32,14 +32,12 @@ describe("shop airtime: recipient", () => {
     expect(r.Message.split("\n")[0]).toBe("Amas Data Hub")
     expect(r.Message).toMatch(/^[\x20-\x7E\n]*$/)
   })
-  it("'0' returns to the product menu without billing again", async () => {
-    const deductToken = vi.fn(async () => true)
-    const { deps, store } = shopDeps({ shop: fakeShop({ deductToken }) })
+  it("'0' returns to the product menu", async () => {
+    const { deps, store } = shopDeps()
     await toAirtime(deps)
     const r = await hubtelRouter(req({ Message: "0" }), deps)
     expect(r.Message).toContain("What would you like to buy?")
     expect(store.get("S1")?.step).toBe("SHOP_PRODUCT")
-    expect(deductToken).toHaveBeenCalledTimes(1)
   })
   it("a malformed number re-prompts and stays on the recipient step", async () => {
     const { deps, store } = shopDeps()
@@ -135,13 +133,6 @@ describe("shop airtime: confirm -> AddToCart", () => {
     expect(sup.inserts["hubtel_transactions"]).toHaveLength(1)
     expect(sup.inserts["hubtel_transactions"][0]).toMatchObject({ order_table: "airtime_orders", order_id: NEW_ID, expected_amount: 10 })
     expect(store.get("S1")).toBeUndefined()
-  })
-  it("no shop token is deducted at confirm (billed once, at the code step)", async () => {
-    const deductToken = vi.fn(async () => true)
-    const { deps } = shopDeps({ shop: fakeShop({ deductToken }) })
-    await toConfirm(deps)
-    await hubtelRouter(req({ Message: "1" }), deps)
-    expect(deductToken).toHaveBeenCalledTimes(1)
   })
   it("shop markup changed since the confirm screen: release, no order (review focus #7)", async () => {
     let markup = 2

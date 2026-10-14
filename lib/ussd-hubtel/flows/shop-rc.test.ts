@@ -125,13 +125,6 @@ describe("shop vouchers: confirm -> AddToCart", () => {
     expect(row.reference_code).toMatch(/^RC-/)
     expect(sup.inserts["hubtel_transactions"][0]).toMatchObject({ order_table: "results_checker_orders", order_id: NEW_ID, expected_amount: 44 })
   })
-  it("no token is billed after the code step (one deduction for the whole purchase)", async () => {
-    const deductToken = vi.fn(async () => true)
-    const { deps } = shopDeps({ shop: fakeShop({ deductToken }) })
-    await toConfirm(deps)
-    await hubtelRouter(req({ Message: "1" }), deps)
-    expect(deductToken).toHaveBeenCalledTimes(1)
-  })
   it("'2' cancels: release, no order", async () => {
     const sup = fakeSupabase({ pkg: OK_PKG })
     const { deps, store } = shopDeps({}, sup)

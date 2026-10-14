@@ -4,7 +4,6 @@ import { DEFAULT_NETWORK_PREFIXES } from "@/lib/phone-format"
 import type { HubtelUssdConfig } from "../config"
 import type { RouterDeps } from "../flow-kit"
 import type { AfaServices, AirtimeServices, RcServices } from "../services"
-import type { BillingClaim, ShopBillingGuard } from "../billing-guard"
 import type { ResolvedShopCode, ShopServices } from "../shop-services"
 import type { HubtelRequest, HubtelSession } from "../types"
 
@@ -89,7 +88,6 @@ export function makeDeps(over: Partial<RouterDeps> = {}, sup = fakeSupabase({ pk
     rc: fakeRc(),
     afa: fakeAfa(),
     shop: fakeShop(),
-    shopBilling: fakeShopBilling(),
     ...over,
   }
   return { deps, store, sup }
@@ -134,7 +132,7 @@ export const SHOP_CONFIG = async (): Promise<HubtelUssdConfig> => ({
   enabled: true, mode: "shop", visibility: { data: true, afa: true, airtime: true, resultsChecker: true }, welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub",
 })
 
-/** An active shop code with tokens, owned by a regular (non-sub-agent) shop. */
+/** An active shop code owned by a regular (non-sub-agent) shop. tokenBalance is unused since 2026-10-14. */
 export const SHOP_CODE: ResolvedShopCode = {
   shopCodeId: "code-1", shopId: "shop-1", shopName: "Ama Data Hub", parentShopId: null,
   status: "active", tokenBalance: 50, whatsappActivated: false,
@@ -144,8 +142,6 @@ export const SHOP_CODE: ResolvedShopCode = {
 export function fakeShop(over: Partial<ShopServices> = {}): ShopServices {
   return {
     resolveCode: async code => (code === "1234" ? { ...SHOP_CODE } : null),
-    deductToken: async () => true,
-    notifyLowTokens: async () => {},
     networks: async () => ["MTN", "Telecel"],
     bundles: async () => [{ id: "pkg-1", size: "5", price: 12 }],
     verifyBundlePrice: async () => ({ verifiedPrice: 12, profitAmount: 2, parentProfitAmount: 0 }),
@@ -156,21 +152,3 @@ export function fakeShop(over: Partial<ShopServices> = {}): ShopServices {
   }
 }
 
-/**
- * Same SET NX semantics as the Redis guard (claim body runs synchronously, so concurrent calls
- * race exactly like the real thing). `fixed` forces every claim result (e.g. "error").
- */
-export function fakeShopBilling(fixed?: BillingClaim): ShopBillingGuard & { claimed: Set<string> } {
-  const claimed = new Set<string>()
-  return {
-    claimed,
-    claim: async (sid, code) => {
-      if (fixed) return fixed
-      const k = `${sid}:${code}`
-      if (claimed.has(k)) return "already"
-      claimed.add(k)
-      return "claimed"
-    },
-    release: async (sid, code) => { claimed.delete(`${sid}:${code}`) },
-  }
-}
