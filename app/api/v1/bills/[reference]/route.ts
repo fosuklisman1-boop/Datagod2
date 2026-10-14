@@ -32,11 +32,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
   if (user.environment === "test") {
     const order = await getSandboxOrder(user.id, reference)
-    if (!order || (order.response as any)?.kind !== "utility_bill") {
+    if (!order || order.action !== "utility_bill") {
       return NextResponse.json({ success: false, error: "Order not found" }, { status: 404 })
     }
-    const { kind: _k, ...rest } = order.response as Record<string, unknown>
-    return NextResponse.json({ success: true, order: { ...rest, status: order.status, sandbox: true } })
+    return NextResponse.json({ success: true, order: { ...(order.response as Record<string, unknown>), status: order.status, sandbox: true } })
   }
 
   const { data: order } = await supabase

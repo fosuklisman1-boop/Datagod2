@@ -61,14 +61,12 @@ export async function POST(request: NextRequest) {
       }
       const price = Math.round(amount * 100) / 100
       const reference = sandboxBillReference()
-      // sandbox_orders.action is CHECK-constrained (no migration in this plan), so bills ride the
-      // "airtime" action and are told apart by `kind` in the stored response.
       const placed = await placeSandboxOrder({
-        userId: user.id, apiKeyId: user.api_key_id, action: "airtime", reference,
-        request: { kind: "utility_bill", biller: t.biller, account: t.account, amount: price },
+        userId: user.id, apiKeyId: user.api_key_id, action: "utility_bill", reference,
+        request: { biller: t.biller, account: t.account, amount: price },
         price,
         orderFields: {
-          kind: "utility_bill", biller: t.biller, account: t.account, customer_name: "Sandbox Customer",
+          biller: t.biller, account: t.account, customer_name: "Sandbox Customer",
           payment_status: "paid", face_amount: price, paid_amount: price, cashback: 0,
         },
       })
@@ -76,9 +74,8 @@ export async function POST(request: NextRequest) {
         log(placed.status, { error: placed.error })
         return NextResponse.json({ success: false, error: placed.error }, { status: placed.status })
       }
-      const { kind: _k, ...order } = placed.order as Record<string, unknown>
       log(201, { reference, sandbox: true })
-      return NextResponse.json({ success: true, order: { ...order, sandbox: true }, new_balance: placed.newBalance }, { status: 201 })
+      return NextResponse.json({ success: true, order: { ...placed.order, sandbox: true }, new_balance: placed.newBalance }, { status: 201 })
     }
 
     const { deps, db } = getBillsRuntime()
