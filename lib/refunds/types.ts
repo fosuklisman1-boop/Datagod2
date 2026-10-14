@@ -10,8 +10,29 @@ export const isCommissionTable = (t: string): t is CommissionTable => (COMMISSIO
 export type OrderTable = "shop_orders" | "ussd_orders" | "ussd_shop_orders" | "orders" | "api_orders" | CommissionTable
 export const ORDER_TABLES: OrderTable[] = ["shop_orders", "ussd_orders", "ussd_shop_orders", "orders", "api_orders", ...COMMISSION_TABLES]
 
-/** Shown for the wallet gateway on a storefront commission order (the buyer is anonymous: no wallet). */
-export const COMMISSION_NO_WALLET_REASON = "Storefront customer has no wallet — refund through Paystack or a MoMo payout"
+/** Shown for the wallet gateway on a storefront or bot commission order (the buyer is anonymous: no wallet). */
+export const COMMISSION_NO_WALLET_REASON = "Storefront and bot customers have no wallet — refund through Paystack or a MoMo payout"
+
+/**
+ * Bot commission orders (bills / bundles, channel 'bots'): sold by a USSD / WhatsApp bot to an anonymous buyer
+ * (user_id NULL), refunded here like storefront rows. Refund options: Paystack reversal (only when Paystack took the
+ * payment), Moolre payout to the buyer's number, or "Mark refunded manually".
+ */
+export const BOT_CHANNEL = "bots"
+
+/** Shown for gateways a bot order cannot use (e.g. the Paystack MoMo payout). */
+export const BOT_GATEWAY_REASON = "Bot orders are refunded by Paystack reversal, a Moolre payout to the buyer, or manually"
+
+const BOT_SURFACE_LABEL: Record<string, string> = {
+  hubtel_ussd: "Hubtel USSD", ussd: "USSD", ussd_shop: "USSD shop", whatsapp: "WhatsApp", whatsapp_shop: "WhatsApp shop",
+}
+
+/** A loaded bot commission order (the loader sets botSurface, possibly null, on bot rows only). */
+export const isBotOrder = (o: { botSurface?: string | null }): boolean => o.botSurface !== undefined
+
+/** "Bot · <surface>" (unknown surfaces shown as stored). */
+export const botSourceLabel = (surface: string | null | undefined): string =>
+  `Bot · ${surface ? BOT_SURFACE_LABEL[surface] ?? surface : "unknown"}`
 
 /** One hubtel_cs_transactions row as the refund eligibility check needs it. */
 export interface CommissionLedgerFact {
@@ -37,7 +58,10 @@ export const isBeforeStorefrontRefunds = (createdAt: string | null | undefined):
 }
 
 export interface CommissionEvidence {
-  /** false => not a storefront row (wallet-paid or a USSD/WhatsApp order): never refundable here. */
+  /**
+   * false => not refundable here (wallet-paid, or a legacy USSD/WhatsApp order). true for storefront rows AND bot
+   * commission rows (bills/bundles channel 'bots'), which the refund RPCs accept alike.
+   */
   storefront: boolean
   status: string
   /** Raw: airtime 'completed' when paid; bills/bundles 'paid'. */
@@ -87,6 +111,8 @@ export interface RefundableOrder {
   recipientPhone: string | null
   /** The account that paid (orders/api_orders only): its phone receives the refund SMS, never the data recipient. */
   buyerUserId?: string | null
+  /** Bot commission orders only (channel 'bots'): the bot surface that sold it. Absent on every other row. */
+  botSurface?: string | null
   createdAt: string
   paid: number
   gatewayFee: number

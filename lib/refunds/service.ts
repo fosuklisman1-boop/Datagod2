@@ -29,7 +29,7 @@ export function mapReserveError(message: string): RefundError {
   if (message.includes("BAD_AMOUNT")) return new RefundError("BAD_AMOUNT", "Refund amount was rejected")
   if (message.includes("BAD_TABLE")) return new RefundError("BAD_AMOUNT", "Unsupported order table")
   if (message.includes("BAD_CHANNEL")) {
-    return new RefundError("BAD_CHANNEL", "Only storefront (Paystack-paid) orders can be refunded here; wallet-paid orders use their own refund path")
+    return new RefundError("BAD_CHANNEL", "Only storefront and bot (customer-paid) orders can be refunded here; wallet-paid orders use their own refund path")
   }
   if (message.includes("ALREADY_REFUNDED")) return new RefundError("ALREADY_REFUNDED", "This order already has a refund")
   if (message.includes("ORDER_NOT_PENDING")) return new RefundError("ORDER_NOT_PENDING", "Order is no longer a paid, pending order")
@@ -469,12 +469,12 @@ const NOTE_NOT_SAVED = " The note could not be saved on the order; it is in the 
  */
 export async function executeManualRefund(deps: RefundDeps, input: ManualRefundInput): Promise<ManualRefundResult> {
   if (!isCommissionTable(input.table)) {
-    throw new RefundError("GATEWAY_UNSUPPORTED", "Manual refunds are only for storefront airtime, bill and bundle orders")
+    throw new RefundError("GATEWAY_UNSUPPORTED", "Manual refunds are only for storefront airtime, bill and bundle orders and bot bill and bundle orders")
   }
   const order = await deps.loadOrder(input.table, input.orderId)
   if (!order) throw new RefundError("NOT_FOUND", "Order not found")
   if (!order.evidence.commission?.storefront) {
-    throw new RefundError("NOT_ELIGIBLE", "Not a storefront order — refund it through its own refund path", { code: "NOT_STOREFRONT" })
+    throw new RefundError("NOT_ELIGIBLE", "Not a storefront or bot order — refund it through its own refund path", { code: "NOT_STOREFRONT" })
   }
   const already = (): ManualRefundResult => ({ refundId: null, status: "completed", alreadyRefunded: true, message: "This order is already refunded; nothing changed" })
   if (order.orderStatus === "refunded") return already()
@@ -518,6 +518,9 @@ export async function executeManualRefund(deps: RefundDeps, input: ManualRefundI
   }
   const refundId = data.refund_id as string
   const saved = await completeManual(deps, order, refundId, input.note, input.adminId)
-  await notifySafely(deps, { refundId, order, amount: order.paid, gateway: MANUAL_GATEWAY, clawbacks: Array.isArray(data.clawbacks) ? data.clawbacks : [] })
-  return { refundId, status: "completed", alreadyRefunded: false, message: `Marked refunded; the shop's share was clawed back.${saved ? "" : NOTE_NOT_SAVED}` }
+  const clawbacks = Array.isArray(data.clawbacks) ? data.clawbacks : []
+  await notifySafely(deps, { refundId, order, amount: order.paid, gateway: MANUAL_GATEWAY, clawbacks })
+  // A main-bot order has no shop share: say so instead of claiming a clawback.
+  const head = clawbacks.length === 0 && order.owners.length === 0 ? "Marked refunded (no shop share to claw back)." : "Marked refunded; the shop's share was clawed back."
+  return { refundId, status: "completed", alreadyRefunded: false, message: `${head}${saved ? "" : NOTE_NOT_SAVED}` }
 }

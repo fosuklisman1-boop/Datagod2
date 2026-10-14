@@ -5,7 +5,7 @@ import { BULK_PROOF_WINDOW_MS, proveBulkBatchPayment } from "./bulk-batch-proof"
 import { BILLERS, isBillerKey } from "@/lib/bills/billers"
 import { normalizeGhanaPhone } from "@/lib/phone-format"
 import {
-  isCommissionTable, isWalletOnlyTable, STOREFRONT_REFUNDS_FROM, type CommissionLedgerFact, type CommissionTable, type DispatchOutcome,
+  BOT_CHANNEL, isCommissionTable, isWalletOnlyTable, STOREFRONT_REFUNDS_FROM, type CommissionLedgerFact, type CommissionTable, type DispatchOutcome,
   type OrderTable, type OwnerCut, type PaymentSource, type RefundableOrder,
 } from "./types"
 
@@ -70,20 +70,26 @@ const SELECT: Record<OrderTable, string> = {
   // Commission tables (storefront rows only; see isStorefrontRow). Paid = total_paid / paid_amount (what the customer paid).
   airtime_orders:
     "id, shop_id, user_id, channel, dialing_phone, network, beneficiary_phone, airtime_amount, total_paid, status, payment_status, notes, created_at, updated_at",
+  // bot_surface: migration 0123 (bot commission orders).
   hubtel_bill_orders:
-    "id, shop_id, user_id, channel, biller, account_number, amount, paid_amount, status, payment_status, hubtel_client_reference, notes, buyer_phone, payment_reference, created_at, updated_at",
+    "id, shop_id, user_id, channel, bot_surface, biller, account_number, amount, paid_amount, status, payment_status, hubtel_client_reference, notes, buyer_phone, payment_reference, created_at, updated_at",
   hubtel_data_orders:
-    "id, shop_id, user_id, channel, network, bundle_display, beneficiary_phone, amount, paid_amount, status, payment_status, hubtel_client_reference, notes, buyer_phone, payment_reference, created_at, updated_at",
+    "id, shop_id, user_id, channel, bot_surface, network, bundle_display, beneficiary_phone, amount, paid_amount, status, payment_status, hubtel_client_reference, notes, buyer_phone, payment_reference, created_at, updated_at",
+}
+
+/** Bot commission row (bills/bundles channel 'bots', anonymous buyer). Airtime has no bot rows here yet. */
+export function isBotRow(table: CommissionTable, r: { user_id?: unknown; channel?: unknown }): boolean {
+  return table !== "airtime_orders" && r.channel === BOT_CHANNEL && !r.user_id
 }
 
 /**
- * Storefront commission rows: the only ones the refund RPCs accept (BAD_CHANNEL otherwise). Airtime storefront rows are
- * the web storefront's (shop_id, no account, no channel tag, no dialing phone); USSD/WhatsApp shop airtime carries a
- * channel and/or dialing phone and keeps its own path.
+ * Commission rows refundable here: the only ones the refund RPCs accept (BAD_CHANNEL otherwise). Airtime storefront
+ * rows are the web storefront's (shop_id, no account, no channel tag, no dialing phone); USSD/WhatsApp shop airtime
+ * carries a channel and/or dialing phone and keeps its own path. Bills/bundles: channel 'storefront', or a bot row.
  */
 export function isStorefrontRow(table: CommissionTable, r: { shop_id?: unknown; user_id?: unknown; channel?: unknown; dialing_phone?: unknown }): boolean {
   if (table === "airtime_orders") return !!r.shop_id && !r.user_id && r.channel == null && !r.dialing_phone
-  return r.channel === "storefront"
+  return r.channel === "storefront" || isBotRow(table, r)
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100
@@ -210,22 +216,31 @@ async function enrichCommission(db: SupabaseClient, table: CommissionTable, rows
   const walletByUser = new Map(wallets.map((w) => [w.user_id as string, Number(w.balance)]))
 
   const referenceOf = (r: any): string | null => {
+    if (isBotRow(table, r)) {
+      // Bot rows: a Paystack reference only when Paystack took the payment (a wallet_payments row with that reference).
+      // The Hubtel USSD checkout rail keeps its own payment records: no reversal there (Moolre payout / manual only).
+      const ref = r.payment_reference ? String(r.payment_reference) : null
+      return ref && walletPayments.some((w) => w.order_id === r.id && w.reference === ref) ? ref : null
+    }
     if (table !== "airtime_orders" && r.payment_reference) return String(r.payment_reference)
     const wp = walletPayments.find((w) => w.order_id === r.id && w.status === "completed")
     return (wp?.reference as string | undefined) ?? null
   }
-  const refs = rows.map(referenceOf).filter(Boolean) as string[]
+  // Bot rows pay out / SMS to buyer_phone only, so their references need no payer lookup.
+  const refs = rows.filter((r) => !isBotRow(table, r)).map(referenceOf).filter(Boolean) as string[]
   const payerByRef = refs.length ? await loadPayerPhones(db, refs) : new Map<string, string>()
 
   return rows.map((r) => {
     const id = r.id as string
+    const bot = isBotRow(table, r)
     const reference = referenceOf(r)
     const wp = reference ? walletPayments.find((w) => w.reference === reference) : undefined
     const buyerPhone = table === "airtime_orders" || !r.buyer_phone ? null : normalizeGhanaPhone(String(r.buyer_phone))
     const payment: PaymentSource = {
       gateway: reference ? "paystack" : null,
       reference,
-      payerPhone: (reference ? payerByRef.get(reference) : undefined) ?? buyerPhone ?? null,
+      // Bot rows: the buyer's own number (dialing / WhatsApp number) and nobody else's.
+      payerPhone: bot ? buyerPhone ?? null : (reference ? payerByRef.get(reference) : undefined) ?? buyerPhone ?? null,
       walletUserId: null,
     }
     const paid = round2(Number(table === "airtime_orders" ? r.total_paid : (r.paid_amount ?? r.amount)))
@@ -245,6 +260,7 @@ async function enrichCommission(db: SupabaseClient, table: CommissionTable, rows
       paymentStatus: r.payment_status === "paid" ? "completed" : (r.payment_status as string),
       shopId: (r.shop_id as string | undefined) ?? null,
       shopName: r.shop_id ? (shopById.get(r.shop_id)?.shop_name as string | undefined) ?? null : null,
+      ...(bot ? { botSurface: (r.bot_surface as string | null | undefined) ?? null } : {}),
       packageLabel: label.packageLabel,
       network: label.network,
       recipientPhone: label.recipient as string | null,
@@ -493,18 +509,23 @@ export interface PendingQuery {
 }
 
 /**
- * Paid storefront commission orders that may need a refund: pending/failed, plus (bills/bundles) a possibly stuck
- * Hubtel dispatch claim — the same set the bills admin "refund" view lists. Storefront rows only.
+ * Paid storefront / bot commission orders that may need a refund: pending/failed, plus (bills/bundles) a possibly stuck
+ * Hubtel dispatch claim — the same set the bills admin "refund" view lists. One query per source (bills/bundles:
+ * storefront, then bots), each paged like a table, so the merged page stays exact. Bots have no historical rows: no cutoff.
  */
-function commissionPendingQuery(db: SupabaseClient, table: CommissionTable): any {
-  const q: any = db.from(table).select("id, created_at")
+function commissionPendingQueries(db: SupabaseClient, table: CommissionTable): any[] {
   if (table === "airtime_orders") {
-    return q.not("shop_id", "is", null).is("user_id", null).is("channel", null).is("dialing_phone", null)
+    return [db.from(table).select("id, created_at")
+      .not("shop_id", "is", null).is("user_id", null).is("channel", null).is("dialing_phone", null)
       .eq("payment_status", "completed").in("status", ["pending", "failed"])
-      .gte("created_at", STOREFRONT_REFUNDS_FROM) // older storefront airtime was refunded out of band
+      .gte("created_at", STOREFRONT_REFUNDS_FROM)] // older storefront airtime was refunded out of band
   }
-  return q.eq("channel", "storefront").eq("payment_status", "paid")
+  const paidOf = (q: any) => q.eq("payment_status", "paid")
     .or("status.in.(failed,pending),and(status.eq.processing,notes.ilike.Dispatching%,hubtel_client_reference.is.null)")
+  return [
+    paidOf((db.from(table).select("id, created_at") as any).eq("channel", "storefront")),
+    paidOf((db.from(table).select("id, created_at") as any).eq("channel", BOT_CHANNEL).is("user_id", null)),
+  ]
 }
 
 /** Newest-first merged page of paid+pending orders. Each table's top (page*pageSize) rows contain the global top. */
@@ -513,22 +534,24 @@ export async function listPendingOrderRefs(db: SupabaseClient, opts: PendingQuer
   const need = opts.pageSize * opts.page
   const all: { table: OrderTable; id: string; createdAt: string }[] = []
   for (const table of tables) {
-    let q: any = isWalletOnlyTable(table)
-      ? db.from(table).select("id, created_at").in("status", [...refundableStatuses(table)])
+    const queries: any[] = isWalletOnlyTable(table)
+      ? [db.from(table).select("id, created_at").in("status", [...refundableStatuses(table)])]
       : isCommissionTable(table)
-        ? commissionPendingQuery(db, table)
-        : db.from(table).select("id, created_at").eq("order_status", "pending").eq("payment_status", "completed")
-    if (opts.shopId) q = q.eq("shop_id", opts.shopId)
-    if (opts.q) {
-      const term = opts.q.replace(/[^0-9a-zA-Z-]/g, "")
-      if (term) {
-        const cols = SEARCH_COLS[table]
-        q = q.or(cols.map((c) => `${c}.ilike.%${term}%`).join(",") + (/^[0-9a-f-]{36}$/i.test(term) ? `,id.eq.${term}` : ""))
+        ? commissionPendingQueries(db, table)
+        : [db.from(table).select("id, created_at").eq("order_status", "pending").eq("payment_status", "completed")]
+    for (let q of queries) {
+      if (opts.shopId) q = q.eq("shop_id", opts.shopId)
+      if (opts.q) {
+        const term = opts.q.replace(/[^0-9a-zA-Z-]/g, "")
+        if (term) {
+          const cols = SEARCH_COLS[table]
+          q = q.or(cols.map((c) => `${c}.ilike.%${term}%`).join(",") + (/^[0-9a-f-]{36}$/i.test(term) ? `,id.eq.${term}` : ""))
+        }
       }
+      const { data, error } = await q.order("created_at", { ascending: false }).order("id", { ascending: false }).range(0, need - 1)
+      if (error) throw new Error(`[REFUND] pending list failed for ${table}: ${error.message}`)
+      for (const row of data ?? []) all.push({ table, id: row.id, createdAt: toUtcIso(row.created_at, table === "orders") })
     }
-    const { data, error } = await q.order("created_at", { ascending: false }).order("id", { ascending: false }).range(0, need - 1)
-    if (error) throw new Error(`[REFUND] pending list failed for ${table}: ${error.message}`)
-    for (const row of data ?? []) all.push({ table, id: row.id, createdAt: toUtcIso(row.created_at, table === "orders") })
   }
   all.sort((a, b) => cmpNewestFirst(a.createdAt, b.createdAt) || (`${a.table}:${a.id}` < `${b.table}:${b.id}` ? -1 : 1))
   return all.slice((opts.page - 1) * opts.pageSize, opts.page * opts.pageSize)

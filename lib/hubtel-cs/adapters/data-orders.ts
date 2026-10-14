@@ -87,8 +87,8 @@ export function createDataOrdersAdapter(deps: DataOrdersAdapterDeps): OrderAdapt
       const id = tx.order_id!
       const o = await deps.get(id)
       if (!o) return { refunded: false, message: "Order not found" }
-      // Never "refund" a storefront order to a NULL wallet; refunded:false releases the ledger claim.
-      if (o.channel === "storefront" || !o.user_id) return { refunded: false, message: STOREFRONT_REFUND_MESSAGE }
+      // Never "refund" a storefront / bot order to a NULL wallet; refunded:false releases the ledger claim.
+      if (o.channel === "storefront" || o.channel === "bots" || !o.user_id) return { refunded: false, message: STOREFRONT_REFUND_MESSAGE }
       // Already refunded by an earlier run: the credit exists, so the claim must NOT be released.
       if (o.status === "refunded" && o.payment_status === "refunded") {
         return { refunded: true, message: "Order was already refunded to the wallet" }

@@ -10,7 +10,7 @@ export interface RefundOrder extends RefundOrderFacts {
 }
 
 export const STOREFRONT_BILL_REFUND_MESSAGE =
-  "Storefront order: the buyer has no wallet. Refund it on /admin/refunds (Paystack reversal, MoMo payout, or Mark refunded manually)."
+  "Storefront or bot order: the buyer has no wallet. Refund it on /admin/refunds (Paystack reversal, MoMo payout, or Mark refunded manually)."
 
 export interface BillRefundDeps {
   getOrder(id: string): Promise<RefundOrder | null>
@@ -38,7 +38,7 @@ export async function executeBillRefund(d: BillRefundDeps, orderId: string, note
   const order = await d.getOrder(orderId)
   if (!order) return { ok: false, status: 404, message: "Order not found" }
   // Checked before anything moves: never fence a storefront order to failed for a wallet refund that cannot happen.
-  if (order.channel === "storefront" || !order.user_id) return { ok: false, status: 409, message: STOREFRONT_BILL_REFUND_MESSAGE }
+  if (order.channel === "storefront" || order.channel === "bots" || !order.user_id) return { ok: false, status: 409, message: STOREFRONT_BILL_REFUND_MESSAGE }
   let ledger: LedgerFact[]
   try { ledger = await d.getLedger(orderId) } catch { return { ok: false, status: 503, message: "Could not read the Hubtel ledger; try again" } }
   const decision = refundDecision(order, ledger, d.now())

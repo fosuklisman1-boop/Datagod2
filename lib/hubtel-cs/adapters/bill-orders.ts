@@ -28,9 +28,9 @@ export interface BillOrderRow {
 /** The money to return to the customer: what they paid, falling back to the face amount on legacy rows. */
 const refundAmount = (o: BillOrderRow) => Number(o.paid_amount ?? o.amount)
 
-/** Shown when the review queue is asked to wallet-refund a storefront order (it has no wallet to credit). */
+/** Shown when the review queue is asked to wallet-refund a storefront or bot order (it has no wallet to credit). */
 export const STOREFRONT_REFUND_MESSAGE =
-  "Storefront order: the buyer has no wallet. Refund it on /admin/refunds (Paystack reversal, MoMo payout, or Mark refunded manually)."
+  "Storefront or bot order: the buyer has no wallet. Refund it on /admin/refunds (Paystack reversal, MoMo payout, or Mark refunded manually)."
 
 export interface BillOrdersAdapterDeps {
   /** Current order (null if missing). Throws on DB error (the sweep retries). */
@@ -93,8 +93,8 @@ export function createBillOrdersAdapter(deps: BillOrdersAdapterDeps): OrderAdapt
       const id = tx.order_id!
       const o = await deps.get(id)
       if (!o) return { refunded: false, message: "Order not found" }
-      // Never "refund" a storefront order to a NULL wallet; refunded:false releases the ledger claim.
-      if (o.channel === "storefront" || !o.user_id) return { refunded: false, message: STOREFRONT_REFUND_MESSAGE }
+      // Never "refund" a storefront / bot order to a NULL wallet; refunded:false releases the ledger claim.
+      if (o.channel === "storefront" || o.channel === "bots" || !o.user_id) return { refunded: false, message: STOREFRONT_REFUND_MESSAGE }
       // Already refunded by an earlier run: the credit exists, so the claim must NOT be released.
       if (o.status === "refunded" && o.payment_status === "refunded") {
         return { refunded: true, message: "Order was already refunded to the wallet" }

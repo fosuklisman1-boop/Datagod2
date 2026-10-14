@@ -96,7 +96,7 @@ function billOrBundleEligibility(c: CommissionEvidence, now: number): Eligibilit
 function commissionEligibility(table: CommissionTable, i: EligibilityInput): Eligibility {
   const c = i.commission
   if (!c) return no("NOT_PENDING", "Order details could not be loaded")
-  if (!c.storefront) return no("NOT_STOREFRONT", "Not a storefront order — refund it through its own refund path")
+  if (!c.storefront) return no("NOT_STOREFRONT", "Not a storefront or bot order — refund it through its own refund path")
   if (i.hasActiveRefund) return no("ALREADY_REFUNDED", "A refund already exists for this order")
   const now = i.now ?? Date.now()
   return table === "airtime_orders" ? airtimeEligibility(c, now) : billOrBundleEligibility(c, now)

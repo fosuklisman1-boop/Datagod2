@@ -23,11 +23,14 @@ import { RefundDialog } from "@/components/admin/refunds/refund-dialog"
 import { OtpDialog } from "@/components/admin/refunds/otp-dialog"
 import { SettleFailedDialog } from "@/components/admin/refunds/settle-failed-dialog"
 import { postRefundAction } from "@/components/admin/refunds/api"
+import { botSourceLabel, isBotOrder } from "@/lib/refunds/types"
 import { ATTENTION_STATUSES, describeVerification, type VerificationSeverity, isAttentionStatus, isCancelledRefund, attentionHint, type RefundAction, type RefundOutcome, type SettleFailedDetail } from "@/lib/refunds/ui-outcome"
 
 interface PendingRow {
   order: {
     table: string; id: string; shopName: string | null; packageLabel: string; network: string
+    /** Bot commission orders only. */
+    botSurface?: string | null
     recipientPhone: string | null; createdAt: string; paid: number; gatewayFee: number
     payment: { gateway: string | null; payerPhone: string | null }
     owners: { shopId: string; credited: number; pending: number }[]
@@ -52,6 +55,9 @@ const TABLE_LABEL: Record<string, string> = {
   shop_orders: "Storefront", ussd_orders: "USSD", ussd_shop_orders: "USSD shop", orders: "Dashboard (bulk)", api_orders: "API",
   airtime_orders: "Storefront airtime", hubtel_bill_orders: "Storefront bill", hubtel_data_orders: "Storefront bundle",
 }
+/** Source column: "Bot · <surface>" for bot commission orders, else the table's label. */
+const refundSourceLabel = (o: { table: string; botSurface?: string | null }): string =>
+  isBotOrder(o) ? botSourceLabel(o.botSurface) : TABLE_LABEL[o.table] ?? o.table
 const MAX_NOTE = 500
 const PAGE_SIZE = 50
 
@@ -293,7 +299,7 @@ export default function AdminRefundsPage() {
                 <TableBody>
                   {pending.map(({ order, eligibility, manualRefund }) => (
                     <TableRow key={`${order.table}:${order.id}`} className={eligibility.eligible ? "" : "opacity-60"}>
-                      <TableCell>{TABLE_LABEL[order.table] ?? order.table}</TableCell>
+                      <TableCell>{refundSourceLabel(order)}</TableCell>
                       <TableCell>{order.shopName ?? "-"}</TableCell>
                       <TableCell>{order.packageLabel} {order.network}</TableCell>
                       <TableCell>{order.recipientPhone ?? "-"}</TableCell>
@@ -480,7 +486,7 @@ export default function AdminRefundsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Mark refunded manually?</AlertDialogTitle>
             <AlertDialogDescription>
-              {manualFor ? `${manualFor.label}. ` : ""}Use this only after you have refunded the customer yourself (outside Datagod). No money moves here: the order is marked refunded and the shop&apos;s share is clawed back.
+              {manualFor ? `${manualFor.label}. ` : ""}Use this only after you have refunded the customer yourself (outside Datagod). No money moves here: the order is marked refunded and any shop share is clawed back.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="space-y-1.5">

@@ -221,7 +221,8 @@ describe("listPendingOrderRefs", () => {
     await listPendingOrderRefs(db, { pageSize: 10, page: 1, q: "024),id.eq.x(%" })
     // bills/bundles carry a second or(): their status filter (pending/failed + stuck claim), ANDed with the search
     const ors = calls.filter((c) => c[1] === "or" && !String(c[2]).startsWith("status."))
-    expect(ors.map((c) => c[0])).toEqual(["shop_orders", "ussd_orders", "ussd_shop_orders", "orders", "api_orders", "airtime_orders", "hubtel_bill_orders", "hubtel_data_orders"])
+    // bills/bundles: one query per source (storefront, then bots), each with the same search filter
+    expect(ors.map((c) => c[0])).toEqual(["shop_orders", "ussd_orders", "ussd_shop_orders", "orders", "api_orders", "airtime_orders", "hubtel_bill_orders", "hubtel_bill_orders", "hubtel_data_orders", "hubtel_data_orders"])
     expect(ors[5][2]).toBe("beneficiary_phone.ilike.%024ideqx%,reference_code.ilike.%024ideqx%")
     expect(ors[6][2]).toBe("buyer_phone.ilike.%024ideqx%,account_number.ilike.%024ideqx%,reference_code.ilike.%024ideqx%")
     expect(ors[3][2]).toBe("phone_number.ilike.%024ideqx%")
