@@ -232,3 +232,19 @@ Notes:
 - Bundle and bill orders placed by API keys are refundable like dashboard orders (wallet refund from the admin pages).
 - A bill `verify_token` pays at most one order. On the API, re-sending a used token returns that order (looked up by token hash + user + channel `api`) instead of a 409, so a timed-out request can be retried safely. The dashboard still answers 409 "verify again".
 - If the cashback config cannot be read (DB error), the bundles and bills API endpoints fail closed with 403 `not_available` (they exist only while the API switch is on, so an unreadable switch counts as off). The Utility Bills / Standard Bundles / Hubtel switches also fail closed (503) on their own read errors. v1 airtime is unaffected: it falls back to its standard pricing.
+
+## Commission Cashback — Bots (Plan 1: shared engine)
+
+Shared engine for all five bots (Hubtel USSD, main USSD, shop USSD, WhatsApp main + shop). Spec `docs/superpowers/specs/2026-10-14-cashback-bots-design.md`. **Nothing customer-visible yet** — Plans 2–4 add the menus. Ships OFF.
+
+1. Apply `migrations/0123_cashback_bots.sql` BEFORE merging/deploying — required: the /admin/refunds loader and the admin bills/bundles lists select `bot_surface`.
+   - Pre-check: `select count(*) from information_schema.columns where table_name='hubtel_bill_orders' and column_name='bot_surface'` = 0.
+   - Post-check: `bot_surface` on both order tables; channel CHECKs list `dashboard, storefront, api, bots`; the bot dedupe index exists; `reserve_order_refund` accepts `channel IN ('storefront','bots')` for bills/bundles; service_role-only EXECUTE unchanged.
+2. Admin (`/admin/hubtel-commission` → Cashback): Bots surface switch, per-group "Sell on bots" (Airtime / Network Plans / Pay Bills), two fee sets — "Paystack bots (USSD + WhatsApp)" and "Hubtel USSD" — added on top, rounded up. Keep everything off until a bot plan ships.
+3. Rules the bot plans rely on:
+   - Main bots (no shop): buyer gets the `customer` share, no shop share. Shop bots / Hubtel USSD in shop mode: buyer `storefrontCustomer`, shop `storefrontShop` (credited at payment, clawed back on refund).
+   - Bot orders: `channel='bots'`, `bot_surface`, `buyer_phone`, `user_id` NULL; Ghana Water refused for USSD surfaces (WhatsApp only).
+   - Abuse caps: bill verify 20/10 min per phone, 300/h per bot+shop, 2000/h global; unpaid bot orders ≤ 5/h per phone, ≤ 60/h per shop.
+   - Paystack-paid bot orders use `BOT_PAYMENT_EMAIL` (default `payments@datagod.store`) when the buyer has no email.
+   - Refunds: `/admin/refunds` — Paystack reversal only for Paystack-paid rows, Moolre payout to `buyer_phone`, or manual; Hubtel-USSD-paid rows: Moolre payout or manual.
+4. Carried to Plans 2–4: bots must use the direct MoMo charge with the number they ask for (direct-charge ON strips MoMo from the hosted page); an in-process payment-init helper (payments/initialize is IP rate-limited); record the paying MoMo number and prefer it for refund payouts; airtime bot rows need a margin-report mapping.
