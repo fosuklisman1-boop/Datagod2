@@ -7,6 +7,10 @@ import { verifyShopSession } from "@/lib/shop-token"
 import { verifyTurnstileToken, getRequestIp, isTurnstileEnabled } from "@/lib/turnstile"
 import { isStorefrontOtpRequired, isPhoneOtpVerified } from "@/lib/storefront-otp"
 import { secureReference } from "@/lib/secure-random"
+import { airtimeProviderDeps } from "@/lib/airtime-service"
+import { getCashbackConfig } from "@/lib/cashback/config"
+import { samePrice } from "@/lib/cashback/quote"
+import { quoteStorefrontAirtime } from "@/lib/cashback/storefront-airtime"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -62,7 +66,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { shopSlug, beneficiaryPhone, paymentPhone, airtimeAmount, amount: bodyAmount, network: passedNetwork, customerName, customerEmail, paySeparately: bodyPaySeparately, turnstileToken, website: honeypot } = body
+    const { shopSlug, beneficiaryPhone, paymentPhone, airtimeAmount, amount: bodyAmount, network: passedNetwork, customerName, customerEmail, paySeparately: bodyPaySeparately, turnstileToken, website: honeypot, expectedPay } = body
 
     // SECURITY: shopId must always be resolved server-side from the slug — never
     // trusted from the client body. Accepting a raw shopId would let a caller
@@ -217,6 +221,31 @@ export async function POST(request: NextRequest) {
 
     const merchantCommission = parseFloat((airtimeToDeliver * customMarkupRate / 100).toFixed(2))
 
+    // Instant cashback (storefront gate AND a commission-earning provider AND an applied quote). null => the
+    // legacy row above is inserted exactly as before. Any config/provider read failure => null.
+    const cashback = await quoteStorefrontAirtime(network, amount, {
+      ...airtimeProviderDeps,
+      getConfig: () => getCashbackConfig(supabase),
+    })
+    const amountToCharge = cashback ? cashback.payAmount : totalPrice
+
+    // Price the page showed vs. what we'd charge now — on BOTH paths (e.g. cashback switched off after the
+    // page loaded). Before the flood-guard counters and the insert. Omitted by older clients => unchanged.
+    if (expectedPay !== undefined && expectedPay !== null && !samePrice(Number(expectedPay), amountToCharge)) {
+      return NextResponse.json(
+        {
+          error: "Price updated — please review",
+          quote: {
+            faceAmount: amount,
+            payAmount: amountToCharge,
+            customerCashback: cashback ? cashback.customerCashback : 0,
+            paymentFee: cashback ? cashback.paymentFee : 0,
+          },
+        },
+        { status: 409 }
+      )
+    }
+
     // Atomic flood guards via Upstash sliding window — closes the count→insert
     // race. Fails open if Upstash misconfigured; DB checks below remain as fallback.
     const [emailCap, phoneCap, shop5mCap, shop1hCap] = await Promise.all([
@@ -297,16 +326,28 @@ export async function POST(request: NextRequest) {
         reference_code: referenceCode,
         network,
         beneficiary_phone: cleanPhone,
-        airtime_amount: airtimeToDeliver,
-        fee_amount: feeAmount,
-        total_paid: totalPrice,
+        airtime_amount: cashback ? amount : airtimeToDeliver,
+        fee_amount: cashback ? 0 : feeAmount,
+        total_paid: amountToCharge,
         status: "pending_payment",
         payment_status: "pending_payment",
         shop_id: shopId,
-        merchant_commission: merchantCommission,
+        // Applied: the shop's cashback share, credited once to shop_profits by markAirtimeOrderPaid.
+        merchant_commission: cashback ? cashback.shopShare : merchantCommission,
         customer_name: customerName || "Guest",
         customer_email: customerEmail,
-        pay_separately: paySeparately
+        pay_separately: cashback ? false : paySeparately,
+        ...(cashback
+          ? {
+              payment_fee_amount: cashback.paymentFee,
+              cashback_amount: cashback.customerCashback,
+              shop_share_amount: cashback.shopShare,
+              cashback_rate: cashback.rate,
+              cashback_share: cashback.share,
+              cashback_provider: cashback.provider,
+              expected_commission: cashback.commission,
+            }
+          : {}),
       }])
       .select()
       .single()
@@ -319,8 +360,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       orderId: order.id,
-      totalPrice,
-      reference: referenceCode
+      totalPrice: amountToCharge,
+      reference: referenceCode,
+      ...(cashback ? { customerCashback: cashback.customerCashback, paymentFee: cashback.paymentFee } : {}),
     })
 
   } catch (error) {

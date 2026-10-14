@@ -2,9 +2,9 @@ import { createClient } from "@supabase/supabase-js"
 import { isDigiWapyConfigured, isDigiWapyEnabledForNetwork, sendAirtimeViaDigiwapy } from "@/lib/digiwapy-provider"
 import { notifyAdmins, SMSTemplates } from "@/lib/sms-service"
 import { type AirtimeOrderMinimal, fulfillAirtimeViaHubtel } from "@/lib/airtime-hubtel"
-import { getAirtimeProvider, airtimeNetId, providerEarnsCommission, type AirtimeProvider } from "@/lib/airtime-provider"
+import { getAirtimeProvider, airtimeNetId, type AirtimeProvider } from "@/lib/airtime-provider"
 import { airtimeEnabledKey, airtimeFeeKey, airtimeSettingsSuffix, legacyAirtimePrice } from "@/lib/airtime-fee"
-import { HUBTEL_CS_SERVICES } from "@/lib/hubtel-cs/services"
+import { airtimeCashbackTarget, type AirtimeProviderDeps } from "@/lib/cashback/storefront-airtime"
 import { getCashbackConfig, type CashbackChannel } from "@/lib/cashback/config"
 import { quoteCashback, samePrice, type CashbackQuote } from "@/lib/cashback/quote"
 import { secureReference } from "@/lib/secure-random"
@@ -232,6 +232,12 @@ export interface PurchaseAirtimeParams {
   expectedPay?: number
 }
 
+/** Live provider routing for cashback quotes (dashboard here, storefront routes via quoteStorefrontAirtime). */
+export const airtimeProviderDeps: AirtimeProviderDeps = {
+  getProvider: (network) => getAirtimeProvider(supabase, network, isDigiWapyEnabledForNetwork),
+  digiwapyConfigured: () => isDigiWapyConfigured(),
+}
+
 /**
  * Instant-cashback quote for a non-shop purchase, or null when cashback is not applied.
  * Any failure (config read, provider read) means "not applied" — the legacy fee path runs.
@@ -243,20 +249,15 @@ async function quoteAirtimeCashback(
   channel: CashbackChannel,
 ): Promise<(CashbackQuote & { airtimeProvider: AirtimeProvider }) | null> {
   try {
-    const netId = airtimeNetId(network)
-    if (!netId) return null
+    if (!airtimeNetId(network)) return null
     const cfg = await getCashbackConfig(supabase)
     if (!cfg.enabled || !cfg.surfaces[channel]) return null
-    const serviceKey = `airtime_${netId}` as const
-    const provider = await getAirtimeProvider(supabase, network, isDigiWapyEnabledForNetwork)
-    // Digiwapy without its env goes to manual at fulfilment: no commission, so no cashback.
-    if (!providerEarnsCommission(provider, isDigiWapyConfigured())) return null
-    // Hubtel rejects face above its per-request cap after the debit: never give cashback on an order
-    // Hubtel cannot send (no commission would be earned). Legacy path, exactly as today.
-    const hubtelMax = HUBTEL_CS_SERVICES[serviceKey].maxAmount ?? Infinity
-    if (provider === "hubtel" && faceAmount > hubtelMax) return null
-    const q = quoteCashback({ serviceKey, provider, faceAmount, buyer, channel }, cfg)
-    return q.applied ? { ...q, airtimeProvider: provider } : null
+    // Digiwapy without its env goes to manual at fulfilment, and Hubtel rejects face above its per-request
+    // cap after the debit: no commission would be earned, so no cashback. Legacy path, exactly as today.
+    const target = await airtimeCashbackTarget(network, faceAmount, airtimeProviderDeps)
+    if (!target) return null
+    const q = quoteCashback({ serviceKey: target.serviceKey, provider: target.provider, faceAmount, buyer, channel }, cfg)
+    return q.applied ? { ...q, airtimeProvider: target.provider } : null
   } catch (e: any) {
     console.warn("[AIRTIME-SVC] cashback quote unavailable, using standard pricing:", e?.message ?? e)
     return null
