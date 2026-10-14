@@ -199,4 +199,9 @@ Shop storefronts sell airtime, Utility Bills and Standard Bundles with cashback 
    - Unpaid storefront orders never expire; they are never refundable and never dispatched.
    - If `storefront_otp_required` is turned on, the Bills/Bundles sheets run the payer-phone OTP step.
    - Bills/Bundles tabs follow the domain's service allow-list (hidden where the data service is not allowed).
+   - With `storefront_direct_charge` on (it is on in prod), Bills/Bundles pay by on-page MoMo prompt to the buyer's phone ("Your Mobile Money number"), like storefront airtime: sheet → approve / Telecel OTP → payment-confirmation page. With it off they use the hosted Paystack checkout. A declined prompt leaves the order unpaid; tapping Pay again reuses the same order (max 2 payment starts per order per hour).
+   - `/admin/refunds` lists and refunds storefront airtime only for orders created on/after 2026-10-14 (`STOREFRONT_REFUNDS_FROM`). The older backlog (paid failed/pending storefront airtime) was handled out of band and stays off the queue.
+   - A gateway refund (or retry) of a bill/bundle whose Hubtel failure was an admin override needs the "I confirmed it was not delivered" tick, like "Mark refunded manually".
+   - Storefront airtime: the page always sends the price it showed; if cashback applies and the page did not send it (stale page / old client), the server answers 409 with the price instead of charging.
+   - Admin airtime "Failed" on a storefront order sends no "refunded to your wallet" SMS and credits nothing: refund it on `/admin/refunds`.
 

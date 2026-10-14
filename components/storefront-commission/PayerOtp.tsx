@@ -15,6 +15,8 @@ import { isOtpPhone } from "@/lib/storefront-commission/ui-helpers"
  */
 export function usePayerOtp(phone: string) {
   const [required, setRequired] = useState(false)
+  // Storefront direct MoMo charge toggle (same public settings): pay on-page instead of the hosted checkout.
+  const [directCharge, setDirectCharge] = useState(false)
   const [verifiedPhone, setVerifiedPhone] = useState<string | null>(null)
   const [sent, setSent] = useState(false)
   const [code, setCode] = useState("")
@@ -27,7 +29,7 @@ export function usePayerOtp(phone: string) {
   useEffect(() => {
     fetch("/api/public/turnstile-status")
       .then(r => (r.ok ? r.json() : null))
-      .then(d => setRequired(d?.otp_required === true))
+      .then(d => { setRequired(d?.otp_required === true); setDirectCharge(d?.direct_charge === true) })
       .catch(() => {})
   }, [])
 
@@ -84,7 +86,9 @@ export function usePayerOtp(phone: string) {
   }
 
   return {
-    required, verified, sent, code, sending, verifying, cooldown: cooldown.seconds,
+    required, verified, sent, code, sending, verifying, cooldown: cooldown.seconds, directCharge,
+    /** The direct charge was refused as off (stale page): fall back to the hosted checkout from now on. */
+    disableDirectCharge: () => setDirectCharge(false),
     /** The pay button must wait while this is true. */
     blocking: required && !verified,
     require: () => setRequired(true),

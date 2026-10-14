@@ -69,6 +69,24 @@ describe("validateBuyer", () => {
   })
 })
 
+describe("direct MoMo charge helpers", () => {
+  it("momoNetworkLabel: network from the prefix (any Ghana format); null for non-MoMo numbers", async () => {
+    const { momoNetworkLabel } = await import("./ui-helpers")
+    expect(momoNetworkLabel("0241234567")).toBe("MTN MoMo")
+    expect(momoNetworkLabel("233551234567")).toBe("MTN MoMo")
+    expect(momoNetworkLabel("0501234567")).toBe("Telecel Cash")
+    expect(momoNetworkLabel("0271234567")).toBe("AT Money")
+    expect(momoNetworkLabel("0281234567")).toBeNull()
+    expect(momoNetworkLabel("123")).toBeNull()
+  })
+  it("isDirectChargeOffResponse only for the 400 DIRECT_CHARGE_OFF answer", async () => {
+    const { isDirectChargeOffResponse } = await import("./ui-helpers")
+    expect(isDirectChargeOffResponse(400, { code: "DIRECT_CHARGE_OFF" })).toBe(true)
+    expect(isDirectChargeOffResponse(400, { error: "x" })).toBe(false)
+    expect(isDirectChargeOffResponse(403, { code: "DIRECT_CHARGE_OFF" })).toBe(false)
+  })
+})
+
 describe("orderView", () => {
   it("maps status to the confirmation view", () => {
     expect(orderView("completed", "paid")).toBe("delivered")

@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input"
 import TurnstileWidget from "@/components/shop/TurnstileWidget"
 import HoneypotField from "@/components/shop/HoneypotField"
 import { PayerOtpStep, usePayerOtp } from "@/components/storefront-commission/PayerOtp"
+import { MomoPayerHint, NOT_MOMO } from "@/components/storefront-commission/MomoPayerHint"
+import { useStorefrontPayment } from "@/components/storefront-commission/DirectMomo"
 import { PriceSummary } from "@/components/cashback/PriceSummary"
 import { bundleReceiveLabel, parsePriceChange } from "@/lib/cashback/display"
 import { normalizeGhanaPhone } from "@/lib/phone-format"
@@ -17,7 +19,7 @@ import {
 } from "@/lib/standard-bundles/ui-helpers"
 import { newUuid } from "@/lib/standard-bundles/uuid"
 import {
-  bundlePriceParts, isOtpRequiredResponse, parseStorefrontCatalog, validateBuyer, type StorefrontBundle, type StorefrontCategory,
+  bundlePriceParts, isOtpRequiredResponse, momoNetworkLabel, parseStorefrontCatalog, validateBuyer, type StorefrontBundle, type StorefrontCategory,
 } from "@/lib/storefront-commission/ui-helpers"
 
 interface Props {
@@ -51,6 +53,7 @@ export function BundlesTab({ shopSlug, networks }: Props) {
   const [turnstileNonce, setTurnstileNonce] = useState(0)
   const [honeypot, setHoneypot] = useState("")
   const otp = usePayerOtp(buyerPhone)
+  const payment = useStorefrontPayment(shopSlug, "cs_bundle", otp)
   const [prefixRules, setPrefixRules] = useState<PrefixRules | null>(null)
 
   useEffect(() => {
@@ -129,6 +132,7 @@ export function BundlesTab({ shopSlug, networks }: Props) {
     if (recipientError) { setFormError(recipientError); return }
     const buyerError = validateBuyer({ email: buyerEmail, phone: buyerPhone })
     if (buyerError) { setFormError(buyerError); return }
+    if (payment.directCharge && !momoNetworkLabel(buyerPhone)) { setFormError(NOT_MOMO); return }
     if (otp.blocking) { setFormError("Please verify your phone number first."); return }
     if (turnstileEnabled && !turnstileToken) { setFormError("Please complete the security check."); return }
 
@@ -168,17 +172,16 @@ export function BundlesTab({ shopSlug, networks }: Props) {
     try {
       if (httpStatus === 200 && json?.orderId) {
         const pay = typeof json.payAmount === "number" ? json.payAmount : expectedPay
-        // Same hosted-Paystack initiation as storefront airtime; nothing about the product is sent.
-        const payRes = await fetch("/api/payments/initialize", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ amount: pay, email: buyerEmail.trim(), orderId: json.orderId, orderType: "cs_bundle", shopSlug }),
-        })
-        const payJson = await payRes.json().catch(() => null)
-        if (!payRes.ok) throw new Error(payJson?.error || "Payment initialization failed")
-        if (!payJson?.authorizationUrl) throw new Error("No payment URL received")
-        window.location.href = payJson.authorizationUrl
-        return // keep the button busy while the browser navigates
+        // On-page MoMo charge when direct charge is on, else the hosted Paystack checkout; nothing about the product is sent.
+        const r = await payment.pay({ orderId: json.orderId, amount: pay, email: buyerEmail.trim(), paymentPhone: buyerPhone.trim() })
+        if (r === "redirecting") return // keep the button busy while the browser navigates
+        if (r === "otp_required") {
+          otp.require()
+          setFormError("Please verify your phone number to continue.")
+        }
+        // started / failed: the payment sheet shows the progress; the same key resumes this order on a retry.
+        setSubmitting(false)
+        return
       }
 
       if (httpStatus !== null && isOtpRequiredResponse(httpStatus, json)) {
@@ -321,8 +324,9 @@ export function BundlesTab({ shopSlug, networks }: Props) {
                 <Input type="email" required placeholder="john@example.com" className="rounded-2xl border-border bg-card py-3.5" value={buyerEmail} onChange={e => setBuyerEmail(e.target.value)} />
               </div>
               <div className="space-y-1.5">
-                <p className="text-sm font-bold text-foreground">Your phone *</p>
+                <p className="text-sm font-bold text-foreground">{payment.directCharge ? "Your Mobile Money number *" : "Your phone *"}</p>
                 <Input type="tel" inputMode="numeric" required placeholder="024XXXXXXX" className="rounded-2xl border-border bg-card py-3.5 font-mono" value={buyerPhone} onChange={e => setBuyerPhone(e.target.value)} />
+                {payment.directCharge && <MomoPayerHint phone={buyerPhone} />}
               </div>
 
               <div className="rounded-2xl border border-border bg-card p-4">
@@ -352,6 +356,7 @@ export function BundlesTab({ shopSlug, networks }: Props) {
           </form>
         </div>
       )}
+      {payment.sheet}
     </div>
   )
 }

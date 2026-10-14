@@ -241,6 +241,26 @@ export function isOtpPhone(phone: string): boolean {
   return normalizeGhanaPhone(phone.trim()) !== null
 }
 
+// ───────────────────────── direct MoMo charge ─────────────────────────
+
+/** Same prefix map payments/initialize uses to pick the Paystack MoMo provider (mtn / vod / tgo). */
+const MOMO_NETWORK: Record<string, string> = {
+  "024": "MTN MoMo", "025": "MTN MoMo", "053": "MTN MoMo", "054": "MTN MoMo", "055": "MTN MoMo", "059": "MTN MoMo",
+  "020": "Telecel Cash", "050": "Telecel Cash",
+  "026": "AT Money", "027": "AT Money", "056": "AT Money", "057": "AT Money",
+}
+
+/** Mobile Money network the payment prompt goes to, or null when the number is not a MoMo number we can charge. */
+export function momoNetworkLabel(phone: string): string | null {
+  const local = normalizeGhanaPhone(phone.trim())
+  return local ? MOMO_NETWORK[local.slice(0, 3)] ?? null : null
+}
+
+/** payments/initialize refused momoDirect because direct charge is off now (stale page): use the hosted checkout. */
+export function isDirectChargeOffResponse(status: number, json: unknown): boolean {
+  return status === 400 && (json as { code?: unknown } | null)?.code === "DIRECT_CHARGE_OFF"
+}
+
 /** Bill initialize answers that mean the single-use verification is spent or invalid: the customer must verify again. */
 export function billNeedsReverify(status: number, json: unknown): boolean {
   const j = json as { error?: unknown; quote?: unknown } | null

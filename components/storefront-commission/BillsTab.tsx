@@ -9,11 +9,13 @@ import HoneypotField from "@/components/shop/HoneypotField"
 import { PriceSummary } from "@/components/cashback/PriceSummary"
 import { EcgMeterInput } from "@/components/bills/BillPayFlow"
 import { PayerOtpStep, usePayerOtp } from "@/components/storefront-commission/PayerOtp"
+import { MomoPayerHint, NOT_MOMO } from "@/components/storefront-commission/MomoPayerHint"
+import { useStorefrontPayment } from "@/components/storefront-commission/DirectMomo"
 import { useTurnstileGate } from "@/components/storefront-commission/use-turnstile-gate"
 import { billReceiveLabel, parsePriceChange } from "@/lib/cashback/display"
 import { BILLER_KEYS } from "@/lib/bills/billers"
 import {
-  billNeedsReverify, billStorefrontPrice, isOtpRequiredResponse, parseBillAmount, parseBillVerify, suggestedAmountText, validateBuyer,
+  billNeedsReverify, billStorefrontPrice, isOtpRequiredResponse, momoNetworkLabel, parseBillAmount, parseBillVerify, suggestedAmountText, validateBuyer,
   type StorefrontBiller, type StorefrontMeter,
 } from "@/lib/storefront-commission/ui-helpers"
 
@@ -92,6 +94,7 @@ function BillSheet({ shopSlug, biller, onClose }: { shopSlug: string; biller: St
 
   const gate = useTurnstileGate()
   const otp = usePayerOtp(buyerPhone)
+  const payment = useStorefrontPayment(shopSlug, "cs_bill", otp)
 
   const backToInput = (msg: string) => {
     setPicked(null)
@@ -172,6 +175,7 @@ function BillSheet({ shopSlug, biller, onClose }: { shopSlug: string; biller: St
     if (payingRef.current || !picked || face === null) return
     const buyerError = validateBuyer({ email: buyerEmail, phone: buyerPhone })
     if (buyerError) { setError(buyerError); return }
+    if (payment.directCharge && !momoNetworkLabel(buyerPhone)) { setError(NOT_MOMO); return }
     if (otp.blocking) { setError("Please verify your phone number first."); return }
     if (gate.enabled && !gate.token) { setError("Please complete the security check."); return }
     payingRef.current = true
@@ -205,19 +209,15 @@ function BillSheet({ shopSlug, biller, onClose }: { shopSlug: string; biller: St
     try {
       if (status === 200 && json?.orderId) {
         const payNow = typeof json.payAmount === "number" ? json.payAmount : pay
-        // Hosted Paystack redirect, same as Bundles; nothing about the product is sent.
-        const payRes = await fetch("/api/payments/initialize", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ amount: payNow, email: buyerEmail.trim(), orderId: json.orderId, orderType: "cs_bill", shopSlug }),
-        })
-        const payJson = await payRes.json().catch(() => null)
-        if (!payRes.ok) throw new Error(payJson?.error || "Payment initialization failed")
-        if (!payJson?.authorizationUrl) throw new Error("No payment URL received")
-        window.location.href = payJson.authorizationUrl
-        return // keep the button busy while the browser navigates
-      }
-      if (isOtpRequiredResponse(status, json)) {
+        // On-page MoMo charge when direct charge is on, else the hosted Paystack checkout; nothing about the product is sent.
+        const r = await payment.pay({ orderId: json.orderId, amount: payNow, email: buyerEmail.trim(), paymentPhone: buyerPhone.trim() })
+        if (r === "redirecting") return // keep the button busy while the browser navigates
+        if (r === "otp_required") {
+          otp.require()
+          setError("Please verify your phone number to continue.")
+        }
+        // started / failed: the payment sheet shows the progress; tapping Pay again returns this same order.
+      } else if (isOtpRequiredResponse(status, json)) {
         otp.require()
         setError("Please verify your phone number to continue.")
       } else {
@@ -424,8 +424,9 @@ function BillSheet({ shopSlug, biller, onClose }: { shopSlug: string; biller: St
                 <Input className={fieldCls} type="email" required placeholder="john@example.com" value={buyerEmail} onChange={e => setBuyerEmail(e.target.value)} />
               </div>
               <div>
-                <label className={labelCls}>Your phone *</label>
+                <label className={labelCls}>{payment.directCharge ? "Your Mobile Money number *" : "Your phone *"}</label>
                 <Input className={`${fieldCls} font-mono`} type="tel" inputMode="numeric" required placeholder="024XXXXXXX" value={buyerPhone} onChange={e => setBuyerPhone(e.target.value)} />
+                {payment.directCharge && <div className="mt-1.5"><MomoPayerHint phone={buyerPhone} /></div>}
               </div>
 
               {face !== null && computed && (
@@ -453,6 +454,8 @@ function BillSheet({ shopSlug, biller, onClose }: { shopSlug: string; biller: St
           )}
         </div>
       </div>
+      {/* Inside the bill sheet's backdrop: keep the payment sheet's clicks from closing the bill sheet. */}
+      {payment.sheet && <div onClick={e => e.stopPropagation()}>{payment.sheet}</div>}
     </div>
   )
 }
