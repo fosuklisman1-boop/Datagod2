@@ -1,5 +1,6 @@
 import type { CashbackConfig } from "@/lib/cashback/config"
-import { isBillerKey, type BillerKey, type BillInputs } from "@/lib/bills/billers"
+import { isBillerKey, normaliseInputs, type BillerKey, type BillInputs } from "@/lib/bills/billers"
+import { checkBotVerifyCaps, type BotCapDeps } from "./caps"
 import type { BillsDeps, VerifyResult } from "@/lib/bills/service"
 import { commissionBillGate, verifyBillMasked, type CommissionBillGate } from "@/lib/storefront-commission/bills"
 import { fail } from "@/lib/storefront-commission/shop"
@@ -17,8 +18,10 @@ export async function botBillGate(
  * Account lookup from a bot: the storefront's masked lookup with a token bound to "bot:<surface>:<shopId|main>".
  * Names are masked (response and token body); lookup failures carry fixed text. Ghana Water from a USSD bot => 403.
  */
+export interface BotVerifyDeps extends BillsDeps { caps: BotCapDeps }
+
 export async function botVerifyBill(
-  d: BillsDeps, ctx: BotContext, input: { biller: string } & BillInputs & { addMeter?: boolean; consent?: boolean },
+  d: BotVerifyDeps, ctx: BotContext, input: { biller: string } & BillInputs & { addMeter?: boolean; consent?: boolean },
 ): Promise<VerifyResult> {
   const c = resolveBotContext(ctx)
   if (!c.ok) return c
@@ -27,5 +30,10 @@ export async function botVerifyBill(
   const g = await botBillGate(d, c.ctx.botSurface, biller)
   if (!g.ok) return g
   const { biller: _b, ...inputs } = input
+  // Validate before counting (a typo never consumes a slot); count before the Hubtel query (no free enumeration).
+  const n = normaliseInputs(biller, inputs)
+  if (!n.ok) return fail(400, n.error)
+  const capped = await checkBotVerifyCaps(d.caps, c.ctx)
+  if (capped) return capped
   return verifyBillMasked(d, botBinding(c.ctx), biller, inputs)
 }

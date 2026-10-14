@@ -12,6 +12,7 @@ import {
   fail, parseAmount, parseExpectedPay, priceMatches, NOT_AVAILABLE, PRICE_UPDATED, UNAVAILABLE, type Fail,
 } from "@/lib/storefront-commission/shop"
 import { botBundlesCfg } from "./catalog"
+import { checkBotPendingCaps, type BotCapDeps } from "./caps"
 import { botBinding, resolveBotContext, type BotContext, type BotSurface, type ResolvedBotContext } from "./context"
 import { botBillGate } from "./verify"
 
@@ -50,6 +51,7 @@ export interface BotBillsDeps extends BillsDeps {
   insertBotBillOrder(row: BotBillInsert): Promise<BotOrderRow>
   /** The bot order (channel 'bots') this buyer created from the verify token with this hash, or null. Throws on read error. */
   findBotBillOrderByHash(botSurface: BotSurface, buyerPhone: string, verifyTokenHash: string): Promise<BotOrderRow | null>
+  caps: BotCapDeps
 }
 
 export interface BotBundlesDeps extends BundlesDeps {
@@ -57,6 +59,7 @@ export interface BotBundlesDeps extends BundlesDeps {
   findBotBundleOrder(botSurface: BotSurface, buyerPhone: string, idempotencyKey: string): Promise<BotOrderRow | null>
   /** Throws with `code: "23505"` on a unique violation. */
   insertBotBundleOrder(row: BotBundleInsert): Promise<BotOrderRow>
+  caps: BotCapDeps
 }
 
 export interface BotOrder { id: string; reference: string; payAmount: number; faceAmount: number; customerCashback: number; paymentFee: number }
@@ -108,6 +111,11 @@ export async function botCreateBillOrder(d: BotBillsDeps, ctx: BotContext, input
   const token = typeof input.token === "string" ? input.token : ""
   const v = verifyBillToken(token, d.secret, botBinding(c), d.now())
   if (!v) return fail(400, "Please verify the account again")
+  const hash = billTokenHash(token)
+  // A retry with the same token hands back its order before any gate or cap (never consumes a slot).
+  let prior: BotOrderRow | null
+  try { prior = await d.findBotBillOrderByHash(c.botSurface, c.buyerPhone, hash) } catch { return fail(503, UNAVAILABLE) }
+  if (prior) return done({ ok: true, value: toInitializeResult(prior) })
 
   const g = await botBillGate(d, c.botSurface, v.biller)
   if (!g.ok) return g
@@ -120,7 +128,9 @@ export async function botCreateBillOrder(d: BotBillsDeps, ctx: BotContext, input
   const q = quoteFor(c, BILLERS[v.biller].serviceKey, face, g.cfg)
   if (!priceMatches(expectedPay, q.payAmount)) return priceChanged(face, q)
 
-  const hash = billTokenHash(token)
+  const capped = await checkBotPendingCaps(d.caps, "bill", "hubtel_bill_orders", c)
+  if (capped) return capped
+
   const insert = (reference: string) => d.insertBotBillOrder({
     reference_code: reference, user_id: null, channel: "bots", bot_surface: c.botSurface, shop_id: c.shopId,
     biller: v.biller, account_number: v.account, phone: v.phone, email: v.email, broadband_account: v.broadbandAccount,
@@ -165,6 +175,9 @@ export async function botCreateBundleOrder(d: BotBundlesDeps, ctx: BotContext, i
 
   const q = quoteFor(c, prep.serviceKey, prep.amount, g.cfg)
   if (!priceMatches(expectedPay, q.payAmount)) return priceChanged(prep.amount, q)
+
+  const capped = await checkBotPendingCaps(d.caps, "bundle", "hubtel_data_orders", c)
+  if (capped) return capped
 
   return done(await insertBundleOnce(() => d.insertBotBundleOrder({
     reference_code: d.newReference(), user_id: null, channel: "bots", bot_surface: c.botSurface, shop_id: c.shopId,

@@ -10,6 +10,7 @@ import {
   botCreateBillOrder, botCreateBundleOrder,
   type BotBillInsert, type BotBillsDeps, type BotBundleInsert, type BotBundlesDeps, type BotOrderRow,
 } from "./orders"
+import { TOO_MANY_REQUESTS, type BotCapDeps } from "./caps"
 
 const NOW = 1_700_000_000_000
 const SHOP = "11111111-2222-4333-8444-555555555555"
@@ -29,9 +30,22 @@ const CASHBACK = (over: Record<string, unknown> = {}) => resolveCashbackConfig({
   ...over,
 })
 
+/** Fake caps: records every limiter call; `block` names a limiter that says no; `pending` gives DB counts. */
+function fakeCaps(opts: { block?: string; pending?: Partial<Record<"buyer_phone" | "shop_id", number>> } = {}) {
+  const limits: { name: string; max: number; windowMs: number; id: string }[] = []
+  const counts: { table: string; column: string; value: string }[] = []
+  const caps: BotCapDeps = {
+    limit: async (name, max, windowMs, id) => (limits.push({ name, max, windowMs, id }), name !== opts.block),
+    countPending: async (table, column, value) => (counts.push({ table, column, value }), opts.pending?.[column] ?? 0),
+    now: () => NOW,
+  }
+  return { caps, limits, counts }
+}
+
 // ───────────────────────── bills harness ─────────────────────────
 
 function billsHarness(over: Partial<BotBillsDeps> & { cashback?: any; hubtel?: any; bills?: any } = {}) {
+  const { caps, limits, counts } = fakeCaps()
   const inserts: BotBillInsert[] = []
   const saved: (BotOrderRow & { bot_surface: string; buyer_phone: string; verify_token_hash: string })[] = []
   let refs = 0
@@ -72,9 +86,10 @@ function billsHarness(over: Partial<BotBillsDeps> & { cashback?: any; hubtel?: a
     async findBotBillOrderByHash(surface, phone, hash) {
       return saved.find(s => s.bot_surface === surface && s.buyer_phone === phone && s.verify_token_hash === hash) ?? null
     },
+    caps,
     ...over,
   }
-  return { d, inserts, saved }
+  return { d, inserts, saved, limits, counts }
 }
 
 async function billToken(d: BotBillsDeps, ctx: BotContext) {
@@ -231,6 +246,7 @@ describe("botCreateBillOrder", () => {
 const ITEMS = [{ Value: "x_Data_1", Display: "Data 1GB", Amount: 10 }]
 
 function bundlesHarness(over: Partial<BotBundlesDeps> & { cashback?: any; hubtel?: any } = {}) {
+  const { caps, limits, counts } = fakeCaps()
   const inserts: BotBundleInsert[] = []
   const rows: (BotOrderRow & { bot_surface: string; buyer_phone: string; idempotency_key: string })[] = []
   const d: BotBundlesDeps = {
@@ -266,9 +282,10 @@ function bundlesHarness(over: Partial<BotBundlesDeps> & { cashback?: any; hubtel
       rows.push(s)
       return s
     },
+    caps,
     ...over,
   }
-  return { d, inserts, rows }
+  return { d, inserts, rows, limits, counts }
 }
 
 async function bundleToken(d: BotBundlesDeps, ctx: BotContext) {
@@ -360,5 +377,107 @@ describe("botCreateBundleOrder", () => {
     expect(await botCreateBundleOrder(d, MAIN, { token: "x", recipient: "0541112222", idempotencyKey: "short", expectedPay: 1 })).toMatchObject({ status: 400 })
     expect(await botCreateBundleOrder(d, { ...MAIN, shopId: SHOP }, { token: "x", recipient: "0541112222", idempotencyKey: KEY, expectedPay: 1 }))
       .toMatchObject({ status: 400 })
+  })
+})
+
+// ───────────────────────── abuse caps ─────────────────────────
+
+describe("bot abuse caps", () => {
+  const TOO_MANY = { ok: false, status: 429, error: TOO_MANY_REQUESTS }
+
+  it("verify: phone 20/10 min, surface+shop 300/h, global 2000/h — counted after validation, before the lookup", async () => {
+    const h = billsHarness()
+    await botVerifyBill(h.d, SHOPBOT, { biller: "dstv", account: "1234567890" })
+    expect(h.limits).toEqual([
+      { name: "bot_bill_verify_phone", max: 20, windowMs: 600_000, id: "p:233241234567" },
+      { name: "bot_bill_verify_surface", max: 300, windowMs: 3_600_000, id: `s:ussd_shop:${SHOP}` },
+      { name: "bot_bill_verify_all", max: 2000, windowMs: 3_600_000, id: "all" },
+    ])
+    const bad = billsHarness()
+    expect(await botVerifyBill(bad.d, MAIN, { biller: "dstv", account: "!" })).toMatchObject({ status: 400 })
+    expect(bad.limits).toEqual([]) // invalid input never consumes a slot
+  })
+
+  it.each(["bot_bill_verify_phone", "bot_bill_verify_surface", "bot_bill_verify_all"])("verify over %s => 429, no Hubtel query", async name => {
+    let looked = false
+    const { caps } = fakeCaps({ block: name })
+    const h = billsHarness({ caps, query: async () => { looked = true; return { ok: true, data: [] } } })
+    expect(await botVerifyBill(h.d, MAIN, { biller: "dstv", account: "1234567890" })).toEqual(TOO_MANY)
+    expect(looked).toBe(false)
+  })
+
+  it("bill create: phone 5/h (main bot has no shop cap)", async () => {
+    const h = billsHarness()
+    const token = await billToken(h.d, MAIN)
+    h.limits.length = 0
+    await botCreateBillOrder(h.d, MAIN, { token, amount: 10, expectedPay: 10.11 })
+    expect(h.limits).toEqual([{ name: "bot_bill_cap_phone", max: 5, windowMs: 3_600_000, id: "p:233241234567" }])
+    expect(h.counts).toEqual([{ table: "hubtel_bill_orders", column: "buyer_phone", value: "233241234567" }])
+  })
+
+  it.each([
+    ["phone limiter", { block: "bot_bill_cap_phone" }],
+    ["shop limiter", { block: "bot_bill_cap_shop_1h" }],
+    ["phone DB count", { pending: { buyer_phone: 5 } }],
+    ["shop DB count", { pending: { shop_id: 60 } }],
+  ])("bill create over %s => 429, nothing written", async (_n, opts) => {
+    const h = billsHarness()
+    const token = await billToken(h.d, SHOPBOT)
+    const d = { ...h.d, caps: fakeCaps(opts as any).caps }
+    expect(await botCreateBillOrder(d, SHOPBOT, { token, amount: 10, expectedPay: 10.03 })).toEqual(TOO_MANY)
+    expect(h.inserts).toHaveLength(0)
+  })
+
+  it("under the DB caps (4 pending / 59 shop) => created", async () => {
+    const h = billsHarness()
+    const token = await billToken(h.d, SHOPBOT)
+    const d = { ...h.d, caps: fakeCaps({ pending: { buyer_phone: 4, shop_id: 59 } }).caps }
+    expect((await botCreateBillOrder(d, SHOPBOT, { token, amount: 10, expectedPay: 10.03 })).ok).toBe(true)
+  })
+
+  it("a price-change 409 and a same-token retry never consume a slot", async () => {
+    const h = billsHarness()
+    const token = await billToken(h.d, MAIN)
+    h.limits.length = 0
+    expect(await botCreateBillOrder(h.d, MAIN, { token, amount: 10, expectedPay: 9 })).toMatchObject({ status: 409 })
+    expect(h.limits).toEqual([])
+    await botCreateBillOrder(h.d, MAIN, { token, amount: 10, expectedPay: 10.11 })
+    expect(h.limits).toHaveLength(1)
+    await botCreateBillOrder(h.d, MAIN, { token, amount: 10, expectedPay: 10.11 })
+    expect(h.limits).toHaveLength(1)
+  })
+
+  it("bundle create: phone 5/h + shop 60/h; 409 consumes nothing; over => 429", async () => {
+    const h = bundlesHarness()
+    const token = await bundleToken(h.d, SHOPBOT)
+    expect(await botCreateBundleOrder(h.d, SHOPBOT, { token, recipient: "0541112222", idempotencyKey: KEY, expectedPay: 1 })).toMatchObject({ status: 409 })
+    expect(h.limits).toEqual([])
+    await botCreateBundleOrder(h.d, SHOPBOT, { token, recipient: "0541112222", idempotencyKey: KEY, expectedPay: 10.03 })
+    expect(h.limits).toEqual([
+      { name: "bot_bundle_cap_phone", max: 5, windowMs: 3_600_000, id: "p:233241234567" },
+      { name: "bot_bundle_cap_shop_1h", max: 60, windowMs: 3_600_000, id: `s:${SHOP}` },
+    ])
+    for (const opts of [{ block: "bot_bundle_cap_phone" }, { block: "bot_bundle_cap_shop_1h" }, { pending: { buyer_phone: 5 } }, { pending: { shop_id: 60 } }]) {
+      const b = bundlesHarness()
+      const t = await bundleToken(b.d, SHOPBOT)
+      const d = { ...b.d, caps: fakeCaps(opts as any).caps }
+      expect(await botCreateBundleOrder(d, SHOPBOT, { token: t, recipient: "0541112222", idempotencyKey: KEY, expectedPay: 10.03 })).toEqual(TOO_MANY)
+      expect(b.inserts).toHaveLength(0)
+    }
+  })
+
+  it("storefront pending caps are unchanged", async () => {
+    const { checkPendingCaps } = await import("@/lib/storefront-commission/shop")
+    const seen: any[] = []
+    await checkPendingCaps({
+      limit: async (name, max, windowMs, id) => (seen.push({ name, max, windowMs, id }), true),
+      countPending: async () => 0, now: () => NOW,
+    }, "bill", "hubtel_bill_orders", { email: "a@b.co", phone: "0241234567", shopId: "shop-A" })
+    expect(seen).toEqual([
+      { name: "shop_bill_cap_email", max: 5, windowMs: 3_600_000, id: "e:a@b.co" },
+      { name: "shop_bill_cap_phone", max: 5, windowMs: 3_600_000, id: "p:0241234567" },
+      { name: "shop_bill_cap_shop_5m", max: 15, windowMs: 300_000, id: "s:shop-A" },
+      { name: "shop_bill_cap_shop_1h", max: 60, windowMs: 3_600_000, id: "s:shop-A" },
+    ])
   })
 })
