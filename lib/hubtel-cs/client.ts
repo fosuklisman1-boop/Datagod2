@@ -56,6 +56,11 @@ export function validatePurchase(input: PurchaseInput): void {
   }
 }
 
+/** 32 lowercase hex chars (128 random bits) — opaque, like Hubtel USSD session ids. */
+export function newClientReference(): string {
+  return crypto.randomBytes(16).toString("hex")
+}
+
 export function buildPurchaseBody(input: PurchaseInput, callbackUrl: string, ref: string): Record<string, unknown> {
   const svc = getService(input.serviceKey)
   const body: Record<string, unknown> = {
@@ -88,7 +93,9 @@ type QueryOut = { ok: true; data: HubtelQueryItem[]; label: string | null } | { 
 
 export function createHubtelCsClient(deps: ClientDeps) {
   const now = deps.now ?? (() => new Date())
-  const newRef = deps.newRef ?? ((k: HubtelCsServiceKey) => `HCS-${k}-${crypto.randomBytes(8).toString("hex")}`)
+  // Opaque 32-hex reference, the same shape as Hubtel's USSD session ids: no product words ("data", "airtime",
+  // biller names) leave our system in the ClientReference. The service is recorded on the ledger row instead.
+  const newRef = deps.newRef ?? ((_k: HubtelCsServiceKey) => newClientReference())
   const onTransition = deps.onTransition ?? (async () => {})
 
   async function gate(serviceKey: HubtelCsServiceKey, opts: { checkPause: boolean }): Promise<HubtelCsConfig> {

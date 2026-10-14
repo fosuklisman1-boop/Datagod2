@@ -1,5 +1,16 @@
 import { describe, it, expect, vi } from "vitest"
-import { buildPurchaseBody, createHubtelCsClient, validatePurchase } from "./client"
+import { buildPurchaseBody, createHubtelCsClient, newClientReference, validatePurchase } from "./client"
+import { isValidRef } from "./admin-route"
+
+describe("newClientReference", () => {
+  it("is 32 lowercase hex chars, unique, with no product words, and passes the ledger ref check", () => {
+    const a = newClientReference(), b = newClientReference()
+    expect(a).toMatch(/^[0-9a-f]{32}$/)
+    expect(a).not.toBe(b)
+    expect(a).not.toMatch(/data|airtime|bill|hcs/i)
+    expect(isValidRef(a)).toBe(true)
+  })
+})
 import { resolveConfig } from "./config"
 import { verifySig } from "./callback"
 import { createMemoryStore } from "./testing/memory-store"
