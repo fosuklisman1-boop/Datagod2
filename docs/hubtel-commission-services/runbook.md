@@ -205,3 +205,26 @@ Shop storefronts sell airtime, Utility Bills and Standard Bundles with cashback 
    - Storefront airtime: the page always sends the price it showed; if cashback applies and the page did not send it (stale page / old client), the server answers 409 with the price instead of charging.
    - Admin airtime "Failed" on a storefront order sends no "refunded to your wallet" SMS and credits nothing: refund it on `/admin/refunds`.
 
+
+## Commission Cashback — API
+Adds `GET/POST /api/v1/bundles`, `GET /api/v1/bundles/{reference}`, `POST /api/v1/bills/verify`, `POST /api/v1/bills`, `GET /api/v1/bills/{reference}`, and API-channel cashback pricing on v1 airtime. Ships DARK: the API surface switch is OFF, so live keys get `403 not_available` on the bundle endpoints.
+
+1. **Apply migration `0122_sandbox_commission_actions.sql` BEFORE deploying** (Supabase Management API SQL). Without it, sandbox bundle and bill orders fail on the `sandbox_orders.action` CHECK. It is additive.
+   - Pre-check: `select pg_get_constraintdef(oid) from pg_constraint where conname = 'sandbox_orders_action_check';` should list 4 actions (`data_order`, `airtime`, `afa`, `results_checker`).
+   - Post-check: the same query must now list 6 actions (adds `standard_bundle`, `utility_bill`).
+2. Deploy. Nothing changes for live keys yet.
+3. Admin > Hubtel Commission > Cashback: switch **API** ON (the master switch must also be ON, and the rates/shares for each group must be set). Bots stays "Coming later". Airtime pricing for API keys uses the same switch.
+4. Sandbox test with a TEST key (`dg_test_...`, sandbox wallet, no real money):
+   - Bundles: `GET /api/v1/bundles?network=MTN` returns the static `sbx_*` catalog; `POST /api/v1/bundles` with `bundle_token: "sbx_mtn_1gb"`, a 10-digit `phone` and an `idempotency_key` returns 201; repeating the same key returns the same order with no second debit; `GET /api/v1/bundles/{reference}` returns it.
+   - Bills: `POST /api/v1/bills/verify` (`biller: "dstv"`, any `account`) returns "Sandbox Customer" and a `verify_token`; `POST /api/v1/bills` with that token and an amount returns 201; `GET /api/v1/bills/{reference}` returns it.
+   - Sandbox prices are face value and simulate no cashback (accepted).
+5. Live test with ONE live key, your own account, smallest amounts:
+   - Cheapest bundle: `GET /api/v1/bundles?network=MTN`, buy the cheapest to your own number with `expected_pay` set to its `pay_amount`. Confirm the order completes and appears on `/admin/hubtel-commission` Standard Bundles with channel "API" (filter: API).
+   - Airtime: GHS 1 to your own number via `POST /api/v1/airtime`.
+   - Bill: verify and pay the smallest bill you can on your own account; confirm it shows channel "API" on `/admin/utility-bills`.
+   - Also confirm switching **API** OFF returns `403 not_available` on the bundle endpoints.
+6. Contract change to tell integrators: v1 airtime `409 price_changed` now has the same shape as bundles/bills: `{ "success": false, "error": "price_changed", "message": "...", "quote": { "face_amount", "pay_amount", "customer_cashback" } }` (snake_case). Anyone parsing the old camelCase quote must update.
+
+Notes:
+- The Cashback margin report channel filter now has an `api` option. For bills and bundles it filters on the order channel. Airtime orders carry no API/dashboard marker (both are `airtime_orders` with a user and no shop), so the `dashboard` option for airtime is dashboard + API combined, and `api` shows no airtime.
+- Bundle and bill orders placed by API keys are refundable like dashboard orders (wallet refund from the admin pages).
