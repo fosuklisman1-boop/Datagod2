@@ -24,6 +24,7 @@ export interface ResolvedShopCode {
   shopName: string
   parentShopId: string | null
   status: string
+  /** Legacy session-token balance. Unused for gating since 2026-10-14 (sessions retired). */
   tokenBalance: number
   whatsappActivated: boolean
 }
@@ -43,7 +44,7 @@ export async function resolveShopCode(
 
   const { data: shopRow } = await client
     .from("user_shops")
-    .select("shop_name, parent_shop_id, ussd_display_name")
+    .select("shop_name, parent_shop_id, ussd_display_name, is_active, is_blocked")
     .eq("id", shopCode.shop_id)
     .single()
 
@@ -52,7 +53,11 @@ export async function resolveShopCode(
     shopId: shopCode.shop_id,
     shopName: shopRow?.ussd_display_name || shopRow?.shop_name || 'Shop',
     parentShopId: (shopRow as any)?.parent_shop_id ?? null,
-    status: shopCode.status,
+    // Effective status: a blocked or not-yet-approved shop is closed on every channel even when its
+    // code is active (sessions are free since 2026-10-14, so nothing else gates these shops).
+    status: (shopRow as any)?.is_blocked === true ? "suspended"
+      : (shopRow as any)?.is_active === false ? "inactive"
+      : shopCode.status,
     tokenBalance: shopCode.token_balance,
     whatsappActivated: shopCode.whatsapp_activated === true,
   }

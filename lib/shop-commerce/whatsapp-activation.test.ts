@@ -90,6 +90,27 @@ function makeClient(state: { whatsappActivated: boolean; walletBalance: number }
 
 const baseInput = { shopCodeId: "sc1", shopId: "s1", userId: "u1", fee: 20 }
 
+describe("activateWhatsappShop with fee 0 (final review I2: free self-activation)", () => {
+  it("claims without touching the wallet and records a waived, zero-amount activation", async () => {
+    const { client, calls } = makeClient({ whatsappActivated: false, walletBalance: 0 })
+
+    const result = await activateWhatsappShop({ ...baseInput, fee: 0 }, client)
+
+    expect(result).toEqual({ ok: true })
+    expect(calls.some(c => c.op === "rpc")).toBe(false)
+    expect(calls.some(c => c.table === "transactions")).toBe(false)
+    const claim = calls.find(c => c.table === "ussd_shop_codes" && c.op === "update")
+    expect(claim?.payload).toMatchObject({ whatsapp_activated: true, whatsapp_activation_waived: true })
+    const purchase = calls.find(c => c.table === "ussd_shop_token_purchases")
+    expect(purchase?.payload[0]).toMatchObject({ amount_paid: 0, is_whatsapp_activation: true })
+  })
+  it("already activated: 409, nothing logged", async () => {
+    const { client, calls } = makeClient({ whatsappActivated: true, walletBalance: 0 })
+    expect(await activateWhatsappShop({ ...baseInput, fee: 0 }, client)).toEqual({ ok: false, status: 409, error: "Already activated" })
+    expect(calls.some(c => c.table === "ussd_shop_token_purchases")).toBe(false)
+  })
+})
+
 describe("activateWhatsappShop", () => {
   it("claims, deducts the wallet, and records the purchase on a clean single call", async () => {
     const { client, calls } = makeClient({ whatsappActivated: false, walletBalance: 50 })

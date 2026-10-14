@@ -180,22 +180,6 @@ async function isResultsCheckServiceEnabled(): Promise<boolean> {
   return (data as any)?.value?.enabled !== false
 }
 
-// CONFIRM-time anti-race token check. A shop's ussd_shop_codes.token_balance is a
-// SHARED pool across USSD + WhatsApp (design doc: "sessions stay shared with
-// USSD"), and a WhatsApp session can sit for up to 30 minutes (shop-session.ts's
-// TTL) between the initial ENTER_CODE gate and CONFIRM — long enough for the
-// shop's last token to be consumed elsewhere in that window. Re-reading it here,
-// right before creating the order, closes that gap (USSD doesn't need this: it
-// deducts synchronously at dial-in, not at confirm).
-async function fetchShopCodeTokenBalance(shopCodeId: string): Promise<number | null> {
-  const { data } = await supabase
-    .from("ussd_shop_codes")
-    .select("token_balance")
-    .eq("id", shopCodeId)
-    .maybeSingle()
-  return data?.token_balance ?? null
-}
-
 // resolveShopCode takes a code string, not an id — the returning-customer path
 // only has the remembered shopCodeId, so look up the code string first.
 async function resolveShopCodeById(shopCodeId: string) {
@@ -317,13 +301,12 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
     const looksLikeGreeting = /^(hi|hello|hey|start|menu)?$/i.test(input)
     if (pref && looksLikeGreeting) {
       const remembered = await resolveShopCodeById(pref.shopCodeId)
-      // Same three checks every other shop-resolution path in this file makes
+      // Same checks every other shop-resolution path in this file makes
       // (the !matchedReturning chain below, and resolve_shop_code in
-      // lib/ai-tools.ts) — a shop that's since gone inactive, deactivated
-      // WhatsApp, or run out of sessions must fall through to the normal
-      // code-entry flow instead of showing a stale "Welcome back" + product
-      // menu that would only fail later at CONFIRM.
-      if (remembered && remembered.status === 'active' && remembered.whatsappActivated && remembered.tokenBalance > 0) {
+      // lib/ai-tools.ts) — a shop that's since gone inactive or deactivated
+      // WhatsApp must fall through to the normal code-entry flow instead of
+      // showing a stale "Welcome back" + product menu.
+      if (remembered && remembered.status === 'active' && remembered.whatsappActivated) {
         const [networks, dataBlocked] = await Promise.all([
           fetchShopNetworks(remembered.shopId, remembered.parentShopId),
           isDataWhitelistBlocked(from),
@@ -370,9 +353,6 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         }
       } else if (resolved.status !== 'active') {
         reply = shopInvalidCodeMenu('This shop is currently unavailable.')
-        skipPersist = true
-      } else if (resolved.tokenBalance <= 0) {
-        reply = shopInvalidCodeMenu('This shop has no sessions left. Please contact the seller.')
         skipPersist = true
       } else if (!resolved.whatsappActivated) {
         reply = shopInvalidCodeMenu("This shop isn't set up for WhatsApp yet.")
@@ -707,18 +687,6 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
           break
         }
 
-        // Re-check the shop's token balance right before charging — the ENTER_CODE
-        // gate only proved >0 tokens existed up to 30 minutes ago (shop-session.ts's
-        // TTL), and the balance is a pool shared with USSD, so it can be spent to 0
-        // elsewhere while this session sits idle. Without this, a 0-token shop would
-        // still get charged AND fulfilled for free (shop-revenue loss).
-        const tokenBalance = await fetchShopCodeTokenBalance(session.shopCodeId!)
-        if (tokenBalance === null || tokenBalance <= 0) {
-          deleteAfter = true
-          reply = 'This shop has no sessions left. Please contact the seller.'
-          break
-        }
-
         // Re-fetch retail price from DB to prevent stale-session price tampering.
         const verified = await verifyBundlePrice(session.shopId!, session.bundleId!, session.parentShopId)
         if (!verified) {
@@ -957,15 +925,6 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
           break
         }
 
-        // Same anti-race token recheck as Data's CONFIRM — see the comment on
-        // fetchShopCodeTokenBalance above.
-        const tokenBalance = await fetchShopCodeTokenBalance(session.shopCodeId!)
-        if (tokenBalance === null || tokenBalance <= 0) {
-          deleteAfter = true
-          reply = 'This shop has no sessions left. Please contact the seller.'
-          break
-        }
-
         const network = session.airtimeNetwork!
         const amount = session.airtimeAmount!
 
@@ -1159,15 +1118,6 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         }
         if (input !== '1') {
           reply = shopRcConfirmMenu(shopName, session.rcBoard!, session.rcQty!, session.rcTotal!, session.paymentPhone!)
-          break
-        }
-
-        // Same anti-race token recheck as Data's CONFIRM — see the comment on
-        // fetchShopCodeTokenBalance above.
-        const tokenBalance = await fetchShopCodeTokenBalance(session.shopCodeId!)
-        if (tokenBalance === null || tokenBalance <= 0) {
-          deleteAfter = true
-          reply = 'This shop has no sessions left. Please contact the seller.'
           break
         }
 
@@ -1472,14 +1422,6 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
             session.rcCheckIndex!, session.rcCheckYear!, session.rcCheckDob!,
             session.rcCheckMode ?? 'own_voucher', session.rcCheckAmount ?? 0, session.paymentPhone!
           )
-          break
-        }
-
-        // Same anti-race token recheck as every other CONFIRM step.
-        const tokenBalance = await fetchShopCodeTokenBalance(session.shopCodeId!)
-        if (tokenBalance === null || tokenBalance <= 0) {
-          deleteAfter = true
-          reply = 'This shop has no sessions left. Please contact the seller.'
           break
         }
 

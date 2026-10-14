@@ -329,8 +329,7 @@ describe("hubtelRouter: mode pinning (spec 4.2, review focus #3)", () => {
   })
   it("a shop session keeps running shop after the admin flips to main (code step and product menu)", async () => {
     let mode: "main" | "shop" = "shop"
-    const deductToken = vi.fn(async () => true)
-    const { deps, store } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode, visibility: ALL_ON }), shop: fakeShop({ deductToken }) })
+    const { deps, store } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode, visibility: ALL_ON }) })
     await hubtelRouter(req({ Type: "Initiation" }), deps)
     mode = "main"
     const r = await hubtelRouter(req({ Message: "1234" }), deps)
@@ -338,7 +337,6 @@ describe("hubtelRouter: mode pinning (spec 4.2, review focus #3)", () => {
     expect(store.get("S1")).toMatchObject({ mode: "shop", step: "SHOP_PRODUCT" })
     const again = await hubtelRouter(req({ Message: "9" }), deps)
     expect(again.Message).toContain("What would you like to buy?")
-    expect(deductToken).toHaveBeenCalledTimes(1)
   })
   it("a NEW session uses the current mode", async () => {
     let mode: "main" | "shop" = "main"
@@ -385,23 +383,23 @@ describe("hubtelRouter: mode pinning (spec 4.2, review focus #3)", () => {
     expect(store.get("S1")?.mode).toBe("main")
   })
   it("a shop step in a main (or mode-less) session is never dispatched to the shop table", async () => {
-    const deductToken = vi.fn(async () => true)
-    const { deps, store } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode: "main", visibility: ALL_ON }), shop: fakeShop({ deductToken }) })
+    const resolveCode = vi.fn(async () => null)
+    const { deps, store } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode: "main", visibility: ALL_ON }), shop: fakeShop({ resolveCode }) })
     store.set("S1", { step: "SHOP_ENTER_CODE", dialingPhone: "+233200585542", platform: "USSD" })
     const r = await hubtelRouter(req({ Message: "1234" }), deps)
     expect(r.Message).toContain("Buy Data Bundle")
-    expect(deductToken).not.toHaveBeenCalled()
+    expect(resolveCode).not.toHaveBeenCalled()
   })
-  it("kill switch releases an in-flight shop session and bills nothing more (review focus #8)", async () => {
+  it("kill switch releases an in-flight shop session (review focus #8)", async () => {
     let enabled = true
-    const deductToken = vi.fn(async () => true)
-    const { deps } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled, mode: "shop", visibility: ALL_ON }), shop: fakeShop({ deductToken }) })
+    const resolveCode = vi.fn(async () => null)
+    const { deps } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled, mode: "shop", visibility: ALL_ON }), shop: fakeShop({ resolveCode }) })
     await hubtelRouter(req({ Type: "Initiation" }), deps)
     enabled = false
     const r = await hubtelRouter(req({ Message: "1234" }), deps)
     expect(r.Type).toBe("release")
     expect(r.Message).toContain("Service unavailable")
-    expect(deductToken).not.toHaveBeenCalled()
+    expect(resolveCode).not.toHaveBeenCalled()
   })
   it("kill switch releases a shop session already on the product menu", async () => {
     let enabled = true

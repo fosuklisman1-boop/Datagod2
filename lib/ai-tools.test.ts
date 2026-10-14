@@ -115,6 +115,50 @@ describe("aiTools whatsapp_shop context", () => {
   })
 })
 
+describe("USSD shop tools: sessions retired (spec 2026-10-14)", () => {
+  it("dashboard manage_my_ussd_shop only offers activate", () => {
+    const tool = aiTools("dashboard").find(t => t.name === "manage_my_ussd_shop")!
+    const props = (tool.input_schema as { properties: Record<string, any> }).properties
+    expect(props.action.enum).toEqual(["activate"])
+    expect(props.sessions).toBeUndefined()
+    expect(tool.description).not.toMatch(/session/i)
+  })
+  it("get_my_shop no longer advertises a token balance", () => {
+    const tool = aiTools("dashboard").find(t => t.name === "get_my_shop")!
+    expect(tool.description).not.toMatch(/token/i)
+  })
+  it("admin manage_ussd_shop has no add_tokens action or token inputs", () => {
+    const tool = aiTools("admin").find(t => t.name === "manage_ussd_shop")!
+    const props = (tool.input_schema as { properties: Record<string, any> }).properties
+    expect(props.action.enum).toEqual(["list", "get", "create", "activate"])
+    expect(props.tokens).toBeUndefined()
+    expect(props.initial_tokens).toBeUndefined()
+    expect(tool.description).not.toMatch(/token/i)
+  })
+  it("admin manage_ussd_shop rejects add_tokens without calling any API", async () => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal("fetch", fetchSpy)
+    const result = await executeToolCall(
+      "manage_ussd_shop", { action: "add_tokens", ussd_shop_code_id: "c1", tokens: 10 },
+      { baseUrl: "http://localhost:3000", jwtToken: "t", userId: "admin1", userRole: "admin" } as any,
+    ) as Record<string, unknown>
+    vi.unstubAllGlobals()
+    expect(String(result.error)).toMatch(/Unknown action/)
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+  it("manage_my_ussd_shop rejects buy_sessions without calling any API", async () => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal("fetch", fetchSpy)
+    const result = await executeToolCall(
+      "manage_my_ussd_shop", { action: "buy_sessions", sessions: 5 },
+      { baseUrl: "http://localhost:3000", jwtToken: "t", userId: "u1" } as any,
+    ) as Record<string, unknown>
+    vi.unstubAllGlobals()
+    expect(String(result.error)).toMatch(/Unknown action/)
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+})
+
 describe("executeToolCall resolve_shop_code", () => {
   const baseCtx = { baseUrl: "http://localhost:3000", phone: "233559919037" }
 
@@ -130,6 +174,19 @@ describe("executeToolCall resolve_shop_code", () => {
     expect(result.resolved).toBe(true)
     expect(result.shopName).toBe("Kofi's Data Hub")
     expect(setShopPref).toHaveBeenCalledWith("233559919037", "code-1")
+  })
+
+  it("resolves a shop at token balance 0 (sessions retired)", async () => {
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "code-9", shopId: "shop-9", shopName: "Zero Shop",
+      parentShopId: null, status: "active", tokenBalance: 0, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+
+    const result = await executeToolCall("resolve_shop_code", { code: "AB12CD" }, baseCtx) as Record<string, unknown>
+
+    expect(result.resolved).toBe(true)
+    expect(setShopPref).toHaveBeenCalledWith("233559919037", "code-9")
   })
 
   it("returns a reason without remembering an invalid code", async () => {

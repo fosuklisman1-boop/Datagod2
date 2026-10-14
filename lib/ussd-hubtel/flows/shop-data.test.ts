@@ -41,14 +41,12 @@ describe("shop data: networks (review focus #4)", () => {
     expect(r.Message).toContain("No MTN packages available.")
     expect(store.get("S1")?.step).toBe("SHOP_DATA_NETWORK")
   })
-  it("'0' on the network menu returns to the product menu without billing again (D5)", async () => {
-    const deductToken = vi.fn(async () => true)
-    const { deps, store } = shopDeps({ shop: fakeShop({ deductToken }) })
+  it("'0' on the network menu returns to the product menu (D5)", async () => {
+    const { deps, store } = shopDeps()
     await toNetworks(deps)
     const r = await hubtelRouter(req({ Message: "0" }), deps)
     expect(r.Message).toContain("What would you like to buy?")
     expect(store.get("S1")).toMatchObject({ step: "SHOP_PRODUCT", shopId: "shop-1" })
-    expect(deductToken).toHaveBeenCalledTimes(1)
   })
 })
 

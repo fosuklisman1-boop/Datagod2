@@ -24,7 +24,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
   const { data, error } = await supabase
     .from("ussd_shop_codes")
-    .select(`id, code, status, token_balance, activation_fee_paid, activation_paid_at, created_at, user_shops!inner(shop_name, user_id)`)
+    .select(`id, code, status, activation_fee_paid, activation_paid_at, created_at, user_shops!inner(shop_name, user_id)`)
     .eq("id", id)
     .single()
 
@@ -61,7 +61,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   return NextResponse.json({ data })
 }
 
-// DELETE /api/admin/ussd-shops/[id] — only if no pending orders and token balance is 0
+// DELETE /api/admin/ussd-shops/[id] — only if no pending orders
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const adminId = await requireAdmin(request)
   if (!adminId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -69,7 +69,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
   const { id } = await params
 
   const { data: code } = await supabase
-    .from("ussd_shop_codes").select("token_balance").eq("id", id).single()
+    .from("ussd_shop_codes").select("id").eq("id", id).single()
   if (!code) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
   const { count: pendingCount } = await supabase

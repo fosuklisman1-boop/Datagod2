@@ -508,7 +508,7 @@ export const EmailTemplates = {
     `, "Shop Status", true),
   }),
 
-  ussdShopActivated: (shopName: string, code: string, initialTokens: number) => ({
+  ussdShopActivated: (shopName: string, code: string) => ({
     subject: `Your USSD Shop Code is Active — ${code}`,
     html: wrapHtml(`
       <div class="text-center">
@@ -528,8 +528,8 @@ export const EmailTemplates = {
           <span class="info-value highlight">${code}</span>
         </div>
         <div class="info-row">
-          <span class="info-label">Starting Tokens</span>
-          <span class="info-value">${initialTokens}</span>
+          <span class="info-label">Customer Sessions</span>
+          <span class="info-value">Free, unlimited</span>
         </div>
         <div class="info-row">
           <span class="info-label">Status</span>
@@ -537,7 +537,7 @@ export const EmailTemplates = {
         </div>
       </div>
 
-      <p>Customers can now dial <strong>${code}</strong> to browse and purchase data bundles from your shop. Each customer transaction uses one token.</p>
+      <p>Customers can now dial <strong>${code}</strong> to browse and purchase data bundles from your shop.</p>
       <a href="${APP_URL}/dashboard/ussd-shop" class="button-primary">View My Shop</a>
     `, "USSD Shop Activated", true),
   }),

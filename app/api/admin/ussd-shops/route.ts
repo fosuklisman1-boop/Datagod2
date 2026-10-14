@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
   const { data: codes, error } = await supabase
     .from("ussd_shop_codes")
     .select(`
-      id, code, status, token_balance, activation_fee_paid, activation_paid_at, created_at,
+      id, code, status, activation_fee_paid, activation_paid_at, created_at,
       whatsapp_activated, whatsapp_activated_at,
       user_shops!inner(id, shop_name, user_id)
     `)
@@ -50,7 +50,6 @@ export async function GET(request: NextRequest) {
     id: c.id,
     code: c.code,
     status: c.status,
-    token_balance: c.token_balance,
     activation_fee_paid: c.activation_fee_paid,
     activation_paid_at: c.activation_paid_at,
     whatsapp_activated: c.whatsapp_activated,
@@ -92,7 +91,7 @@ export async function POST(request: NextRequest) {
   if (!adminId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const body = await request.json()
-  const { shop_id, code, initial_tokens = 0 } = body
+  const { shop_id, code } = body
 
   if (!shop_id) return NextResponse.json({ error: "shop_id is required" }, { status: 400 })
 
@@ -112,7 +111,7 @@ export async function POST(request: NextRequest) {
 
   const { data, error } = await supabase
     .from("ussd_shop_codes")
-    .insert([{ shop_id, code: finalCode, token_balance: initial_tokens }])
+    .insert([{ shop_id, code: finalCode }]) // migration 0121's trigger decides active/inactive from the fee
     .select()
     .single()
 

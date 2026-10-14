@@ -46,6 +46,8 @@ export async function activateWhatsappShop(
   client: SupabaseClientLike = supabase
 ): Promise<ActivateWhatsappShopResult> {
   const { shopCodeId, shopId, userId, fee } = input
+  // Fee 0 = free self-activation (spec 2026-10-14-ussd-shop-free-sessions-design, D6): claim only.
+  const free = !(fee > 0)
 
   // ── 1. Claim — the atomic concurrency guard. No money has moved yet. ──────
   const { data: claimed, error: claimErr } = await client
@@ -53,6 +55,7 @@ export async function activateWhatsappShop(
     .update({
       whatsapp_activated: true,
       whatsapp_activated_at: new Date().toISOString(),
+      ...(free ? { whatsapp_activation_waived: true } : {}),
       updated_at: new Date().toISOString(),
     })
     .eq("id", shopCodeId)
@@ -68,6 +71,19 @@ export async function activateWhatsappShop(
     // Someone else already activated it (or a concurrent request won the race) —
     // no charge, no wallet touch.
     return { ok: false, status: 409, error: "Already activated" }
+  }
+
+  if (free) {
+    await client.from("ussd_shop_token_purchases").insert([{
+      shop_code_id: shopCodeId,
+      shop_id: shopId,
+      tokens_purchased: 0,
+      amount_paid: 0,
+      payment_method: "free",
+      payment_status: "completed",
+      is_whatsapp_activation: true,
+    }])
+    return { ok: true }
   }
 
   // ── 2. Pay — only the single claim winner reaches here. ───────────────────

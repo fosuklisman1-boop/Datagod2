@@ -53,6 +53,9 @@ export async function POST(request: NextRequest) {
       console.error("[USSD-ACTIVATE] Failed to provision a code:", err)
       return NextResponse.json({ error: "Could not set up your USSD code — please try again" }, { status: 500 })
     }
+    // Migration 0121's insert trigger opens a new code for free while the fee is 0: that is a
+    // successful set-up, not an "already activated" error.
+    if (shopCode.activation_fee_paid) return NextResponse.json({ success: true, status: 'active' })
   }
   if (shopCode.activation_fee_paid) return NextResponse.json({ error: "Already activated" }, { status: 409 })
 

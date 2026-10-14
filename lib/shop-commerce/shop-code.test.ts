@@ -31,6 +31,30 @@ describe("resolveShopCode", () => {
     expect(result).toBeNull()
   })
 
+  // Final review C1: with sessions free, the shop's own approval/block flags are the only thing
+  // standing between a blocked or unapproved shop and live USSD/WhatsApp sales.
+  it("a blocked shop's active code resolves as suspended (refused on every channel)", async () => {
+    const client = fakeClient({
+      ussd_shop_codes: { data: { id: "sc7", shop_id: "s7", status: "active", token_balance: 0, whatsapp_activated: true } },
+      user_shops: { data: { shop_name: "Blocked Shop", parent_shop_id: null, is_active: true, is_blocked: true } },
+    })
+    expect((await resolveShopCode("B1", client))?.status).toBe("suspended")
+  })
+  it("an unapproved (is_active=false) shop's active code resolves as inactive", async () => {
+    const client = fakeClient({
+      ussd_shop_codes: { data: { id: "sc8", shop_id: "s8", status: "active", token_balance: 0, whatsapp_activated: true } },
+      user_shops: { data: { shop_name: "Pending Shop", parent_shop_id: null, is_active: false, is_blocked: false } },
+    })
+    expect((await resolveShopCode("P1", client))?.status).toBe("inactive")
+  })
+  it("an approved, unblocked shop keeps the code's own status", async () => {
+    const client = fakeClient({
+      ussd_shop_codes: { data: { id: "sc9", shop_id: "s9", status: "active", token_balance: 0, whatsapp_activated: true } },
+      user_shops: { data: { shop_name: "Good Shop", parent_shop_id: null, is_active: true, is_blocked: false } },
+    })
+    expect((await resolveShopCode("G1", client))?.status).toBe("active")
+  })
+
   it("resolves a known active code with tokens to the full shape, with whatsappActivated false when the column is false", async () => {
     const client = fakeClient({
       ussd_shop_codes: {

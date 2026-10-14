@@ -16,13 +16,12 @@ import { supabase } from "@/lib/supabase"
 import { UssdServiceVisibilityCard } from "@/components/admin/ussd-service-visibility-card"
 import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { toast } from "sonner"
-import { Plus, Coins, CheckCircle, PauseCircle, Trash2, RefreshCw, Hash, Settings2, Save, ShieldCheck, Activity, Banknote, Database, MessageCircle } from "lucide-react"
+import { Plus, CheckCircle, PauseCircle, Trash2, RefreshCw, Hash, Settings2, Save, ShieldCheck, Activity, Banknote, MessageCircle } from "lucide-react"
 
 interface ShopCode {
   id: string
   code: string
   status: 'inactive' | 'active' | 'suspended'
-  token_balance: number
   activation_fee_paid: boolean
   activation_paid_at: string | null
   whatsapp_activated: boolean
@@ -69,24 +68,14 @@ export default function AdminUssdShopsPage() {
   const [showCreate, setShowCreate] = useState(false)
   const [createShopId, setCreateShopId] = useState("")
   const [createCode, setCreateCode] = useState("")
-  const [createTokens, setCreateTokens] = useState("0")
   const [creating, setCreating] = useState(false)
-
-  // Tokens modal
-  const [showTokens, setShowTokens] = useState(false)
-  const [tokensTarget, setTokensTarget] = useState<ShopCode | null>(null)
-  const [tokenQty, setTokenQty] = useState("10")
-  const [addingTokens, setAddingTokens] = useState(false)
 
   // USSD dial code setting
   const [dialCode, setDialCode] = useState("")
   const [savingDialCode, setSavingDialCode] = useState(false)
   const [activationFee, setActivationFee] = useState("")
   const [whatsappActivationFee, setWhatsappActivationFee] = useState("")
-  const [sessionPrice, setSessionPrice] = useState("")
-  const [minSessions, setMinSessions] = useState("")
-  const [maxSessions, setMaxSessions] = useState("")
-  const [savingSessionSettings, setSavingSessionSettings] = useState(false)
+  const [savingFees, setSavingFees] = useState(false)
   const [showUssdCard, setShowUssdCard] = useState(false)
   const [savingShowUssdCard, setSavingShowUssdCard] = useState(false)
 
@@ -97,7 +86,6 @@ export default function AdminUssdShopsPage() {
   // Activate modal
   const [showActivate, setShowActivate] = useState(false)
   const [activateTarget, setActivateTarget] = useState<ShopCode | null>(null)
-  const [activateTokens, setActivateTokens] = useState("0")
   const [activating, setActivating] = useState(false)
 
   // WhatsApp grant/revoke — tracks which single row is mid-request so only
@@ -158,9 +146,6 @@ export default function AdminUssdShopsPage() {
         setDialCode(settingsJson.ussd_shop_dial_code ?? "")
         setActivationFee(String(settingsJson.ussd_shop_activation_fee ?? ""))
         setWhatsappActivationFee(String(settingsJson.whatsapp_shop_activation_fee ?? ""))
-        setSessionPrice(String(settingsJson.ussd_shop_session_price ?? ""))
-        setMinSessions(String(settingsJson.ussd_shop_min_sessions ?? "1"))
-        setMaxSessions(String(settingsJson.ussd_shop_max_sessions ?? "100"))
         setShowUssdCard(settingsJson.storefront_show_ussd_card === true)
       }
 
@@ -209,8 +194,8 @@ export default function AdminUssdShopsPage() {
     }
   }
 
-  const handleSaveSessionSettings = async () => {
-    setSavingSessionSettings(true)
+  const handleSaveFees = async () => {
+    setSavingFees(true)
     try {
       const res = await fetch("/api/admin/settings", {
         method: "PUT",
@@ -218,17 +203,14 @@ export default function AdminUssdShopsPage() {
         body: JSON.stringify({
           ussd_shop_activation_fee: parseFloat(activationFee) || 0,
           whatsapp_shop_activation_fee: parseFloat(whatsappActivationFee) || 0,
-          ussd_shop_session_price: parseFloat(sessionPrice) || 0,
-          ussd_shop_min_sessions: parseInt(minSessions) || 1,
-          ussd_shop_max_sessions: parseInt(maxSessions) || 100,
         }),
       })
       if (!res.ok) throw new Error()
-      toast.success("Session settings saved")
+      toast.success("Activation fees saved")
     } catch {
-      toast.error("Failed to save session settings")
+      toast.error("Failed to save activation fees")
     } finally {
-      setSavingSessionSettings(false)
+      setSavingFees(false)
     }
   }
 
@@ -242,14 +224,13 @@ export default function AdminUssdShopsPage() {
         body: JSON.stringify({
           shop_id: createShopId,
           code: createCode.trim() || undefined,
-          initial_tokens: parseInt(createTokens) || 0,
         }),
       })
       const json = await res.json()
       if (!res.ok) { toast.error(json.error ?? "Failed"); return }
       toast.success(`Shop code ${json.data.code} created`)
       setShowCreate(false)
-      setCreateShopId(""); setCreateCode(""); setCreateTokens("0")
+      setCreateShopId(""); setCreateCode("")
       await loadAll()
     } finally { setCreating(false) }
   }
@@ -281,23 +262,6 @@ export default function AdminUssdShopsPage() {
     await loadAll()
   }
 
-  const handleAddTokens = async () => {
-    if (!tokensTarget) return
-    setAddingTokens(true)
-    try {
-      const res = await fetch(`/api/admin/ussd-shops/${tokensTarget.id}/tokens`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...await authHeader() },
-        body: JSON.stringify({ tokens: parseInt(tokenQty) }),
-      })
-      const json = await res.json()
-      if (!res.ok) { toast.error(json.error ?? "Failed"); return }
-      toast.success(`${tokenQty} tokens added. New balance: ${json.new_token_balance}`)
-      setShowTokens(false)
-      await loadAll()
-    } finally { setAddingTokens(false) }
-  }
-
   const handleActivate = async () => {
     if (!activateTarget) return
     setActivating(true)
@@ -305,7 +269,7 @@ export default function AdminUssdShopsPage() {
       const res = await fetch(`/api/admin/ussd-shops/${activateTarget.id}/activate`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...await authHeader() },
-        body: JSON.stringify({ initial_tokens: parseInt(activateTokens) || 0 }),
+        body: JSON.stringify({}),
       })
       const json = await res.json()
       if (!res.ok) { toast.error(json.error ?? "Failed"); return }
@@ -381,7 +345,7 @@ export default function AdminUssdShopsPage() {
           <PageHeaderBanner
             className="flex-1"
             title="USSD Shops"
-            subtitle="Manage shop codes, tokens, and orders for the shop-code USSD storefront"
+            subtitle="Manage shop codes, activation and orders for the shop-code USSD storefront"
           />
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={loadAll}>
@@ -433,7 +397,7 @@ export default function AdminUssdShopsPage() {
               <div>
                 <Label className="text-xs text-primary">Show USSD card on web storefronts</Label>
                 <p className="text-xs text-primary/70">
-                  Advertises the dial code + a shop&apos;s own PIN on their web storefront. Only shows for shops with an active, funded USSD code.
+                  Advertises the dial code + a shop&apos;s own PIN on their web storefront. Only shows for shops with an active USSD code.
                 </p>
               </div>
               <Switch
@@ -446,17 +410,17 @@ export default function AdminUssdShopsPage() {
 
             <div className="border-t border-primary/20" />
 
-            {/* Session Settings */}
+            {/* Activation Fees */}
             <div className="space-y-3">
-              <p className="text-xs font-semibold text-primary uppercase tracking-wide">Session Purchase Settings</p>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+              <p className="text-xs font-semibold text-primary uppercase tracking-wide">Activation Fees</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 lg:max-w-xl">
                 <div className="space-y-1">
                   <Label className="text-xs text-primary">USSD Activation Fee (GHS)</Label>
                   <Input
                     type="number"
                     min="0"
                     step="0.01"
-                    placeholder="e.g. 20.00"
+                    placeholder="0.00"
                     value={activationFee}
                     onChange={e => setActivationFee(e.target.value)}
                     className="bg-card border-primary/20"
@@ -468,60 +432,24 @@ export default function AdminUssdShopsPage() {
                     type="number"
                     min="0"
                     step="0.01"
-                    placeholder="e.g. 20.00"
+                    placeholder="0.00"
                     value={whatsappActivationFee}
                     onChange={e => setWhatsappActivationFee(e.target.value)}
                     className="bg-card border-primary/20"
                   />
                 </div>
-                <div className="space-y-1">
-                  <Label className="text-xs text-primary">Price per Session (GHS)</Label>
-                  <Input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    placeholder="e.g. 0.50"
-                    value={sessionPrice}
-                    onChange={e => setSessionPrice(e.target.value)}
-                    className="bg-card border-primary/20"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs text-primary">Min Purchase</Label>
-                  <Input
-                    type="number"
-                    min="1"
-                    placeholder="e.g. 10"
-                    value={minSessions}
-                    onChange={e => setMinSessions(e.target.value)}
-                    className="bg-card border-primary/20"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs text-primary">Max Purchase</Label>
-                  <Input
-                    type="number"
-                    min="1"
-                    placeholder="e.g. 500"
-                    value={maxSessions}
-                    onChange={e => setMaxSessions(e.target.value)}
-                    className="bg-card border-primary/20"
-                  />
-                </div>
               </div>
-              {sessionPrice && minSessions && maxSessions && (
-                <p className="text-xs text-primary">
-                  Shop owners can buy between {minSessions}–{maxSessions} sessions at GHS {parseFloat(sessionPrice || "0").toFixed(2)} each.
-                </p>
-              )}
+              <p className="text-xs text-primary/80">
+                0 = new shops open automatically and existing shops can activate for free. Raising it affects only shops not yet activated. Customer sessions are always free.
+              </p>
               <Button
                 size="sm"
-                onClick={handleSaveSessionSettings}
-                disabled={savingSessionSettings}
+                onClick={handleSaveFees}
+                disabled={savingFees}
                 className="bg-primary hover:bg-primary/90"
               >
                 <Save className="w-3 h-3 mr-1" />
-                {savingSessionSettings ? "Saving..." : "Save Session Settings"}
+                {savingFees ? "Saving..." : "Save Activation Fees"}
               </Button>
             </div>
 
@@ -534,7 +462,7 @@ export default function AdminUssdShopsPage() {
         </div>
 
         {/* Stats Overview */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 mb-6">
           <Card>
             <CardContent className="pt-5 pb-4">
               <div className="flex items-start justify-between">
@@ -571,19 +499,6 @@ export default function AdminUssdShopsPage() {
                   </p>
                 </div>
                 <Banknote className="w-8 h-8 text-warning opacity-80 shrink-0" />
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-5 pb-4">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Available Tokens</p>
-                  <p className="text-3xl font-bold text-foreground mt-1">
-                    {codes.filter(c => c.status === 'active').reduce((sum, c) => sum + (c.token_balance ?? 0), 0).toLocaleString()}
-                  </p>
-                </div>
-                <Database className="w-8 h-8 text-primary opacity-80 shrink-0" />
               </div>
             </CardContent>
           </Card>
@@ -650,7 +565,6 @@ export default function AdminUssdShopsPage() {
                           <th className="pb-3 pr-4">Code</th>
                           <th className="pb-3 pr-4">Shop</th>
                           <th className="pb-3 pr-4">Status</th>
-                          <th className="pb-3 pr-4">Tokens</th>
                           <th className="pb-3 pr-4">Orders</th>
                           <th className="pb-3">Actions</th>
                         </tr>
@@ -672,14 +586,6 @@ export default function AdminUssdShopsPage() {
                               </span>
                             </td>
                             <td className="py-3 pr-4">{statusBadge(code.status)}</td>
-                            <td className="py-3 pr-4">
-                              <span className={`font-bold ${code.token_balance <= 5 ? 'text-destructive' : 'text-foreground'}`}>
-                                {code.token_balance}
-                              </span>
-                              {code.token_balance <= 5 && code.token_balance > 0 && (
-                                <span className="text-xs text-destructive ml-1">low</span>
-                              )}
-                            </td>
                             <td className="py-3 pr-4 text-muted-foreground">{code.order_count}</td>
                             <td className="py-3">
                               <div className="flex gap-1 flex-wrap">
@@ -692,13 +598,6 @@ export default function AdminUssdShopsPage() {
                                     <CheckCircle className="w-3 h-3 mr-1" /> Activate
                                   </Button>
                                 )}
-                                <Button
-                                  size="sm" variant="outline"
-                                  className="h-7 text-xs"
-                                  onClick={() => { setTokensTarget(code); setTokenQty("10"); setShowTokens(true) }}
-                                >
-                                  <Coins className="w-3 h-3 mr-1" /> Tokens
-                                </Button>
                                 {code.activation_fee_paid && (
                                   <Button
                                     size="sm" variant="outline"
@@ -756,7 +655,6 @@ export default function AdminUssdShopsPage() {
                         <tr className="border-b text-left text-muted-foreground text-xs uppercase tracking-wide">
                           <th className="pb-3 pr-4">Code</th>
                           <th className="pb-3 pr-4">Shop</th>
-                          <th className="pb-3 pr-4">Tokens</th>
                           <th className="pb-3 pr-4">Orders</th>
                           <th className="pb-3">Actions</th>
                         </tr>
@@ -777,27 +675,9 @@ export default function AdminUssdShopsPage() {
                                 )}
                               </span>
                             </td>
-                            <td className="py-3 pr-4">
-                              <span className={`font-bold ${code.token_balance <= 5 ? 'text-destructive' : 'text-foreground'}`}>
-                                {code.token_balance}
-                              </span>
-                              {code.token_balance <= 5 && code.token_balance > 0 && (
-                                <span className="text-xs text-destructive ml-1">low</span>
-                              )}
-                              {code.token_balance === 0 && (
-                                <span className="text-xs text-destructive ml-1">empty</span>
-                              )}
-                            </td>
                             <td className="py-3 pr-4 text-muted-foreground">{code.order_count}</td>
                             <td className="py-3">
                               <div className="flex gap-1 flex-wrap">
-                                <Button
-                                  size="sm" variant="outline"
-                                  className="h-7 text-xs"
-                                  onClick={() => { setTokensTarget(code); setTokenQty("10"); setShowTokens(true) }}
-                                >
-                                  <Coins className="w-3 h-3 mr-1" /> Tokens
-                                </Button>
                                 {!code.whatsapp_activated && (
                                   <Button
                                     size="sm" variant="outline"
@@ -846,7 +726,6 @@ export default function AdminUssdShopsPage() {
                           <th className="pb-3 pr-4">Code</th>
                           <th className="pb-3 pr-4">Shop</th>
                           <th className="pb-3 pr-4">Activated</th>
-                          <th className="pb-3 pr-4">Tokens</th>
                           <th className="pb-3 pr-4">Orders</th>
                           <th className="pb-3">Actions</th>
                         </tr>
@@ -864,17 +743,6 @@ export default function AdminUssdShopsPage() {
                             </td>
                             <td className="py-3 pr-4 text-muted-foreground text-xs">
                               {code.whatsapp_activated_at ? new Date(code.whatsapp_activated_at).toLocaleDateString() : "—"}
-                            </td>
-                            <td className="py-3 pr-4">
-                              <span className={`font-bold ${code.token_balance <= 5 ? 'text-destructive' : 'text-foreground'}`}>
-                                {code.token_balance}
-                              </span>
-                              {code.token_balance <= 5 && code.token_balance > 0 && (
-                                <span className="text-xs text-destructive ml-1">low</span>
-                              )}
-                              {code.token_balance === 0 && (
-                                <span className="text-xs text-destructive ml-1">empty</span>
-                              )}
                             </td>
                             <td className="py-3 pr-4 text-muted-foreground">{code.order_count}</td>
                             <td className="py-3">
@@ -1003,42 +871,10 @@ export default function AdminUssdShopsPage() {
               />
               <p className="text-xs text-muted-foreground">Leave blank to auto-generate a unique 4-digit code</p>
             </div>
-            <div className="space-y-1">
-              <Label>Initial Tokens</Label>
-              <Input
-                type="number" min="0" value={createTokens}
-                onChange={e => setCreateTokens(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">Each token = one customer session. Can add more later.</p>
-            </div>
             <div className="flex gap-2 pt-2">
               <Button variant="outline" onClick={() => setShowCreate(false)} className="flex-1">Cancel</Button>
               <Button onClick={handleCreate} disabled={creating} className="flex-1">
                 {creating ? "Creating..." : "Create"}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Add Tokens Modal */}
-      <Dialog open={showTokens} onOpenChange={setShowTokens}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Add Tokens — {tokensTarget?.shop_name} ({tokensTarget?.code})</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 mt-2">
-            <p className="text-sm text-muted-foreground">
-              Current balance: <strong>{tokensTarget?.token_balance ?? 0}</strong> tokens
-            </p>
-            <div className="space-y-1">
-              <Label>Tokens to Add</Label>
-              <Input type="number" min="1" value={tokenQty} onChange={e => setTokenQty(e.target.value)} />
-            </div>
-            <div className="flex gap-2 pt-2">
-              <Button variant="outline" onClick={() => setShowTokens(false)} className="flex-1">Cancel</Button>
-              <Button onClick={handleAddTokens} disabled={addingTokens} className="flex-1">
-                {addingTokens ? "Processing..." : "Add Tokens"}
               </Button>
             </div>
           </div>
@@ -1052,11 +888,7 @@ export default function AdminUssdShopsPage() {
             <DialogTitle>Activate — {activateTarget?.shop_name} ({activateTarget?.code})</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 mt-2">
-            <div className="space-y-1">
-              <Label>Initial Tokens</Label>
-              <Input type="number" min="0" value={activateTokens} onChange={e => setActivateTokens(e.target.value)} />
-              <p className="text-xs text-muted-foreground">Tokens granted on activation. Can add more later.</p>
-            </div>
+            <p className="text-sm text-muted-foreground">Marks the USSD activation fee as paid and opens the shop code. WhatsApp access is granted separately.</p>
             <div className="flex gap-2 pt-2">
               <Button variant="outline" onClick={() => setShowActivate(false)} className="flex-1">Cancel</Button>
               <Button onClick={handleActivate} disabled={activating}

@@ -262,16 +262,30 @@ describe("shopWaRouter", () => {
     expect(fetchShopNetworks).not.toHaveBeenCalled()
   })
 
-  it("rejects a shop code with no sessions left (tokenBalance <= 0)", async () => {
+  it("accepts a shop code at token balance 0 (sessions retired 2026-10-14)", async () => {
     const phone = "233241000012"
     vi.mocked(resolveShopCode).mockResolvedValue({
-      shopCodeId: "sc2", shopId: "s2", shopName: "Broke Shop", parentShopId: null,
+      shopCodeId: "sc2", shopId: "s2", shopName: "Zero Shop", parentShopId: null,
       status: "active", tokenBalance: 0, whatsappActivated: true,
     })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
 
     await shopWaRouter(phone, "CODE999", "wamid.IN1")
 
-    expect(lastReplyTo(phone)).toContain("no sessions left")
+    expect(lastReplyTo(phone)).toContain("What to buy?")
+    expect(lastReplyTo(phone)).not.toContain("no sessions")
+  })
+
+  it("still refuses a suspended shop code", async () => {
+    const phone = "233241000013"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc3", shopId: "s3", shopName: "Paused Shop", parentShopId: null,
+      status: "suspended", tokenBalance: 50, whatsappActivated: true,
+    })
+
+    await shopWaRouter(phone, "CODE998", "wamid.IN2")
+
+    expect(lastReplyTo(phone)).toContain("currently unavailable")
   })
 
   // ── Full state machine (happy path) ─────────────────────────────────────────
@@ -587,15 +601,18 @@ describe("shopWaRouter", () => {
   })
 
   // ── CONFIRM-time token recheck (anti-race, shop-revenue safety) ────────────
-  it("CONFIRM: a token balance that hit zero since ENTER_CODE rejects and doesn't charge or create an order", async () => {
+  it("CONFIRM: a token balance of zero no longer blocks the charge (sessions retired)", async () => {
     const phone = "233241000060"
     vi.mocked(resolveShopCode).mockResolvedValue({
-      shopCodeId: "sc40", shopId: "s40", shopName: "Race Shop", parentShopId: null,
-      status: "active", tokenBalance: 5, whatsappActivated: true,
+      shopCodeId: "sc40", shopId: "s40", shopName: "Zero Shop", parentShopId: null,
+      status: "active", tokenBalance: 0, whatsappActivated: true,
     })
     vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
     vi.mocked(fetchShopBundles).mockResolvedValue([{ id: "p10", size: "1GB", price: 5 }])
     vi.mocked(verifyBundlePrice).mockResolvedValue({ verifiedPrice: 5, profitAmount: 1, parentProfitAmount: 0 })
+    vi.mocked(createShopBundleOrder).mockResolvedValue({ orderId: "order9" })
+    vi.mocked(chargeMobileMoney).mockResolvedValue({ status: "send_otp", reference: "order9" })
+    fakeDb.tokenBalance = 0
 
     await shopWaRouter(phone, "CODE1", "f1")
     await shopWaRouter(phone, "1", "f2")
@@ -603,50 +620,11 @@ describe("shopWaRouter", () => {
     await shopWaRouter(phone, "1", "f4")
     await shopWaRouter(phone, "0244111222", "f5")
     await shopWaRouter(phone, "0244333444", "f6")
-
-    // The shop's shared token pool got spent to 0 elsewhere while this
-    // WhatsApp session sat idle (its 30-min TTL leaves room for that).
-    fakeDb.tokenBalance = 0
-
     await shopWaRouter(phone, "1", "f7")
-
-    expect(verifyBundlePrice).not.toHaveBeenCalled()
-    expect(createShopBundleOrder).not.toHaveBeenCalled()
-    expect(chargeMobileMoney).not.toHaveBeenCalled()
-    expect(lastReplyTo(phone)).toContain("no sessions left")
-
-    // Session now routes to AI (AI_CONVERSATION) instead of a fresh code
-    // attempt — the customer's next message might be "thanks" or a follow-up
-    // question, not necessarily a new shop code.
-    vi.mocked(resolveShopCode).mockClear()
-    const followUp = await shopWaRouter(phone, "anything", "f8")
-    expect(followUp).toBe("")
-    expect(resolveShopCode).not.toHaveBeenCalled()
-  })
-
-  it("CONFIRM: a healthy token balance (>0) does not block the charge", async () => {
-    const phone = "233241000064"
-    vi.mocked(resolveShopCode).mockResolvedValue({
-      shopCodeId: "sc44", shopId: "s44", shopName: "Healthy Shop", parentShopId: null,
-      status: "active", tokenBalance: 5, whatsappActivated: true,
-    })
-    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
-    vi.mocked(fetchShopBundles).mockResolvedValue([{ id: "p12", size: "1GB", price: 5 }])
-    vi.mocked(verifyBundlePrice).mockResolvedValue({ verifiedPrice: 5, profitAmount: 1, parentProfitAmount: 0 })
-    vi.mocked(createShopBundleOrder).mockResolvedValue({ orderId: "order10" })
-    vi.mocked(chargeMobileMoney).mockResolvedValue({ status: "send_otp", reference: "order10" })
-    fakeDb.tokenBalance = 1 // still >0
-
-    await shopWaRouter(phone, "CODE1", "j1")
-    await shopWaRouter(phone, "1", "j2")
-    await shopWaRouter(phone, "1", "j3")
-    await shopWaRouter(phone, "1", "j4")
-    await shopWaRouter(phone, "0244111222", "j5")
-    await shopWaRouter(phone, "0244333444", "j6")
-    await shopWaRouter(phone, "1", "j7")
 
     expect(createShopBundleOrder).toHaveBeenCalled()
     expect(chargeMobileMoney).toHaveBeenCalled()
+    expect(lastReplyTo(phone)).not.toContain("no sessions")
   })
 
   // ── Data-whitelist gate ──────────────────────────────────────────────────────
@@ -1056,13 +1034,15 @@ describe("shopWaRouter", () => {
     expect(lastReplyTo(phone)).toContain("MTN Airtime")
   })
 
-  it("AIRTIME_CONFIRM: a token balance that hit zero rejects and does not create an order or charge", async () => {
+  it("AIRTIME_CONFIRM: a token balance of zero no longer blocks the order (sessions retired)", async () => {
     const phone = "233241000082"
     vi.mocked(resolveShopCode).mockResolvedValue({
-      shopCodeId: "sc72", shopId: "s72", shopName: "Broke Airtime Shop", parentShopId: null,
-      status: "active", tokenBalance: 5, whatsappActivated: true,
+      shopCodeId: "sc72", shopId: "s72", shopName: "Zero Airtime Shop", parentShopId: null,
+      status: "active", tokenBalance: 0, whatsappActivated: true,
     })
     vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(createShopAirtimeOrder).mockResolvedValue({ orderId: "airtimeOrderZero" })
+    vi.mocked(chargeMobileMoney).mockResolvedValue({ status: "send_otp", reference: "airtimeOrderZero" })
 
     await shopWaRouter(phone, "CODE1", "ag1")
     await shopWaRouter(phone, "2", "ag2")
@@ -1073,9 +1053,9 @@ describe("shopWaRouter", () => {
     fakeDb.tokenBalance = 0
     await shopWaRouter(phone, "1", "ag6")
 
-    expect(createShopAirtimeOrder).not.toHaveBeenCalled()
-    expect(chargeMobileMoney).not.toHaveBeenCalled()
-    expect(lastReplyTo(phone)).toContain("no sessions left")
+    expect(createShopAirtimeOrder).toHaveBeenCalled()
+    expect(lastReplyTo(phone)).not.toContain("no sessions")
+    fakeDb.tokenBalance = 5
   })
 
   it("AIRTIME_CONFIRM: chargeMobileMoney throwing marks the airtime order failed", async () => {
@@ -1170,12 +1150,14 @@ describe("shopWaRouter", () => {
     expect(resolveShopCode).not.toHaveBeenCalled()
   })
 
-  it("RC_CONFIRM: a token balance that hit zero rejects and does not create an order or charge", async () => {
+  it("RC_CONFIRM: a token balance of zero no longer blocks the order (sessions retired)", async () => {
     const phone = "233241000091"
     vi.mocked(resolveShopCode).mockResolvedValue({
-      shopCodeId: "sc81", shopId: "s81", shopName: "Broke RC Shop", parentShopId: null,
-      status: "active", tokenBalance: 5, whatsappActivated: true,
+      shopCodeId: "sc81", shopId: "s81", shopName: "Zero RC Shop", parentShopId: null,
+      status: "active", tokenBalance: 0, whatsappActivated: true,
     })
+    vi.mocked(createShopRcOrder).mockResolvedValue({ orderId: "rcOrderZero" } as any)
+    vi.mocked(chargeMobileMoney).mockResolvedValue({ status: "send_otp", reference: "rcOrderZero" })
     vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
     vi.mocked(buildRcBoardOptions).mockResolvedValue(["WASSCE"])
     vi.mocked(calculateRCPrice).mockResolvedValue({
@@ -1191,9 +1173,9 @@ describe("shopWaRouter", () => {
     fakeDb.tokenBalance = 0
     await shopWaRouter(phone, "1", "rd6")
 
-    expect(createShopRcOrder).not.toHaveBeenCalled()
-    expect(chargeMobileMoney).not.toHaveBeenCalled()
-    expect(lastReplyTo(phone)).toContain("no sessions left")
+    expect(createShopRcOrder).toHaveBeenCalled()
+    expect(lastReplyTo(phone)).not.toContain("no sessions")
+    fakeDb.tokenBalance = 5
   })
 
   it("RC_CONFIRM: chargeMobileMoney throwing marks the results-checker order failed", async () => {
@@ -1500,12 +1482,14 @@ describe("shopWaRouter", () => {
     expect(submitOtp).toHaveBeenCalledWith("req1", "123456")
   })
 
-  it("RCCHECK_CONFIRM: a token balance that hit zero rejects and does not create a request or charge", async () => {
+  it("RCCHECK_CONFIRM: a token balance of zero no longer blocks the request (sessions retired)", async () => {
     const phone = "233241000121"
     vi.mocked(resolveShopCode).mockResolvedValue({
-      shopCodeId: "sc96", shopId: "s96", shopName: "Broke Check Shop", parentShopId: null,
-      status: "active", tokenBalance: 5, whatsappActivated: true,
+      shopCodeId: "sc96", shopId: "s96", shopName: "Zero Check Shop", parentShopId: null,
+      status: "active", tokenBalance: 0, whatsappActivated: true,
     })
+    vi.mocked(createShopCheckResultsRequest).mockResolvedValue({ requestId: "checkReqZero", orderId: "checkReqZero" } as any)
+    vi.mocked(chargeMobileMoney).mockResolvedValue({ status: "send_otp", reference: "checkReqZero" })
     vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
     vi.mocked(isExamBoardEnabled).mockResolvedValue(true)
     vi.mocked(getAvailableCount).mockResolvedValue(3)
@@ -1527,9 +1511,8 @@ describe("shopWaRouter", () => {
     fakeDb.tokenBalance = 0
     await shopWaRouter(phone, "1", "tz10")
 
-    expect(createShopCheckResultsRequest).not.toHaveBeenCalled()
-    expect(chargeMobileMoney).not.toHaveBeenCalled()
-    expect(lastReplyTo(phone)).toContain("no sessions left")
+    expect(createShopCheckResultsRequest).toHaveBeenCalled()
+    expect(lastReplyTo(phone)).not.toContain("no sessions")
 
     fakeDb.tokenBalance = 5
   })
@@ -1698,32 +1681,20 @@ describe("shopWaRouter — AI escape", () => {
 
   // ── Finding 2: returning-customer path must also honor a drained token
   //    balance, same as every other shop-resolution path in this file ─────────
-  it("returning customer whose remembered shop has run out of sessions falls through to the normal code-entry flow, not a stale welcome-back", async () => {
+  it("returning customer whose remembered shop is at token balance 0 still gets welcome-back (sessions retired)", async () => {
     fakeDb.rememberedShopCode = "CODE1"
-    vi.mocked(getShopPref).mockResolvedValue({ shopCodeId: "code-drained" })
+    vi.mocked(getShopPref).mockResolvedValue({ shopCodeId: "code-zero" })
     vi.mocked(resolveShopCode).mockResolvedValue({
-      shopCodeId: "code-drained", shopId: "shop-drained", shopName: "Drained Shop",
+      shopCodeId: "code-zero", shopId: "shop-zero", shopName: "Zero Shop",
       parentShopId: null, status: "active", tokenBalance: 0, whatsappActivated: true,
     })
-    // This describe block doesn't reset mocks between tests (only sessions —
-    // see the block's own beforeEach), so fetchShopNetworks' call log can carry
-    // over from an earlier sibling test; clear it so the assertion below
-    // reflects only this test's behavior.
-    vi.mocked(fetchShopNetworks).mockClear()
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(clearShopPref).mockClear()
 
     const reply = await shopWaRouter("233559919038", "hi", "wamid.1")
 
-    // No stale "Welcome back" / product menu from cached shop memory...
-    expect(reply).not.toContain("Welcome back")
-    expect(fetchShopNetworks).not.toHaveBeenCalled()
-    // ...the remembered pref was cleared (same as the inactive/deactivated case)...
-    expect(clearShopPref).toHaveBeenCalledWith("233559919038")
-    // ...and it fell through into the normal code-entry chain, which re-resolves
-    // "hi" as an attempted code and (since that shop's tokenBalance is still 0)
-    // correctly rejects with the same "no sessions left" message CONFIRM's
-    // anti-race recheck would otherwise only catch much later.
-    expect(resolveShopCode).toHaveBeenCalledWith("hi")
-    expect(reply).toContain("no sessions left")
+    expect(reply).toContain("Welcome back")
+    expect(clearShopPref).not.toHaveBeenCalled()
   })
 
   // ── Finding 1: a brand-new customer's genuine freetext must reach the AI,

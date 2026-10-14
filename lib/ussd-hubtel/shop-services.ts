@@ -1,8 +1,8 @@
 // lib/ussd-hubtel/shop-services.ts
 // Shop-mode business lookups, behind an interface so router/flow tests use fakes. Defaults reuse
 // the channel-agnostic lib/shop-commerce modules shared by the Uzo shop code and the WhatsApp
-// shop bot. The two Uzo-private helpers (shop airtime fee rate in lib/ussd-shop/handlers/airtime.ts,
-// low-session push in lib/ussd-shop/handlers/shop.ts) are ported here with identical money logic.
+// shop bot. The Uzo-private shop airtime fee rate (lib/ussd-shop/handlers/airtime.ts) is ported here
+// with identical money logic.
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { BundleOption } from "@/lib/ussd/types"
 import type { ExamBoard } from "@/lib/results-check-validation"
@@ -11,12 +11,8 @@ import { calculateRCPrice } from "@/lib/results-checker-service"
 import { fetchShopBundles, shopOwnerIsDealer, verifyBundlePrice } from "@/lib/shop-commerce/pricing"
 import { fetchShopNetworks, getCanonicalShopName, resolveShopCode, type ResolvedShopCode } from "@/lib/shop-commerce/shop-code"
 import { resolveEmail } from "@/lib/ussd/resolve-email"
-import { safeDbError } from "./log-safe"
 
 export type { ResolvedShopCode }
-
-/** The low-session push fires when a deduction leaves exactly this many tokens (Uzo rule). */
-export const LOW_TOKEN_ALERT_AT = 10
 
 export interface ShopAirtimeRates {
   /** Platform base rate for the shop owner's tier + the shop's (capped) markup, in %. */
@@ -27,16 +23,6 @@ export interface ShopAirtimeRates {
 
 export interface ShopServices {
   resolveCode(code: string): Promise<ResolvedShopCode | null>
-  /**
-   * deduct_ussd_shop_token: true only when a token was taken; false only for a DEFINITE "not deducted".
-   * THROWS on an RPC error (timeout, gateway 504 ...), which may hide a committed `token_balance - 1`.
-   * Caller contract: release the billing marker ONLY on a definite not-deducted outcome (balance <= 0
-   * seen before the RPC, or this returned false). On a throw KEEP the marker and refuse the code with
-   * a generic "Shop unavailable" message (worst case: one free session, accepted in D3).
-   */
-  deductToken(shopCodeId: string): Promise<boolean>
-  /** Uzo's low-session push to the shop owner. Never throws. */
-  notifyLowTokens(shopId: string, shopName: string): Promise<void>
   /** Distinct packages.network values the shop's data catalog offers (unsorted). */
   networks(shopId: string, parentShopId?: string): Promise<string[]>
   /** Every bundle of `network` at the shop's price, smallest first. */
@@ -75,23 +61,6 @@ export async function shopAirtimeFeeRate(supabase: SupabaseClient, shopId: strin
   return { totalFeeRate: baseRate + markup, merchantCommissionRate: markup }
 }
 
-export async function notifyLowTokens(supabase: SupabaseClient, shopId: string, shopName: string): Promise<void> {
-  try {
-    const { data } = await supabase.from("user_shops").select("user_id").eq("id", shopId).maybeSingle()
-    const ownerId = (data as { user_id?: string } | null)?.user_id
-    if (!ownerId) return
-    const { sendPushToUser } = await import("@/lib/push-service")
-    // Fire-and-forget, as Uzo: a slow push must not delay the USSD reply.
-    sendPushToUser(ownerId, {
-      title: "Low Sessions Warning",
-      body: `Your USSD shop "${shopName}" has only ${LOW_TOKEN_ALERT_AT} sessions remaining. Top up to avoid service interruption.`,
-      data: { url: "/dashboard/ussd-shop" },
-    }).catch(e => console.warn("[HUBTEL-SHOP] low-session push failed:", e))
-  } catch (e) {
-    console.warn("[HUBTEL-SHOP] low-session alert failed:", e)
-  }
-}
-
 async function shopOrderContext(supabase: SupabaseClient, shopId: string, dialingPhone: string) {
   const [customerEmail, owner, shopName] = await Promise.all([
     resolveEmail(dialingPhone).catch(() => null),
@@ -105,15 +74,6 @@ async function shopOrderContext(supabase: SupabaseClient, shopId: string, dialin
 export function defaultShopServices(supabase: SupabaseClient): ShopServices {
   return {
     resolveCode: code => resolveShopCode(code),
-    deductToken: async shopCodeId => {
-      const { data, error } = await supabase.rpc("deduct_ussd_shop_token", { p_shop_code_id: shopCodeId })
-      if (error) {
-        console.error("[HUBTEL-SHOP] deduct_ussd_shop_token failed:", safeDbError(error))
-        throw new Error("deduct_ussd_shop_token failed")
-      }
-      return data === true
-    },
-    notifyLowTokens: (shopId, shopName) => notifyLowTokens(supabase, shopId, shopName),
     networks: (shopId, parentShopId) => fetchShopNetworks(shopId, parentShopId ?? null),
     bundles: (shopId, network, parentShopId) => fetchShopBundles(shopId, network, parentShopId),
     verifyBundlePrice: (shopId, bundleId, parentShopId) => verifyBundlePrice(shopId, bundleId, parentShopId),
