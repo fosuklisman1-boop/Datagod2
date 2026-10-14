@@ -109,8 +109,9 @@ api:         pay  = face − customerCashback            (customer|dealer share 
 
 - `hubtel_bill_orders`, `hubtel_data_orders`: `channel` check widened to `('dashboard','storefront','api')`; `shop_id uuid`,
   `customer_email text`, `customer_name text`, `payment_fee_amount numeric(12,2)`, `payment_reference text` (Paystack),
-  `refund_method text`; `payment_status` gains `'pending_payment'` handling (or a separate `paid_at`) — plan decides the least
-  invasive form; indexes on `(shop_id, created_at)`.
+  `refund_method text`, `paid_at timestamptz`; no new status values — storefront orders start `pending` + `unpaid` (exactly like a
+  dashboard order before its debit) and the payment confirmation flips `unpaid → paid` (guarded); indexes on `(shop_id, created_at)`.
+  The existing never-sent / stuck-claim rules only ever consider `paid` orders, so an unpaid storefront order is never refundable.
 - `airtime_orders`: `payment_fee_amount numeric(12,2)`.
 - `shop_profits`: `bill_order_id uuid`, `data_order_id uuid` (+ unique partial indexes so a share is credited once per order).
 - Debit RPCs unchanged (storefront orders are not wallet-debited).
