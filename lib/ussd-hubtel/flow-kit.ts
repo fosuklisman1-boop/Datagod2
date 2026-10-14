@@ -6,7 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import type { BundleOption } from "@/lib/ussd/types"
 import type { PrefixValidationConfig } from "@/lib/network-prefix-config"
 import type { HubtelUssdConfig } from "./config"
-import type { AfaServices, AirtimeServices, DialerInfo, NetworkPlansServices, RcServices } from "./services"
+import type { AfaServices, AirtimeServices, DialerInfo, NetworkPlansServices, PayBillsServices, RcServices } from "./services"
 import type { HubtelSessionStore } from "./session"
 import type { ShopServices } from "./shop-services"
 import type { CallerContext } from "./catalog"
@@ -31,6 +31,7 @@ export interface RouterDeps {
   afa: AfaServices
   shop: ShopServices
   networkPlans: NetworkPlansServices
+  payBills: PayBillsServices
 }
 
 export interface FlowCtx {

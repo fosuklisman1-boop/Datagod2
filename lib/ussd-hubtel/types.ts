@@ -38,9 +38,16 @@ export type HubtelStep =
   | "SHOP_AIRTIME_ENTER_RECIPIENT" | "SHOP_AIRTIME_SELECT_NETWORK" | "SHOP_AIRTIME_ENTER_AMOUNT" | "SHOP_AIRTIME_CONFIRM"
   | "SHOP_RC_SELECT_BOARD" | "SHOP_RC_ENTER_QTY" | "SHOP_RC_CONFIRM"
   | "NP_NETWORK" | "NP_CATEGORY" | "NP_PLAN" | "NP_RECIPIENT" | "NP_CONFIRM"
+  | "PB_BILLER" | "PB_ECG_MODE" | "PB_ACCOUNT" | "PB_METER_TYPE" | "PB_METERS" | "PB_CONSENT" | "PB_AMOUNT" | "PB_CONFIRM"
 
 /** One Network Plans plan as kept in the session: signed catalog token, display, face (Hubtel price), pay (our price). */
 export interface NpPlan { t: string; d: string; f: number; p: number }
+
+/** One ECG meter linked to a phone, as kept in the session: meter, masked name, outstanding, bot-bound verify token. */
+export interface PbMeter { m: string; n: string | null; o: number | null; t: string }
+
+/** What PB_ACCOUNT is waiting for. */
+export type PbAccountStage = "phone" | "meter" | "account" | "landline" | "broadband"
 
 export interface HubtelSession {
   step: HubtelStep
@@ -109,6 +116,24 @@ export interface HubtelSession {
   npPlan?: NpPlan // the chosen plan
   npOtherNumber?: boolean // NP_RECIPIENT is waiting for a typed number
   npRecipient?: string // local 0XXXXXXXXX
+  // Pay Bills (Commission Cashback bots; Utility Bills). Ghana Water is never offered here.
+  pbBillers?: { key: string; min: number; max: number }[] // enabled billers, in the order shown
+  pbBiller?: string // BillerKey
+  pbMin?: number
+  pbMax?: number
+  pbEcgMode?: "self" | "other" | "meter"
+  pbStage?: PbAccountStage
+  pbPhone?: string // ECG: local 0XXXXXXXXX the meters are looked up on / the meter is linked to
+  pbLandline?: string // Telecel Broadband: the landline typed before the broadband account
+  pbAccount?: string // meter / smartcard / account number
+  pbMeterType?: "prepaid" | "postpaid"
+  pbMeters?: PbMeter[] // ECG meters linked to pbPhone (undefined = not looked up yet)
+  pbPage?: number
+  pbToken?: string // bot-bound verify token for the order
+  pbName?: string | null // masked
+  pbDue?: number | null
+  pbFace?: number // what the biller receives
+  pbPay?: number // what the caller pays (engine quote)
 }
 
 export type HubtelTxState = "awaiting_payment" | "processing" | "fulfilled" | "needs_review" | "failed"

@@ -3,9 +3,11 @@
 import { DEFAULT_NETWORK_PREFIXES } from "@/lib/phone-format"
 import type { HubtelUssdConfig } from "../config"
 import type { RouterDeps } from "../flow-kit"
-import type { AfaServices, AirtimeServices, NetworkPlansServices, RcServices } from "../services"
+import type { AfaServices, AirtimeServices, NetworkPlansServices, PayBillsServices, PayBillsVerifyInput, RcServices } from "../services"
 import type { BotContext } from "@/lib/bot-commission/context"
-import type { BotBundleOrderInput, BotOrderResult } from "@/lib/bot-commission/orders"
+import type { BotBillOrderInput, BotBundleOrderInput, BotOrderResult } from "@/lib/bot-commission/orders"
+import type { BillerKey } from "@/lib/bills/billers"
+import type { StorefrontQuote } from "@/lib/cashback/quote"
 import type { StorefrontBundle } from "@/lib/storefront-commission/bundles"
 import type { ResolvedShopCode, ShopServices } from "../shop-services"
 import type { HubtelRequest, HubtelSession } from "../types"
@@ -92,6 +94,7 @@ export function makeDeps(over: Partial<RouterDeps> = {}, sup = fakeSupabase({ pk
     afa: fakeAfa(),
     shop: fakeShop(),
     networkPlans: fakeNetworkPlans(),
+    payBills: fakePayBills(),
     ...over,
   }
   return { deps, store, sup }
@@ -159,6 +162,63 @@ export function fakeNetworkPlans(over: Partial<NetworkPlansServices> & { createR
         order: { id: BOT_ORDER_ID, reference: "SB-1", payAmount: Number(input.expectedPay), faceAmount: 10, customerCashback: 0.5, paymentFee: 0 },
       }
       byKey.set(key, r)
+      return r
+    },
+    ...rest,
+  }
+  return svc
+}
+
+/** ECG meters linked to the fake's phones (local form). Any other phone has none. */
+export const FAKE_ECG_METERS: Record<string, { meter: string; name: string | null; outstanding: number | null }[]> = {
+  "0244123456": [
+    { meter: "P1234567", name: "Kof*** Men***", outstanding: 12.5 },
+    { meter: "P7654321", name: null, outstanding: null },
+  ],
+}
+
+/**
+ * Pay Bills engine fake: every biller enabled (Ghana Water included, so the flow must drop it), GHS 1–1000.
+ * verify follows botVerifyBill's shapes (ECG phone lookup => meters with tokens; addMeter / other billers => one
+ * token); quote takes 2% off the face; createOrder dedupes on the verify token like the engine; `createResult`
+ * overrides it. Calls are recorded.
+ */
+export function fakePayBills(over: Partial<PayBillsServices> & { createResult?: BotOrderResult } = {}) {
+  const calls = {
+    verify: [] as { ctx: BotContext; input: PayBillsVerifyInput }[],
+    quote: [] as { ctx: BotContext; biller: string; face: number }[],
+    create: [] as { ctx: BotContext; input: BotBillOrderInput }[],
+  }
+  const byToken = new Map<string, BotOrderResult>()
+  const { createResult, ...rest } = over
+  const svc: PayBillsServices & { calls: typeof calls } = {
+    calls,
+    billers: async () => ["ecg", "ghana_water", "dstv", "gotv", "startimes", "telecel_broadband"].map(k => ({ key: k as BillerKey, min: 1, max: 1000 })),
+    verify: async (ctx, input) => {
+      calls.verify.push({ ctx, input })
+      if (input.biller === "ecg" && !input.addMeter) {
+        const meters = (FAKE_ECG_METERS[String(input.phone)] ?? []).map(m => ({ ...m, token: `tok-ecg-${m.meter}` }))
+        return { ok: true, customerName: null, amountDue: null, suggestedAmount: 0, meters }
+      }
+      if (input.biller === "ecg") return { ok: true, customerName: null, amountDue: null, suggestedAmount: 0, token: `tok-ecg-${input.account}` }
+      return { ok: true, customerName: "Ama*** Ser***", amountDue: 45.5, suggestedAmount: 45.5, token: `tok-${input.biller}-${input.account}` }
+    },
+    quote: async (ctx, biller, face) => {
+      calls.quote.push({ ctx, biller, face })
+      const pay = Math.round(face * 98) / 100
+      return { applied: true, faceAmount: face, payAmount: pay, customerCashback: Math.round((face - pay) * 100) / 100 } as StorefrontQuote
+    },
+    createOrder: async (ctx, input) => {
+      calls.create.push({ ctx, input })
+      if (createResult) return createResult
+      const key = String(input.token)
+      const prior = byToken.get(key)
+      if (prior) return prior
+      const r: BotOrderResult = {
+        ok: true,
+        order: { id: BOT_ORDER_ID, reference: "BILL-1", payAmount: Number(input.expectedPay), faceAmount: Number(input.amount), customerCashback: 0, paymentFee: 0 },
+      }
+      byToken.set(key, r)
       return r
     },
     ...rest,

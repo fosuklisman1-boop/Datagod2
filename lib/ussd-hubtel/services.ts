@@ -18,8 +18,10 @@ import type { StorefrontQuote } from "@/lib/cashback/quote"
 import { quoteBotAirtime } from "@/lib/cashback/storefront-airtime"
 import type { BotContext } from "@/lib/bot-commission/context"
 import type { BotCatalogResult } from "@/lib/bot-commission/catalog"
-import type { BotBundleOrderInput, BotOrderResult } from "@/lib/bot-commission/orders"
+import type { BotBillOrderInput, BotBundleOrderInput, BotOrderResult } from "@/lib/bot-commission/orders"
 import type { BundleNetwork } from "@/lib/standard-bundles/categories"
+import { BILLERS, BILLER_KEYS, type BillerKey, type BillInputs } from "@/lib/bills/billers"
+import type { VerifyResult } from "@/lib/bills/service"
 
 export { resolveDialer }
 export type { DialerInfo }
@@ -73,6 +75,49 @@ export function defaultNetworkPlansServices(): NetworkPlansServices {
         import("@/lib/bot-commission/runtime"), import("@/lib/bot-commission/orders"),
       ])
       return botCreateBundleOrder(getBotBundlesRuntime().deps, ctx, input)
+    },
+  }
+}
+
+/** One biller the Utility Bills config has switched on, with its amount limits (GHS). */
+export interface PayBillsBiller { key: BillerKey; min: number; max: number }
+export type PayBillsVerifyInput = { biller: string } & BillInputs & { addMeter?: boolean; consent?: boolean }
+
+/**
+ * Pay Bills (Commission Cashback bots, Utility Bills). Thin wrappers over the bot engine (lib/bot-commission)
+ * so flow tests use fakes; the runtime (service-role deps) is loaded per call.
+ */
+export interface PayBillsServices {
+  /** Billers switched on in the Utility Bills config (master + per biller), in BILLER_KEYS order. Throws on read error. */
+  billers(): Promise<PayBillsBiller[]>
+  /** botVerifyBill: masked names, bot-bound tokens, Ghana Water refused on USSD. */
+  verify(ctx: BotContext, input: PayBillsVerifyInput): Promise<VerifyResult>
+  /** The price the engine will charge for `faceAmount` (quoteBots, same config source as botCreateBillOrder). Throws on read error. */
+  quote(ctx: BotContext, biller: BillerKey, faceAmount: number): Promise<StorefrontQuote>
+  createOrder(ctx: BotContext, input: BotBillOrderInput): Promise<BotOrderResult>
+}
+
+export function defaultPayBillsServices(): PayBillsServices {
+  const runtime = async () => (await import("@/lib/bot-commission/runtime")).getBotBillsRuntime()
+  return {
+    async billers() {
+      const bills = await (await runtime()).deps.getBillsConfig()
+      if (!bills.enabled) return []
+      return BILLER_KEYS.filter(k => bills.billers[k]?.enabled)
+        .map(k => ({ key: k, min: bills.billers[k].min, max: bills.billers[k].max }))
+    },
+    async verify(ctx, input) {
+      const [{ deps }, { botVerifyBill }] = await Promise.all([runtime(), import("@/lib/bot-commission/verify")])
+      return botVerifyBill(deps, ctx, input)
+    },
+    async quote(ctx, biller, faceAmount) {
+      const [{ deps }, { quoteBots }] = await Promise.all([runtime(), import("@/lib/cashback/quote")])
+      const cfg = await deps.getCashbackConfig()
+      return quoteBots({ serviceKey: BILLERS[biller].serviceKey, provider: "hubtel", faceAmount, rail: ctx.rail, shop: !!ctx.shopId }, cfg)
+    },
+    async createOrder(ctx, input) {
+      const [{ deps }, { botCreateBillOrder }] = await Promise.all([runtime(), import("@/lib/bot-commission/orders")])
+      return botCreateBillOrder(deps, ctx, input)
     },
   }
 }

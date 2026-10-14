@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import { keyForDigit } from "@/lib/ussd/menu-items"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import { getHubtelUssdConfig, type HubtelUssdConfig } from "./config"
-import { defaultAfaServices, defaultAirtimeServices, defaultNetworkPlansServices, defaultRcServices, resolveDialer } from "./services"
+import { defaultAfaServices, defaultAirtimeServices, defaultNetworkPlansServices, defaultPayBillsServices, defaultRcServices, resolveDialer } from "./services"
 import { dbSessionStore } from "./session"
 import { defaultShopServices } from "./shop-services"
 import { fetchBundles, PAGE_SIZE, resolveCaller, isDataBlocked } from "./catalog"
@@ -17,6 +17,7 @@ import { AFA_STEPS, startAfa } from "./flows/afa"
 import { AIRTIME_STEPS, startAirtime } from "./flows/airtime"
 import { DATA_STEPS, startData } from "./flows/data"
 import { NETWORK_PLANS_STEPS } from "./flows/network-plans"
+import { PAY_BILLS_STEPS } from "./flows/pay-bills"
 import { RC_BUY_STEPS, startRc } from "./flows/rc-buy"
 import { RC_CHECK_STEPS } from "./flows/rc-check"
 import { SHOP_AIRTIME_STEPS, startShopAirtime } from "./flows/shop-airtime"
@@ -43,6 +44,7 @@ export function defaultRouterDeps(supabase: SupabaseClient): RouterDeps {
     afa: defaultAfaServices(supabase),
     shop: defaultShopServices(supabase),
     networkPlans: defaultNetworkPlansServices(),
+    payBills: defaultPayBillsServices(),
   }
 }
 
@@ -62,6 +64,7 @@ const STEPS: StepTable = {
   ...RC_CHECK_STEPS,
   ...AFA_STEPS,
   ...NETWORK_PLANS_STEPS,
+  ...PAY_BILLS_STEPS,
 }
 
 /** First screen of each shop product (Tasks 3, 5, 6 register theirs). Shop mode only. */
@@ -79,6 +82,7 @@ const SHOP_STEPS: StepTable = {
   ...SHOP_AIRTIME_STEPS,
   ...SHOP_RC_STEPS,
   ...NETWORK_PLANS_STEPS, // menu entry wired in Task 6; the flow reads session.mode for the shop split
+  ...PAY_BILLS_STEPS, // same
 }
 
 const UNAVAILABLE = "Service unavailable. Please try again later."
