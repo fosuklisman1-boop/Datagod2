@@ -3,7 +3,7 @@ import { isDigiWapyConfigured, isDigiWapyEnabledForNetwork, sendAirtimeViaDigiwa
 import { notifyAdmins, SMSTemplates } from "@/lib/sms-service"
 import { type AirtimeOrderMinimal, fulfillAirtimeViaHubtel } from "@/lib/airtime-hubtel"
 import { getAirtimeProvider, airtimeNetId, type AirtimeProvider } from "@/lib/airtime-provider"
-import { airtimeEnabledKey, airtimeFeeKey, airtimeSettingsSuffix, legacyAirtimePrice } from "@/lib/airtime-fee"
+import { airtimeAmountGate, airtimeFeeKey, airtimeNetworkGate, airtimeSettingsSuffix, legacyAirtimePrice } from "@/lib/airtime-fee"
 import { airtimeCashbackTarget, type AirtimeProviderDeps } from "@/lib/cashback/storefront-airtime"
 import { getCashbackConfig, type CashbackChannel } from "@/lib/cashback/config"
 import { quoteCashback, samePrice, type CashbackQuote } from "@/lib/cashback/quote"
@@ -310,10 +310,10 @@ export async function purchaseAirtime(params: PurchaseAirtimeParams): Promise<Pu
   const cleanPhone = beneficiaryPhone.replace(/\s/g, "")
   const networkKey = airtimeSettingsSuffix(network)
 
-  const enableSetting = await getAdminSetting(airtimeEnabledKey(network))
-  if (enableSetting?.enabled === false) {
-    const err: any = new Error(`Airtime for ${network} is currently unavailable`)
-    err.code = "NETWORK_DISABLED"
+  const networkRefusal = await airtimeNetworkGate(network, getAdminSetting)
+  if (networkRefusal) {
+    const err: any = new Error(networkRefusal.message)
+    err.code = networkRefusal.code
     throw err
   }
 
@@ -358,18 +358,10 @@ export async function purchaseAirtime(params: PurchaseAirtimeParams): Promise<Pu
 
   const totalFeeRate = merchantRoleFeeRate + customMarkupRate
 
-  const minSetting = await getAdminSetting("airtime_min_amount")
-  const maxSetting = await getAdminSetting("airtime_max_amount")
-  const minAmount = minSetting?.amount ?? 1
-  const maxAmount = maxSetting?.amount ?? 500
-  if (params.airtimeAmount < minAmount) {
-    const err: any = new Error(`Minimum airtime amount is GHS ${minAmount}`)
-    err.code = "INVALID_AMOUNT"
-    throw err
-  }
-  if (params.airtimeAmount > maxAmount) {
-    const err: any = new Error(`Maximum airtime amount is GHS ${maxAmount}`)
-    err.code = "INVALID_AMOUNT"
+  const amountRefusal = await airtimeAmountGate(params.airtimeAmount, getAdminSetting)
+  if (amountRefusal) {
+    const err: any = new Error(amountRefusal.message)
+    err.code = amountRefusal.code
     throw err
   }
 

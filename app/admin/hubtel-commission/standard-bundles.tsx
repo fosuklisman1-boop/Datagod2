@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -278,8 +279,11 @@ export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; on
       {rows.length === 0 && !loading && <div className="rounded-xl border p-8 text-center text-muted-foreground">No Standard Bundle orders found.</div>}
       <div className="space-y-3">
         {rows.map(r => {
-          const canRefund = r.refund?.action === "direct"
-          const toReview = r.refund?.action === "blocked" && r.refund.reviewQueue
+          // Storefront buyers have no wallet: their refunds go through /admin/refunds (the server refuses a wallet refund).
+          const storefront = r.channel === "storefront"
+          const canRefund = !storefront && r.refund?.action === "direct"
+          const toReview = !storefront && r.refund?.action === "blocked" && r.refund.reviewQueue
+          const storefrontRefund = storefront && r.status !== "refunded" && (r.refund?.action === "direct" || (r.refund?.action === "blocked" && r.refund.reviewQueue))
           return (
             <div key={r.id} className="flex flex-col gap-3 rounded-xl border bg-card p-4 lg:flex-row lg:items-center lg:gap-6">
               <div className="lg:w-56">
@@ -312,7 +316,10 @@ export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; on
                 )}
                 {canRefund && <Button size="sm" disabled={anyBusy} onClick={() => { setNote(""); setRefunding(r) }}>Refund (never sent)</Button>}
                 {toReview && <Button size="sm" variant="outline" onClick={onReviewQueue}>Open Hubtel review queue</Button>}
-                {r.refund?.action === "blocked" && !toReview && r.status !== "refunded" && <div className="text-xs text-muted-foreground">{r.refund.reason}</div>}
+                {storefrontRefund && (
+                  <Link href="/admin/refunds" className="text-xs font-medium text-primary underline-offset-2 hover:underline">Storefront order — refund from Refunds</Link>
+                )}
+                {r.refund?.action === "blocked" && !r.refund.reviewQueue && r.status !== "refunded" && <div className="text-xs text-muted-foreground">{r.refund.reason}</div>}
               </div>
             </div>
           )

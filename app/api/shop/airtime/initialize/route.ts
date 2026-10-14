@@ -8,6 +8,7 @@ import { verifyTurnstileToken, getRequestIp, isTurnstileEnabled } from "@/lib/tu
 import { isStorefrontOtpRequired, isPhoneOtpVerified } from "@/lib/storefront-otp"
 import { secureReference } from "@/lib/secure-random"
 import { airtimeProviderDeps } from "@/lib/airtime-service"
+import { airtimeAmountGate, airtimeNetworkGate } from "@/lib/airtime-fee"
 import { getCashbackConfig } from "@/lib/cashback/config"
 import { samePrice } from "@/lib/cashback/quote"
 import { quoteStorefrontAirtime } from "@/lib/cashback/storefront-airtime"
@@ -165,6 +166,15 @@ export async function POST(request: NextRequest) {
     
     if (!network) {
       return NextResponse.json({ error: "Unable to detect network from phone number" }, { status: 400 })
+    }
+
+    // Admin airtime switches and limits — the same gates the dashboard purchase (purchaseAirtime) applies.
+    // Before any pricing, flood-guard counter or insert. Min/max apply to the amount the customer typed.
+    const gateRefusal =
+      (await airtimeNetworkGate(network, getAdminSetting)) ?? (await airtimeAmountGate(amount, getAdminSetting))
+    if (gateRefusal) {
+      console.warn(`[SHOP-AIRTIME] ❌ ${gateRefusal.code} for shop ${shopId}: ${gateRefusal.message}`)
+      return NextResponse.json({ error: gateRefusal.message, code: gateRefusal.code }, { status: gateRefusal.status })
     }
 
     const networkKey = network.toLowerCase().replace(/\s/g, "_")

@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import Link from "next/link"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -147,7 +148,14 @@ function OrderRow({ o, busy, onDetails, onSync, onDispatch, onRefund, queue }: {
           <Button size="sm" variant="outline" disabled={busy} onClick={() => onSync(o)}><RefreshCw className="mr-1.5 h-3.5 w-3.5" />Sync</Button>
         )}
         {o.can_dispatch && <Button size="sm" disabled={busy} onClick={() => onDispatch(o)}>Dispatch</Button>}
-        {queue && o.refund && (
+        {/* Storefront buyers have no wallet: their refunds go through /admin/refunds (the server refuses a wallet refund). */}
+        {queue && o.refund && o.source === "storefront" && (
+          <div className="flex flex-col items-end gap-1">
+            <Link href="/admin/refunds" className="text-xs font-medium text-primary underline-offset-2 hover:underline">Storefront order — refund from Refunds</Link>
+            {o.refund.action === "blocked" && <div className="max-w-64 text-right text-xs text-amber-700">{o.refund.reason}</div>}
+          </div>
+        )}
+        {queue && o.refund && o.source !== "storefront" && (
           <div className="flex flex-col items-end gap-1">
             <Button size="sm" disabled={busy || o.refund.action === "blocked"} onClick={() => onRefund(o)}>Refund to wallet</Button>
             {o.refund.action === "blocked" && <div className="max-w-64 text-right text-xs text-amber-700">{o.refund.reason}</div>}
@@ -329,7 +337,7 @@ export default function UtilityBillsPage() {
 
   const anyBusy = busy !== null
   const rowBusy = anyBusy || loading
-  const openRefund = (o: Order) => { setNote(""); setAck(false); setRefunding(o) }
+  const openRefund = (o: Order) => { if (o.source === "storefront") return; setNote(""); setAck(false); setRefunding(o) }
   const rowProps = { busy: rowBusy, onDetails: setDetails, onSync: sync, onDispatch: dispatch, onRefund: openRefund }
   const queueCount = queue.total
 

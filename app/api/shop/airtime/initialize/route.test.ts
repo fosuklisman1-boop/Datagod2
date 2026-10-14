@@ -231,6 +231,67 @@ describe("shop airtime initialize — cashback applied", () => {
   })
 })
 
+describe("shop airtime initialize — admin switches and limits", () => {
+  it("network switched off => 403, nothing inserted, no flood-guard counters", async () => {
+    h.state.settings.airtime_enabled_at = { enabled: false }
+    const res = await post({ airtimeAmount: 10, network: "AT" })
+    expect(res.status).toBe(403)
+    expect(await res.json()).toStrictEqual({ error: "Airtime for AT is currently unavailable", code: "NETWORK_DISABLED" })
+    expect(h.state.inserts).toHaveLength(0)
+    expect(h.state.rateLimitKeys).toStrictEqual(["shop_airtime_initialize"])
+  })
+
+  it("switch off is also applied with cashback on (before pricing)", async () => {
+    h.state.settings.commission_cashback_config = CASHBACK_ON
+    h.state.settings.airtime_enabled_telecel = { enabled: false }
+    const res = await post({ airtimeAmount: 10, network: "Telecel", beneficiaryPhone: "0501234567" })
+    expect(res.status).toBe(403)
+    expect(h.state.inserts).toHaveLength(0)
+  })
+
+  it("detected network (no network passed) is gated too", async () => {
+    h.state.settings.airtime_enabled_mtn = { enabled: false }
+    const res = await post({ airtimeAmount: 10 })
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toBe("Airtime for MTN is currently unavailable")
+  })
+
+  it("enabled: true and a missing row both proceed", async () => {
+    h.state.settings.airtime_enabled_mtn = { enabled: true }
+    expect((await post({ airtimeAmount: 10, network: "MTN" })).status).toBe(200)
+    expect((await post({ airtimeAmount: 10, network: "AT" })).status).toBe(200)
+  })
+
+  it("below the admin minimum => 400 on the typed (face) amount", async () => {
+    h.state.settings.airtime_min_amount = { amount: 5 }
+    const res = await post({ airtimeAmount: 4.99, network: "MTN" })
+    expect(res.status).toBe(400)
+    expect(await res.json()).toStrictEqual({ error: "Minimum airtime amount is GHS 5", code: "INVALID_AMOUNT" })
+    expect(h.state.inserts).toHaveLength(0)
+  })
+
+  it("above the admin maximum => 400, even when the cashback price would be below it", async () => {
+    h.state.settings.commission_cashback_config = CASHBACK_ON
+    h.state.settings.airtime_max_amount = { amount: 10 }
+    const res = await post({ airtimeAmount: 10.01, network: "MTN" })
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe("Maximum airtime amount is GHS 10")
+    expect(h.state.inserts).toHaveLength(0)
+  })
+
+  it("exactly at the limits proceeds; defaults are 1..500", async () => {
+    h.state.settings.airtime_min_amount = { amount: 2 }
+    h.state.settings.airtime_max_amount = { amount: 20 }
+    expect((await post({ airtimeAmount: 2, network: "MTN" })).status).toBe(200)
+    expect((await post({ airtimeAmount: 20, network: "MTN" })).status).toBe(200)
+    delete h.state.settings.airtime_min_amount
+    delete h.state.settings.airtime_max_amount
+    expect((await post({ airtimeAmount: 500, network: "MTN" })).status).toBe(200)
+    expect((await post({ airtimeAmount: 500.01, network: "MTN" })).status).toBe(400)
+    expect((await post({ airtimeAmount: 0.5, network: "MTN" })).status).toBe(400)
+  })
+})
+
 describe("shop airtime initialize — expectedPay mismatch => 409", () => {
   it("applied path: 409 with the cashback quote, no insert and no flood-guard counters", async () => {
     h.state.settings.commission_cashback_config = CASHBACK_ON

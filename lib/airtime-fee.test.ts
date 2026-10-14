@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { airtimeEnabledKey, airtimeFeeKey, airtimeSettingsSuffix, legacyAirtimePrice } from "./airtime-fee"
+import { airtimeAmountGate, airtimeEnabledKey, airtimeFeeKey, airtimeNetworkGate, airtimeSettingsSuffix, legacyAirtimePrice } from "./airtime-fee"
 
 describe("airtime settings keys", () => {
   it("MTN and Telecel keep their historical suffixes", () => {
@@ -19,6 +19,30 @@ describe("airtime settings keys", () => {
   })
   it("unknown names keep the old lowercase form", () => {
     expect(airtimeSettingsSuffix("Glo Mobile")).toBe("glo_mobile")
+  })
+})
+
+describe("airtime gates", () => {
+  const reader = (s: Record<string, any>) => async (k: string) => s[k] ?? null
+
+  it("network gate blocks only an explicit enabled:false, by the at key for both AT spellings", async () => {
+    const off = reader({ airtime_enabled_at: { enabled: false } })
+    expect(await airtimeNetworkGate("AT", off)).toStrictEqual({
+      code: "NETWORK_DISABLED", status: 403, message: "Airtime for AT is currently unavailable",
+    })
+    expect((await airtimeNetworkGate("AirtelTigo", off))?.code).toBe("NETWORK_DISABLED")
+    expect(await airtimeNetworkGate("MTN", off)).toBeNull()
+    expect(await airtimeNetworkGate("AT", reader({ airtime_enabled_at: { enabled: true } }))).toBeNull()
+  })
+
+  it("amount gate uses admin min/max with 1/500 defaults, inclusive", async () => {
+    const r = reader({ airtime_min_amount: { amount: 2 }, airtime_max_amount: { amount: 50 } })
+    expect(await airtimeAmountGate(2, r)).toBeNull()
+    expect(await airtimeAmountGate(50, r)).toBeNull()
+    expect(await airtimeAmountGate(1.99, r)).toStrictEqual({ code: "INVALID_AMOUNT", status: 400, message: "Minimum airtime amount is GHS 2" })
+    expect(await airtimeAmountGate(50.01, r)).toStrictEqual({ code: "INVALID_AMOUNT", status: 400, message: "Maximum airtime amount is GHS 50" })
+    expect(await airtimeAmountGate(0.99, reader({}))).toMatchObject({ message: "Minimum airtime amount is GHS 1" })
+    expect(await airtimeAmountGate(501, reader({}))).toMatchObject({ message: "Maximum airtime amount is GHS 500" })
   })
 })
 
