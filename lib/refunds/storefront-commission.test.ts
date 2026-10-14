@@ -322,6 +322,21 @@ describe("executeRefund: storefront commission orders", () => {
     expect(r).toMatchObject({ eligible: true, warning: expect.stringMatching(/admin override/) })
   })
 
+  it("gateway refund of an admin-overridden Hubtel failure needs the explicit confirm (same as manual)", async () => {
+    const c = { hubtelClientReference: "HCS-1", ledger: [led({ resolved_by: "admin9" })] }
+    for (const confirmOverride of [undefined, false]) {
+      const s = setup(commissionOrder("hubtel_bill_orders", {}, c))
+      const err = await executeRefund(s.deps, { table: "hubtel_bill_orders", orderId: "o1", gateway: "paystack", amount: 1, adminId: "a", confirmOverride }).catch((e) => e)
+      expect(err).toMatchObject({ code: "NOT_ELIGIBLE", detail: { code: "CONFIRM_REQUIRED", warning: expect.stringMatching(/admin override/) } })
+      expect(s.calls).toEqual([])
+      expect(s.gateway.refund).not.toHaveBeenCalled()
+    }
+    const ok = setup(commissionOrder("hubtel_bill_orders", {}, c))
+    const res = await executeRefund(ok.deps, { table: "hubtel_bill_orders", orderId: "o1", gateway: "paystack", amount: 1, adminId: "a", confirmOverride: true })
+    expect(res.status).toBe("completed")
+    expect(ok.calls[0].name).toBe("reserve_order_refund")
+  })
+
   it("preview offers Paystack + MoMo payout, never the wallet", async () => {
     const { deps } = setup(commissionOrder("hubtel_bill_orders"))
     deps.getGateway = (await import("./gateways")).getGateway

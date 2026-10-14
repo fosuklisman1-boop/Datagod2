@@ -253,6 +253,8 @@ export interface ExecuteInput {
   gateway: string
   amount: number
   adminId: string | null
+  /** Required when eligibility carries a warning (admin-overridden Hubtel failure), as for the manual path. */
+  confirmOverride?: boolean
 }
 
 export async function executeRefund(deps: RefundDeps, input: ExecuteInput): Promise<{ refundId: string } & Settled> {
@@ -261,6 +263,10 @@ export async function executeRefund(deps: RefundDeps, input: ExecuteInput): Prom
 
   const elig = eligibilityOf(order, nowOf(deps))
   if (!elig.eligible) throw new RefundError("NOT_ELIGIBLE", elig.reason, { code: elig.code })
+  // An admin forced the Hubtel row to failed: Hubtel may still have delivered. No money moves without explicit confirmation.
+  if (elig.warning && input.confirmOverride !== true) {
+    throw new RefundError("NOT_ELIGIBLE", elig.warning, { code: "CONFIRM_REQUIRED", warning: elig.warning })
+  }
 
   const gateway = deps.getGateway(input.gateway)
   if (!gateway) throw new RefundError("GATEWAY_UNSUPPORTED", `Unknown gateway "${input.gateway}"`)

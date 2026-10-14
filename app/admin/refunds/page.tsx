@@ -99,6 +99,9 @@ export default function AdminRefundsPage() {
   const [otpMessage, setOtpMessage] = useState<string | null>(null)
   const [cancelFor, setCancelFor] = useState<string | null>(null)
   const [retryFor, setRetryFor] = useState<HistoryRow | null>(null)
+  // Set when a retry answers CONFIRM_REQUIRED (admin-overridden Hubtel failure).
+  const [retryWarning, setRetryWarning] = useState<string | null>(null)
+  const [retryConfirm, setRetryConfirm] = useState(false)
   const [tab, setTab] = useState("pending")
   const [verifyingId, setVerifyingId] = useState<string | null>(null)
   const [verified, setVerified] = useState<Record<string, { severity: VerificationSeverity; text: string }>>({})
@@ -177,6 +180,12 @@ export default function AdminRefundsPage() {
     setBusyId(id)
     try {
       const o = await postRefundAction(getToken, `/api/admin/refunds/${id}/${action}`, action, body)
+      if (action === "retry" && o.kind === "error" && o.confirmWarning) {
+        // Nothing was reserved: keep the retry dialog open and ask for the explicit override confirmation.
+        setRetryWarning(o.confirmWarning)
+        setRetryConfirm(false)
+        return o
+      }
       if (action === "otp") {
         if (o.kind === "awaiting_otp" || o.kind === "error") {
           // Wrong code / BAD_OTP / 409: keep the OTP dialog open, show the message, clear the input.
@@ -189,12 +198,15 @@ export default function AdminRefundsPage() {
       }
       handleOutcome(o, action)
       await load()
+      return o
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Request failed")
     } finally {
       setBusyId(null)
     }
   }
+
+  const closeRetry = () => { setRetryFor(null); setRetryWarning(null); setRetryConfirm(false) }
 
   // Read-only: asks Paystack about this refund; settles nothing.
   const verify = async (r: HistoryRow) => {
@@ -428,7 +440,7 @@ export default function AdminRefundsPage() {
 
       <SettleFailedDialog info={settleFailed} onAcknowledge={() => setSettleFailed(null)} />
 
-      <AlertDialog open={!!retryFor} onOpenChange={(o) => !o && busyId === null && setRetryFor(null)}>
+      <AlertDialog open={!!retryFor} onOpenChange={(o) => !o && busyId === null && closeRetry()}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Retry this refund?</AlertDialogTitle>
@@ -438,14 +450,23 @@ export default function AdminRefundsPage() {
                 : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {retryWarning && (
+            <label className="flex items-start gap-2 rounded-md border border-destructive/50 p-3 text-sm">
+              <input type="checkbox" className="mt-1" checked={retryConfirm} disabled={busyId !== null} onChange={(e) => setRetryConfirm(e.target.checked)} />
+              <span><span className="font-medium text-destructive">{retryWarning}</span> I confirmed it was not delivered.</span>
+            </label>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={busyId !== null}>Do not retry</AlertDialogCancel>
             <AlertDialogAction
-              disabled={busyId !== null}
+              disabled={busyId !== null || (!!retryWarning && !retryConfirm)}
               onClick={(e) => {
                 e.preventDefault()
                 const row = retryFor
-                if (row) void act(row.id, "retry").then(() => setRetryFor(null))
+                if (!row) return
+                void act(row.id, "retry", retryWarning ? { confirmOverride: retryConfirm } : {}).then((o) => {
+                  if (!(o && o.kind === "error" && o.confirmWarning)) closeRetry()
+                })
               }}
             >
               {busyId !== null ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Retry refund

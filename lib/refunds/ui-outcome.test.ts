@@ -21,6 +21,12 @@ describe("interpretRefundResponse", () => {
       expect(interpretRefundResponse(a, 502, { refundId: "r", status: "failed", message: "boom" })).toMatchObject({ kind: "payout_failed", message: "boom" })
     }
   })
+  it("NOT_ELIGIBLE + CONFIRM_REQUIRED carries the warning to confirm; other errors do not", () => {
+    const o = interpretRefundResponse("retry", 409, { error: "W", code: "NOT_ELIGIBLE", detail: { code: "CONFIRM_REQUIRED", warning: "Hubtel override" } })
+    expect(o).toMatchObject({ kind: "error", code: "NOT_ELIGIBLE", confirmWarning: "Hubtel override" })
+    const plain = interpretRefundResponse("retry", 409, { error: "nope", code: "NOT_ELIGIBLE", detail: { code: "OTHER" } })
+    expect((plain as any).confirmWarning).toBeUndefined()
+  })
   it("processing => warning", () => {
     expect(interpretRefundResponse("reconcile", 200, { refundId: "r", status: "processing" }).kind).toBe("warning")
   })
