@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic"
 
 // Never select verify_token_hash or session_id.
 const COLUMNS =
-  "id, reference_code, user_id, channel, biller, account_number, phone, email, broadband_account, customer_name, verified, amount, paid_amount, status, payment_status, hubtel_client_reference, commission, failure_reason, notes, created_at, updated_at"
+  "id, reference_code, user_id, channel, biller, account_number, phone, email, broadband_account, customer_name, verified, amount, paid_amount, status, payment_status, hubtel_client_reference, commission, failure_reason, notes, created_at, updated_at, shop_id, buyer_name, buyer_phone, buyer_email, payment_fee_amount"
 
 export async function GET(request: NextRequest) {
   const auth = await requireAdmin(request)
@@ -45,6 +45,14 @@ export async function GET(request: NextRequest) {
       if (error) throw error
       for (const u of data ?? []) users.set((u as any).id, u)
     }
+    // Storefront rows carry a shop_id; resolve shop names (user_shops.shop_name).
+    const shopIds = [...new Set(orders.map(o => o.shop_id).filter(Boolean))]
+    const shops = new Map<string, string>()
+    if (shopIds.length) {
+      const { data, error } = await db.from("user_shops").select("id, shop_name").in("id", shopIds)
+      if (error) throw error
+      for (const s of data ?? []) shops.set((s as any).id, (s as any).shop_name)
+    }
     // Refund eligibility needs the ledger; fail closed (no refund offered) if it cannot be read.
     const isCandidate = (o: any) => o.payment_status === "paid" &&
       (o.status === "failed" || o.status === "pending" || (o.status === "processing" && !o.hubtel_client_reference && (o.notes ?? "").startsWith("Dispatching")))
@@ -62,9 +70,12 @@ export async function GET(request: NextRequest) {
         : null
       return {
         ...safe,
-        purchaser: purchaserLabel(users.get(o.user_id)),
-        purchaser_email: users.get(o.user_id)?.email ?? null,
-        source: "dashboard",
+        purchaser: o.channel === "storefront"
+          ? (o.buyer_name || o.buyer_phone || "Storefront buyer")
+          : purchaserLabel(users.get(o.user_id)),
+        purchaser_email: o.channel === "storefront" ? (o.buyer_email ?? null) : (users.get(o.user_id)?.email ?? null),
+        source: o.channel === "storefront" ? "storefront" : "dashboard",
+        shop_name: o.shop_id ? (shops.get(o.shop_id) ?? "Unknown shop") : null,
         can_dispatch: canDispatch(o, stuck),
         stuck_claim: stuck,
         refund: decision,

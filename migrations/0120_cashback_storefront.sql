@@ -402,3 +402,73 @@ BEGIN
 END $$;
 
 NOTIFY pgrst, 'reload schema';
+
+-- ───────────────────── Part 7: margin report channel filter ─────────────────────
+-- p_channel NULL = all (unchanged result). 'storefront' / 'dashboard' filter the cashback-given side only:
+-- hubtel_cs_transactions has no channel, so actual_commission is 0 when a channel is chosen and callers use
+-- expected_commission. Airtime: storefront = shop_id IS NOT NULL. The old 2-arg function is dropped so the
+-- RPC name stays unambiguous for PostgREST (the 3rd arg defaults to NULL, so 2-arg calls still work).
+DROP FUNCTION IF EXISTS public.cashback_margin_report(timestamptz, timestamptz);
+CREATE OR REPLACE FUNCTION public.cashback_margin_report(p_from timestamptz, p_to timestamptz, p_channel text DEFAULT NULL)
+RETURNS TABLE(service_key text, provider text, orders bigint, face_total numeric, actual_commission numeric,
+              cashback_total numeric, shop_share_total numeric, expected_commission numeric)
+LANGUAGE sql
+STABLE
+SET search_path = public
+AS $$
+  WITH actual AS (
+    SELECT t.service_key AS service_key, 'hubtel'::text AS provider,
+           count(*) AS orders, COALESCE(sum(t.amount), 0)::numeric AS face_total,
+           COALESCE(sum(t.commission), 0)::numeric AS actual_commission
+      FROM hubtel_cs_transactions t
+     WHERE p_channel IS NULL
+       AND t.state = 'fulfilled' AND t.completed_at >= p_from AND t.completed_at <= p_to
+     GROUP BY t.service_key
+  ),
+  given_all AS (
+    SELECT 'airtime_' || CASE a.network
+             WHEN 'MTN' THEN 'mtn' WHEN 'Telecel' THEN 'telecel' WHEN 'AirtelTigo' THEN 'at' WHEN 'AT' THEN 'at'
+             ELSE lower(a.network) END AS service_key,
+           COALESCE(a.cashback_provider, 'hubtel') AS provider,
+           a.cashback_amount, a.shop_share_amount, a.expected_commission
+      FROM airtime_orders a
+     WHERE a.status = 'completed' AND a.created_at >= p_from AND a.created_at <= p_to
+       AND (p_channel IS NULL
+            OR (p_channel = 'storefront' AND a.shop_id IS NOT NULL)
+            OR (p_channel = 'dashboard' AND a.shop_id IS NULL))
+    UNION ALL
+    SELECT 'bill_' || b.biller, COALESCE(b.cashback_provider, 'hubtel'),
+           b.cashback_amount, b.shop_share_amount, b.expected_commission
+      FROM hubtel_bill_orders b
+     WHERE b.status = 'completed' AND b.created_at >= p_from AND b.created_at <= p_to
+       AND (p_channel IS NULL OR b.channel = p_channel)
+    UNION ALL
+    SELECT d.service_key, COALESCE(d.cashback_provider, 'hubtel'),
+           d.cashback_amount, d.shop_share_amount, d.expected_commission
+      FROM hubtel_data_orders d
+     WHERE d.status = 'completed' AND d.created_at >= p_from AND d.created_at <= p_to
+       AND (p_channel IS NULL OR d.channel = p_channel)
+  ),
+  given AS (
+    SELECT g.service_key, g.provider,
+           count(*) AS orders,
+           COALESCE(sum(g.cashback_amount), 0)::numeric AS cashback_total,
+           COALESCE(sum(g.shop_share_amount), 0)::numeric AS shop_share_total,
+           COALESCE(sum(g.expected_commission), 0)::numeric AS expected_commission
+      FROM given_all g
+     GROUP BY g.service_key, g.provider
+  )
+  SELECT COALESCE(a.service_key, g.service_key),
+         COALESCE(a.provider, g.provider),
+         CASE WHEN p_channel IS NULL THEN COALESCE(a.orders, 0) ELSE COALESCE(g.orders, 0) END::bigint,
+         COALESCE(a.face_total, 0)::numeric,
+         COALESCE(a.actual_commission, 0)::numeric,
+         COALESCE(g.cashback_total, 0)::numeric,
+         COALESCE(g.shop_share_total, 0)::numeric,
+         COALESCE(g.expected_commission, 0)::numeric
+    FROM actual a
+    FULL OUTER JOIN given g ON g.service_key = a.service_key AND g.provider = a.provider;
+$$;
+REVOKE ALL ON FUNCTION public.cashback_margin_report(timestamptz, timestamptz, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.cashback_margin_report(timestamptz, timestamptz, text) TO service_role;
+NOTIFY pgrst, 'reload schema';

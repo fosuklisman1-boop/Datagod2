@@ -23,7 +23,11 @@ export async function GET(request: NextRequest) {
   if (from > to) return NextResponse.json({ error: "from must be before to" }, { status: 400 })
   try {
     const { db } = getHubtelCsRuntime()
-    const { data, error } = await db.rpc("cashback_margin_report", { p_from: from.toISOString(), p_to: to.toISOString() })
+    const ch = sp.get("channel")
+    if (ch && ch !== "all" && ch !== "dashboard" && ch !== "storefront") return NextResponse.json({ error: "Invalid channel" }, { status: 400 })
+    const args: Record<string, string> = { p_from: from.toISOString(), p_to: to.toISOString() }
+    if (ch === "dashboard" || ch === "storefront") args.p_channel = ch
+    const { data, error } = await db.rpc("cashback_margin_report", args)
     if (error) throw error
     const rows = ((data ?? []) as Record<string, unknown>[]).map(r => ({
       service_key: String(r.service_key),
