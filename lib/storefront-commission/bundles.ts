@@ -1,5 +1,5 @@
 import type { CashbackConfig } from "@/lib/cashback/config"
-import { quoteStorefront } from "@/lib/cashback/quote"
+import { quoteStorefront, type StorefrontQuote } from "@/lib/cashback/quote"
 import { getCatalog, type SignedBundle } from "@/lib/standard-bundles/catalog"
 import { NETWORK_SERVICE, type BundleNetwork } from "@/lib/standard-bundles/categories"
 import {
@@ -10,7 +10,7 @@ import {
   checkPendingCaps, fail, normaliseBuyer, parseExpectedPay, priceMatches,
   storefrontGroupOn, NOT_AVAILABLE, PRICE_UPDATED, UNAVAILABLE, type CapDeps, type Fail,
 } from "./shop"
-import { toInitializeResult, type InitResult, type StorefrontOrderRow } from "./bills"
+import { toInitializeResult, type InitializeResult, type InitResult, type StorefrontOrderRow } from "./bills"
 
 /** Row written for a storefront bundle order (service role; user_id NULL, buyer in buyer_*). */
 export interface StorefrontBundleInsert {
@@ -50,7 +50,20 @@ export type StorefrontCatalogResult =
 
 /** The dashboard catalog (same gates, cache and signed tokens) with the storefront price on every bundle. */
 export async function storefrontCatalog(d: BundlesDeps, network: BundleNetwork): Promise<StorefrontCatalogResult> {
-  const g = await storefrontBundlesCfg(d)
+  return pricedCatalog(d, network, () => storefrontBundlesCfg(d),
+    (cfg, serviceKey, face) => quoteStorefront({ serviceKey, provider: "hubtel", faceAmount: face, buyer: "customer" }, cfg))
+}
+
+/**
+ * Pay-first catalog (storefront, bots): the surface gate (`gate`), nothing sold while Hubtel is paused, then the
+ * dashboard catalog with `price` (the surface's quote) on every bundle. Switch-off answers are the vague NOT_AVAILABLE.
+ */
+export async function pricedCatalog(
+  d: BundlesDeps, network: BundleNetwork,
+  gate: () => Promise<{ ok: true; cfg: CashbackConfig } | Fail>,
+  price: (cfg: CashbackConfig, serviceKey: string, face: number) => StorefrontQuote,
+): Promise<StorefrontCatalogResult> {
+  const g = await gate()
   if (!g.ok) return g
   try {
     const h = await d.getHubtelConfig()
@@ -64,7 +77,7 @@ export async function storefrontCatalog(d: BundlesDeps, network: BundleNetwork):
     categories: c.categories.map(cat => ({
       name: cat.name,
       bundles: cat.bundles.map(b => {
-        const q = quoteStorefront({ serviceKey, provider: "hubtel", faceAmount: b.amount, buyer: "customer" }, g.cfg)
+        const q = price(g.cfg, serviceKey, b.amount)
         return { ...b, payAmount: q.payAmount, customerCashback: q.customerCashback, paymentFee: q.paymentFee }
       }),
     })),
@@ -114,9 +127,7 @@ export async function initializeStorefrontBundle(d: StorefrontBundlesDeps, shopI
   const capped = await checkPendingCaps(d.caps, "bundle", "hubtel_data_orders", { email: b.buyer.email, phone: b.buyer.phone, shopId })
   if (capped) return capped
 
-  let row: StorefrontBundleRow
-  try {
-    row = await d.insertStorefrontOrder({
+  return insertBundleOnce(() => d.insertStorefrontOrder({
       reference_code: d.newReference(), user_id: null, channel: "storefront", shop_id: shopId,
       network: v.network, service_key: prep.serviceKey, beneficiary_phone: prep.phone233,
       bundle_value: v.value, bundle_display: v.display, bundle_category: v.category,
@@ -129,15 +140,29 @@ export async function initializeStorefrontBundle(d: StorefrontBundlesDeps, shopI
       cashback_share: q.applied ? q.share : null,
       cashback_provider: q.applied ? q.provider : null,
       expected_commission: q.applied ? q.commission : null,
-    })
+    }), () => d.findStorefrontOrder(shopId, key), "storefront-bundles")
+}
+
+/**
+ * The single write of a pay-first bundle order, idempotent on its key: on a unique violation a concurrent request
+ * with the same key won the insert => hand back its order (`findWinner`). Anything else => 503, nothing written.
+ */
+export async function insertBundleOnce(
+  insert: () => Promise<StorefrontBundleRow>,
+  findWinner: () => Promise<StorefrontBundleRow | null>,
+  tag: string,
+): Promise<{ ok: true; value: InitializeResult } | Fail> {
+  let row: StorefrontBundleRow
+  try {
+    row = await insert()
   } catch (e: any) {
     if (e?.code === "23505") {
       // A concurrent request with the same key won the insert: hand back its order.
       let won: StorefrontBundleRow | null = null
-      try { won = await d.findStorefrontOrder(shopId, key) } catch { won = null }
+      try { won = await findWinner() } catch { won = null }
       if (won) return { ok: true, value: fromRow(won) }
     }
-    console.error("[storefront-bundles] insert failed:", e?.message ?? e)
+    console.error(`[${tag}] insert failed:`, e?.message ?? e)
     return fail(503, "Could not create the order — please try again.")
   }
   return { ok: true, value: fromRow(row) }

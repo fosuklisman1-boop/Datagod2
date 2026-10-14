@@ -54,19 +54,29 @@ export const toInitializeResult = (r: StorefrontOrderRow): InitializeResult => (
 export type PriceQuote = { faceAmount: number; payAmount: number; customerCashback: number; paymentFee: number }
 export type InitResult = { ok: true; value: InitializeResult } | (Fail & { quote?: PriceQuote })
 
-/** Storefront bills switch + Phase 3a master/biller + Hubtel up for that biller. */
-async function storefrontBillGate(
+export type CommissionBillGate = { ok: true; cfg: CashbackConfig; bills: BillsConfig } | Fail
+
+/**
+ * Pay-first commission bills gate (storefront and bots): the surface's group switch (`groupOn`) + Phase 3a
+ * master/biller + Hubtel enabled, service on and not paused. Switch-off answers are the vague NOT_AVAILABLE.
+ */
+export async function commissionBillGate(
   d: Pick<BillsDeps, "getCashbackConfig" | "getBillsConfig" | "getHubtelConfig">, biller: BillerKey,
-): Promise<{ ok: true; cfg: CashbackConfig; bills: BillsConfig } | Fail> {
+  groupOn: (cfg: CashbackConfig) => boolean,
+): Promise<CommissionBillGate> {
   let cfg: CashbackConfig
   try { cfg = await d.getCashbackConfig() } catch { return fail(503, UNAVAILABLE) }
-  if (!storefrontGroupOn(cfg, "bills")) return fail(403, NOT_AVAILABLE)
+  if (!groupOn(cfg)) return fail(403, NOT_AVAILABLE)
   const g = await billsGate(d, biller)
   if (!g.ok) return g.status === 403 ? fail(403, NOT_AVAILABLE) : g
   const h = await billsHubtelGate(d, biller, { checkPause: true })
   if (!h.ok) return h
   return { ok: true, cfg, bills: g.bills }
 }
+
+/** Storefront bills switch + Phase 3a master/biller + Hubtel up for that biller. */
+const storefrontBillGate = (d: Pick<BillsDeps, "getCashbackConfig" | "getBillsConfig" | "getHubtelConfig">, biller: BillerKey) =>
+  commissionBillGate(d, biller, cfg => storefrontGroupOn(cfg, "bills"))
 
 export const VERIFY_FAILED = "Couldn't verify this account"
 export const VERIFY_FAILED_NOW = "Couldn't verify this account right now"
@@ -81,7 +91,17 @@ export async function verifyStorefrontBill(
   if (!isBillerKey(biller)) return fail(400, "Unknown biller")
   const g = await storefrontBillGate(d, biller)
   if (!g.ok) return g
-  const r = await verifyBill(d, shopBinding(shopId), biller, inputs)
+  return verifyBillMasked(d, shopBinding(shopId), biller, inputs)
+}
+
+/**
+ * The engine lookup with a token bound to `binding`, for public surfaces (storefront, bots): names masked in the
+ * response AND in the re-signed token bodies, lookup failures reduced to fixed text. Run the surface gate first.
+ */
+export async function verifyBillMasked(
+  d: BillsDeps, binding: string, biller: BillerKey, inputs: BillInputs & { addMeter?: boolean; consent?: boolean },
+): Promise<VerifyResult> {
+  const r = await verifyBill(d, binding, biller, inputs)
   if (!r.ok) {
     if (r.status !== 422) return r
     return fail(422, r.error.startsWith(VERIFY_FAILED_NOW) ? VERIFY_FAILED_NOW : VERIFY_FAILED)
@@ -89,7 +109,7 @@ export async function verifyStorefrontBill(
   // The token body is base64-readable: re-sign it with the masked name too (the full name never leaves the server;
   // the order's customer_name is the masked one — dispatch never uses it).
   const remask = (token: string): string => {
-    const v = verifyBillToken(token, d.secret, shopBinding(shopId), d.now())
+    const v = verifyBillToken(token, d.secret, binding, d.now())
     if (!v) throw new Error("storefront bills: freshly issued token did not verify")
     return signBillToken({ ...v, customerName: maskName(v.customerName) }, d.secret)
   }
@@ -157,28 +177,42 @@ export async function initializeStorefrontBill(d: StorefrontBillsDeps, shopId: s
       verified_at: new Date(v.issuedAt).toISOString(),
     })
 
+  return insertBillOnce(insert, () => d.findStorefrontOrderByHash(shopId, hash), () => d.newReference(), "storefront-bills")
+}
+
+/**
+ * The single write of a pay-first bill order, idempotent on the verify token: insert; on a unique violation hand
+ * back the order this token already created (`findByHash`); otherwise (a reference collision) retry once with a
+ * fresh reference. Any other failure => 500, nothing half-written.
+ */
+export async function insertBillOnce(
+  insert: (reference: string) => Promise<StorefrontOrderRow>,
+  findByHash: () => Promise<StorefrontOrderRow | null>,
+  newReference: () => string,
+  tag: string,
+): Promise<{ ok: true; value: InitializeResult } | Fail> {
   const CREATE_FAILED = fail(500, "Could not create the order")
   try {
-    return { ok: true, value: toInitializeResult(await insert(d.newReference())) }
+    return { ok: true, value: toInitializeResult(await insert(newReference())) }
   } catch (e: any) {
     if (e?.code !== "23505") {
-      console.error("[storefront-bills] insert failed:", e?.message ?? e)
+      console.error(`[${tag}] insert failed:`, e?.message ?? e)
       return CREATE_FAILED
     }
   }
   // Unique violation. Same verify token (double submit / retry) => hand back the order it already created.
   try {
-    const existing = await d.findStorefrontOrderByHash(shopId, hash)
+    const existing = await findByHash()
     if (existing) return { ok: true, value: toInitializeResult(existing) }
   } catch (e: any) {
-    console.error("[storefront-bills] lookup after 23505 failed:", e?.message ?? e)
+    console.error(`[${tag}] lookup after 23505 failed:`, e?.message ?? e)
     return CREATE_FAILED
   }
   // Not the token: a reference collision. Retry once with a fresh reference.
   try {
-    return { ok: true, value: toInitializeResult(await insert(d.newReference())) }
+    return { ok: true, value: toInitializeResult(await insert(newReference())) }
   } catch (e: any) {
-    console.error("[storefront-bills] insert retry failed:", e?.message ?? e)
+    console.error(`[${tag}] insert retry failed:`, e?.message ?? e)
     return CREATE_FAILED
   }
 }
