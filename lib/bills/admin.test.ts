@@ -271,6 +271,11 @@ describe("stuck release aborts", () => {
     expect(r.message).toContain("/admin/refunds")
     expect(calls).toEqual([])
   })
+  it("an api row with its key owner's account goes down the wallet refund path", async () => {
+    const { deps, calls } = fakeDeps({ order: order({ status: "pending", channel: "api", user_id: "u1" }) })
+    expect(await executeBillRefund(deps, "o1", "n", false)).toMatchObject({ ok: true })
+    expect(calls).not.toEqual([])
+  })
   it("refuses any row without a user (no wallet to credit), e.g. an api row", async () => {
     const { deps, calls } = fakeDeps({ order: order({ status: "pending", channel: "api", user_id: null }) })
     expect(await executeBillRefund(deps, "o1", "n", false)).toMatchObject({ ok: false, status: 409 })

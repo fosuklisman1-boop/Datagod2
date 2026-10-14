@@ -124,6 +124,12 @@ describe("loadRefundableOrders: storefront commission tables", () => {
     expect(isStorefrontRow("hubtel_bill_orders", { channel: "storefront" })).toBe(true)
     expect(isStorefrontRow("hubtel_bill_orders", { channel: "dashboard" })).toBe(false)
   })
+
+  it("isStorefrontRow: api (wallet-paid, key owner's account) rows are never storefront rows", () => {
+    expect(isStorefrontRow("hubtel_bill_orders", { channel: "api", user_id: "u1" })).toBe(false)
+    expect(isStorefrontRow("hubtel_data_orders", { channel: "api", user_id: "u1" })).toBe(false)
+    expect(isStorefrontRow("airtime_orders", { shop_id: null, user_id: "u1", channel: null })).toBe(false)
+  })
 })
 
 describe("listPendingOrderRefs: storefront commission tables", () => {

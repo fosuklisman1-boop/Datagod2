@@ -98,6 +98,11 @@ describe("executeBundleRefund", () => {
     expect(r.message).toContain("/admin/refunds")
     expect(d.log).toEqual([])
   })
+  it("an api row (wallet-paid by the API key owner) refunds to that wallet like a dashboard row", async () => {
+    const d = deps({ order: facts({ channel: "api" }) })
+    expect(await executeBundleRefund(d, "o1", "n")).toMatchObject({ ok: true, status: 200 })
+    expect(d.log).toEqual(["claim", "credit", "refunded", "notify"])
+  })
   it("claims, rechecks the ledger, credits, then marks refunded", async () => {
     const d = deps()
     const r = await executeBundleRefund(d, "o1", "n")

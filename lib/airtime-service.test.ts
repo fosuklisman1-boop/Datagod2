@@ -433,6 +433,39 @@ describe("purchaseAirtime — instant cashback", () => {
     expect(h.state.txInserts[0].description).toBe("Airtime: MTN GHS 9.52 to 0541234567")
   })
 
+  it("channel api with api switch on ⇒ cashback with the key owner's tier (dealer for dealer/sub_agent)", async () => {
+    const API_ON = { ...CASHBACK_CFG, surfaces: { dashboard: false, bots: false, storefront: false, api: true } }
+    for (const [role, pay, cb, share] of [["user", 9.91, 0.09, 25], ["dealer", 9.81, 0.19, 50], ["sub_agent", 9.81, 0.19, 50]] as const) {
+      h.state.orderInserts = []; h.state.deductCalls = []
+      h.state.settings.commission_cashback_config = API_ON
+      h.state.userRole = role
+      await buy({ channel: "api", expectedPay: pay })
+      expect(h.state.deductCalls).toEqual([{ p_user_id: "user-1", p_amount: pay }])
+      expect(h.state.orderInserts[0]).toMatchObject({
+        user_id: "user-1", airtime_amount: 10, fee_amount: 0, total_paid: pay, cashback_amount: cb, cashback_share: share,
+      })
+    }
+  })
+
+  it("api switch on does not change dashboard pricing; dashboard switch on does not change api pricing", async () => {
+    h.state.settings.commission_cashback_config = { ...CASHBACK_CFG, surfaces: { dashboard: false, bots: false, storefront: false, api: true } }
+    await buy({ channel: "dashboard" })
+    expect(h.state.orderInserts[0]).toEqual(LEGACY_ROW)
+    h.state.orderInserts = []
+    h.state.settings.commission_cashback_config = CASHBACK_CFG // dashboard on, api off
+    await buy({ channel: "api" })
+    expect(h.state.orderInserts[0]).toEqual(LEGACY_ROW)
+  })
+
+  it("channel api, switch on, stale expectedPay ⇒ PRICE_CHANGED with the cashback quote, nothing debited", async () => {
+    h.state.settings.commission_cashback_config = { ...CASHBACK_CFG, surfaces: { dashboard: false, bots: false, storefront: false, api: true } }
+    await expect(buy({ channel: "api", expectedPay: 10 })).rejects.toMatchObject({
+      code: "PRICE_CHANGED", quote: { faceAmount: 10, payAmount: 9.91, customerCashback: 0.09 },
+    })
+    expect(h.state.deductCalls).toHaveLength(0)
+    expect(h.state.orderInserts).toHaveLength(0)
+  })
+
   it("config read throws ⇒ legacy path", async () => {
     h.state.settings.commission_cashback_config = CASHBACK_CFG
     h.state.cashbackReadError = true

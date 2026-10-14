@@ -42,6 +42,18 @@ describe("Hubtel review-queue refunds refuse storefront orders", () => {
     expect(s.creditWallet).toHaveBeenCalledWith("u1", 101.82, "bill-refund-o1", expect.any(String))
   })
 
+  it("api rows (wallet-paid by the API key owner) refund to that wallet like dashboard rows", async () => {
+    const s = spies()
+    const r = await createBillOrdersAdapter({ ...s, get: async () => bill({ channel: "api", user_id: "u1" }) }).refundToWallet!(makeTx({ order_id: "o1" }), "admin")
+    expect(r.refunded).toBe(true)
+    expect(s.creditWallet).toHaveBeenCalledWith("u1", 101.82, "bill-refund-o1", expect.any(String))
+
+    const s2 = spies()
+    const r2 = await createDataOrdersAdapter({ ...s2, get: async () => bundle({ channel: "api", user_id: "u1" }) }).refundToWallet!(makeTx({ order_id: "o1" }), "admin")
+    expect(r2.refunded).toBe(true)
+    expect(s2.creditWallet).toHaveBeenCalledWith("u1", 12.3, expect.any(String), expect.any(String))
+  })
+
   it("storefront failure/delivery notifications are skipped (no account to notify)", async () => {
     const s = spies()
     await createDataOrdersAdapter({ ...s, get: async () => bundle({ status: "processing" }) }).onFailed(makeTx({ order_id: "o1" }))
