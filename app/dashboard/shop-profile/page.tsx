@@ -138,11 +138,18 @@ export default function ShopProfilePage() {
     if (!shop?.id) return
     setUploadingLogo(true)
     try {
-      const path = `shop-logos/${shop.id}-${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`
-      const { error: uploadError } = await supabase.storage.from("admin-uploads").upload(path, file, { upsert: true })
-      if (uploadError) throw uploadError
-      const { data } = supabase.storage.from("admin-uploads").getPublicUrl(path)
-      setLogoUrl(data.publicUrl)
+      // Server-side upload: storage RLS on admin-uploads only lets admins write (lib/shop-logo.ts).
+      const { data: { session } } = await supabase.auth.getSession()
+      const form = new FormData()
+      form.append("file", file)
+      const res = await fetch("/api/shop/logo", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+        body: form,
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error ?? "Logo upload failed")
+      setLogoUrl(json.url)
       toast.success("Logo uploaded")
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Logo upload failed")
