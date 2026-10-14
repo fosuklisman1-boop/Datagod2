@@ -149,6 +149,7 @@ Wallet-paid Hubtel data bundles at Hubtel's exact price (no markup; income = Hub
 5. Known follow-ups:
    - Categories come from Hubtel's value/display naming (`lib/standard-bundles/categories.ts`, verified against all 94 live bundles on 2026-10-13). If Hubtel renames or adds bundles they land in "Other" — re-check the mapping.
    - The admin category chips list the known categories + "Other", not the live catalog.
+   - MTN "Flexi" bundles (`RACT_*_Flexi_Bundle`) are NOT any-amount: live test 2026-10-14 (Midnight Flexi GHS 1.50 to 0555773910, ref FLEXITEST1791942803794, txn be5c3ba87522457892c77a472e960aa6) was accepted as 0001 pending then FAILED; nothing delivered. Only the listed price points work. The same response showed MTN data commission = 3.96% (0.0594 on 1.50).
    - Phase 2c adds storefront and public-API sales.
 
 ## Commission Cashback — Part 1 (dashboard)
