@@ -138,15 +138,15 @@ export const apiDocsRegistry: ApiDocSection[] = [
       {
         method: "POST",
         path: "/api/v1/bundles",
-        description: "Buy a bundle for a phone number, paid from your wallet. Tokens come from GET /api/v1/bundles and expire, so fetch the catalog shortly before buying. idempotency_key makes retries safe: re-sending the same key returns the original order and never charges twice. Test keys (sandbox) debit a sandbox wallet at face price, simulate no cashback and complete instantly; use the sbx_* tokens from the sandbox catalog.",
+        description: "Buy a bundle for a phone number, paid from your wallet. Tokens come from GET /api/v1/bundles and expire, so fetch the catalog shortly before buying. idempotency_key makes retries safe: re-sending the same key returns the original order (201, same reference) and never charges twice. Test keys (sandbox) debit a sandbox wallet at face price, simulate no cashback and complete instantly; use the sbx_* tokens from the sandbox catalog.",
         params: [
           { name: "bundle_token", type: "string", required: true, description: "bundle_token from GET /api/v1/bundles" },
           { name: "phone", type: "string", required: true, description: "10-digit beneficiary phone number" },
-          { name: "idempotency_key", type: "string", required: true, description: "Your unique key for this purchase; reuse it when retrying" },
+          { name: "idempotency_key", type: "string", required: true, description: "Your unique key for this purchase (8-64 letters, digits or hyphens); reuse it when retrying" },
           { name: "expected_pay", type: "number", required: false, description: "The GHS amount you expect to be charged (the pay_amount you saw). If the current price differs, nothing is charged and you get a 409 price_changed with the current quote" },
         ],
         curl: `curl -X POST ${BASE_URL}/api/v1/bundles \\\n  -H "X-API-Key: dg_live_your_key_here" \\\n  -H "Content-Type: application/json" \\\n  -d '{ "bundle_token": "tok_abc123", "phone": "0541234567", "idempotency_key": "order-1001", "expected_pay": 4.8 }'`,
-        successExample: `{\n  "success": true,\n  "order": {\n    "reference": "BND-XXX-YYY",\n    "status": "pending",\n    "payment_status": "paid",\n    "face_amount": 5,\n    "paid_amount": 4.8,\n    "cashback": 0.2,\n    "network": "MTN",\n    "bundle": "1GB",\n    "phone": "0541234567",\n    "created_at": "2026-10-14T10:00:00Z"\n  }\n}`,
+        successExample: `{\n  "success": true,\n  "order": {\n    "reference": "SB-1A2B3C4D5E6F",\n    "status": "pending",\n    "payment_status": "paid",\n    "face_amount": 5,\n    "paid_amount": 4.8,\n    "cashback": 0.2,\n    "network": "MTN",\n    "bundle": "1GB",\n    "phone": "233541234567",\n    "created_at": "2026-10-14T10:00:00Z"\n  }\n}`,
         errorExamples: [
           { status: 400, body: `{ "success": false, "error": "Missing required fields: bundle_token, phone, idempotency_key" }` },
           { status: 401, body: `{ "success": false, "error": "Invalid or missing API key" }` },
@@ -160,8 +160,8 @@ export const apiDocsRegistry: ApiDocSection[] = [
         method: "GET",
         path: "/api/v1/bundles/{reference}",
         description: "Check the status of one of your own bundle orders by its reference. Works for test keys against sandbox orders.",
-        curl: `curl -X GET ${BASE_URL}/api/v1/bundles/BND-XXX-YYY \\\n  -H "X-API-Key: dg_live_your_key_here"`,
-        successExample: `{\n  "success": true,\n  "order": { "reference": "BND-XXX-YYY", "status": "completed", "payment_status": "paid", "face_amount": 5, "paid_amount": 4.8, "cashback": 0.2, "network": "MTN", "bundle": "1GB", "phone": "0541234567", "created_at": "2026-10-14T10:00:00Z" }\n}`,
+        curl: `curl -X GET ${BASE_URL}/api/v1/bundles/SB-1A2B3C4D5E6F \\\n  -H "X-API-Key: dg_live_your_key_here"`,
+        successExample: `{\n  "success": true,\n  "order": { "reference": "SB-1A2B3C4D5E6F", "status": "completed", "payment_status": "paid", "face_amount": 5, "paid_amount": 4.8, "cashback": 0.2, "network": "MTN", "bundle": "1GB", "phone": "233541234567", "created_at": "2026-10-14T10:00:00Z" }\n}`,
         errorExamples: [
           { status: 401, body: `{ "success": false, "error": "Invalid or missing API key" }` },
           { status: 404, body: `{ "success": false, "error": "Order not found" }` },
@@ -177,7 +177,7 @@ export const apiDocsRegistry: ApiDocSection[] = [
       {
         method: "POST",
         path: "/api/v1/bills/verify",
-        description: "Look up a bill account before paying. Returns a short-lived verify_token to pass to POST /api/v1/bills. For ECG without add_meter the response lists the meters on the account, each with its own verify_token. Billers: ecg, ghana_water, dstv, gotv, startimes, telecel_broadband. Test keys return a fake \"Sandbox Customer\" with GHS 50 due and a sandbox verify_token (only valid with the same test key).",
+        description: "Look up a bill account before paying. Returns a short-lived verify_token to pass to POST /api/v1/bills. For ECG without add_meter the response lists the meters on the account, each with its own verify_token. Billers: ecg, ghana_water, dstv, gotv, startimes, telecel_broadband. Returns 403 not_available while the API channel is switched off. Test keys return a fake \"Sandbox Customer\" with GHS 50 due and a fresh sandbox verify_token on every call (only valid with the same test key).",
         params: [
           { name: "biller", type: "string", required: true, description: "ecg, ghana_water, dstv, gotv, startimes or telecel_broadband" },
           { name: "account", type: "string", required: false, description: "Meter, smartcard or account number (prepaid meters and postpaid accounts both go here)" },
@@ -193,25 +193,27 @@ export const apiDocsRegistry: ApiDocSection[] = [
         errorExamples: [
           { status: 400, body: `{ "success": false, "error": "Unknown biller" }` },
           { status: 401, body: `{ "success": false, "error": "Invalid or missing API key" }` },
+          { status: 403, body: `{ "success": false, "error": "not_available" }` },
           { status: 403, body: `{ "success": false, "error": "Please verify your phone number to continue. Visit your dashboard to complete verification." }` },
-          { status: 429, body: `{ "success": false, "error": "Rate limit exceeded." }` },
+          { status: 429, body: `{ "success": false, "error": "Rate limit exceeded. Your current limit is 20 requests/minute." }` },
         ],
       },
       {
         method: "POST",
         path: "/api/v1/bills",
-        description: "Pay a verified bill from your wallet. Use the verify_token from POST /api/v1/bills/verify. If the price changed since you looked, nothing is charged and you get a 409 price_changed with the current quote (pass expected_pay to opt in). Test keys debit a sandbox wallet at face price with no cashback; a sandbox verify_token is required.",
+        description: "Pay a verified bill from your wallet. Use the verify_token from POST /api/v1/bills/verify. If the price changed since you looked, nothing is charged and you get a 409 price_changed with the current quote (pass expected_pay to opt in). A verify_token pays at most one bill: re-sending the same verify_token (for example after a timeout) returns the original order with the same reference and never charges twice, so retry with the same token rather than verifying again. Returns 403 not_available while the API channel is switched off. Test keys debit a sandbox wallet at face price with no cashback; a sandbox verify_token is required and behaves the same way (one order per token, expected_pay checked).",
         params: [
           { name: "verify_token", type: "string", required: true, description: "verify_token from POST /api/v1/bills/verify" },
           { name: "amount", type: "number", required: true, description: "GHS face amount to pay" },
           { name: "expected_pay", type: "number", required: false, description: "The GHS amount you expect to be charged. If the current price differs, nothing is charged and you get a 409 price_changed" },
         ],
         curl: `curl -X POST ${BASE_URL}/api/v1/bills \\\n  -H "X-API-Key: dg_live_your_key_here" \\\n  -H "Content-Type: application/json" \\\n  -d '{ "verify_token": "vt_abc123", "amount": 50, "expected_pay": 49 }'`,
-        successExample: `{\n  "success": true,\n  "order": {\n    "reference": "BILL-XXX-YYY",\n    "biller": "dstv",\n    "account": "1234567890",\n    "customer_name": "JANE DOE",\n    "status": "pending",\n    "payment_status": "paid",\n    "face_amount": 50,\n    "paid_amount": 49,\n    "cashback": 1\n  }\n}`,
+        successExample: `{\n  "success": true,\n  "order": {\n    "reference": "BILL-1A2B3C4D5E6F",\n    "biller": "dstv",\n    "account": "1234567890",\n    "customer_name": "JANE DOE",\n    "status": "pending",\n    "payment_status": "paid",\n    "face_amount": 50,\n    "paid_amount": 49,\n    "cashback": 1\n  }\n}`,
         errorExamples: [
           { status: 400, body: `{ "success": false, "error": "verify_token and a numeric amount are required" }` },
           { status: 401, body: `{ "success": false, "error": "Invalid or missing API key" }` },
           { status: 402, body: `{ "success": false, "error": "Insufficient wallet balance" }` },
+          { status: 403, body: `{ "success": false, "error": "not_available" }` },
           { status: 403, body: `{ "success": false, "error": "Please verify your phone number to continue. Visit your dashboard to complete verification." }` },
           { status: 409, body: `{ "success": false, "error": "price_changed", "message": "Price updated — please review", "quote": { "face_amount": 50, "pay_amount": 50, "customer_cashback": 0 } }` },
           { status: 429, body: `{ "success": false, "error": "Rate limit exceeded. Your current limit is 20 requests/minute." }` },
@@ -221,8 +223,8 @@ export const apiDocsRegistry: ApiDocSection[] = [
         method: "GET",
         path: "/api/v1/bills/{reference}",
         description: "Check the status of one of your own bill orders by its reference. Works for test keys against sandbox orders.",
-        curl: `curl -X GET ${BASE_URL}/api/v1/bills/BILL-XXX-YYY \\\n  -H "X-API-Key: dg_live_your_key_here"`,
-        successExample: `{\n  "success": true,\n  "order": { "reference": "BILL-XXX-YYY", "biller": "dstv", "account": "1234567890", "customer_name": "JANE DOE", "status": "completed", "payment_status": "paid", "face_amount": 50, "paid_amount": 49, "cashback": 1, "created_at": "2026-10-14T10:00:00Z" }\n}`,
+        curl: `curl -X GET ${BASE_URL}/api/v1/bills/BILL-1A2B3C4D5E6F \\\n  -H "X-API-Key: dg_live_your_key_here"`,
+        successExample: `{\n  "success": true,\n  "order": { "reference": "BILL-1A2B3C4D5E6F", "biller": "dstv", "account": "1234567890", "customer_name": "JANE DOE", "status": "completed", "payment_status": "paid", "face_amount": 50, "paid_amount": 49, "cashback": 1, "created_at": "2026-10-14T10:00:00Z" }\n}`,
         errorExamples: [
           { status: 401, body: `{ "success": false, "error": "Invalid or missing API key" }` },
           { status: 404, body: `{ "success": false, "error": "Order not found" }` },
