@@ -157,7 +157,9 @@ export async function markAirtimeOrderPaid(
     return { success: true, alreadyProcessed: true }
   }
 
-  await supabase
+  // Guarded flip: only the call whose update actually changed a row may go on to
+  // profit / tracking / fulfilment, so a concurrent webhook + verify dispatches once.
+  const { data: flipped, error: flipErr } = await supabase
     .from("airtime_orders")
     .update({
       payment_status: "completed",
@@ -166,6 +168,16 @@ export async function markAirtimeOrderPaid(
       updated_at: new Date().toISOString(),
     })
     .eq("id", airtimeData.id)
+    .neq("payment_status", "completed")
+    .select("id")
+
+  if (flipErr) {
+    console.error(`[AIRTIME-SVC] Failed to mark airtime order ${airtimeData.id} paid:`, flipErr)
+    return { success: false }
+  }
+  if (!flipped || flipped.length === 0) {
+    return { success: true, alreadyProcessed: true }
+  }
 
   if (airtimeData.merchant_commission > 0 && airtimeData.shop_id) {
     const { error: profitErr } = await supabase.from("shop_profits").insert([{
