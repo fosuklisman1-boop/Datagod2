@@ -175,8 +175,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Validate input
-    if (!email) {
+    // Validate input (storefront commission orders pay with the order's buyer email, read from the DB below)
+    if (!email && !storefrontType) {
       console.warn("[PAYMENT-INIT] Missing required fields")
       return NextResponse.json(
         { error: "Missing required fields: email" },
@@ -186,7 +186,10 @@ export async function POST(request: NextRequest) {
 
     // Per-email payment-init cap: 5 per hour. Card-testers reusing an email get
     // throttled here; rotating emails still face the per-IP cap (6/min) + Cloudflare.
-    const emailCap = await applyRateLimit(request, "payment_init_email", 5, 60 * 60 * 1000, `e:${String(email).toLowerCase()}`)
+    // (Storefront commission orders apply this cap to the order's buyer email after the DB read below.)
+    const emailCap = storefrontType
+      ? { allowed: true }
+      : await applyRateLimit(request, "payment_init_email", 5, 60 * 60 * 1000, `e:${String(email).toLowerCase()}`)
     if (!emailCap.allowed) {
       console.warn(`[PAYMENT-INIT] ❌ Per-email cap hit for ${String(email).slice(0, 40)}`)
       return NextResponse.json(
@@ -338,6 +341,12 @@ export async function POST(request: NextRequest) {
       if (!payable.ok) {
         console.warn(`[PAYMENT-INIT] ❌ Storefront order ${orderId} (${storefrontType}) not payable: ${payable.error}`)
         return NextResponse.json({ error: payable.error }, { status: payable.status })
+      }
+      // Per-email payment-init cap (same budget as above), keyed on the order's buyer email, not the client's.
+      const csEmailCap = await applyRateLimit(request, "payment_init_email", 5, 60 * 60 * 1000, `e:${payable.email.toLowerCase()}`)
+      if (!csEmailCap.allowed) {
+        console.warn(`[PAYMENT-INIT] ❌ Per-email cap hit for storefront order ${orderId}`)
+        return NextResponse.json({ error: "Too many payment attempts. Please try again later." }, { status: 429 })
       }
       finalAmount = payable.amount
       email = payable.email

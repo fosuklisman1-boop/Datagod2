@@ -54,7 +54,10 @@ ALTER TABLE public.hubtel_bill_orders
   ADD COLUMN IF NOT EXISTS payment_fee_amount numeric(12,2),
   ADD COLUMN IF NOT EXISTS payment_reference  text,
   ADD COLUMN IF NOT EXISTS refund_method      text,
-  ADD COLUMN IF NOT EXISTS paid_at            timestamptz;
+  ADD COLUMN IF NOT EXISTS paid_at            timestamptz,
+  -- storefront: when the account was verified (verify token issuedAt); the Ghana Water session age is measured
+  -- from COALESCE(verified_at, created_at)
+  ADD COLUMN IF NOT EXISTS verified_at        timestamptz;
 
 ALTER TABLE public.hubtel_data_orders
   ADD COLUMN IF NOT EXISTS shop_id            uuid,

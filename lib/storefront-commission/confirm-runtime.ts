@@ -11,13 +11,14 @@ import {
 } from "./confirm"
 import { STOREFRONT_ORDER_TABLE, type StorefrontOrderType } from "./payment"
 
-const COLUMNS = "id, reference_code, channel, shop_id, status, payment_status, paid_amount, shop_share_amount, payment_reference, created_at"
+const COLUMNS =
+  "id, reference_code, channel, shop_id, status, payment_status, paid_amount, shop_share_amount, payment_reference, hubtel_client_reference, notes, created_at"
 
 /** Wiring of SettleDeps onto the service-role client and the two Hubtel engines (separate so tests can pass fakes). */
 export function buildSettleDeps(db: SupabaseClient, bills: BillsDeps, bundles: BundlesDeps): SettleDeps {
   return {
     async getOrder(table, id) {
-      const cols = table === "hubtel_bill_orders" ? `${COLUMNS}, biller` : COLUMNS
+      const cols = table === "hubtel_bill_orders" ? `${COLUMNS}, biller, verified_at` : COLUMNS
       const { data, error } = await db.from(table).select(cols).eq("id", id).maybeSingle()
       if (error) throw error
       return (data as unknown as StorefrontPaidOrder | null) ?? null
@@ -47,9 +48,24 @@ export function buildSettleDeps(db: SupabaseClient, bills: BillsDeps, bundles: B
       return fresh ? dispatchBundleOrder(bundles, fresh) : "missing"
     },
     async setPendingNote(table, id, notes) {
-      const { data, error } = await db.from(table).update({ notes, updated_at: new Date().toISOString() }).eq("id", id).eq("status", "pending").select("id")
+      const { data, error } = await db
+        .from(table)
+        .update({ notes, updated_at: new Date().toISOString() })
+        .eq("id", id)
+        .eq("status", "pending")
+        .is("notes", null)
+        .select("id")
       if (error) throw error
       return data?.length ?? 0
+    },
+    async hasLedgerRow(table, id) {
+      const { count, error } = await db
+        .from("hubtel_cs_transactions")
+        .select("id", { count: "exact", head: true })
+        .eq("order_table", table)
+        .eq("order_id", id)
+      if (error) throw error
+      return (count ?? 0) > 0
     },
     alert: bills.alert,
     now: Date.now,

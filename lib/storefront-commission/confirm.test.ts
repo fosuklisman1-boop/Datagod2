@@ -89,7 +89,8 @@ function make(opts: { bills?: Row[]; bundles?: Row[]; autoFulfil?: boolean; purc
       if (t === "hubtel_bill_orders") { const f = await bills.getOrder(id); return f ? dispatchBillOrder(bills, f) : "missing" }
       const f = await bundles.getOrder(id); return f ? dispatchBundleOrder(bundles, f) : "missing"
     },
-    async setPendingNote(t, id, notes) { const r = find(t, id); if (!r || r.status !== "pending") return 0; r.notes = notes; return 1 },
+    async setPendingNote(t, id, notes) { await tick(); const r = find(t, id); if (!r || r.status !== "pending" || r.notes) return 0; r.notes = notes; return 1 },
+    async hasLedgerRow(t, id) { await tick(); return purchases.some(p => p.orderTable === t && p.orderId === id) },
     alert,
     now: () => NOW,
     async completePaymentRecords(p) { paymentRecords.push(p) },
@@ -288,6 +289,160 @@ describe("confirmStorefrontOrder", () => {
     expect(r).toEqual({ outcome: "confirmed", status: "failed" })
     expect(m.purchases).toHaveLength(0)
     expect(m.alerts.some(a => a.urgent && a.m.includes("refund"))).toBe(true)
+  })
+})
+
+describe("recovery of a paid order that was never sent (I1)", () => {
+  /** The flip commits but the caller sees an error (timeout) — or dies right after it. */
+  const crashAfterFlip = (m: ReturnType<typeof make>) => {
+    const real = m.d.markPaid
+    m.d.markPaid = async (...a) => { await real(...a); throw new Error("timeout") }
+    return () => { m.d.markPaid = real }
+  }
+  const settle = (m: ReturnType<typeof make>, o: Partial<Parameters<typeof settleStorefrontPayment>[1]> = {}) =>
+    settleStorefrontPayment(m.d, { table: "hubtel_bill_orders", orderId: "b1", walletPaymentId: "wp1", reference: PAY.reference, paidAmount: 98.5, transactionId: "t1", ...o })
+
+  it("flip committed then crash => a later webhook retry completes share + dispatch exactly once", async () => {
+    const m = make()
+    const restore = crashAfterFlip(m)
+    expect((await settle(m)).outcome).toBe("error")
+    restore()
+    expect(m.tables.hubtel_bill_orders[0].payment_status).toBe("paid")
+    expect(m.profits).toHaveLength(0)
+    expect(m.purchases).toHaveLength(0)
+    expect(m.paymentRecords).toHaveLength(0)
+
+    expect(await settle(m)).toEqual({ outcome: "resumed", status: "processing" })
+    expect(m.profits).toHaveLength(1)
+    expect(m.purchases).toHaveLength(1)
+    expect(m.paymentRecords).toHaveLength(1)
+    // later replays are plain no-ops
+    expect((await settle(m)).outcome).toBe("already_processed")
+    expect(m.profits).toHaveLength(1)
+    expect(m.purchases).toHaveLength(1)
+  })
+
+  it("a later /api/payments/verify also recovers it", async () => {
+    const m = make()
+    const restore = crashAfterFlip(m)
+    await settle(m)
+    restore()
+    const vd: VerifyDeps = { ...m.d, verifyPayment: async () => ({ status: "success", amount: 98.5, transaction_id: "t1" }) }
+    expect((await verifyStorefrontPayment(vd, "hubtel_bill_orders", { id: "wp1", status: "pending", order_id: "b1" }, PAY.reference)).httpStatus).toBe(200)
+    expect(m.profits).toHaveLength(1)
+    expect(m.purchases).toHaveLength(1)
+  })
+
+  it("concurrent retries of a stranded order => one share, one POST (bill and bundle)", async () => {
+    const m = make()
+    m.tables.hubtel_bill_orders[0].payment_status = "paid"
+    m.tables.hubtel_bill_orders[0].payment_reference = PAY.reference
+    const out = await Promise.all([settle(m), settle(m), confirmStorefrontOrder(m.d, "hubtel_bill_orders", "b1", PAY)])
+    expect(out.filter(o => o.outcome === "resumed").length).toBeGreaterThanOrEqual(1)
+    expect(m.profits).toHaveLength(1)
+    expect(m.purchases).toHaveLength(1)
+
+    const b = make()
+    Object.assign(b.tables.hubtel_data_orders[0], { payment_status: "paid", payment_reference: PAY.reference })
+    const run = () => confirmStorefrontOrder(b.d, "hubtel_data_orders", "d1", { paidAmount: 10.1, reference: PAY.reference })
+    await Promise.all([run(), run(), run()])
+    expect(b.profits).toHaveLength(1)
+    expect(b.purchases).toHaveLength(1)
+  })
+
+  it("racing the flipper itself (flip done, dispatch not yet) => still one POST", async () => {
+    const m = make()
+    const real = m.d.dispatch
+    let release!: () => void
+    const gate = new Promise<void>(r => { release = r })
+    m.d.dispatch = async (...a) => { await gate; return real(...a) }
+    const first = confirmStorefrontOrder(m.d, "hubtel_bill_orders", "b1", PAY)
+    await new Promise(r => setTimeout(r, 20))
+    const second = confirmStorefrontOrder(m.d, "hubtel_bill_orders", "b1", PAY)
+    await new Promise(r => setTimeout(r, 20))
+    release()
+    await Promise.all([first, second])
+    expect(m.purchases).toHaveLength(1)
+    expect(m.profits).toHaveLength(1)
+  })
+
+  it("not re-run when the order was attempted (note), has a ledger row, or was paid by another reference", async () => {
+    for (const o of [{ notes: "Not sent: Hubtel is paused" }, { notes: "Dispatching…" }, { hubtel_client_reference: "HCS-9" }]) {
+      const m = make({ bills: [billRow({ payment_status: "paid", payment_reference: PAY.reference, ...o })] })
+      expect((await settle(m)).outcome).toBe("already_processed")
+      expect(m.purchases).toHaveLength(0)
+      expect(m.profits).toHaveLength(0)
+    }
+    const led = make({ bills: [billRow({ payment_status: "paid", payment_reference: PAY.reference })] })
+    led.d.hasLedgerRow = async () => true
+    expect((await settle(led)).outcome).toBe("already_processed")
+    expect(led.purchases).toHaveLength(0)
+
+    const other = make({ bills: [billRow({ payment_status: "paid", payment_reference: "c".repeat(32) })] })
+    expect((await settle(other)).outcome).toBe("already_processed")
+    expect(other.purchases).toHaveLength(0)
+    expect(other.alerts[0].m).toContain("second Paystack payment")
+  })
+
+  it("ledger unreadable => no dispatch, urgent alert", async () => {
+    const m = make({ bills: [billRow({ payment_status: "paid", payment_reference: PAY.reference })] })
+    m.d.hasLedgerRow = async () => { throw new Error("db") }
+    expect((await settle(m)).outcome).toBe("already_processed")
+    expect(m.purchases).toHaveLength(0)
+    expect(m.alerts.some(a => a.urgent && a.m.includes("ledger"))).toBe(true)
+  })
+
+  it("manual-dispatch (auto-fulfil off) orders are noted once, so retries neither dispatch nor re-alert", async () => {
+    const m = make({ autoFulfil: false })
+    await settle(m)
+    await settle(m)
+    await confirmStorefrontOrder(m.d, "hubtel_bill_orders", "b1", PAY)
+    expect(m.tables.hubtel_bill_orders[0].notes).toBe("Awaiting manual dispatch")
+    expect(m.purchases).toHaveLength(0)
+    expect(m.alerts).toHaveLength(1)
+  })
+})
+
+describe("payment-level alerts come from the webhook only (M2)", () => {
+  const vd = (m: ReturnType<typeof make>, amount: number) =>
+    ({ ...m.d, verifyPayment: async () => ({ status: "success", amount, transaction_id: "t1" }) }) as VerifyDeps
+  const pay = { id: "wp1", status: "pending", order_id: "b1" }
+
+  it("verify: amount mismatch, refused and duplicate payment send no alert, however often it is called", async () => {
+    const m = make()
+    for (let i = 0; i < 3; i++) {
+      expect((await verifyStorefrontPayment(vd(m, 1), "hubtel_bill_orders", pay, PAY.reference)).httpStatus).toBe(400)
+    }
+    const r = make({ bills: [billRow({ channel: "dashboard" })] })
+    await verifyStorefrontPayment(vd(r, 98.5), "hubtel_bill_orders", pay, PAY.reference)
+    await verifyStorefrontPayment(vd(r, 98.5), "hubtel_bill_orders", { ...pay, order_id: null }, PAY.reference)
+    const dup = make({ bills: [billRow({ payment_status: "paid", payment_reference: "c".repeat(32), status: "completed" })] })
+    await verifyStorefrontPayment(vd(dup, 98.5), "hubtel_bill_orders", pay, PAY.reference)
+    expect([...m.alerts, ...r.alerts, ...dup.alerts]).toEqual([])
+  })
+
+  it("webhook: the same cases alert urgently", async () => {
+    const m = make()
+    await settleStorefrontPayment(m.d, { table: "hubtel_bill_orders", orderId: "b1", walletPaymentId: "wp1", reference: PAY.reference, paidAmount: 1, transactionId: null })
+    expect(m.alerts).toEqual([expect.objectContaining({ urgent: true })])
+  })
+})
+
+describe("Ghana Water age from verified_at (M3)", () => {
+  it("measures from verified_at when set, else created_at", async () => {
+    const gw = { biller: "ghana_water", email: "a@b.co", session_id: "S1" }
+    const old = make({ bills: [billRow({ ...gw, verified_at: new Date(NOW - 11 * 60_000).toISOString(), created_at: new Date(NOW - 60_000).toISOString() })] })
+    await confirmStorefrontOrder(old.d, "hubtel_bill_orders", "b1", PAY)
+    expect(old.purchases).toHaveLength(0)
+    expect(old.tables.hubtel_bill_orders[0].notes).toMatch(/^Not sent: Ghana Water/)
+
+    const fresh = make({ bills: [billRow({ ...gw, verified_at: new Date(NOW - 9 * 60_000).toISOString(), created_at: new Date(NOW - 60_000).toISOString() })] })
+    await confirmStorefrontOrder(fresh.d, "hubtel_bill_orders", "b1", PAY)
+    expect(fresh.purchases).toHaveLength(1)
+
+    const legacy = make({ bills: [billRow({ ...gw, verified_at: null, created_at: new Date(NOW - 11 * 60_000).toISOString() })] })
+    await confirmStorefrontOrder(legacy.d, "hubtel_bill_orders", "b1", PAY)
+    expect(legacy.purchases).toHaveLength(0)
   })
 })
 

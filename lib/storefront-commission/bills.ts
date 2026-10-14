@@ -24,6 +24,8 @@ export interface StorefrontBillInsert {
   cashback_amount: number | null; shop_share_amount: number | null; cashback_rate: number | null
   cashback_share: number | null; cashback_provider: string | null; expected_commission: number | null
   verify_token_hash: string
+  /** When the account was verified (the verify token's issuedAt): Ghana Water's session age is measured from it. */
+  verified_at: string
 }
 
 /** The columns an initialize response is built from (bill and bundle orders alike). */
@@ -152,6 +154,7 @@ export async function initializeStorefrontBill(d: StorefrontBillsDeps, shopId: s
       cashback_provider: q.applied ? q.provider : null,
       expected_commission: q.applied ? q.commission : null,
       verify_token_hash: hash,
+      verified_at: new Date(v.issuedAt).toISOString(),
     })
 
   const CREATE_FAILED = fail(500, "Could not create the order")

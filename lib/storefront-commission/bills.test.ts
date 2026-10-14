@@ -156,6 +156,7 @@ describe("initializeStorefrontBill", () => {
       cashback_amount: 0.13, shop_share_amount: 0.27, cashback_rate: 0.69, cashback_share: 20,
       cashback_provider: "hubtel", expected_commission: 0.69,
       verify_token_hash: billTokenHash(token),
+      verified_at: new Date(NOW).toISOString(), // the verify token's issuedAt
     })
     expect(limits).toHaveLength(4)
   })
