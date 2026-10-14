@@ -14,7 +14,7 @@ function counts(network: BundleNetwork) {
 describe("live fixture categorisation", () => {
   it("MTN", () => {
     expect(parseCatalog("MTN", live.MTN.Data)).toHaveLength(37)
-    expect(counts("MTN")).toEqual({ Flexi: 27, Data: 2, Video: 3, "Social Media": 3, Midnight: 1, Kokrokoo: 1 })
+    expect(counts("MTN")).toEqual({ Data: 14, Video: 10, "Social Media": 8, Midnight: 4, Kokrokoo: 1 })
   })
   it("TELECEL", () => {
     expect(parseCatalog("TELECEL", live.TELECEL.Data)).toHaveLength(27)

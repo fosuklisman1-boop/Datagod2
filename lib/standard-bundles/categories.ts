@@ -14,7 +14,7 @@ export const NETWORK_SERVICE: Record<BundleNetwork, HubtelCsServiceKey> = {
 export const OTHER_CATEGORY = "Other"
 
 export const CATEGORY_ORDER: Record<BundleNetwork, readonly string[]> = {
-  MTN: ["Flexi", "Data", "Video", "Social Media", "Midnight", "Kokrokoo"],
+  MTN: ["Data", "Video", "Social Media", "Midnight", "Kokrokoo"],
   TELECEL: ["Hourly", "Daily", "Weekly", "Monthly", "No Expiry", "Night"],
   AT: ["BigTime", "Kokoo", "Fuse (Mins + Data)", "XXL Family"],
 }
@@ -29,9 +29,6 @@ export interface CatalogBundle {
 }
 
 function mtnCategory(value: string): string {
-  // All MTN Flexi bundles (data, video, social, midnight) share one tab. They sell only at Hubtel's listed
-  // price points — an off-list amount was accepted as pending then failed (live test 2026-10-14).
-  if (value.includes("_Flexi_")) return "Flexi"
   if (value.includes("_Midnight_")) return "Midnight"
   if (value.includes("_Kokrokoo_")) return "Kokrokoo"
   if (value.includes("_Social_")) return "Social Media"
