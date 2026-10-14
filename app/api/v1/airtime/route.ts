@@ -192,8 +192,19 @@ export async function POST(request: NextRequest) {
       responsePayload: { error: publicMessage },
     }).catch(() => {})
 
+    if (error?.code === "PRICE_CHANGED" && error?.quote) {
+      const q = error.quote
+      return NextResponse.json(
+        {
+          success: false, error: "price_changed", message: publicMessage,
+          quote: { face_amount: q.faceAmount, pay_amount: q.payAmount, customer_cashback: q.customerCashback },
+        },
+        { status }
+      )
+    }
+
     return NextResponse.json(
-      { success: false, error: publicMessage, required: error?.required, reference: error?.reference, quote: error?.quote },
+      { success: false, error: publicMessage, required: error?.required, reference: error?.reference },
       { status }
     )
   }

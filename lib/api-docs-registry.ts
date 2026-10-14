@@ -102,7 +102,7 @@ export const apiDocsRegistry: ApiDocSection[] = [
           { status: 400, body: `{ "success": false, "error": "0201234567 looks like a Telecel number - check the number or switch to Telecel." }` },
           { status: 402, body: `{ "success": false, "error": "Insufficient wallet balance", "required": 5.25 }` },
           { status: 403, body: `{ "success": false, "error": "Please verify your phone number to continue. Visit your dashboard to complete verification." }` },
-          { status: 409, body: `{ "success": false, "error": "The price has changed. Please review the new price and try again.", "quote": { "faceAmount": 10, "payAmount": 10, "customerCashback": 0 } }` },
+          { status: 409, body: `{ "success": false, "error": "price_changed", "message": "Price updated — please review", "quote": { "face_amount": 10, "pay_amount": 10, "customer_cashback": 0 } }` },
         ],
       },
       {

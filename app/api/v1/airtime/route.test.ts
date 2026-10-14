@@ -59,7 +59,10 @@ describe("POST /api/v1/airtime — api channel wiring", () => {
     }))
     const res = await post({ ...BODY, expected_pay: 10 })
     expect(res.status).toBe(409)
-    expect(await res.json()).toMatchObject({ success: false, quote: { faceAmount: 10, payAmount: 9.81, customerCashback: 0.19 } })
+    expect(await res.json()).toEqual({
+      success: false, error: "price_changed", message: "Price updated — please review",
+      quote: { face_amount: 10, pay_amount: 9.81, customer_cashback: 0.19 },
+    })
   })
 
   it("sandbox key never reaches purchaseAirtime", async () => {
