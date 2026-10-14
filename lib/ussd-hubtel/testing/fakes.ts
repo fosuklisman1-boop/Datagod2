@@ -3,7 +3,10 @@
 import { DEFAULT_NETWORK_PREFIXES } from "@/lib/phone-format"
 import type { HubtelUssdConfig } from "../config"
 import type { RouterDeps } from "../flow-kit"
-import type { AfaServices, AirtimeServices, RcServices } from "../services"
+import type { AfaServices, AirtimeServices, NetworkPlansServices, RcServices } from "../services"
+import type { BotContext } from "@/lib/bot-commission/context"
+import type { BotBundleOrderInput, BotOrderResult } from "@/lib/bot-commission/orders"
+import type { StorefrontBundle } from "@/lib/storefront-commission/bundles"
 import type { ResolvedShopCode, ShopServices } from "../shop-services"
 import type { HubtelRequest, HubtelSession } from "../types"
 
@@ -88,6 +91,7 @@ export function makeDeps(over: Partial<RouterDeps> = {}, sup = fakeSupabase({ pk
     rc: fakeRc(),
     afa: fakeAfa(),
     shop: fakeShop(),
+    networkPlans: fakeNetworkPlans(),
     ...over,
   }
   return { deps, store, sup }
@@ -121,6 +125,45 @@ export function fakeRc(over: Partial<RcServices> = {}): RcServices {
     checkSettings: async () => ({ enabled: true, fee: 2 }),
     ...over,
   }
+}
+
+export const BOT_ORDER_ID = "22222222-3333-4444-8555-666666666666"
+
+/** Bundle plans for the fake Network Plans catalog: `n` plans in `category`, face 10+i, pay 9.5+i. */
+export function fakePlans(category: string, n: number, display = (i: number) => `${i + 1}GB`): StorefrontBundle[] {
+  return Array.from({ length: n }, (_, i) => ({
+    value: `v${i}`, display: display(i), amount: 10 + i, category, token: `tok-${category}-${i}`,
+    payAmount: 9.5 + i, customerCashback: 0.5, paymentFee: 0,
+  }))
+}
+
+/**
+ * Network Plans engine fake. Default catalog: MTN-style "Video" + "Data" categories (out of CATEGORY_ORDER
+ * order on purpose). createOrder dedupes by idempotency key like the engine; `createResult` overrides it.
+ */
+export function fakeNetworkPlans(over: Partial<NetworkPlansServices> & { createResult?: BotOrderResult } = {}) {
+  const calls: { ctx: BotContext; input: BotBundleOrderInput }[] = []
+  const byKey = new Map<string, BotOrderResult>()
+  const { createResult, ...rest } = over
+  const svc: NetworkPlansServices & { calls: typeof calls } = {
+    calls,
+    catalog: async () => ({ ok: true, categories: [{ name: "Video", bundles: fakePlans("Video", 2) }, { name: "Data", bundles: fakePlans("Data", 7) }] }),
+    createOrder: async (ctx, input) => {
+      calls.push({ ctx, input })
+      if (createResult) return createResult
+      const key = String(input.idempotencyKey)
+      const prior = byKey.get(key)
+      if (prior) return prior
+      const r: BotOrderResult = {
+        ok: true,
+        order: { id: BOT_ORDER_ID, reference: "SB-1", payAmount: Number(input.expectedPay), faceAmount: 10, customerCashback: 0.5, paymentFee: 0 },
+      }
+      byKey.set(key, r)
+      return r
+    },
+    ...rest,
+  }
+  return svc
 }
 
 export function fakeAfa(over: Partial<AfaServices> = {}): AfaServices {

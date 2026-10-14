@@ -6,7 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import type { BundleOption } from "@/lib/ussd/types"
 import type { PrefixValidationConfig } from "@/lib/network-prefix-config"
 import type { HubtelUssdConfig } from "./config"
-import type { AfaServices, AirtimeServices, DialerInfo, RcServices } from "./services"
+import type { AfaServices, AirtimeServices, DialerInfo, NetworkPlansServices, RcServices } from "./services"
 import type { HubtelSessionStore } from "./session"
 import type { ShopServices } from "./shop-services"
 import type { CallerContext } from "./catalog"
@@ -30,6 +30,7 @@ export interface RouterDeps {
   rc: RcServices
   afa: AfaServices
   shop: ShopServices
+  networkPlans: NetworkPlansServices
 }
 
 export interface FlowCtx {
@@ -129,30 +130,53 @@ export async function replaySubmittedOrder(
   })
 }
 
+/** The order is inserted here from `row` (every flow except the commission bots). */
+export interface SubmitNewOrder { table: HubtelOrderTable; row: Record<string, unknown>; price: number; logTag: string; orderId?: never }
 /**
- * Inserts the order + its hubtel_transactions row and answers with AddToCart at `price` (our
- * price: Hubtel adds its own charge on top). Callers MUST have run replaySubmittedOrder first and
- * re-verified price/stock. On a tx insert failure the order is marked failed with the table's
- * fail patch; on a unique violation (a concurrent CONFIRM won) the winner's cart is replayed.
+ * The order already exists: created (unpaid) by the commission engine, keyed by this session, so a
+ * repeat CONFIRM gets the same id back. Only the hubtel_transactions row + cart are written here.
  */
-export async function submitOrder(
-  ctx: FlowCtx,
-  args: { table: HubtelOrderTable; row: Record<string, unknown>; price: number; logTag: string }
-): Promise<HubtelReply> {
+export interface SubmitCreatedOrder { table: HubtelOrderTable; orderId: string; price: number; logTag: string; row?: never }
+
+/**
+ * Inserts the order (unless `orderId` names an engine-created one) + its hubtel_transactions row and
+ * answers with AddToCart at `price` (our price: Hubtel adds its own charge on top). Callers MUST have
+ * run replaySubmittedOrder first and re-verified price/stock. On a tx insert failure the order is
+ * marked failed with the table's fail patch; on a unique violation (a concurrent CONFIRM won) the
+ * winner's cart is replayed. An engine-created order is shared with that winner (same session key),
+ * so it is never failed on a unique violation.
+ */
+export async function submitOrder(ctx: FlowCtx, args: SubmitNewOrder | SubmitCreatedOrder): Promise<HubtelReply> {
   const { deps, req, session } = ctx
   const sid = req.SessionId
   const platform = req.Platform
   const spec = ORDER_TABLES[args.table]
+  const created = typeof args.orderId === "string"
+
+  /** Mark the order failed (fail patch; plus the table's guards so only a still-open row is touched). */
+  const rollback = async (id: string) => {
+    let q = deps.supabase.from(args.table).update(spec.failPatch()).eq("id", id)
+    for (const [column, values] of Object.entries(spec.failGuards ?? {})) q = q.in(column, [...values])
+    const { error: rollbackError } = await q
+    if (rollbackError) console.error(`[${args.logTag}] Failed to mark order failed after tx insert error:`, id, safeDbError(rollbackError))
+  }
 
   if (!(Number.isFinite(args.price) && args.price > 0)) {
     console.error(`[${args.logTag}] Refusing to AddToCart a non-positive price:`, args.price, "session:", sid)
+    if (created) await rollback(args.orderId!) // never leave an engine order open with no checkout
     return finish(ctx, "Service unavailable. Please try again later.")
   }
 
-  const { data: order, error: orderError } = await deps.supabase.from(args.table).insert([args.row]).select("id").single()
-  if (orderError || !order) {
-    console.error(`[${args.logTag}] Failed to create order:`, safeDbError(orderError))
-    return finish(ctx, "Error creating order. Please try again.")
+  let order: { id: string }
+  if (created) {
+    order = { id: args.orderId! }
+  } else {
+    const { data: inserted, error: orderError } = await deps.supabase.from(args.table).insert([args.row]).select("id").single()
+    if (orderError || !inserted) {
+      console.error(`[${args.logTag}] Failed to create order:`, safeDbError(orderError))
+      return finish(ctx, "Error creating order. Please try again.")
+    }
+    order = inserted
   }
 
   const { error: txError } = await deps.supabase.from("hubtel_transactions").insert({
@@ -165,9 +189,9 @@ export async function submitOrder(
   })
   if (txError) {
     console.error(`[${args.logTag}] hubtel_transactions insert failed:`, safeDbError(txError))
-    const { error: rollbackError } = await deps.supabase.from(args.table).update(spec.failPatch()).eq("id", order.id)
-    if (rollbackError) console.error(`[${args.logTag}] Failed to mark order failed after tx insert error:`, order.id, safeDbError(rollbackError))
-    if ((txError as { code?: string }).code === "23505") {
+    const conflict = (txError as { code?: string }).code === "23505"
+    if (!(created && conflict)) await rollback(order.id)
+    if (conflict) {
       // A concurrent CONFIRM for this session won the insert: answer exactly as it did, so the
       // customer pays for the order that is actually tracked.
       const replay = await replaySubmittedOrder(deps, sid, platform)

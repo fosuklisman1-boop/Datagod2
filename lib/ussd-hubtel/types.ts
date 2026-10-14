@@ -37,6 +37,10 @@ export type HubtelStep =
   | "SHOP_DATA_NETWORK" | "SHOP_DATA_BUNDLE" | "SHOP_DATA_RECIPIENT" | "SHOP_DATA_CONFIRM"
   | "SHOP_AIRTIME_ENTER_RECIPIENT" | "SHOP_AIRTIME_SELECT_NETWORK" | "SHOP_AIRTIME_ENTER_AMOUNT" | "SHOP_AIRTIME_CONFIRM"
   | "SHOP_RC_SELECT_BOARD" | "SHOP_RC_ENTER_QTY" | "SHOP_RC_CONFIRM"
+  | "NP_NETWORK" | "NP_CATEGORY" | "NP_PLAN" | "NP_RECIPIENT" | "NP_CONFIRM"
+
+/** One Network Plans plan as kept in the session: signed catalog token, display, face (Hubtel price), pay (our price). */
+export interface NpPlan { t: string; d: string; f: number; p: number }
 
 export interface HubtelSession {
   step: HubtelStep
@@ -96,6 +100,15 @@ export interface HubtelSession {
   afaLocation?: string
   afaRegion?: string
   afaPrice?: number // = order amount = Hubtel Price
+  // Network Plans (Commission Cashback bots; Hubtel Standard Bundles). Only the current page's tokens are kept.
+  npNetwork?: "MTN" | "TELECEL" | "AT"
+  npCategories?: string[] // catalog category names, in the order shown
+  npCategory?: string
+  npPage?: number
+  npPlans?: NpPlan[] // the plans on the current page (at most 5)
+  npPlan?: NpPlan // the chosen plan
+  npOtherNumber?: boolean // NP_RECIPIENT is waiting for a typed number
+  npRecipient?: string // local 0XXXXXXXXX
 }
 
 export type HubtelTxState = "awaiting_payment" | "processing" | "fulfilled" | "needs_review" | "failed"

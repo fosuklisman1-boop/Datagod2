@@ -16,6 +16,10 @@ import { isDigiWapyConfigured, isDigiWapyEnabledForNetwork } from "@/lib/digiwap
 import { getCashbackConfig } from "@/lib/cashback/config"
 import type { StorefrontQuote } from "@/lib/cashback/quote"
 import { quoteBotAirtime } from "@/lib/cashback/storefront-airtime"
+import type { BotContext } from "@/lib/bot-commission/context"
+import type { BotCatalogResult } from "@/lib/bot-commission/catalog"
+import type { BotBundleOrderInput, BotOrderResult } from "@/lib/bot-commission/orders"
+import type { BundleNetwork } from "@/lib/standard-bundles/categories"
 
 export { resolveDialer }
 export type { DialerInfo }
@@ -44,6 +48,32 @@ export function defaultAirtimeServices(supabase: SupabaseClient): AirtimeService
     getLimits: getAirtimeLimits,
     feeRate: airtimeBaseFeeRate,
     cashbackQuote: (network, faceAmount, shop) => quoteBotAirtime(network, faceAmount, { rail: "hubtel", shop }, cashbackDeps),
+  }
+}
+
+/**
+ * Network Plans (Commission Cashback bots, Hubtel Standard Bundles). Thin wrappers over the bot engine
+ * (lib/bot-commission) so flow tests use fakes; the runtime (service-role deps) is loaded per call.
+ */
+export interface NetworkPlansServices {
+  catalog(ctx: BotContext, network: BundleNetwork): Promise<BotCatalogResult>
+  createOrder(ctx: BotContext, input: BotBundleOrderInput): Promise<BotOrderResult>
+}
+
+export function defaultNetworkPlansServices(): NetworkPlansServices {
+  return {
+    async catalog(ctx, network) {
+      const [{ getBotBundlesRuntime }, { botCatalog }] = await Promise.all([
+        import("@/lib/bot-commission/runtime"), import("@/lib/bot-commission/catalog"),
+      ])
+      return botCatalog(getBotBundlesRuntime().deps, ctx, network)
+    },
+    async createOrder(ctx, input) {
+      const [{ getBotBundlesRuntime }, { botCreateBundleOrder }] = await Promise.all([
+        import("@/lib/bot-commission/runtime"), import("@/lib/bot-commission/orders"),
+      ])
+      return botCreateBundleOrder(getBotBundlesRuntime().deps, ctx, input)
+    },
   }
 }
 
