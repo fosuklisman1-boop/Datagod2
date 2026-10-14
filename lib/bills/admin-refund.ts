@@ -5,6 +5,8 @@ export interface RefundOrder extends RefundOrderFacts {
   reference_code: string
   /** 'storefront' rows are refunded on /admin/refunds (the buyer has no wallet). Absent = not selected (legacy caller). */
   channel?: string | null
+  /** NULL on storefront rows: no wallet to credit. */
+  user_id?: string | null
 }
 
 export const STOREFRONT_BILL_REFUND_MESSAGE =
@@ -36,7 +38,7 @@ export async function executeBillRefund(d: BillRefundDeps, orderId: string, note
   const order = await d.getOrder(orderId)
   if (!order) return { ok: false, status: 404, message: "Order not found" }
   // Checked before anything moves: never fence a storefront order to failed for a wallet refund that cannot happen.
-  if (order.channel === "storefront") return { ok: false, status: 409, message: STOREFRONT_BILL_REFUND_MESSAGE }
+  if (order.channel === "storefront" || !order.user_id) return { ok: false, status: 409, message: STOREFRONT_BILL_REFUND_MESSAGE }
   let ledger: LedgerFact[]
   try { ledger = await d.getLedger(orderId) } catch { return { ok: false, status: 503, message: "Could not read the Hubtel ledger; try again" } }
   const decision = refundDecision(order, ledger, d.now())

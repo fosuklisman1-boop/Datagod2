@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import { auditLog, requireAdmin, validateNote } from "@/lib/hubtel-cs/admin-route"
-import { badRequest, isUuid, refundDb, refundErrorResponse, requireAdminUser } from "@/lib/refunds/http"
+import { requireAdmin, validateNote } from "@/lib/hubtel-cs/admin-route"
+import { auditRefund, badRequest, isUuid, refundDb, refundErrorResponse, requireAdminUser } from "@/lib/refunds/http"
 import { defaultDeps, executeManualRefund } from "@/lib/refunds/service"
 import { isCommissionTable } from "@/lib/refunds/types"
 
@@ -19,19 +19,20 @@ export async function POST(request: NextRequest) {
     if (!isUuid(orderId)) return badRequest("Invalid orderId")
     const note = validateNote(body.note)
     if (!note.ok) return badRequest(note.error)
+    if (body.confirmOverride !== undefined && typeof body.confirmOverride !== "boolean") return badRequest("confirmOverride must be a boolean")
 
-    const result = await executeManualRefund(defaultDeps(db), { table, orderId, note: note.note, adminId: auth.userId! })
-    auditLog(db, {
-      adminId: auth.userId,
-      action: result.alreadyRefunded ? "order_refund_manual_noop" : "order_refund_manual",
-      newValue: { table, orderId, note: note.note, refundId: result.refundId, alreadyRefunded: result.alreadyRefunded },
+    const result = await executeManualRefund(defaultDeps(db), {
+      table, orderId, note: note.note, adminId: auth.userId!, confirmOverride: body.confirmOverride === true,
+    })
+    // Awaited: the audit row is one of the durable records of the full note.
+    await auditRefund(db, auth.userId, result.alreadyRefunded ? "order_refund_manual_noop" : "order_refund_manual", {
+      table, orderId, note: note.note, refundId: result.refundId, alreadyRefunded: result.alreadyRefunded,
+      confirmOverride: body.confirmOverride === true,
     })
     return NextResponse.json(result)
   } catch (err) {
-    auditLog(db, {
-      adminId: auth.userId,
-      action: "order_refund_manual_error",
-      newValue: { table: body.table ?? null, orderId: body.orderId ?? null, error: err instanceof Error ? err.message : String(err) },
+    await auditRefund(db, auth.userId, "order_refund_manual_error", {
+      table: body.table ?? null, orderId: body.orderId ?? null, error: err instanceof Error ? err.message : String(err),
     })
     return refundErrorResponse(err)
   }

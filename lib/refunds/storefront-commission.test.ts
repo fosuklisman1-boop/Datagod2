@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
 import { loadRefundableOrders, listPendingOrderRefs, isStorefrontRow } from "./orders"
 import { evaluateEligibility, orderEligibility, refundableStatuses } from "./eligibility"
-import { executeRefund, executeManualRefund, mapReserveError, previewRefund, MANUAL_GATEWAY, type RefundDeps } from "./service"
+import { executeRefund, executeManualRefund, manualNoteText, mapReserveError, previewRefund, MANUAL_GATEWAY, type RefundDeps } from "./service"
+import { notifyRefund } from "./notify"
 import { REFUND_STATUS } from "./http"
 import { walletGateway } from "./gateways/wallet"
 import { paystackGateway } from "./gateways/paystack"
@@ -9,6 +10,8 @@ import { moolreGateway } from "./gateways/moolre"
 import type { CommissionEvidence, CommissionLedgerFact, CommissionTable, RefundableOrder, RefundGateway } from "./types"
 
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => ({ rpc: vi.fn() }) }))
+const sendSMS = vi.fn(async () => ({}))
+vi.mock("@/lib/sms-service", () => ({ sendSMS: (...a: unknown[]) => (sendSMS as any)(...a), notifyAdmins: vi.fn(async () => {}) }))
 vi.mock("@/lib/paystack", () => ({ refundTransaction: vi.fn(), fetchRefund: vi.fn() }))
 vi.mock("@/lib/moolre-transfer", () => ({ initiateTransfer: vi.fn(), getTransferStatus: vi.fn() }))
 vi.mock("@/lib/paystack-transfer", () => ({
@@ -200,6 +203,17 @@ describe("storefront commission eligibility", () => {
       expect(elig("airtime_orders", air({ ledger: [led({ state: "fulfilled" })] }))).toMatchObject({ eligible: false, code: "SENT_TO_PROVIDER" })
       expect(elig("airtime_orders", air({ status: "completed" }))).toMatchObject({ eligible: false, code: "SENT_TO_PROVIDER" })
     })
+    it("blocks a recorded Digiwapy send (pending) until an admin marks it failed", () => {
+      for (const notes of ["Auto-fulfilled via Digiwapy [dgwRef:DW1]", "Auto-fulfilled via Digiwapy", "Digiwapy: transaction.failed (x)", "Digiwapy error: timeout"]) {
+        expect(elig("airtime_orders", air({ notes }))).toMatchObject({ eligible: false, code: "PROVIDER_IN_PROGRESS" })
+        expect(elig("airtime_orders", air({ notes, status: "failed" })).eligible).toBe(true)
+      }
+    })
+    it("blocks a recorded Hubtel ref with no ledger row; allows it when the ledger shows it failed", () => {
+      const notes = "Hubtel failed: x [hcsRef:HCS-9]. Fulfil manually; not resent."
+      expect(elig("airtime_orders", air({ notes })).eligible).toBe(false)
+      expect(elig("airtime_orders", air({ notes, ledger: [led({ client_reference: "HCS-9" })] })).eligible).toBe(true)
+    })
     it("blocks processing and unpaid; 60 s never-sent grace on pending", () => {
       expect(elig("airtime_orders", air({ status: "processing" })).eligible).toBe(false)
       expect(elig("airtime_orders", air({ paymentStatus: "pending_payment" })).eligible).toBe(false)
@@ -288,6 +302,24 @@ describe("executeRefund: storefront commission orders", () => {
     gone.deps.releaseStuckClaim = vi.fn(async () => 0)
     await expect(executeRefund(gone.deps, { table: "hubtel_bill_orders", orderId: "o1", gateway: "paystack", amount: 1, adminId: "a" })).rejects.toMatchObject({ code: "NOT_ELIGIBLE" })
     expect(gone.calls).toEqual([])
+  })
+
+  it("a reserve failing after a stuck-claim release says the claim was released", async () => {
+    const stuck = { status: "processing", notes: "Dispatching to Hubtel", updatedAt: ago(6 * 60_000) }
+    const s = setup(commissionOrder("hubtel_bill_orders", { orderStatus: "processing" }, stuck), "SHORTFALL:sA:0.27")
+    const err = await executeRefund(s.deps, { table: "hubtel_bill_orders", orderId: "o1", gateway: "paystack", amount: 1, adminId: "a" }).catch((e) => e)
+    expect(err.code).toBe("SHORTFALL")
+    expect(err.message).toMatch(/claim was released.*pending again/)
+    expect(err.detail).toMatchObject({ claimReleased: true, shopId: "sA" })
+    // without a release the message is unchanged
+    const plain = setup(commissionOrder("hubtel_bill_orders"), "SHORTFALL:sA:0.27")
+    const e2 = await executeRefund(plain.deps, { table: "hubtel_bill_orders", orderId: "o1", gateway: "paystack", amount: 1, adminId: "a" }).catch((e) => e)
+    expect(e2.message).not.toMatch(/released/)
+  })
+
+  it("an admin-overridden Hubtel failure is refundable with a warning", () => {
+    const r = elig("hubtel_bill_orders", ev({ hubtelClientReference: "HCS-1", ledger: [led({ resolved_by: "admin9" })] }))
+    expect(r).toMatchObject({ eligible: true, warning: expect.stringMatching(/admin override/) })
   })
 
   it("preview offers Paystack + MoMo payout, never the wallet", async () => {
@@ -401,9 +433,56 @@ describe("executeManualRefund", () => {
     await expect(executeManualRefund(dash.deps, { ...input, table: "shop_orders" as any })).rejects.toMatchObject({ code: "GATEWAY_UNSUPPORTED" })
   })
 
+  it("stores the full note durably on the order (and reports when it could not)", async () => {
+    const m = manualSetup(commissionOrder("hubtel_bill_orders"))
+    const recordManualNote = vi.fn(async () => {})
+    const long = "x".repeat(500)
+    await executeManualRefund({ ...m.deps, recordManualNote }, { ...input, note: long })
+    expect(recordManualNote).toHaveBeenCalledWith("hubtel_bill_orders", "o1", long, "admin1")
+    expect(manualNoteText(long, "admin1", "Failed via Hubtel [hcsRef:HCS-1]")).toBe(`Refunded manually by admin admin1: ${long}\nFailed via Hubtel [hcsRef:HCS-1]`)
+
+    const m2 = manualSetup(commissionOrder("hubtel_bill_orders"))
+    const r = await executeManualRefund({ ...m2.deps, recordManualNote: async () => { throw new Error("db") } }, input)
+    expect(r.status).toBe("completed")
+    expect(r.message).toMatch(/note could not be saved/)
+  })
+
+  it("an admin-overridden Hubtel failure needs an explicit confirm", async () => {
+    const c = { hubtelClientReference: "HCS-1", ledger: [led({ resolved_by: "admin9" })] }
+    const m = manualSetup(commissionOrder("hubtel_bill_orders", {}, c))
+    await expect(executeManualRefund(m.deps, input)).rejects.toMatchObject({ code: "NOT_ELIGIBLE", detail: { code: "CONFIRM_REQUIRED" } })
+    expect(m.calls).toEqual([])
+    const ok = await executeManualRefund(m.deps, { ...input, confirmOverride: true })
+    expect(ok.alreadyRefunded).toBe(false)
+    expect(m.state.clawbacks).toBe(1)
+  })
+
+  it("resuming a reserved manual refund also notifies", async () => {
+    const m = manualSetup(commissionOrder("hubtel_bill_orders"))
+    m.state.refunds.push({ id: "rf9", gateway: "manual", status: "reserved" })
+    m.setOrder(commissionOrder("hubtel_bill_orders", { orderStatus: "refunding", evidence: { ...commissionOrder("hubtel_bill_orders").evidence, hasActiveRefund: true } }))
+    await executeManualRefund(m.deps, input)
+    expect(m.deps.notify).toHaveBeenCalledTimes(1)
+  })
+
   it("airtime: recorded in order_refunds (gateway manual) with total_paid", async () => {
     const m = manualSetup(commissionOrder("airtime_orders", { paid: 10.13 }, { status: "failed", paymentStatus: "completed" }))
     await executeManualRefund(m.deps, { ...input, table: "airtime_orders" })
     expect(m.calls[0].args).toMatchObject({ p_order_table: "airtime_orders", p_gateway: "manual", p_paid: 10.13, p_amount: 10.13 })
+  })
+})
+
+describe("refund SMS for storefront commission orders", () => {
+  const db = { from: () => ({ insert: async () => ({ error: null }) }) } as any
+  it("is skipped when no payer number is recorded (never sent to the beneficiary)", async () => {
+    sendSMS.mockClear()
+    const o = commissionOrder("airtime_orders", { recipientPhone: "0249999999", payment: { gateway: "paystack", reference: "R", payerPhone: null, walletUserId: null } })
+    await notifyRefund(db, { refundId: "rf1", order: o, amount: 10, gateway: "paystack", clawbacks: [] })
+    expect(sendSMS).not.toHaveBeenCalled()
+  })
+  it("goes to the recorded payer", async () => {
+    sendSMS.mockClear()
+    await notifyRefund(db, { refundId: "rf1", order: commissionOrder("hubtel_data_orders"), amount: 10, gateway: "paystack", clawbacks: [] })
+    expect(sendSMS).toHaveBeenCalledWith(expect.objectContaining({ phone: "0241112222" }))
   })
 })

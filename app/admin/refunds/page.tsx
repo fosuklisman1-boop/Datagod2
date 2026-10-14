@@ -32,7 +32,7 @@ interface PendingRow {
     payment: { gateway: string | null; payerPhone: string | null }
     owners: { shopId: string; credited: number; pending: number }[]
   }
-  eligibility: { eligible: true } | { eligible: false; code?: string; reason: string }
+  eligibility: { eligible: true; warning?: string } | { eligible: false; code?: string; reason: string }
   defaultAmount: number
   /** Storefront commission orders (airtime / bill / bundle) also offer "Mark refunded manually". */
   manualRefund?: boolean
@@ -105,7 +105,8 @@ export default function AdminRefundsPage() {
   const loadSeq = useRef(0)
   const otpFromExecute = useRef(false)
   const [settleFailed, setSettleFailed] = useState<{ message: string; detail: SettleFailedDetail } | null>(null)
-  const [manualFor, setManualFor] = useState<{ table: string; id: string; label: string } | null>(null)
+  const [manualFor, setManualFor] = useState<{ table: string; id: string; label: string; warning?: string } | null>(null)
+  const [manualConfirm, setManualConfirm] = useState(false)
   const [manualNote, setManualNote] = useState("")
   const [manualBusy, setManualBusy] = useState(false)
 
@@ -218,13 +219,13 @@ export default function AdminRefundsPage() {
   const submitManual = async () => {
     const o = manualFor
     const note = manualNote.trim()
-    if (!o || manualBusy || !note || note.length > MAX_NOTE) return
+    if (!o || manualBusy || !note || note.length > MAX_NOTE || (o.warning && !manualConfirm)) return
     setManualBusy(true)
     try {
       const res = await fetch("/api/admin/refunds/manual", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${await getToken()}` },
-        body: JSON.stringify({ table: o.table, orderId: o.id, note }),
+        body: JSON.stringify({ table: o.table, orderId: o.id, note, ...(o.warning ? { confirmOverride: manualConfirm } : {}) }),
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok) {
@@ -293,7 +294,14 @@ export default function AdminRefundsPage() {
                           <div className="flex flex-wrap justify-end gap-2">
                             <Button size="sm" onClick={() => setTarget({ table: order.table, id: order.id })}>Refund</Button>
                             {manualRefund && (
-                              <Button size="sm" variant="outline" onClick={() => { setManualNote(""); setManualFor({ table: order.table, id: order.id, label: `${order.packageLabel} ${order.network} — paid GHS ${order.paid.toFixed(2)}` }) }}>Mark refunded manually</Button>
+                              <Button size="sm" variant="outline" onClick={() => {
+                                setManualNote("")
+                                setManualConfirm(false)
+                                setManualFor({
+                                  table: order.table, id: order.id, label: `${order.packageLabel} ${order.network} — paid GHS ${order.paid.toFixed(2)}`,
+                                  warning: eligibility.eligible ? eligibility.warning : undefined,
+                                })
+                              }}>Mark refunded manually</Button>
                             )}
                           </div>
                         ) : (
@@ -466,10 +474,16 @@ export default function AdminRefundsPage() {
             />
             <p className="text-xs text-muted-foreground">{manualNote.trim().length}/{MAX_NOTE}</p>
           </div>
+          {manualFor?.warning && (
+            <label className="flex items-start gap-2 rounded-md border border-destructive/50 p-3 text-sm">
+              <input type="checkbox" className="mt-1" checked={manualConfirm} disabled={manualBusy} onChange={(e) => setManualConfirm(e.target.checked)} />
+              <span><span className="font-medium text-destructive">{manualFor.warning}</span> I confirmed it was not delivered.</span>
+            </label>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={manualBusy}>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              disabled={manualBusy || !manualNote.trim() || manualNote.trim().length > MAX_NOTE}
+              disabled={manualBusy || !manualNote.trim() || manualNote.trim().length > MAX_NOTE || (!!manualFor?.warning && !manualConfirm)}
               onClick={(e) => { e.preventDefault(); void submitManual() }}
             >
               {manualBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Mark refunded

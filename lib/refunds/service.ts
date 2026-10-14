@@ -50,6 +50,8 @@ export interface RefundDeps {
   findActiveRefund?(orderId: string): Promise<{ id: string; gateway: string; status: string } | null>
   /** Bills/bundles: record how a refunded order was refunded (refund_method). Only touches a 'refunded' row. */
   markRefundMethod?(table: CommissionTable, orderId: string, method: string): Promise<void>
+  /** Durably keep the full manual-refund note on the (refunded) order's notes. Throws on DB error. */
+  recordManualNote?(table: CommissionTable, orderId: string, note: string, adminId: string): Promise<void>
 }
 
 const nowOf = (deps: RefundDeps): number => (deps.now ? deps.now() : Date.now())
@@ -77,7 +79,22 @@ export function defaultDeps(db: SupabaseClient): RefundDeps {
       const { error } = await db.from(table).update({ refund_method: method, updated_at: new Date().toISOString() }).eq("id", orderId).eq("status", "refunded")
       if (error) console.error("[REFUND] could not record refund_method (non-fatal):", error.message)
     },
+    async recordManualNote(table, orderId, note, adminId) {
+      const { data, error } = await db.from(table).select("notes").eq("id", orderId).maybeSingle()
+      if (error) throw new Error(`[REFUND] order notes read failed: ${error.message}`)
+      const previous = ((data as { notes?: string | null } | null)?.notes ?? "").trim()
+      const notes = manualNoteText(note, adminId, previous)
+      // Only notes change, so the refund status guard trigger lets it through.
+      const { error: upErr } = await db.from(table).update({ notes, updated_at: new Date().toISOString() }).eq("id", orderId).eq("status", "refunded")
+      if (upErr) throw new Error(`[REFUND] order notes write failed: ${upErr.message}`)
+    },
   }
+}
+
+/** The manual note in full, prepended to the order's previous notes (which keep provider refs). */
+export function manualNoteText(note: string, adminId: string, previous: string): string {
+  const head = `Refunded manually by admin ${adminId}: ${note}`
+  return (previous ? `${head}\n${previous}` : head).slice(0, 4000)
 }
 
 /** Releases a stuck Hubtel dispatch claim before reserving; the reserve then sees `pending`. */
@@ -87,6 +104,16 @@ async function releaseStuck(deps: RefundDeps, order: RefundableOrder, adminId: s
   }
   const n = await deps.releaseStuckClaim(order.table, order.id, adminId)
   if (n === 0) throw new RefundError("NOT_ELIGIBLE", "The dispatch claim is no longer stuck; reload and retry")
+}
+
+/**
+ * A reserve that fails after a stuck-claim release leaves the order `pending` again (it never reached Hubtel, so this
+ * is safe, but it may now be dispatched). Say so instead of hiding it.
+ */
+function afterRelease(err: RefundError, released: boolean): RefundError {
+  if (!released) return err
+  const detail = err.detail && typeof err.detail === "object" ? { ...(err.detail as object), claimReleased: true } : { detail: err.detail, claimReleased: true }
+  return new RefundError(err.code, `${err.message}. Note: the stuck dispatch claim was released, so the order is pending again and may be dispatched.`, detail)
 }
 
 const eligibilityOf = (o: RefundableOrder, now: number): Eligibility => orderEligibility(o, now)
@@ -253,9 +280,9 @@ export async function executeRefund(deps: RefundDeps, input: ExecuteInput): Prom
     // No claims row => 0: a dispatch that claims after this read changes the count and the reserve refuses.
     p_expected_attempts: order.evidence.dispatchAttempts ?? 0,
   })
-  if (error) throw mapReserveError(error.message)
+  if (error) throw afterRelease(mapReserveError(error.message), !!elig.releaseStuck)
   if (!data || typeof data.refund_id !== "string") {
-    throw new RefundError("RESERVE_FAILED", "Reserve returned no refund id", { data })
+    throw afterRelease(new RefundError("RESERVE_FAILED", "Reserve returned no refund id", { data }), !!elig.releaseStuck)
   }
   const refundId = data.refund_id as string
 
@@ -386,6 +413,8 @@ export interface ManualRefundInput {
   /** Required admin note (validated by the route, <= 500 chars). */
   note: string
   adminId: string
+  /** Required when eligibility carries a warning (admin-overridden Hubtel failure). */
+  confirmOverride?: boolean
 }
 
 export interface ManualRefundResult {
@@ -398,7 +427,8 @@ export interface ManualRefundResult {
 
 const manualRef = (note: string) => `manual: ${note}`.slice(0, 200)
 
-async function completeManual(deps: RefundDeps, order: RefundableOrder, refundId: string, note: string): Promise<void> {
+/** Completes the manual refund; returns false when the full note could not be stored on the order (refund still done). */
+async function completeManual(deps: RefundDeps, order: RefundableOrder, refundId: string, note: string, adminId: string): Promise<boolean> {
   const { data, error } = await callRpc(deps, "complete_order_refund", { p_refund_id: refundId, p_gateway_ref: manualRef(note) })
   if (error || data !== "completed") {
     throw new RefundError(
@@ -410,7 +440,18 @@ async function completeManual(deps: RefundDeps, order: RefundableOrder, refundId
   if (deps.markRefundMethod && isCommissionTable(order.table)) {
     try { await deps.markRefundMethod(order.table, order.id, MANUAL_GATEWAY) } catch (e) { console.error("[REFUND] refund_method write failed (non-fatal):", e) }
   }
+  if (deps.recordManualNote && isCommissionTable(order.table)) {
+    try {
+      await deps.recordManualNote(order.table, order.id, note, adminId)
+    } catch (e) {
+      console.error("[REFUND] manual note write failed:", e)
+      return false
+    }
+  }
+  return true
 }
+
+const NOTE_NOT_SAVED = " The note could not be saved on the order; it is in the admin audit log."
 
 /**
  * "Mark refunded manually" for a storefront commission order: the admin refunded the customer outside our gateways.
@@ -435,14 +476,19 @@ export async function executeManualRefund(deps: RefundDeps, input: ManualRefundI
   if (order.evidence.hasActiveRefund) {
     const active = deps.findActiveRefund ? await deps.findActiveRefund(order.id) : null
     if (active && active.gateway === MANUAL_GATEWAY && active.status === "reserved") {
-      await completeManual(deps, order, active.id, input.note)
-      return { refundId: active.id, status: "completed", alreadyRefunded: false, message: "Manual refund completed" }
+      const saved = await completeManual(deps, order, active.id, input.note, input.adminId)
+      // The clawback lines are on the stored refund row; the customer notice needs none.
+      await notifySafely(deps, { refundId: active.id, order, amount: order.paid, gateway: MANUAL_GATEWAY, clawbacks: [] })
+      return { refundId: active.id, status: "completed", alreadyRefunded: false, message: `Manual refund completed.${saved ? "" : NOTE_NOT_SAVED}` }
     }
     throw new RefundError("ALREADY_REFUNDED", "A refund is already in progress for this order — see History")
   }
 
   const elig = eligibilityOf(order, nowOf(deps))
   if (!elig.eligible) throw new RefundError("NOT_ELIGIBLE", elig.reason, { code: elig.code })
+  if (elig.warning && input.confirmOverride !== true) {
+    throw new RefundError("NOT_ELIGIBLE", elig.warning, { code: "CONFIRM_REQUIRED", warning: elig.warning })
+  }
   if (elig.releaseStuck) await releaseStuck(deps, order, input.adminId)
 
   const { data, error } = await deps.rpc("reserve_order_refund", {
@@ -459,11 +505,13 @@ export async function executeManualRefund(deps: RefundDeps, input: ManualRefundI
       const fresh = await deps.loadOrder(input.table, input.orderId)
       if (fresh?.orderStatus === "refunded") return already()
     }
-    throw mapped
+    throw afterRelease(mapped, !!elig.releaseStuck)
   }
-  if (!data || typeof data.refund_id !== "string") throw new RefundError("RESERVE_FAILED", "Reserve returned no refund id", { data })
+  if (!data || typeof data.refund_id !== "string") {
+    throw afterRelease(new RefundError("RESERVE_FAILED", "Reserve returned no refund id", { data }), !!elig.releaseStuck)
+  }
   const refundId = data.refund_id as string
-  await completeManual(deps, order, refundId, input.note)
+  const saved = await completeManual(deps, order, refundId, input.note, input.adminId)
   await notifySafely(deps, { refundId, order, amount: order.paid, gateway: MANUAL_GATEWAY, clawbacks: Array.isArray(data.clawbacks) ? data.clawbacks : [] })
-  return { refundId, status: "completed", alreadyRefunded: false, message: "Marked refunded; the shop's share was clawed back" }
+  return { refundId, status: "completed", alreadyRefunded: false, message: `Marked refunded; the shop's share was clawed back.${saved ? "" : NOTE_NOT_SAVED}` }
 }

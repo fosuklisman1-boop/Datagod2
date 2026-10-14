@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { sendSMS } from "@/lib/sms-service"
-import { isWalletOnlyTable, type RefundableOrder } from "./types"
+import { isCommissionTable, isWalletOnlyTable, type RefundableOrder } from "./types"
 
 export interface RefundNotification {
   refundId: string
@@ -31,7 +31,13 @@ async function accountPhone(db: SupabaseClient, userId: string | null | undefine
 export async function notifyRefund(db: SupabaseClient, e: RefundNotification): Promise<void> {
   const walletOnly = isWalletOnlyTable(e.order.table)
   // orders/api_orders: the buyer is the ACCOUNT HOLDER; the data recipient is a third party and is never told.
-  const phone = walletOnly ? await accountPhone(db, e.order.buyerUserId) : (e.order.payment.payerPhone ?? e.order.recipientPhone)
+  // Storefront commission orders: only the recorded payer / buyer number; the recipient (airtime/bundle beneficiary)
+  // may be a third party, so no number => no SMS.
+  const phone = walletOnly
+    ? await accountPhone(db, e.order.buyerUserId)
+    : isCommissionTable(e.order.table)
+      ? e.order.payment.payerPhone
+      : (e.order.payment.payerPhone ?? e.order.recipientPhone)
   if (phone) {
     try {
       await sendSMS({

@@ -20,8 +20,13 @@ export type EligibilityCode =
   | "NOT_PENDING" | "ALREADY_REFUNDED" | "DISPATCH_IN_PROGRESS" | "DISPATCH_UNKNOWN"
   | "PROVIDER_IN_PROGRESS" | "SENT_TO_PROVIDER" | "NOT_STOREFRONT" | "HUBTEL_BLOCKED"
 
-/** releaseStuck: a stuck Hubtel dispatch claim (processing, never reached Hubtel, >= 5 min) must be released first. */
-export type Eligibility = { eligible: true; releaseStuck?: boolean } | { eligible: false; code: EligibilityCode; reason: string }
+/**
+ * releaseStuck: a stuck Hubtel dispatch claim (processing, never reached Hubtel, >= 5 min) must be released first.
+ * warning: refundable, but only after the admin explicitly confirms (admin-overridden Hubtel failure).
+ */
+export type Eligibility =
+  | { eligible: true; releaseStuck?: boolean; warning?: string }
+  | { eligible: false; code: EligibilityCode; reason: string }
 
 /** Eligibility of a loaded order (the one place the pending list, preview and execute agree on). */
 export function orderEligibility(o: RefundableOrder, now: number = Date.now()): Eligibility {
@@ -33,6 +38,9 @@ export function orderEligibility(o: RefundableOrder, now: number = Date.now()): 
 }
 
 const LIVE_LEDGER = new Set(["created", "pending", "needs_review"])
+/** Notes written by the Digiwapy send / webhook / sync paths ("Auto-fulfilled via Digiwapy [dgwRef:…]", "Digiwapy: …"). */
+const DIGIWAPY_NOTE = /dgwRef:|digiwapy/i
+const HCS_REF = /hcsRef:([A-Za-z0-9_-]+)/
 
 /**
  * Storefront airtime. Airtime has its own provider lifecycle (a Hubtel failure returns the order to `pending` for manual
@@ -46,6 +54,16 @@ function airtimeEligibility(c: CommissionEvidence, now: number): Eligibility {
   if (live) return no("PROVIDER_IN_PROGRESS", `Hubtel transaction ${live.client_reference} is ${live.state.replace("_", " ")} and may still deliver. Resolve it in Hubtel Commission first.`)
   if (c.status === "processing") return no("PROVIDER_IN_PROGRESS", "Being sent to a provider; wait for it to finish or fail")
   if (c.status !== "pending" && c.status !== "failed") return no("NOT_PENDING", `Order is ${c.status}; it cannot be refunded`)
+  // A provider send was recorded (Digiwapy sends while the order is still `pending`, and a Digiwapy failure also lands
+  // back on `pending`): only an admin who confirmed non-delivery (order marked failed) may refund it.
+  const notes = c.notes ?? ""
+  if (c.status !== "failed" && DIGIWAPY_NOTE.test(notes)) {
+    return no("PROVIDER_IN_PROGRESS", "A Digiwapy send was recorded for this order. Confirm it was not delivered and mark it Failed on /admin/airtime, then refund.")
+  }
+  const hcsRef = notes.match(HCS_REF)?.[1]
+  if (c.status !== "failed" && hcsRef && !c.ledger.some((l) => l.client_reference === hcsRef)) {
+    return no("PROVIDER_IN_PROGRESS", `Hubtel reference ${hcsRef} is recorded but its ledger row was not found; check Hubtel Commission before refunding`)
+  }
   if (c.status === "pending" && !(now - Date.parse(c.updatedAt) >= UNSENT_GRACE_MS)) {
     return no("DISPATCH_IN_PROGRESS", "This order was updated moments ago and may still be dispatching; try again in a minute")
   }
@@ -64,6 +82,10 @@ function billOrBundleEligibility(c: CommissionEvidence, now: number): Eligibilit
   }, c.ledger, now)
   if (d.action === "blocked") return no("HUBTEL_BLOCKED", d.reason)
   if (d.action === "direct" && d.releaseStuck) return { eligible: true, releaseStuck: true }
+  if (d.action === "ledger" && d.needsForce) {
+    // The review queue would demand `force` here; the admin must explicitly confirm instead.
+    return { eligible: true, warning: `Hubtel transaction ${d.ref} was marked failed by an admin override, not by Hubtel. Confirm it was not delivered before refunding.` }
+  }
   return { eligible: true }
 }
 
