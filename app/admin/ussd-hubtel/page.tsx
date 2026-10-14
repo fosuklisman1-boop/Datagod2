@@ -444,7 +444,7 @@ export default function AdminUssdHubtelPage() {
                     if (v === config.mode) return
                     const label = v === "shop" ? "Shop USSD" : "Main USSD"
                     const billing = v === "shop"
-                      ? " In shop mode callers must enter a shop code first, and each Hubtel session costs that shop ONE session token (billed when the code is accepted, never refunded)."
+                      ? " In shop mode callers must enter a shop code first (customer sessions are free)."
                       : ""
                     if (!window.confirm(`Switch the Hubtel code to ${label}?${billing} Calls already in progress keep the mode they started with; new dials use ${label}.`)) return
                     save({ mode: v }, "mode")
@@ -458,8 +458,7 @@ export default function AdminUssdHubtelPage() {
                 </div>
                 {config.mode === "shop" && (
                   <p className="text-xs text-muted-foreground">
-                    Shop mode: callers enter a shop code first, and each Hubtel session costs that shop one session token (billed once
-                    per session, when the code is accepted). Services follow the shop&apos;s catalogue and the toggles below. AFA is not
+                    Shop mode: callers enter a shop code first (customer sessions are free). Services follow the shop&apos;s catalogue and the toggles below. AFA is not
                     offered in shop mode. Calls already in progress keep the mode they started with.
                   </p>
                 )}

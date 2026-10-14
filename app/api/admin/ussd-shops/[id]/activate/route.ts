@@ -18,14 +18,13 @@ async function requireAdmin(request: NextRequest): Promise<string | null> {
 }
 
 // POST /api/admin/ussd-shops/[id]/activate
-// Body: { initial_tokens?: number }
-// Manually activates a shop code with an optional initial token balance.
+// Manually activates a shop code (marks the activation fee paid). Customer sessions are free, so
+// there is no token balance to grant (spec 2026-10-14-ussd-shop-free-sessions-design).
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const adminId = await requireAdmin(request)
   if (!adminId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const { id } = await params
-  const { initial_tokens = 0 } = await request.json()
 
   const { data: shopCode } = await supabase
     .from("ussd_shop_codes")
@@ -47,7 +46,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       status: 'active',
       activation_fee_paid: true,
       activation_paid_at: new Date().toISOString(),
-      token_balance: initial_tokens,
       updated_at: new Date().toISOString(),
     })
     .eq("id", id)
@@ -60,7 +58,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   await supabase.from("ussd_shop_token_purchases").insert([{
     shop_code_id: id,
     shop_id: shopCode.shop_id,
-    tokens_purchased: initial_tokens,
+    tokens_purchased: 0, // activation audit row; sessions are free
     amount_paid: 0,
     payment_method: 'manual',
     payment_status: 'completed',
@@ -72,7 +70,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     try {
       const { data: owner } = await supabase.from("users").select("email, first_name").eq("id", shopOwnerId).single()
       if (!owner?.email) return
-      const tpl = EmailTemplates.ussdShopActivated(shopName, shopCodeStr, initial_tokens)
+      const tpl = EmailTemplates.ussdShopActivated(shopName, shopCodeStr)
       await sendEmail({
         to: [{ email: owner.email, name: owner.first_name ?? undefined }],
         subject: tpl.subject,
@@ -87,7 +85,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   sendPushToUser(shopOwnerId, {
     title: "Shop Code Activated",
-    body: `Your USSD shop code ${shopCodeStr} for "${shopName}" is now active with ${initial_tokens} session${initial_tokens !== 1 ? 's' : ''}.`,
+    body: `Your USSD shop code ${shopCodeStr} for "${shopName}" is now active. Customers can use it right away.`,
     data: { url: `/dashboard/ussd-shop` },
   }).catch(() => {})
 

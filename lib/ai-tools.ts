@@ -375,16 +375,14 @@ const manageWithdrawalTool: Anthropic.Tool = {
 
 const manageUssdShopTool: Anthropic.Tool = {
   name: "manage_ussd_shop",
-  description: "Admin only: list, get, create, activate, or add tokens to USSD shop codes. Action guide: 'get' needs ussd_shop_code_id OR code (4-digit); 'create' needs shop_id (code is auto-generated if omitted); 'activate' needs ussd_shop_code_id; 'add_tokens' needs ussd_shop_code_id + tokens.",
+  description: "Admin only: list, get, create, or activate USSD shop codes (customer sessions are free). Action guide: 'get' needs ussd_shop_code_id OR code (4-digit); 'create' needs shop_id (code is auto-generated if omitted); 'activate' needs ussd_shop_code_id.",
   input_schema: {
     type: "object" as const,
     properties: {
-      action: { type: "string", enum: ["list", "get", "create", "activate", "add_tokens"], description: "list: view all codes. get: fetch one by UUID or 4-digit code. create: new code for a shop (needs shop_id). activate: activate a pending code (needs ussd_shop_code_id). add_tokens: credit sessions (needs ussd_shop_code_id + tokens)." },
-      ussd_shop_code_id: { type: "string", description: "UUID of the USSD shop code. Required for activate and add_tokens; used by get when not looking up by 4-digit code." },
+      action: { type: "string", enum: ["list", "get", "create", "activate"], description: "list: view all codes. get: fetch one by UUID or 4-digit code. create: new code for a shop (needs shop_id). activate: activate a pending code (needs ussd_shop_code_id)." },
+      ussd_shop_code_id: { type: "string", description: "UUID of the USSD shop code. Required for activate; used by get when not looking up by 4-digit code." },
       code: { type: "string", description: "4-digit USSD code e.g. '1234'. Used by get to look up by code number; optional for create (auto-generated if omitted)." },
       shop_id: { type: "string", description: "Required for create — the shop to associate this code with." },
-      initial_tokens: { type: "number", description: "Optional for activate — initial session tokens to credit on activation." },
-      tokens: { type: "number", description: "Required for add_tokens — number of session tokens to add." },
     },
     required: ["action"],
   },
@@ -2710,25 +2708,13 @@ export async function executeToolCall(
           const res = await fetch(`${ctx.baseUrl}/api/admin/ussd-shops/${input.ussd_shop_code_id}/activate`, {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
-            body: JSON.stringify({ initial_tokens: input.initial_tokens }),
+            body: JSON.stringify({}),
           })
           const data = await res.json()
           return { success: res.ok, ...data }
         }
 
-        if (action === "add_tokens") {
-          if (!input.ussd_shop_code_id) return { error: "ussd_shop_code_id is required for add_tokens" }
-          if (!input.tokens) return { error: "tokens is required for add_tokens" }
-          const res = await fetch(`${ctx.baseUrl}/api/admin/ussd-shops/${input.ussd_shop_code_id}/tokens`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
-            body: JSON.stringify({ tokens: input.tokens }),
-          })
-          const data = await res.json()
-          return { success: res.ok, ...data }
-        }
-
-        return { error: `Unknown action: ${action}. Use list, get, create, activate, or add_tokens.` }
+        return { error: `Unknown action: ${action}. Use list, get, create, or activate.` }
       }
 
       case "get_fulfillment_logs": {

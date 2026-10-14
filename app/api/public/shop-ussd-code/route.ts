@@ -27,11 +27,12 @@ export async function GET(request: NextRequest) {
 
     const { data: shopCode } = await supabase
       .from("ussd_shop_codes")
-      .select("code, status, token_balance")
+      .select("code, status")
       .eq("shop_id", shop.id)
       .maybeSingle()
 
-    const active = !!shopCode && shopCode.status === "active" && shopCode.token_balance > 0
+    // Customer sessions are free (spec 2026-10-14-ussd-shop-free-sessions-design): active == usable.
+    const active = !!shopCode && shopCode.status === "active"
     return NextResponse.json(
       { active, code: active ? shopCode!.code : null },
       { headers: { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=60" } }

@@ -30,9 +30,6 @@ const SAFE_APP_COLUMNS = [
   "ai_widget_services",
   "ussd_shop_dial_code",
   "ussd_shop_activation_fee",
-  "ussd_shop_session_price",
-  "ussd_shop_min_sessions",
-  "ussd_shop_max_sessions",
   "whatsapp_shop_activation_fee",
   "storefront_show_ussd_card",
 ] as const
