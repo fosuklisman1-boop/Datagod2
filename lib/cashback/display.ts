@@ -45,6 +45,17 @@ export function priceLabel(face: number, q: DisplayQuote): string {
   return q.applied ? `${ghs(q.pay)} (was ${ghs(face)})` : ghs(face)
 }
 
+/** priceLabel split for layouts that style the old price apart: { now: "GHS 2.90", was: "was GHS 3.00" | null }. */
+export function priceParts(face: number, q: DisplayQuote): { now: string; was: string | null } {
+  return q.applied ? { now: ghs(q.pay), was: `was ${ghs(face)}` } : { now: ghs(face), was: null }
+}
+
+/** "Midnight Bundles · 8.48 GB" (the reference's "You receive"); just the display without a category. */
+export function bundleReceiveLabel(category: string | undefined, display: string): string {
+  const c = (category ?? "").trim()
+  return c ? `${c} · ${display}` : display
+}
+
 /** How much more the user needs to pay, or null when the balance covers it. */
 export function shortfall(balance: number, pay: number): number | null {
   const gap = Math.round((pay - balance) * 100) / 100
@@ -80,18 +91,33 @@ export function airtimeServiceKey(network: string): string {
   return `airtime_${network.toLowerCase()}`
 }
 
-export interface PriceChange { message: string; faceAmount: number; payAmount: number; customerCashback: number }
+export interface PriceChange {
+  message: string
+  faceAmount: number
+  payAmount: number
+  customerCashback: number
+  /** Airtime legacy breakdown behind payAmount, when the server sent it. */
+  airtimeAmount?: number
+  feeAmount?: number
+  feeRate?: number
+}
+
+const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v)
 
 /** A 409 that carries a `quote` is "the price changed": definitely not charged, show the new price and ask again. */
 export function parsePriceChange(status: number, json: unknown): PriceChange | null {
   if (status !== 409) return null
-  const j = json as { error?: unknown; quote?: { faceAmount?: unknown; payAmount?: unknown; customerCashback?: unknown } } | null
+  const j = json as { error?: unknown; quote?: Record<string, unknown> } | null
   const q = j?.quote
-  if (!q || typeof q.payAmount !== "number" || !Number.isFinite(q.payAmount)) return null
-  const face = typeof q.faceAmount === "number" && Number.isFinite(q.faceAmount) ? q.faceAmount : q.payAmount
+  if (!q || !finite(q.payAmount)) return null
+  const face = finite(q.faceAmount) ? q.faceAmount : q.payAmount
   const message = typeof j?.error === "string" && j.error ? j.error : "The price has changed. Please review the new price."
-  const cashback = typeof q.customerCashback === "number" && Number.isFinite(q.customerCashback) ? q.customerCashback : 0
-  return { message, faceAmount: face, payAmount: q.payAmount, customerCashback: cashback }
+  const cashback = finite(q.customerCashback) ? q.customerCashback : 0
+  const out: PriceChange = { message, faceAmount: face, payAmount: q.payAmount, customerCashback: cashback }
+  if (finite(q.airtimeAmount)) out.airtimeAmount = q.airtimeAmount
+  if (finite(q.feeAmount)) out.feeAmount = q.feeAmount
+  if (finite(q.feeRate)) out.feeRate = q.feeRate
+  return out
 }
 
 /** "GHS 10.00 MTN airtime" */

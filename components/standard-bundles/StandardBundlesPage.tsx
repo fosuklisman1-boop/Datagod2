@@ -9,7 +9,7 @@ import {
   bundleStatusLabel, findSameBundle, formatGhs, isCatalogStale, parsePrefixRules, type PrefixRules,
 } from "@/lib/standard-bundles/ui-helpers"
 import { NETWORK_SERVICE } from "@/lib/standard-bundles/categories"
-import { priceLabel, quoteForDisplay } from "@/lib/cashback/display"
+import { quoteForDisplay } from "@/lib/cashback/display"
 import { useCashbackRates } from "@/components/cashback/use-cashback-rates"
 import { BundleBuySheet, type PickedBundle } from "./BundleBuySheet"
 import { useBundlesAvailability } from "./use-bundles-availability"
@@ -64,6 +64,8 @@ export function StandardBundlesPage() {
   const [loadingOrders, setLoadingOrders] = useState(true)
   const [ordersError, setOrdersError] = useState("")
   const [picked, setPicked] = useState<PickedBundle | null>(null)
+  /** Token of the tile whose buy sheet is opening (rates refresh in flight). */
+  const [opening, setOpening] = useState<string | null>(null)
 
   const networks = availability?.networks ?? []
   const activeNetwork: Network | null = network && networks.some(n => n.network === network) ? network : (networks[0]?.network ?? null)
@@ -178,9 +180,14 @@ export function StandardBundlesPage() {
       net = catalogRef.current?.network ?? net
       if (!chosen) { setNotice(BUNDLE_GONE_MESSAGE); return }
     }
-    await ensureFresh() // re-fetch rates older than 5 minutes before the buy sheet opens
+    setOpening(b.token)
+    try {
+      await ensureFresh() // re-fetch rates older than 5 minutes before the buy sheet opens
+    } finally {
+      setOpening(null)
+    }
     const label = networks.find(n => n.network === net)?.label ?? net
-    setPicked({ token: chosen.token, display: chosen.display, amount: chosen.amount, network: net, networkLabel: label })
+    setPicked({ token: chosen.token, display: chosen.display, amount: chosen.amount, network: net, networkLabel: label, category: category || undefined })
   }
 
   const onStale = async (message: string) => {
@@ -270,20 +277,27 @@ export function StandardBundlesPage() {
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4" aria-busy={loadingCatalog}>
-                  {visible.map(b => (
-                    <button
-                      key={b.token}
-                      type="button"
-                      disabled={loadingCatalog}
-                      onClick={() => openBundle(b)}
-                      className="flex flex-col items-start gap-2 rounded-3xl border border-white/60 dark:border-white/5 bg-card p-4 text-left transition hover:-translate-y-0.5 clay disabled:opacity-50 disabled:hover:translate-y-0"
-                    >
-                      <span className="text-sm font-bold text-foreground">{b.display}</span>
-                      <span className="text-base font-extrabold text-primary">
-                        {activeNetwork ? priceLabel(b.amount, quoteForDisplay(b.amount, rates.services[NETWORK_SERVICE[activeNetwork]])) : formatGhs(b.amount)}
-                      </span>
-                    </button>
-                  ))}
+                  {visible.map(b => {
+                    const q = activeNetwork ? quoteForDisplay(b.amount, rates.services[NETWORK_SERVICE[activeNetwork]]) : null
+                    return (
+                      <button
+                        key={b.token}
+                        type="button"
+                        disabled={loadingCatalog || opening !== null}
+                        aria-busy={opening === b.token}
+                        onClick={() => openBundle(b)}
+                        className="flex flex-col items-start gap-1 rounded-3xl border border-white/60 dark:border-white/5 bg-card p-4 text-left transition hover:-translate-y-0.5 clay disabled:opacity-50 disabled:hover:translate-y-0"
+                      >
+                        <span className="text-sm font-bold text-foreground">{b.display}</span>
+                        <span className="text-base font-extrabold text-primary">
+                          {opening === b.token ? "Opening…" : formatGhs(q?.applied ? q.pay : b.amount)}
+                        </span>
+                        {q?.applied && opening !== b.token && (
+                          <span className="text-xs font-normal text-muted-foreground">was <s>{formatGhs(b.amount)}</s></span>
+                        )}
+                      </button>
+                    )
+                  })}
                 </div>
               )}
             </section>

@@ -9,7 +9,8 @@ import { Phone, CheckCircle2, Circle, RefreshCw, ArrowRight, Clock, History as H
 import { PurchaseSheet, type PurchaseSheetModal } from "@/components/dashboard/PurchaseSheet"
 import { useCashbackRates } from "@/components/cashback/use-cashback-rates"
 import { PriceSummary } from "@/components/cashback/PriceSummary"
-import { airtimeReceiveLabel, airtimeServiceKey, parsePriceChange, quoteForDisplay } from "@/lib/cashback/display"
+import { airtimeReceiveLabel, airtimeServiceKey, parsePriceChange, quoteForDisplay, type RatesResponse } from "@/lib/cashback/display"
+import { airtimeEnabledKey, airtimeFeeKey, legacyAirtimePrice } from "@/lib/airtime-fee"
 
 const NETWORKS = ["MTN", "Telecel", "AT"]
 // AT/AirtelTigo gets a literal orange here (its own real brand color, and
@@ -85,29 +86,34 @@ export default function AirtimePage() {
   // view after the customer already dismissed the sheet themselves.
   const purchaseDismissedRef = useRef(false)
 
-  // ----- Fee calculations -----
+  // ----- Fee calculations (same helper + rounding as purchaseAirtime on the server) -----
   const numAmount = parseFloat(amount) || 0
-  const feeAmount = paySeparately
-    ? parseFloat((numAmount * feeRate / 100).toFixed(2))
-    : parseFloat((numAmount * feeRate / (100 + feeRate)).toFixed(2))
-  const totalPaid = paySeparately
-    ? parseFloat((numAmount + feeAmount).toFixed(2))
-    : numAmount
-  const airtimeToRecipient = paySeparately
-    ? numAmount
-    : parseFloat((numAmount - feeAmount).toFixed(2))
+  const legacy = legacyAirtimePrice(numAmount, feeRate, paySeparately)
+  const totalPaid = legacy.total
 
   const amountOutOfRange = numAmount > 0 && (numAmount < minAmount || numAmount > maxAmount)
 
   // ----- Instant cashback (display only; the server re-quotes and checks expectedPay) -----
   const { rates, ensureFresh } = useCashbackRates()
   const priceKey = `${network}|${numAmount}|${paySeparately}`
-  const [serverPrice, setServerPrice] = useState<{ key: string; pay: number; cashback: number } | null>(null)
+  // The server's price after a 409. Only valid for the same inputs AND the same rates snapshot it was
+  // set against: a toggle flip or a later rates refetch falls back to the (fresh) client quote.
+  const [serverPrice, setServerPrice] = useState<{
+    key: string; rates: RatesResponse; pay: number; cashback: number
+    recipient?: number; fee?: number; feeRate?: number
+  } | null>(null)
   const [priceNotice, setPriceNotice] = useState("")
   const quote = quoteForDisplay(numAmount, rates.services[airtimeServiceKey(network)])
-  const forced = serverPrice && serverPrice.key === priceKey ? serverPrice : null
+  const forced = serverPrice && serverPrice.key === priceKey && serverPrice.rates === rates ? serverPrice : null
   const cashbackOn = forced ? forced.cashback > 0 : quote.applied
   const payShown = forced ? forced.pay : quote.applied ? quote.pay : totalPaid
+  // Legacy breakdown lines: the server's when it sent one with its 409, so they add up to "You pay".
+  const airtimeToRecipient = forced?.recipient ?? legacy.toRecipient
+  const feeAmount = forced?.fee ?? legacy.fee
+  const feeRateShown = forced?.feeRate ?? feeRate
+
+  // Any edit to amount / network / fee mode makes an old "price has changed" notice stale.
+  useEffect(() => { setPriceNotice("") }, [priceKey])
   const networkLabel = NETWORK_META[network]?.label ?? network
 
   const [availableNetworks, setAvailableNetworks] = useState<string[]>(["MTN", "Telecel", "AT"])
@@ -146,7 +152,7 @@ export default function AirtimePage() {
     }
 
     const enabledNets = ["MTN", "Telecel", "AT"].filter(n => {
-      const setting = airtimeSettings[`airtime_enabled_${n.toLowerCase()}`]
+      const setting = airtimeSettings[airtimeEnabledKey(n)]
       return setting?.enabled !== false
     })
     setAvailableNetworks(enabledNets)
@@ -154,8 +160,8 @@ export default function AirtimePage() {
       setNetwork(enabledNets[0])
     }
 
-    const netKey = network.toLowerCase()
-    const feeSetting = airtimeSettings[`airtime_fee_${netKey}_${isDealer ? 'dealer' : 'customer'}`]
+    // Same key purchaseAirtime reads (AT -> airtime_fee_at_*).
+    const feeSetting = airtimeSettings[airtimeFeeKey(network, isDealer ? "dealer" : "customer")]
     setFeeRate(feeSetting?.rate ?? 5)
     setMinAmount(airtimeSettings["airtime_min_amount"]?.amount ?? 1)
     setMaxAmount(airtimeSettings["airtime_max_amount"]?.amount ?? 500)
@@ -222,8 +228,13 @@ export default function AirtimePage() {
       const data = await res.json()
       const change = parsePriceChange(res.status, data)
       if (change) {
-        // Definite non-charge. Show the server's price and wait for a second tap.
-        setServerPrice({ key: priceKey, pay: change.payAmount, cashback: change.customerCashback })
+        // Definite non-charge. Reload the rates (ours were out of date), then show the server's price
+        // against that fresh snapshot and wait for a second tap.
+        const reloaded = await ensureFresh(true)
+        setServerPrice({
+          key: priceKey, rates: reloaded, pay: change.payAmount, cashback: change.customerCashback,
+          recipient: change.airtimeAmount, fee: change.feeAmount, feeRate: change.feeRate,
+        })
         setPriceNotice(change.message)
         if (!purchaseDismissedRef.current) setPurchaseModal(null)
       } else if (!res.ok) {
@@ -426,7 +437,7 @@ export default function AirtimePage() {
                       <span className="font-semibold text-foreground">GHS {airtimeToRecipient.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-muted-foreground">
-                      <span>Service fee ({feeRate}%{(userRole === 'dealer' || userRole === 'sub_agent') ? ", dealer rate" : ""})</span>
+                      <span>Service fee ({feeRateShown}%{(userRole === 'dealer' || userRole === 'sub_agent') ? ", dealer rate" : ""})</span>
                       <span>GHS {feeAmount.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between border-t border-border pt-2 font-bold text-foreground">

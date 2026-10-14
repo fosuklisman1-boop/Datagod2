@@ -11,7 +11,7 @@ import {
 } from "@/lib/standard-bundles/ui-helpers"
 import { newUuid } from "@/lib/standard-bundles/uuid"
 import { NETWORK_SERVICE } from "@/lib/standard-bundles/categories"
-import { parsePriceChange, priceLabel, quoteForDisplay, type RatesResponse } from "@/lib/cashback/display"
+import { bundleReceiveLabel, parsePriceChange, priceLabel, quoteForDisplay, type RatesResponse } from "@/lib/cashback/display"
 import { PriceSummary } from "@/components/cashback/PriceSummary"
 
 export interface PickedBundle {
@@ -20,6 +20,8 @@ export interface PickedBundle {
   amount: number
   network: "MTN" | "TELECEL" | "AT"
   networkLabel: string
+  /** Catalog category ("Midnight Bundles"), shown in "You receive". */
+  category?: string
 }
 
 type Step = "input" | "done"
@@ -179,7 +181,7 @@ export function BundleBuySheet({
 
               <div className="space-y-2 rounded-2xl border border-white/60 dark:border-white/5 bg-background p-4 text-sm clay-sm">
                 {cashbackOn ? (
-                  <PriceSummary pay={payShown} receive={`${bundle.networkLabel} ${bundle.display}`} balance={balance} />
+                  <PriceSummary pay={payShown} receive={bundleReceiveLabel(bundle.category, bundle.display)} balance={balance} />
                 ) : (
                   <>
                     <Row k="Bundle" v={`${bundle.networkLabel} ${bundle.display}`} />

@@ -14,6 +14,14 @@ export function airtimeNetId(network: string): AirtimeNetId | null {
   return null
 }
 
+/**
+ * True when an order routed to `provider` is actually sent by a commission-earning provider.
+ * Digiwapy without its env falls to manual at fulfilment time, so it earns nothing (no cashback).
+ */
+export function providerEarnsCommission(provider: AirtimeProvider, digiwapyConfigured: boolean): boolean {
+  return provider === "hubtel" || (provider === "digiwapy" && digiwapyConfigured)
+}
+
 export const airtimeProviderKey = (id: AirtimeNetId) => `airtime_provider_${id}`
 export const AIRTIME_PROVIDER_KEYS: string[] = NET_IDS.map(airtimeProviderKey)
 

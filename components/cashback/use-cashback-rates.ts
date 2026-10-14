@@ -6,7 +6,8 @@ import { NO_RATES, parseRates, ratesStale, type RatesResponse } from "@/lib/cash
 
 /**
  * Cashback rates for the dashboard: fetched once on mount, and `ensureFresh()` re-fetches when older than
- * 5 minutes (call it before opening a pay/confirm step). Any failure means "no cashback" - the server decides.
+ * 5 minutes (call it before opening a pay/confirm step); `ensureFresh(true)` always re-fetches.
+ * Any failure means "no cashback" - the server decides.
  */
 export function useCashbackRates() {
   const [rates, setRates] = useState<RatesResponse>(NO_RATES)
@@ -38,8 +39,9 @@ export function useCashbackRates() {
 
   useEffect(() => { void load() }, [load])
 
-  const ensureFresh = useCallback(async (): Promise<RatesResponse> => {
-    if (ratesStale(fetchedAtRef.current, Date.now())) return load()
+  /** `force`: re-fetch even when the rates are young (e.g. after the server said the price changed). */
+  const ensureFresh = useCallback(async (force = false): Promise<RatesResponse> => {
+    if (force || ratesStale(fetchedAtRef.current, Date.now())) return load()
     return ratesRef.current
   }, [load])
 

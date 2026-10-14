@@ -141,7 +141,12 @@ function PaySheet({
   }
 
   const goToConfirm = async (p: Picked, suggested: number) => {
-    await ensureFresh() // re-fetch rates older than 5 minutes before the confirm step opens
+    setBusy(true) // the rates refresh can be slow on mobile networks - show the loading state, block double taps
+    try {
+      await ensureFresh() // re-fetch rates older than 5 minutes before the confirm step opens
+    } finally {
+      setBusy(false)
+    }
     setServerPrice(null)
     setPicked(p)
     setAmount(suggested > 0 ? suggested.toFixed(2) : "")
@@ -300,8 +305,10 @@ function PaySheet({
                 <button
                   key={m.meter}
                   type="button"
+                  disabled={busy}
+                  aria-busy={busy}
                   onClick={() => goToConfirm({ token: m.token, name: m.name, account: m.meter, due: m.outstanding }, m.outstanding && m.outstanding > 0 ? m.outstanding : 0)}
-                  className="flex w-full items-center justify-between gap-3 rounded-2xl border border-white/60 dark:border-white/5 bg-background p-4 text-left clay-sm"
+                  className="flex w-full items-center justify-between gap-3 rounded-2xl border border-white/60 dark:border-white/5 bg-background p-4 text-left clay-sm disabled:opacity-50"
                 >
                   <span>
                     <span className="block text-sm font-bold text-foreground">{m.name || "ECG meter"}</span>

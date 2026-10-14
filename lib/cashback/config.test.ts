@@ -75,6 +75,14 @@ describe("validateCashbackPatch", () => {
   it("rejects non-object, unknown field, bad types", () => {
     bad(null); bad([]); bad({ foo: 1 }); bad({ enabled: "yes" }); bad({ surfaces: { nope: true } }); bad({ surfaces: { api: 1 } })
   })
+  it("rejects enabling bots/storefront/api (Part 1 supports dashboard only); turning them off is fine", () => {
+    for (const s of ["bots", "storefront", "api"]) {
+      expect(bad({ surfaces: { [s]: true } })).toMatch(new RegExp(`surfaces\\.${s} cannot be enabled yet`))
+      expect(bad({ surfaces: { dashboard: true, [s]: true } })).toMatch(/only supports the dashboard/)
+    }
+    const r = validateCashbackPatch({ surfaces: { dashboard: true, bots: false, storefront: false, api: false } }, cur)
+    expect(r.ok).toBe(true)
+  })
   it("rejects share 101 and bad share decimals", () => {
     bad({ shares: { airtime: gs({ customer: 101 }) } })
     bad({ shares: { airtime: gs({ customer: 10.123 }) } })

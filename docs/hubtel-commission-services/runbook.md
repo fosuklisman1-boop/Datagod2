@@ -171,4 +171,9 @@ Buyers pay face − (provider rate × share) on dashboard airtime, Utility Bills
    - The page sends the price it showed; any difference (rate edited, switch flipped, provider changed) returns 409 "Price updated" and charges nothing until the buyer confirms again.
 4. Refunds return what the customer paid (`paid_amount`, or `total_paid` for airtime), never face.
 5. Admin numbers: Utility Bills "Sales (face value)" sums face; order lists show "Paid GHS x" under the amount for cashback orders. The margin report shows set vs actual rate (✓ within 0.05 points), commission earned, cashback given, Datagod kept.
-6. Not in Part 1: USSD/WhatsApp bots (Part 2), storefronts with shop share + markup removal, and the public API (Part 3).
+6. Not in Part 1: USSD/WhatsApp bots (Part 2), storefronts with shop share + markup removal, and the public API (Part 3). Surface switches other than Dashboard are rejected by the settings validator until then.
+7. AirtelTigo airtime fix shipped with Part 1: the dashboard sends "AT", which the server previously rejected; the server now reads the real `airtime_enabled_at` / `airtime_fee_at_*` settings for both "AT" and "AirtelTigo" (v1 API resellers using "AirtelTigo" now get the AT switch and AT fee rates instead of the old 5% default).
+8. Follow-ups:
+   - Mobile app (`mobile/src/lib/datagod.ts`) buys airtime without `expectedPay`: with cashback on, app users are charged the (lower) cashback price but the app shows the old fee price. Update the app to read `/api/cashback/rates` and send `expectedPay`.
+   - Margin report: Digiwapy rows show 0 orders (expected figures only), and "actual" uses Hubtel `completed_at` while "given" uses order `created_at` — fine for weekly views, slightly off at window edges.
+   - Digiwapy actual commission: confirm from a real status response before relying on Digiwapy rates.

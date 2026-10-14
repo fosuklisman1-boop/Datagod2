@@ -43,7 +43,8 @@ describe("display helpers", () => {
 })
 
 import {
-  airtimeReceiveLabel, airtimeServiceKey, balanceLine, billReceiveLabel, parsePriceChange, parseRates, ratesStale,
+  airtimeReceiveLabel, airtimeServiceKey, balanceLine, billReceiveLabel, bundleReceiveLabel, parsePriceChange, parseRates,
+  priceParts, ratesStale,
 } from "./display"
 
 describe("checkout helpers", () => {
@@ -67,6 +68,20 @@ describe("checkout helpers", () => {
     expect(parsePriceChange(409, { error: "Price updated", quote: { faceAmount: 10, payAmount: 9.91, customerCashback: 0.09 } }))
       .toEqual({ message: "Price updated", faceAmount: 10, payAmount: 9.91, customerCashback: 0.09 })
     expect(parsePriceChange(409, { quote: { faceAmount: 10, payAmount: 10 } })?.customerCashback).toBe(0)
+  })
+  it("priceParts and bundleReceiveLabel", () => {
+    expect(priceParts(3, { pay: 2.9, cashback: 0.1, applied: true })).toEqual({ now: "GHS 2.90", was: "was GHS 3.00" })
+    expect(priceParts(3, { pay: 3, cashback: 0, applied: false })).toEqual({ now: "GHS 3.00", was: null })
+    expect(bundleReceiveLabel("Midnight Bundles", "8.48 GB")).toBe("Midnight Bundles · 8.48 GB")
+    expect(bundleReceiveLabel(undefined, "8.48 GB")).toBe("8.48 GB")
+    expect(bundleReceiveLabel("  ", "8.48 GB")).toBe("8.48 GB")
+  })
+  it("parsePriceChange keeps the airtime breakdown when the server sends it", () => {
+    expect(parsePriceChange(409, { quote: { faceAmount: 10, payAmount: 10.5, customerCashback: 0, airtimeAmount: 10, feeAmount: 0.5, feeRate: 5 } }))
+      .toMatchObject({ payAmount: 10.5, airtimeAmount: 10, feeAmount: 0.5, feeRate: 5 })
+    const bare = parsePriceChange(409, { quote: { payAmount: 10, feeAmount: "x" } })
+    expect(bare).not.toHaveProperty("feeAmount")
+    expect(bare).not.toHaveProperty("airtimeAmount")
   })
   it("labels", () => {
     expect(airtimeReceiveLabel("MTN", 10)).toBe("GHS 10.00 MTN airtime")

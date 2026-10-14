@@ -4,6 +4,8 @@ import { isServiceKey } from "../hubtel-cs/services"
 export const CASHBACK_CONFIG_KEY = "commission_cashback_config"
 
 export const CASHBACK_CHANNELS = ["dashboard", "bots", "storefront", "api"] as const
+/** Surfaces that may be switched on. bots/storefront/api stay off until Part 2/3 wires their pricing. */
+export const SUPPORTED_SURFACES = ["dashboard"] as const
 export const CASHBACK_GROUPS = ["airtime", "bundles", "bills"] as const
 export const CASHBACK_PROVIDERS = ["hubtel", "digiwapy"] as const
 export const SHARE_FIELDS = ["customer", "dealer", "storefrontCustomer", "storefrontShop"] as const
@@ -154,6 +156,9 @@ export function validateCashbackPatch(
     for (const [k, v] of Object.entries(body.surfaces)) {
       if (!(CASHBACK_CHANNELS as readonly string[]).includes(k)) return { ok: false, error: `Unknown surface ${k}` }
       if (typeof v !== "boolean") return { ok: false, error: `surfaces.${k} must be true or false` }
+      if (v && !(SUPPORTED_SURFACES as readonly string[]).includes(k)) {
+        return { ok: false, error: `surfaces.${k} cannot be enabled yet: Part 1 only supports the dashboard surface` }
+      }
       out[k as CashbackChannel] = v
     }
     patch.surfaces = out
