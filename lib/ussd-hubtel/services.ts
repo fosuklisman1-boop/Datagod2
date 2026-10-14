@@ -11,6 +11,11 @@ import {
 import { toLocalPhone } from "./protocol"
 import { safeDbError } from "./log-safe"
 import { isAirtimeEnabled, getAirtimeLimits, airtimeBaseFeeRate } from "@/lib/airtime-pricing"
+import { getAirtimeProvider } from "@/lib/airtime-provider"
+import { isDigiWapyConfigured, isDigiWapyEnabledForNetwork } from "@/lib/digiwapy-provider"
+import { getCashbackConfig } from "@/lib/cashback/config"
+import type { StorefrontQuote } from "@/lib/cashback/quote"
+import { quoteBotAirtime } from "@/lib/cashback/storefront-airtime"
 
 export { resolveDialer }
 export type { DialerInfo }
@@ -20,10 +25,26 @@ export interface AirtimeServices {
   getLimits(): Promise<{ min: number; max: number }>
   /** Platform fee rate (%) for the network; dealers and sub-agents pay the dealer rate. */
   feeRate(network: string, isDealer: boolean): Promise<number>
+  /**
+   * Commission-cashback quote on the Hubtel rail for `faceAmount` of `network` airtime, or null when
+   * cashback is not applied (gate off, provider earns nothing, above Hubtel's cap, any error) — the
+   * caller then runs today's fee pricing unchanged. `shop` = shop-mode session (storefront split).
+   */
+  cashbackQuote(network: string, faceAmount: number, shop: boolean): Promise<StorefrontQuote | null>
 }
 
-export function defaultAirtimeServices(): AirtimeServices {
-  return { isEnabled: isAirtimeEnabled, getLimits: getAirtimeLimits, feeRate: airtimeBaseFeeRate }
+export function defaultAirtimeServices(supabase: SupabaseClient): AirtimeServices {
+  const cashbackDeps = {
+    getConfig: () => getCashbackConfig(supabase),
+    getProvider: (network: string) => getAirtimeProvider(supabase, network, isDigiWapyEnabledForNetwork),
+    digiwapyConfigured: () => isDigiWapyConfigured(),
+  }
+  return {
+    isEnabled: isAirtimeEnabled,
+    getLimits: getAirtimeLimits,
+    feeRate: airtimeBaseFeeRate,
+    cashbackQuote: (network, faceAmount, shop) => quoteBotAirtime(network, faceAmount, { rail: "hubtel", shop }, cashbackDeps),
+  }
 }
 
 export interface MyVoucherOrder { id: string; exam_board: string; reference_code: string; created_at: string }

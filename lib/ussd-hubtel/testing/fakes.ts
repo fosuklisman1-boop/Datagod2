@@ -106,7 +106,7 @@ export function digitFor(menu: string, label: string): string {
 }
 
 export function fakeAirtime(over: Partial<AirtimeServices> = {}): AirtimeServices {
-  return { isEnabled: async () => true, getLimits: async () => ({ min: 1, max: 500 }), feeRate: async () => 5, ...over }
+  return { isEnabled: async () => true, getLimits: async () => ({ min: 1, max: 500 }), feeRate: async () => 5, cashbackQuote: async () => null, ...over }
 }
 
 export function fakeRc(over: Partial<RcServices> = {}): RcServices {

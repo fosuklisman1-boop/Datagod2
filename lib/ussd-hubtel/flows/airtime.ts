@@ -9,6 +9,8 @@ import { AIRTIME_NETWORKS, airtimeLabel, type AirtimeNetworkKey } from "../menus
 import { toLocalPhone } from "../protocol"
 import { backToMain, finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable } from "../flow-kit"
 import type { HubtelReply } from "../types"
+import { samePrice } from "@/lib/cashback/quote"
+import { cashbackAirtimeColumns, cashbackAirtimeConfirmText, usableCashbackQuote } from "./airtime-cashback"
 
 const RECIPIENT = { label: "Recipient number", fieldType: "phone" as const }
 const NETWORK = { label: "Recipient network" }
@@ -93,12 +95,22 @@ async function enterAmount(ctx: FlowCtx): Promise<HubtelReply> {
   if (!(amount > 0) || amount < min || amount > max) return invalid()
 
   const dialer = await deps.resolveDialer(session.dialingPhone)
+  // Commission cashback (main mode: no shop share). Applied => the typed amount is the face delivered.
+  const cb = await deps.airtime.cashbackQuote(network, amount, false)
+  if (usableCashbackQuote(cb, amount)) {
+    return goto(ctx, {
+      step: "AIRTIME_CONFIRM", airtimeAmount: amount, airtimeFee: 0, airtimeToDeliver: amount, airtimeCashbackPay: cb.payAmount, userId: dialer.userId,
+    }, cashbackAirtimeConfirmText("Confirm Airtime", label, session.airtimeRecipient!, cb.payAmount, amount, toLocalPhone(session.dialingPhone)), CONFIRM)
+  }
+
+  // Not applied: today's fee pricing, unchanged.
   const rate = await deps.airtime.feeRate(network, isDealerRole(dialer.role))
   const { fee, toDeliver } = splitInclusive(amount, rate)
   if (!(toDeliver > 0)) return invalid()
 
   return goto(ctx, {
     step: "AIRTIME_CONFIRM", airtimeAmount: amount, airtimeFee: fee, airtimeToDeliver: toDeliver, userId: dialer.userId,
+    ...(session.airtimeCashbackPay !== undefined ? { airtimeCashbackPay: undefined } : {}),
   }, airtimeConfirmText(label, session.airtimeRecipient!, amount, toDeliver, toLocalPhone(session.dialingPhone)), CONFIRM)
 }
 
@@ -108,7 +120,11 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   const label = airtimeLabel(network)
   const amount = session.airtimeAmount!
   if (ctx.input === "2") return finish(ctx, "Order cancelled.")
+  const shownPay = session.airtimeCashbackPay
   if (ctx.input !== "1") {
+    if (shownPay !== undefined) {
+      return say(ctx, cashbackAirtimeConfirmText("Confirm Airtime", label, session.airtimeRecipient!, shownPay, amount, toLocalPhone(session.dialingPhone)), "AIRTIME_CONFIRM", CONFIRM)
+    }
     return say(ctx, airtimeConfirmText(label, session.airtimeRecipient!, amount, session.airtimeToDeliver!, toLocalPhone(session.dialingPhone)), "AIRTIME_CONFIRM", CONFIRM)
   }
 
@@ -120,6 +136,39 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   const { min, max } = await deps.airtime.getLimits()
   if (amount < min || amount > max) return finish(ctx, `Amount must be GHS ${min}-${max}. Please restart.`)
   const dialer = await deps.resolveDialer(session.dialingPhone)
+
+  // Cashback: re-quote. The screen and the live quote must agree on BOTH the pricing mode and the
+  // price (cashback switched on/off or re-rated since the screen => restart), never a silent switch.
+  const cb = await deps.airtime.cashbackQuote(network, amount, false)
+  const cbNow = usableCashbackQuote(cb, amount)
+  if (shownPay !== undefined || cbNow) {
+    if (!cbNow || shownPay === undefined || !Number.isFinite(shownPay) || !samePrice(cb.payAmount, shownPay)) {
+      return finish(ctx, "Airtime rates changed. Please restart your order.")
+    }
+    return submitOrder(ctx, {
+      table: "airtime_orders",
+      price: cb.payAmount,
+      logTag: "HUBTEL-AIRTIME",
+      row: {
+        reference_code: secureReference("AT", 2, 3),
+        network,
+        beneficiary_phone: session.airtimeRecipient,
+        pay_separately: false,
+        status: "pending_payment",
+        payment_status: "pending_payment",
+        user_id: dialer.userId ?? null,
+        shop_id: null,
+        merchant_commission: 0,
+        customer_name: "USSD Customer",
+        customer_email: dialer.email ?? null,
+        dialing_phone: session.dialingPhone,
+        channel: "ussd",
+        ...cashbackAirtimeColumns(cb, 0), // main mode never credits a shop share
+      },
+    })
+  }
+
+  // Not applied: today's fee pricing, unchanged.
   const rate = await deps.airtime.feeRate(network, isDealerRole(dialer.role))
   const { fee, toDeliver } = splitInclusive(amount, rate)
   // Fail closed: a NaN/undefined on either side must never pass the drift check.

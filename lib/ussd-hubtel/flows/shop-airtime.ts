@@ -14,6 +14,8 @@ import { shopAirtimeQuote } from "../shop-services"
 import { finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable } from "../flow-kit"
 import { backToProduct } from "./shop"
 import type { HubtelReply } from "../types"
+import { samePrice } from "@/lib/cashback/quote"
+import { cashbackAirtimeColumns, cashbackAirtimeConfirmText, usableCashbackQuote } from "./airtime-cashback"
 
 const RECIPIENT = { label: "Recipient number", fieldType: "phone" as const }
 const NETWORK = { label: "Recipient network" }
@@ -105,10 +107,20 @@ async function enterAmount(ctx: FlowCtx): Promise<HubtelReply> {
 
   const amount = AMOUNT_RE.test(ctx.input) ? Number(ctx.input) : NaN
   if (!(amount > 0 && amount >= min && amount <= max)) return invalid()
+  // Commission cashback (shop mode: storefront split, the shop's share credited at payment via
+  // merchant_commission). Applied => the typed amount is the face delivered.
+  const cb = await deps.airtime.cashbackQuote(network, amount, true)
+  if (usableCashbackQuote(cb, amount)) {
+    return goto(ctx, { step: "SHOP_AIRTIME_CONFIRM", airtimeAmount: amount, airtimeFee: 0, airtimeToDeliver: amount, airtimeCashbackPay: cb.payAmount },
+      cashbackAirtimeConfirmText(shopHeader(nameOf(ctx)), label, session.airtimeRecipient!, cb.payAmount, amount, toLocalPhone(session.dialingPhone)), CONFIRM)
+  }
+
+  // Not applied: today's shop fee pricing, unchanged.
   const q = shopAirtimeQuote(amount, await deps.shop.airtimeFeeRate(session.shopId, network))
   if (!usableQuote(q)) return invalid()
 
-  return goto(ctx, { step: "SHOP_AIRTIME_CONFIRM", airtimeAmount: amount, airtimeFee: q.fee, airtimeToDeliver: q.toDeliver },
+  return goto(ctx, { step: "SHOP_AIRTIME_CONFIRM", airtimeAmount: amount, airtimeFee: q.fee, airtimeToDeliver: q.toDeliver,
+    ...(session.airtimeCashbackPay !== undefined ? { airtimeCashbackPay: undefined } : {}) },
     shopAirtimeConfirmText(nameOf(ctx), label, session.airtimeRecipient!, amount, q.toDeliver, toLocalPhone(session.dialingPhone)), CONFIRM)
 }
 
@@ -120,8 +132,13 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   const shown = session.airtimeToDeliver
   if (!network || !session.shopId || !session.airtimeRecipient) return finish(ctx, "Airtime rates changed. Please restart your order.")
   const label = airtimeLabel(network)
+  const shownPay = session.airtimeCashbackPay
   if (ctx.input !== "1") {
     if (!Number.isFinite(amount) || !Number.isFinite(shown)) return finish(ctx, "Airtime rates changed. Please restart your order.")
+    if (shownPay !== undefined) {
+      if (!Number.isFinite(shownPay)) return finish(ctx, "Airtime rates changed. Please restart your order.")
+      return say(ctx, cashbackAirtimeConfirmText(shopHeader(nameOf(ctx)), label, session.airtimeRecipient, shownPay, amount as number, toLocalPhone(session.dialingPhone)), "SHOP_AIRTIME_CONFIRM", CONFIRM)
+    }
     return say(ctx, shopAirtimeConfirmText(nameOf(ctx), label, session.airtimeRecipient, amount as number, shown as number, toLocalPhone(session.dialingPhone)), "SHOP_AIRTIME_CONFIRM", CONFIRM)
   }
 
@@ -134,6 +151,40 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   if (!(typeof amount === "number" && amount > 0 && amount >= min && amount <= max)) {
     return finish(ctx, `Amount must be GHS ${min}-${max}. Please restart.`)
   }
+
+  // Cashback: re-quote. The screen and the live quote must agree on BOTH the pricing mode and the
+  // price (cashback switched on/off or re-rated since the screen => restart), never a silent switch.
+  const cb = await deps.airtime.cashbackQuote(network, amount, true)
+  const cbNow = usableCashbackQuote(cb, amount)
+  if (shownPay !== undefined || cbNow) {
+    if (!cbNow || shownPay === undefined || !Number.isFinite(shownPay) || !samePrice(cb.payAmount, shownPay)) {
+      return finish(ctx, "Airtime rates changed. Please restart your order.")
+    }
+    return submitOrder(ctx, {
+      table: "airtime_orders",
+      price: cb.payAmount,
+      logTag: "HUBTEL-SHOP-AIRTIME",
+      row: {
+        reference_code: secureReference("AT", 2, 3),
+        network,
+        beneficiary_phone: session.airtimeRecipient,
+        pay_separately: false,
+        status: "pending_payment",
+        payment_status: "pending_payment",
+        user_id: null,
+        shop_id: session.shopId,
+        // Applied: the shop's cashback share (not the markup), credited once to shop_id by markAirtimeOrderPaid.
+        merchant_commission: cb.shopShare,
+        customer_name: "USSD Customer",
+        customer_email: null,
+        dialing_phone: session.dialingPhone,
+        channel: "ussd_shop",
+        ...cashbackAirtimeColumns(cb, cb.shopShare),
+      },
+    })
+  }
+
+  // Not applied: today's shop fee pricing, unchanged.
   const q = shopAirtimeQuote(amount, await deps.shop.airtimeFeeRate(session.shopId, network))
   // Fail closed: a NaN/undefined on either side must never pass the drift check.
   if (!usableQuote(q) || !Number.isFinite(shown) || !(Math.abs(q.toDeliver - (shown as number)) <= 0.001)) {

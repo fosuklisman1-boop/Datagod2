@@ -67,6 +67,8 @@ export interface HubtelSession {
   airtimeAmount?: number // what the caller pays = order total_paid = Hubtel Price
   airtimeFee?: number
   airtimeToDeliver?: number // what the recipient gets (amount - fee)
+  /** Set only when commission cashback priced the confirm screen: the price shown (Hubtel Price). Absent = legacy fee pricing. */
+  airtimeCashbackPay?: number
   // Results checker (buy / my vouchers)
   rcBoardOptions?: string[] // boards shown on RC_SELECT_BOARD, in order
   rcBoard?: string // WASSCE | BECE | NOVDEC

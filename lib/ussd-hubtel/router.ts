@@ -37,7 +37,7 @@ export function defaultRouterDeps(supabase: SupabaseClient): RouterDeps {
     getPrefixConfig: getPrefixValidationConfig,
     pageSize: PAGE_SIZE,
     resolveDialer,
-    airtime: defaultAirtimeServices(),
+    airtime: defaultAirtimeServices(supabase),
     rc: defaultRcServices(supabase),
     afa: defaultAfaServices(supabase),
     shop: defaultShopServices(supabase),
