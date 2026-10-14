@@ -10,17 +10,23 @@ const h = vi.hoisted(() => {
     inserts: [] as { table: string; rows: any[] }[],
     gates: { storefrontOtp: false, storefrontDirect: true, walletOtp: false, walletDirect: false },
     otpVerified: true,
+    /** Pending wallet_payments rows returned by the "payment still in progress" lookup. */
+    livePayments: [] as { id: string }[],
   }
   const chain = (table: string) => {
     const c: any = {}
-    for (const m of ["select", "or", "eq", "is", "in", "update"]) c[m] = () => c
+    let inserting = false
+    for (const m of ["select", "or", "eq", "is", "in", "update", "gte"]) c[m] = () => c
+    c.limit = () => (table === "wallet_payments" && !inserting
+      ? Promise.resolve({ data: state.livePayments, error: null })
+      : c)
     c.single = async () => {
       if (table === "user_shops") return { data: { id: "shop1" }, error: null }
       if (table === "app_settings") return { data: { paystack_fee_percentage: 3, wallet_topups_enabled: true, upgrades_enabled: true }, error: null }
       return { data: null, error: null }
     }
     c.maybeSingle = async () => ({ data: state.orders[table] ?? null, error: null })
-    c.insert = (rows: any[]) => (state.inserts.push({ table, rows }), c)
+    c.insert = (rows: any[]) => (inserting = true, state.inserts.push({ table, rows }), c)
     c.then = (res: any, rej: any) => Promise.resolve({ data: [{ id: "wp1" }], error: null }).then(res, rej)
     return c
   }
@@ -72,6 +78,7 @@ beforeEach(() => {
   h.state.inserts = []
   h.state.gates = { storefrontOtp: false, storefrontDirect: true, walletOtp: false, walletDirect: false }
   h.state.otpVerified = true
+  h.state.livePayments = []
   chargeMobileMoney.mockClear()
   initializePayment.mockClear()
   recordPayerPhone.mockClear()
@@ -103,6 +110,16 @@ describe("payments/initialize momoDirect: storefront bill / bundle orders", () =
       void table
     })
   }
+
+  it("a recent pending payment for the same order => 409 PAYMENT_IN_PROGRESS, nothing charged, no new payment row", async () => {
+    h.state.livePayments = [{ id: "wp-earlier" }]
+    const res = await post({ orderType: "cs_bundle", momoDirect: true, paymentPhone: "0241234567" })
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({ code: "PAYMENT_IN_PROGRESS" })
+    expect(chargeMobileMoney).not.toHaveBeenCalled()
+    expect(initializePayment).not.toHaveBeenCalled()
+    expect(h.state.inserts.find((i) => i.table === "wallet_payments")).toBeUndefined()
+  })
 
   it("Telecel number => vod provider (OTP flow handled by the page)", async () => {
     await post({ orderType: "cs_bill", momoDirect: true, paymentPhone: "0501234567" })

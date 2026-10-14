@@ -50,7 +50,9 @@ export function useStorefrontPayment(shopSlug: string, orderType: StorefrontOrde
     const tick = async () => {
       if (id !== run.current || dismissed.current) return
       if (Date.now() - started > POLL_TIMEOUT_MS) {
-        show(id, { state: "failed", message: "Payment timed out. If you approved the prompt, your order will still be completed; otherwise try again." })
+        // Don't leave the buyer at a dead end: the confirmation page verifies the payment with Paystack and
+        // shows the order's real status (a late approval still completes the order via the webhook).
+        if (id === run.current && !dismissed.current) window.location.href = confirmationUrl(orderId, reference)
         return
       }
       try {

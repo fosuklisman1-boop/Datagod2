@@ -132,6 +132,33 @@ export async function POST(request: NextRequest) {
         )
       }
 
+      // Storefront bill/bundle orders: refuse a second payment start while an earlier one for the same
+      // order is still pending and recent — otherwise a buyer who closes the sheet and taps Pay again
+      // can approve two live MoMo prompts and pay twice. After the window, a retry is allowed.
+      if (storefrontType) {
+        const since = new Date(Date.now() - 3 * 60 * 1000).toISOString()
+        const { data: livePayment, error: liveErr } = await supabase
+          .from("wallet_payments")
+          .select("id")
+          .eq("order_id", orderId)
+          .eq("status", "pending")
+          .gte("created_at", since)
+          .limit(1)
+        if (liveErr) {
+          console.error("[PAYMENT-INIT] live-payment check failed:", liveErr.message)
+          return NextResponse.json({ error: "Could not start the payment. Please try again." }, { status: 503 })
+        }
+        if (livePayment && livePayment.length > 0) {
+          return NextResponse.json(
+            {
+              error: "A payment for this order is still waiting for approval on your phone. Approve it, or wait 3 minutes and try again.",
+              code: "PAYMENT_IN_PROGRESS",
+            },
+            { status: 409 }
+          )
+        }
+      }
+
       // __shop_sess cookie binding — DISABLED by default (was blocking real
       // visitors with "Invalid session"). Re-enable via SHOP_SESSION_ENFORCED=true.
       if (process.env.SHOP_SESSION_ENFORCED === "true") {
