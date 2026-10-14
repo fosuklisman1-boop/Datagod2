@@ -20,8 +20,9 @@ export async function POST(request: NextRequest) {
     const { deps, db } = getStorefrontBillsRuntime(request)
     const shop = await resolveShop(db, body.shopSlug)
     if (!shop) return NextResponse.json({ error: "Shop not found" }, { status: 404 })
-    // Turnstile is mandatory here (fails closed when disabled / not configured): verify reveals account data.
-    const blocked = await storefrontGuards(request, db, shop.id, body, { tag: "SHOP-BILLS-VERIFY", requireTurnstile: true })
+    // Same human check as every storefront endpoint: enforced while Turnstile is on, skipped when the admin turns it
+    // off (owner's decision: lookups must keep working). The per-IP / per-shop / global limits below always apply.
+    const blocked = await storefrontGuards(request, db, shop.id, body, { tag: "SHOP-BILLS-VERIFY" })
     if (blocked) return NextResponse.json({ error: blocked.error, ...(blocked.code ? { code: blocked.code } : {}) }, { status: blocked.status })
 
     // Only requests that passed the human check spend the shop's and the global budgets (no lock-out by junk posts).
