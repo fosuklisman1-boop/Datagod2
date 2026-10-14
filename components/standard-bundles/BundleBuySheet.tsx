@@ -142,7 +142,7 @@ export function BundleBuySheet({
     <Sheet open onOpenChange={o => { if (!o && !busy) onClose() }}>
       <SheetContent
         side="bottom"
-        className="mx-auto max-h-[92vh] overflow-y-auto rounded-t-3xl border-0 bg-card p-5 pb-8 sm:max-w-xl"
+        className="mx-auto max-h-[92dvh] overflow-y-auto rounded-t-3xl border-0 bg-card p-5 pb-8 sm:max-w-xl"
       >
         <SheetHeader className="space-y-1 p-0 pr-10 text-left">
           <SheetTitle className="text-base font-bold">{bundle.networkLabel} {bundle.display}</SheetTitle>

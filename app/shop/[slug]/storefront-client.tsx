@@ -2018,7 +2018,6 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
                     <Input
                       type="text"
                       inputMode="numeric"
-                      autoFocus
                       placeholder="Enter OTP"
                       value={momoOtpInput}
                       onChange={(e) => setMomoOtpInput(e.target.value)}

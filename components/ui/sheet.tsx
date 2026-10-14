@@ -48,15 +48,29 @@ function SheetContent({
   className,
   children,
   side = "right",
+  onOpenAutoFocus,
+  onFocus,
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Content> & {
   side?: "top" | "right" | "bottom" | "left"
 }) {
+  const isBottom = side === "bottom"
   return (
     <SheetPortal>
       <SheetOverlay />
       <SheetPrimitive.Content
         data-slot="sheet-content"
+        // Bottom sheets are phone UI: don't focus the first input on open (that pops the keyboard over the
+        // sheet). The keyboard appears only when the user taps a field. Callers can still override.
+        onOpenAutoFocus={onOpenAutoFocus ?? (isBottom ? (e) => e.preventDefault() : undefined)}
+        // iOS ignores interactive-widget: keep the tapped field visible above the keyboard.
+        onFocus={(e) => {
+          onFocus?.(e)
+          const t = e.target as HTMLElement
+          if (isBottom && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) {
+            setTimeout(() => t.scrollIntoView({ block: "center", behavior: "smooth" }), 300)
+          }
+        }}
         className={cn(
           "bg-card opacity-100 data-[state=open]:animate-in data-[state=closed]:animate-out fixed z-50 flex flex-col gap-4 clay transition ease-in-out data-[state=closed]:duration-300 data-[state=open]:duration-500",
           side === "right" &&
@@ -66,7 +80,7 @@ function SheetContent({
           side === "top" &&
             "data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top inset-x-0 top-0 h-auto border-b",
           side === "bottom" &&
-            "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom inset-x-0 bottom-0 h-auto border-t",
+            "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom inset-x-0 bottom-0 h-auto max-h-[92dvh] overflow-y-auto border-t",
           className
         )}
         {...props}

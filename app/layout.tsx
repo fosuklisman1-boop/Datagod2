@@ -29,6 +29,9 @@ export const viewport: Viewport = {
   // viewport-fit=cover extends content into the notch/Dynamic Island area so the
   // apple-touch-startup-image media queries can match the full physical screen height.
   viewportFit: "cover",
+  // Android Chrome: the on-screen keyboard shrinks the layout viewport, so bottom sheets (fixed bottom-0)
+  // sit above the keyboard instead of behind it.
+  interactiveWidget: "resizes-content",
   themeColor: "#030303",
 };
 

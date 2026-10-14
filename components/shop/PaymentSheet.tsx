@@ -55,6 +55,13 @@ export function PaymentSheet({ modal, onCancelSending, onDismiss, onRetry, otpIn
       <div
         className="flex max-h-[92dvh] w-full max-w-md flex-col rounded-t-3xl bg-card"
         onClick={(e) => e.stopPropagation()}
+        // iOS ignores interactive-widget: keep the tapped field visible above the keyboard.
+        onFocus={(e) => {
+          const t = e.target as HTMLElement
+          if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT") {
+            setTimeout(() => t.scrollIntoView({ block: "center", behavior: "smooth" }), 300)
+          }
+        }}
       >
         <div className="relative flex shrink-0 justify-center pt-3 pb-1">
           <div className="h-1 w-10 rounded-full bg-border" />
@@ -118,7 +125,6 @@ export function PaymentSheet({ modal, onCancelSending, onDismiss, onRetry, otpIn
             <Input
               type="text"
               inputMode="numeric"
-              autoFocus
               placeholder="Enter OTP"
               value={otpInput}
               onChange={(e) => setOtpInput(e.target.value)}
