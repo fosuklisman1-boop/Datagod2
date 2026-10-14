@@ -86,3 +86,57 @@ export function checkStorefrontPayable(row: StorefrontPayableRow | null, shopId:
   if (!email) return { ok: false, status: 500, error: "Invalid order configuration" }
   return { ok: true, amount: Math.round(amount * 100) / 100, email, shopId: row.shop_id }
 }
+
+/** Neutral payer email for bot orders (they carry no buyer email; Paystack requires one). Never names a product. */
+export const DEFAULT_BOT_PAYMENT_EMAIL = "payments@datagod.store"
+
+/** `BOT_PAYMENT_EMAIL` when it looks like an email, else the default. */
+export function botPaymentEmail(env: string | undefined = process.env.BOT_PAYMENT_EMAIL): string {
+  const v = typeof env === "string" ? env.trim() : ""
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? v : DEFAULT_BOT_PAYMENT_EMAIL
+}
+
+export interface CommissionPayableRow extends StorefrontPayableRow {
+  buyer_phone?: string | null
+}
+
+export type CommissionPayableCheck =
+  | {
+      ok: true
+      amount: number
+      email: string
+      shopId: string | null
+      bot: boolean
+      /** Identity for the per-payer payment-init cap: the buyer email (storefront) or `p:<buyer phone>` (bots). */
+      capKey: string
+    }
+  | { ok: false; status: number; error: string }
+
+/**
+ * Payment init for a commission order of either channel.
+ * - storefront: exactly `checkStorefrontPayable` (the shop resolved from the request slug must own the row).
+ * - bots: channel 'bots', still pending AND unpaid; amount `paid_amount` from the database; payer email the row's
+ *   buyer email when present, else the neutral `botPaymentEmail()`. A shop resolved from a slug must match the row's
+ *   shop (main-bot rows have none). The per-payer cap keys on the buyer phone, never on the shared fallback email.
+ */
+export function checkCommissionPayable(row: CommissionPayableRow | null, shopId: string | null): CommissionPayableCheck {
+  if (!row || row.channel !== "bots") {
+    const c = checkStorefrontPayable(row, shopId)
+    return c.ok ? { ...c, bot: false, capKey: `e:${c.email.toLowerCase()}` } : c
+  }
+  if (shopId && row.shop_id !== shopId) return { ok: false, status: 400, error: "Invalid order ID" }
+  if (row.status !== "pending" || row.payment_status !== "unpaid") {
+    return { ok: false, status: 400, error: "This order is no longer available for payment." }
+  }
+  const amount = Number(row.paid_amount)
+  if (row.paid_amount === null || !Number.isFinite(amount) || amount <= 0) {
+    return { ok: false, status: 500, error: "Invalid order configuration" }
+  }
+  const phone = typeof row.buyer_phone === "string" ? row.buyer_phone.trim() : ""
+  if (!phone) return { ok: false, status: 500, error: "Invalid order configuration" }
+  const own = typeof row.buyer_email === "string" ? row.buyer_email.trim() : ""
+  return {
+    ok: true, amount: Math.round(amount * 100) / 100, email: own || botPaymentEmail(), shopId: row.shop_id ?? null,
+    bot: true, capKey: `p:${phone}`,
+  }
+}

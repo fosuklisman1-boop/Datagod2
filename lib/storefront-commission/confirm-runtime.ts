@@ -6,10 +6,10 @@ import { getBundlesRuntime } from "@/lib/standard-bundles/runtime"
 import { dispatchBundleOrder, type BundlesDeps } from "@/lib/standard-bundles/service"
 import { verifyPayment } from "@/lib/paystack"
 import {
-  settleStorefrontPayment, verifyStorefrontPayment,
-  type ConfirmResult, type SettleDeps, type SettleInput, type StorefrontPaidOrder, type StorefrontPaymentRow, type VerifyDeps,
+  COMMISSION_CHANNELS, confirmBotOrder, settleStorefrontPayment, verifyStorefrontPayment,
+  type ConfirmPayment, type ConfirmResult, type SettleDeps, type SettleInput, type StorefrontPaidOrder, type StorefrontPaymentRow, type VerifyDeps,
 } from "./confirm"
-import { STOREFRONT_ORDER_TABLE, type StorefrontOrderType } from "./payment"
+import { STOREFRONT_ORDER_TABLE, type StorefrontOrderTable, type StorefrontOrderType } from "./payment"
 
 const COLUMNS =
   "id, reference_code, channel, shop_id, status, payment_status, paid_amount, shop_share_amount, payment_reference, hubtel_client_reference, notes, created_at"
@@ -28,7 +28,7 @@ export function buildSettleDeps(db: SupabaseClient, bills: BillsDeps, bundles: B
         .from(table)
         .update({ payment_status: "paid", paid_at: patch.paid_at, payment_reference: patch.payment_reference, updated_at: new Date().toISOString() })
         .eq("id", id)
-        .eq("channel", "storefront")
+        .in("channel", [...COMMISSION_CHANNELS])
         .eq("payment_status", "unpaid")
         .select("id")
       if (error) throw error
@@ -89,6 +89,20 @@ function runtimeDeps(): SettleDeps {
   const { deps: bills, db } = getBillsRuntime()
   const { deps: bundles } = getBundlesRuntime()
   return buildSettleDeps(db, bills, bundles)
+}
+
+/**
+ * Bot order payment confirmed by any rail (Hubtel USSD checkout callback, bot Paystack flows): the same guarded,
+ * idempotent confirmation as storefront orders (pesewa-exact amount, unpaid -> paid once, shop share once, one Hubtel
+ * POST, resumable). Refuses anything but a channel 'bots' row. `paidAmount` in GHS. Payment-record bookkeeping
+ * (wallet_payments etc.) stays with the caller.
+ */
+export async function confirmBotPayment(
+  table: StorefrontOrderTable,
+  orderId: string,
+  p: ConfirmPayment,
+): Promise<ConfirmResult> {
+  return confirmBotOrder(runtimeDeps(), table, orderId, p)
 }
 
 /** Paystack webhook (charge.success) for a cs_bill / cs_bundle payment. `paidAmount` in GHS. */

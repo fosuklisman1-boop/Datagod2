@@ -23,7 +23,10 @@ export interface StorefrontPaidOrder {
 export interface ConfirmDeps {
   /** Throws on a read error. */
   getOrder(table: StorefrontOrderTable, id: string): Promise<StorefrontPaidOrder | null>
-  /** Guarded `unpaid -> paid` (`.eq('payment_status','unpaid')`, storefront rows only); returns rows changed. Throws on error. */
+  /**
+   * Guarded `unpaid -> paid` (`.eq('payment_status','unpaid')`, commission rows only: channel storefront or bots);
+   * returns rows changed. Throws on error.
+   */
   markPaid(table: StorefrontOrderTable, id: string, patch: { paid_at: string; payment_reference: string }): Promise<number>
   /** shop_profits insert; throws the PostgREST error (with `code`) on failure. */
   insertShopProfit(row: Record<string, unknown>): Promise<void>
@@ -45,7 +48,7 @@ export type ConfirmOutcome =
   | "resumed"            // the order was already paid by THIS payment but never sent: share + dispatch re-run
   | "already_processed"  // someone else flipped it (or a replay)
   | "amount_mismatch"    // Paystack amount != paid_amount; left unpaid
-  | "refused"            // not a storefront order (or not found)
+  | "refused"            // not a commission order of an accepted channel (or not found)
   | "error"              // could not read / flip; safe to retry
 
 export interface ConfirmResult { outcome: ConfirmOutcome; status?: string }
@@ -56,9 +59,19 @@ export const isPaidOutcome = (o: ConfirmOutcome): boolean => o === "confirmed" |
 export const MANUAL_DISPATCH_NOTE = "Awaiting manual dispatch"
 export const GHANA_WATER_EXPIRED_NOTE = "Not sent: Ghana Water verification expired before payment — refund instead"
 
+/** Channels whose bill / bundle rows this confirmation serves: storefront (web shops) and bots (USSD / WhatsApp). */
+export const COMMISSION_CHANNELS = ["storefront", "bots"] as const
+export type CommissionChannel = (typeof COMMISSION_CHANNELS)[number]
+
 const pesewas = (n: number) => Math.round(n * 100)
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const safeAlert = async (d: ConfirmDeps, m: string, urgent = false) => { try { await d.alert(m, urgent) } catch { /* never break the flow */ } }
+
+/** Alert wording: storefront rows keep their exact historical text; bot rows say "bot" and name no payment rail. */
+const isBot = (o: StorefrontPaidOrder) => o.channel === "bots"
+const kind = (o: StorefrontPaidOrder) => (isBot(o) ? "bot" : "storefront")
+const Kind = (o: StorefrontPaidOrder) => (isBot(o) ? "Bot" : "Storefront")
+const rail = (o: StorefrontPaidOrder) => (isBot(o) ? "" : "Paystack ")
 
 export interface ConfirmPayment {
   /** GHS (Paystack amount / 100). */
@@ -74,29 +87,32 @@ export interface ConfirmPayment {
 /** A second, different Paystack payment for an order that is already paid: money to give back. */
 async function alertIfDuplicatePayment(d: ConfirmDeps, order: StorefrontPaidOrder, p: ConfirmPayment) {
   if (p.alertPaymentIssues !== false && order.payment_reference && order.payment_reference !== p.reference) {
-    await safeAlert(d, `URGENT: storefront order ${order.reference_code} (${order.id}) received a second Paystack payment ` +
-      `(ref ${p.reference}, GHS ${p.paidAmount.toFixed(2)}) after it was already paid with ref ${order.payment_reference}. Refund the duplicate in Paystack.`, true)
+    await safeAlert(d, `URGENT: ${kind(order)} order ${order.reference_code} (${order.id}) received a second ${rail(order)}payment ` +
+      `(ref ${p.reference}, GHS ${p.paidAmount.toFixed(2)}) after it was already paid with ref ${order.payment_reference}. ` +
+      `${isBot(order) ? "Refund the duplicate." : "Refund the duplicate in Paystack."}`, true)
   }
 }
 
 /**
- * Confirms a Paystack payment for a storefront Utility Bill / Standard Bundle order. Shared by the Paystack webhook and
- * /api/payments/verify; safe to call concurrently and to replay.
+ * Confirms a payment for a commission Utility Bill / Standard Bundle order of the storefront (Paystack) or the bots
+ * (Paystack or Hubtel checkout) channel. Shared by the Paystack webhook, /api/payments/verify and the bot payment
+ * callbacks; safe to call concurrently and to replay.
  *
- * 1. Re-read the order; it must be a storefront row.
+ * 1. Re-read the order; its channel must be one of `channels` (default: storefront and bots).
  * 2. Pesewa-exact amount check against `paid_amount`; a mismatch leaves the order unpaid (admins alerted).
  * 3. Guarded `unpaid -> paid` (+ paid_at, payment_reference).
- * 4. Post-flip steps: credit the shop share (one row per order; 23505 ignored), then dispatch through the engine's
- *    claim. Errors never un-flip the order.
+ * 4. Post-flip steps: credit the shop share (only with a shop and a share > 0; one row per order, 23505 ignored), then
+ *    dispatch through the engine's claim. Errors never un-flip the order.
  * 5. Recovery: when the order is already paid by THIS payment, still pending, never noted and has no Hubtel ledger row
  *    (the flipper died or its flip looked failed), the post-flip steps run again. The share's unique index and the
  *    engine's claim keep that to one share and one Hubtel POST even under concurrent retries.
  */
-export async function confirmStorefrontOrder(
+export async function confirmCommissionOrder(
   d: ConfirmDeps,
   table: StorefrontOrderTable,
   orderId: string,
   p: ConfirmPayment,
+  channels: readonly CommissionChannel[] = COMMISSION_CHANNELS,
 ): Promise<ConfirmResult> {
   let order: StorefrontPaidOrder | null
   try {
@@ -105,8 +121,8 @@ export async function confirmStorefrontOrder(
     console.error(`[storefront-confirm] could not read ${table} ${orderId}:`, msg(e))
     return { outcome: "error" }
   }
-  if (!order || order.channel !== "storefront") {
-    console.warn(`[storefront-confirm] refused ${table} ${orderId}: not a storefront order`)
+  if (!order || !(channels as readonly string[]).includes(order.channel)) {
+    console.warn(`[storefront-confirm] refused ${table} ${orderId}: not a ${channels.join("/")} order`)
     return { outcome: "refused" }
   }
   const ref = order.reference_code
@@ -117,9 +133,9 @@ export async function confirmStorefrontOrder(
   const expected = Number(order.paid_amount)
   if (order.paid_amount === null || !Number.isFinite(expected) || !Number.isFinite(p.paidAmount) || pesewas(p.paidAmount) !== pesewas(expected)) {
     if (p.alertPaymentIssues !== false) {
-      await safeAlert(d, `URGENT: storefront order ${ref} (${order.id}): Paystack amount GHS ${Number(p.paidAmount).toFixed(2)} ` +
+      await safeAlert(d, `URGENT: ${kind(order)} order ${ref} (${order.id}): ${isBot(order) ? "Payment" : "Paystack"} amount GHS ${Number(p.paidAmount).toFixed(2)} ` +
         `does not match the order's GHS ${Number.isFinite(expected) ? expected.toFixed(2) : String(order.paid_amount)} (ref ${p.reference}). ` +
-        `Not marked paid and not sent; review and refund in Paystack.`, true)
+        `Not marked paid and not sent; ${isBot(order) ? "review and refund it." : "review and refund in Paystack."}`, true)
     }
     return { outcome: "amount_mismatch", status: order.status }
   }
@@ -142,10 +158,21 @@ export async function confirmStorefrontOrder(
   // This call flipped the order.
   if (order.status !== "pending") {
     await creditShare(d, table, order)
-    await safeAlert(d, `URGENT: storefront order ${ref} was paid (ref ${p.reference}) while its status is ${order.status}. Not sent; refund it.`, true)
+    await safeAlert(d, `URGENT: ${kind(order)} order ${ref} was paid (ref ${p.reference}) while its status is ${order.status}. Not sent; refund it.`, true)
     return { outcome: "confirmed", status: order.status }
   }
   return { outcome: "confirmed", status: await postFlip(d, table, order) }
+}
+
+/** Historical name (storefront launch); same function: accepts storefront and bot rows. */
+export const confirmStorefrontOrder = confirmCommissionOrder
+
+/**
+ * Rail-agnostic confirmation for a BOT order only (Hubtel USSD checkout callback, bot Paystack payments): refuses
+ * storefront and every other channel. `paidAmount` in GHS; `alertPaymentIssues` false on public / pollable paths.
+ */
+export function confirmBotOrder(d: ConfirmDeps, table: StorefrontOrderTable, orderId: string, p: ConfirmPayment): Promise<ConfirmResult> {
+  return confirmCommissionOrder(d, table, orderId, p, ["bots"])
 }
 
 /** The order is not unpaid any more: decide between replay, duplicate payment and recovery. */
@@ -161,7 +188,7 @@ async function afterAlreadyPaid(d: ConfirmDeps, table: StorefrontOrderTable, cur
   try {
     ledger = await d.hasLedgerRow(table, cur.id)
   } catch (e) {
-    await safeAlert(d, `Storefront order ${cur.reference_code} is paid and may never have been sent, but the Hubtel ledger could not be checked (${msg(e)}). Check it by hand; do not resend blindly.`, true)
+    await safeAlert(d, `${Kind(cur)} order ${cur.reference_code} is paid and may never have been sent, but the Hubtel ledger could not be checked (${msg(e)}). Check it by hand; do not resend blindly.`, true)
     return { outcome: "already_processed", status: cur.status }
   }
   if (ledger) return { outcome: "already_processed", status: cur.status }
@@ -183,7 +210,7 @@ async function creditShare(d: ConfirmDeps, table: StorefrontOrderTable, order: S
     })
   } catch (e: any) {
     if (e?.code !== "23505") {
-      await safeAlert(d, `Storefront order ${order.reference_code}: paid, but the shop share (GHS ${share.toFixed(2)}) could not be recorded: ${msg(e)}. Credit it by hand.`, true)
+      await safeAlert(d, `${Kind(order)} order ${order.reference_code}: paid, but the shop share (GHS ${share.toFixed(2)}) could not be recorded: ${msg(e)}. Credit it by hand.`, true)
     }
   }
 }
@@ -197,14 +224,14 @@ async function postFlip(d: ConfirmDeps, table: StorefrontOrderTable, order: Stor
     const verifiedAt = Date.parse(order.verified_at || order.created_at)
     if (order.biller === "ghana_water" && !(d.now() - verifiedAt <= GHANA_WATER_MAX_AGE_MS)) {
       const n = await d.setPendingNote(table, order.id, GHANA_WATER_EXPIRED_NOTE).catch(() => 0)
-      if (n > 0) await safeAlert(d, `Storefront bill order ${ref} was paid after its Ghana Water verification expired. Not sent; refund it.`, true)
+      if (n > 0) await safeAlert(d, `${Kind(order)} bill order ${ref} was paid after its Ghana Water verification expired. Not sent; refund it.`, true)
       return "pending"
     }
     let auto: boolean
     try { auto = await d.billsAutoFulfil() } catch { auto = false }
     if (!auto) {
       const n = await d.setPendingNote(table, order.id, MANUAL_DISPATCH_NOTE).catch(() => 0)
-      if (n > 0) await safeAlert(d, `Storefront bill order ${ref} is paid and waiting for manual dispatch in Utility Bills.`)
+      if (n > 0) await safeAlert(d, `${Kind(order)} bill order ${ref} is paid and waiting for manual dispatch in Utility Bills.`)
       return "pending"
     }
   }
@@ -212,7 +239,7 @@ async function postFlip(d: ConfirmDeps, table: StorefrontOrderTable, order: Stor
   try {
     return await d.dispatch(table, order.id)
   } catch (e) {
-    await safeAlert(d, `Storefront order ${ref} is paid but dispatch failed: ${msg(e)}. Check its status before sending.`, true)
+    await safeAlert(d, `${Kind(order)} order ${ref} is paid but dispatch failed: ${msg(e)}. Check its status before sending.`, true)
     return undefined
   }
 }
@@ -244,7 +271,7 @@ export async function settleStorefrontPayment(d: SettleDeps, s: SettleInput): Pr
     if (alerts) await safeAlert(d, `URGENT: storefront payment ${s.reference} (GHS ${s.paidAmount.toFixed(2)}) has no order attached. Review and refund in Paystack.`, true)
     return { outcome: "refused" }
   }
-  const r = await confirmStorefrontOrder(d, s.table, s.orderId, { paidAmount: s.paidAmount, reference: s.reference, alertPaymentIssues: alerts })
+  const r = await confirmCommissionOrder(d, s.table, s.orderId,{ paidAmount: s.paidAmount, reference: s.reference, alertPaymentIssues: alerts })
   if (r.outcome === "refused" && alerts) {
     await safeAlert(d, `URGENT: payment ${s.reference} (GHS ${s.paidAmount.toFixed(2)}) is for ${s.table} ${s.orderId}, which is not a storefront order. Not processed; review and refund in Paystack.`, true)
   }

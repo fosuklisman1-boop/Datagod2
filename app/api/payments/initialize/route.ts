@@ -11,7 +11,7 @@ import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 import { resolveTrustedBaseUrl } from "@/lib/custom-domain-lookup"
 import { recordPayerPhone } from "@/lib/refunds/payer-phone"
 import {
-  isStorefrontOrderType, STOREFRONT_ORDER_TABLE, newPaystackReference, extraPaystackFeeRate, checkStorefrontPayable,
+  isStorefrontOrderType, STOREFRONT_ORDER_TABLE, newPaystackReference, extraPaystackFeeRate, checkCommissionPayable,
   STOREFRONT_PAYMENT_CHANNEL, STOREFRONT_PAYMENT_PURPOSE, STOREFRONT_CONFIRMATION_PATH, DIRECT_CHARGE_OFF,
 } from "@/lib/storefront-commission/payment"
 
@@ -249,8 +249,9 @@ export async function POST(request: NextRequest) {
       console.warn("[PAYMENT-INIT] Blocked: airtime payment with no orderId")
       return NextResponse.json({ error: "Invalid request" }, { status: 400 })
     }
-    // Storefront commission orders likewise need an orderId and the shop (resolved from the slug above).
-    if (storefrontType && (!orderId || !shopSlug || type)) {
+    // Commission orders likewise need an orderId; storefront rows also need the shop (resolved from the slug above),
+    // which is enforced after the row is read below (bot rows have no storefront slug).
+    if (storefrontType && (!orderId || type)) {
       console.warn(`[PAYMENT-INIT] Blocked: ${storefrontType} payment without orderId/shopSlug`)
       return NextResponse.json({ error: "Invalid request" }, { status: 400 })
     }
@@ -354,23 +355,31 @@ export async function POST(request: NextRequest) {
 
     let finalAmount = amount
     let recipient: string | undefined // product beneficiary (data/airtime recipient) for metadata
+    // A channel 'bots' commission order (USSD / WhatsApp bots): no storefront slug, neutral payer email.
+    let botOrder = false
 
-    // Storefront commission order: amount = paid_amount from the DB (the payment fee is already inside it), payer
-    // email = the buyer's, and only a storefront row of this shop that is still pending AND unpaid.
+    // Commission order: amount = paid_amount from the DB (the payment fee is already inside it), and only a row that
+    // is still pending AND unpaid. Storefront rows: this shop's row, payer email = the buyer's. Bot rows: payer email =
+    // the buyer's if any, else a neutral fallback (see checkCommissionPayable).
     if (orderId && storefrontType) {
       const { data: csRow, error: csErr } = await supabase
         .from(STOREFRONT_ORDER_TABLE[storefrontType])
-        .select("channel, shop_id, status, payment_status, paid_amount, buyer_email")
+        .select("channel, shop_id, status, payment_status, paid_amount, buyer_email, buyer_phone")
         .eq("id", orderId)
         .maybeSingle()
       if (csErr) console.error("[PAYMENT-INIT] ❌ Could not read storefront order:", csErr)
-      const payable = checkStorefrontPayable(csErr ? null : csRow, shopSlug ? shopId : null)
+      if (!shopSlug && (csErr || (csRow as { channel?: string } | null)?.channel !== "bots")) {
+        console.warn(`[PAYMENT-INIT] Blocked: ${storefrontType} payment without orderId/shopSlug`)
+        return NextResponse.json({ error: "Invalid request" }, { status: 400 })
+      }
+      const payable = checkCommissionPayable(csErr ? null : csRow, shopSlug ? shopId : null)
       if (!payable.ok) {
         console.warn(`[PAYMENT-INIT] ❌ Storefront order ${orderId} (${storefrontType}) not payable: ${payable.error}`)
         return NextResponse.json({ error: payable.error }, { status: payable.status })
       }
-      // Per-email payment-init cap (same budget as above), keyed on the order's buyer email, not the client's.
-      const csEmailCap = await applyRateLimit(request, "payment_init_email", 5, 60 * 60 * 1000, `e:${payable.email.toLowerCase()}`)
+      // Per-payer payment-init cap (same budget as above): the order's buyer email (storefront) or buyer phone (bots,
+      // whose fallback email is shared), never the client's.
+      const csEmailCap = await applyRateLimit(request, "payment_init_email", 5, 60 * 60 * 1000, payable.capKey)
       if (!csEmailCap.allowed) {
         console.warn(`[PAYMENT-INIT] ❌ Per-email cap hit for storefront order ${orderId}`)
         return NextResponse.json({ error: "Too many payment attempts. Please try again later." }, { status: 429 })
@@ -378,6 +387,7 @@ export async function POST(request: NextRequest) {
       finalAmount = payable.amount
       email = payable.email
       shopId = payable.shopId
+      botOrder = payable.bot
     } else if (orderId) {
       // SECURITY ENHANCEMENT: For shop orders, ignore client amount & fetch from DB
       const table = orderType === "airtime" ? "airtime_orders"
@@ -555,6 +565,9 @@ export async function POST(request: NextRequest) {
     let redirectUrl: string
     if (shopId && orderId && shopSlug) {
       redirectUrl = `${baseUrl}/shop/${shopSlug}/${confirmationPath}?reference=${reference}${appendOrderId ? `&orderId=${orderId}` : ""}`
+    } else if (botOrder) {
+      // Bot orders: the buyer is told the result in the bot; the hosted page just returns to the site (no product words).
+      redirectUrl = `${baseUrl}/?reference=${reference}`
     } else if (isDealerUpgradePayment) {
       redirectUrl = `${baseUrl}/dashboard/upgrade?reference=${reference}`
     } else {
@@ -678,7 +691,7 @@ export async function POST(request: NextRequest) {
 
       // [REFUND] Record the payer MoMo number for storefront shop orders so refund payout gateways know
       // where to pay. Non-fatal and never throws (see recordPayerPhone).
-      if (shopId && orderId && !isTopup && !isUpgrade) {
+      if ((shopId || botOrder) && orderId && !isTopup && !isUpgrade) {
         await recordPayerPhone(supabase, {
           reference,
           rawPhone: payPhone,
@@ -690,7 +703,7 @@ export async function POST(request: NextRequest) {
             email,
             status: "pending",
             payment_type: orderType === "airtime" ? "shop_airtime" : (orderType === "results_checker" ? "results_checker" : "shop_order"),
-            shop_id: shopId,
+            shop_id: shopId || null,
             order_id: orderId,
             created_at: new Date().toISOString(),
           },
@@ -765,7 +778,7 @@ export async function POST(request: NextRequest) {
         fee: paystackFee,
         email,
         status: "pending",
-        payment_type: type === "dealer_upgrade" ? "dealer_upgrade" : (orderType === "airtime" ? "shop_airtime" : (orderType === "results_checker" ? "results_checker" : (shopId ? "shop_order" : "wallet_topup"))),
+        payment_type: type === "dealer_upgrade" ? "dealer_upgrade" : (orderType === "airtime" ? "shop_airtime" : (orderType === "results_checker" ? "results_checker" : (shopId || botOrder ? "shop_order" : "wallet_topup"))),
         shop_id: shopId || null,
         order_id: orderId || null,
         created_at: new Date().toISOString(),
