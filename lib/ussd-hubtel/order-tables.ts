@@ -1,16 +1,37 @@
 // lib/ussd-hubtel/order-tables.ts
 // One entry per order table the Hubtel channel writes. Used by CONFIRM (rollback when the
 // hubtel_transactions insert fails) and expiry (fail an unpaid order). Every key must be allowed by
-// the order_table CHECK in migrations/0106_hubtel_ussd.sql (pinned by order-tables.test.ts).
+// the order_table CHECK on hubtel_transactions: migrations/0106_hubtel_ussd.sql, widened by
+// migrations/0124_hubtel_ussd_bot_orders.sql (pinned by order-tables.test.ts).
 
 export type HubtelOrderTable =
   | "ussd_orders" | "ussd_shop_orders" | "airtime_orders" | "results_checker_orders" | "results_check_requests" | "ussd_afa_orders"
+  | "hubtel_bill_orders" | "hubtel_data_orders"
 
 export interface OrderTableSpec {
   /** payment_status values of an order that is still unpaid (it may yet be paid or expired). */
   payableStatuses: readonly string[]
+  /**
+   * Extra column guards (`column IN values`) an expiry / "not paid" fail update must ALSO match. Used where
+   * payment_status alone does not tell a still-open order (bot commission rows stay 'unpaid' once failed).
+   */
+  failGuards?: Readonly<Record<string, readonly string[]>>
   /** Marks an unpaid order failed (expiry, CONFIRM rollback). */
   failPatch(): Record<string, unknown>
+}
+
+/** failure_reason written on a bot commission order whose Hubtel checkout was never paid. */
+export const BOT_UNPAID_FAILURE_REASON = "payment not completed"
+
+/**
+ * Commission Cashback bot orders (Utility Bills / Network Plans) paid through the Hubtel USSD checkout. Only
+ * channel 'bots' rows that are still pending and unpaid may be failed; payment_status stays 'unpaid' (an unpaid
+ * failed row is never refundable or dispatched).
+ */
+const BOT_COMMISSION_SPEC: OrderTableSpec = {
+  payableStatuses: ["unpaid"],
+  failGuards: { channel: ["bots"], status: ["pending"] },
+  failPatch: () => ({ status: "failed", failure_reason: BOT_UNPAID_FAILURE_REASON, updated_at: now() }),
 }
 
 const now = () => new Date().toISOString()
@@ -50,6 +71,9 @@ export const ORDER_TABLES: Record<HubtelOrderTable, OrderTableSpec> = {
     payableStatuses: ["pending"],
     failPatch: () => ({ order_status: "failed", payment_status: "failed", updated_at: now() }),
   },
+  // Commission Cashback bot orders (Bots Plan 2). Created by the engine, paid through the Hubtel checkout.
+  hubtel_bill_orders: BOT_COMMISSION_SPEC,
+  hubtel_data_orders: BOT_COMMISSION_SPEC,
 }
 
 export function isHubtelOrderTable(t: string): t is HubtelOrderTable {
