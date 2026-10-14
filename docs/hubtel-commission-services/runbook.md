@@ -179,3 +179,24 @@ Buyers pay face − (provider rate × share) on dashboard airtime, Utility Bills
    - Mobile app (`mobile/src/lib/datagod.ts`) buys airtime without `expectedPay`: with cashback on, app users are charged the (lower) cashback price but the app shows the old fee price. Update the app to read `/api/cashback/rates` and send `expectedPay`.
    - Margin report: Digiwapy rows show 0 orders (expected figures only), and "actual" uses Hubtel `completed_at` while "given" uses order `created_at` — fine for weekly views, slightly off at window edges.
    - Digiwapy actual commission: confirm from a real status response before relying on Digiwapy rates.
+
+## Commission Cashback — Storefronts (Plan A)
+
+Shop storefronts sell airtime, Utility Bills and Standard Bundles with cashback pricing: customer pays `face − customer share + payment fee`, Paystack collects it, Hubtel/Digiwapy receive face, the shop earns its share of the commission (credited at payment, clawed back on refund). Spec `docs/superpowers/specs/2026-10-14-cashback-storefront-api-design.md`. Ships OFF.
+
+1. Apply `migrations/0120_cashback_storefront.sql` BEFORE merging/deploying — required even with storefront cashback off: the admin lists, refunds and the margin report read the new columns/arguments.
+   - What it changes: bills/bundles orders accept storefront rows (`user_id` nullable for `channel <> 'dashboard'`, `shop_id`, `buyer_*`, `payment_fee_amount`, `payment_reference`, `paid_at`, `refund_method`, `verified_at`); storefront bundle dedupe index `(shop_id, idempotency_key)`; `airtime_orders.payment_fee_amount`; `shop_profits.bill_order_id/data_order_id` (+ unique indexes); the airtime status CHECK is rebuilt from its live definition plus `refunding/refunded`; refund RPCs (`reserve/complete/fail_order_refund`) accept `airtime_orders`, `hubtel_bill_orders`, `hubtel_data_orders` (storefront rows only — wallet rows raise `BAD_CHANNEL`); `cashback_margin_report` gains `p_channel` (2-arg version dropped).
+   - Pre-check: `select count(*) from information_schema.columns where table_name='hubtel_bill_orders' and column_name='buyer_email'` = 0.
+   - Post-check: the columns/indexes exist; `pg_get_constraintdef` of `airtime_orders_status_check` lists the live statuses plus `refunding`,`refunded`; the refund functions and `cashback_margin_report(timestamptz,timestamptz,text)` exist with service_role-only EXECUTE; `select * from cashback_margin_report(now()-interval '7 days', now(), null)` runs.
+2. Enable (`/admin/hubtel-commission` → Cashback): set the **payment fee %** per group (start with ≈ Paystack's real rate, e.g. 1.95, on Bills and Bundles; airtime may stay 0 because its commission covers Paystack), turn on the **Storefront** surface and **one** "Sell on storefronts" group. Check the live example (customer pays / shop earns / Datagod keeps).
+3. Test on a test shop: buy the cheapest item, pay with MoMo/card, check the order (`paid_amount`, `payment_reference`, `paid_at`), the `shop_profits` row (share, linked to the order), the Hubtel ledger amount = face, and the payment-confirmation page shows Delivered. Then refund one via `/admin/refunds` (Paystack reversal) and one with "Mark refunded manually" — each must add one negative `shop_profits` row.
+4. Behaviour notes:
+   - Storefront airtime with cashback off (or provider manual, or above Hubtel's GHS 100 cap) keeps the old pricing exactly (merchant fee + shop markup). It now also honours the admin airtime on/off switches and min/max amounts (previously it ignored them).
+   - Storefront bill verify shows **masked** names (e.g. `KLI*** FOS***`); verify fails closed when Turnstile is off; verify tokens are shop-bound.
+   - Storefront orders are never wallet-paid: refunds go through `/admin/refunds` (Paystack reversal / Moolre payout) or "Mark refunded manually". The Hubtel review-queue and the bills/bundles admin refund buttons refuse storefront rows and link to Refunds.
+   - Admin airtime page actions now only work on `pending`/`processing`/`flagged` orders (refunded/refunding/unpaid/expired are refused) — prevents double clawback/commission.
+   - A Digiwapy delivery that arrives after a storefront refund triggers an urgent "double value" admin alert.
+   - Unpaid storefront orders never expire; they are never refundable and never dispatched.
+   - If `storefront_otp_required` is turned on, the Bills/Bundles sheets run the payer-phone OTP step.
+   - Bills/Bundles tabs follow the domain's service allow-list (hidden where the data service is not allowed).
+
