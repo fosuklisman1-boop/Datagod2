@@ -91,15 +91,20 @@ export async function verifyBill(
   if (addMeter && !v.account) return fail(400, "Enter the meter or account number")
   if (addMeter && inputs.consent !== true) return fail(400, "Tick to confirm linking this meter to your payment before continuing")
   const req = lookupRequest(biller, v)
-  let res: Awaited<ReturnType<BillsDeps["query"]>>
+  // ECG: the phone lookup only lists meters already linked to the phone; Hubtel answers an unlinked phone
+  // with an error. For ECG a failed lookup means "no linked meters", so the customer can add the meter by
+  // number (the top-up itself links the phone to the meter). Hubtel state is re-checked at pay time.
+  let items: Extract<Awaited<ReturnType<BillsDeps["query"]>>, { ok: true }>["data"] = []
   try {
-    res = await d.query(BILLERS[biller].serviceKey, req.destination, req.mobile ? { mobile: req.mobile } : undefined)
+    const res = await d.query(BILLERS[biller].serviceKey, req.destination, req.mobile ? { mobile: req.mobile } : undefined)
+    if (res.ok) items = res.data
+    else if (biller !== "ecg") return fail(422, `Couldn't verify this account: ${res.error}`)
+    else console.warn("[bills] ECG meter lookup returned an error, treating as no linked meters:", res.error)
   } catch (e) {
     console.error("[bills] lookup threw:", msg(e))
-    return fail(422, "Couldn't verify this account right now")
+    if (biller !== "ecg") return fail(422, "Couldn't verify this account right now")
   }
-  if (!res.ok) return fail(422, `Couldn't verify this account: ${res.error}`)
-  const parsed = parseLookup(biller, res.data)
+  const parsed = parseLookup(biller, items)
   const issuedAt = d.now()
   const base = { userId, biller, phone: v.phone, email: v.email, broadbandAccount: v.broadbandAccount, issuedAt }
   const sign = (t: Omit<VerifiedBill, keyof typeof base>) => signBillToken({ ...base, ...t }, d.secret)

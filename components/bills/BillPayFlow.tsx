@@ -179,7 +179,7 @@ function PaySheet({
       setMeters(list)
       if (list.length === 0) {
         setAddingMeter(true)
-        setError("No meters are linked to this phone yet. Add your meter below.")
+        setError("No meters are linked to this phone yet. Enter your meter number below — paying links it to this phone.")
       } else {
         setAddingMeter(false)
       }
@@ -262,7 +262,7 @@ function PaySheet({
           {step === "input" && (
             <form onSubmit={e => { e.preventDefault(); if (inputReady && !busy) verify() }} className="space-y-4">
               {isEcg ? (
-                <PhoneField value={phone} onChange={setPhone} hint="We'll look up the meters linked to this phone number with ECG." />
+                <PhoneField value={phone} onChange={setPhone} hint="We'll look up the meters linked to this phone. Meter not linked yet? You can enter its number on the next step." />
               ) : isBroadband ? (
                 <>
                   <div>
