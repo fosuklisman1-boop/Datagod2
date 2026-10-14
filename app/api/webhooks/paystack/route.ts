@@ -939,6 +939,28 @@ export async function POST(request: NextRequest) {
         )
       }
 
+      // Storefront Utility Bill / Standard Bundle orders (internal order types cs_bill / cs_bundle): one shared,
+      // idempotent confirmation (pesewa-exact amount check, guarded paid flip, shop share, dispatch) also used by
+      // /api/payments/verify. Every other order type continues below unchanged.
+      const { isStorefrontOrderType } = await import("@/lib/storefront-commission/payment")
+      if (isStorefrontOrderType(paymentData.order_type)) {
+        const { settleStorefrontWebhook } = await import("@/lib/storefront-commission/confirm-runtime")
+        const settled = await settleStorefrontWebhook(paymentData.order_type, {
+          orderId: paymentData.order_id,
+          walletPaymentId: paymentData.id,
+          reference,
+          paidAmount: Math.round(amount) / 100,
+          transactionId: event.data.id != null ? String(event.data.id) : null,
+          gatewayResponse: event.data.gateway_response || "success",
+        })
+        console.log(`[WEBHOOK] Storefront order ${paymentData.order_id} (${paymentData.order_type}): ${settled.outcome}`)
+        if (settled.outcome === "error") {
+          // Nothing changed (read/flip failed): let Paystack retry.
+          return NextResponse.json({ error: "Temporary error" }, { status: 500 })
+        }
+        return NextResponse.json({ received: true })
+      }
+
       const isDealerUpgrade = (metadata?.type === "dealer_upgrade") || (paymentData.order_type === "dealer_upgrade")
       const isAirtime = (paymentData.order_type === "airtime") || (metadata?.orderType === "airtime")
       const isResultsChecker = (paymentData.order_type === "results_checker") || (metadata?.orderType === "results_checker")

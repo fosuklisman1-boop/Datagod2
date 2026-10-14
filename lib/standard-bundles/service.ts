@@ -333,3 +333,8 @@ async function dispatchInternal(d: BundlesDeps, order: DataOrderRow): Promise<{ 
     return { status: claimed ? "processing" : order.status, patch: {} }
   }
 }
+
+/** Claim and send a paid, pending order (the storefront payment confirmation uses this). Same path as a dashboard buy. */
+export async function dispatchBundleOrder(d: BundlesDeps, order: DataOrderRow): Promise<DataOrderRow["status"]> {
+  return (await dispatchInternal(d, order)).status
+}
