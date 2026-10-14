@@ -11,6 +11,9 @@ import TurnstileWidget from "@/components/shop/TurnstileWidget"
 import HoneypotField from "@/components/shop/HoneypotField"
 import { useResendCooldown } from "@/lib/use-resend-cooldown"
 import { PaymentSheet } from "@/components/shop/PaymentSheet"
+import { PriceSummary } from "@/components/cashback/PriceSummary"
+import { airtimeReceiveLabel, parsePriceChange, type PriceChange } from "@/lib/cashback/display"
+import { airtimeStorefrontPrice, parseAirtimeTerms } from "@/lib/storefront-commission/ui-helpers"
 
 // Same quick-amount set as the dashboard's Buy Airtime page (app/dashboard/airtime/page.tsx)
 const QUICK_AMOUNTS = [1, 2, 5, 10, 20, 50]
@@ -24,6 +27,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
   const [submitting, setSubmitting] = useState(false)
   const [turnstileToken, setTurnstileToken] = useState<string>("")
   const [turnstileEnabled, setTurnstileEnabled] = useState<boolean>(true)
+  const [turnstileNonce, setTurnstileNonce] = useState(0)
   const [honeypot, setHoneypot] = useState<string>("")
   // Checkout phone-OTP gate (verifies the PAYMENT number that gets charged).
   // Direct charge is an INDEPENDENT toggle: pay on-page via momoDirect vs the
@@ -50,6 +54,8 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
   const [networkLogos, setNetworkLogos] = useState<Record<string, string>>({})
   const [constraints, setConstraints] = useState<any>(null)
   const [paySeparately, setPaySeparately] = useState(true)
+  // Server price after a 409 "price updated": shown until the customer changes something, then confirmed with a second tap.
+  const [priceChange, setPriceChange] = useState<PriceChange | null>(null)
   const [availability, setAvailability] = useState<Record<string, boolean>>({
     MTN: true,
     Telecel: true,
@@ -261,9 +267,15 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
     }
   }
 
+  // Cashback pricing (set by the server's storefront settings): replaces the fee / pay-separately model entirely.
+  const cbTerms = parseAirtimeTerms(constraints, selectedNetwork)
+  const cbPrice = airtimeStorefrontPrice(parseFloat(formData.amount || "0"), cbTerms)
+  const cbOn = cbPrice.applied
+  const cbPay = priceChange ? priceChange.payAmount : cbPrice.pay
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    
+
     if (!selectedNetwork) {
       toast.error("Please select a network")
       return
@@ -301,7 +313,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
     try {
       setSubmitting(true)
 
-      const totalPrice = calculateTotal()
+      const totalPrice = cbOn ? cbPay : calculateTotal()
 
       const res = await fetch("/api/shop/airtime/initialize", {
         method: "POST",
@@ -315,14 +327,27 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
           paymentPhone: (otpRequired || directCharge) ? paymentPhone : undefined,
           network: selectedNetwork,
           amount: formData.amount,
-          paySeparately: paySeparately,
+          paySeparately: cbOn ? false : paySeparately,
           totalPrice: totalPrice,
+          ...(cbOn ? { expectedPay: totalPrice } : {}),
           turnstileToken,
           website: honeypot,
         })
       })
 
       const data = await res.json()
+      // The server priced it differently (rates changed, or the page was stale): nothing was created or charged.
+      // Show the new price and wait for a second tap.
+      const change = cbOn ? parsePriceChange(res.status, data) : null
+      if (change) {
+        setPriceChange(change)
+        setMomoModal(null)
+        toast.error(`${change.message} New price: GHS ${change.payAmount.toFixed(2)}. Tap again to continue.`)
+        // Turnstile tokens are single-use and this one was already spent.
+        setTurnstileToken("")
+        setTurnstileNonce(n => n + 1)
+        return
+      }
       if (!res.ok) throw new Error(data.error || "Failed to initialize order")
 
       // ── Direct MoMo charge path (direct-charge toggle ON) ────────────────
@@ -422,7 +447,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
                 key={net.id}
                 type="button"
                 disabled={!isAvail}
-                onClick={() => setSelectedNetwork(net.id)}
+                onClick={() => { setSelectedNetwork(net.id); setPriceChange(null) }}
                 className={`relative flex flex-col items-center gap-1.5 sm:gap-2 rounded-2xl border-2 bg-card p-2.5 sm:p-4 transition disabled:cursor-not-allowed disabled:opacity-40 ${
                   isSelected ? "border-[var(--shop-accent)] shadow-sm" : "border-border hover:border-[var(--shop-accent)]/30"
                 } clay`}
@@ -506,7 +531,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
               <button
                 key={v}
                 type="button"
-                onClick={() => setFormData({...formData, amount: String(v)})}
+                onClick={() => { setFormData({...formData, amount: String(v)}); setPriceChange(null) }}
                 className={`rounded-full border px-4 py-2 text-sm font-bold transition ${
                   formData.amount === String(v) ? "border-[var(--shop-accent)] bg-[var(--shop-accent)] text-white" : "border-border bg-card text-foreground hover:border-[var(--shop-accent)]/30"
                 } clay-sm`}
@@ -528,13 +553,14 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
               placeholder="0.00"
               className="rounded-2xl border-border bg-card py-3.5 pl-14 text-lg font-semibold"
               value={formData.amount}
-              onChange={e => setFormData({...formData, amount: e.target.value})}
+              onChange={e => { setFormData({...formData, amount: e.target.value}); setPriceChange(null) }}
             />
           </div>
         </div>
       </div>
 
       {/* Pay fee separately -- same toggle card style as the dashboard */}
+      {!cbOn && (
       <button
         type="button"
         onClick={() => setPaySeparately(!paySeparately)}
@@ -558,9 +584,32 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
           </span>
         </span>
       </button>
+      )}
+
+      {/* Cashback pricing: "GHS pay (was GHS face)", optional payment fee, You pay / You receive. */}
+      {cbOn && (
+        <div className="space-y-3 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
+          <div className="flex items-baseline justify-between gap-4 text-sm">
+            <span className="text-muted-foreground">Price</span>
+            <span className="font-semibold text-foreground">
+              GHS {cbPay.toFixed(2)}
+              {cbPay < cbPrice.face && <span className="font-normal text-muted-foreground"> (was GHS {cbPrice.face.toFixed(2)})</span>}
+            </span>
+          </div>
+          {(cbTerms?.feeRate ?? 0) > 0 && (
+            <div className="flex justify-between text-sm text-muted-foreground">
+              <span>Payment fee</span>
+              <span>GHS {cbPrice.paymentFee.toFixed(2)}</span>
+            </div>
+          )}
+          <div className="border-t border-border pt-3">
+            <PriceSummary pay={cbPay} receive={airtimeReceiveLabel(selectedNetwork ?? "", cbPrice.face)} balance={null} />
+          </div>
+        </div>
+      )}
 
       {/* Fee breakdown -- same layout as the dashboard */}
-      {parseFloat(formData.amount || "0") > 0 && (
+      {!cbOn && parseFloat(formData.amount || "0") > 0 && (
         <div className="space-y-2 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 text-sm clay">
           <div className="flex justify-between text-muted-foreground">
             <span>Recipient gets</span>
@@ -635,7 +684,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
 
       {turnstileEnabled && (
         <div className="flex justify-center">
-          <TurnstileWidget onToken={setTurnstileToken} onExpire={() => setTurnstileToken("")} />
+          <TurnstileWidget key={turnstileNonce} onToken={setTurnstileToken} onExpire={() => setTurnstileToken("")} />
         </div>
       )}
 

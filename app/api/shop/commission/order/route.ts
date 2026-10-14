@@ -1,22 +1,27 @@
 import { NextRequest, NextResponse } from "next/server"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { getBillsRuntime } from "@/lib/bills/runtime"
-import { getStorefrontOrderStatus, isValidOrderRef, resolveShop } from "@/lib/storefront-commission/shop"
+import { getStorefrontOrderStatus, isValidOrderId, isValidOrderRef, resolveShop } from "@/lib/storefront-commission/shop"
 
 export const dynamic = "force-dynamic"
 
-/** Public: GET ?ref=<reference>&shop=<handle> — { status, paymentStatus } of a storefront bill/bundle order, nothing else. */
+/**
+ * Public: GET ?ref=<reference>|orderId=<uuid>&shop=<handle> — { status, paymentStatus } of a storefront bill/bundle order,
+ * nothing else. orderId is what the Paystack return page has (the order id travels in its redirect URL).
+ */
 export async function GET(request: NextRequest) {
   try {
     const rl = await applyRateLimit(request, "shop_commission_order", 60, 60_000)
     if (!rl.allowed) return NextResponse.json({ error: "Too many requests. Please slow down." }, { status: 429 })
     const params = new URL(request.url).searchParams
     const ref = params.get("ref")
-    if (!isValidOrderRef(ref)) return NextResponse.json({ error: "Order not found" }, { status: 404 })
+    const orderId = params.get("orderId")
+    const key = isValidOrderRef(ref) ? ref : isValidOrderId(orderId) ? { orderId } : null
+    if (!key) return NextResponse.json({ error: "Order not found" }, { status: 404 })
     const { db } = getBillsRuntime()
     const shop = await resolveShop(db, params.get("shop"))
     if (!shop) return NextResponse.json({ error: "Order not found" }, { status: 404 })
-    const s = await getStorefrontOrderStatus(db, shop.id, ref)
+    const s = await getStorefrontOrderStatus(db, shop.id, key)
     if (!s) return NextResponse.json({ error: "Order not found" }, { status: 404 })
     return NextResponse.json(s, { headers: { "Cache-Control": "no-store" } })
   } catch (e) {

@@ -198,4 +198,14 @@ describe("db helpers", () => {
     expect(await getStorefrontOrderStatus(db, "s1", "SB-1")).toEqual({ status: "completed", paymentStatus: "paid" })
     expect(await getStorefrontOrderStatus(db, "s2", "SB-1")).toBeNull()
   })
+
+  it("getStorefrontOrderStatus: by order id, still this shop's storefront rows and status fields only", async () => {
+    const id = "11111111-1111-4111-8111-111111111111"
+    const db = fakeDb({
+      hubtel_bill_orders: [],
+      hubtel_data_orders: [{ id, reference_code: "SB-1", shop_id: "s1", channel: "storefront", status: "pending", payment_status: "paid", paid_amount: 5 }],
+    })
+    expect(await getStorefrontOrderStatus(db, "s1", { orderId: id })).toEqual({ status: "pending", paymentStatus: "paid" })
+    expect(await getStorefrontOrderStatus(db, "s2", { orderId: id })).toBeNull()
+  })
 })

@@ -193,15 +193,22 @@ export async function checkPendingCaps(
 const REF = /^[A-Za-z0-9-]{4,40}$/
 export const isValidOrderRef = (v: unknown): v is string => typeof v === "string" && REF.test(v)
 
-/** Status of a storefront bill/bundle order of this shop, by its reference. null when not found. Throws on read error. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+export const isValidOrderId = (v: unknown): v is string => typeof v === "string" && UUID.test(v)
+
+/**
+ * Status of a storefront bill/bundle order of this shop, by its reference or (the Paystack return page) its id.
+ * null when not found. Throws on read error.
+ */
 export async function getStorefrontOrderStatus(
-  db: SupabaseClient, shopId: string, ref: string,
+  db: SupabaseClient, shopId: string, ref: string | { orderId: string },
 ): Promise<{ status: string; paymentStatus: string } | null> {
+  const [column, value] = typeof ref === "string" ? (["reference_code", ref] as const) : (["id", ref.orderId] as const)
   for (const table of ["hubtel_bill_orders", "hubtel_data_orders"] as const) {
     const { data, error } = await db
       .from(table)
       .select("status, payment_status")
-      .eq("reference_code", ref)
+      .eq(column, value)
       .eq("shop_id", shopId)
       .eq("channel", "storefront")
       .maybeSingle()
