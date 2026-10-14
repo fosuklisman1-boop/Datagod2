@@ -24,6 +24,7 @@ export interface ResolvedShopCode {
   shopName: string
   parentShopId: string | null
   status: string
+  /** Legacy session-token balance. Unused for gating since 2026-10-14 (sessions retired). */
   tokenBalance: number
   whatsappActivated: boolean
 }

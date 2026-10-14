@@ -1522,9 +1522,6 @@ export async function executeToolCall(
         if (resolved.status !== "active") {
           return { resolved: false, message: "That shop is currently unavailable — let the customer know and ask if they have another code." }
         }
-        if (resolved.tokenBalance <= 0) {
-          return { resolved: false, message: "That shop has no sessions left — tell the customer to contact the seller." }
-        }
         if (!resolved.whatsappActivated) {
           return { resolved: false, message: "That shop isn't set up for WhatsApp ordering yet — let the customer know." }
         }

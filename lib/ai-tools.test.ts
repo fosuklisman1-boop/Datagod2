@@ -132,6 +132,19 @@ describe("executeToolCall resolve_shop_code", () => {
     expect(setShopPref).toHaveBeenCalledWith("233559919037", "code-1")
   })
 
+  it("resolves a shop at token balance 0 (sessions retired)", async () => {
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "code-9", shopId: "shop-9", shopName: "Zero Shop",
+      parentShopId: null, status: "active", tokenBalance: 0, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+
+    const result = await executeToolCall("resolve_shop_code", { code: "AB12CD" }, baseCtx) as Record<string, unknown>
+
+    expect(result.resolved).toBe(true)
+    expect(setShopPref).toHaveBeenCalledWith("233559919037", "code-9")
+  })
+
   it("returns a reason without remembering an invalid code", async () => {
     vi.mocked(resolveShopCode).mockResolvedValue(null)
 
