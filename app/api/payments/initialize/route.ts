@@ -12,7 +12,7 @@ import { resolveTrustedBaseUrl } from "@/lib/custom-domain-lookup"
 import { recordPayerPhone } from "@/lib/refunds/payer-phone"
 import {
   isStorefrontOrderType, STOREFRONT_ORDER_TABLE, newPaystackReference, extraPaystackFeeRate, checkStorefrontPayable,
-  STOREFRONT_PAYMENT_CHANNEL, STOREFRONT_PAYMENT_PURPOSE, STOREFRONT_CONFIRMATION_PATH,
+  STOREFRONT_PAYMENT_CHANNEL, STOREFRONT_PAYMENT_PURPOSE, STOREFRONT_CONFIRMATION_PATH, DIRECT_CHARGE_OFF,
 } from "@/lib/storefront-commission/payment"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -541,7 +541,9 @@ export async function POST(request: NextRequest) {
       type: type || (orderType === "airtime" ? "airtime_purchase" : "shop_order"),
       planId: planId || null,
       orderId: orderId || null,
-      orderType: orderType || "data",
+      // Storefront commission orders: a neutral label (cs_bill / cs_bundle stay internal, in wallet_payments.order_type,
+      // which the webhook and verify branch on).
+      orderType: storefrontType ? STOREFRONT_PAYMENT_CHANNEL : (orderType || "data"),
       originalAmount: finalAmount,
       paystackFee: paystackFee,
     }
@@ -586,7 +588,8 @@ export async function POST(request: NextRequest) {
         logSecurityEvent("momodirect_gate_off", {
           channel: paymentChannel, ip: clientIp, email, orderId: orderId || null,
         })
-        return NextResponse.json({ error: "Direct charge is not available right now." }, { status: 400 })
+        // code lets a page with a stale toggle fall back to the hosted checkout.
+        return NextResponse.json({ error: "Direct charge is not available right now.", code: DIRECT_CHARGE_OFF }, { status: 400 })
       }
       // Shop orders must reference an order; the order-free flows (wallet top-up,
       // dealer upgrade) legitimately have no orderId — their amount is already

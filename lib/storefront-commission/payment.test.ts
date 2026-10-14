@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest"
 import {
   isStorefrontOrderType, STOREFRONT_ORDER_TABLE, newPaystackReference, extraPaystackFeeRate, checkStorefrontPayable,
-  STOREFRONT_PAYMENT_CHANNEL, STOREFRONT_PAYMENT_PURPOSE, STOREFRONT_CONFIRMATION_PATH,
+  STOREFRONT_PAYMENT_CHANNEL, STOREFRONT_PAYMENT_PURPOSE, STOREFRONT_CONFIRMATION_PATH, storefrontMomoStatus, DIRECT_CHARGE_OFF,
 } from "./payment"
 
 const row = (o: Record<string, unknown> = {}) => ({
@@ -61,6 +61,17 @@ describe("storefront payment init helpers", () => {
     expect(checkStorefrontPayable(row({ channel: "dashboard" }), "shop1")).toMatchObject({ ok: false, status: 400 })
     expect(checkStorefrontPayable(row(), "shop2")).toMatchObject({ ok: false, status: 400 })
     expect(checkStorefrontPayable(row(), null)).toMatchObject({ ok: false, status: 400 })
+  })
+
+  it("direct-charge polling: paid flip => completed; failed attempt => failed; else pending", () => {
+    expect(storefrontMomoStatus("paid", null)).toBe("completed")
+    expect(storefrontMomoStatus("refunded", "failed")).toBe("completed") // it was paid
+    expect(storefrontMomoStatus("unpaid", "failed")).toBe("failed")
+    expect(storefrontMomoStatus("unpaid", "abandoned")).toBe("failed")
+    expect(storefrontMomoStatus("unpaid", "pending")).toBe("pending")
+    expect(storefrontMomoStatus("unpaid", null)).toBe("pending")
+    expect(storefrontMomoStatus(null, null)).toBe("pending")
+    expect(DIRECT_CHARGE_OFF).toBe("DIRECT_CHARGE_OFF")
   })
 
   it("bad amount or missing buyer email => configuration error", () => {

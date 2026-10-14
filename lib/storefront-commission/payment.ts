@@ -38,6 +38,22 @@ export function extraPaystackFeeRate(orderType: unknown, settingsPercentage: num
   return (settingsPercentage || 3.0) / 100
 }
 
+/** Error code payments/initialize returns when momoDirect is asked for while the direct-charge gate is off. */
+export const DIRECT_CHARGE_OFF = "DIRECT_CHARGE_OFF"
+
+export type MomoPollStatus = "pending" | "completed" | "failed"
+
+/**
+ * Direct MoMo charge polling for a storefront bill / bundle order. The order flips unpaid -> paid on confirmation (any
+ * later status means it was paid). A declined / failed charge never touches the order (it stays pending + unpaid and
+ * can be paid again); charge.failed and a rejected OTP mark the wallet_payments row for that reference failed instead.
+ */
+export function storefrontMomoStatus(orderPaymentStatus: string | null | undefined, walletPaymentStatus: string | null | undefined): MomoPollStatus {
+  if (orderPaymentStatus && orderPaymentStatus !== "unpaid") return "completed"
+  if (walletPaymentStatus === "failed" || walletPaymentStatus === "abandoned" || walletPaymentStatus === "cancelled") return "failed"
+  return "pending"
+}
+
 export interface StorefrontPayableRow {
   channel: string | null
   shop_id: string | null
