@@ -120,6 +120,8 @@ function PaySheet({
   const [broadbandAccount, setBroadbandAccount] = useState("")
   const [consent, setConsent] = useState(false)
   const [addingMeter, setAddingMeter] = useState(false)
+  /** ECG start: look up meters by phone, or enter the meter number first (then the phone to link it to). */
+  const [ecgMode, setEcgMode] = useState<"phone" | "meter">("phone")
   const [meters, setMeters] = useState<Meter[]>([])
   const [picked, setPicked] = useState<Picked | null>(null)
   const [amount, setAmount] = useState("")
@@ -136,7 +138,7 @@ function PaySheet({
     setPicked(null)
     setAmount("")
     setConsent(false)
-    setStep(isEcg && meters.length > 0 ? "meters" : "input")
+    setStep(isEcg && ecgMode === "phone" && meters.length > 0 ? "meters" : "input")
     setError(msg)
   }
 
@@ -235,7 +237,9 @@ function PaySheet({
   }
 
   const inputReady = isEcg
-    ? phone.trim().length >= 9
+    ? ecgMode === "meter"
+      ? account.trim().length >= 4 && phone.trim().length >= 9 && consent
+      : phone.trim().length >= 9
     : isBroadband
       ? account.trim().length >= 4 && broadbandAccount.trim().length >= 3
       : isWater
@@ -260,9 +264,39 @@ function PaySheet({
 
         <div className="mt-5 space-y-4">
           {step === "input" && (
-            <form onSubmit={e => { e.preventDefault(); if (inputReady && !busy) verify() }} className="space-y-4">
+            <form onSubmit={e => { e.preventDefault(); if (inputReady && !busy) verify(isEcg && ecgMode === "meter" ? { addMeter: true } : {}) }} className="space-y-4">
               {isEcg ? (
-                <PhoneField value={phone} onChange={setPhone} hint="We'll look up the meters linked to this phone. Meter not linked yet? You can enter its number on the next step." />
+                <>
+                  <div className="grid grid-cols-2 gap-1 rounded-2xl bg-muted p-1" role="tablist" aria-label="Find your meter by">
+                    {(["phone", "meter"] as const).map(m => (
+                      <button
+                        key={m}
+                        type="button"
+                        role="tab"
+                        aria-selected={ecgMode === m}
+                        onClick={() => { setEcgMode(m); setError(""); setConsent(false) }}
+                        className={`rounded-xl py-2 text-xs font-bold transition ${ecgMode === m ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
+                      >
+                        {m === "phone" ? "Phone number" : "Meter number"}
+                      </button>
+                    ))}
+                  </div>
+                  {ecgMode === "phone" ? (
+                    <PhoneField value={phone} onChange={setPhone} hint="We'll look up the meters linked to this phone. Meter not linked yet? You can enter its number on the next step." />
+                  ) : (
+                    <>
+                      <div>
+                        <label className={labelCls}>Meter number</label>
+                        <input className={inputCls} placeholder="Meter number (account number for postpaid)" value={account} onChange={e => { setAccount(e.target.value); setConsent(false) }} />
+                      </div>
+                      <PhoneField value={phone} onChange={v => { setPhone(v); setConsent(false) }} hint="ECG top-ups go through a phone number. If this meter isn't linked to it yet, paying links it." />
+                      <label className="flex items-start gap-2 text-xs text-muted-foreground">
+                        <input type="checkbox" className="mt-0.5" checked={consent} onChange={e => setConsent(e.target.checked)} />
+                        <span>This links meter {account.trim() || "—"} to phone {phone.trim() || "—"} with ECG</span>
+                      </label>
+                    </>
+                  )}
+                </>
               ) : isBroadband ? (
                 <>
                   <div>
@@ -293,7 +327,7 @@ function PaySheet({
               )}
               <ErrorLine msg={error} />
               <button type="submit" disabled={!inputReady || busy} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-4 text-sm font-bold text-primary-foreground transition disabled:opacity-50">
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <>{isEcg ? "Find my meters" : "Verify account"} <ArrowRight className="h-4 w-4" /></>}
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <>{isEcg ? (ecgMode === "meter" ? "Verify meter" : "Find my meters") : "Verify account"} <ArrowRight className="h-4 w-4" /></>}
               </button>
             </form>
           )}
@@ -370,7 +404,7 @@ function PaySheet({
               <button type="button" onClick={pay} disabled={busy || !amountValid || insufficient} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-4 text-sm font-bold text-primary-foreground transition disabled:opacity-50">
                 {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Processing…</> : <>Pay {amountValid ? money(payShown) : "GHS 0.00"}</>}
               </button>
-              <button type="button" onClick={() => { setStep(isEcg ? "meters" : "input"); setError("") }} disabled={busy} className="w-full text-xs font-medium text-muted-foreground">Back</button>
+              <button type="button" onClick={() => { setStep(isEcg && ecgMode === "phone" ? "meters" : "input"); setError("") }} disabled={busy} className="w-full text-xs font-medium text-muted-foreground">Back</button>
             </div>
           )}
 
