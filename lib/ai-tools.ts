@@ -597,7 +597,7 @@ const getSubscriptionTool: Anthropic.Tool = {
 
 const getMyShopTool: Anthropic.Tool = {
   name: "get_my_shop",
-  description: "Get the logged-in dealer's shop details: shop name, storefront URL slug, USSD shop code (the short code customers dial), USSD token balance, and active sub-agent invite codes. Use when a user asks about their shop code, shop URL, USSD code, or invite link.",
+  description: "Get the logged-in dealer's shop details: shop name, storefront URL slug, USSD shop code (the short code customers dial) and its status, and active sub-agent invite codes. Use when a user asks about their shop code, shop URL, USSD code, or invite link.",
   input_schema: {
     type: "object" as const,
     properties: {},
@@ -607,12 +607,11 @@ const getMyShopTool: Anthropic.Tool = {
 
 const manageMyUssdShopTool: Anthropic.Tool = {
   name: "manage_my_ussd_shop",
-  description: "Manage the logged-in dealer's own USSD shop code. Use 'activate' to activate it (may deduct an activation fee from wallet). Use 'buy_sessions' to purchase session tokens.",
+  description: "Manage the logged-in dealer's own USSD shop code. Use 'activate' to activate it (may deduct an activation fee from wallet).",
   input_schema: {
     type: "object" as const,
     properties: {
-      action: { type: "string", enum: ["activate", "buy_sessions"], description: "activate: activate the USSD shop code (show activation fee and confirm first). buy_sessions: purchase session tokens." },
-      sessions: { type: "number", description: "Number of sessions to buy. Required for buy_sessions." },
+      action: { type: "string", enum: ["activate"], description: "activate: activate the USSD shop code (show activation fee and confirm first)." },
     },
     required: ["action"],
   },
@@ -3036,7 +3035,7 @@ export async function executeToolCall(
         const [ussdRes, invitesRes] = await Promise.all([
           supabaseAdmin
             .from("ussd_shop_codes")
-            .select("code, status, token_balance, activation_fee_paid")
+            .select("code, status, activation_fee_paid")
             .eq("shop_id", shop.id)
             .maybeSingle(),
           supabaseAdmin
@@ -3060,7 +3059,6 @@ export async function executeToolCall(
             ? {
                 code: ussdRes.data.code,
                 status: ussdRes.data.status,
-                token_balance: ussdRes.data.token_balance,
                 activated: ussdRes.data.activation_fee_paid,
               }
             : null,
@@ -3082,19 +3080,7 @@ export async function executeToolCall(
           return { success: true, message: "Your USSD shop code is now active! Customers can use it right away." }
         }
 
-        if (action === "buy_sessions") {
-          if (!input.sessions || Number(input.sessions) < 1) return { error: "sessions must be a positive number" }
-          const res = await fetch(`${ctx.baseUrl}/api/dashboard/ussd-shop/buy-sessions`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
-            body: JSON.stringify({ sessions: Number(input.sessions) }),
-          })
-          const data = await res.json()
-          if (!res.ok) return { error: data.error ?? "Failed to purchase sessions" }
-          return { success: true, new_token_balance: data.new_token_balance }
-        }
-
-        return { error: `Unknown action: ${action}. Use activate or buy_sessions.` }
+        return { error: `Unknown action: ${action}. Use activate.` }
       }
 
       case "get_subscription_plans": {

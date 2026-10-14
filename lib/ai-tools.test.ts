@@ -115,6 +115,31 @@ describe("aiTools whatsapp_shop context", () => {
   })
 })
 
+describe("USSD shop tools: sessions retired (spec 2026-10-14)", () => {
+  it("dashboard manage_my_ussd_shop only offers activate", () => {
+    const tool = aiTools("dashboard").find(t => t.name === "manage_my_ussd_shop")!
+    const props = (tool.input_schema as { properties: Record<string, any> }).properties
+    expect(props.action.enum).toEqual(["activate"])
+    expect(props.sessions).toBeUndefined()
+    expect(tool.description).not.toMatch(/session/i)
+  })
+  it("get_my_shop no longer advertises a token balance", () => {
+    const tool = aiTools("dashboard").find(t => t.name === "get_my_shop")!
+    expect(tool.description).not.toMatch(/token/i)
+  })
+  it("manage_my_ussd_shop rejects buy_sessions without calling any API", async () => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal("fetch", fetchSpy)
+    const result = await executeToolCall(
+      "manage_my_ussd_shop", { action: "buy_sessions", sessions: 5 },
+      { baseUrl: "http://localhost:3000", jwtToken: "t", userId: "u1" } as any,
+    ) as Record<string, unknown>
+    vi.unstubAllGlobals()
+    expect(String(result.error)).toMatch(/Unknown action/)
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+})
+
 describe("executeToolCall resolve_shop_code", () => {
   const baseCtx = { baseUrl: "http://localhost:3000", phone: "233559919037" }
 

@@ -558,9 +558,9 @@ ORDER RULES (critical — always follow):
 - Never reveal dealer pricing margins or internal system IDs.
 
 USSD SHOP:
-- Use get_my_shop to fetch USSD shop details (code, status, token balance).
+- Use get_my_shop to fetch USSD shop details (code, status, activation).
 - Use manage_my_ussd_shop with action=activate to activate the dealer's USSD shop code. The activation may deduct a fee from their wallet — always call get_my_shop first to check the current status, then call get_wallet_balance to confirm sufficient funds, then confirm the action with the user before calling activate.
-- Use manage_my_ussd_shop with action=buy_sessions to top up session tokens. Always confirm the number of sessions and cost with the user first.
+- USSD and WhatsApp shop sessions are free — there is nothing to top up. Never offer to buy sessions.
 
 SCHEDULED TASKS:
 - Use schedule_task to create, list, or delete recurring or one-time automated tasks

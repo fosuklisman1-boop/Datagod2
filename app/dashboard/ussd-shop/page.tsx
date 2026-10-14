@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { supabase } from "@/lib/supabase"
-import { Smartphone, Hash, Coins, Copy, CheckCircle, RefreshCw, AlertCircle, Wallet, Loader2, MessageCircle, Tag } from "lucide-react"
+import { Smartphone, Hash, Copy, CheckCircle, RefreshCw, AlertCircle, Wallet, Loader2, MessageCircle, Tag } from "lucide-react"
 import { toast } from "sonner"
 import { validateUssdDisplayName } from "@/lib/ussd-display-name"
 
@@ -17,7 +17,6 @@ interface UssdShopCode {
   id: string
   code: string
   status: 'inactive' | 'active' | 'suspended'
-  token_balance: number
   activation_fee_paid: boolean
   created_at: string
   whatsapp_activated: boolean
@@ -44,13 +43,8 @@ export default function UssdShopPage() {
   const [loading, setLoading] = useState(true)
   const [copied, setCopied] = useState(false)
   const [activationFee, setActivationFee] = useState(0)
-  const [sessionPrice, setSessionPrice] = useState(0)
-  const [minSessions, setMinSessions] = useState(1)
-  const [maxSessions, setMaxSessions] = useState(100)
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
   const [activating, setActivating] = useState(false)
-  const [sessionQty, setSessionQty] = useState("")
-  const [buyingSessions, setBuyingSessions] = useState(false)
   const [whatsappFee, setWhatsappFee] = useState(0)
   const [whatsappActivating, setWhatsappActivating] = useState(false)
   const [waLinkCopied, setWaLinkCopied] = useState(false)
@@ -82,7 +76,7 @@ export default function UssdShopPage() {
       const [codeRes, cfgRes, ordersRes, walletRes] = await Promise.all([
         supabase
           .from("ussd_shop_codes")
-          .select("id, code, status, token_balance, activation_fee_paid, created_at, whatsapp_activated, whatsapp_activated_at")
+          .select("id, code, status, activation_fee_paid, created_at, whatsapp_activated, whatsapp_activated_at")
           .eq("shop_id", shopRow.id)
           .maybeSingle(),
         fetch("/api/public/config").then(r => r.ok ? r.json() : { app_settings: {} }).catch(() => ({ app_settings: {} })),
@@ -103,9 +97,6 @@ export default function UssdShopPage() {
       setShopCode(codeRes.data ?? null)
       setDialCode(ussdCfg.ussd_shop_dial_code ?? "")
       setActivationFee(Number(ussdCfg.ussd_shop_activation_fee ?? 0))
-      setSessionPrice(Number(ussdCfg.ussd_shop_session_price ?? 0))
-      setMinSessions(Number(ussdCfg.ussd_shop_min_sessions ?? 1))
-      setMaxSessions(Number(ussdCfg.ussd_shop_max_sessions ?? 100))
       setWhatsappFee(Number(ussdCfg.whatsapp_shop_activation_fee ?? 0))
       setOrders(ordersRes.data ?? [])
       setWalletBalance(walletRes.data ? Number(walletRes.data.balance) : null)
@@ -165,32 +156,6 @@ export default function UssdShopPage() {
     }
   }
 
-  const handleBuySessions = async () => {
-    const qty = parseInt(sessionQty)
-    if (!qty || qty < minSessions || qty > maxSessions) {
-      toast.error(`Enter a quantity between ${minSessions} and ${maxSessions}`)
-      return
-    }
-    setBuyingSessions(true)
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      const res = await fetch("/api/dashboard/ussd-shop/buy-sessions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
-        body: JSON.stringify({ sessions: qty }),
-      })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error ?? "Purchase failed")
-      toast.success(`${qty} sessions added!`)
-      setSessionQty("")
-      await loadData()
-    } catch (err: any) {
-      toast.error(err.message ?? "Purchase failed")
-    } finally {
-      setBuyingSessions(false)
-    }
-  }
-
   const handleSaveDisplayName = async () => {
     // An empty/whitespace-only input means "clear the override" (see the
     // matching special-case in the API route) — only non-empty input goes
@@ -243,9 +208,8 @@ export default function UssdShopPage() {
     setTimeout(() => setWaLinkCopied(false), 2000)
   }
 
-  const statusBadge = (status: string, tokenBalance: number) => {
+  const statusBadge = (status: string) => {
     if (status === 'suspended') return <Badge className="bg-amber-500/10 text-amber-600 border-border">Suspended</Badge>
-    if (status === 'active' && tokenBalance === 0) return <Badge className="bg-amber-500/10 text-amber-600 border-border">No Sessions</Badge>
     if (status === 'active') return <Badge className="bg-success/15 text-success border-border">Active</Badge>
     return <Badge className="bg-muted text-muted-foreground border-border">Inactive</Badge>
   }
@@ -301,7 +265,7 @@ export default function UssdShopPage() {
                   <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-white/80">
                     <Hash className="h-3.5 w-3.5" /> Your Shop Code
                   </p>
-                  {statusBadge(shopCode.status, shopCode.token_balance)}
+                  {statusBadge(shopCode.status)}
                 </div>
                 <div className="mt-3 flex items-center gap-3">
                   <div className="flex-1 rounded-xl border border-white/20 bg-white/10 px-6 py-4 text-center">
@@ -317,25 +281,10 @@ export default function UssdShopPage() {
                 </div>
 
                 <div className="mt-4 flex items-center gap-2 border-t border-white/20 pt-3 text-sm text-white/90">
-                  <Coins className="h-4 w-4" />
-                  <span>
-                    <strong>{shopCode.token_balance}</strong> session{shopCode.token_balance !== 1 ? 's' : ''} remaining
-                  </span>
-                  {shopCode.token_balance <= 5 && shopCode.token_balance > 0 && (
-                    <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-bold">Low</span>
-                  )}
-                  {shopCode.token_balance === 0 && (
-                    <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-bold">Depleted</span>
-                  )}
+                  <CheckCircle className="h-4 w-4" />
+                  <span>Unlimited customer sessions, free</span>
                 </div>
               </div>
-
-              {shopCode.token_balance === 0 && shopCode.activation_fee_paid && (
-                <div className="flex items-start gap-2 rounded-2xl border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive">
-                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                  <span>Your session tokens are depleted. Top up below so customers can access your shop.</span>
-                </div>
-              )}
 
               {!shopCode.activation_fee_paid && (
                 <div className="space-y-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
@@ -363,56 +312,6 @@ export default function UssdShopPage() {
                     <p className="text-xs text-destructive">Insufficient wallet balance. Top up your wallet first.</p>
                   )}
                 </div>
-              )}
-
-              {/* Buy Sessions */}
-              {shopCode.activation_fee_paid && (
-                <Card className="border-[#1b388b]/20 bg-[#1b388b]/5">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base text-[#1b388b] flex items-center gap-2">
-                      <Coins className="w-4 h-4" />
-                      Buy Sessions
-                    </CardTitle>
-                    <CardDescription className="text-[#1b388b]">
-                      Each session = one customer entering your shop code.
-                      {sessionPrice > 0 && ` GHS ${sessionPrice.toFixed(2)} per session.`}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="flex gap-2 items-end">
-                      <div className="flex-1 space-y-1">
-                        <label className="text-xs text-[#1b388b]">
-                          Number of sessions ({minSessions}–{maxSessions})
-                        </label>
-                        <input
-                          type="number"
-                          min={minSessions}
-                          max={maxSessions}
-                          placeholder={`Min ${minSessions}`}
-                          value={sessionQty}
-                          onChange={e => setSessionQty(e.target.value)}
-                          className="w-full rounded-xl border border-white/60 dark:border-white/5 bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1b388b] clay-inset"
-                        />
-                      </div>
-                      {sessionPrice > 0 && sessionQty && parseInt(sessionQty) >= minSessions && (
-                        <div className="text-sm text-[#1b388b] font-bold pb-2 shrink-0">
-                          = GHS {(sessionPrice * (parseInt(sessionQty) || 0)).toFixed(2)}
-                        </div>
-                      )}
-                    </div>
-                    <Button
-                      disabled={buyingSessions || !sessionQty || parseInt(sessionQty) < minSessions || (walletBalance !== null && walletBalance < sessionPrice * (parseInt(sessionQty) || 0))}
-                      onClick={handleBuySessions}
-                      className="w-full bg-[#1b388b] hover:bg-[#1b388b]/90 text-white"
-                    >
-                      {buyingSessions ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wallet className="w-4 h-4" />}
-                      Buy with Wallet
-                    </Button>
-                    {walletBalance !== null && (
-                      <p className="text-xs text-muted-foreground">Wallet balance: GHS {walletBalance.toFixed(2)}</p>
-                    )}
-                  </CardContent>
-                </Card>
               )}
 
               {/* USSD Display Name */}
