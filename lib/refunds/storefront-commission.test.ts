@@ -8,6 +8,7 @@ import { walletGateway } from "./gateways/wallet"
 import { paystackGateway } from "./gateways/paystack"
 import { moolreGateway } from "./gateways/moolre"
 import type { CommissionEvidence, CommissionLedgerFact, CommissionTable, RefundableOrder, RefundGateway } from "./types"
+import { isBeforeStorefrontRefunds, STOREFRONT_REFUNDS_FROM } from "./types"
 
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => ({ rpc: vi.fn() }) }))
 const sendSMS = vi.fn(async () => ({}))
@@ -29,7 +30,7 @@ function fakeDb(rows: Rows, calls: unknown[][] = []) {
   const make = (table: string) => {
     const rec = (m: string) => (...a: unknown[]) => { calls.push([table, m, ...a]); return q }
     const q: any = {
-      select: rec("select"), eq: rec("eq"), in: rec("in"), is: rec("is"), neq: rec("neq"), not: rec("not"),
+      select: rec("select"), eq: rec("eq"), in: rec("in"), is: rec("is"), neq: rec("neq"), not: rec("not"), gte: rec("gte"),
       order: rec("order"), range: rec("range"), limit: rec("limit"), or: rec("or"),
       then: (res: (v: unknown) => unknown) => Promise.resolve({ data: rows[table] ?? [], error: null }).then(res),
     }
@@ -135,11 +136,15 @@ describe("listPendingOrderRefs: storefront commission tables", () => {
     expect(calls).toContainEqual(["airtime_orders", "is", "user_id", null])
     expect(calls).toContainEqual(["airtime_orders", "eq", "payment_status", "completed"])
     expect(calls).toContainEqual(["airtime_orders", "in", "status", ["pending", "failed"]])
+    // storefront airtime from before the launch was refunded out of band: never listed
+    expect(STOREFRONT_REFUNDS_FROM).toBe("2026-10-14T00:00:00Z")
+    expect(calls).toContainEqual(["airtime_orders", "gte", "created_at", STOREFRONT_REFUNDS_FROM])
     calls.length = 0
     await listPendingOrderRefs(db, { pageSize: 10, page: 1, table: "hubtel_bill_orders", shopId: "shopA" })
     expect(calls).toContainEqual(["hubtel_bill_orders", "eq", "channel", "storefront"])
     expect(calls).toContainEqual(["hubtel_bill_orders", "eq", "payment_status", "paid"])
     expect(calls).toContainEqual(["hubtel_bill_orders", "eq", "shop_id", "shopA"])
+    expect(calls.some((c) => c[1] === "gte")).toBe(false) // the cutoff is airtime-only
   })
   it("refundable statuses mirror the RPC", () => expect(refundableStatuses("hubtel_data_orders")).toEqual(["pending", "failed"]))
 })
@@ -219,6 +224,17 @@ describe("storefront commission eligibility", () => {
       expect(elig("airtime_orders", air({ paymentStatus: "pending_payment" })).eligible).toBe(false)
       expect(elig("airtime_orders", air({ updatedAt: ago(30_000) })).eligible).toBe(false)
       expect(elig("airtime_orders", air({ status: "failed", updatedAt: ago(1_000) })).eligible).toBe(true)
+    })
+    it("orders created before STOREFRONT_REFUNDS_FROM are not refundable here; at/after the cutoff they are", () => {
+      expect(elig("airtime_orders", air({ status: "failed", createdAt: "2026-10-13T23:59:59Z" }))).toMatchObject({ eligible: false, code: "BEFORE_LAUNCH" })
+      expect(elig("airtime_orders", air({ status: "failed", createdAt: "2026-07-01T10:00:00Z" })).eligible).toBe(false)
+      expect(elig("airtime_orders", air({ status: "failed", createdAt: STOREFRONT_REFUNDS_FROM })).eligible).toBe(true)
+      expect(elig("airtime_orders", air({ status: "failed", createdAt: "2026-10-14T10:00:00Z" })).eligible).toBe(true)
+      // unparseable creation time fails closed
+      expect(elig("airtime_orders", air({ status: "failed", createdAt: "" })).eligible).toBe(false)
+      expect(isBeforeStorefrontRefunds(null)).toBe(true)
+      // bills/bundles are new tables: no cutoff
+      expect(elig("hubtel_bill_orders", ev({ createdAt: "2026-07-01T10:00:00Z", hubtelClientReference: "HCS-1", ledger: [led()] })).eligible).toBe(true)
     })
   })
 })

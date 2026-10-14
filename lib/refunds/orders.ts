@@ -5,7 +5,7 @@ import { BULK_PROOF_WINDOW_MS, proveBulkBatchPayment } from "./bulk-batch-proof"
 import { BILLERS, isBillerKey } from "@/lib/bills/billers"
 import { normalizeGhanaPhone } from "@/lib/phone-format"
 import {
-  isCommissionTable, isWalletOnlyTable, type CommissionLedgerFact, type CommissionTable, type DispatchOutcome,
+  isCommissionTable, isWalletOnlyTable, STOREFRONT_REFUNDS_FROM, type CommissionLedgerFact, type CommissionTable, type DispatchOutcome,
   type OrderTable, type OwnerCut, type PaymentSource, type RefundableOrder,
 } from "./types"
 
@@ -266,6 +266,7 @@ async function enrichCommission(db: SupabaseClient, table: CommissionTable, rows
           hubtelClientReference: (r.hubtel_client_reference as string | null | undefined) ?? null,
           notes: (r.notes as string | null | undefined) ?? null,
           updatedAt: String(r.updated_at ?? r.created_at ?? ""),
+          createdAt: String(r.created_at ?? ""),
           ledger,
         },
       },
@@ -500,6 +501,7 @@ function commissionPendingQuery(db: SupabaseClient, table: CommissionTable): any
   if (table === "airtime_orders") {
     return q.not("shop_id", "is", null).is("user_id", null).is("channel", null).is("dialing_phone", null)
       .eq("payment_status", "completed").in("status", ["pending", "failed"])
+      .gte("created_at", STOREFRONT_REFUNDS_FROM) // older storefront airtime was refunded out of band
   }
   return q.eq("channel", "storefront").eq("payment_status", "paid")
     .or("status.in.(failed,pending),and(status.eq.processing,notes.ilike.Dispatching%,hubtel_client_reference.is.null)")

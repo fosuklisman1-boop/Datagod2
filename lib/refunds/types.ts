@@ -23,6 +23,19 @@ export interface CommissionLedgerFact {
 }
 
 /** Raw order facts for a commission order (status/payment_status exactly as stored). */
+/**
+ * Storefront airtime is refundable on /admin/refunds only for orders created at/after the cashback-storefront launch.
+ * Older paid failed/pending storefront airtime was handled out of band (nothing on the row records it), so listing it
+ * here could pay a customer twice.
+ */
+export const STOREFRONT_REFUNDS_FROM = "2026-10-14T00:00:00Z"
+
+export const isBeforeStorefrontRefunds = (createdAt: string | null | undefined): boolean => {
+  const t = Date.parse(String(createdAt ?? ""))
+  // Unknown creation time: fail closed.
+  return !Number.isFinite(t) || t < Date.parse(STOREFRONT_REFUNDS_FROM)
+}
+
 export interface CommissionEvidence {
   /** false => not a storefront row (wallet-paid or a USSD/WhatsApp order): never refundable here. */
   storefront: boolean
@@ -32,6 +45,8 @@ export interface CommissionEvidence {
   hubtelClientReference: string | null
   notes: string | null
   updatedAt: string
+  /** Order creation time (airtime: the STOREFRONT_REFUNDS_FROM cutoff). Absent = not checked (bills/bundles). */
+  createdAt?: string
   ledger: CommissionLedgerFact[]
 }
 

@@ -1,5 +1,5 @@
 import { refundDecision, UNSENT_GRACE_MS } from "@/lib/bills/admin"
-import { isCommissionTable, type CommissionEvidence, type CommissionTable, type DispatchOutcome, type OrderTable, type RefundableOrder } from "./types"
+import { isBeforeStorefrontRefunds, isCommissionTable, STOREFRONT_REFUNDS_FROM, type CommissionEvidence, type CommissionTable, type DispatchOutcome, type OrderTable, type RefundableOrder } from "./types"
 
 export interface EligibilityInput {
   /** Omitted = one of the original tables (pending only). */
@@ -18,7 +18,7 @@ export interface EligibilityInput {
 
 export type EligibilityCode =
   | "NOT_PENDING" | "ALREADY_REFUNDED" | "DISPATCH_IN_PROGRESS" | "DISPATCH_UNKNOWN"
-  | "PROVIDER_IN_PROGRESS" | "SENT_TO_PROVIDER" | "NOT_STOREFRONT" | "HUBTEL_BLOCKED"
+  | "PROVIDER_IN_PROGRESS" | "SENT_TO_PROVIDER" | "NOT_STOREFRONT" | "HUBTEL_BLOCKED" | "BEFORE_LAUNCH"
 
 /**
  * releaseStuck: a stuck Hubtel dispatch claim (processing, never reached Hubtel, >= 5 min) must be released first.
@@ -47,6 +47,10 @@ const HCS_REF = /hcsRef:([A-Za-z0-9_-]+)/
  * fulfilment), so the bills decision (which wants `failed`) does not fit; the same ledger rules apply.
  */
 function airtimeEligibility(c: CommissionEvidence, now: number): Eligibility {
+  // The loader always sets createdAt (an unparseable value fails closed); undefined = evidence built without it.
+  if (c.createdAt !== undefined && isBeforeStorefrontRefunds(c.createdAt)) {
+    return no("BEFORE_LAUNCH", `Placed before ${STOREFRONT_REFUNDS_FROM.slice(0, 10)}: storefront airtime from before then is refunded outside Datagod, as before`)
+  }
   if (c.paymentStatus !== "completed") return no("NOT_PENDING", "This order was never paid")
   if (c.status === "completed") return no("SENT_TO_PROVIDER", "Delivered orders cannot be refunded")
   if (c.ledger.some((l) => l.state === "fulfilled")) return no("SENT_TO_PROVIDER", "Hubtel delivered this airtime; it cannot be refunded")
